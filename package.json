@@ -1,0 +1,11 @@
+{
+    "name": "logitrack-platform",
+    "private": true,
+    "workspaces": [
+        "logitrack-web"
+    ],
+    "scripts": {
+        "web": "npm run dev -w logitrack-web",
+        "web:install": "npm install -w logitrack-web"
+    }
+}

@@ -40,7 +40,7 @@ class _LoginPageState extends State<LoginPage> {
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(const SnackBar(content: Text('Login Successful')));
-          // TODO: Navigate to Home Page
+          Navigator.pushReplacementNamed(context, '/home');
         }
       } catch (e) {
         if (mounted) {
