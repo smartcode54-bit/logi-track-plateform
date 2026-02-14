@@ -31,14 +31,14 @@ export function PhotosSection({ onFileSelect }: PhotosSectionProps) {
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                         <Camera className="h-5 w-5 text-primary" />
-                        Truck Photos (Required)
+                        {t("trucks.section.photos")}
                     </CardTitle>
                 </CardHeader>
                 <CardContent>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2">
                             <TruckFileUploader
-                                label="Front-Right View *"
+                                label={t("trucks.photos.frontRight") + " *"}
                                 folder="photos/front-right"
                                 currentUrls={watch("imageFrontRight") ? [watch("imageFrontRight") as string] : []}
                                 onUploadComplete={handleUpload("imageFrontRight")}
@@ -49,7 +49,7 @@ export function PhotosSection({ onFileSelect }: PhotosSectionProps) {
                         </div>
                         <div className="space-y-2">
                             <TruckFileUploader
-                                label="Front-Left View *"
+                                label={t("trucks.photos.frontLeft") + " *"}
                                 folder="photos/front-left"
                                 currentUrls={watch("imageFrontLeft") ? [watch("imageFrontLeft") as string] : []}
                                 onUploadComplete={handleUpload("imageFrontLeft")}
@@ -60,7 +60,7 @@ export function PhotosSection({ onFileSelect }: PhotosSectionProps) {
                         </div>
                         <div className="space-y-2">
                             <TruckFileUploader
-                                label="Back-Right View *"
+                                label={t("trucks.photos.backRight") + " *"}
                                 folder="photos/back-right"
                                 currentUrls={watch("imageBackRight") ? [watch("imageBackRight") as string] : []}
                                 onUploadComplete={handleUpload("imageBackRight")}
@@ -71,7 +71,7 @@ export function PhotosSection({ onFileSelect }: PhotosSectionProps) {
                         </div>
                         <div className="space-y-2">
                             <TruckFileUploader
-                                label="Back-Left View *"
+                                label={t("trucks.photos.backLeft") + " *"}
                                 folder="photos/back-left"
                                 currentUrls={watch("imageBackLeft") ? [watch("imageBackLeft") as string] : []}
                                 onUploadComplete={handleUpload("imageBackLeft")}
@@ -89,14 +89,14 @@ export function PhotosSection({ onFileSelect }: PhotosSectionProps) {
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                         <FileText className="h-5 w-5 text-primary" />
-                        Truck Documents (Required)
+                        {t("trucks.section.documents")}
                     </CardTitle>
                 </CardHeader>
                 <CardContent>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2">
                             <TruckFileUploader
-                                label="Tax Document *"
+                                label={t("trucks.documents.tax") + " *"}
                                 folder="documents/tax"
                                 currentUrls={watch("documentTax") ? [watch("documentTax") as string] : []}
                                 onUploadComplete={handleUpload("documentTax")}
@@ -107,7 +107,7 @@ export function PhotosSection({ onFileSelect }: PhotosSectionProps) {
                         </div>
                         <div className="space-y-2">
                             <TruckFileUploader
-                                label="Truck Register Document *"
+                                label={t("trucks.documents.register") + " *"}
                                 folder="documents/register"
                                 currentUrls={watch("documentRegister") ? [watch("documentRegister") as string] : []}
                                 onUploadComplete={handleUpload("documentRegister")}

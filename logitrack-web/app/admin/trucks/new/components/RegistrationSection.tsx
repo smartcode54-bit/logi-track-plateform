@@ -23,7 +23,7 @@ export function RegistrationSection() {
             <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                     <FileText className="h-5 w-5 text-primary" />
-                    {t("Registration")}
+                    {t("trucks.section.registration")}
                 </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -34,7 +34,7 @@ export function RegistrationSection() {
                         name="taxExpiryDate"
                         render={({ field }) => (
                             <FormItem className="flex flex-col">
-                                <FormLabel>{t("Tax (Act) Expiry Date")}</FormLabel>
+                                <FormLabel>{t("trucks.section.taxExpiry")}</FormLabel>
                                 <DatePicker
                                     value={field.value ? new Date(field.value) : undefined}
                                     onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
@@ -50,7 +50,7 @@ export function RegistrationSection() {
                         name="registrationDate"
                         render={({ field }) => (
                             <FormItem className="flex flex-col">
-                                <FormLabel>{t("registration Date")}</FormLabel>
+                                <FormLabel>{t("trucks.section.regDate")}</FormLabel>
                                 <DatePicker
                                     value={field.value ? new Date(field.value) : undefined}
                                     onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
@@ -66,7 +66,7 @@ export function RegistrationSection() {
                         name="buyingDate"
                         render={({ field }) => (
                             <FormItem className="flex flex-col">
-                                <FormLabel>{t("buying Date")}</FormLabel>
+                                <FormLabel>{t("trucks.section.buyingDate")}</FormLabel>
                                 <DatePicker
                                     value={field.value ? new Date(field.value) : undefined}
                                     onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
@@ -85,9 +85,9 @@ export function RegistrationSection() {
                         name="taxResponsible"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>{t("Responsible Person (Tax)")}</FormLabel>
+                                <FormLabel>{t("trucks.section.responsible")}</FormLabel>
                                 <FormControl>
-                                    <Input placeholder="e.g. Admin Name" {...field} value={field.value ?? ""} />
+                                    <Input placeholder={t("trucks.placeholder.adminName")} {...field} value={field.value ?? ""} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -100,10 +100,10 @@ export function RegistrationSection() {
                     name="notes"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel>{t("notes")}</FormLabel>
+                            <FormLabel>{t("trucks.section.notes")}</FormLabel>
                             <FormControl>
                                 <Textarea
-                                    placeholder="Additional notes about this truck..."
+                                    placeholder={t("trucks.placeholder.notes")}
                                     rows={4}
                                     {...field}
                                 />

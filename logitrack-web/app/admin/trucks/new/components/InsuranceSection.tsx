@@ -27,6 +27,8 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { storage } from "@/firebase/client";
 import Link from "next/link";
 
+import { useLanguage } from "@/context/language";
+
 interface InsuranceSectionProps {
     onFileSelect?: (file: File, blobUrl: string) => void;
 }
@@ -34,6 +36,7 @@ interface InsuranceSectionProps {
 export function InsuranceSection({ onFileSelect }: InsuranceSectionProps) {
     const { control, watch, setValue } = useFormContext();
     const [isUploading, setIsUploading] = useState(false);
+    const { t } = useLanguage();
 
     // Watch documents
     const insuranceDocuments = watch("insuranceDocuments") || [];
@@ -101,7 +104,7 @@ export function InsuranceSection({ onFileSelect }: InsuranceSectionProps) {
             <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                     <ShieldCheck className="h-5 w-5 text-primary" />
-                    Insurance Information
+                    {t("trucks.section.insuranceInfo")}
                 </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -112,9 +115,9 @@ export function InsuranceSection({ onFileSelect }: InsuranceSectionProps) {
                         name="insurancePolicyId"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>Policy ID (Internal)</FormLabel>
+                                <FormLabel>{t("trucks.section.policyId")}</FormLabel>
                                 <FormControl>
-                                    <Input placeholder="e.g., INS001" {...field} />
+                                    <Input placeholder={t("trucks.placeholder.policyNumber")} {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -125,9 +128,9 @@ export function InsuranceSection({ onFileSelect }: InsuranceSectionProps) {
                         name="insurancePolicyNumber"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>Policy Number</FormLabel>
+                                <FormLabel>{t("trucks.section.policyNo")}</FormLabel>
                                 <FormControl>
-                                    <Input placeholder="e.g., VR123456789" {...field} />
+                                    <Input placeholder={t("trucks.placeholder.vin")} {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -135,15 +138,15 @@ export function InsuranceSection({ onFileSelect }: InsuranceSectionProps) {
                     />
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <FormField
                         control={control}
                         name="insuranceCompany"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>Provider</FormLabel>
+                                <FormLabel>{t("trucks.section.provider")}</FormLabel>
                                 <FormControl>
-                                    <Input placeholder="e.g., Viriyah Insurance" {...field} />
+                                    <Input placeholder={t("trucks.placeholder.insurer")} {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -154,11 +157,11 @@ export function InsuranceSection({ onFileSelect }: InsuranceSectionProps) {
                         name="insuranceType"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>Coverage Type</FormLabel>
+                                <FormLabel>{t("trucks.section.coverageType")}</FormLabel>
                                 <Select onValueChange={field.onChange} value={field.value || ""}>
                                     <FormControl>
                                         <SelectTrigger>
-                                            <SelectValue placeholder="Select type" />
+                                            <SelectValue placeholder={t("trucks.section.selectType")} />
                                         </SelectTrigger>
                                     </FormControl>
                                     <SelectContent>
@@ -178,11 +181,11 @@ export function InsuranceSection({ onFileSelect }: InsuranceSectionProps) {
                         name="insurancePremium"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>Premium (Baht)</FormLabel>
+                                <FormLabel>{t("trucks.section.premium")}</FormLabel>
                                 <FormControl>
                                     <Input
                                         type="number"
-                                        placeholder="e.g., 14500"
+                                        placeholder={t("trucks.placeholder.premium")}
                                         {...field}
                                         onChange={(e) => {
                                             const val = e.target.value === "" ? undefined : Number(e.target.value);
@@ -203,7 +206,7 @@ export function InsuranceSection({ onFileSelect }: InsuranceSectionProps) {
                         name="insuranceStartDate"
                         render={({ field }) => (
                             <FormItem className="flex flex-col">
-                                <FormLabel>Start Date</FormLabel>
+                                <FormLabel>{t("trucks.section.startDate")}</FormLabel>
                                 <DatePicker
                                     value={field.value ? new Date(field.value) : undefined}
                                     onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
@@ -219,7 +222,7 @@ export function InsuranceSection({ onFileSelect }: InsuranceSectionProps) {
                         name="insuranceExpiryDate"
                         render={({ field }) => (
                             <FormItem className="flex flex-col">
-                                <FormLabel>End Date</FormLabel>
+                                <FormLabel>{t("trucks.section.endDate")}</FormLabel>
                                 <DatePicker
                                     value={field.value ? new Date(field.value) : undefined}
                                     onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
@@ -237,9 +240,9 @@ export function InsuranceSection({ onFileSelect }: InsuranceSectionProps) {
                     name="insuranceNotes"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel>Notes</FormLabel>
+                            <FormLabel>{t("trucks.section.notes")}</FormLabel>
                             <FormControl>
-                                <Textarea placeholder="e.g., Repairs at authorized garages only" {...field} />
+                                <Textarea placeholder={t("trucks.placeholder.coverage")} {...field} />
                             </FormControl>
                             <FormMessage />
                         </FormItem>
@@ -248,7 +251,7 @@ export function InsuranceSection({ onFileSelect }: InsuranceSectionProps) {
 
                 {/* Documents Upload */}
                 <div className="space-y-4">
-                    <FormLabel>Insurance Documents</FormLabel>
+                    <FormLabel>{t("trucks.section.insuranceDocs")}</FormLabel>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         {insuranceDocuments.map((docUrl: string, index: number) => (
                             <div key={index} className="relative aspect-[3/4] rounded-md overflow-hidden border bg-muted flex flex-col items-center justify-center p-2 group">
@@ -286,7 +289,7 @@ export function InsuranceSection({ onFileSelect }: InsuranceSectionProps) {
                             ) : (
                                 <>
                                     <Upload className="h-6 w-6 text-muted-foreground mb-2" />
-                                    <span className="text-xs font-medium text-muted-foreground">Upload PDF/Img</span>
+                                    <span className="text-xs font-medium text-muted-foreground">{t("trucks.section.upload")}</span>
                                 </>
                             )}
                         </div>

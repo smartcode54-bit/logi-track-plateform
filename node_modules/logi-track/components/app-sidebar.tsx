@@ -123,8 +123,6 @@ export function AppSidebar() {
         <Sidebar
             collapsible="icon"
             className="border-r-0"
-            onMouseEnter={() => setOpen(true)}
-            onMouseLeave={() => setOpen(false)}
         >
             <SidebarHeader>
                 <SidebarMenu>

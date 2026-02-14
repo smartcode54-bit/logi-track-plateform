@@ -27,21 +27,21 @@ export function EngineInformationSection() {
             <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                     <Zap className="h-5 w-5 text-primary" />
-                    {t("Engine Information")}
+                    {t("trucks.section.engineInfo")}
                 </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <FormField
                         control={control}
                         name="fuelType"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>{t("fuelType")} *</FormLabel>
+                                <FormLabel>{t("trucks.section.fuelType")} *</FormLabel>
                                 <Select onValueChange={field.onChange} defaultValue={field.value}>
                                     <FormControl>
                                         <SelectTrigger>
-                                            <SelectValue placeholder="Select fuel type" />
+                                            <SelectValue placeholder={t("trucks.section.selectFuel")} />
                                         </SelectTrigger>
                                     </FormControl>
                                     <SelectContent>
@@ -61,13 +61,13 @@ export function EngineInformationSection() {
                         name="engineCapacity"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>{t("Engine Capacity(cc/kW)")}</FormLabel>
+                                <FormLabel>{t("trucks.section.engineCap")}</FormLabel>
                                 <FormControl>
                                     <Input
                                         type="number"
                                         min="0"
                                         step="1"
-                                        placeholder="e.g., 3000"
+                                        placeholder={t("trucks.placeholder.cc")}
                                         value={field.value ?? ""}
                                         onChange={(e) => {
                                             const value = e.target.value;
@@ -88,13 +88,13 @@ export function EngineInformationSection() {
                         name="fuelCapacity"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>{t("Fuel Capacity(Liters/kWh)")}</FormLabel>
+                                <FormLabel>{t("trucks.section.fuelCap")}</FormLabel>
                                 <FormControl>
                                     <Input
                                         type="number"
                                         min="0"
                                         step="1"
-                                        placeholder="e.g., 200"
+                                        placeholder={t("trucks.placeholder.fuelCapacity")}
                                         value={field.value ?? ""}
                                         onChange={(e) => {
                                             const value = e.target.value;
@@ -115,13 +115,13 @@ export function EngineInformationSection() {
                         name="maxLoadWeight"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>{t("Max Load Weight")}</FormLabel>
+                                <FormLabel>{t("trucks.section.maxLoad")}</FormLabel>
                                 <FormControl>
                                     <Input
                                         type="number"
                                         min="0"
                                         step="1"
-                                        placeholder="e.g., 5000"
+                                        placeholder={t("trucks.placeholder.weight")}
                                         value={field.value ?? ""}
                                         onChange={(e) => {
                                             const value = e.target.value;

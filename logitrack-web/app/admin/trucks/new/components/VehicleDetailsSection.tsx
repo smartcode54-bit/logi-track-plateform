@@ -30,19 +30,19 @@ export function VehicleDetailsSection() {
             <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                     <Truck className="h-5 w-5 text-primary" />
-                    {t("Details")}
+                    {t("trucks.section.details")}
                 </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <FormField
                         control={control}
                         name="brand"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>{t("brand")} *</FormLabel>
+                                <FormLabel>{t("trucks.section.brand")} *</FormLabel>
                                 <FormControl>
-                                    <Input placeholder="e.g., Isuzu" {...field} />
+                                    <Input placeholder={t("trucks.placeholder.brand")} {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -53,9 +53,9 @@ export function VehicleDetailsSection() {
                         name="model"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>{t("model")} *</FormLabel>
+                                <FormLabel>{t("trucks.section.model")} *</FormLabel>
                                 <FormControl>
-                                    <Input placeholder="e.g., ELF" {...field} />
+                                    <Input placeholder={t("trucks.placeholder.model")} {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -66,11 +66,11 @@ export function VehicleDetailsSection() {
                         name="year"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>{t("year")}</FormLabel>
+                                <FormLabel>{t("trucks.section.year")}</FormLabel>
                                 <Select onValueChange={field.onChange} defaultValue={field.value}>
                                     <FormControl>
                                         <SelectTrigger>
-                                            <SelectValue placeholder="Select year" />
+                                            <SelectValue placeholder={t("trucks.placeholder.selectYear")} />
                                         </SelectTrigger>
                                     </FormControl>
                                     <SelectContent>
@@ -90,9 +90,9 @@ export function VehicleDetailsSection() {
                         name="color"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>{t("color")}</FormLabel>
+                                <FormLabel>{t("trucks.section.color")}</FormLabel>
                                 <FormControl>
-                                    <Input placeholder="e.g., White" {...field} />
+                                    <Input placeholder={t("trucks.placeholder.color")} {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -103,11 +103,11 @@ export function VehicleDetailsSection() {
                         name="type"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>{t("truckType")} *</FormLabel>
+                                <FormLabel>{t("trucks.section.truckType")} *</FormLabel>
                                 <Select onValueChange={field.onChange} defaultValue={field.value}>
                                     <FormControl>
                                         <SelectTrigger>
-                                            <SelectValue placeholder="Select truck type" />
+                                            <SelectValue placeholder={t("trucks.placeholder.selectType")} />
                                         </SelectTrigger>
                                     </FormControl>
                                     <SelectContent>
@@ -128,14 +128,14 @@ export function VehicleDetailsSection() {
                         name="seats"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>{t("seats")}</FormLabel>
+                                <FormLabel>{t("trucks.section.seats")}</FormLabel>
                                 <FormControl>
                                     <Input
                                         type="number"
                                         min="0"
                                         max="10"
                                         step="1"
-                                        placeholder="e.g., 3"
+                                        placeholder={t("trucks.placeholder.seats")}
                                         value={field.value ?? ""}
                                         onChange={(e) => {
                                             const value = e.target.value;

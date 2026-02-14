@@ -21,10 +21,10 @@ import { Step3Maintenance } from "./components/TruckSteps/Step3Maintenance";
 import { Step4Documentation } from "./components/TruckSteps/Step4Documentation";
 
 const STEPS = [
-    { id: 1, title: "Vehicle Specs", description: "Make, Model, VIN" },
-    { id: 2, title: "Compliance", description: "Registration & Insurance" },
-    { id: 3, title: "Maintenance", description: "Engine & Status" },
-    { id: 4, title: "Documentation", description: "Review & Save" },
+    { id: 1, titleKey: "trucks.wizard.step1.title", descKey: "trucks.wizard.step1.desc" },
+    { id: 2, titleKey: "trucks.wizard.step2.title", descKey: "trucks.wizard.step2.desc" },
+    { id: 3, titleKey: "trucks.wizard.step3.title", descKey: "trucks.wizard.step3.desc" },
+    { id: 4, titleKey: "trucks.wizard.step4.title", descKey: "trucks.wizard.step4.desc" },
 ];
 
 export default function CreateTruckPage() {
@@ -156,8 +156,12 @@ export default function CreateTruckPage() {
                         </Link>
                     </Button>
                     <div>
-                        <h1 className="text-2xl font-bold">Truck Details Form</h1>
-                        <p className="text-muted-foreground text-sm">Step {currentStep} of {STEPS.length}: Please enter the vehicle information below.</p>
+                        <h1 className="text-2xl font-bold">{t("trucks.wizard.title")}</h1>
+                        <p className="text-muted-foreground text-sm">
+                            {t("trucks.wizard.subtitle")
+                                .replace("{step}", currentStep.toString())
+                                .replace("{total}", STEPS.length.toString())}
+                        </p>
                     </div>
                 </div>
 
@@ -182,8 +186,8 @@ export default function CreateTruckPage() {
                                             <div className="absolute left-4 top-8 bottom-[-24px] w-[2px] bg-border" />
                                         )}
                                         <div className="pt-1">
-                                            <p className={`text-sm font-medium ${isActive ? "text-primary" : ""}`}>{step.title}</p>
-                                            <p className="text-xs text-muted-foreground">{step.description}</p>
+                                            <p className={`text-sm font-medium ${isActive ? "text-primary" : ""}`}>{t(step.titleKey)}</p>
+                                            <p className="text-xs text-muted-foreground">{t(step.descKey)}</p>
                                         </div>
                                     </div>
                                 );
@@ -196,10 +200,10 @@ export default function CreateTruckPage() {
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
                                     <path fillRule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm8.706-1.442c1.146-.573 2.437.463 2.126 1.706l-.709 2.836.042-.02a.75.75 0 01.67 1.34l-.04.022c-1.147.573-2.438-.463-2.127-1.706l.71-2.836-.042.02a.75.75 0 11-.671-1.34l.041-.022zM12 9a.75.75 0 100-1.5.75.75 0 000 1.5z" clipRule="evenodd" />
                                 </svg>
-                                <span className="text-xs font-bold uppercase tracking-wider">Tips</span>
+                                <span className="text-xs font-bold uppercase tracking-wider">{t("trucks.wizard.tips")}</span>
                             </div>
                             <p className="text-xs text-muted-foreground leading-relaxed">
-                                Ensure the VIN matches the chassis engraving exactly for registration compliance.
+                                {t("trucks.wizard.tips.vin")}
                             </p>
                         </div>
                     </div>
@@ -222,7 +226,7 @@ export default function CreateTruckPage() {
                                 variant="outline"
                                 onClick={currentStep === 1 ? () => router.push('/admin/trucks') : prevStep}
                             >
-                                {currentStep === 1 ? "Cancel" : "Back"}
+                                {currentStep === 1 ? t("trucks.wizard.cancel") : t("trucks.wizard.back")}
                             </Button>
 
                             <Button
@@ -231,7 +235,7 @@ export default function CreateTruckPage() {
                                 onClick={currentStep === 4 ? handleSubmit(onSubmit as any) : nextStep}
                                 disabled={isSubmitting}
                             >
-                                {isSubmitting ? "Saving..." : currentStep === 4 ? "Save and Continue" : "Next Step"}
+                                {isSubmitting ? t("trucks.wizard.saving") : currentStep === 4 ? t("trucks.wizard.save") : t("trucks.wizard.next")}
                                 {currentStep !== 4 && <ArrowLeft className="ml-2 h-4 w-4 rotate-180" />}
                             </Button>
                         </div>
