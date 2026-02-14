@@ -1,10 +1,6 @@
 #!/bin/sh
 
-# Check if .vibe-rules.md was modified in this commit
-if git diff --cached --name-only | grep -q "shared-docs/.vibe-rules.md"; then
-  echo "✅ shared-docs/.vibe-rules.md is updated. Proceeding with commit..."
-  exit 0
-fi
+
 
 # Get the date, time, and changed files
 TODAY=$(date +%Y-%m-%d)
