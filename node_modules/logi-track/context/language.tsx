@@ -357,7 +357,7 @@ const translations = {
         "trucks.stats.pmDueSoon": "PM ใกล้กำหนด",
         "trucks.stats.pmOverdue": "PM เกินกำหนด",
         "trucks.stats.owner": "ผู้รับผิดชอบ",
-        "trucks.stats.opAdmin": "ผู้ดูแลปฏิบัติการ",
+        "trucks.stats.opAdmin": "ฝ่ายปฏิบัติการ",
         "trucks.stats.assignedDriver": "คนขับที่ได้รับมอบหมาย",
         "trucks.filter.search": "ค้นหาด้วยทะเบียน, ID หรือรุ่น...",
         "trucks.filter.allTypes": "ทุกประเภท",

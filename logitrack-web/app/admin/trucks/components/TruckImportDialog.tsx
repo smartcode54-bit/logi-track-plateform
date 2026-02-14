@@ -29,6 +29,7 @@ import { collection, writeBatch, doc } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { toast } from "sonner";
+import { format } from "date-fns";
 
 interface ImportedTruck {
     licensePlate: string;
@@ -38,6 +39,13 @@ interface ImportedTruck {
     model: string;
     truckStatus: string;
     ownershipType: string;
+    color: string;
+    year: string;
+    vin: string;
+    engineNumber: string;
+    fuelType: string;
+    registrationDate: string; // ISO String
+    maxLoadWeight: number;
     isValid: boolean;
     errors: string[];
 }
@@ -84,19 +92,70 @@ export function TruckImportDialog() {
             if (!row['License Plate']) errors.push("Missing License Plate");
             if (!row['Province']) errors.push("Missing Province");
             if (!row['Type']) errors.push("Missing Type");
+            // Brand/Model are highly recommended but maybe not strictly required by Schema? 
+            // Schema has defaults, but utility wise they should be required for a good database.
+            if (!row['Brand']) errors.push("Missing Brand");
+            if (!row['Model']) errors.push("Missing Model");
 
-            // Default values and normalization
+            // Helpers
+            const normalizeType = (val: any): string => {
+                const type = val?.toString().toUpperCase() || "";
+
+                // Map short codes to full names
+                const mapping: Record<string, string> = {
+                    "4W": "4-wheel",
+                    "4WJ": "4-wheel-jumbo",
+                    "6W": "6-wheel",
+                    "10W": "10-wheel",
+                    "12W": "12-wheel",
+                    "TRAILER": "trailer",
+                    "HEAD": "head"
+                };
+
+                return mapping[type] || type.toLowerCase();
+            };
+
+            const parseDate = (val: any): string => {
+                if (!val) return "";
+                // Handle Excel serial date
+                if (typeof val === 'number') {
+                    const date = new Date(Math.round((val - 25569) * 86400 * 1000));
+                    return date.toISOString();
+                }
+                // Handle string date (try basic parsing)
+                try {
+                    const date = new Date(val);
+                    if (!isNaN(date.getTime())) return date.toISOString();
+                } catch (e) { }
+                return "";
+            };
+
+            const ownership = row['Ownership']?.toString().toLowerCase();
+            const validOwnership = ownership === 'company' || ownership === 'subcontractor' ? (ownership === 'company' ? 'own' : 'subcontractor') : 'own'; // Default to own? Or error? Let's default own for ease.
+
+            const status = row['Status']?.toString().toLowerCase();
+            const validStatus = ['active', 'maintenance', 'inactive', 'in-transit'].includes(status) ? status : 'active';
+
             const truck: ImportedTruck = {
-                licensePlate: row['License Plate'] || "",
-                province: row['Province'] || "",
-                type: row['Type']?.toLowerCase() || "4-wheel", // Normalize 
-                brand: row['Brand'] || "",
-                model: row['Model'] || "",
-                truckStatus: row['Status']?.toLowerCase() || "active",
-                ownershipType: row['Ownership']?.toLowerCase() === 'company' ? 'own' : 'subcontractor',
+                licensePlate: row['License Plate']?.toString() || "",
+                province: row['Province']?.toString() || "",
+                type: normalizeType(row['Type']),
+                brand: row['Brand']?.toString() || "",
+                model: row['Model']?.toString() || "",
+                truckStatus: validStatus,
+                ownershipType: validOwnership,
+                color: row['Color']?.toString() || "",
+                year: row['Year']?.toString() || "",
+                vin: row['VIN']?.toString() || "",
+                engineNumber: row['Engine Number']?.toString() || "",
+                fuelType: row['Fuel Type']?.toString() || "",
+                registrationDate: parseDate(row['Registration Date']),
+                maxLoadWeight: Number(row['Max Load']) || 0,
                 isValid: errors.length === 0,
                 errors: errors
             };
+
+            // Post-validation logic could go here (e.g. check duplicate plates in list)
             return truck;
         });
         setImportedData(validated);
@@ -121,15 +180,22 @@ export function TruckImportDialog() {
                     model: truck.model,
                     truckStatus: truck.truckStatus,
                     ownershipType: truck.ownershipType,
+
+                    color: truck.color,
+                    year: truck.year,
+                    vin: truck.vin,
+                    engineNumber: truck.engineNumber,
+                    fuelType: truck.fuelType,
+                    registrationDate: truck.registrationDate,
+                    maxLoadWeight: truck.maxLoadWeight, // Note: Schema might use string or number, check actions.client.ts. Interface says number.
+
                     createdAt: new Date(),
                     updatedAt: new Date(),
-                    // Default empty fields to avoid undefined issues
-                    vin: "",
-                    engineNumber: "",
-                    year: "",
-                    color: "",
-                    fuelType: "",
-                    currentMileage: 0
+
+                    // Defaults
+                    currentMileage: 0,
+                    images: [],
+                    statusHistory: []
                 });
             });
 
@@ -148,15 +214,18 @@ export function TruckImportDialog() {
 
     const downloadTemplate = () => {
         const headers = [
-            "License Plate",
-            "Province",
-            "Type",
-            "Brand",
-            "Model",
-            "Status",
-            "Ownership"
+            "License Plate", "Province", "Type", "Brand", "Model", "Color", "Year",
+            "VIN", "Engine Number", "Fuel Type", "Ownership", "Status",
+            "Registration Date", "Max Load"
         ];
-        const ws = XLSX.utils.aoa_to_sheet([headers]);
+
+        // Add sample row for guidance
+        const sampleRow = [
+            "70-1234", "กรุงเทพมหานคร", "10W", "Isuzu", "FXZ360", "White", "2023", "VIN123456789", "ENG987654321", "Diesel", "Company", "Active", "2023-01-15", "25000",
+            "ตัวอย่างข้อมูล ลบก่อนนำเข้อมูลเข้าสู่ระบบ"
+        ];
+
+        const ws = XLSX.utils.aoa_to_sheet([headers, sampleRow]);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "Template");
         XLSX.writeFile(wb, "truck_import_template.xlsx");
@@ -170,7 +239,7 @@ export function TruckImportDialog() {
                     {t('trucks.import')}
                 </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[800px]">
+            <DialogContent className="sm:max-w-[900px] max-h-[90vh] flex flex-col">
                 <DialogHeader>
                     <DialogTitle>{t('trucks.import.title')}</DialogTitle>
                     <DialogDescription>
@@ -178,8 +247,8 @@ export function TruckImportDialog() {
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="space-y-4 py-4">
-                    <div className="flex items-center gap-4">
+                <div className="space-y-4 py-4 flex-1 overflow-hidden flex flex-col">
+                    <div className="flex items-center gap-4 shrink-0">
                         <div className="grid w-full max-w-sm items-center gap-1.5">
                             <Label htmlFor="file">{t('trucks.import.selectFile')}</Label>
                             <Input
@@ -197,17 +266,18 @@ export function TruckImportDialog() {
                     </div>
 
                     {importedData.length > 0 && (
-                        <div className="border rounded-md">
-                            <div className="p-2 bg-muted/50 border-b">
+                        <div className="border rounded-md flex-1 overflow-hidden flex flex-col">
+                            <div className="p-2 bg-muted/50 border-b shrink-0">
                                 <h4 className="text-sm font-semibold">{t('trucks.import.preview')} ({importedData.length})</h4>
                             </div>
-                            <ScrollArea className="h-[300px]">
+                            <ScrollArea className="flex-1">
                                 <Table>
                                     <TableHeader>
                                         <TableRow>
-                                            <TableHead className="w-[50px]"></TableHead>
+                                            <TableHead className="w-[40px]"></TableHead>
                                             <TableHead>Plate</TableHead>
-                                            <TableHead>Province</TableHead>
+                                            <TableHead>Brand/Model</TableHead>
+                                            <TableHead className="hidden md:table-cell">Details (VIN/Eng)</TableHead>
                                             <TableHead>Type</TableHead>
                                             <TableHead>Status</TableHead>
                                             <TableHead>Ownership</TableHead>
@@ -233,13 +303,23 @@ export function TruckImportDialog() {
 
                                                     )}
                                                 </TableCell>
-                                                <TableCell>{truck.licensePlate}</TableCell>
-                                                <TableCell>{truck.province}</TableCell>
+                                                <TableCell className="font-medium">
+                                                    {truck.licensePlate}
+                                                    <div className="text-[10px] text-muted-foreground">{truck.province}</div>
+                                                </TableCell>
+                                                <TableCell>
+                                                    {truck.brand} {truck.model}
+                                                    <div className="text-[10px] text-muted-foreground">{truck.color} {truck.year}</div>
+                                                </TableCell>
+                                                <TableCell className="hidden md:table-cell text-xs">
+                                                    <div>VIN: {truck.vin || "-"}</div>
+                                                    <div>Eng: {truck.engineNumber || "-"}</div>
+                                                </TableCell>
                                                 <TableCell>{truck.type}</TableCell>
                                                 <TableCell>
-                                                    <Badge variant="outline">{truck.truckStatus}</Badge>
+                                                    <Badge variant="outline" className="text-[10px]">{truck.truckStatus}</Badge>
                                                 </TableCell>
-                                                <TableCell>{truck.ownershipType}</TableCell>
+                                                <TableCell className="text-xs capitalize">{truck.ownershipType}</TableCell>
                                             </TableRow>
                                         ))}
                                     </TableBody>
@@ -249,7 +329,7 @@ export function TruckImportDialog() {
                     )}
                 </div>
 
-                <DialogFooter>
+                <DialogFooter className="shrink-0">
                     <Button variant="outline" onClick={() => setOpen(false)}>
                         {t('users.form.cancel')}
                     </Button>

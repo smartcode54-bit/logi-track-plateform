@@ -248,7 +248,7 @@ function ComplianceCard({ title, icon, stats, type, activeFilter, onCardClick }:
                             isActive("incoming") ? "bg-muted ring-1 ring-primary" : ""
                         )}
                     >
-                        <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">
+                        <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold min-h-[2.5rem] flex items-center justify-center">
                             {type === 'service' ? t('trucks.stats.pmIncoming') : t('trucks.stats.incoming')}
                         </span>
                         <span className="text-2xl font-bold text-blue-600">{stats.incoming}</span>
@@ -260,7 +260,7 @@ function ComplianceCard({ title, icon, stats, type, activeFilter, onCardClick }:
                             isActive("expiring") ? "bg-muted ring-1 ring-primary" : ""
                         )}
                     >
-                        <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">
+                        <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold min-h-[2.5rem] flex items-center justify-center">
                             {type === 'service' ? t('trucks.stats.pmDueSoon') : t('trucks.stats.less30Days')}
                         </span>
                         <span className="text-2xl font-bold text-orange-600">{stats.expiringSoon}</span>
@@ -272,7 +272,7 @@ function ComplianceCard({ title, icon, stats, type, activeFilter, onCardClick }:
                             isActive("overdue") ? "bg-muted ring-1 ring-primary" : ""
                         )}
                     >
-                        <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">
+                        <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold min-h-[2.5rem] flex items-center justify-center">
                             {type === 'service' ? t('trucks.stats.pmOverdue') : t('trucks.stats.overdue')}
                         </span>
                         <span className="text-2xl font-bold text-red-600">{stats.overdue}</span>
