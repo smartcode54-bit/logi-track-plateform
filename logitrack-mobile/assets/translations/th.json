@@ -1,0 +1,23 @@
+{
+    "login": "เข้าสู่ระบบ",
+    "welcome_back": "ยินดีต้อนรับกลับ",
+    "welcome_subtitle": "กรุณากรอกข้อมูลของคุณเพื่อดำเนินการต่อ",
+    "email_label": "อีเมล",
+    "email_hint": "driver@logi-track.com",
+    "password_label": "รหัสผ่าน",
+    "password_hint": "••••••••",
+    "forgot_password": "ลืมรหัสผ่าน?",
+    "or": "หรือ",
+    "sign_in_google": "เข้าสู่ระบบด้วย Google",
+    "need_help": "ต้องการความช่วยเหลือ?",
+    "contact_dispatch": "ติดต่อฝ่ายจัดส่ง",
+    "version_info": "LOGI-TRACK V2.4.0 (DRIVER EDITION)",
+    "error": "ข้อผิดพลาด",
+    "email_required": "กรุณากรอกอีเมล",
+    "email_invalid": "รูปแบบอีเมลไม่ถูกต้อง",
+    "password_required": "กรุณากรอกรหัสผ่าน",
+    "language_en": "English",
+    "language_th": "ภาษาไทย",
+    "ok": "ตกลง",
+    "login_success": "เข้าสู่ระบบสำเร็จ"
+}

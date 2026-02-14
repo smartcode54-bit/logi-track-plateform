@@ -1,0 +1,23 @@
+{
+    "login": "Login",
+    "welcome_back": "Welcome Back",
+    "welcome_subtitle": "Please enter your details to continue to your route.",
+    "email_label": "EMAIL ADDRESS",
+    "email_hint": "driver@logi-track.com",
+    "password_label": "PASSWORD",
+    "password_hint": "••••••••",
+    "forgot_password": "Forgot password?",
+    "or": "OR",
+    "sign_in_google": "Sign in with Google",
+    "need_help": "Need help?",
+    "contact_dispatch": "Contact Dispatch",
+    "version_info": "LOGI-TRACK V2.4.0 (DRIVER EDITION)",
+    "error": "Error",
+    "email_required": "Please enter your email",
+    "email_invalid": "Please enter a valid email",
+    "password_required": "Please enter your password",
+    "language_en": "English",
+    "language_th": "ภาษาไทย",
+    "ok": "OK",
+    "login_success": "Login Successful"
+}
