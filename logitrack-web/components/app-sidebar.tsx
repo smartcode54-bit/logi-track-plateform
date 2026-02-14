@@ -50,66 +50,66 @@ export function AppSidebar() {
     // Menu items structure based on "Logistics Pro" design
     const items = [
         {
-            title: "Dashboard",
+            title: t("nav.dashboard"),
             url: "/admin/dashboard",
             icon: LayoutDashboard,
         },
         {
-            title: "Fleet",
+            title: t("nav.fleets"),
             icon: Truck,
             items: [
                 {
-                    title: "Truck Management",
+                    title: t("nav.truckManagement"),
                     url: "/admin/trucks",
                 },
                 {
-                    title: "Truck Assignment",
+                    title: t("nav.truckAssignment"),
                     url: "/admin/truck-assignment",
                 },
                 {
-                    title: "Truck Renewals",
+                    title: t("nav.truckRenewals"),
                     url: "/admin/renewals",
                 },
                 {
-                    title: "Maintenance Costs",
+                    title: t("nav.maintenanceCosts"),
                     url: "/admin/maintenance",
                 },
                 {
-                    title: "Manage Subcontractors",
+                    title: t("nav.manageSubcontractors"),
                     url: "/admin/subcontractors",
                 },
             ],
         },
         {
-            title: "Driver Management",
+            title: t("nav.driverManagement"),
             url: "/admin/drivers",
             icon: User,
         },
         {
-            title: "Active Shipments",
+            title: t("nav.activeShipments"),
             url: "/admin/packages",
             icon: GitBranch, // Using GitBranch to represent flow/shipments
         },
         {
-            title: "User Roles",
+            title: t("nav.userRoles"),
             url: "/admin/users",
             icon: Shield,
         },
         {
-            title: "Reporting",
+            title: t("nav.reporting"),
             url: "/admin/analytics",
             icon: BarChart3,
         },
         {
-            title: "Operations",
+            title: t("nav.operations"),
             icon: MapPin, // Using MapPin or generic icon
             items: [
                 {
-                    title: "First Mile Tasks",
+                    title: t("nav.firstMileTasks"),
                     url: "/admin/first-mile",
                 },
                 {
-                    title: "Source Management",
+                    title: t("nav.sourceManagement"),
                     url: "/admin/sources",
                 },
                 // Future: Line Haul, etc.
@@ -145,7 +145,7 @@ export function AppSidebar() {
             </SidebarHeader>
             <SidebarContent>
                 <SidebarGroup>
-                    <SidebarGroupLabel>MAIN MENU</SidebarGroupLabel>
+                    <SidebarGroupLabel>{t("nav.mainMenu")}</SidebarGroupLabel>
                     <SidebarGroupContent>
                         <SidebarMenu>
                             {items.map((item) => (
@@ -188,14 +188,14 @@ export function AppSidebar() {
                 </SidebarGroup>
 
                 <SidebarGroup className="mt-auto">
-                    <SidebarGroupLabel>SYSTEM</SidebarGroupLabel>
+                    <SidebarGroupLabel>{t("nav.system")}</SidebarGroupLabel>
                     <SidebarGroupContent>
                         <SidebarMenu>
                             <SidebarMenuItem>
                                 <SidebarMenuButton asChild tooltip="Settings" isActive={pathname === "/admin/settings"}>
                                     <Link href="/admin/settings">
                                         <Settings />
-                                        <span>Settings</span>
+                                        <span>{t("nav.settings")}</span>
                                     </Link>
                                 </SidebarMenuButton>
                             </SidebarMenuItem>
@@ -209,7 +209,7 @@ export function AppSidebar() {
                         <SidebarMenuButton asChild tooltip="Support Center">
                             <Link href="/support">
                                 <HelpCircle />
-                                <span className="text-muted-foreground">Support Center</span>
+                                <span className="text-muted-foreground">{t("nav.supportCenter")}</span>
                             </Link>
                         </SidebarMenuButton>
                     </SidebarMenuItem>
@@ -222,7 +222,7 @@ export function AppSidebar() {
                             }}
                         >
                             <LogOut />
-                            <span>Logout</span>
+                            <span>{t("nav.logout")}</span>
                         </SidebarMenuButton>
                     </SidebarMenuItem>
                 </SidebarMenu>

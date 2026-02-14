@@ -43,23 +43,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         try {
           // Get initial token
           const tokenResult = await getIdTokenResult(user);
-          console.log("[Auth] Initial token claims:", tokenResult.claims);
           setCustomClaims(tokenResult.claims ?? null);
 
           // Call Cloud Function to set admin claims if needed
           try {
-            console.log("[Auth] Calling setAdminClaims Cloud Function...");
             const setAdminClaimsFunction = httpsCallable(functions, "setAdminClaims");
             const result = await setAdminClaimsFunction();
-            console.log("[Auth] setAdminClaims result:", result.data);
 
             // If admin claim was set, force refresh token to get updated claims
             const resultData = result.data as { admin?: boolean };
             if (resultData.admin === true) {
-              console.log("[Auth] Admin claim set, refreshing token...");
               await getIdToken(user, true);
               const updatedTokenResult = await getIdTokenResult(user);
-              console.log("[Auth] Updated token claims:", updatedTokenResult.claims);
               setCustomClaims(updatedTokenResult.claims ?? null);
             }
           } catch (funcError) {

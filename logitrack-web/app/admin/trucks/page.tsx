@@ -6,6 +6,7 @@ import { collection, query, orderBy, onSnapshot, where, limit } from "firebase/f
 import { db } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { TruckComplianceCards } from "./components/TruckComplianceCards";
+import { TruckImportDialog } from "./components/TruckImportDialog";
 import Link from "next/link";
 import {
     Plus,
@@ -22,6 +23,7 @@ import {
     ShieldAlert,
     ChevronDown,
     Users,
+    RefreshCcw,
 } from "lucide-react";
 import {
     DropdownMenu,
@@ -59,6 +61,8 @@ export default function TrucksListPage() {
     const [trucks, setTrucks] = useState<TruckData[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [refreshKey, setRefreshKey] = useState(0);
+    const [isRefreshing, setIsRefreshing] = useState(false);
 
     // Filters
     const [searchQuery, setSearchQuery] = useState("");
@@ -245,19 +249,19 @@ export default function TrucksListPage() {
 
     const getStatusLabel = (status: string) => {
         switch (status) {
-            case "active": return "Active";
-            case "maintenance": return "Maintenance";
-            case "in-transit": return "In Transit";
-            case "inactive": return "Inactive";
+            case "active": return t('trucks.status.active');
+            case "maintenance": return t('trucks.status.maintenance');
+            case "in-transit": return t('trucks.status.inTransit');
+            case "inactive": return t('trucks.status.inactive');
             default: return status;
         }
     };
 
     const getOwnershipBadge = (type: string) => {
         if (type === 'own') {
-            return <Badge variant="secondary" className="bg-blue-900/40 text-blue-400 hover:bg-blue-900/60 border-blue-800">COMPANY</Badge>;
+            return <Badge variant="secondary" className="bg-blue-900/40 text-blue-400 hover:bg-blue-900/60 border-blue-800">{t('trucks.badge.company')}</Badge>;
         }
-        return <Badge variant="secondary" className="bg-slate-800 text-slate-400 hover:bg-slate-700">PARTNER</Badge>;
+        return <Badge variant="secondary" className="bg-slate-800 text-slate-400 hover:bg-slate-700">{t('trucks.badge.partner')}</Badge>;
     };
 
     const clearFilters = () => {
@@ -273,34 +277,39 @@ export default function TrucksListPage() {
             {/* Header */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Truck Management</h1>
+                    <h1 className="text-3xl font-bold tracking-tight">{t('trucks.title')}</h1>
                     <p className="text-muted-foreground mt-1">
-                        Monitor and manage all registered trucks in the system
+                        {t('trucks.monitor')}
                     </p>
                 </div>
                 <div className="flex gap-3">
                     <Button variant="outline" className="gap-2">
                         <Download className="h-4 w-4" />
-                        Export
+                        {t('trucks.export')}
                     </Button>
+                    <TruckImportDialog />
                     <Button asChild className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
                         <Link href="/admin/trucks/new">
                             <Plus className="h-4 w-4" />
-                            Add New Truck
+                            {t('trucks.addTruck')}
                         </Link>
                     </Button>
                 </div>
             </div>
 
             {/* Compliance Cards */}
-            <TruckComplianceCards onFilterChange={setComplianceFilter} />
+            <TruckComplianceCards
+                onFilterChange={setComplianceFilter}
+                refreshKey={refreshKey}
+                onLoadingChange={setIsRefreshing}
+            />
 
             {/* Filter Bar */}
             <div className="flex flex-col xl:flex-row gap-4 bg-card/50 p-4 rounded-lg border border-border/50">
                 <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                        placeholder="Search by Plate Number, ID, or Model..."
+                        placeholder={t('trucks.filter.search')}
                         className="pl-10 bg-background/50 border-border/50 focus-visible:ring-1"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
@@ -309,10 +318,10 @@ export default function TrucksListPage() {
                 <div className="flex flex-wrap gap-3">
                     <Select value={typeFilter} onValueChange={setTypeFilter}>
                         <SelectTrigger className="w-[180px] bg-background/50 border-border/50">
-                            <SelectValue placeholder="All Types" />
+                            <SelectValue placeholder={t('trucks.filter.allTypes')} />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="all">All Types</SelectItem>
+                            <SelectItem value="all">{t('trucks.filter.allTypes')}</SelectItem>
                             {uniqueTypes.map(type => (
                                 <SelectItem key={type} value={type}>{type}</SelectItem>
                             ))}
@@ -321,29 +330,39 @@ export default function TrucksListPage() {
 
                     <Select value={statusFilter} onValueChange={setStatusFilter}>
                         <SelectTrigger className="w-[180px] bg-background/50 border-border/50">
-                            <SelectValue placeholder="Vehicle Status" />
+                            <SelectValue placeholder={t('trucks.filter.allStatuses')} />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="all">All Statuses</SelectItem>
-                            <SelectItem value="active">Active</SelectItem>
-                            <SelectItem value="maintenance">Maintenance</SelectItem>
-                            <SelectItem value="inactive">Inactive</SelectItem>
+                            <SelectItem value="all">{t('trucks.filter.allStatuses')}</SelectItem>
+                            <SelectItem value="active">{t('trucks.status.active')}</SelectItem>
+                            <SelectItem value="maintenance">{t('trucks.status.maintenance')}</SelectItem>
+                            <SelectItem value="inactive">{t('trucks.status.inactive')}</SelectItem>
                         </SelectContent>
                     </Select>
 
                     <Select value={groupFilter} onValueChange={setGroupFilter}>
                         <SelectTrigger className="w-[180px] bg-background/50 border-border/50">
-                            <SelectValue placeholder="Fleet Group" />
+                            <SelectValue placeholder={t('trucks.filter.allGroups')} />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="all">All Groups</SelectItem>
-                            <SelectItem value="own">Company Fleet</SelectItem>
-                            <SelectItem value="subcontractor">Partner Fleet</SelectItem>
+                            <SelectItem value="all">{t('trucks.filter.allGroups')}</SelectItem>
+                            <SelectItem value="own">{t('trucks.filter.own')}</SelectItem>
+                            <SelectItem value="subcontractor">{t('trucks.filter.subcontractor')}</SelectItem>
                         </SelectContent>
                     </Select>
 
-                    <Button variant="ghost" className="text-blue-500 hover:text-blue-600 hover:bg-blue-500/10" onClick={clearFilters}>
-                        Clear Filters
+                    <Button variant="ghost" onClick={clearFilters} className="text-blue-500 hover:text-blue-700 hover:bg-transparent px-2">
+                        {t('trucks.filter.clear')}
+                    </Button>
+
+                    <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => setRefreshKey(prev => prev + 1)}
+                        title={t('common.refresh')}
+                        disabled={isRefreshing}
+                    >
+                        <RefreshCcw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
                     </Button>
                 </div>
             </div>
@@ -353,15 +372,15 @@ export default function TrucksListPage() {
                 <Table>
                     <TableHeader className="bg-muted/50">
                         <TableRow className="hover:bg-transparent border-b border-border/50">
-                            <TableHead className="w-[100px] text-xs font-semibold tracking-wider text-muted-foreground uppercase">ID</TableHead>
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Plate Number</TableHead>
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Model</TableHead>
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Current Driver</TableHead>
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Ownership</TableHead>
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Tax/Insu.</TableHead>
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">PM Status</TableHead>
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Status</TableHead>
-                            <TableHead className="text-right text-xs font-semibold tracking-wider text-muted-foreground uppercase">Actions</TableHead>
+                            <TableHead className="w-[100px] text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('trucks.table.id')}</TableHead>
+                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('trucks.table.plate')}</TableHead>
+                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('trucks.table.model')}</TableHead>
+                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('trucks.table.driver')}</TableHead>
+                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('trucks.table.ownership')}</TableHead>
+                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('trucks.table.taxInsu')}</TableHead>
+                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('trucks.table.pmStatus')}</TableHead>
+                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('trucks.table.status')}</TableHead>
+                            <TableHead className="text-right text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('common.actions')}</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -456,10 +475,10 @@ export default function TrucksListPage() {
                                                 if (truck.taxExpiryDate && !taxCompleted) {
                                                     let taxBadge: ReactNode = null;
                                                     if (truck.taxRenewalStatus === 'in_progress') {
-                                                        taxBadge = <Badge variant="secondary" className="text-[10px] px-1 py-0 h-5 w-fit bg-blue-100 text-blue-700 border-blue-200">Tax: In-process</Badge>;
+                                                        taxBadge = <Badge variant="secondary" className="text-[10px] px-1 py-0 h-5 w-fit bg-blue-100 text-blue-700 border-blue-200">{t('trucks.badge.taxInProcess')}</Badge>;
                                                     } else {
                                                         const days = Math.ceil((new Date(truck.taxExpiryDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-                                                        if (days < 0) taxBadge = <Badge variant="destructive" className="text-[10px] px-1 py-0 h-5 w-fit">Tax: Overdue</Badge>;
+                                                        if (days < 0) taxBadge = <Badge variant="destructive" className="text-[10px] px-1 py-0 h-5 w-fit">{t('trucks.badge.taxOverdue')}</Badge>;
                                                         else if (days <= 30) taxBadge = <Badge variant="outline" className="text-[10px] px-1 py-0 h-5 w-fit text-orange-600 border-orange-600 bg-orange-50">Tax: {days}d</Badge>;
                                                         else if (days <= 60) taxBadge = <Badge variant="outline" className="text-[10px] px-1 py-0 h-5 w-fit text-blue-600 border-blue-600 bg-blue-50">Tax: {days}d</Badge>;
                                                     }
@@ -486,10 +505,10 @@ export default function TrucksListPage() {
                                                 if (truck.insuranceExpiryDate && !insuranceCompleted) {
                                                     let insuBadge: ReactNode = null;
                                                     if (truck.insuranceRenewalStatus === 'in_progress') {
-                                                        insuBadge = <Badge variant="secondary" className="text-[10px] px-1 py-0 h-5 w-fit bg-purple-100 text-purple-700 border-purple-200">Insu: In-process</Badge>;
+                                                        insuBadge = <Badge variant="secondary" className="text-[10px] px-1 py-0 h-5 w-fit bg-purple-100 text-purple-700 border-purple-200">{t('trucks.badge.insuInProcess')}</Badge>;
                                                     } else {
                                                         const days = Math.ceil((new Date(truck.insuranceExpiryDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-                                                        if (days < 0) insuBadge = <Badge variant="destructive" className="text-[10px] px-1 py-0 h-5 w-fit">Insu: Overdue</Badge>;
+                                                        if (days < 0) insuBadge = <Badge variant="destructive" className="text-[10px] px-1 py-0 h-5 w-fit">{t('trucks.badge.insuOverdue')}</Badge>;
                                                         else if (days <= 30) insuBadge = <Badge variant="outline" className="text-[10px] px-1 py-0 h-5 w-fit text-orange-600 border-orange-600 bg-orange-50">Insu: {days}d</Badge>;
                                                         else if (days <= 60) insuBadge = <Badge variant="outline" className="text-[10px] px-1 py-0 h-5 w-fit text-blue-600 border-blue-600 bg-blue-50">Insu: {days}d</Badge>;
                                                     }
@@ -535,11 +554,11 @@ export default function TrucksListPage() {
                                                 let pmBadge: ReactNode = null;
 
                                                 if (truck.truckStatus === 'maintenance') {
-                                                    pmBadge = <Badge variant="secondary" className="text-[10px] px-1 py-0 h-5 w-fit bg-yellow-100 text-yellow-700 border-yellow-200">In Shop</Badge>;
+                                                    pmBadge = <Badge variant="secondary" className="text-[10px] px-1 py-0 h-5 w-fit bg-yellow-100 text-yellow-700 border-yellow-200">{t('trucks.badge.pmInShop')}</Badge>;
                                                 } else if (km !== null && km < 0) {
                                                     pmBadge = <Badge variant="destructive" className="text-[10px] px-1 py-0 h-5 w-fit">PM: {-km}km Over</Badge>;
                                                 } else if (days !== null && days < 0) {
-                                                    pmBadge = <Badge variant="destructive" className="text-[10px] px-1 py-0 h-5 w-fit">PM: Overdue</Badge>;
+                                                    pmBadge = <Badge variant="destructive" className="text-[10px] px-1 py-0 h-5 w-fit">{t('trucks.badge.pmOverdue')}</Badge>;
                                                 } else if (km !== null && km <= 1000) {
                                                     pmBadge = <Badge variant="outline" className="text-[10px] px-1 py-0 h-5 w-fit text-orange-600 border-orange-600 bg-orange-50">PM: {km}km</Badge>;
                                                 } else if (days !== null && days <= 30) {
@@ -590,13 +609,13 @@ export default function TrucksListPage() {
                                                 <DropdownMenuItem asChild>
                                                     <Link href={`/admin/trucks/view?id=${truck.id}`} className="flex items-center cursor-pointer" onClick={(e) => e.stopPropagation()}>
                                                         <Eye className="mr-2 h-4 w-4" />
-                                                        View Details
+                                                        {t('trucks.action.view')}
                                                     </Link>
                                                 </DropdownMenuItem>
                                                 <DropdownMenuItem asChild>
                                                     <Link href={`/admin/trucks/edit?id=${truck.id}`} className="flex items-center cursor-pointer" onClick={(e) => e.stopPropagation()}>
                                                         <Edit className="mr-2 h-4 w-4" />
-                                                        Edit Truck
+                                                        {t('trucks.action.edit')}
                                                     </Link>
                                                 </DropdownMenuItem>
 
@@ -605,7 +624,7 @@ export default function TrucksListPage() {
                                                     <DropdownMenuItem asChild>
                                                         <Link href={`/admin/trucks/renew?id=${truck.id}&type=tax`} className="flex items-center cursor-pointer text-orange-600 focus:text-orange-700" onClick={(e) => e.stopPropagation()}>
                                                             <FileText className="mr-2 h-4 w-4" />
-                                                            Renew - TAX
+                                                            {t('trucks.action.renewTax')}
                                                         </Link>
                                                     </DropdownMenuItem>
                                                 )}
@@ -614,7 +633,7 @@ export default function TrucksListPage() {
                                                     <DropdownMenuItem asChild>
                                                         <Link href={`/admin/trucks/renew?id=${truck.id}&type=insurance`} className="flex items-center cursor-pointer text-blue-600 focus:text-blue-700" onClick={(e) => e.stopPropagation()}>
                                                             <ShieldAlert className="mr-2 h-4 w-4" />
-                                                            Renew - Insurance
+                                                            {t('trucks.action.renewInsu')}
                                                         </Link>
                                                     </DropdownMenuItem>
                                                 )}
@@ -622,7 +641,7 @@ export default function TrucksListPage() {
                                                 <DropdownMenuItem asChild>
                                                     <Link href={`/admin/trucks/maintenance?id=${truck.id}`} className="flex items-center cursor-pointer text-yellow-600 focus:text-yellow-700" onClick={(e) => e.stopPropagation()}>
                                                         <Wrench className="mr-2 h-4 w-4" />
-                                                        Record Maintenance
+                                                        {t('trucks.action.recordMain')}
                                                     </Link>
                                                 </DropdownMenuItem>
                                             </DropdownMenuContent>

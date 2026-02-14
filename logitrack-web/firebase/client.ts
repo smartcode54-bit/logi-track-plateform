@@ -47,9 +47,7 @@ export const firebaseConfig = {
 };
 
 // Debug: Log config in development (without sensitive data)
-if (process.env.NODE_ENV === 'development') {
-  console.log('Firebase client config:', "OK");
-}
+
 
 // Initialize Firebase
 const currentApps = getApps();
@@ -64,9 +62,7 @@ if (!currentApps.length) {
     storage = getStorage(app);
     db = getFirestore(app);
 
-    if (process.env.NODE_ENV === 'development') {
-      console.log('✅ Firebase initialized successfully');
-    }
+
   } catch (error: any) {
     console.error('❌ Firebase Initialization Error:', error);
     throw new Error(
