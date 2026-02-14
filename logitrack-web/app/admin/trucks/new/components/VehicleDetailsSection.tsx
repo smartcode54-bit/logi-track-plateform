@@ -111,12 +111,12 @@ export function VehicleDetailsSection() {
                                         </SelectTrigger>
                                     </FormControl>
                                     <SelectContent>
-                                        <SelectItem value="Pickup">Pickup</SelectItem>
-                                        <SelectItem value="4 Wheels">4 Wheels</SelectItem>
-                                        <SelectItem value="6 Wheels">6 Wheels</SelectItem>
-                                        <SelectItem value="10 Wheels">10 Wheels</SelectItem>
-                                        <SelectItem value="18 Wheels">18 Wheels</SelectItem>
-                                        <SelectItem value="Van">Van</SelectItem>
+                                        <SelectItem value="Pickup">{t("trucks.type.pickup")}</SelectItem>
+                                        <SelectItem value="4 Wheels">{t("trucks.type.4wheels")}</SelectItem>
+                                        <SelectItem value="6 Wheels">{t("trucks.type.6wheels")}</SelectItem>
+                                        <SelectItem value="10 Wheels">{t("trucks.type.10wheels")}</SelectItem>
+                                        <SelectItem value="18 Wheels">{t("trucks.type.18wheels")}</SelectItem>
+                                        <SelectItem value="Van">{t("trucks.type.van")}</SelectItem>
                                     </SelectContent>
                                 </Select>
                                 <FormMessage />

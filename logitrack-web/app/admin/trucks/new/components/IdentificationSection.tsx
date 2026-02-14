@@ -134,11 +134,11 @@ export function IdentificationSection() {
                                         </SelectTrigger>
                                     </FormControl>
                                     <SelectContent>
-                                        <SelectItem value="active">Active</SelectItem>
-                                        <SelectItem value="inactive">Inactive</SelectItem>
-                                        <SelectItem value="maintenance">Maintenance</SelectItem>
-                                        <SelectItem value="insurance-claim">Insurance Claim</SelectItem>
-                                        <SelectItem value="sold">Sold</SelectItem>
+                                        <SelectItem value="active">{t("trucks.detail.status.active")}</SelectItem>
+                                        <SelectItem value="inactive">{t("trucks.detail.status.inactive")}</SelectItem>
+                                        <SelectItem value="maintenance">{t("trucks.detail.status.maintenance")}</SelectItem>
+                                        <SelectItem value="insurance-claim">{t("trucks.detail.status.insuranceClaim")}</SelectItem>
+                                        <SelectItem value="sold">{t("trucks.detail.status.sold")}</SelectItem>
                                     </SelectContent>
                                 </Select>
                                 <FormMessage />

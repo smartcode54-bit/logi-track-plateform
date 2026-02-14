@@ -165,11 +165,11 @@ export function InsuranceSection({ onFileSelect }: InsuranceSectionProps) {
                                         </SelectTrigger>
                                     </FormControl>
                                     <SelectContent>
-                                        <SelectItem value="1">ประกันชั้น 1</SelectItem>
-                                        <SelectItem value="2">ประกันชั้น 2</SelectItem>
-                                        <SelectItem value="2+">ประกันชั้น 2+</SelectItem>
-                                        <SelectItem value="3">ประกันชั้น 3</SelectItem>
-                                        <SelectItem value="3+">ประกันชั้น 3+</SelectItem>
+                                        <SelectItem value="1">{t("trucks.insurance.type.1")}</SelectItem>
+                                        <SelectItem value="2">{t("trucks.insurance.type.2")}</SelectItem>
+                                        <SelectItem value="2+">{t("trucks.insurance.type.2_plus")}</SelectItem>
+                                        <SelectItem value="3">{t("trucks.insurance.type.3")}</SelectItem>
+                                        <SelectItem value="3+">{t("trucks.insurance.type.3_plus")}</SelectItem>
                                     </SelectContent>
                                 </Select>
                                 <FormMessage />

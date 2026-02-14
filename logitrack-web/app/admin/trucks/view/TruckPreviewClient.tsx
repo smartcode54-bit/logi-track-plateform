@@ -19,12 +19,14 @@ import { FileViewer } from "@/components/ui/file-viewer";
 import { getSubcontractors } from "../../subcontractors/actions.client";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useBreadcrumb } from "@/context/breadcrumb";
+import { useLanguage } from "@/context/language";
 
 export default function TruckPreviewClient() {
     const searchParams = useSearchParams();
     const router = useRouter();
     const truckId = searchParams.get('id');
     const { setCustomLastItem } = useBreadcrumb();
+    const { t, language } = useLanguage();
 
     const [truck, setTruck] = useState<TruckData | null>(null);
     const [assignmentHistory, setAssignmentHistory] = useState<AssignmentData[]>([]);
@@ -38,7 +40,7 @@ export default function TruckPreviewClient() {
     useEffect(() => {
         const fetchTruck = async () => {
             if (!truckId) {
-                setError("No truck ID provided");
+                setError(t("trucks.detail.noId"));
                 setIsLoading(false);
                 return;
             }
@@ -47,7 +49,7 @@ export default function TruckPreviewClient() {
                 setError(null);
                 const data = await getTruckByIdClient(truckId);
                 if (!data) {
-                    setError("Truck not found.");
+                    setError(t("trucks.detail.notFound"));
                     return;
                 }
                 setTruck(data);
@@ -58,7 +60,7 @@ export default function TruckPreviewClient() {
                 setAssignmentHistory(history);
             } catch (err) {
                 console.error("Error fetching truck:", err);
-                setError(err instanceof Error ? err.message : "Failed to load truck data.");
+                setError(err instanceof Error ? err.message : t("trucks.detail.error"));
             } finally {
                 setIsLoading(false);
             }
@@ -79,7 +81,7 @@ export default function TruckPreviewClient() {
 
     const formatDate = (date: Date | string | null | undefined) => {
         if (!date) return "-";
-        return new Date(date).toLocaleDateString("th-TH", {
+        return new Date(date).toLocaleDateString(language === 'th' ? "th-TH" : "en-US", {
             year: "numeric",
             month: "long",
             day: "numeric",
@@ -96,11 +98,11 @@ export default function TruckPreviewClient() {
         };
 
         const labels = {
-            active: "Available",
-            inactive: "Inactive",
-            maintenance: "Maintenance",
-            "insurance-claim": "Insurance Claim",
-            sold: "Sold",
+            active: t("trucks.detail.status.available"),
+            inactive: t("trucks.detail.status.inactive"),
+            maintenance: t("trucks.detail.status.maintenance"),
+            "insurance-claim": t("trucks.detail.status.insuranceClaim"),
+            sold: t("trucks.detail.status.sold"),
             // Fallback
             [status]: status
         };
@@ -117,7 +119,7 @@ export default function TruckPreviewClient() {
         return (
             <div className="flex items-center justify-center min-h-[400px]">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                <span className="ml-2 text-muted-foreground">Loading truck data...</span>
+                <span className="ml-2 text-muted-foreground">{t("trucks.detail.loading")}</span>
             </div>
         );
     }
@@ -127,10 +129,10 @@ export default function TruckPreviewClient() {
             <div className="container mx-auto px-4 py-8 max-w-5xl">
                 <div className="text-center py-12">
                     <h2 className="text-2xl font-bold text-destructive mb-4">
-                        {error || "Truck not found"}
+                        {error || t("trucks.detail.notFound")}
                     </h2>
                     <Button asChild>
-                        <Link href="/admin/trucks">Back to Trucks</Link>
+                        <Link href="/admin/trucks">{t("trucks.wizard.back")}</Link>
                     </Button>
                 </div>
             </div>
@@ -139,16 +141,16 @@ export default function TruckPreviewClient() {
 
     // Construct viewable files list
     const viewableFiles = [
-        ...(truck.imageFrontRight ? [{ url: truck.imageFrontRight, type: "image" as const, label: "Front-Right View" }] : []),
-        ...(truck.imageFrontLeft ? [{ url: truck.imageFrontLeft, type: "image" as const, label: "Front-Left View" }] : []),
-        ...(truck.imageBackRight ? [{ url: truck.imageBackRight, type: "image" as const, label: "Back-Right View" }] : []),
-        ...(truck.imageBackLeft ? [{ url: truck.imageBackLeft, type: "image" as const, label: "Back-Left View" }] : []),
-        ...(truck.documentTax ? [{ url: truck.documentTax, type: "pdf" as const, label: "Tax Document" }] : []),
-        ...(truck.documentRegister ? [{ url: truck.documentRegister, type: "pdf" as const, label: "Registration Document" }] : []),
+        ...(truck.imageFrontRight ? [{ url: truck.imageFrontRight, type: "image" as const, label: t("trucks.detail.view.frontRight") }] : []),
+        ...(truck.imageFrontLeft ? [{ url: truck.imageFrontLeft, type: "image" as const, label: t("trucks.detail.view.frontLeft") }] : []),
+        ...(truck.imageBackRight ? [{ url: truck.imageBackRight, type: "image" as const, label: t("trucks.detail.view.backRight") }] : []),
+        ...(truck.imageBackLeft ? [{ url: truck.imageBackLeft, type: "image" as const, label: t("trucks.detail.view.backLeft") }] : []),
+        ...(truck.documentTax ? [{ url: truck.documentTax, type: "pdf" as const, label: t("trucks.detail.taxDoc") }] : []),
+        ...(truck.documentRegister ? [{ url: truck.documentRegister, type: "pdf" as const, label: t("trucks.detail.view.registrationDoc") }] : []),
         // Include generic images if any exist (legacy support)
-        ...(truck.images || []).map((img, i) => ({ url: img, type: "image" as const, label: `Legacy Image ${i + 1}` })),
+        ...(truck.images || []).map((img, i) => ({ url: img, type: "image" as const, label: `${t("trucks.detail.view.legacyImage")} ${i + 1}` })),
         // Include insurance docs
-        ...(truck.insuranceDocuments || []).map((doc, i) => ({ url: doc, type: "pdf" as const, label: `Insurance Document ${i + 1}` })),
+        ...(truck.insuranceDocuments || []).map((doc, i) => ({ url: doc, type: "pdf" as const, label: `${t("trucks.detail.insuranceDoc")} ${i + 1}` })),
     ];
 
     const handleFileClick = (url: string) => {
@@ -171,7 +173,7 @@ export default function TruckPreviewClient() {
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <span className="flex items-center gap-1">
                             <Info className="h-3.5 w-3.5" />
-                            Last updated: {truck.updatedAt ? new Date(truck.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "2 hours ago"}
+                            {t("trucks.detail.lastUpdated")}: {truck.updatedAt ? new Date(truck.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "2 hours ago"}
                         </span>
                         <span>•</span>
                         <span>System ID: {truck.id.substring(0, 8).toUpperCase()}</span>
@@ -182,13 +184,13 @@ export default function TruckPreviewClient() {
                     <Button asChild variant="outline" className="gap-2 bg-yellow-600 hover:bg-yellow-700 text-white">
                         <Link href={`/admin/trucks/maintenance?id=${truck.id}`}>
                             <Wrench className="h-4 w-4" />
-                            Maintenance
+                            {t("trucks.detail.maintenance")}
                         </Link>
                     </Button>
                     <Button asChild className="gap-2 bg-blue-600 hover:bg-blue-700 text-white">
                         <Link href={`/admin/trucks/edit?id=${truck.id}`}>
                             <Edit className="h-4 w-4" />
-                            Edit Details
+                            {t("trucks.detail.editDetails")}
                         </Link>
                     </Button>
                 </div>
@@ -202,28 +204,28 @@ export default function TruckPreviewClient() {
                         <CardHeader className="pb-3">
                             <CardTitle className="flex items-center gap-2 text-base font-semibold">
                                 <Truck className="h-5 w-5 text-blue-600" />
-                                Vehicle Specifications
+                                {t("trucks.detail.vehicleSpecs")}
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-y-6 gap-x-4">
                             <div>
-                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Brand</p>
+                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">{t("trucks.detail.brand")}</p>
                                 <p className="font-semibold">{truck.brand}</p>
                             </div>
                             <div>
-                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Model</p>
+                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">{t("trucks.detail.model")}</p>
                                 <p className="font-semibold">{truck.model}</p>
                             </div>
                             <div>
-                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Year</p>
+                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">{t("trucks.detail.year")}</p>
                                 <p className="font-semibold">{truck.year}</p>
                             </div>
                             <div>
-                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Fuel Type</p>
+                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">{t("trucks.detail.fuelType")}</p>
                                 <p className="font-semibold">{truck.fuelType || "Diesel"}</p>
                             </div>
                             <div>
-                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Max Load</p>
+                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">{t("trucks.detail.maxLoad")}</p>
                                 <p className="font-semibold">{truck.maxLoadWeight ? `${truck.maxLoadWeight.toLocaleString()} kg` : "-"}</p>
                             </div>
                         </CardContent>
@@ -234,54 +236,54 @@ export default function TruckPreviewClient() {
                         <CardHeader className="pb-3">
                             <CardTitle className="flex items-center gap-2 text-base font-semibold">
                                 <Info className="h-5 w-5 text-blue-600" />
-                                Engine & Registration
+                                {t("trucks.detail.engineReg")}
                             </CardTitle>
                         </CardHeader>
                         <CardContent>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-y-4 gap-x-12">
                                 <div className="flex justify-between py-2 border-b">
-                                    <span className="text-sm text-muted-foreground">License Plate Province</span>
+                                    <span className="text-sm text-muted-foreground">{t("trucks.detail.province")}</span>
                                     <span className="text-sm font-medium">{truck.province}</span>
                                 </div>
                                 <div className="flex justify-between py-2 border-b">
-                                    <span className="text-sm text-muted-foreground">Engine Number</span>
+                                    <span className="text-sm text-muted-foreground">{t("trucks.detail.engineNo")}</span>
                                     <span className="text-sm font-medium font-mono">{truck.engineNumber}</span>
                                 </div>
                                 <div className="flex justify-between py-2 border-b">
-                                    <span className="text-sm text-muted-foreground">Chassis Number</span>
+                                    <span className="text-sm text-muted-foreground">{t("trucks.detail.chassisNo")}</span>
                                     <span className="text-sm font-medium font-mono">{truck.vin}</span>
                                 </div>
                                 <div className="flex justify-between py-2 border-b">
-                                    <span className="text-sm text-muted-foreground">Engine Capacity</span>
+                                    <span className="text-sm text-muted-foreground">{t("trucks.detail.engineCap")}</span>
                                     <span className="text-sm font-medium">{truck.engineCapacity ? `${truck.engineCapacity.toLocaleString()} cc` : "-"}</span>
                                 </div>
                                 <div className="flex justify-between py-2 border-b">
-                                    <span className="text-sm text-muted-foreground">Fuel Capacity</span>
+                                    <span className="text-sm text-muted-foreground">{t("trucks.detail.fuelCap")}</span>
                                     <span className="text-sm font-medium">{truck.fuelCapacity ? `${truck.fuelCapacity.toLocaleString()} L` : "-"}</span>
                                 </div>
                                 <div className="flex justify-between py-2 border-b">
-                                    <span className="text-sm text-muted-foreground">Registration Date</span>
+                                    <span className="text-sm text-muted-foreground">{t("trucks.detail.regDate")}</span>
                                     <span className="text-sm font-medium">{formatDate(truck.registrationDate)}</span>
                                 </div>
                                 <div className="flex justify-between py-2 border-b">
-                                    <span className="text-sm text-muted-foreground">Buying Date</span>
+                                    <span className="text-sm text-muted-foreground">{t("trucks.detail.buyingDate")}</span>
                                     <span className="text-sm font-medium">{formatDate(truck.buyingDate)}</span>
                                 </div>
                                 <div className="flex justify-between py-2 border-b items-center">
-                                    <span className="text-sm text-muted-foreground">Tax (Act) Expiry</span>
+                                    <span className="text-sm text-muted-foreground">{t("trucks.detail.taxExpiry")}</span>
                                     <span className="text-sm font-medium">{formatDate(truck.taxExpiryDate)}</span>
                                 </div>
                                 <div className="flex justify-between py-2 border-b items-center">
-                                    <span className="text-sm text-muted-foreground">Tax Renewal Status</span>
+                                    <span className="text-sm text-muted-foreground">{t("trucks.detail.taxStatus")}</span>
                                     {(() => {
                                         const status = truck.taxRenewalStatus || 'pending';
                                         if (status === 'completed') {
-                                            return <Badge className="bg-green-100 text-green-700 border-green-200 hover:bg-green-100">Completed</Badge>;
+                                            return <Badge className="bg-green-100 text-green-700 border-green-200 hover:bg-green-100">{t("trucks.detail.status.completed")}</Badge>;
                                         }
                                         if (status === 'in_progress') {
-                                            return <Badge className="bg-blue-100 text-blue-700 border-blue-200 hover:bg-blue-100">In Progress</Badge>;
+                                            return <Badge className="bg-blue-100 text-blue-700 border-blue-200 hover:bg-blue-100">{t("trucks.detail.status.inProgress")}</Badge>;
                                         }
-                                        return <Badge variant="outline" className="capitalize">Pending</Badge>;
+                                        return <Badge variant="outline" className="capitalize">{t("trucks.detail.status.pending")}</Badge>;
                                     })()}
                                 </div>
                             </div>
@@ -293,46 +295,46 @@ export default function TruckPreviewClient() {
                         <CardHeader className="pb-3">
                             <CardTitle className="flex items-center gap-2 text-base font-semibold">
                                 <Shield className="h-5 w-5 text-blue-600" />
-                                Insurance & Renewal Details
+                                {t("trucks.detail.insuranceDetails")}
                             </CardTitle>
                         </CardHeader>
                         <CardContent>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-y-4 gap-x-12">
                                 <div className="flex justify-between py-2 border-b">
-                                    <span className="text-sm text-muted-foreground">Insurance Provider</span>
+                                    <span className="text-sm text-muted-foreground">{t("trucks.detail.insuranceProvider")}</span>
                                     <span className="text-sm font-medium">{truck.insuranceCompany || "-"}</span>
                                 </div>
                                 <div className="flex justify-between py-2 border-b">
-                                    <span className="text-sm text-muted-foreground">Policy Number</span>
+                                    <span className="text-sm text-muted-foreground">{t("trucks.detail.policyNo")}</span>
                                     <span className="text-sm font-medium">{truck.insurancePolicyNumber || "-"}</span>
                                 </div>
                                 <div className="flex justify-between py-2 border-b">
-                                    <span className="text-sm text-muted-foreground">Type</span>
+                                    <span className="text-sm text-muted-foreground">{t("trucks.detail.insuranceType")}</span>
                                     <span className="text-sm font-medium">{truck.insuranceType ? `Type ${truck.insuranceType}` : "-"}</span>
                                 </div>
                                 <div className="flex justify-between py-2 border-b">
-                                    <span className="text-sm text-muted-foreground">Premium</span>
+                                    <span className="text-sm text-muted-foreground">{t("trucks.detail.premium")}</span>
                                     <span className="text-sm font-medium">{truck.insurancePremium ? `${truck.insurancePremium.toLocaleString()} THB` : "-"}</span>
                                 </div>
                                 <div className="flex justify-between py-2 border-b">
-                                    <span className="text-sm text-muted-foreground">Start Date</span>
+                                    <span className="text-sm text-muted-foreground">{t("trucks.detail.startDate")}</span>
                                     <span className="text-sm font-medium">{formatDate(truck.insuranceStartDate)}</span>
                                 </div>
                                 <div className="flex justify-between py-2 border-b items-center">
-                                    <span className="text-sm text-muted-foreground">End Date</span>
+                                    <span className="text-sm text-muted-foreground">{t("trucks.detail.endDate")}</span>
                                     <span className="text-sm font-medium">{formatDate(truck.insuranceExpiryDate)}</span>
                                 </div>
                                 <div className="flex justify-between py-2 border-b items-center">
-                                    <span className="text-sm text-muted-foreground">Renewal Status</span>
+                                    <span className="text-sm text-muted-foreground">{t("trucks.detail.renewalStatus")}</span>
                                     {(() => {
                                         const status = truck.insuranceRenewalStatus || 'pending';
                                         if (status === 'completed') {
-                                            return <Badge className="bg-green-100 text-green-700 border-green-200 hover:bg-green-100">Completed</Badge>;
+                                            return <Badge className="bg-green-100 text-green-700 border-green-200 hover:bg-green-100">{t("trucks.detail.status.completed")}</Badge>;
                                         }
                                         if (status === 'in_progress') {
-                                            return <Badge className="bg-purple-100 text-purple-700 border-purple-200 hover:bg-purple-100">In Progress</Badge>;
+                                            return <Badge className="bg-purple-100 text-purple-700 border-purple-200 hover:bg-purple-100">{t("trucks.detail.status.inProgress")}</Badge>;
                                         }
-                                        return <Badge variant="outline" className="capitalize">Pending</Badge>;
+                                        return <Badge variant="outline" className="capitalize">{t("trucks.detail.status.pending")}</Badge>;
                                     })()}
                                 </div>
                             </div>
@@ -344,7 +346,7 @@ export default function TruckPreviewClient() {
                         <CardHeader className="pb-3">
                             <CardTitle className="flex items-center gap-2 text-base font-semibold">
                                 <Shield className="h-5 w-5 text-blue-600" />
-                                Ownership Info
+                                {t("trucks.detail.ownershipInfo")}
                             </CardTitle>
                         </CardHeader>
                         <CardContent>
@@ -354,18 +356,18 @@ export default function TruckPreviewClient() {
                                 </div>
                                 <div>
                                     <h4 className="text-sm font-semibold flex items-center gap-2">
-                                        {truck.ownershipType === "subcontractor" ? "Subcontractor Fleet" : "Own Fleet"}
+                                        {truck.ownershipType === "subcontractor" ? t("trucks.detail.subcontractorFleet") : t("trucks.detail.ownFleet")}
                                         {truck.ownershipType === "subcontractor" && (
-                                            <Badge variant="secondary" className="bg-blue-100 text-blue-700 text-[10px] h-5 px-1.5 rounded-sm">PARTNER</Badge>
+                                            <Badge variant="secondary" className="bg-blue-100 text-blue-700 text-[10px] h-5 px-1.5 rounded-sm">{t("trucks.detail.partner")}</Badge>
                                         )}
                                     </h4>
                                     <p className="text-sm text-muted-foreground mt-1">
                                         {truck.ownershipType === "subcontractor" && truck.subcontractorId
-                                            ? `Managed by ${subcontractors.find(s => s.id === truck.subcontractorId)?.name || truck.subcontractorId}`
-                                            : "Managed by Internal Logistics Team"}
+                                            ? `${t("trucks.detail.managedByPartner")} ${subcontractors.find(s => s.id === truck.subcontractorId)?.name || truck.subcontractorId}`
+                                            : t("trucks.detail.managedByInternal")}
                                     </p>
                                     <Button variant="link" className="p-0 h-auto text-blue-600 mt-2 text-xs font-medium flex items-center gap-1">
-                                        View Partner Profile <ArrowLeft className="h-3 w-3 rotate-180" />
+                                        {t("trucks.detail.viewPartner")} <ArrowLeft className="h-3 w-3 rotate-180" />
                                     </Button>
                                 </div>
                             </div>
@@ -380,7 +382,7 @@ export default function TruckPreviewClient() {
                         <CardHeader className="pb-3 border-b">
                             <CardTitle className="flex items-center gap-2 text-base font-semibold">
                                 <MapPin className="h-5 w-5 text-blue-600" />
-                                Current Assignment
+                                {t("trucks.detail.currentAssignment")}
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="pt-6">
@@ -411,29 +413,29 @@ export default function TruckPreviewClient() {
                                                             </div>
                                                             <h3 className="text-lg font-bold">{assignment.driverName}</h3>
                                                             <p className="text-xs text-muted-foreground font-medium mb-4">
-                                                                Assigned since {assignment.assignedAt ? new Date(assignment.assignedAt).toLocaleDateString() : '-'}
+                                                                {t("trucks.detail.assignedSince")} {assignment.assignedAt ? new Date(assignment.assignedAt).toLocaleDateString() : '-'}
                                                             </p>
 
                                                             <div className="grid grid-cols-2 gap-4 w-full mb-6">
                                                                 <div className="bg-muted/50 rounded p-2 text-center">
                                                                     <p className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider mb-0.5">Status</p>
-                                                                    <p className="text-xs font-semibold text-green-600">On Duty</p>
+                                                                    <p className="text-xs font-semibold text-green-600">{t("trucks.detail.onDuty")}</p>
                                                                 </div>
                                                                 <div className="bg-muted/50 rounded p-2 text-center">
-                                                                    <p className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider mb-0.5">Action</p>
-                                                                    <p className="text-xs font-semibold">Active</p>
+                                                                    <p className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider mb-0.5">{t("trucks.detail.action")}</p>
+                                                                    <p className="text-xs font-semibold">{t("trucks.detail.active")}</p>
                                                                 </div>
                                                             </div>
 
                                                             <div className="grid grid-cols-2 gap-3 w-full">
                                                                 <Button variant="outline" className="w-full text-xs h-9" asChild>
                                                                     <Link href={`/admin/drivers/view?id=${assignment.driverId}`}>
-                                                                        View Profile
+                                                                        {t("trucks.detail.viewProfile")}
                                                                     </Link>
                                                                 </Button>
                                                                 <Button className="w-full text-xs h-9 bg-red-50 text-red-600 hover:bg-red-100 border-red-100 shadow-none" asChild>
                                                                     <Link href="/admin/truck-assignment">
-                                                                        Manage
+                                                                        {t("trucks.detail.manage")}
                                                                     </Link>
                                                                 </Button>
                                                             </div>
@@ -449,7 +451,7 @@ export default function TruckPreviewClient() {
                                                                 </Avatar>
                                                                 <div className="text-left">
                                                                     <p className="font-semibold text-sm">{assignment.driverName}</p>
-                                                                    <p className="text-[10px] text-muted-foreground">Original: {assignment.assignedAt ? new Date(assignment.assignedAt).toLocaleDateString() : '-'}</p>
+                                                                    <p className="text-[10px] text-muted-foreground">{t("trucks.detail.assignedSince")}: {assignment.assignedAt ? new Date(assignment.assignedAt).toLocaleDateString() : '-'}</p>
                                                                 </div>
                                                             </div>
                                                             <Button variant="ghost" size="sm" asChild className="h-8 w-8 p-0">
@@ -466,7 +468,7 @@ export default function TruckPreviewClient() {
                                             <div className="pt-2">
                                                 <Button className="w-full text-xs h-9 bg-blue-600 hover:bg-blue-700 text-white" asChild>
                                                     <Link href="/admin/truck-assignment">
-                                                        Manage Assignments
+                                                        {t("trucks.detail.manageAssignments")}
                                                     </Link>
                                                 </Button>
                                             </div>
@@ -477,12 +479,12 @@ export default function TruckPreviewClient() {
                                         <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-3">
                                             <User className="h-6 w-6 text-muted-foreground" />
                                         </div>
-                                        <p className="text-sm font-medium mb-1">No Driver Assigned</p>
-                                        <p className="text-xs text-muted-foreground mb-4">Assign a driver to this truck to track performance.</p>
+                                        <p className="text-sm font-medium mb-1">{t("trucks.detail.noDriver")}</p>
+                                        <p className="text-xs text-muted-foreground mb-4">{t("trucks.detail.assignDriverDesc")}</p>
                                         <Button className="w-full gap-2 bg-blue-600 hover:bg-blue-700 text-white" asChild>
                                             <Link href="/admin/truck-assignment">
                                                 <Plus className="h-4 w-4" />
-                                                Assign Driver
+                                                {t("trucks.detail.assignDriver")}
                                             </Link>
                                         </Button>
                                     </div>
@@ -496,9 +498,9 @@ export default function TruckPreviewClient() {
                         <CardHeader className="pb-3 border-b flex flex-row items-center justify-between">
                             <CardTitle className="flex items-center gap-2 text-base font-semibold">
                                 <Camera className="h-5 w-5 text-blue-600" />
-                                Vehicle Photos
+                                {t("trucks.detail.photos")}
                             </CardTitle>
-                            <span className="text-xs font-medium text-muted-foreground">{viewableFiles.filter(f => f.type === 'image').length} PHOTOS</span>
+                            <span className="text-xs font-medium text-muted-foreground">{viewableFiles.filter(f => f.type === 'image').length} {t("trucks.detail.photosCount")}</span>
                         </CardHeader>
                         <CardContent className="pt-4">
                             <div className="grid grid-cols-2 gap-2">
@@ -520,7 +522,7 @@ export default function TruckPreviewClient() {
                         <CardHeader className="pb-3 border-b">
                             <CardTitle className="flex items-center gap-2 text-base font-semibold">
                                 <FileText className="h-5 w-5 text-blue-600" />
-                                TAX Document
+                                {t("trucks.detail.taxDoc")}
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="pt-4">
@@ -532,7 +534,7 @@ export default function TruckPreviewClient() {
                                     {truck.documentTax.toLowerCase().endsWith('.pdf') ? (
                                         <div className="flex flex-col items-center justify-center h-full bg-muted">
                                             <FileText className="h-12 w-12 text-blue-600 mb-2" />
-                                            <span className="text-sm font-medium text-blue-600">View Tax Document</span>
+                                            <span className="text-sm font-medium text-blue-600">{t("trucks.detail.viewTaxDoc")}</span>
                                         </div>
                                     ) : (
                                         <Image
@@ -556,7 +558,7 @@ export default function TruckPreviewClient() {
                         <CardHeader className="pb-3 border-b">
                             <CardTitle className="flex items-center gap-2 text-base font-semibold">
                                 <Shield className="h-5 w-5 text-blue-600" />
-                                Insurance Document
+                                {t("trucks.detail.insuranceDoc")}
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="pt-4">
@@ -568,7 +570,7 @@ export default function TruckPreviewClient() {
                                     {truck.insuranceDocuments[0].toLowerCase().endsWith('.pdf') ? (
                                         <div className="flex flex-col items-center justify-center h-full bg-muted">
                                             <FileText className="h-12 w-12 text-blue-600 mb-2" />
-                                            <span className="text-sm font-medium text-blue-600">View Insurance Document</span>
+                                            <span className="text-sm font-medium text-blue-600">{t("trucks.detail.viewInsuranceDoc")}</span>
                                         </div>
                                     ) : (
                                         <Image

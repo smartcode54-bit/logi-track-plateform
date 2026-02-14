@@ -1,0 +1,59 @@
+#!/bin/sh
+
+# Check if .vibe-rules.md was modified in this commit
+if git diff --cached --name-only | grep -q "shared-docs/.vibe-rules.md"; then
+  echo "✅ shared-docs/.vibe-rules.md is updated. Proceeding with commit..."
+  exit 0
+fi
+
+# Get the date, time, and changed files
+TODAY=$(date +%Y-%m-%d)
+TIME=$(date +%H:%M:%S)
+CHANGED_FILES=$(git diff --cached --name-only | head -3 | tr '\n' ', ' | sed 's/,$//')
+
+# Auto-generate description based on changed files
+if echo "$CHANGED_FILES" | grep -q "maintenance"; then
+  DESCRIPTION="Maintenance page updates"
+elif echo "$CHANGED_FILES" | grep -q "renew"; then
+  DESCRIPTION="Renewal workflow updates"
+elif echo "$CHANGED_FILES" | grep -q "trucks"; then
+  DESCRIPTION="Truck management updates"
+elif echo "$CHANGED_FILES" | grep -q "husky"; then
+  DESCRIPTION="Git hooks updates"
+else
+  DESCRIPTION="Code updates"
+fi
+
+echo ""
+echo "📝 Auto-updating shared-docs/.vibe-rules.md changelog..."
+echo "   Entry: | $TODAY $TIME | $DESCRIPTION | $CHANGED_FILES |"
+
+# Use PowerShell to append entry after last dated line
+powershell -NoProfile -Command "
+  \$file = 'shared-docs/.vibe-rules.md'
+  \$lines = Get-Content \$file
+  \$entry = '| $TODAY $TIME | $DESCRIPTION | $CHANGED_FILES |'
+  \$lastIndex = -1
+  
+  for (\$i = 0; \$i -lt \$lines.Length; \$i++) {
+    if (\$lines[\$i] -match '^\| 202') {
+      \$lastIndex = \$i
+    }
+  }
+  
+  if (\$lastIndex -ge 0) {
+    \$newLines = [System.Collections.ArrayList]@()
+    for (\$i = 0; \$i -lt \$lines.Length; \$i++) {
+      [void]\$newLines.Add(\$lines[\$i])
+      if (\$i -eq \$lastIndex) {
+        [void]\$newLines.Add(\$entry)
+      }
+    }
+    \$newLines | Set-Content \$file
+  }
+"
+
+# Stage the updated file
+git add shared-docs/.vibe-rules.md
+
+echo "✅ Changelog auto-updated with timestamp!"

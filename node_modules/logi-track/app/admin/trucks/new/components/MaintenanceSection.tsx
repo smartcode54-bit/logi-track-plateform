@@ -22,7 +22,7 @@ export function MaintenanceSection() {
             <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                     <Wrench className="h-5 w-5 text-primary" />
-                    {t("Maintenance Book")}
+                    {t("trucks.maintenance.book")}
                 </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -32,7 +32,7 @@ export function MaintenanceSection() {
                         name="lastServiceDate"
                         render={({ field }) => (
                             <FormItem className="flex flex-col">
-                                <FormLabel>{t("Last Service Date")}</FormLabel>
+                                <FormLabel>{t("trucks.maintenance.lastDate")}</FormLabel>
                                 <DatePicker
                                     value={field.value ? new Date(field.value) : undefined}
                                     onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
@@ -48,7 +48,7 @@ export function MaintenanceSection() {
                         name="nextServiceDate"
                         render={({ field }) => (
                             <FormItem className="flex flex-col">
-                                <FormLabel>{t("Next Service Date")}</FormLabel>
+                                <FormLabel>{t("trucks.maintenance.nextDate")}</FormLabel>
                                 <DatePicker
                                     value={field.value ? new Date(field.value) : undefined}
                                     onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
@@ -64,7 +64,7 @@ export function MaintenanceSection() {
                         name="nextServiceMileage"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>{t("Next Service Mileage (km)")}</FormLabel>
+                                <FormLabel>{t("trucks.maintenance.nextMileage")}</FormLabel>
                                 <FormControl>
                                     <Input
                                         type="number"
@@ -86,7 +86,7 @@ export function MaintenanceSection() {
                         name="maintenanceResponsible"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>{t("Responsible Person (Service)")}</FormLabel>
+                                <FormLabel>{t("trucks.maintenance.responsible")}</FormLabel>
                                 <FormControl>
                                     <Input placeholder="e.g. Driver Name" {...field} value={field.value ?? ""} />
                                 </FormControl>

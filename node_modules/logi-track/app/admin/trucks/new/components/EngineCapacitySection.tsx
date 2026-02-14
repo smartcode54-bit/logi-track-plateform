@@ -45,11 +45,11 @@ export function EngineInformationSection() {
                                         </SelectTrigger>
                                     </FormControl>
                                     <SelectContent>
-                                        <SelectItem value="Diesel">Diesel</SelectItem>
-                                        <SelectItem value="Gasoline">Gasoline</SelectItem>
-                                        <SelectItem value="NGV">NGV</SelectItem>
-                                        <SelectItem value="Electric">Electric</SelectItem>
-                                        <SelectItem value="Hybrid">Hybrid</SelectItem>
+                                        <SelectItem value="Diesel">{t("trucks.fuel.diesel")}</SelectItem>
+                                        <SelectItem value="Gasoline">{t("trucks.fuel.gasoline")}</SelectItem>
+                                        <SelectItem value="NGV">{t("trucks.fuel.ngv")}</SelectItem>
+                                        <SelectItem value="Electric">{t("trucks.fuel.electric")}</SelectItem>
+                                        <SelectItem value="Hybrid">{t("trucks.fuel.hybrid")}</SelectItem>
                                     </SelectContent>
                                 </Select>
                                 <FormMessage />

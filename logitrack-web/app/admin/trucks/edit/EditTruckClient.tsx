@@ -43,6 +43,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 // Subcontractor Selector Component
 function SubcontractorSelector({ value, onChange }: { value?: string, onChange: (val: string) => void }) {
+    const { t } = useLanguage();
     const [subs, setSubs] = useState<any[]>([]);
 
     useEffect(() => {
@@ -53,7 +54,7 @@ function SubcontractorSelector({ value, onChange }: { value?: string, onChange: 
         <Select onValueChange={onChange} value={value || ""}>
             <FormControl>
                 <SelectTrigger>
-                    <SelectValue placeholder="Select a subcontractor" />
+                    <SelectValue placeholder={t("trucks.edit.selectSubcontractor")} />
                 </SelectTrigger>
             </FormControl>
             <SelectContent>
@@ -157,11 +158,11 @@ export default function EditTruckClient() {
 
                     form.reset(formValues);
                 } else {
-                    setError("Truck not found");
+                    setError(t("trucks.detail.notFound"));
                 }
             } catch (err) {
                 console.error("Error fetching truck:", err);
-                setError("Failed to load truck data");
+                setError(t("trucks.detail.error"));
             } finally {
                 setIsLoading(false);
             }
@@ -247,7 +248,7 @@ export default function EditTruckClient() {
 
             await updateTruckInFirestoreClient(truckId, dataToUpdate as TruckValidatedData, currentUser.uid);
 
-            toast.success("Truck updated successfully");
+            toast.success(t("trucks.edit.success"));
 
             // wait for a bit to show the toast
             setTimeout(() => {
@@ -258,7 +259,7 @@ export default function EditTruckClient() {
             console.error("Error updating truck:", error);
             const errorMessage = error instanceof Error
                 ? error.message
-                : "Failed to update truck. Please try again.";
+                : t("trucks.edit.error");
             setError(errorMessage);
         } finally {
             setIsSubmitting(false);
@@ -269,7 +270,7 @@ export default function EditTruckClient() {
         return (
             <div className="flex items-center justify-center min-h-[400px]">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                <span className="ml-2 text-muted-foreground">Loading truck data...</span>
+                <span className="ml-2 text-muted-foreground">{t("trucks.detail.loading")}</span>
             </div>
         );
     }
@@ -282,16 +283,16 @@ export default function EditTruckClient() {
                 <div className="flex items-center justify-between mb-8">
                     <div>
                         <h1 className="text-3xl font-bold text-foreground">
-                            Edit Truck
+                            {t("trucks.edit.title")}
                         </h1>
                         <p className="text-muted-foreground mt-1">
-                            Update truck information
+                            {t("trucks.edit.subtitle")}
                         </p>
                     </div>
                     <Button variant="outline" asChild>
                         <Link href={`/admin/trucks/view?id=${truckId}`} className="flex items-center gap-2">
                             <ArrowLeft className="h-4 w-4" />
-                            Back to Details
+                            {t("trucks.edit.backToDetails")}
                         </Link>
                     </Button>
                 </div>
@@ -307,14 +308,14 @@ export default function EditTruckClient() {
                         {/* Ownership Type Selection */}
                         <div className="bg-card border rounded-lg p-6">
                             {/* ... Ownership Fields ... */}
-                            <h3 className="text-lg font-medium mb-4">Ownership</h3>
+                            <h3 className="text-lg font-medium mb-4">{t("trucks.edit.ownership")}</h3>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <FormField
                                     control={form.control}
                                     name="ownershipType"
                                     render={({ field }) => (
                                         <FormItem className="space-y-3">
-                                            <FormLabel>Type</FormLabel>
+                                            <FormLabel>{t("trucks.edit.ownershipType")}</FormLabel>
                                             <FormControl>
                                                 <div className="flex gap-4">
                                                     <Button
@@ -326,7 +327,7 @@ export default function EditTruckClient() {
                                                         }}
                                                         className="flex-1"
                                                     >
-                                                        Own Fleet
+                                                        {t("trucks.detail.ownFleet")}
                                                     </Button>
                                                     <Button
                                                         type="button"
@@ -334,7 +335,7 @@ export default function EditTruckClient() {
                                                         onClick={() => field.onChange("subcontractor")}
                                                         className="flex-1"
                                                     >
-                                                        Subcontractor
+                                                        {t("trucks.detail.subcontractorFleet")}
                                                     </Button>
                                                 </div>
                                             </FormControl>
@@ -348,7 +349,7 @@ export default function EditTruckClient() {
                                         name="subcontractorId"
                                         render={({ field }) => (
                                             <FormItem>
-                                                <FormLabel>Subcontractor (Required)</FormLabel>
+                                                <FormLabel>{t("trucks.edit.subcontractorRequired")}</FormLabel>
                                                 <SubcontractorSelector
                                                     value={field.value}
                                                     onChange={field.onChange}
@@ -371,7 +372,7 @@ export default function EditTruckClient() {
 
                         <div className="flex justify-end gap-4">
                             <Button type="button" variant="outline" asChild>
-                                <Link href={`/admin/trucks/view?id=${truckId}`}>Cancel</Link>
+                                <Link href={`/admin/trucks/view?id=${truckId}`}>{t("trucks.edit.cancel")}</Link>
                             </Button>
                             <Button
                                 type="submit"
@@ -381,12 +382,12 @@ export default function EditTruckClient() {
                                 {isSubmitting ? (
                                     <>
                                         <Loader2 className="h-4 w-4 animate-spin" />
-                                        Saving...
+                                        {t("trucks.edit.saving")}
                                     </>
                                 ) : (
                                     <>
                                         <Save className="h-4 w-4" />
-                                        Save Changes
+                                        {t("trucks.edit.saveChanges")}
                                     </>
                                 )}
                             </Button>
