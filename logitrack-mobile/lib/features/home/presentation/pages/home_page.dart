@@ -1,4 +1,6 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import '../../../../core/theme/theme_controller.dart';
 import '../../../../features/auth/data/repositories/auth_repository.dart';
 import '../../data/repositories/driver_repository.dart';
 
@@ -37,7 +39,7 @@ class _HomePageState extends State<HomePage> {
       } else {
         if (mounted) {
           setState(() {
-            _error = "User not authenticated";
+            _error = "user_not_authenticated".tr();
             _isLoading = false;
           });
         }
@@ -68,8 +70,18 @@ class _HomePageState extends State<HomePage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('LogiTrack Driver'),
+        title: Text('app_title'.tr()),
         actions: [
+          IconButton(
+            icon: Icon(
+              Theme.of(context).brightness == Brightness.dark
+                  ? Icons.light_mode
+                  : Icons.dark_mode,
+            ),
+            onPressed: () {
+              ThemeController().toggleTheme();
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () async {
@@ -87,14 +99,14 @@ class _HomePageState extends State<HomePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Welcome, $displayName',
+              'welcome_user'.tr(args: [displayName]),
               style: Theme.of(context).textTheme.headlineSmall,
             ),
             const SizedBox(height: 24),
             _buildSummaryCard(context),
             const SizedBox(height: 24),
             Text(
-              'Quick Actions',
+              'quick_actions'.tr(),
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 16),
@@ -104,7 +116,7 @@ class _HomePageState extends State<HomePage> {
                   child: _buildActionCard(
                     context,
                     icon: Icons.local_shipping,
-                    label: 'My Tasks',
+                    label: 'my_tasks'.tr(),
                     onTap: () {},
                   ),
                 ),
@@ -113,7 +125,7 @@ class _HomePageState extends State<HomePage> {
                   child: _buildActionCard(
                     context,
                     icon: Icons.history,
-                    label: 'History',
+                    label: 'history'.tr(),
                     onTap: () {},
                   ),
                 ),
@@ -139,13 +151,13 @@ class _HomePageState extends State<HomePage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Today\'s Status',
+                      'todays_status'.tr(),
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: 8),
-                    const Text(
-                      'No active tasks',
-                      style: TextStyle(color: Colors.grey),
+                    Text(
+                      'no_active_tasks'.tr(),
+                      style: const TextStyle(color: Colors.grey),
                     ),
                   ],
                 ),

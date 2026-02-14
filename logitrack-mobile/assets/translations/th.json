@@ -19,5 +19,13 @@
     "language_en": "English",
     "language_th": "ภาษาไทย",
     "ok": "ตกลง",
-    "login_success": "เข้าสู่ระบบสำเร็จ"
+    "login_success": "เข้าสู่ระบบสำเร็จ",
+    "app_title": "LogiTrack คนขับ",
+    "welcome_user": "ยินดีต้อนรับ, {}",
+    "quick_actions": "เมนูด่วน",
+    "my_tasks": "งานของฉัน",
+    "history": "ประวัติ",
+    "todays_status": "สถานะวันนี้",
+    "no_active_tasks": "ไม่มีงานที่กำลังทำ",
+    "user_not_authenticated": "ผู้ใช้ยังไม่ได้ยืนยันตัวตน"
 }

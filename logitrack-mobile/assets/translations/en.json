@@ -19,5 +19,13 @@
     "language_en": "English",
     "language_th": "ภาษาไทย",
     "ok": "OK",
-    "login_success": "Login Successful"
+    "login_success": "Login Successful",
+    "app_title": "LogiTrack Driver",
+    "welcome_user": "Welcome, {}",
+    "quick_actions": "Quick Actions",
+    "my_tasks": "My Tasks",
+    "history": "History",
+    "todays_status": "Today's Status",
+    "no_active_tasks": "No active tasks",
+    "user_not_authenticated": "User not authenticated"
 }

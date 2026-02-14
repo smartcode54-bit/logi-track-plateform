@@ -20,7 +20,7 @@ void main() async {
       fallbackLocale: const Locale('en'),
       child: DevicePreview(
         enabled: !kReleaseMode,
-        builder: (context) => const MyApp(), // Wrap your app
+        builder: (context) => const MyApp(),
       ),
     ),
   );
