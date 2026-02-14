@@ -42,6 +42,13 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
 
 import {
@@ -82,6 +89,26 @@ export default function TruckAssignmentPage() {
     const [revokeDialogOpen, setRevokeDialogOpen] = useState(false);
     const [assignmentToRevoke, setAssignmentToRevoke] = useState<AssignmentData | null>(null);
     const [isRevoking, setIsRevoking] = useState(false);
+
+    // Filter states
+    const [historyFilter, setHistoryFilter] = useState({
+        search: '',
+        status: 'all'
+    });
+
+    const filteredHistory = history.filter(item => {
+        const matchesSearch =
+            item.driverName?.toLowerCase().includes(historyFilter.search.toLowerCase()) ||
+            item.truckPlate?.toLowerCase().includes(historyFilter.search.toLowerCase()) ||
+            item.truckModel?.toLowerCase().includes(historyFilter.search.toLowerCase()) ||
+            item.adminName?.toLowerCase().includes(historyFilter.search.toLowerCase());
+
+        const matchesStatus =
+            historyFilter.status === 'all' ||
+            item.status === historyFilter.status;
+
+        return matchesSearch && matchesStatus;
+    });
 
     const fetchData = async () => {
         setIsLoading(true);
@@ -370,14 +397,38 @@ export default function TruckAssignmentPage() {
 
             {/* History Table */}
             <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
-                <div className="p-6 border-b border-border/50 flex justify-between items-center">
+                <div className="p-6 border-b border-border/50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <h2 className="text-lg font-semibold flex items-center gap-2">
                         <Settings className="h-4 w-4 text-blue-500" />
                         {t('assignments.history')}
                     </h2>
-                    <Button variant="ghost" size="sm" className="text-blue-500 hover:text-blue-600 hover:bg-blue-500/10">
-                        {t('assignments.downloadCsv')}
-                    </Button>
+                    <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                                placeholder={t('assignments.filter.search')}
+                                value={historyFilter.search}
+                                onChange={(e) => setHistoryFilter(prev => ({ ...prev, search: e.target.value }))}
+                                className="pl-9 w-full md:w-[250px] bg-background/50"
+                            />
+                        </div>
+                        <Select
+                            value={historyFilter.status}
+                            onValueChange={(value) => setHistoryFilter(prev => ({ ...prev, status: value }))}
+                        >
+                            <SelectTrigger className="w-full md:w-[180px] bg-background/50">
+                                <SelectValue placeholder={t('assignments.filter.status')} />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">{t('assignments.filter.all')}</SelectItem>
+                                <SelectItem value="active">{t('assignments.status.active')}</SelectItem>
+                                <SelectItem value="revoked">{t('assignments.status.revoked')}</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <Button variant="ghost" size="sm" className="text-blue-500 hover:text-blue-600 hover:bg-blue-500/10">
+                            {t('assignments.downloadCsv')}
+                        </Button>
+                    </div>
                 </div>
                 <Table>
                     <TableHeader className="bg-muted/30">
@@ -395,12 +446,12 @@ export default function TruckAssignmentPage() {
                             <TableRow>
                                 <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">{t('assignments.table.loading')}</TableCell>
                             </TableRow>
-                        ) : history.length === 0 ? (
+                        ) : filteredHistory.length === 0 ? (
                             <TableRow>
                                 <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">{t('assignments.table.noHistory')}</TableCell>
                             </TableRow>
                         ) : (
-                            history.map((item) => (
+                            filteredHistory.map((item) => (
                                 <TableRow key={item.id} className="border-border/50 hover:bg-muted/30 transition-colors">
                                     <TableCell className="pl-6 font-medium text-foreground/80 py-4">
                                         {/* Simple relative time logic for demo, usually use date-fns/moment */}
