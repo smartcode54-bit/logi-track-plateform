@@ -57,7 +57,10 @@ import {
 } from "./actions.client";
 import { useAuth } from "@/context/auth";
 
+import { useLanguage } from "@/context/language";
+
 export default function TruckAssignmentPage() {
+    const { t } = useLanguage();
     const auth = useAuth();
     const currentUser = auth?.currentUser;
     const [stats, setStats] = useState({
@@ -119,7 +122,7 @@ export default function TruckAssignmentPage() {
 
         } catch (error) {
             console.error("Failed to fetch data", error);
-            toast.error("Failed to load dashboard data");
+            toast.error(t('assignments.toast.loadError'));
         } finally {
             setIsLoading(false);
         }
@@ -131,7 +134,7 @@ export default function TruckAssignmentPage() {
 
     const handleDeploy = async () => {
         if (!selectedDriver || !selectedTruck) {
-            toast.error("Please select both a driver and a truck");
+            toast.error(t('assignments.toast.selectBoth'));
             return;
         }
 
@@ -155,13 +158,13 @@ export default function TruckAssignmentPage() {
                 adminName: currentUser?.displayName || "Admin",
             });
 
-            toast.success("Assignment deployed successfully");
+            toast.success(t('assignments.toast.deploySuccess'));
             setSelectedDriver("");
             setSelectedTruck("");
             fetchData(); // Refresh data
         } catch (error) {
             console.error("Deployment failed", error);
-            toast.error("Failed to deploy assignment");
+            toast.error(t('assignments.toast.deployError'));
         } finally {
             setIsSubmitting(false);
         }
@@ -178,12 +181,12 @@ export default function TruckAssignmentPage() {
         setIsRevoking(true);
         try {
             await terminateAssignment(assignmentToRevoke.id, assignmentToRevoke.truckId, assignmentToRevoke.driverId);
-            toast.success("Assignment revoked successfully");
+            toast.success(t('assignments.toast.revokeSuccess'));
             fetchData();
             setRevokeDialogOpen(false);
         } catch (error) {
             console.error("Revocation failed", error);
-            toast.error("Failed to revoke assignment");
+            toast.error(t('assignments.toast.revokeError'));
         } finally {
             setIsRevoking(false);
         }
@@ -194,18 +197,18 @@ export default function TruckAssignmentPage() {
             {/* Header */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Manage Truck Assignments</h1>
+                    <h1 className="text-3xl font-bold tracking-tight">{t('assignments.title')}</h1>
                     <p className="text-muted-foreground mt-1">
-                        Pair drivers with vehicles and monitor active fleet deployments.
+                        {t('assignments.subtitle')}
                     </p>
                 </div>
                 <div className="flex gap-3">
                     <Button variant="outline" className="gap-2 bg-card border-border/50 text-foreground hover:bg-muted/50">
-                        View Maps
+                        {t('assignments.viewMaps')}
                     </Button>
                     <Button className="bg-blue-600 hover:bg-blue-700 text-white gap-2 shadow-lg shadow-blue-900/20">
                         <Plus className="h-4 w-4" />
-                        Quick Action
+                        {t('assignments.quickAction')}
                     </Button>
                 </div>
             </div>
@@ -216,7 +219,7 @@ export default function TruckAssignmentPage() {
                     <CardContent className="p-6">
                         <div className="flex justify-between items-start">
                             <div className="space-y-2">
-                                <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Total Trucks</p>
+                                <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('assignments.totalTrucks')}</p>
                                 <div className="flex items-baseline gap-2">
                                     <span className="text-3xl font-bold font-mono text-foreground">
                                         {isLoading ? "-" : stats.totalTrucks}
@@ -235,7 +238,7 @@ export default function TruckAssignmentPage() {
                     <CardContent className="p-6">
                         <div className="flex justify-between items-start">
                             <div className="space-y-2">
-                                <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Available Drivers</p>
+                                <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('assignments.availableDrivers')}</p>
                                 <div className="flex items-baseline gap-2">
                                     <span className="text-3xl font-bold font-mono text-foreground">
                                         {isLoading ? "-" : stats.availableDrivers}
@@ -254,7 +257,7 @@ export default function TruckAssignmentPage() {
                     <CardContent className="p-6">
                         <div className="flex justify-between items-start">
                             <div className="space-y-2">
-                                <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Active Assignments</p>
+                                <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('assignments.activeAssignments')}</p>
                                 <div className="flex items-baseline gap-2">
                                     <span className="text-3xl font-bold font-mono text-foreground">
                                         {isLoading ? "-" : stats.activeAssignments}
@@ -275,14 +278,14 @@ export default function TruckAssignmentPage() {
                 <div className="p-6 border-b border-border/50">
                     <h2 className="text-lg font-semibold flex items-center gap-2">
                         <ArrowRight className="h-4 w-4 text-blue-500" />
-                        New Assignment
+                        {t('assignments.new')}
                     </h2>
                 </div>
                 <div className="p-8">
                     <div className="flex flex-col lg:flex-row items-stretch gap-6">
                         {/* Driver Select */}
                         <div className="flex-1 space-y-4">
-                            <label className="text-sm font-medium text-foreground">1. Select Available Driver</label>
+                            <label className="text-sm font-medium text-foreground">{t('assignments.selectDriver')}</label>
 
                             <Combobox
                                 options={drivers.map(d => ({
@@ -291,9 +294,9 @@ export default function TruckAssignmentPage() {
                                 }))}
                                 value={selectedDriver}
                                 onSelect={setSelectedDriver}
-                                placeholder="Search driver..."
-                                searchPlaceholder="Search by name..."
-                                emptyText="No available drivers found."
+                                placeholder={t('assignments.searchDriver')}
+                                searchPlaceholder={t('assignments.searchDriverPlaceholder')}
+                                emptyText={t('assignments.noDrivers')}
                                 className="h-12 text-base bg-background/50 border-border/50"
                             />
 
@@ -302,7 +305,7 @@ export default function TruckAssignmentPage() {
                                     <User className="h-5 w-5" />
                                 </div>
                                 <span className="text-sm text-muted-foreground italic">
-                                    {drivers.find(d => d.id === selectedDriver)?.name || "No driver selected"}
+                                    {drivers.find(d => d.id === selectedDriver)?.name || t('assignments.noDriverSelected')}
                                 </span>
                             </div>
                         </div>
@@ -316,7 +319,7 @@ export default function TruckAssignmentPage() {
 
                         {/* Truck Select */}
                         <div className="flex-1 space-y-4">
-                            <label className="text-sm font-medium text-foreground">2. Select Available Truck</label>
+                            <label className="text-sm font-medium text-foreground">{t('assignments.selectTruck')}</label>
 
                             <Combobox
                                 options={trucks.map(t => ({
@@ -325,9 +328,9 @@ export default function TruckAssignmentPage() {
                                 }))}
                                 value={selectedTruck}
                                 onSelect={setSelectedTruck}
-                                placeholder="Search truck..."
-                                searchPlaceholder="Search by plate or model..."
-                                emptyText="No available trucks found."
+                                placeholder={t('assignments.searchTruck')}
+                                searchPlaceholder={t('assignments.searchTruckPlaceholder')}
+                                emptyText={t('assignments.noTrucks')}
                                 className="h-12 text-base bg-background/50 border-border/50"
                             />
 
@@ -338,7 +341,7 @@ export default function TruckAssignmentPage() {
                                 <span className="text-sm text-muted-foreground italic">
                                     {trucks.find(t => t.id === selectedTruck)
                                         ? `${trucks.find(t => t.id === selectedTruck)?.model} (${trucks.find(t => t.id === selectedTruck)?.plate})`
-                                        : "No vehicle selected"
+                                        : t('assignments.noTruckSelected')
                                     }
                                 </span>
                             </div>
@@ -352,14 +355,14 @@ export default function TruckAssignmentPage() {
                             onClick={handleDeploy}
                             disabled={isSubmitting}
                         >
-                            {isSubmitting ? "Deploying..." : "Confirm and Deploy Assignment"}
+                            {isSubmitting ? t('assignments.deploying') : t('assignments.deploy')}
                         </Button>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                             <span className="relative flex h-2 w-2">
                                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
                                 <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
                             </span>
-                            Syncing live with Firebase database
+                            {t('assignments.syncing')}
                         </div>
                     </div>
                 </div>
@@ -370,31 +373,31 @@ export default function TruckAssignmentPage() {
                 <div className="p-6 border-b border-border/50 flex justify-between items-center">
                     <h2 className="text-lg font-semibold flex items-center gap-2">
                         <Settings className="h-4 w-4 text-blue-500" />
-                        Assignment History
+                        {t('assignments.history')}
                     </h2>
                     <Button variant="ghost" size="sm" className="text-blue-500 hover:text-blue-600 hover:bg-blue-500/10">
-                        Download CSV
+                        {t('assignments.downloadCsv')}
                     </Button>
                 </div>
                 <Table>
                     <TableHeader className="bg-muted/30">
                         <TableRow className="hover:bg-transparent border-border/50">
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase pl-6">Timestamp</TableHead>
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Driver</TableHead>
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Vehicle</TableHead>
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Admin</TableHead>
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Status</TableHead>
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase text-right pr-6">Actions</TableHead>
+                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase pl-6">{t('assignments.table.timestamp')}</TableHead>
+                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('assignments.table.driver')}</TableHead>
+                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('assignments.table.vehicle')}</TableHead>
+                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('assignments.table.admin')}</TableHead>
+                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('assignments.table.status')}</TableHead>
+                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase text-right pr-6">{t('assignments.table.actions')}</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {isLoading ? (
                             <TableRow>
-                                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">Loading history...</TableCell>
+                                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">{t('assignments.table.loading')}</TableCell>
                             </TableRow>
                         ) : history.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">No recent assignments found.</TableCell>
+                                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">{t('assignments.table.noHistory')}</TableCell>
                             </TableRow>
                         ) : (
                             history.map((item) => (
@@ -420,11 +423,11 @@ export default function TruckAssignmentPage() {
                                     <TableCell>
                                         {item.status === 'active' ? (
                                             <Badge className="bg-green-500/10 text-green-500 hover:bg-green-500/20 border-green-500/20 shadow-none uppercase text-[10px] tracking-wider px-2 py-0.5">
-                                                Active
+                                                {t('assignments.status.active')}
                                             </Badge>
                                         ) : (
                                             <Badge variant="secondary" className="bg-muted text-muted-foreground uppercase text-[10px] tracking-wider px-2 py-0.5">
-                                                Revoked
+                                                {t('assignments.status.revoked')}
                                             </Badge>
                                         )}
                                     </TableCell>
@@ -442,7 +445,7 @@ export default function TruckAssignmentPage() {
                                                         className="text-destructive focus:text-destructive cursor-pointer"
                                                         onClick={() => openRevokeDialog(item)}
                                                     >
-                                                        Revoke Assignment
+                                                        {t('assignments.action.revoke')}
                                                     </DropdownMenuItem>
                                                 )}
                                             </DropdownMenuContent>
@@ -458,9 +461,9 @@ export default function TruckAssignmentPage() {
             <Dialog open={revokeDialogOpen} onOpenChange={setRevokeDialogOpen}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>Confirm Revocation</DialogTitle>
+                        <DialogTitle>{t('assignments.revoke.title')}</DialogTitle>
                         <DialogDescription>
-                            Are you sure you want to revoke this assignment?
+                            {t('assignments.revoke.desc')}
                             <br />
                             This will mark the truck <strong>{assignmentToRevoke?.truckPlate}</strong> as available
                             and set driver <strong>{assignmentToRevoke?.driverName}</strong> to active.
@@ -468,10 +471,10 @@ export default function TruckAssignmentPage() {
                     </DialogHeader>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setRevokeDialogOpen(false)} disabled={isRevoking}>
-                            Cancel
+                            {t('assignments.revoke.cancel')}
                         </Button>
                         <Button variant="destructive" onClick={handleConfirmRevoke} disabled={isRevoking}>
-                            {isRevoking ? "Revoking..." : "Revoke Assignment"}
+                            {isRevoking ? t('assignments.revoke.revoking') : t('assignments.revoke.confirm')}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
