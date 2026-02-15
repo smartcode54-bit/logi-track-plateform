@@ -69,7 +69,7 @@ export default function TrucksListPage() {
     const [typeFilter, setTypeFilter] = useState("all");
     const [statusFilter, setStatusFilter] = useState("all");
     const [groupFilter, setGroupFilter] = useState("all");
-    const [complianceFilter, setComplianceFilter] = useState<{ type: string | null; status: string | null }>({ type: null, status: null });
+
 
     // Pagination
     const [currentPage, setCurrentPage] = useState(1);
@@ -83,6 +83,8 @@ export default function TrucksListPage() {
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const trucksData: TruckData[] = [];
+            // ... (lines 485-690: unmodified)
+
             snapshot.forEach((doc) => {
                 const data = doc.data();
                 const formatTimestamp = (timestamp: any): Date | null => {
@@ -178,57 +180,59 @@ export default function TrucksListPage() {
                 (groupFilter === "own" && truck.ownershipType === "own") ||
                 (groupFilter === "subcontractor" && truck.ownershipType === "subcontractor");
 
-            let matchCompliance = true;
-            if (complianceFilter.type && complianceFilter.status) {
-                const now = new Date();
-                const warningThresholdDays = 30;
-                const incomingThresholdDays = 60;
-                const warningThresholdKm = 2000; // User specified 2000km criteria
-                const incomingThresholdKm = 5000;
-
-                const getDaysDiff = (dateStr?: string) => {
-                    if (!dateStr) return 999;
-                    return Math.ceil((new Date(dateStr).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-                };
-
-                const checkStatus = (days: number, kms?: number) => {
-                    if (complianceFilter.status === "overdue") {
-                        return days < 0 || (kms !== undefined && kms < 0);
-                    }
-                    if (complianceFilter.status === "expiring") {
-                        return (days >= 0 && days <= warningThresholdDays) || (kms !== undefined && kms >= 0 && kms <= warningThresholdKm);
-                    }
-                    if (complianceFilter.status === "incoming") {
-                        return (days > warningThresholdDays && days <= incomingThresholdDays) ||
-                            (kms !== undefined && kms > warningThresholdKm && kms <= incomingThresholdKm);
-                    }
-                    return false;
-                };
-
-                if (complianceFilter.type === "tax") {
-                    matchCompliance = checkStatus(getDaysDiff(truck.taxExpiryDate));
-                } else if (complianceFilter.type === "insurance") {
-                    matchCompliance = checkStatus(getDaysDiff(truck.insuranceExpiryDate));
-                } else if (complianceFilter.type === "service") {
-                    const days = getDaysDiff(truck.nextServiceDate);
-                    let kms: number | undefined = undefined;
-                    if (truck.nextServiceMileage && truck.currentMileage !== undefined) {
-                        kms = truck.nextServiceMileage - truck.currentMileage;
-                    }
-
-                    // Service is special: it matches if EITHER date OR km is in the range
-                    // But we only want to show it if it actually has service data
-                    if (truck.nextServiceDate || truck.nextServiceMileage) {
-                        matchCompliance = checkStatus(days, kms);
-                    } else {
-                        matchCompliance = false;
-                    }
-                }
-            }
-
-            return matchSearch && matchType && matchStatus && matchGroup && matchCompliance;
+            return matchSearch && matchType && matchStatus && matchGroup;
         });
-    }, [trucks, searchQuery, typeFilter, statusFilter, groupFilter, complianceFilter]);
+    }, [trucks, searchQuery, typeFilter, statusFilter, groupFilter]);
+
+    const handleCardFilterChange = ({ type, status }: { type: string | null; status: string | null }) => {
+        // Reset all if cleared
+        if (!type && !status) {
+            setGroupFilter("all");
+            setStatusFilter("all");
+            // Clear maintenance filter if we add one, or just use status for now
+            return;
+        }
+
+        // Card 2: Subcontractor Fleet Status
+        else if (type === 'sub') {
+            setGroupFilter("subcontractor");
+            if (status === 'active') setStatusFilter('active');
+            else if (status === 'available') setStatusFilter('inactive');
+            else if (status === 'corrective') setStatusFilter('maintenance');
+            // PM filter for sub? Assuming maintenance for now
+            else if (status === 'pm') {
+                // No distinct PM status yet, maybe just show maintenance or all
+                setStatusFilter('maintenance');
+            }
+            else setStatusFilter("all");
+        }
+
+        // Card 1: Own Fleet Status (Enhanced)
+        else if (type === 'own') {
+            setGroupFilter("own");
+            if (status === 'active') setStatusFilter('active');
+            else if (status === 'available') setStatusFilter('inactive');
+            else if (status === 'corrective') setStatusFilter('maintenance');
+            else if (status === 'pm') {
+                setStatusFilter('maintenance'); // Mapping PM to maintenance for now
+            }
+            else setStatusFilter("all");
+        }
+
+        // Card 3: Maintenance Schedule
+        else if (type === 'maintenance') {
+            setGroupFilter("own");
+            // For Due/Overdue, we can't easily filter strictly by that without adding logic back
+            // Monitor maintenance -> likely want to see trucks in maintenance
+            if (status === 'due' || status === 'overdue') {
+                // Ideally we'd filter by PM status, but for now show all or maintenance?
+                // Let's show all own trucks so they can see the dates in the table
+                setStatusFilter("all");
+            } else {
+                setStatusFilter("all");
+            }
+        }
+    };
 
     // Pagination Logic
     const totalPages = Math.ceil(filteredTrucks.length / itemsPerPage);
@@ -299,7 +303,7 @@ export default function TrucksListPage() {
 
             {/* Compliance Cards */}
             <TruckComplianceCards
-                onFilterChange={setComplianceFilter}
+                onFilterChange={handleCardFilterChange}
                 refreshKey={refreshKey}
                 onLoadingChange={setIsRefreshing}
             />
@@ -377,7 +381,6 @@ export default function TrucksListPage() {
                             <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('trucks.table.model')}</TableHead>
                             <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('trucks.table.driver')}</TableHead>
                             <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('trucks.table.ownership')}</TableHead>
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('trucks.table.taxInsu')}</TableHead>
                             <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('trucks.table.pmStatus')}</TableHead>
                             <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('trucks.table.status')}</TableHead>
                             <TableHead className="text-right text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('common.actions')}</TableHead>
@@ -464,90 +467,6 @@ export default function TrucksListPage() {
                                     <TableCell>
                                         <div className="flex flex-col gap-1">
                                             {(() => {
-                                                // Check if both Tax and Insurance are completed - show single OK
-                                                const taxCompleted = truck.taxRenewalStatus === 'completed';
-                                                const insuranceCompleted = truck.insuranceRenewalStatus === 'completed';
-
-                                                // Collect non-completed badges
-                                                const badges: ReactNode[] = [];
-
-                                                // Tax Status (only show badge if NOT completed)
-                                                if (truck.taxExpiryDate && !taxCompleted) {
-                                                    let taxBadge: ReactNode = null;
-                                                    if (truck.taxRenewalStatus === 'in_progress') {
-                                                        taxBadge = <Badge variant="secondary" className="text-[10px] px-1 py-0 h-5 w-fit bg-blue-100 text-blue-700 border-blue-200">{t('trucks.badge.taxInProcess')}</Badge>;
-                                                    } else {
-                                                        const days = Math.ceil((new Date(truck.taxExpiryDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-                                                        if (days < 0) taxBadge = <Badge variant="destructive" className="text-[10px] px-1 py-0 h-5 w-fit">{t('trucks.badge.taxOverdue')}</Badge>;
-                                                        else if (days <= 30) taxBadge = <Badge variant="outline" className="text-[10px] px-1 py-0 h-5 w-fit text-orange-600 border-orange-600 bg-orange-50">Tax: {days}d</Badge>;
-                                                        else if (days <= 60) taxBadge = <Badge variant="outline" className="text-[10px] px-1 py-0 h-5 w-fit text-blue-600 border-blue-600 bg-blue-50">Tax: {days}d</Badge>;
-                                                    }
-                                                    if (taxBadge) {
-                                                        const tooltipText = truck.taxRenewalStatus === 'in_progress' ? "Update Progress" : "Renew Now";
-                                                        badges.push(
-                                                            <TooltipProvider key="tax">
-                                                                <Tooltip>
-                                                                    <TooltipTrigger asChild>
-                                                                        <Link href={`/admin/trucks/renew?id=${truck.id}&type=tax`} onClick={(e) => e.stopPropagation()} className="hover:opacity-80 transition-opacity w-fit">
-                                                                            {taxBadge}
-                                                                        </Link>
-                                                                    </TooltipTrigger>
-                                                                    <TooltipContent>
-                                                                        <p>{tooltipText}</p>
-                                                                    </TooltipContent>
-                                                                </Tooltip>
-                                                            </TooltipProvider>
-                                                        );
-                                                    }
-                                                }
-
-                                                // Insurance Status (only show badge if NOT completed)
-                                                if (truck.insuranceExpiryDate && !insuranceCompleted) {
-                                                    let insuBadge: ReactNode = null;
-                                                    if (truck.insuranceRenewalStatus === 'in_progress') {
-                                                        insuBadge = <Badge variant="secondary" className="text-[10px] px-1 py-0 h-5 w-fit bg-purple-100 text-purple-700 border-purple-200">{t('trucks.badge.insuInProcess')}</Badge>;
-                                                    } else {
-                                                        const days = Math.ceil((new Date(truck.insuranceExpiryDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-                                                        if (days < 0) insuBadge = <Badge variant="destructive" className="text-[10px] px-1 py-0 h-5 w-fit">{t('trucks.badge.insuOverdue')}</Badge>;
-                                                        else if (days <= 30) insuBadge = <Badge variant="outline" className="text-[10px] px-1 py-0 h-5 w-fit text-orange-600 border-orange-600 bg-orange-50">Insu: {days}d</Badge>;
-                                                        else if (days <= 60) insuBadge = <Badge variant="outline" className="text-[10px] px-1 py-0 h-5 w-fit text-blue-600 border-blue-600 bg-blue-50">Insu: {days}d</Badge>;
-                                                    }
-                                                    if (insuBadge) {
-                                                        const tooltipText = truck.insuranceRenewalStatus === 'in_progress' ? "Update Progress" : "Renew Now";
-                                                        badges.push(
-                                                            <TooltipProvider key="insu">
-                                                                <Tooltip>
-                                                                    <TooltipTrigger asChild>
-                                                                        <Link href={`/admin/trucks/renew?id=${truck.id}&type=insurance`} onClick={(e) => e.stopPropagation()} className="hover:opacity-80 transition-opacity w-fit">
-                                                                            {insuBadge}
-                                                                        </Link>
-                                                                    </TooltipTrigger>
-                                                                    <TooltipContent>
-                                                                        <p>{tooltipText}</p>
-                                                                    </TooltipContent>
-                                                                </Tooltip>
-                                                            </TooltipProvider>
-                                                        );
-                                                    }
-                                                }
-
-                                                // If there are badges to show, render them
-                                                if (badges.length > 0) {
-                                                    return badges;
-                                                }
-
-                                                // Otherwise show single OK (both completed or no issues)
-                                                return (
-                                                    <span className="text-xs text-green-600 flex items-center gap-1">
-                                                        <div className="w-1.5 h-1.5 rounded-full bg-green-500" /> OK
-                                                    </span>
-                                                );
-                                            })()}
-                                        </div>
-                                    </TableCell>
-                                    <TableCell>
-                                        <div className="flex flex-col gap-1">
-                                            {(() => {
                                                 const km = truck.nextServiceMileage && truck.currentMileage ? truck.nextServiceMileage - truck.currentMileage : null;
                                                 const days = truck.nextServiceDate ? Math.ceil((new Date(truck.nextServiceDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) : null;
 
@@ -616,32 +535,6 @@ export default function TrucksListPage() {
                                                     <Link href={`/admin/trucks/edit?id=${truck.id}`} className="flex items-center cursor-pointer" onClick={(e) => e.stopPropagation()}>
                                                         <Edit className="mr-2 h-4 w-4" />
                                                         {t('trucks.action.edit')}
-                                                    </Link>
-                                                </DropdownMenuItem>
-
-                                                {/* Renew Actions - Only show if needed */}
-                                                {truck.taxExpiryDate && (new Date(truck.taxExpiryDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24) <= 60 && (
-                                                    <DropdownMenuItem asChild>
-                                                        <Link href={`/admin/trucks/renew?id=${truck.id}&type=tax`} className="flex items-center cursor-pointer text-orange-600 focus:text-orange-700" onClick={(e) => e.stopPropagation()}>
-                                                            <FileText className="mr-2 h-4 w-4" />
-                                                            {t('trucks.action.renewTax')}
-                                                        </Link>
-                                                    </DropdownMenuItem>
-                                                )}
-
-                                                {truck.insuranceExpiryDate && (new Date(truck.insuranceExpiryDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24) <= 60 && (
-                                                    <DropdownMenuItem asChild>
-                                                        <Link href={`/admin/trucks/renew?id=${truck.id}&type=insurance`} className="flex items-center cursor-pointer text-blue-600 focus:text-blue-700" onClick={(e) => e.stopPropagation()}>
-                                                            <ShieldAlert className="mr-2 h-4 w-4" />
-                                                            {t('trucks.action.renewInsu')}
-                                                        </Link>
-                                                    </DropdownMenuItem>
-                                                )}
-
-                                                <DropdownMenuItem asChild>
-                                                    <Link href={`/admin/trucks/maintenance?id=${truck.id}`} className="flex items-center cursor-pointer text-yellow-600 focus:text-yellow-700" onClick={(e) => e.stopPropagation()}>
-                                                        <Wrench className="mr-2 h-4 w-4" />
-                                                        {t('trucks.action.recordMain')}
                                                     </Link>
                                                 </DropdownMenuItem>
                                             </DropdownMenuContent>

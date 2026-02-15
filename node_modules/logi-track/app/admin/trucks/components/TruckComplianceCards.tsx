@@ -2,30 +2,26 @@
 
 import { useLanguage } from "@/context/language";
 import { useEffect, useState } from "react";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import { collection, query, getDocs } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AlertTriangle, CalendarDays, CheckCircle2, ShieldAlert, FileText, Wrench } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import Link from "next/link";
+import { Truck, Wrench, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-interface ComplianceStats {
+interface FleetStatus {
     total: number;
-    expiringSoon: number; // <= 30 days or <= 1000km
-    overdue: number; // < 0 days or < 0km
-    incoming: number; // 30-60 days
-    items: ComplianceItem[];
+    active: number;
+    maintenance: number;
+    inactive: number;
 }
 
-interface ComplianceItem {
-    id: string;
-    licensePlate: string;
-    type: "tax" | "insurance" | "service";
-    expiryDate: Date;
-    daysRemaining?: number;
-    kmsRemaining?: number;
+interface MaintenanceStatus {
+    total: number; // Total trucks with PM tracked
+    overdue: number; // Overdue PM
+    dueSoon: number; // Due soon PM
+    normal: number; // Normal status
+    items: any[]; // Potentially store items for detailed view if needed later
 }
 
 interface TruckComplianceCardsProps {
@@ -37,13 +33,13 @@ interface TruckComplianceCardsProps {
 export function TruckComplianceCards({ onFilterChange, refreshKey, onLoadingChange }: TruckComplianceCardsProps) {
     const { t } = useLanguage();
     const [stats, setStats] = useState<{
-        tax: ComplianceStats;
-        insurance: ComplianceStats;
-        service: ComplianceStats;
+        fleet: FleetStatus;
+        sub: FleetStatus;
+        maintenance: MaintenanceStatus;
     }>({
-        tax: { total: 0, expiringSoon: 0, overdue: 0, incoming: 0, items: [] },
-        insurance: { total: 0, expiringSoon: 0, overdue: 0, incoming: 0, items: [] },
-        service: { total: 0, expiringSoon: 0, overdue: 0, incoming: 0, items: [] },
+        fleet: { total: 0, active: 0, maintenance: 0, inactive: 0 },
+        sub: { total: 0, active: 0, maintenance: 0, inactive: 0 },
+        maintenance: { total: 0, overdue: 0, dueSoon: 0, normal: 0, items: [] },
     });
     const [loading, setLoading] = useState(true);
     const [activeFilter, setActiveFilter] = useState<{ type: string; status: string } | null>(null);
@@ -58,105 +54,76 @@ export function TruckComplianceCards({ onFilterChange, refreshKey, onLoadingChan
         }
     };
 
-    const formatTimestamp = (timestamp: any): Date | null => {
-        if (!timestamp) return null;
-        if (timestamp.toDate) return timestamp.toDate();
-        if (timestamp.toMillis) return new Date(timestamp.toMillis());
-        if (timestamp.seconds) return new Date(timestamp.seconds * 1000);
-        return new Date(timestamp); // Fallback for string/Date
-    };
-
     useEffect(() => {
-        async function fetchComplianceData() {
+        async function fetchTruckData() {
             setLoading(true);
             onLoadingChange?.(true);
             try {
                 const trucksRef = collection(db, COLLECTIONS.TRUCKS);
-                // Remove status filter for now to match table, or ensure table also filters by active
-                // For compliance dashboard, checking all active/maintenance trucks might be better
-                // But let's stick to 'not inactive' if possible, or just all trucks for now to debug
                 const q = query(trucksRef);
                 const snapshot = await getDocs(q);
 
+                const newStats = {
+                    fleet: { total: 0, active: 0, maintenance: 0, inactive: 0 },
+                    sub: { total: 0, active: 0, maintenance: 0, inactive: 0 },
+                    maintenance: { total: 0, overdue: 0, dueSoon: 0, normal: 0, items: [] },
+                };
+
                 const now = new Date();
                 const warningThresholdDays = 30;
-                const incomingThresholdDays = 60; // 30-60 days
                 const warningThresholdKm = 2000;
-                const incomingThresholdKm = 5000;
 
-                const newStats = {
-                    tax: { total: 0, expiringSoon: 0, overdue: 0, incoming: 0, items: [] as ComplianceItem[] },
-                    insurance: { total: 0, expiringSoon: 0, overdue: 0, incoming: 0, items: [] as ComplianceItem[] },
-                    service: { total: 0, expiringSoon: 0, overdue: 0, incoming: 0, items: [] as ComplianceItem[] },
+                const formatTimestamp = (timestamp: any): Date | null => {
+                    if (!timestamp) return null;
+                    if (timestamp.toDate) return timestamp.toDate();
+                    if (timestamp.toMillis) return new Date(timestamp.toMillis());
+                    if (timestamp.seconds) return new Date(timestamp.seconds * 1000);
+                    return new Date(timestamp);
                 };
 
                 snapshot.forEach((doc) => {
                     const data = doc.data();
 
-                    // Skip inactive trucks if that's the requirement, otherwise include all
-                    if (data.truckStatus === 'inactive') return;
+                    // Filter: OWN FLEET ONLY
+                    if (data.ownershipType !== 'own') return;
 
-                    const truckId = doc.id;
-                    const plate = data.licensePlate || "Unknown";
+                    const status = data.truckStatus || 'inactive';
 
-                    // Tax Logic
-                    const taxDate = formatTimestamp(data.taxExpiryDate);
-                    if (taxDate) {
-                        const days = Math.ceil((taxDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-                        newStats.tax.total++;
-                        // Logic: 
-                        // Overdue: < 0
-                        // Expiring (Warning): 0 <= days <= 30
-                        // Incoming: 30 < days <= 60
+                    // 1. Fleet Status Stats
+                    newStats.fleet.total++;
+                    if (status === 'active') newStats.fleet.active++;
+                    else if (status === 'maintenance') newStats.fleet.maintenance++;
+                    else if (status === 'inactive') newStats.fleet.inactive++;
 
-                        if (days < 0) newStats.tax.overdue++;
-                        else if (days <= warningThresholdDays) newStats.tax.expiringSoon++;
-                        else if (days <= incomingThresholdDays) newStats.tax.incoming++;
-                    }
-
-                    // Insurance Logic
-                    const insuranceDate = formatTimestamp(data.insuranceExpiryDate);
-                    if (insuranceDate) {
-                        const days = Math.ceil((insuranceDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-                        newStats.insurance.total++;
-                        if (days < 0) newStats.insurance.overdue++;
-                        else if (days <= warningThresholdDays) newStats.insurance.expiringSoon++;
-                        else if (days <= incomingThresholdDays) newStats.insurance.incoming++;
-                    }
-
-                    // Maintenance (Service) Logic
+                    // 2. Maintenance Schedule Stats
                     const serviceDate = formatTimestamp(data.nextServiceDate);
                     const currentKm = Number(data.currentMileage) || 0;
                     const nextServiceKm = Number(data.nextServiceMileage);
 
-                    let isServiceTracked = false;
-                    let serviceDays = 999;
-                    let serviceKms = 99999;
+                    let isTracked = false;
+                    let isOverdue = false;
+                    let isDueSoon = false;
 
+                    // Logic copied from previous implementation but simplified for unified "Maintenance" card
                     if (serviceDate) {
-                        isServiceTracked = true;
-                        serviceDays = Math.ceil((serviceDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                        isTracked = true;
+                        const days = Math.ceil((serviceDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                        if (days < 0) isOverdue = true;
+                        else if (days <= warningThresholdDays) isDueSoon = true;
                     }
 
-                    if (data.nextServiceMileage) {
-                        isServiceTracked = true;
-                        serviceKms = nextServiceKm - currentKm;
+                    if (nextServiceKm) {
+                        isTracked = true;
+                        const kms = nextServiceKm - currentKm;
+                        if (kms < 0) isOverdue = true;
+                        else if (kms <= warningThresholdKm) isDueSoon = true;
                     }
 
-                    if (isServiceTracked) {
-                        newStats.service.total++;
-                        // Check Overdue first (logic OR)
-                        if ((serviceDate && serviceDays < 0) || (data.nextServiceMileage && serviceKms < 0)) {
-                            newStats.service.overdue++;
-                        }
-                        // Check Expiring Soon
-                        else if ((serviceDate && serviceDays <= warningThresholdDays) || (data.nextServiceMileage && serviceKms <= warningThresholdKm)) {
-                            newStats.service.expiringSoon++;
-                        }
-                        // Check Incoming
-                        else if ((serviceDate && serviceDays <= incomingThresholdDays) || (data.nextServiceMileage && serviceKms <= incomingThresholdKm)) {
-                            newStats.service.incoming++;
-                        }
+                    if (isTracked) {
+                        newStats.maintenance.total++;
+                        if (isOverdue) newStats.maintenance.overdue++;
+                        else if (isDueSoon) newStats.maintenance.dueSoon++;
+                        else newStats.maintenance.normal++;
                     }
                 });
 
@@ -164,31 +131,26 @@ export function TruckComplianceCards({ onFilterChange, refreshKey, onLoadingChan
                 setLoading(false);
                 onLoadingChange?.(false);
             } catch (error) {
-                console.error("Error fetching compliance stats:", error);
+                console.error("Error fetching truck stats:", error);
                 setLoading(false);
                 onLoadingChange?.(false);
             }
         }
 
-        fetchComplianceData();
+        fetchTruckData();
     }, [refreshKey]);
 
     if (loading) {
         return (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                {[1, 2, 3].map((i) => (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                {[1, 2].map((i) => (
                     <Card key={i} className="border-l-4 border-l-muted shadow-sm animate-pulse">
                         <CardHeader className="pb-2">
                             <div className="h-5 w-32 bg-muted rounded" />
                         </CardHeader>
                         <CardContent>
                             <div className="grid grid-cols-3 gap-2 mt-2 text-center">
-                                {[1, 2, 3].map((j) => (
-                                    <div key={j} className="flex flex-col p-2 space-y-2">
-                                        <div className="h-3 w-16 bg-muted rounded mx-auto" />
-                                        <div className="h-8 w-8 bg-muted rounded mx-auto" />
-                                    </div>
-                                ))}
+                                <div className="h-10 bg-muted rounded col-span-3" />
                             </div>
                         </CardContent>
                     </Card>
@@ -199,93 +161,151 @@ export function TruckComplianceCards({ onFilterChange, refreshKey, onLoadingChan
 
     return (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-            <ComplianceCard
-                title={t('trucks.stats.tax')}
-                icon={<FileText className="h-5 w-5 text-orange-600" />}
-                stats={stats.tax}
-                type="tax"
-                activeFilter={activeFilter}
-                onCardClick={handleCardClick}
-            />
-            <ComplianceCard
-                title={t('trucks.stats.insurance')}
-                icon={<ShieldAlert className="h-5 w-5 text-blue-600" />}
-                stats={stats.insurance}
-                type="insurance"
-                activeFilter={activeFilter}
-                onCardClick={handleCardClick}
-            />
-            <ComplianceCard
-                title={t('trucks.stats.maintenance')}
-                icon={<Wrench className="h-5 w-5 text-purple-600" />}
-                stats={stats.service}
-                type="service"
-                activeFilter={activeFilter}
-                onCardClick={handleCardClick}
-            />
+            {/* Card 1: Own Fleet Status */}
+            <Card className="border shadow-sm">
+                <CardHeader className="pb-4">
+                    <div className="flex justify-between items-start">
+                        <span className="text-lg font-semibold text-foreground">{t('trucks.stats.own')}</span>
+                        <div className="flex flex-col items-end">
+                            <span className="text-[10px] text-muted-foreground uppercase font-medium tracking-wider">{t('trucks.stats.all')}</span>
+                            <span className="text-3xl font-bold text-foreground leading-none mt-1">{stats.fleet.total}</span>
+                        </div>
+                    </div>
+                </CardHeader>
+                <CardContent>
+                    <div className="grid grid-cols-4 gap-4 mt-2 text-center divide-x divide-border/40">
+                        <StatusItem
+                            label={t('trucks.stats.active')}
+                            count={stats.fleet.active}
+                            color="text-green-500"
+                            active={activeFilter?.type === 'own' && activeFilter?.status === 'active'}
+                            onClick={() => handleCardClick('own', 'active')}
+                        />
+                        <StatusItem
+                            label={t('trucks.stats.available')}
+                            count={stats.fleet.inactive}
+                            color="text-blue-500"
+                            active={activeFilter?.type === 'own' && activeFilter?.status === 'available'}
+                            onClick={() => handleCardClick('own', 'available')}
+                        />
+                        <StatusItem
+                            label={t('trucks.stats.pm')}
+                            count={0}
+                            color="text-orange-500"
+                            active={activeFilter?.type === 'own' && activeFilter?.status === 'pm'}
+                            onClick={() => handleCardClick('own', 'pm')}
+                        />
+                        <StatusItem
+                            label={t('trucks.stats.corrective')}
+                            count={stats.fleet.maintenance}
+                            color="text-red-500"
+                            active={activeFilter?.type === 'own' && activeFilter?.status === 'corrective'}
+                            lastItem
+                            onClick={() => handleCardClick('own', 'corrective')}
+                        />
+                    </div>
+                </CardContent>
+            </Card>
+
+            {/* Card 2: Subcontractor Fleet Status */}
+            <Card className="border shadow-sm">
+                <CardHeader className="pb-4">
+                    <div className="flex justify-between items-start">
+                        <span className="text-lg font-semibold text-foreground">{t('trucks.stats.sub')}</span>
+                        <div className="flex flex-col items-end">
+                            <span className="text-[10px] text-muted-foreground uppercase font-medium tracking-wider">{t('trucks.stats.all')}</span>
+                            <span className="text-3xl font-bold text-foreground leading-none mt-1">{stats.sub.total}</span>
+                        </div>
+                    </div>
+                </CardHeader>
+                <CardContent>
+                    <div className="grid grid-cols-4 gap-4 mt-2 text-center divide-x divide-border/40">
+                        <StatusItem
+                            label={t('trucks.stats.active')}
+                            count={stats.sub.active}
+                            color="text-green-500"
+                            active={activeFilter?.type === 'sub' && activeFilter?.status === 'active'}
+                            onClick={() => handleCardClick('sub', 'active')}
+                        />
+                        <StatusItem
+                            label={t('trucks.stats.available')}
+                            count={stats.sub.inactive}
+                            color="text-blue-500"
+                            active={activeFilter?.type === 'sub' && activeFilter?.status === 'available'}
+                            onClick={() => handleCardClick('sub', 'available')}
+                        />
+                        <StatusItem
+                            label={t('trucks.stats.pm')}
+                            count={0}
+                            color="text-orange-500"
+                            active={activeFilter?.type === 'sub' && activeFilter?.status === 'pm'}
+                            onClick={() => handleCardClick('sub', 'pm')}
+                        />
+                        <StatusItem
+                            label={t('trucks.stats.corrective')}
+                            count={stats.sub.maintenance}
+                            color="text-red-500"
+                            active={activeFilter?.type === 'sub' && activeFilter?.status === 'corrective'}
+                            lastItem
+                            onClick={() => handleCardClick('sub', 'corrective')}
+                        />
+                    </div>
+                </CardContent>
+            </Card>
+
+            {/* Card 3: Maintenance Schedule */}
+            <Card className="border shadow-sm">
+                <CardHeader className="pb-4">
+                    <div className="flex flex-col items-start gap-1">
+                        <span className="text-base font-semibold text-foreground">Maintenance / Corrective</span>
+                        <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">{t('trucks.stats.ownFleetOnly')}</span>
+                    </div>
+                </CardHeader>
+                <CardContent>
+                    <div className="grid grid-cols-3 gap-4 mt-2 text-center divide-x divide-border/40">
+                        <StatusItem
+                            label={t('trucks.stats.pmSoon')}
+                            count={stats.maintenance.dueSoon}
+                            color="text-sky-500"
+                            active={activeFilter?.type === 'maintenance' && activeFilter?.status === 'due'}
+                            onClick={() => handleCardClick('maintenance', 'due')}
+                        />
+                        <StatusItem
+                            label={t('trucks.stats.pmOverdue')}
+                            count={stats.maintenance.overdue}
+                            color="text-orange-500"
+                            active={activeFilter?.type === 'maintenance' && activeFilter?.status === 'overdue'}
+                            onClick={() => handleCardClick('maintenance', 'overdue')}
+                        />
+                        <StatusItem
+                            label="Corrective"
+                            count={stats.fleet.maintenance}
+                            color="text-red-500"
+                            active={activeFilter?.type === 'own' && activeFilter?.status === 'corrective'}
+                            lastItem
+                            onClick={() => handleCardClick('own', 'corrective')}
+                        />
+                    </div>
+                </CardContent>
+            </Card>
         </div>
     );
 }
 
-function ComplianceCard({ title, icon, stats, type, activeFilter, onCardClick }: any) {
-    const { t } = useLanguage();
-    const isActive = (status: string) => activeFilter?.type === type && activeFilter?.status === status;
-
+function StatusItem({ label, count, color, active, lastItem, onClick }: { label: string, count: number, color?: string, active?: boolean, lastItem?: boolean, onClick: () => void }) {
     return (
-        <Card className="border-l-4 border-l-blue-600 shadow-sm">
-            <CardHeader className="pb-2">
-                <CardTitle className="text-base font-medium text-muted-foreground flex items-center gap-2">
-                    {icon}
-                    {title}
-                </CardTitle>
-            </CardHeader>
-            <CardContent>
-                <div className="grid grid-cols-3 gap-2 mt-2 text-center">
-                    <div
-                        onClick={() => onCardClick(type, "incoming")}
-                        className={cn(
-                            "flex flex-col p-2 rounded cursor-pointer transition-colors hover:bg-muted",
-                            isActive("incoming") ? "bg-muted ring-1 ring-primary" : ""
-                        )}
-                    >
-                        <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold min-h-[2.5rem] flex items-center justify-center">
-                            {type === 'service' ? t('trucks.stats.pmIncoming') : t('trucks.stats.incoming')}
-                        </span>
-                        <span className="text-2xl font-bold text-blue-600">{stats.incoming}</span>
-                    </div>
-                    <div
-                        onClick={() => onCardClick(type, "expiring")}
-                        className={cn(
-                            "flex flex-col p-2 rounded cursor-pointer transition-colors hover:bg-muted",
-                            isActive("expiring") ? "bg-muted ring-1 ring-primary" : ""
-                        )}
-                    >
-                        <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold min-h-[2.5rem] flex items-center justify-center">
-                            {type === 'service' ? t('trucks.stats.pmDueSoon') : t('trucks.stats.less30Days')}
-                        </span>
-                        <span className="text-2xl font-bold text-orange-600">{stats.expiringSoon}</span>
-                    </div>
-                    <div
-                        onClick={() => onCardClick(type, "overdue")}
-                        className={cn(
-                            "flex flex-col p-2 rounded cursor-pointer transition-colors hover:bg-muted",
-                            isActive("overdue") ? "bg-muted ring-1 ring-primary" : ""
-                        )}
-                    >
-                        <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold min-h-[2.5rem] flex items-center justify-center">
-                            {type === 'service' ? t('trucks.stats.pmOverdue') : t('trucks.stats.overdue')}
-                        </span>
-                        <span className="text-2xl font-bold text-red-600">{stats.overdue}</span>
-                    </div>
-                </div>
-            </CardContent>
-            {/* Responsibility Footer */}
-            <div className="bg-muted/30 px-4 py-2 border-t text-xs text-muted-foreground flex justify-between items-center">
-                <span>{t('trucks.stats.owner')}:</span>
-                <span className="font-medium text-foreground">
-                    {type === 'service' ? t('trucks.stats.assignedDriver') : t('trucks.stats.opAdmin')}
-                </span>
-            </div>
-        </Card >
-    );
+        <div
+            onClick={onClick}
+            className={cn(
+                "flex flex-col items-center justify-center cursor-pointer transition-all hover:opacity-80 relative",
+                !lastItem ? "pr-4" : "",
+                active ? "scale-105 transform" : ""
+            )}
+        >
+            <span className={cn("text-[10px] uppercase tracking-wider mb-2 font-semibold", active ? "text-primary" : "text-muted-foreground")}>
+                {label}
+            </span>
+            <span className={cn("text-2xl font-bold", color || "text-foreground")}>{count}</span>
+        </div>
+    )
 }
