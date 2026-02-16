@@ -76,7 +76,7 @@ export default function RenewalClient() {
                     <ArrowLeft className="h-5 w-5" />
                 </Button>
                 <div>
-                    <h1 className="text-2xl font-bold tracking-tight">Compliance Renewal</h1>
+                    <h1 className="text-2xl font-bold tracking-tight">{t("renewals.form.title.compliance")}</h1>
                     <p className="text-muted-foreground">
                         {truck.brand} {truck.model} - <span className="font-mono font-medium text-foreground">{formatLicensePlate(truck.licensePlate)}</span>
                     </p>
@@ -87,13 +87,13 @@ export default function RenewalClient() {
                 <TabsList className="grid w-full grid-cols-2">
                     <TabsTrigger value="tax" className="gap-2">
                         <FileText className="h-4 w-4" />
-                        Tax Renewal
-                        {truck.taxRenewalStatus === 'in_progress' && <Badge variant="secondary" className="ml-2 text-[10px] h-4">In Progress</Badge>}
+                        {t("renewals.form.tab.tax")}
+                        {truck.taxRenewalStatus === 'in_progress' && <Badge variant="secondary" className="ml-2 text-[10px] h-4">{t("renewals.form.status.inProgress")}</Badge>}
                     </TabsTrigger>
                     <TabsTrigger value="insurance" className="gap-2">
                         <Shield className="h-4 w-4" />
-                        Insurance Renewal
-                        {truck.insuranceRenewalStatus === 'in_progress' && <Badge variant="secondary" className="ml-2 text-[10px] h-4">In Progress</Badge>}
+                        {t("renewals.form.tab.insurance")}
+                        {truck.insuranceRenewalStatus === 'in_progress' && <Badge variant="secondary" className="ml-2 text-[10px] h-4">{t("renewals.form.status.inProgress")}</Badge>}
                     </TabsTrigger>
                 </TabsList>
 
@@ -299,11 +299,11 @@ function RenewalForm({ type, truck, onSuccess }: { type: "tax" | "insurance", tr
             setSelectedFile(null);
 
             if (nextStatus === 'completed') {
-                toast.success(`${type === 'tax' ? 'Tax' : 'Insurance'} Renewal Completed Successfully`);
+                toast.success(type === 'tax' ? t("renewals.form.toast.successTax") : t("renewals.form.toast.successInsurance"));
                 onSuccess();
                 router.push(`/admin/trucks/view?id=${truck.id}`);
             } else {
-                toast.success("Progress saved successfully");
+                toast.success(t("renewals.form.toast.successSave"));
                 onSuccess();
             }
 
@@ -320,19 +320,19 @@ function RenewalForm({ type, truck, onSuccess }: { type: "tax" | "insurance", tr
                 <div className="flex justify-between items-start">
                     <div>
                         <CardTitle className="text-xl flex items-center gap-2">
-                            {type === 'tax' ? "Tax / Act Retrieval" : "Insurance Information"}
+                            {type === 'tax' ? t("renewals.form.card.taxTitle") : t("renewals.form.card.insuranceTitle")}
                             {status === 'completed' && <CheckCircle2 className="h-5 w-5 text-green-500" />}
                             {status === 'in_progress' && <Clock className="h-5 w-5 text-yellow-500" />}
                         </CardTitle>
                         <CardDescription className="mt-1">
-                            Current Expiry: <span className="font-semibold text-foreground">
+                            {t("renewals.form.card.currentExpiry")}: <span className="font-semibold text-foreground">
                                 {type === 'tax' ? truck.taxExpiryDate || "-" : truck.insuranceExpiryDate || "-"}
                             </span>
                         </CardDescription>
                     </div>
                     <div>
                         <Badge variant={status === 'completed' ? 'default' : status === 'in_progress' ? 'secondary' : 'outline'} className="capitalize">
-                            {status?.replace('_', ' ') || 'Pending'}
+                            {status === 'in_progress' ? t("renewals.form.status.inProgress") : (status?.replace('_', ' ') || 'Pending')}
                         </Badge>
                     </div>
                 </div>
@@ -343,16 +343,16 @@ function RenewalForm({ type, truck, onSuccess }: { type: "tax" | "insurance", tr
                     {type === 'tax' && (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="space-y-2">
-                                <Label>Person In Charge</Label>
+                                <Label>{t("renewals.form.personInCharge")}</Label>
                                 <Input
                                     value={assignedTo}
                                     onChange={(e) => setAssignedTo(e.target.value)}
-                                    placeholder="Name of responsible person"
+                                    placeholder={t("renewals.form.placeholder.person")}
                                 />
                             </div>
 
                             <div className="space-y-2">
-                                <Label>Expense Amount (THB)</Label>
+                                <Label>{t("renewals.form.expense")}</Label>
                                 <Input
                                     type="number"
                                     value={expense}
@@ -362,21 +362,21 @@ function RenewalForm({ type, truck, onSuccess }: { type: "tax" | "insurance", tr
                             </div>
 
                             <div className="space-y-2">
-                                <Label>Payment Method</Label>
+                                <Label>{t("renewals.form.paymentMethod")}</Label>
                                 <Select value={paymentMethod} onValueChange={setPaymentMethod}>
                                     <SelectTrigger>
-                                        <SelectValue placeholder="Select method" />
+                                        <SelectValue placeholder={t("renewals.form.placeholder.method")} />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="Cash">Cash</SelectItem>
-                                        <SelectItem value="Transfer">Transfer</SelectItem>
-                                        <SelectItem value="Company Credit">Company Credit</SelectItem>
+                                        <SelectItem value="Cash">{t("renewals.form.select.cash")}</SelectItem>
+                                        <SelectItem value="Transfer">{t("renewals.form.select.transfer")}</SelectItem>
+                                        <SelectItem value="Company Credit">{t("renewals.form.select.credit")}</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
 
                             <div className="space-y-2">
-                                <Label>Due Date / New Expiry Date</Label>
+                                <Label>{t("renewals.form.dueDate")}</Label>
                                 <DatePicker
                                     value={expiryDate ? new Date(expiryDate) : undefined}
                                     onChange={(date) => setExpiryDate(date ? format(date, "yyyy-MM-dd") : "")}
@@ -393,11 +393,11 @@ function RenewalForm({ type, truck, onSuccess }: { type: "tax" | "insurance", tr
                             {/* Person In Charge */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-2">
-                                    <Label>Person In Charge</Label>
+                                    <Label>{t("renewals.form.personInCharge")}</Label>
                                     <Input
                                         value={assignedTo}
                                         onChange={(e) => setAssignedTo(e.target.value)}
-                                        placeholder="Name of responsible person"
+                                        placeholder={t("renewals.form.placeholder.person")}
                                     />
                                 </div>
                             </div>
@@ -405,19 +405,19 @@ function RenewalForm({ type, truck, onSuccess }: { type: "tax" | "insurance", tr
                             {/* Row 1: Policy ID & Policy Number */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-2">
-                                    <Label>Policy ID (Internal)</Label>
+                                    <Label>{t("renewals.form.policyId")}</Label>
                                     <Input
                                         value={policyId}
                                         onChange={(e) => setPolicyId(e.target.value)}
-                                        placeholder="INS.00101015"
+                                        placeholder={t("renewals.form.placeholder.policyId")}
                                     />
                                 </div>
                                 <div className="space-y-2">
-                                    <Label>Policy Number</Label>
+                                    <Label>{t("renewals.form.policyNumber")}</Label>
                                     <Input
                                         value={policyNumber}
                                         onChange={(e) => setPolicyNumber(e.target.value)}
-                                        placeholder="VRI20251745668"
+                                        placeholder={t("renewals.form.placeholder.policyNumber")}
                                     />
                                 </div>
                             </div>
@@ -425,30 +425,30 @@ function RenewalForm({ type, truck, onSuccess }: { type: "tax" | "insurance", tr
                             {/* Row 2: Provider, Coverage Type, Premium */}
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                 <div className="space-y-2">
-                                    <Label>Provider</Label>
+                                    <Label>{t("renewals.form.provider")}</Label>
                                     <Input
                                         value={provider}
                                         onChange={(e) => setProvider(e.target.value)}
-                                        placeholder="Viriyah"
+                                        placeholder={t("renewals.form.placeholder.provider")}
                                     />
                                 </div>
                                 <div className="space-y-2">
-                                    <Label>Coverage Type</Label>
+                                    <Label>{t("renewals.form.coverageType")}</Label>
                                     <Select value={coverageType} onValueChange={setCoverageType}>
                                         <SelectTrigger>
-                                            <SelectValue placeholder="Select type" />
+                                            <SelectValue placeholder={t("renewals.form.placeholder.type")} />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="1">ประกันชั้น 1</SelectItem>
-                                            <SelectItem value="2">ประกันชั้น 2</SelectItem>
-                                            <SelectItem value="2+">ประกันชั้น 2+</SelectItem>
-                                            <SelectItem value="3">ประกันชั้น 3</SelectItem>
-                                            <SelectItem value="3+">ประกันชั้น 3+</SelectItem>
+                                            <SelectItem value="1">{t("trucks.insurance.type.1")}</SelectItem>
+                                            <SelectItem value="2">{t("trucks.insurance.type.2")}</SelectItem>
+                                            <SelectItem value="2+">{t("trucks.insurance.type.2_plus")}</SelectItem>
+                                            <SelectItem value="3">{t("trucks.insurance.type.3")}</SelectItem>
+                                            <SelectItem value="3+">{t("trucks.insurance.type.3_plus")}</SelectItem>
                                         </SelectContent>
                                     </Select>
                                 </div>
                                 <div className="space-y-2">
-                                    <Label>Premium (Baht)</Label>
+                                    <Label>{t("renewals.form.premium")}</Label>
                                     <Input
                                         type="number"
                                         value={expense}
@@ -461,15 +461,15 @@ function RenewalForm({ type, truck, onSuccess }: { type: "tax" | "insurance", tr
                             {/* Row 2.5: Payment Method */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-2">
-                                    <Label>Payment Method</Label>
+                                    <Label>{t("renewals.form.paymentMethod")}</Label>
                                     <Select value={paymentMethod} onValueChange={setPaymentMethod}>
                                         <SelectTrigger>
-                                            <SelectValue placeholder="Select method" />
+                                            <SelectValue placeholder={t("renewals.form.placeholder.method")} />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="Cash">Cash</SelectItem>
-                                            <SelectItem value="Transfer">Transfer</SelectItem>
-                                            <SelectItem value="Company Credit">Company Credit</SelectItem>
+                                            <SelectItem value="Cash">{t("renewals.form.select.cash")}</SelectItem>
+                                            <SelectItem value="Transfer">{t("renewals.form.select.transfer")}</SelectItem>
+                                            <SelectItem value="Company Credit">{t("renewals.form.select.credit")}</SelectItem>
                                         </SelectContent>
                                     </Select>
                                 </div>
@@ -478,7 +478,7 @@ function RenewalForm({ type, truck, onSuccess }: { type: "tax" | "insurance", tr
                             {/* Row 3: Start Date & End Date */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-2">
-                                    <Label>Start Date</Label>
+                                    <Label>{t("renewals.form.startDate")}</Label>
                                     <DatePicker
                                         value={startDate ? new Date(startDate) : undefined}
                                         onChange={(date) => setStartDate(date ? format(date, "yyyy-MM-dd") : "")}
@@ -487,7 +487,7 @@ function RenewalForm({ type, truck, onSuccess }: { type: "tax" | "insurance", tr
                                     />
                                 </div>
                                 <div className="space-y-2">
-                                    <Label>End Date</Label>
+                                    <Label>{t("renewals.form.endDate")}</Label>
                                     <DatePicker
                                         value={expiryDate ? new Date(expiryDate) : undefined}
                                         onChange={(date) => setExpiryDate(date ? format(date, "yyyy-MM-dd") : "")}
@@ -499,19 +499,19 @@ function RenewalForm({ type, truck, onSuccess }: { type: "tax" | "insurance", tr
 
                             {/* Row 4: Notes */}
                             <div className="space-y-2">
-                                <Label>Notes</Label>
+                                <Label>{t("renewals.form.notes")}</Label>
                                 <textarea
                                     className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                                     value={notes}
                                     onChange={(e) => setNotes(e.target.value)}
-                                    placeholder="Additional notes..."
+                                    placeholder={t("renewals.form.placeholder.notes")}
                                 />
                             </div>
 
                             {/* Row 5: Insurance Documents */}
                             <div className="space-y-3">
                                 <div className="flex items-center justify-between">
-                                    <Label>Insurance Documents</Label>
+                                    <Label>{t("renewals.form.insuranceDocs")}</Label>
                                     {uploadedDocs.length > 0 && (
                                         <Button
                                             type="button"
@@ -520,7 +520,7 @@ function RenewalForm({ type, truck, onSuccess }: { type: "tax" | "insurance", tr
                                             onClick={() => setUploadedDocs([])}
                                             className="text-red-500 hover:text-red-600 hover:bg-red-50 h-7 px-2 text-xs"
                                         >
-                                            Reset All
+                                            {t("renewals.form.resetAll")}
                                         </Button>
                                     )}
                                 </div>
@@ -564,7 +564,7 @@ function RenewalForm({ type, truck, onSuccess }: { type: "tax" | "insurance", tr
                                         ) : (
                                             <>
                                                 <Upload className="h-8 w-8 text-muted-foreground" />
-                                                <span className="text-sm text-muted-foreground">Upload PDF/Img</span>
+                                                <span className="text-sm text-muted-foreground">{t("renewals.form.upload.insuranceHint")}</span>
                                             </>
                                         )}
                                     </div>
@@ -576,7 +576,7 @@ function RenewalForm({ type, truck, onSuccess }: { type: "tax" | "insurance", tr
                     {/* File Upload Section for Tax */}
                     {type === 'tax' && (
                         <div className="space-y-3 pt-2">
-                            <Label>Document / Payment Receipt</Label>
+                            <Label>{t("renewals.form.taxDoc")}</Label>
                             <div className="flex items-center gap-4">
                                 <div className="flex-1">
                                     {existingFileUrl ? (
@@ -585,7 +585,7 @@ function RenewalForm({ type, truck, onSuccess }: { type: "tax" | "insurance", tr
                                             <div className="flex-1 overflow-hidden">
                                                 <p className="text-sm font-medium truncate">Uploaded Document</p>
                                                 <a href={existingFileUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">
-                                                    View / Download
+                                                    {t("renewals.form.upload.view")}
                                                 </a>
                                             </div>
                                             <Button
@@ -595,7 +595,7 @@ function RenewalForm({ type, truck, onSuccess }: { type: "tax" | "insurance", tr
                                                 onClick={() => setExistingFileUrl(undefined)}
                                                 className="text-muted-foreground hover:text-destructive"
                                             >
-                                                Replace
+                                                {t("renewals.form.upload.replace")}
                                             </Button>
                                         </div>
                                     ) : (
@@ -607,8 +607,8 @@ function RenewalForm({ type, truck, onSuccess }: { type: "tax" | "insurance", tr
                                                 accept="image/*,application/pdf"
                                             />
                                             <Upload className="h-8 w-8" />
-                                            <span className="text-sm font-medium">{selectedFile ? selectedFile.name : "Click to upload Receipt / Document"}</span>
-                                            {!selectedFile && <span className="text-xs text-muted-foreground/75">PDF, JPG, PNG up to 10MB</span>}
+                                            <span className="text-sm font-medium">{selectedFile ? selectedFile.name : t("renewals.form.upload.label")}</span>
+                                            {!selectedFile && <span className="text-xs text-muted-foreground/75">{t("renewals.form.upload.hint")}</span>}
                                         </div>
                                     )}
                                 </div>
@@ -619,7 +619,7 @@ function RenewalForm({ type, truck, onSuccess }: { type: "tax" | "insurance", tr
                     {/* Actions */}
                     <div className="flex justify-end gap-3 pt-6 border-t">
                         <Button type="button" variant="ghost" onClick={() => router.back()}>
-                            Cancel
+                            {t("renewals.form.button.cancel")}
                         </Button>
 
                         {status !== 'completed' && (
@@ -630,7 +630,7 @@ function RenewalForm({ type, truck, onSuccess }: { type: "tax" | "insurance", tr
                                 disabled={isSubmitting}
                             >
                                 {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                                Save Progress
+                                {t("renewals.form.button.save")}
                             </Button>
                         )}
 
@@ -641,7 +641,7 @@ function RenewalForm({ type, truck, onSuccess }: { type: "tax" | "insurance", tr
                             disabled={isSubmitting || !expiryDate || (type === 'tax' && !existingFileUrl && !selectedFile)}
                         >
                             {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-                            Complete Renewal
+                            {t("renewals.form.button.complete")}
                         </Button>
                     </div>
                 </form>

@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "npm run clean && next dev",
+    "dev": "next dev",
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "clean": "npx rimraf .next out .turbo",
+    "clean": "rimraf .next out .turbo",
     "deploy": "npm run build && firebase deploy",
     "deploy:clean": "npm run clean && npm run build && firebase deploy",
     "prepare": "husky",

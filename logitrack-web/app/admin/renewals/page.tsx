@@ -18,8 +18,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import Link from "next/link";
 import { format } from "date-fns";
+import { useLanguage } from "@/context/language";
 
 export default function RenewalsPage() {
+    const { t } = useLanguage();
     const [trucks, setTrucks] = useState<RenewalTruckData[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState("");
@@ -73,21 +75,23 @@ export default function RenewalsPage() {
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Fleet Compliance & Renewals</h1>
-                    <p className="text-muted-foreground mt-1">Manage Tax and Insurance expiration across the fleet.</p>
+                    <h1 className="text-3xl font-bold tracking-tight">{t("renewals.title")}</h1>
+                    <p className="text-muted-foreground mt-1">{t("renewals.subtitle")}</p>
                 </div>
                 <div className="flex gap-2">
                     <Button variant="outline" onClick={() => setFilter("all")} className={filter === "all" ? "bg-accent" : ""}>
-                        All Vehicles
+                        {t("renewals.filter.all")}
                     </Button>
                     <Button variant="outline" onClick={() => setFilter("critical")} className={`gap-2 ${filter === "critical" ? "bg-red-100 text-red-900 border-red-200 hover:bg-red-200" : ""}`}>
                         <AlertTriangle className="h-4 w-4 text-red-600" />
-                        Critical Action
+                        {t("renewals.filter.critical")}
+                        {/* If we want to translate the badge content or context, we might need a key, 
+                            but numbers are universal. The user's goal is translations. */}
                         <Badge variant="secondary" className="ml-1 bg-red-200 text-red-800">{taxOverdue + insuranceOverdue}</Badge>
                     </Button>
                     <Button variant="outline" onClick={() => setFilter("warning")} className={`gap-2 ${filter === "warning" ? "bg-yellow-100 text-yellow-900 border-yellow-200 hover:bg-yellow-200" : ""}`}>
                         <Calendar className="h-4 w-4 text-yellow-600" />
-                        Expiring Soon
+                        {t("renewals.filter.warning")}
                         <Badge variant="secondary" className="ml-1 bg-yellow-200 text-yellow-800">{taxExpiring + insuranceExpiring}</Badge>
                     </Button>
                 </div>
@@ -97,14 +101,14 @@ export default function RenewalsPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Total Fleet</CardTitle>
+                        <CardTitle className="text-sm font-medium">{t("renewals.card.totalFleet")}</CardTitle>
                         <Truck className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold">{totalTrucks}</div>
-                        <p className="text-xs text-muted-foreground">Active vehicles</p>
+                        <p className="text-xs text-muted-foreground">{t("renewals.card.activeVehicles")}</p>
                         <div className="mt-2 pt-2 border-t text-xs flex justify-between items-center text-muted-foreground">
-                            <span>Total Est. Cost:</span>
+                            <span>{t("renewals.card.totalEstCost")}:</span>
                             <span className="font-semibold text-foreground">฿{totalCost.toLocaleString()}</span>
                         </div>
                     </CardContent>
@@ -112,31 +116,31 @@ export default function RenewalsPage() {
 
                 <Card className="border-l-4 border-l-red-500">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-red-700">Tax Critical</CardTitle>
+                        <CardTitle className="text-sm font-medium text-red-700">{t("renewals.card.taxCritical")}</CardTitle>
                         <CreditCard className="h-4 w-4 text-red-500" />
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold text-red-700">{taxOverdue}</div>
-                        <p className="text-xs text-red-600 font-medium">Overdue payments</p>
-                        <p className="text-xs text-muted-foreground mt-1">{taxExpiring} expiring soon</p>
+                        <p className="text-xs text-red-600 font-medium">{t("renewals.card.overduePayments")}</p>
+                        <p className="text-xs text-muted-foreground mt-1">{taxExpiring} {t("renewals.card.expiringSoon")}</p>
                     </CardContent>
                 </Card>
 
                 <Card className="border-l-4 border-l-orange-500">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-orange-700">Insurance Critical</CardTitle>
+                        <CardTitle className="text-sm font-medium text-orange-700">{t("renewals.card.insuranceCritical")}</CardTitle>
                         <Shield className="h-4 w-4 text-orange-500" />
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold text-orange-700">{insuranceOverdue}</div>
-                        <p className="text-xs text-orange-600 font-medium">Policies expired</p>
-                        <p className="text-xs text-muted-foreground mt-1">{insuranceExpiring} expiring soon</p>
+                        <p className="text-xs text-orange-600 font-medium">{t("renewals.card.policiesExpired")}</p>
+                        <p className="text-xs text-muted-foreground mt-1">{insuranceExpiring} {t("renewals.card.expiringSoon")}</p>
                     </CardContent>
                 </Card>
 
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Compliance Rate</CardTitle>
+                        <CardTitle className="text-sm font-medium">{t("renewals.card.complianceRate")}</CardTitle>
                         <CheckCircle2 className="h-4 w-4 text-green-500" />
                     </CardHeader>
                     <CardContent>
@@ -144,7 +148,7 @@ export default function RenewalsPage() {
                         <div className="text-2xl font-bold">
                             {trucks.length > 0 ? Math.round(((totalTrucks - (taxOverdue + insuranceOverdue)) / totalTrucks) * 100) : 0}%
                         </div>
-                        <p className="text-xs text-muted-foreground">Operating fully legally</p>
+                        <p className="text-xs text-muted-foreground">{t("renewals.card.legalOperation")}</p>
                     </CardContent>
                 </Card>
             </div>
@@ -153,11 +157,11 @@ export default function RenewalsPage() {
             <Card>
                 <CardHeader>
                     <div className="flex justify-between items-center">
-                        <CardTitle>Vehicle Renewal Status</CardTitle>
+                        <CardTitle>{t("renewals.table.title")}</CardTitle>
                         <div className="relative w-[300px]">
                             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                             <Input
-                                placeholder="Search by license or brand..."
+                                placeholder={t("renewals.searchPlaceholder")}
                                 className="pl-9"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -169,13 +173,13 @@ export default function RenewalsPage() {
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead>Vehicle</TableHead>
-                                <TableHead>Ownership</TableHead>
-                                <TableHead>Tax Status</TableHead>
-                                <TableHead className="text-right">Tax Cost</TableHead>
-                                <TableHead>Insurance Status</TableHead>
-                                <TableHead className="text-right">Ins. Cost</TableHead>
-                                <TableHead className="text-right">Actions</TableHead>
+                                <TableHead className="w-[300px]">{t("renewals.table.vehicle")}</TableHead>
+                                <TableHead className="w-[150px] text-center">{t("renewals.table.ownership")}</TableHead>
+                                <TableHead className="w-[200px]">{t("renewals.table.taxStatus")}</TableHead>
+                                <TableHead className="w-[150px] text-right">{t("renewals.table.taxCost")}</TableHead>
+                                <TableHead className="w-[200px]">{t("renewals.table.insuranceStatus")}</TableHead>
+                                <TableHead className="w-[150px] text-right">{t("renewals.table.insuranceCost")}</TableHead>
+                                <TableHead className="w-[100px] text-right">{t("renewals.table.actions")}</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -185,7 +189,7 @@ export default function RenewalsPage() {
                                         <div className="font-semibold">{truck.licensePlate}</div>
                                         <div className="text-xs text-muted-foreground">{truck.brand} {truck.model}</div>
                                     </TableCell>
-                                    <TableCell>
+                                    <TableCell className="text-center">
                                         <Badge variant="outline" className="capitalize text-xs">
                                             {truck.ownershipType}
                                         </Badge>
@@ -221,21 +225,21 @@ export default function RenewalsPage() {
                                                 </Button>
                                             </DropdownMenuTrigger>
                                             <DropdownMenuContent align="end">
-                                                <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                                                <DropdownMenuLabel>{t("renewals.table.actions")}</DropdownMenuLabel>
                                                 <DropdownMenuItem asChild>
                                                     <Link href={`/admin/trucks/renew?id=${truck.id}&type=tax`}>
-                                                        Renew Tax
+                                                        {t("renewals.action.renewTax")}
                                                     </Link>
                                                 </DropdownMenuItem>
                                                 <DropdownMenuItem asChild>
                                                     <Link href={`/admin/trucks/renew?id=${truck.id}&type=insurance`}>
-                                                        Renew Insurance
+                                                        {t("renewals.action.renewInsurance")}
                                                     </Link>
                                                 </DropdownMenuItem>
                                                 <DropdownMenuSeparator />
                                                 <DropdownMenuItem asChild>
                                                     <Link href={`/admin/trucks/view?id=${truck.id}`}>
-                                                        View Details
+                                                        {t("renewals.action.viewDetails")}
                                                     </Link>
                                                 </DropdownMenuItem>
                                             </DropdownMenuContent>
@@ -246,7 +250,7 @@ export default function RenewalsPage() {
                             {filteredTrucks.length === 0 && (
                                 <TableRow>
                                     <TableCell colSpan={7} className="h-24 text-center">
-                                        No vehicles found matching criteria.
+                                        {t("renewals.table.noData")}
                                     </TableCell>
                                 </TableRow>
                             )}
@@ -259,14 +263,15 @@ export default function RenewalsPage() {
 }
 
 function StatusBadge({ status, label }: { status: string, label: string }) {
+    const { t } = useLanguage();
     if (status === "in_progress") {
-        return <Badge variant="secondary" className="w-fit text-[10px] h-5 px-1.5 bg-blue-100 text-blue-700 hover:bg-blue-100 border-blue-200">IN PROGRESS</Badge>
+        return <Badge variant="secondary" className="w-fit text-[10px] h-5 px-1.5 bg-blue-100 text-blue-700 hover:bg-blue-100 border-blue-200">{t("renewals.status.inProgress")}</Badge>
     }
     if (status === "overdue") {
-        return <Badge variant="destructive" className="w-fit text-[10px] h-5 px-1.5 bg-red-100 text-red-700 hover:bg-red-100 border-red-200">OVERDUE</Badge>
+        return <Badge variant="destructive" className="w-fit text-[10px] h-5 px-1.5 bg-red-100 text-red-700 hover:bg-red-100 border-red-200">{t("renewals.status.overdue")}</Badge>
     }
     if (status === "expiring_soon") {
-        return <Badge className="w-fit text-[10px] h-5 px-1.5 bg-yellow-100 text-yellow-700 hover:bg-yellow-100 border-yellow-200">EXPIRING SOON</Badge>
+        return <Badge className="w-fit text-[10px] h-5 px-1.5 bg-yellow-100 text-yellow-700 hover:bg-yellow-100 border-yellow-200">{t("renewals.status.expiringSoon")}</Badge>
     }
-    return <Badge variant="outline" className="w-fit text-[10px] h-5 px-1.5 bg-green-50 text-green-700 border-green-200 hover:bg-green-50">OK</Badge>
+    return <Badge variant="outline" className="w-fit text-[10px] h-5 px-1.5 bg-green-50 text-green-700 border-green-200 hover:bg-green-50">{t("renewals.status.ok")}</Badge>
 }
