@@ -18,14 +18,30 @@ Future<List<int>> stampImageWithLocationAndTime({
 
   final stamp = '${lat.toStringAsFixed(6)}, ${lng.toStringAsFixed(6)}\n${timestamp.toIso8601String()}';
   const lineHeight = 18;
+  const padding = 8;
   final numLines = stamp.split('\n').length;
-  final textY = image.height - (lineHeight * numLines) - 8;
-  if (textY > 0) {
+  final stampHeight = (lineHeight * numLines) + padding * 2;
+  final textY = image.height - stampHeight + padding;
+  final textX = padding;
+  if (textY > 0 && textX < image.width) {
+    // Draw semi-transparent dark bar behind text so stamp is readable on any photo
+    final barTop = textY - 2;
+    final barBottom = image.height;
+    final barLeft = 0;
+    final barRight = image.width;
+    img.fillRect(
+      image,
+      x1: barLeft,
+      y1: barTop,
+      x2: barRight,
+      y2: barBottom,
+      color: img.ColorRgba8(0, 0, 0, 180),
+    );
     img.drawString(
       image,
       stamp,
       font: img.arial14,
-      x: 8,
+      x: textX,
       y: textY,
       color: img.ColorRgba8(255, 255, 255, 255),
     );

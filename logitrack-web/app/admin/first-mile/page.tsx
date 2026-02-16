@@ -266,13 +266,14 @@ export default function FirstMilePage() {
                             <TableHead>{t("firstMile.table.driver")}</TableHead>
                             <TableHead>{t("firstMile.table.phone")}</TableHead>
                             <TableHead>{t("firstMile.table.status", "Status")}</TableHead>
+                            <TableHead>{t("firstMile.table.checkIn", "Check-in")}</TableHead>
                             <TableHead className="text-right">{t("firstMile.table.actions")}</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {filteredTasks.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={11} className="h-24 text-center">
+                                <TableCell colSpan={12} className="h-24 text-center">
                                     {t("firstMile.table.noTasks")}
                                 </TableCell>
                             </TableRow>
@@ -313,6 +314,21 @@ export default function FirstMilePage() {
                                         <Badge variant={task.status === "Cancelled" ? "secondary" : task.status === "Checked in" || task.status === "Completed" ? "default" : "outline"}>
                                             {t(`firstMile.status.${task.status}` as any, task.status)}
                                         </Badge>
+                                    </TableCell>
+                                    <TableCell className="text-sm">
+                                        {task.checkInAt ? (
+                                            <span className="flex flex-col gap-0.5">
+                                                <span>{task.checkInAt instanceof Date ? format(task.checkInAt, "dd/MM/yy HH:mm") : "-"}</span>
+                                                {task.checkInPhotoUrl && (
+                                                    <a href={task.checkInPhotoUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline text-xs" onClick={(e) => e.stopPropagation()}>View photo</a>
+                                                )}
+                                                {task.checkInLat != null && task.checkInLng != null && (
+                                                    <span className="text-muted-foreground text-xs">{task.checkInLat.toFixed(4)}, {task.checkInLng.toFixed(4)}</span>
+                                                )}
+                                            </span>
+                                        ) : (
+                                            <span className="text-muted-foreground">-</span>
+                                        )}
                                     </TableCell>
                                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                                         <DropdownMenu>

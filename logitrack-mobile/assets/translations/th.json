@@ -51,5 +51,6 @@
     "truck_assignment_current": "ปัจจุบัน",
     "truck_assignment_revoked": "ยกเลิกแล้ว",
     "Check in": "เช็คอิน",
-    "Check-in saved": "บันทึกเช็คอินแล้ว"
+    "Check-in saved": "บันทึกเช็คอินแล้ว",
+    "On web: select an image file. To use camera, run the app on Android or iOS.": "บนเว็บ: เลือกไฟล์รูป หรือรันแอปบน Android/iOS เพื่อใช้กล้องถ่ายรูป"
 }

@@ -7,6 +7,7 @@ import '../../../../features/auth/data/repositories/auth_repository.dart';
 import '../../data/repositories/driver_repository.dart';
 import '../../data/repositories/first_mile_task_repository.dart';
 import '../../data/repositories/first_mile_checkin_repository.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
 
 class HomePage extends StatefulWidget {
@@ -375,20 +376,22 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _doCheckIn(BuildContext context, String taskId) async {
     if (!context.mounted) return;
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator()),
-    );
-    bool dialogOpen = true;
+    // On web, image_picker does not open camera — it shows file picker. Camera works on Android/iOS.
+    if (kIsWeb && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('On web: select an image file. To use camera, run the app on Android or iOS.'.tr()),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
+    final picker = ImagePicker();
+    final xfile = await picker.pickImage(source: ImageSource.camera, imageQuality: 85);
+    if (xfile == null || !context.mounted) return;
+    final timestamp = DateTime.now();
+
+    bool dialogOpen = false;
     try {
-      final position = await getCurrentPosition();
-      if (!context.mounted) return;
-      if (dialogOpen) { Navigator.of(context).pop(); dialogOpen = false; }
-      final picker = ImagePicker();
-      final xfile = await picker.pickImage(source: ImageSource.camera, imageQuality: 85);
-      if (xfile == null || !context.mounted) return;
-      final timestamp = DateTime.now();
       if (!context.mounted) return;
       showDialog(
         context: context,
@@ -396,6 +399,9 @@ class _HomePageState extends State<HomePage> {
         builder: (_) => const Center(child: CircularProgressIndicator()),
       );
       dialogOpen = true;
+      final position = await getCurrentPosition();
+      if (!context.mounted) return;
+      if (dialogOpen) { Navigator.of(context).pop(); dialogOpen = false; }
       await submitCheckIn(
         taskId: taskId,
         imagePath: xfile.path,
@@ -404,7 +410,6 @@ class _HomePageState extends State<HomePage> {
         timestamp: timestamp,
       );
       if (!context.mounted) return;
-      if (dialogOpen) { Navigator.of(context).pop(); dialogOpen = false; }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Check-in saved'.tr())),
       );
