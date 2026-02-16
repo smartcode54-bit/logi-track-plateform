@@ -36,11 +36,13 @@ import { db } from "@/firebase/client";
 import { collection, getDocs, query } from "firebase/firestore";
 import { COLLECTIONS } from "@/lib/collections";
 import Image from "next/image";
+import { useLanguage } from "@/context/language";
 
 export default function EditDriverClient() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const driverId = searchParams.get('id');
+    const { t } = useLanguage();
 
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
@@ -78,7 +80,7 @@ export default function EditDriverClient() {
     useEffect(() => {
         const fetchDriver = async () => {
             if (!driverId) {
-                toast.error("No driver ID provided");
+                toast.error(t("drivers.toast.noId"));
                 router.push('/admin/drivers');
                 return;
             }
@@ -106,12 +108,12 @@ export default function EditDriverClient() {
                     if (driver.idCardImage) setExistingIdCardImage(driver.idCardImage);
                     if (driver.truckLicenseImage) setExistingTruckLicenseImage(driver.truckLicenseImage);
                 } else {
-                    toast.error("Driver not found");
+                    toast.error(t("drivers.toast.notFound"));
                     router.push('/admin/drivers');
                 }
             } catch (error) {
                 console.error(error);
-                toast.error("Failed to load driver data");
+                toast.error(t("drivers.toast.loadError"));
             } finally {
                 setIsLoading(false);
             }
@@ -168,11 +170,11 @@ export default function EditDriverClient() {
 
             await updateDriver(driverId, data, Object.keys(files).length > 0 ? files : undefined);
 
-            toast.success("Driver updated successfully");
+            toast.success(t("drivers.toast.updateSuccess"));
             router.push(`/admin/drivers/view?id=${driverId}`);
         } catch (error) {
             console.error(error);
-            toast.error("Failed to update driver");
+            toast.error(t("drivers.toast.updateError"));
         } finally {
             setIsSubmitting(false);
         }
@@ -182,7 +184,7 @@ export default function EditDriverClient() {
         return (
             <div className="flex items-center justify-center min-h-screen">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                <span className="ml-2 text-muted-foreground">Loading...</span>
+                <span className="ml-2 text-muted-foreground">{t("drivers.edit.loading")}</span>
             </div>
         );
     }
@@ -194,16 +196,16 @@ export default function EditDriverClient() {
                 <div className="flex items-center justify-between">
                     <div>
                         <h1 className="text-3xl font-bold text-foreground">
-                            Edit Driver
+                            {t("drivers.edit.title")}
                         </h1>
                         <p className="text-muted-foreground mt-1">
-                            Update driver information
+                            {t("drivers.edit.subtitle")}
                         </p>
                     </div>
                     <Button variant="outline" asChild>
                         <Link href={`/admin/drivers/view?id=${driverId}`} className="flex items-center gap-2">
                             <ArrowLeft className="h-4 w-4" />
-                            Back to Details
+                            {t("drivers.edit.backToDetails")}
                         </Link>
                     </Button>
                 </div>
@@ -216,7 +218,7 @@ export default function EditDriverClient() {
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
                                     <User className="h-5 w-5 text-primary" />
-                                    Personal Information
+                                    {t("drivers.form.personalInfo")}
                                 </CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-6">
@@ -229,7 +231,7 @@ export default function EditDriverClient() {
                                             ) : (
                                                 <label htmlFor="p-upload" className="flex flex-col items-center justify-center cursor-pointer w-full h-full">
                                                     <Upload className="h-8 w-8 text-muted-foreground mb-2" />
-                                                    <span className="text-xs text-muted-foreground">Change Photo</span>
+                                                    <span className="text-xs text-muted-foreground">{t("drivers.edit.changePhoto")}</span>
                                                 </label>
                                             )}
                                             <input id="p-upload" type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
@@ -244,19 +246,19 @@ export default function EditDriverClient() {
 
                                 <div className="grid md:grid-cols-2 gap-6">
                                     <FormField control={form.control} name="firstName" render={({ field }) => (
-                                        <FormItem><FormLabel>First Name <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder="John" {...field} /></FormControl><FormMessage /></FormItem>
+                                        <FormItem><FormLabel>{t("drivers.form.firstName")} <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder={t("drivers.form.firstName.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
                                     )} />
                                     <FormField control={form.control} name="lastName" render={({ field }) => (
-                                        <FormItem><FormLabel>Last Name <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder="Doe" {...field} /></FormControl><FormMessage /></FormItem>
+                                        <FormItem><FormLabel>{t("drivers.form.lastName")} <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder={t("drivers.form.lastName.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
                                     )} />
                                 </div>
 
                                 <div className="grid md:grid-cols-2 gap-6">
                                     <FormField control={form.control} name="mobile" render={({ field }) => (
-                                        <FormItem><FormLabel>Mobile <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder="08x-xxx-xxxx" {...field} /></FormControl><FormMessage /></FormItem>
+                                        <FormItem><FormLabel>{t("drivers.form.mobile")} <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder={t("drivers.form.mobile.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
                                     )} />
                                     <FormField control={form.control} name="email" render={({ field }) => (
-                                        <FormItem><FormLabel>Email</FormLabel><FormControl><Input placeholder="john@example.com" {...field} /></FormControl><FormMessage /></FormItem>
+                                        <FormItem><FormLabel>{t("drivers.form.email")}</FormLabel><FormControl><Input placeholder={t("drivers.form.email.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
                                     )} />
                                 </div>
 
@@ -265,7 +267,7 @@ export default function EditDriverClient() {
                                     const minDate = new Date(); minDate.setFullYear(minDate.getFullYear() - 55);
                                     return (
                                         <FormItem className="flex flex-col">
-                                            <FormLabel>Birth Date (Age 20-55) <span className="text-red-500">*</span></FormLabel>
+                                            <FormLabel>{t("drivers.form.birthDate")} <span className="text-red-500">*</span></FormLabel>
                                             <DatePicker
                                                 value={field.value ? new Date(field.value) : undefined}
                                                 onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
@@ -285,19 +287,19 @@ export default function EditDriverClient() {
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
                                     <FileText className="h-5 w-5 text-primary" />
-                                    Identity Documents
+                                    {t("drivers.form.identityDocs")}
                                 </CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-6">
                                 <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-lg space-y-4">
-                                    <h3 className="font-semibold flex items-center gap-2">National ID Card</h3>
+                                    <h3 className="font-semibold flex items-center gap-2">{t("drivers.form.nationalIdCard")}</h3>
                                     <FormField control={form.control} name="idCard" render={({ field }) => (
-                                        <FormItem><FormLabel>ID Number <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder="13-digit ID" maxLength={13} {...field} /></FormControl><FormMessage /></FormItem>
+                                        <FormItem><FormLabel>{t("drivers.form.idNumber")} <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder={t("drivers.form.idNumber.placeholder")} maxLength={13} {...field} /></FormControl><FormMessage /></FormItem>
                                     )} />
                                     <div className="grid md:grid-cols-2 gap-4">
                                         <FormField control={form.control} name="idCardExpiredDate" render={({ field }) => (
                                             <FormItem className="flex flex-col">
-                                                <FormLabel>Expiry Date</FormLabel>
+                                                <FormLabel>{t("drivers.form.expiryDate")}</FormLabel>
                                                 <DatePicker
                                                     value={field.value ? new Date(field.value) : undefined}
                                                     onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
@@ -308,27 +310,27 @@ export default function EditDriverClient() {
                                             </FormItem>
                                         )} />
                                         <FormItem>
-                                            <FormLabel>ID Card Image</FormLabel>
+                                            <FormLabel>{t("drivers.edit.idCardImage")}</FormLabel>
                                             <div className="flex items-center gap-2">
                                                 <Input type="file" onChange={(e) => { const f = e.target.files?.[0]; if (f) setIdCardFile(f); }} />
                                                 {idCardFile ? <FileText className="text-green-600 h-5 w-5" /> : existingIdCardImage && <CheckCircle2 className="text-blue-500 h-5 w-5" />}
                                             </div>
-                                            {!idCardFile && existingIdCardImage && <p className="text-xs text-muted-foreground mt-1">Current file exists. Upload to replace.</p>}
+                                            {!idCardFile && existingIdCardImage && <p className="text-xs text-muted-foreground mt-1">{t("drivers.edit.currentFileExists")}</p>}
                                         </FormItem>
                                     </div>
                                 </div>
 
                                 <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-lg space-y-4">
-                                    <h3 className="font-semibold flex items-center gap-2">Driving License</h3>
+                                    <h3 className="font-semibold flex items-center gap-2">{t("drivers.form.drivingLicense")}</h3>
                                     <div className="grid md:grid-cols-2 gap-4">
                                         <FormField control={form.control} name="truckLicenseId" render={({ field }) => (
-                                            <FormItem><FormLabel>License Number <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder="License No." maxLength={8} {...field} /></FormControl><FormMessage /></FormItem>
+                                            <FormItem><FormLabel>{t("drivers.form.licenseNumber")} <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder={t("drivers.form.licenseNumber.placeholder")} maxLength={8} {...field} /></FormControl><FormMessage /></FormItem>
                                         )} />
                                         <FormField control={form.control} name="licenseType" render={({ field }) => (
                                             <FormItem>
-                                                <FormLabel>License Type</FormLabel>
+                                                <FormLabel>{t("drivers.form.licenseType")}</FormLabel>
                                                 <Select onValueChange={field.onChange} value={field.value}>
-                                                    <FormControl><SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger></FormControl>
+                                                    <FormControl><SelectTrigger><SelectValue placeholder={t("drivers.form.licenseType.placeholder")} /></SelectTrigger></FormControl>
                                                     <SelectContent>
                                                         <SelectItem value="บ.1">บ.1</SelectItem>
                                                         <SelectItem value="บ.2">บ.2</SelectItem>
@@ -347,7 +349,7 @@ export default function EditDriverClient() {
                                     <div className="grid md:grid-cols-2 gap-4">
                                         <FormField control={form.control} name="truckLicenseExpiredDate" render={({ field }) => (
                                             <FormItem className="flex flex-col">
-                                                <FormLabel>Expiry Date</FormLabel>
+                                                <FormLabel>{t("drivers.form.expiryDate")}</FormLabel>
                                                 <DatePicker
                                                     value={field.value ? new Date(field.value) : undefined}
                                                     onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
@@ -358,12 +360,12 @@ export default function EditDriverClient() {
                                             </FormItem>
                                         )} />
                                         <FormItem>
-                                            <FormLabel>License Image</FormLabel>
+                                            <FormLabel>{t("drivers.edit.licenseImage")}</FormLabel>
                                             <div className="flex items-center gap-2">
                                                 <Input type="file" onChange={(e) => { const f = e.target.files?.[0]; if (f) setTruckLicenseFile(f); }} />
                                                 {truckLicenseFile ? <FileText className="text-green-600 h-5 w-5" /> : existingTruckLicenseImage && <CheckCircle2 className="text-blue-500 h-5 w-5" />}
                                             </div>
-                                            {!truckLicenseFile && existingTruckLicenseImage && <p className="text-xs text-muted-foreground mt-1">Current file exists. Upload to replace.</p>}
+                                            {!truckLicenseFile && existingTruckLicenseImage && <p className="text-xs text-muted-foreground mt-1">{t("drivers.edit.currentFileExists")}</p>}
                                         </FormItem>
                                     </div>
                                 </div>
@@ -375,19 +377,19 @@ export default function EditDriverClient() {
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
                                     <Truck className="h-5 w-5 text-primary" />
-                                    Employment Details
+                                    {t("drivers.form.employmentDetails")}
                                 </CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-6">
                                 <FormField control={form.control} name="employmentType" render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel>Type</FormLabel>
+                                        <FormLabel>{t("drivers.form.type")}</FormLabel>
                                         <Select onValueChange={field.onChange} value={field.value}>
                                             <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
                                             <SelectContent>
-                                                <SelectItem value="FULL_TIME">Full Time</SelectItem>
-                                                <SelectItem value="PART_TIME">Part Time</SelectItem>
-                                                <SelectItem value="SUBCONTRACTOR">Subcontractor</SelectItem>
+                                                <SelectItem value="FULL_TIME">{t("drivers.form.type.fullTime")}</SelectItem>
+                                                <SelectItem value="PART_TIME">{t("drivers.form.type.partTime")}</SelectItem>
+                                                <SelectItem value="SUBCONTRACTOR">{t("drivers.form.type.subcontractor")}</SelectItem>
                                             </SelectContent>
                                         </Select>
                                         <FormMessage />
@@ -397,13 +399,13 @@ export default function EditDriverClient() {
                                 {employmentType === 'SUBCONTRACTOR' && (
                                     <FormField control={form.control} name="subcontractorId" render={({ field }) => (
                                         <FormItem>
-                                            <FormLabel>Subcontractor Company</FormLabel>
+                                            <FormLabel>{t("drivers.form.subcontractorCompany")}</FormLabel>
                                             <Select onValueChange={(val) => {
                                                 field.onChange(val);
                                                 const sub = subcontractors.find(s => s.id === val);
                                                 if (sub) form.setValue("subcontractorName", sub.companyName || sub.name);
                                             }} value={field.value}>
-                                                <FormControl><SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger></FormControl>
+                                                <FormControl><SelectTrigger><SelectValue placeholder={t("drivers.form.subcontractorCompany.placeholder")} /></SelectTrigger></FormControl>
                                                 <SelectContent>
                                                     {subcontractors.map(s => (
                                                         <SelectItem key={s.id} value={s.id}>{s.companyName || s.name || "Unknown"}</SelectItem>
@@ -417,19 +419,19 @@ export default function EditDriverClient() {
 
                                 {employmentType !== 'PART_TIME' && (
                                     <FormField control={form.control} name="contractYears" render={({ field }) => (
-                                        <FormItem><FormLabel>Contract Duration (Years)</FormLabel><FormControl><Input type="number" {...field} onChange={e => field.onChange(e.target.value)} /></FormControl><FormMessage /></FormItem>
+                                        <FormItem><FormLabel>{t("drivers.form.contractDuration")}</FormLabel><FormControl><Input type="number" {...field} onChange={e => field.onChange(e.target.value)} /></FormControl><FormMessage /></FormItem>
                                     )} />
                                 )}
 
                                 <FormField control={form.control} name="status" render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel>Status</FormLabel>
+                                        <FormLabel>{t("drivers.edit.status")}</FormLabel>
                                         <Select onValueChange={field.onChange} value={field.value}>
                                             <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
                                             <SelectContent>
-                                                <SelectItem value="Active">Active</SelectItem>
-                                                <SelectItem value="On-Duty">On-Duty</SelectItem>
-                                                <SelectItem value="Inactive">Inactive</SelectItem>
+                                                <SelectItem value="Active">{t("drivers.status.active")}</SelectItem>
+                                                <SelectItem value="On-Duty">{t("drivers.status.onDuty")}</SelectItem>
+                                                <SelectItem value="Inactive">{t("drivers.status.inactive")}</SelectItem>
                                             </SelectContent>
                                         </Select>
                                         <FormMessage />
@@ -441,7 +443,7 @@ export default function EditDriverClient() {
                         {/* Actions */}
                         <div className="flex justify-end gap-4">
                             <Button type="button" variant="outline" asChild>
-                                <Link href={`/admin/drivers/view?id=${driverId}`}>Cancel</Link>
+                                <Link href={`/admin/drivers/view?id=${driverId}`}>{t("drivers.form.cancel")}</Link>
                             </Button>
                             <Button
                                 type="submit"
@@ -451,12 +453,12 @@ export default function EditDriverClient() {
                                 {isSubmitting ? (
                                     <>
                                         <Loader2 className="h-4 w-4 animate-spin" />
-                                        Saving...
+                                        {t("drivers.form.saving")}
                                     </>
                                 ) : (
                                     <>
                                         <Save className="h-4 w-4" />
-                                        Save Changes
+                                        {t("drivers.edit.saveChanges")}
                                     </>
                                 )}
                             </Button>

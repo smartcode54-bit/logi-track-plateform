@@ -36,10 +36,12 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useLanguage } from "@/context/language";
 
 
 export default function DriversListPage() {
     const router = useRouter();
+    const { t } = useLanguage();
     const [drivers, setDrivers] = useState<Driver[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -135,20 +137,20 @@ export default function DriversListPage() {
             {/* Header */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Driver Management</h1>
+                    <h1 className="text-3xl font-bold tracking-tight">{t("drivers.title")}</h1>
                     <p className="text-muted-foreground mt-1">
-                        Manage and track your fleet's personnel efficiently in real-time.
+                        {t("drivers.subtitle")}
                     </p>
                 </div>
                 <div className="flex gap-3">
                     <Button variant="outline" className="gap-2">
                         <Download className="h-4 w-4" />
-                        Export
+                        {t("drivers.export")}
                     </Button>
                     <Button asChild>
                         <Link href="/admin/drivers/new">
                             <Plus className="mr-2 h-4 w-4" />
-                            Add New Driver
+                            {t("drivers.add")}
                         </Link>
                     </Button>
                 </div>
@@ -159,7 +161,7 @@ export default function DriversListPage() {
                 <Card className="bg-card">
                     <CardContent className="p-6 flex items-center justify-between">
                         <div>
-                            <p className="text-sm font-medium text-muted-foreground">Total Drivers</p>
+                            <p className="text-sm font-medium text-muted-foreground">{t("drivers.stats.totalDrivers")}</p>
                             <div className="flex items-baseline gap-2 mt-1">
                                 <h2 className="text-3xl font-bold">{stats.total}</h2>
                             </div>
@@ -172,7 +174,7 @@ export default function DriversListPage() {
                 <Card className="bg-card">
                     <CardContent className="p-6 flex items-center justify-between">
                         <div>
-                            <p className="text-sm font-medium text-muted-foreground">Active / On-Duty</p>
+                            <p className="text-sm font-medium text-muted-foreground">{t("drivers.stats.activeOnDuty")}</p>
                             <div className="flex items-baseline gap-2 mt-1">
                                 <h2 className="text-3xl font-bold">{stats.active}</h2>
                             </div>
@@ -185,7 +187,7 @@ export default function DriversListPage() {
                 <Card className="bg-card">
                     <CardContent className="p-6 flex items-center justify-between">
                         <div>
-                            <p className="text-sm font-medium text-muted-foreground">Inactive</p>
+                            <p className="text-sm font-medium text-muted-foreground">{t("drivers.stats.inactive")}</p>
                             <div className="flex items-baseline gap-2 mt-1">
                                 <h2 className="text-3xl font-bold">{stats.onLeave}</h2>
                             </div>
@@ -203,7 +205,7 @@ export default function DriversListPage() {
                     <div className="relative flex-1">
                         <Users className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
-                            placeholder="Search by Name, License ID, or Mobile..."
+                            placeholder={t("drivers.search")}
                             className="pl-10 bg-background/50 border-border/50"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
@@ -215,28 +217,28 @@ export default function DriversListPage() {
                             onClick={() => setStatusFilter("all")}
                             className="whitespace-nowrap"
                         >
-                            All
+                            {t("drivers.filter.all")}
                         </Button>
                         <Button
                             variant={statusFilter === "On-Duty" ? "secondary" : "ghost"}
                             onClick={() => setStatusFilter("On-Duty")}
                             className="whitespace-nowrap"
                         >
-                            On-Duty
+                            {t("drivers.filter.onDuty")}
                         </Button>
                         <Button
                             variant={statusFilter === "Active" ? "secondary" : "ghost"}
                             onClick={() => setStatusFilter("Active")}
                             className="whitespace-nowrap"
                         >
-                            Active
+                            {t("drivers.filter.active")}
                         </Button>
                         <Button
                             variant={statusFilter === "Inactive" ? "secondary" : "ghost"}
                             onClick={() => setStatusFilter("Inactive")}
                             className="whitespace-nowrap"
                         >
-                            Inactive
+                            {t("drivers.filter.inactive")}
                         </Button>
                     </div>
                 </div>
@@ -245,14 +247,14 @@ export default function DriversListPage() {
                     <Table>
                         <TableHeader className="bg-muted/50">
                             <TableRow className="border-b border-border/50">
-                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">Driver</TableHead>
-                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">Contact</TableHead>
-                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">Employment</TableHead>
-                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">Assigned Vehicle</TableHead>
-                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">License ID</TableHead>
-                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">License Type</TableHead>
-                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">Status</TableHead>
-                                <TableHead className="text-right uppercase text-xs font-semibold text-muted-foreground tracking-wider">Actions</TableHead>
+                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("drivers.table.driver")}</TableHead>
+                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("drivers.table.contact")}</TableHead>
+                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("drivers.table.employment")}</TableHead>
+                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("drivers.table.assignedVehicle")}</TableHead>
+                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("drivers.table.licenseId")}</TableHead>
+                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("drivers.table.licenseType")}</TableHead>
+                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("drivers.table.status")}</TableHead>
+                                <TableHead className="text-right uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("drivers.table.actions")}</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -261,14 +263,14 @@ export default function DriversListPage() {
                                     <TableCell colSpan={6} className="h-32 text-center">
                                         <div className="flex flex-col items-center justify-center gap-2">
                                             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                                            <p className="text-sm text-muted-foreground">Loading drivers...</p>
+                                            <p className="text-sm text-muted-foreground">{t("drivers.loading")}</p>
                                         </div>
                                     </TableCell>
                                 </TableRow>
                             ) : paginatedDrivers.length === 0 ? (
                                 <TableRow>
                                     <TableCell colSpan={6} className="h-32 text-center">
-                                        <p className="text-sm text-muted-foreground">No drivers found.</p>
+                                        <p className="text-sm text-muted-foreground">{t("drivers.noData")}</p>
                                     </TableCell>
                                 </TableRow>
                             ) : (
@@ -302,7 +304,7 @@ export default function DriversListPage() {
                                                     <span className="text-xs text-muted-foreground">{(driver.currentAssignment as any).truckModel}</span>
                                                 </div>
                                             ) : (
-                                                <span className="text-muted-foreground text-xs italic">Unassigned</span>
+                                                <span className="text-muted-foreground text-xs italic">{t("drivers.table.unassigned")}</span>
                                             )}
                                         </TableCell>
                                         <TableCell>
@@ -325,9 +327,9 @@ export default function DriversListPage() {
                                                     </Button>
                                                 </DropdownMenuTrigger>
                                                 <DropdownMenuContent align="end">
-                                                    <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                                                    <DropdownMenuItem onClick={() => router.push(`/admin/drivers/view?id=${driver.id}`)}>View Profile</DropdownMenuItem>
-                                                    <DropdownMenuItem onClick={() => router.push(`/admin/drivers/edit?id=${driver.id}`)}>Edit Details</DropdownMenuItem>
+                                                    <DropdownMenuLabel>{t("drivers.action.label")}</DropdownMenuLabel>
+                                                    <DropdownMenuItem onClick={() => router.push(`/admin/drivers/view?id=${driver.id}`)}>{t("drivers.action.viewProfile")}</DropdownMenuItem>
+                                                    <DropdownMenuItem onClick={() => router.push(`/admin/drivers/edit?id=${driver.id}`)}>{t("drivers.action.editDetails")}</DropdownMenuItem>
                                                 </DropdownMenuContent>
                                             </DropdownMenu>
                                         </TableCell>
@@ -340,7 +342,7 @@ export default function DriversListPage() {
                     {/* Pagination Footer */}
                     <div className="flex items-center justify-between px-4 py-4 border-t border-border/50 bg-muted/20">
                         <div className="text-sm text-muted-foreground">
-                            Showing {paginatedDrivers.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} to {Math.min(currentPage * itemsPerPage, filteredDrivers.length)} of {filteredDrivers.length} entries
+                            {t("drivers.pagination.showing")} {paginatedDrivers.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} {t("drivers.pagination.to")} {Math.min(currentPage * itemsPerPage, filteredDrivers.length)} {t("drivers.pagination.of")} {filteredDrivers.length} {t("drivers.pagination.entries")}
                         </div>
                         <div className="flex items-center gap-2">
                             <Button
@@ -349,7 +351,7 @@ export default function DriversListPage() {
                                 onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                                 disabled={currentPage === 1}
                             >
-                                Previous
+                                {t("drivers.pagination.previous")}
                             </Button>
                             <Button
                                 variant="outline"
@@ -357,7 +359,7 @@ export default function DriversListPage() {
                                 onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                                 disabled={currentPage === totalPages || totalPages === 0}
                             >
-                                Next
+                                {t("drivers.pagination.next")}
                             </Button>
                         </div>
                     </div>

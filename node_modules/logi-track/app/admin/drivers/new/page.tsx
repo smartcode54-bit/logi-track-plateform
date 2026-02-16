@@ -39,16 +39,20 @@ import { db } from "@/firebase/client";
 import { collection, getDocs, query } from "firebase/firestore";
 import { COLLECTIONS } from "@/lib/collections";
 import Image from "next/image";
+import { useLanguage } from "@/context/language";
 
-const STEPS = [
-    { id: 1, title: "Personal Info", description: "Basic Details" },
-    { id: 2, title: "Identity & License", description: "Legal Documents" },
-    { id: 3, title: "Employment", description: "Work Status & Type" },
-    { id: 4, title: "Review", description: "Summary & Save" },
-];
+
 
 export default function NewDriverPage() {
     const router = useRouter();
+    const { t } = useLanguage();
+
+    const STEPS = [
+        { id: 1, title: t("drivers.step1.title"), description: t("drivers.step1.description") },
+        { id: 2, title: t("drivers.step2.title"), description: t("drivers.step2.description") },
+        { id: 3, title: t("drivers.step3.title"), description: t("drivers.step3.description") },
+        { id: 4, title: t("drivers.step4.title"), description: t("drivers.step4.description") },
+    ];
     const [currentStep, setCurrentStep] = useState(1);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -88,7 +92,7 @@ export default function NewDriverPage() {
                     setSubcontractors(subs);
                 } catch (err) {
                     console.error("Error fetching subcontractors:", err);
-                    toast.error("Failed to load subcontractors");
+                    toast.error(t("drivers.toast.subLoadError"));
                 }
             }
         };
@@ -125,11 +129,11 @@ export default function NewDriverPage() {
 
             await createDriver(data, files);
 
-            toast.success(`Driver ${data.firstName} ${data.lastName} registered successfully`);
+            toast.success(`${t("drivers.word.driver")} ${data.firstName} ${data.lastName} ${t("drivers.toast.registerSuccess")}`);
             router.push("/admin/drivers");
         } catch (error) {
             console.error(error);
-            toast.error("Failed to register driver");
+            toast.error(t("drivers.toast.registerError"));
         } finally {
             setIsSubmitting(false);
         }
@@ -163,8 +167,8 @@ export default function NewDriverPage() {
                     </Link>
                 </Button>
                 <div>
-                    <h1 className="text-2xl font-bold">Register New Driver</h1>
-                    <p className="text-muted-foreground text-sm">Step {currentStep} of {STEPS.length}: {STEPS[currentStep - 1].title}</p>
+                    <h1 className="text-2xl font-bold">{t("drivers.new.title")}</h1>
+                    <p className="text-muted-foreground text-sm">{t("drivers.new.step")} {currentStep} {t("drivers.new.of")} {STEPS.length}: {STEPS[currentStep - 1].title}</p>
                 </div>
             </div>
 
@@ -207,7 +211,7 @@ export default function NewDriverPage() {
                                 {currentStep === 1 && (
                                     <div className="space-y-6 animate-in slide-in-from-right-4 fade-in">
                                         <Card className="border-none shadow-sm">
-                                            <CardHeader><CardTitle>Personal Information</CardTitle></CardHeader>
+                                            <CardHeader><CardTitle>{t("drivers.form.personalInfo")}</CardTitle></CardHeader>
                                             <CardContent className="space-y-6">
                                                 {/* Profile Image */}
                                                 <div className="flex justify-center mb-6">
@@ -218,7 +222,7 @@ export default function NewDriverPage() {
                                                             ) : (
                                                                 <label htmlFor="p-upload" className="flex flex-col items-center justify-center cursor-pointer w-full h-full">
                                                                     <Upload className="h-8 w-8 text-muted-foreground mb-2" />
-                                                                    <span className="text-xs text-muted-foreground">Upload Photo</span>
+                                                                    <span className="text-xs text-muted-foreground">{t("drivers.form.uploadPhoto")}</span>
                                                                 </label>
                                                             )}
                                                             <input id="p-upload" type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
@@ -233,19 +237,19 @@ export default function NewDriverPage() {
 
                                                 <div className="grid md:grid-cols-2 gap-6">
                                                     <FormField control={form.control} name="firstName" render={({ field }) => (
-                                                        <FormItem><FormLabel>First Name <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder="John" {...field} /></FormControl><FormMessage /></FormItem>
+                                                        <FormItem><FormLabel>{t("drivers.form.firstName")} <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder={t("drivers.form.firstName.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
                                                     )} />
                                                     <FormField control={form.control} name="lastName" render={({ field }) => (
-                                                        <FormItem><FormLabel>Last Name <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder="Doe" {...field} /></FormControl><FormMessage /></FormItem>
+                                                        <FormItem><FormLabel>{t("drivers.form.lastName")} <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder={t("drivers.form.lastName.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
                                                     )} />
                                                 </div>
 
                                                 <div className="grid md:grid-cols-2 gap-6">
                                                     <FormField control={form.control} name="mobile" render={({ field }) => (
-                                                        <FormItem><FormLabel>Mobile <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder="08x-xxx-xxxx" {...field} /></FormControl><FormMessage /></FormItem>
+                                                        <FormItem><FormLabel>{t("drivers.form.mobile")} <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder={t("drivers.form.mobile.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
                                                     )} />
                                                     <FormField control={form.control} name="email" render={({ field }) => (
-                                                        <FormItem><FormLabel>Email</FormLabel><FormControl><Input placeholder="john@example.com" {...field} /></FormControl><FormMessage /></FormItem>
+                                                        <FormItem><FormLabel>{t("drivers.form.email")}</FormLabel><FormControl><Input placeholder={t("drivers.form.email.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
                                                     )} />
                                                 </div>
 
@@ -254,7 +258,7 @@ export default function NewDriverPage() {
                                                     const minDate = new Date(); minDate.setFullYear(minDate.getFullYear() - 55);
                                                     return (
                                                         <FormItem>
-                                                            <FormLabel>Birth Date (Age 20-55) <span className="text-red-500">*</span></FormLabel>
+                                                            <FormLabel>{t("drivers.form.birthDate")} <span className="text-red-500">*</span></FormLabel>
                                                             <DatePicker
                                                                 value={field.value}
                                                                 onChange={field.onChange}
@@ -275,19 +279,19 @@ export default function NewDriverPage() {
                                 {currentStep === 2 && (
                                     <div className="space-y-6 animate-in slide-in-from-right-4 fade-in">
                                         <Card className="border-none shadow-sm">
-                                            <CardHeader><CardTitle>Identity Documents</CardTitle></CardHeader>
+                                            <CardHeader><CardTitle>{t("drivers.form.identityDocs")}</CardTitle></CardHeader>
                                             <CardContent className="space-y-6">
                                                 <div className="p-4 border rounded-lg bg-slate-50 dark:bg-slate-900/50 space-y-4">
-                                                    <h3 className="font-semibold flex items-center gap-2"><User className="h-4 w-4" /> National ID Card</h3>
+                                                    <h3 className="font-semibold flex items-center gap-2"><User className="h-4 w-4" /> {t("drivers.form.nationalIdCard")}</h3>
                                                     <FormField control={form.control} name="idCard" render={({ field }) => (
-                                                        <FormItem><FormLabel>ID Number <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder="13-digit ID" maxLength={13} {...field} /></FormControl><FormMessage /></FormItem>
+                                                        <FormItem><FormLabel>{t("drivers.form.idNumber")} <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder={t("drivers.form.idNumber.placeholder")} maxLength={13} {...field} /></FormControl><FormMessage /></FormItem>
                                                     )} />
                                                     <div className="grid md:grid-cols-2 gap-4">
                                                         <FormField control={form.control} name="idCardExpiredDate" render={({ field }) => (
-                                                            <FormItem><FormLabel>Expiry Date</FormLabel><DatePicker value={field.value} onChange={field.onChange} fromYear={new Date().getFullYear()} toYear={new Date().getFullYear() + 10} /><FormMessage /></FormItem>
+                                                            <FormItem><FormLabel>{t("drivers.form.expiryDate")}</FormLabel><DatePicker value={field.value} onChange={field.onChange} fromYear={new Date().getFullYear()} toYear={new Date().getFullYear() + 10} /><FormMessage /></FormItem>
                                                         )} />
                                                         <FormItem>
-                                                            <FormLabel>Upload Image</FormLabel>
+                                                            <FormLabel>{t("drivers.form.uploadImage")}</FormLabel>
                                                             <div className="flex items-center gap-2">
                                                                 <Input type="file" onChange={(e) => { const f = e.target.files?.[0]; if (f) setIdCardFile(f); }} />
                                                                 {idCardFile && <FileText className="text-green-600 h-5 w-5" />}
@@ -297,16 +301,16 @@ export default function NewDriverPage() {
                                                 </div>
 
                                                 <div className="p-4 border rounded-lg bg-slate-50 dark:bg-slate-900/50 space-y-4">
-                                                    <h3 className="font-semibold flex items-center gap-2"><Truck className="h-4 w-4" /> Driving License</h3>
+                                                    <h3 className="font-semibold flex items-center gap-2"><Truck className="h-4 w-4" /> {t("drivers.form.drivingLicense")}</h3>
                                                     <div className="grid md:grid-cols-2 gap-4">
                                                         <FormField control={form.control} name="truckLicenseId" render={({ field }) => (
-                                                            <FormItem><FormLabel>License Number <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder="License No." maxLength={8} {...field} /></FormControl><FormMessage /></FormItem>
+                                                            <FormItem><FormLabel>{t("drivers.form.licenseNumber")} <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder={t("drivers.form.licenseNumber.placeholder")} maxLength={8} {...field} /></FormControl><FormMessage /></FormItem>
                                                         )} />
                                                         <FormField control={form.control} name="licenseType" render={({ field }) => (
                                                             <FormItem>
-                                                                <FormLabel>License Type</FormLabel>
+                                                                <FormLabel>{t("drivers.form.licenseType")}</FormLabel>
                                                                 <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                                    <FormControl><SelectTrigger value={field.value}><SelectValue placeholder="Select..." /></SelectTrigger></FormControl>
+                                                                    <FormControl><SelectTrigger value={field.value}><SelectValue placeholder={t("drivers.form.licenseType.placeholder")} /></SelectTrigger></FormControl>
                                                                     <SelectContent>
                                                                         <SelectItem value="บ.1">บ.1</SelectItem>
                                                                         <SelectItem value="บ.2">บ.2</SelectItem>
@@ -324,10 +328,10 @@ export default function NewDriverPage() {
                                                     </div>
                                                     <div className="grid md:grid-cols-2 gap-4">
                                                         <FormField control={form.control} name="truckLicenseExpiredDate" render={({ field }) => (
-                                                            <FormItem><FormLabel>Expiry Date</FormLabel><DatePicker value={field.value} onChange={field.onChange} fromYear={new Date().getFullYear()} toYear={new Date().getFullYear() + 10} /><FormMessage /></FormItem>
+                                                            <FormItem><FormLabel>{t("drivers.form.expiryDate")}</FormLabel><DatePicker value={field.value} onChange={field.onChange} fromYear={new Date().getFullYear()} toYear={new Date().getFullYear() + 10} /><FormMessage /></FormItem>
                                                         )} />
                                                         <FormItem>
-                                                            <FormLabel>Upload Image</FormLabel>
+                                                            <FormLabel>{t("drivers.form.uploadImage")}</FormLabel>
                                                             <div className="flex items-center gap-2">
                                                                 <Input type="file" onChange={(e) => { const f = e.target.files?.[0]; if (f) setTruckLicenseFile(f); }} />
                                                                 {truckLicenseFile && <FileText className="text-green-600 h-5 w-5" />}
@@ -344,17 +348,17 @@ export default function NewDriverPage() {
                                 {currentStep === 3 && (
                                     <div className="space-y-6 animate-in slide-in-from-right-4 fade-in">
                                         <Card className="border-none shadow-sm">
-                                            <CardHeader><CardTitle>Employment Details</CardTitle></CardHeader>
+                                            <CardHeader><CardTitle>{t("drivers.form.employmentDetails")}</CardTitle></CardHeader>
                                             <CardContent className="space-y-6">
                                                 <FormField control={form.control} name="employmentType" render={({ field }) => (
                                                     <FormItem>
-                                                        <FormLabel>Type</FormLabel>
+                                                        <FormLabel>{t("drivers.form.type")}</FormLabel>
                                                         <Select onValueChange={field.onChange} defaultValue={field.value}>
                                                             <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
                                                             <SelectContent>
-                                                                <SelectItem value="FULL_TIME">Full Time</SelectItem>
-                                                                <SelectItem value="PART_TIME">Part Time</SelectItem>
-                                                                <SelectItem value="SUBCONTRACTOR">Subcontractor</SelectItem>
+                                                                <SelectItem value="FULL_TIME">{t("drivers.form.type.fullTime")}</SelectItem>
+                                                                <SelectItem value="PART_TIME">{t("drivers.form.type.partTime")}</SelectItem>
+                                                                <SelectItem value="SUBCONTRACTOR">{t("drivers.form.type.subcontractor")}</SelectItem>
                                                             </SelectContent>
                                                         </Select>
                                                         <FormMessage />
@@ -364,13 +368,13 @@ export default function NewDriverPage() {
                                                 {employmentType === 'SUBCONTRACTOR' && (
                                                     <FormField control={form.control} name="subcontractorId" render={({ field }) => (
                                                         <FormItem>
-                                                            <FormLabel>Subcontractor Company</FormLabel>
+                                                            <FormLabel>{t("drivers.form.subcontractorCompany")}</FormLabel>
                                                             <Select onValueChange={(val) => {
                                                                 field.onChange(val);
                                                                 const sub = subcontractors.find(s => s.id === val);
                                                                 if (sub) form.setValue("subcontractorName", sub.companyName || sub.name);
                                                             }} value={field.value}>
-                                                                <FormControl><SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger></FormControl>
+                                                                <FormControl><SelectTrigger><SelectValue placeholder={t("drivers.form.subcontractorCompany.placeholder")} /></SelectTrigger></FormControl>
                                                                 <SelectContent>
                                                                     {subcontractors.map(s => (
                                                                         <SelectItem key={s.id} value={s.id}>{s.companyName || s.name || "Unknown"}</SelectItem>
@@ -384,19 +388,19 @@ export default function NewDriverPage() {
 
                                                 {employmentType !== 'PART_TIME' && (
                                                     <FormField control={form.control} name="contractYears" render={({ field }) => (
-                                                        <FormItem><FormLabel>Contract Duration (Years)</FormLabel><FormControl><Input type="number" {...field} onChange={e => field.onChange(e.target.value)} /></FormControl><FormMessage /></FormItem>
+                                                        <FormItem><FormLabel>{t("drivers.form.contractDuration")}</FormLabel><FormControl><Input type="number" {...field} onChange={e => field.onChange(e.target.value)} /></FormControl><FormMessage /></FormItem>
                                                     )} />
                                                 )}
 
                                                 <FormField control={form.control} name="status" render={({ field }) => (
                                                     <FormItem>
-                                                        <FormLabel>Initial Status</FormLabel>
+                                                        <FormLabel>{t("drivers.form.initialStatus")}</FormLabel>
                                                         <Select onValueChange={field.onChange} defaultValue={field.value}>
                                                             <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
                                                             <SelectContent>
-                                                                <SelectItem value="Active">Active</SelectItem>
-                                                                <SelectItem value="On-Duty">On-Duty</SelectItem>
-                                                                <SelectItem value="Inactive">Inactive</SelectItem>
+                                                                <SelectItem value="Active">{t("drivers.status.active")}</SelectItem>
+                                                                <SelectItem value="On-Duty">{t("drivers.status.onDuty")}</SelectItem>
+                                                                <SelectItem value="Inactive">{t("drivers.status.inactive")}</SelectItem>
                                                             </SelectContent>
                                                         </Select>
                                                         <FormMessage />
@@ -411,23 +415,23 @@ export default function NewDriverPage() {
                                 {currentStep === 4 && (
                                     <div className="space-y-6 animate-in slide-in-from-right-4 fade-in">
                                         <Card className="border-none shadow-sm">
-                                            <CardHeader><CardTitle>Review & Confirm</CardTitle><CardDescription>Please review the information before saving.</CardDescription></CardHeader>
+                                            <CardHeader><CardTitle>{t("drivers.form.reviewConfirm")}</CardTitle><CardDescription>{t("drivers.form.reviewDesc")}</CardDescription></CardHeader>
                                             <CardContent className="space-y-4">
                                                 <div className="grid grid-cols-2 gap-4 text-sm border p-4 rounded-lg">
-                                                    <span className="text-muted-foreground">Name:</span>
+                                                    <span className="text-muted-foreground">{t("drivers.form.reviewName")}</span>
                                                     <span className="font-medium text-right">{form.getValues("firstName")} {form.getValues("lastName")}</span>
-                                                    <span className="text-muted-foreground">Mobile:</span>
+                                                    <span className="text-muted-foreground">{t("drivers.form.reviewMobile")}</span>
                                                     <span className="font-medium text-right">{form.getValues("mobile")}</span>
-                                                    <span className="text-muted-foreground">ID Card:</span>
+                                                    <span className="text-muted-foreground">{t("drivers.form.reviewIdCard")}</span>
                                                     <span className="font-medium text-right">{form.getValues("idCard")}</span>
-                                                    <span className="text-muted-foreground">License ID:</span>
+                                                    <span className="text-muted-foreground">{t("drivers.form.reviewLicenseId")}</span>
                                                     <span className="font-medium text-right">{form.getValues("truckLicenseId")}</span>
-                                                    <span className="text-muted-foreground">Employment:</span>
+                                                    <span className="text-muted-foreground">{t("drivers.form.reviewEmployment")}</span>
                                                     <span className="font-medium text-right">{form.getValues("employmentType")}</span>
                                                 </div>
                                                 <div className="flex gap-2 text-sm text-muted-foreground bg-blue-50 dark:bg-blue-900/20 p-3 rounded-md">
                                                     <CheckCircle2 className="h-4 w-4 text-blue-500" />
-                                                    <span>By clicking Submit, an initial audit log entry will be created.</span>
+                                                    <span>{t("drivers.form.auditNote")}</span>
                                                 </div>
                                             </CardContent>
                                         </Card>
@@ -441,10 +445,10 @@ export default function NewDriverPage() {
                     {/* Footer */}
                     <div className="fixed bottom-0 right-0 left-0 md:left-64 p-4 border-t bg-background/80 backdrop-blur-sm flex justify-between items-center z-20">
                         <Button type="button" variant="outline" onClick={currentStep === 1 ? () => router.push('/admin/drivers') : prevStep} className="bg-background">
-                            {currentStep === 1 ? "Cancel" : "Back"}
+                            {currentStep === 1 ? t("drivers.form.cancel") : t("drivers.form.back")}
                         </Button>
                         <Button type="button" className="bg-blue-600 hover:bg-blue-700 text-white min-w-[140px]" onClick={currentStep === 4 ? form.handleSubmit(onSubmit) : nextStep} disabled={isSubmitting}>
-                            {isSubmitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</> : currentStep === 4 ? "Complete Registration" : "Next Step"}
+                            {isSubmitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {t("drivers.form.saving")}</> : currentStep === 4 ? t("drivers.form.completeRegistration") : t("drivers.form.nextStep")}
                         </Button>
                     </div>
                 </div>

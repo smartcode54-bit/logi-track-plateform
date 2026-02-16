@@ -29,12 +29,14 @@ import {
 import { useBreadcrumb } from "@/context/breadcrumb";
 import { format } from "date-fns";
 import { getSubcontractors } from "../../subcontractors/actions.client";
+import { useLanguage } from "@/context/language";
 
 export default function DriverPreviewClient() {
     const searchParams = useSearchParams();
     const router = useRouter();
     const driverId = searchParams.get('id');
     const { setCustomLastItem } = useBreadcrumb();
+    const { t } = useLanguage();
 
     const [driver, setDriver] = useState<Driver | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -48,7 +50,7 @@ export default function DriverPreviewClient() {
     useEffect(() => {
         const fetchDriver = async () => {
             if (!driverId) {
-                setError("No driver ID provided");
+                setError(t("drivers.toast.noId"));
                 setIsLoading(false);
                 return;
             }
@@ -57,7 +59,7 @@ export default function DriverPreviewClient() {
                 setError(null);
                 const data = await getDriverByIdClient(driverId);
                 if (!data) {
-                    setError("Driver not found.");
+                    setError(t("drivers.detail.notFound") + ".");
                     return;
                 }
                 setDriver(data);
@@ -67,7 +69,7 @@ export default function DriverPreviewClient() {
                 getDriverAssignmentHistory(driverId).then(setAssignmentHistory);
             } catch (err) {
                 console.error("Error fetching driver:", err);
-                setError(err instanceof Error ? err.message : "Failed to load driver data.");
+                setError(err instanceof Error ? err.message : t("drivers.toast.loadError") + ".");
             } finally {
                 setIsLoading(false);
             }
@@ -114,7 +116,7 @@ export default function DriverPreviewClient() {
         return (
             <div className="flex items-center justify-center min-h-[400px]">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                <span className="ml-2 text-muted-foreground">Loading driver data...</span>
+                <span className="ml-2 text-muted-foreground">{t("drivers.detail.loadingData")}</span>
             </div>
         );
     }
@@ -124,10 +126,10 @@ export default function DriverPreviewClient() {
             <div className="container mx-auto px-4 py-8 max-w-5xl">
                 <div className="text-center py-12">
                     <h2 className="text-2xl font-bold text-destructive mb-4">
-                        {error || "Driver not found"}
+                        {error || t("drivers.detail.notFound")}
                     </h2>
                     <Button asChild>
-                        <Link href="/admin/drivers">Back to Drivers</Link>
+                        <Link href="/admin/drivers">{t("drivers.detail.backToDrivers")}</Link>
                     </Button>
                 </div>
             </div>
@@ -136,9 +138,9 @@ export default function DriverPreviewClient() {
 
     // Construct viewable files list
     const viewableFiles = [
-        ...(driver.profileImage ? [{ url: driver.profileImage, type: "image" as const, label: "Profile Photo" }] : []),
-        ...(driver.idCardImage ? [{ url: driver.idCardImage, type: "pdf" as const, label: "ID Card" }] : []),
-        ...(driver.truckLicenseImage ? [{ url: driver.truckLicenseImage, type: "pdf" as const, label: "Driver License" }] : []),
+        ...(driver.profileImage ? [{ url: driver.profileImage, type: "image" as const, label: t("drivers.detail.profilePhoto") }] : []),
+        ...(driver.idCardImage ? [{ url: driver.idCardImage, type: "pdf" as const, label: t("drivers.detail.idCard") }] : []),
+        ...(driver.truckLicenseImage ? [{ url: driver.truckLicenseImage, type: "pdf" as const, label: t("drivers.detail.driverLicense") }] : []),
     ];
 
     const handleFileClick = (url: string) => {
@@ -173,7 +175,7 @@ export default function DriverPreviewClient() {
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <span className="flex items-center gap-1">
                                 <Info className="h-3.5 w-3.5" />
-                                Registered: {formatDate(driver.createdAt)}
+                                {t("drivers.detail.registered")} {formatDate(driver.createdAt)}
                             </span>
                             <span>•</span>
                             <span>ID: {driver.id?.substring(0, 8).toUpperCase() ?? "-"}</span>
@@ -184,7 +186,7 @@ export default function DriverPreviewClient() {
                     <Button asChild className="gap-2 bg-blue-600 hover:bg-blue-700 text-white">
                         <Link href={`/admin/drivers/edit?id=${driver?.id}`}>
                             <Edit className="h-4 w-4" />
-                            Edit Profile
+                            {t("drivers.detail.editProfile")}
                         </Link>
                     </Button>
                 </div>
@@ -198,31 +200,31 @@ export default function DriverPreviewClient() {
                         <CardHeader className="pb-3">
                             <CardTitle className="flex items-center gap-2 text-base font-semibold">
                                 <User className="h-5 w-5 text-blue-600" />
-                                Personal Information
+                                {t("drivers.detail.personalInfo")}
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-y-4 gap-x-12">
                             <div className="flex justify-between py-2 border-b">
                                 <span className="text-sm text-muted-foreground flex items-center gap-2">
-                                    <Phone className="h-4 w-4" /> Mobile
+                                    <Phone className="h-4 w-4" /> {t("drivers.detail.mobile")}
                                 </span>
                                 <span className="text-sm font-medium">{driver.mobile}</span>
                             </div>
                             <div className="flex justify-between py-2 border-b">
                                 <span className="text-sm text-muted-foreground flex items-center gap-2">
-                                    <Mail className="h-4 w-4" /> Email
+                                    <Mail className="h-4 w-4" /> {t("drivers.detail.email")}
                                 </span>
                                 <span className="text-sm font-medium">{driver.email || "-"}</span>
                             </div>
                             <div className="flex justify-between py-2 border-b">
                                 <span className="text-sm text-muted-foreground flex items-center gap-2">
-                                    <Calendar className="h-4 w-4" /> Birth Date
+                                    <Calendar className="h-4 w-4" /> {t("drivers.detail.birthDate")}
                                 </span>
                                 <span className="text-sm font-medium">{formatDate(driver.birthDate)}</span>
                             </div>
                             <div className="flex justify-between py-2 border-b">
                                 <span className="text-sm text-muted-foreground flex items-center gap-2">
-                                    <CreditCard className="h-4 w-4" /> ID Card No.
+                                    <CreditCard className="h-4 w-4" /> {t("drivers.detail.idCardNo")}
                                 </span>
                                 <span className="text-sm font-medium font-mono">{driver.idCard}</span>
                             </div>
@@ -234,36 +236,36 @@ export default function DriverPreviewClient() {
                         <CardHeader className="pb-3">
                             <CardTitle className="flex items-center gap-2 text-base font-semibold">
                                 <Briefcase className="h-5 w-5 text-blue-600" />
-                                Employment Details
+                                {t("drivers.detail.employmentDetails")}
                             </CardTitle>
                         </CardHeader>
                         <CardContent>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-y-4 gap-x-12">
                                 <div className="flex justify-between py-2 border-b">
-                                    <span className="text-sm text-muted-foreground">Employment Type</span>
+                                    <span className="text-sm text-muted-foreground">{t("drivers.detail.employmentType")}</span>
                                     <span className="text-sm font-medium">
-                                        {driver.employmentType === 'FULL_TIME' ? 'Full Time' :
-                                            driver.employmentType === 'PART_TIME' ? 'Part Time' : 'Subcontractor'}
+                                        {driver.employmentType === 'FULL_TIME' ? t("drivers.detail.fullTime") :
+                                            driver.employmentType === 'PART_TIME' ? t("drivers.detail.partTime") : t("drivers.detail.subcontractor")}
                                     </span>
                                 </div>
                                 {driver.employmentType === 'SUBCONTRACTOR' && (
                                     <div className="flex justify-between py-2 border-b">
-                                        <span className="text-sm text-muted-foreground">Subcontractor</span>
+                                        <span className="text-sm text-muted-foreground">{t("drivers.detail.subcontractor")}</span>
                                         <span className="text-sm font-medium text-blue-600">
                                             {getSubcontractorName(driver.subcontractorId)}
                                         </span>
                                     </div>
                                 )}
                                 <div className="flex justify-between py-2 border-b">
-                                    <span className="text-sm text-muted-foreground">Contract Duration</span>
-                                    <span className="text-sm font-medium">{driver.contractYears ? `${driver.contractYears} Years` : "-"}</span>
+                                    <span className="text-sm text-muted-foreground">{t("drivers.detail.contractDuration")}</span>
+                                    <span className="text-sm font-medium">{driver.contractYears ? `${driver.contractYears} ${t("drivers.detail.years")}` : "-"}</span>
                                 </div>
                                 <div className="flex justify-between py-2 border-b">
-                                    <span className="text-sm text-muted-foreground">Truck License ID</span>
+                                    <span className="text-sm text-muted-foreground">{t("drivers.detail.truckLicenseId")}</span>
                                     <span className="text-sm font-medium font-mono">{driver.truckLicenseId}</span>
                                 </div>
                                 <div className="flex justify-between py-2 border-b">
-                                    <span className="text-sm text-muted-foreground">License Type</span>
+                                    <span className="text-sm text-muted-foreground">{t("drivers.detail.licenseType")}</span>
                                     <span className="text-sm font-medium">{driver.licenseType || "-"}</span>
                                 </div>
                             </div>
@@ -275,13 +277,13 @@ export default function DriverPreviewClient() {
                         <CardHeader className="pb-3 border-b">
                             <CardTitle className="flex items-center gap-2 text-base font-semibold">
                                 <FileText className="h-5 w-5 text-blue-600" />
-                                Documents
+                                {t("drivers.detail.documents")}
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="pt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
                             {/* ID Card */}
                             <div className="space-y-2">
-                                <p className="text-xs font-semibold text-muted-foreground uppercase">ID Card</p>
+                                <p className="text-xs font-semibold text-muted-foreground uppercase">{t("drivers.detail.idCard")}</p>
                                 {driver.idCardImage ? (
                                     <div
                                         className="relative aspect-[4/3] rounded-md overflow-hidden bg-muted cursor-pointer border hover:border-blue-500 transition-all"
@@ -290,7 +292,7 @@ export default function DriverPreviewClient() {
                                         {driver.idCardImage.toLowerCase().includes('.pdf') ? (
                                             <div className="flex flex-col items-center justify-center h-full bg-muted/50">
                                                 <FileText className="h-10 w-10 text-red-500 mb-2" />
-                                                <span className="text-xs font-medium text-muted-foreground">View PDF</span>
+                                                <span className="text-xs font-medium text-muted-foreground">{t("drivers.detail.viewPdf")}</span>
                                             </div>
                                         ) : (
                                             <Image
@@ -303,14 +305,14 @@ export default function DriverPreviewClient() {
                                     </div>
                                 ) : (
                                     <div className="flex items-center justify-center aspect-[4/3] rounded-md bg-muted/30 border border-dashed">
-                                        <p className="text-xs text-muted-foreground">No document</p>
+                                        <p className="text-xs text-muted-foreground">{t("drivers.detail.noDocument")}</p>
                                     </div>
                                 )}
                             </div>
 
                             {/* License */}
                             <div className="space-y-2">
-                                <p className="text-xs font-semibold text-muted-foreground uppercase">Driving License</p>
+                                <p className="text-xs font-semibold text-muted-foreground uppercase">{t("drivers.detail.drivingLicense")}</p>
                                 {driver.truckLicenseImage ? (
                                     <div
                                         className="relative aspect-[4/3] rounded-md overflow-hidden bg-muted cursor-pointer border hover:border-blue-500 transition-all"
@@ -319,7 +321,7 @@ export default function DriverPreviewClient() {
                                         {driver.truckLicenseImage.toLowerCase().includes('.pdf') ? (
                                             <div className="flex flex-col items-center justify-center h-full bg-muted/50">
                                                 <FileText className="h-10 w-10 text-red-500 mb-2" />
-                                                <span className="text-xs font-medium text-muted-foreground">View PDF</span>
+                                                <span className="text-xs font-medium text-muted-foreground">{t("drivers.detail.viewPdf")}</span>
                                             </div>
                                         ) : (
                                             <Image
@@ -332,7 +334,7 @@ export default function DriverPreviewClient() {
                                     </div>
                                 ) : (
                                     <div className="flex items-center justify-center aspect-[4/3] rounded-md bg-muted/30 border border-dashed">
-                                        <p className="text-xs text-muted-foreground">No document</p>
+                                        <p className="text-xs text-muted-foreground">{t("drivers.detail.noDocument")}</p>
                                     </div>
                                 )}
                             </div>
@@ -362,11 +364,11 @@ export default function DriverPreviewClient() {
                             <div className="flex gap-2 mt-4 w-full">
                                 <Button className="flex-1" variant="outline">
                                     <Phone className="h-4 w-4 mr-2" />
-                                    Call
+                                    {t("drivers.detail.call")}
                                 </Button>
                                 <Button className="flex-1" variant="outline">
                                     <Mail className="h-4 w-4 mr-2" />
-                                    Email
+                                    {t("drivers.detail.emailBtn")}
                                 </Button>
                             </div>
                         </CardContent>
@@ -377,13 +379,13 @@ export default function DriverPreviewClient() {
                         <CardHeader className="flex flex-row items-center justify-between py-6">
                             <CardTitle className="text-lg font-bold flex items-center gap-2">
                                 <Truck className="h-5 w-5" />
-                                Truck Assignment
+                                {t("drivers.detail.truckAssignment")}
                             </CardTitle>
                             {!driver.currentAssignment && (
                                 <Button size="sm" className="h-8 gap-2" variant="outline" asChild>
                                     <Link href="/admin/truck-assignment">
                                         <Plus className="h-3.5 w-3.5" />
-                                        Assign
+                                        {t("drivers.detail.assign")}
                                     </Link>
                                 </Button>
                             )}
@@ -392,10 +394,10 @@ export default function DriverPreviewClient() {
                             <Table>
                                 <TableHeader>
                                     <TableRow>
-                                        <TableHead className="w-[120px] text-xs">Truck</TableHead>
-                                        <TableHead className="text-xs">Start</TableHead>
-                                        <TableHead className="text-xs">End</TableHead>
-                                        <TableHead className="text-right text-xs">Status</TableHead>
+                                        <TableHead className="w-[120px] text-xs">{t("drivers.detail.truck")}</TableHead>
+                                        <TableHead className="text-xs">{t("drivers.detail.start")}</TableHead>
+                                        <TableHead className="text-xs">{t("drivers.detail.end")}</TableHead>
+                                        <TableHead className="text-right text-xs">{t("drivers.table.status")}</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -417,7 +419,7 @@ export default function DriverPreviewClient() {
                                                         variant="secondary"
                                                         className={`text-[10px] px-1.5 h-5 ${!history.revokedAt ? 'bg-green-100 text-green-600 hover:bg-green-100' : 'bg-gray-100 text-gray-500 hover:bg-gray-100'}`}
                                                     >
-                                                        {!history.revokedAt ? 'Current' : 'Revoked'}
+                                                        {!history.revokedAt ? t("drivers.detail.current") : t("drivers.detail.revoked")}
                                                     </Badge>
                                                 </TableCell>
                                             </TableRow>
@@ -425,7 +427,7 @@ export default function DriverPreviewClient() {
                                     ) : (
                                         <TableRow>
                                             <TableCell colSpan={4} className="h-24 text-center text-xs text-muted-foreground">
-                                                No assignment history found.
+                                                {t("drivers.detail.noHistory")}
                                             </TableCell>
                                         </TableRow>
                                     )}

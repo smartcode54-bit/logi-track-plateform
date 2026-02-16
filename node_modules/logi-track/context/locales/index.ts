@@ -9,6 +9,7 @@ import renewalsEn from './en/renewals';
 import subcontractorsEn from './en/subcontractors';
 import waitlistEn from './en/waitlist';
 import landingEn from './en/landing';
+import driversEn from './en/drivers';
 
 import commonTh from './th/common';
 import authTh from './th/auth';
@@ -21,6 +22,7 @@ import renewalsTh from './th/renewals';
 import subcontractorsTh from './th/subcontractors';
 import waitlistTh from './th/waitlist';
 import landingTh from './th/landing';
+import driversTh from './th/drivers';
 
 export const translations = {
     en: {
@@ -35,6 +37,7 @@ export const translations = {
         ...subcontractorsEn,
         ...waitlistEn,
         ...landingEn,
+        ...driversEn,
     },
     th: {
         ...commonTh,
@@ -48,5 +51,6 @@ export const translations = {
         ...subcontractorsTh,
         ...waitlistTh,
         ...landingTh,
+        ...driversTh,
     },
 };
