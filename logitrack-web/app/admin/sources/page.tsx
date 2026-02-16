@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { HubDialog } from "../first-mile/hub-dialog";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "@/firebase/client";
+import { useLanguage } from "@/context/language";
 
 interface Hub {
     id?: string;
@@ -28,6 +29,7 @@ interface Hub {
 }
 
 export default function SourcesPage() {
+    const { t } = useLanguage();
     const [hubs, setHubs] = useState<Hub[]>([]);
     const [search, setSearch] = useState("");
     const [loading, setLoading] = useState(true);
@@ -69,13 +71,13 @@ export default function SourcesPage() {
     return (
         <div className="flex-1 space-y-4 p-8 pt-6">
             <div className="flex items-center justify-between space-y-2">
-                <h2 className="text-3xl font-bold tracking-tight">Source Management</h2>
+                <h2 className="text-3xl font-bold tracking-tight">{t("firstMile.sources.title")}</h2>
                 <div className="flex items-center space-x-2">
                     <HubDialog
                         trigger={
                             <Button>
                                 <Plus className="mr-2 h-4 w-4" />
-                                New Source
+                                {t("firstMile.sources.newSource")}
                             </Button>
                         }
                         onSuccess={fetchHubs}
@@ -86,11 +88,11 @@ export default function SourcesPage() {
             <Card>
                 <CardHeader>
                     <div className="flex items-center justify-between">
-                        <CardTitle>Database Sources</CardTitle>
+                        <CardTitle>{t("firstMile.sources.dbSources")}</CardTitle>
                         <div className="flex w-full max-w-sm items-center space-x-2">
                             <Search className="h-4 w-4 text-muted-foreground mr-2" />
                             <Input
-                                placeholder="Search sources..."
+                                placeholder={t("firstMile.sources.search")}
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
                                 className="h-8 w-[250px]"
@@ -102,23 +104,23 @@ export default function SourcesPage() {
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead>Source ID</TableHead>
-                                <TableHead>Name (SPX)</TableHead>
-                                <TableHead>Name (Thai)</TableHead>
-                                <TableHead>Coordinates</TableHead>
+                                <TableHead>{t("firstMile.sources.table.sourceId")}</TableHead>
+                                <TableHead>{t("firstMile.sources.table.nameSPX")}</TableHead>
+                                <TableHead>{t("firstMile.sources.table.nameThai")}</TableHead>
+                                <TableHead>{t("firstMile.sources.table.coordinates")}</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {loading ? (
                                 <TableRow>
                                     <TableCell colSpan={4} className="text-center h-24">
-                                        Loading...
+                                        {t("firstMile.sources.loading")}
                                     </TableCell>
                                 </TableRow>
                             ) : filteredHubs.length === 0 ? (
                                 <TableRow>
                                     <TableCell colSpan={4} className="text-center h-24">
-                                        No database sources found. Create one to get started.
+                                        {t("firstMile.sources.noData")}
                                     </TableCell>
                                 </TableRow>
                             ) : (
@@ -139,7 +141,7 @@ export default function SourcesPage() {
                                                     {hub.lat.toFixed(4)}, {hub.lng.toFixed(4)}
                                                 </a>
                                             ) : (
-                                                <span className="text-muted-foreground text-xs">No coords</span>
+                                                <span className="text-muted-foreground text-xs">{t("firstMile.sources.noCoords")}</span>
                                             )}
                                         </TableCell>
                                     </TableRow>

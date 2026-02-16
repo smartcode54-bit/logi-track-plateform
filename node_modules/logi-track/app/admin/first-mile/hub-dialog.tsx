@@ -27,6 +27,7 @@ import { hubSchema, Hub } from "@/validate/hubSchema";
 import { collection, addDoc } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import SimpleMap from "@/components/map/SimpleMap";
+import { useLanguage } from "@/context/language";
 
 interface HubDialogProps {
     trigger?: React.ReactNode;
@@ -38,6 +39,7 @@ interface HubDialogProps {
 export function HubDialog({ trigger, open, onOpenChange, onSuccess }: HubDialogProps) {
     const [internalOpen, setInternalOpen] = useState(false);
     const [loading, setLoading] = useState(false);
+    const { t } = useLanguage();
 
     // Controlled open state
     const isOpen = open !== undefined ? open : internalOpen;
@@ -92,9 +94,9 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess }: HubDialogP
             {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
             <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
-                    <DialogTitle>Add New Source</DialogTitle>
+                    <DialogTitle>{t("firstMile.hub.title")}</DialogTitle>
                     <DialogDescription>
-                        Register a new source location with coordinates.
+                        {t("firstMile.hub.description")}
                     </DialogDescription>
                 </DialogHeader>
 
@@ -106,9 +108,9 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess }: HubDialogP
                                 name="hubId"
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel>Source ID</FormLabel>
+                                        <FormLabel>{t("firstMile.hub.sourceId")}</FormLabel>
                                         <FormControl>
-                                            <Input placeholder="e.g. SPX01" {...field} />
+                                            <Input placeholder={t("firstMile.hub.sourceIdPlaceholder")} {...field} />
                                         </FormControl>
                                         <FormMessage />
                                     </FormItem>
@@ -120,9 +122,9 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess }: HubDialogP
                                 name="hubName"
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel>SPX Name</FormLabel>
+                                        <FormLabel>{t("firstMile.hub.spxName")}</FormLabel>
                                         <FormControl>
-                                            <Input placeholder="e.g. Bangkok Hub" {...field} />
+                                            <Input placeholder={t("firstMile.hub.spxNamePlaceholder")} {...field} />
                                         </FormControl>
                                         <FormMessage />
                                     </FormItem>
@@ -135,9 +137,9 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess }: HubDialogP
                             name="hubTHName"
                             render={({ field }) => (
                                 <FormItem>
-                                    <FormLabel>Source Name (Thai)</FormLabel>
+                                    <FormLabel>{t("firstMile.hub.nameThai")}</FormLabel>
                                     <FormControl>
-                                        <Input placeholder="e.g. ศูนย์คัดแยกกรุงเทพ" {...field} />
+                                        <Input placeholder={t("firstMile.hub.nameThaiPlaceholder")} {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
@@ -145,7 +147,7 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess }: HubDialogP
                         />
 
                         <div className="space-y-2">
-                            <FormLabel>Location</FormLabel>
+                            <FormLabel>{t("firstMile.hub.location")}</FormLabel>
                             <div className="border rounded-md p-1">
                                 <SimpleMap
                                     value={form.watch("lat") && form.watch("lng") ? { lat: form.watch("lat")!, lng: form.watch("lng")! } : undefined}
@@ -162,10 +164,10 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess }: HubDialogP
                         </div>
 
                         <DialogFooter>
-                            <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>Cancel</Button>
+                            <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>{t("firstMile.hub.cancel")}</Button>
                             <Button type="submit" disabled={loading}>
                                 {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                Save Source
+                                {t("firstMile.hub.save")}
                             </Button>
                         </DialogFooter>
                     </form>

@@ -6,6 +6,7 @@ import { format } from "date-fns";
 import { Calendar as CalendarIcon, Plus } from "lucide-react";
 import { FirstMileImportDialog } from "./import-dialog";
 import { FirstMileTaskDialog } from "./task-dialog";
+import { useLanguage } from "@/context/language";
 
 
 
@@ -39,6 +40,7 @@ import { collection, getDocs, onSnapshot, query, orderBy, limit } from "firebase
 import { db } from "@/firebase/client";
 
 export default function FirstMilePage() {
+    const { t } = useLanguage();
     const [date, setDate] = useState<Date | undefined>(new Date());
     const [tasks, setTasks] = useState<FirstMileTask[]>([]);
     const [hubs, setHubs] = useState<Record<string, any>[]>([]);
@@ -133,9 +135,9 @@ export default function FirstMilePage() {
         <div className="flex-1 space-y-4 p-8 pt-6">
             <div className="flex items-center justify-between space-y-2">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight">First Mile Tasks</h2>
+                    <h2 className="text-3xl font-bold tracking-tight">{t("firstMile.title")}</h2>
                     <p className="text-muted-foreground">
-                        Assign drivers to pick up from Hubs and deliver to SOCs (First Step of Day Trip).
+                        {t("firstMile.subtitle")}
                     </p>
                 </div>
                 <div className="flex gap-3">
@@ -143,7 +145,7 @@ export default function FirstMilePage() {
                         <FirstMileImportDialog onSuccess={() => { }} />
                         <Button onClick={handleCreate}>
                             <Plus className="mr-2 h-4 w-4" />
-                            New Assignment
+                            {t("firstMile.newAssignment")}
                         </Button>
                     </div>
                 </div>
@@ -152,11 +154,11 @@ export default function FirstMilePage() {
             {/* Filters */}
             <Card>
                 <CardHeader className="pb-3">
-                    <CardTitle className="text-lg">Filters</CardTitle>
+                    <CardTitle className="text-lg">{t("firstMile.filters")}</CardTitle>
                 </CardHeader>
                 <CardContent className="flex flex-wrap gap-4">
                     <div className="flex flex-col gap-2">
-                        <label className="text-sm font-medium">Date</label>
+                        <label className="text-sm font-medium">{t("firstMile.filter.date")}</label>
                         <Popover>
                             <PopoverTrigger asChild>
                                 <Button
@@ -167,7 +169,7 @@ export default function FirstMilePage() {
                                     )}
                                 >
                                     <CalendarIcon className="mr-2 h-4 w-4" />
-                                    {date ? format(date, "dd/MM/yyyy") : <span>Pick a date</span>}
+                                    {date ? format(date, "dd/MM/yyyy") : <span>{t("firstMile.filter.pickDate")}</span>}
                                 </Button>
                             </PopoverTrigger>
                             <PopoverContent className="w-auto p-0" align="start">
@@ -182,13 +184,13 @@ export default function FirstMilePage() {
                     </div>
 
                     <div className="flex flex-col gap-2 min-w-[200px]">
-                        <label className="text-sm font-medium">Destination (SOC)</label>
+                        <label className="text-sm font-medium">{t("firstMile.filter.destination")}</label>
                         <Select value={selectedSOC} onValueChange={setSelectedSOC}>
                             <SelectTrigger>
-                                <SelectValue placeholder="All SOCs" />
+                                <SelectValue placeholder={t("firstMile.filter.allSOCs")} />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="all">All SOCs</SelectItem>
+                                <SelectItem value="all">{t("firstMile.filter.allSOCs")}</SelectItem>
                                 {SOC_KEYS.map(key => (
                                     <SelectItem key={key} value={key}>{SOC_DESTINATIONS[key]}</SelectItem>
                                 ))}
@@ -197,13 +199,13 @@ export default function FirstMilePage() {
                     </div>
 
                     <div className="flex flex-col gap-2 min-w-[200px] flex-1">
-                        <label className="text-sm font-medium">Source Hub</label>
+                        <label className="text-sm font-medium">{t("firstMile.filter.sourceHub")}</label>
                         <Select value={selectedHub} onValueChange={setSelectedHub}>
                             <SelectTrigger>
-                                <SelectValue placeholder="Select Hub..." />
+                                <SelectValue placeholder={t("firstMile.filter.selectHub")} />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="all">All Hubs</SelectItem>
+                                <SelectItem value="all">{t("firstMile.filter.allHubs")}</SelectItem>
                                 {/* Limit mapped hubs for performance if list is huge */}
                                 {hubs.slice(0, 50).map((hub, idx) => (
                                     <SelectItem key={idx} value={hub['Hub Code'] || hub['Code'] || `hub-${idx}`}>
@@ -221,23 +223,23 @@ export default function FirstMilePage() {
                 <Table>
                     <TableHeader className="bg-muted/50">
                         <TableRow>
-                            <TableHead>Date</TableHead>
-                            <TableHead>Source Hub</TableHead>
-                            <TableHead>Destination</TableHead>
-                            <TableHead>Time</TableHead>
-                            <TableHead>Type</TableHead>
-                            <TableHead>Shipment ID</TableHead>
-                            <TableHead>License Plate</TableHead>
-                            <TableHead>Driver</TableHead>
-                            <TableHead>Phone</TableHead>
-                            <TableHead className="text-right">Actions</TableHead>
+                            <TableHead>{t("firstMile.table.date")}</TableHead>
+                            <TableHead>{t("firstMile.table.sourceHub")}</TableHead>
+                            <TableHead>{t("firstMile.table.destination")}</TableHead>
+                            <TableHead>{t("firstMile.table.time")}</TableHead>
+                            <TableHead>{t("firstMile.table.type")}</TableHead>
+                            <TableHead>{t("firstMile.table.shipmentId")}</TableHead>
+                            <TableHead>{t("firstMile.table.licensePlate")}</TableHead>
+                            <TableHead>{t("firstMile.table.driver")}</TableHead>
+                            <TableHead>{t("firstMile.table.phone")}</TableHead>
+                            <TableHead className="text-right">{t("firstMile.table.actions")}</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {filteredTasks.length === 0 ? (
                             <TableRow>
                                 <TableCell colSpan={10} className="h-24 text-center">
-                                    No tasks found. Create one or import from Excel.
+                                    {t("firstMile.table.noTasks")}
                                 </TableCell>
                             </TableRow>
                         ) : (
@@ -272,7 +274,7 @@ export default function FirstMilePage() {
                                             size="sm"
                                             onClick={() => handleEdit(task)}
                                         >
-                                            Edit
+                                            {t("firstMile.table.edit")}
                                         </Button>
                                     </TableCell>
                                 </TableRow>

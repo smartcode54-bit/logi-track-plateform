@@ -7,6 +7,7 @@ import { format, parse } from "date-fns";
 import { collection, writeBatch, doc } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import { SOC_KEYS, SOC_DESTINATIONS } from "@/validate/firstMileTaskSchema";
+import { useLanguage } from "@/context/language";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -35,6 +36,7 @@ interface ImportDialogProps {
 }
 
 export function FirstMileImportDialog({ onSuccess }: ImportDialogProps) {
+    const { t } = useLanguage();
     const [open, setOpen] = useState(false);
     const [file, setFile] = useState<File | null>(null);
     const [data, setData] = useState<any[]>([]);
@@ -132,7 +134,7 @@ export function FirstMileImportDialog({ onSuccess }: ImportDialogProps) {
             setError(null);
         } catch (err) {
             console.error(err);
-            setError("Failed to parse Excel file. Please check the format.");
+            setError(t("firstMile.import.parseError"));
         }
     };
 
@@ -199,7 +201,7 @@ export function FirstMileImportDialog({ onSuccess }: ImportDialogProps) {
         } catch (err) {
             console.error(err);
             setUploading(false);
-            setError("Failed to push data to database.");
+            setError(t("firstMile.import.pushError"));
         }
     };
 
@@ -208,14 +210,14 @@ export function FirstMileImportDialog({ onSuccess }: ImportDialogProps) {
             <DialogTrigger asChild>
                 <Button variant="outline" className="gap-2">
                     <FileSpreadsheet className="h-4 w-4" />
-                    Import Excel
+                    {t("firstMile.import.button")}
                 </Button>
             </DialogTrigger>
             <DialogContent className="max-w-4xl max-h-[80vh] flex flex-col">
                 <DialogHeader>
-                    <DialogTitle>Import Assignments from Excel</DialogTitle>
+                    <DialogTitle>{t("firstMile.import.title")}</DialogTitle>
                     <DialogDescription>
-                        Upload a spreadsheet with Plan specific columns (Date, Source, Destination, etc.).
+                        {t("firstMile.import.description")}
                     </DialogDescription>
                 </DialogHeader>
 
@@ -224,11 +226,11 @@ export function FirstMileImportDialog({ onSuccess }: ImportDialogProps) {
                         <div className="flex flex-col gap-4 h-full">
                             <div className="flex justify-between items-center">
                                 <span className="text-sm text-muted-foreground">
-                                    Please use the template to ensure correct data format.
+                                    {t("firstMile.import.templateHint")}
                                 </span>
                                 <Button variant="outline" size="sm" onClick={handleDownloadTemplate} className="gap-2">
                                     <Download className="h-4 w-4" />
-                                    Download Template
+                                    {t("firstMile.import.downloadTemplate")}
                                 </Button>
                             </div>
 
@@ -237,8 +239,8 @@ export function FirstMileImportDialog({ onSuccess }: ImportDialogProps) {
                                 onClick={() => fileInputRef.current?.click()}
                             >
                                 <Upload className="h-12 w-12 mb-4 text-gray-400" />
-                                <p className="font-medium text-lg">Click to Upload Excel File</p>
-                                <p className="text-sm">.xlsx, .xls formats supported</p>
+                                <p className="font-medium text-lg">{t("firstMile.import.clickUpload")}</p>
+                                <p className="text-sm">{t("firstMile.import.formatsSupported")}</p>
                                 <input
                                     ref={fileInputRef}
                                     type="file"
@@ -257,7 +259,7 @@ export function FirstMileImportDialog({ onSuccess }: ImportDialogProps) {
                                     </div>
                                     <div>
                                         <p className="font-medium text-sm">{file.name}</p>
-                                        <p className="text-xs text-muted-foreground">{data.length} records found</p>
+                                        <p className="text-xs text-muted-foreground">{data.length} {t("firstMile.import.recordsFound")}</p>
                                     </div>
                                 </div>
                                 <Button variant="ghost" size="icon" onClick={() => setFile(null)}>
@@ -268,7 +270,7 @@ export function FirstMileImportDialog({ onSuccess }: ImportDialogProps) {
                             {error && (
                                 <Alert variant="destructive">
                                     <AlertCircle className="h-4 w-4" />
-                                    <AlertTitle>Error</AlertTitle>
+                                    <AlertTitle>{t("firstMile.import.error")}</AlertTitle>
                                     <AlertDescription>{error}</AlertDescription>
                                 </Alert>
                             )}
@@ -278,15 +280,15 @@ export function FirstMileImportDialog({ onSuccess }: ImportDialogProps) {
                                     <Table>
                                         <TableHeader>
                                             <TableRow className="bg-muted/50">
-                                                <TableHead>Row</TableHead>
-                                                <TableHead>Date</TableHead>
-                                                <TableHead>Source</TableHead>
-                                                <TableHead>Dest</TableHead>
-                                                <TableHead>Time</TableHead>
-                                                <TableHead>Truck Type</TableHead>
-                                                <TableHead>First Mile Task ID</TableHead>
-                                                <TableHead>Driver</TableHead>
-                                                <TableHead>Status</TableHead>
+                                                <TableHead>{t("firstMile.import.table.row")}</TableHead>
+                                                <TableHead>{t("firstMile.import.table.date")}</TableHead>
+                                                <TableHead>{t("firstMile.import.table.source")}</TableHead>
+                                                <TableHead>{t("firstMile.import.table.dest")}</TableHead>
+                                                <TableHead>{t("firstMile.import.table.time")}</TableHead>
+                                                <TableHead>{t("firstMile.import.table.truckType")}</TableHead>
+                                                <TableHead>{t("firstMile.import.table.taskId")}</TableHead>
+                                                <TableHead>{t("firstMile.import.table.driver")}</TableHead>
+                                                <TableHead>{t("firstMile.import.table.status")}</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -297,7 +299,7 @@ export function FirstMileImportDialog({ onSuccess }: ImportDialogProps) {
                                                     <TableCell>{row.sourceHub}</TableCell>
                                                     <TableCell>
                                                         <span className={row.destination ? "text-green-600 font-medium" : "text-red-500"}>
-                                                            {row.destination || "Unknown"}
+                                                            {row.destination || t("firstMile.import.unknown")}
                                                         </span>
                                                     </TableCell>
                                                     <TableCell>{row.time}</TableCell>
@@ -308,7 +310,7 @@ export function FirstMileImportDialog({ onSuccess }: ImportDialogProps) {
                                                         {row.isValid ? (
                                                             <Check className="h-4 w-4 text-green-500" />
                                                         ) : (
-                                                            <span className="text-xs text-red-500 font-medium">Invalid</span>
+                                                            <span className="text-xs text-red-500 font-medium">{t("firstMile.import.invalid")}</span>
                                                         )}
                                                     </TableCell>
                                                 </TableRow>
@@ -325,16 +327,16 @@ export function FirstMileImportDialog({ onSuccess }: ImportDialogProps) {
                     {uploading ? (
                         <div className="w-full space-y-2">
                             <div className="flex justify-between text-xs">
-                                <span>Uploading...</span>
+                                <span>{t("firstMile.import.uploading")}</span>
                                 <span>{progress}%</span>
                             </div>
                             <Progress value={progress} />
                         </div>
                     ) : (
                         <>
-                            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+                            <Button variant="outline" onClick={() => setOpen(false)}>{t("firstMile.import.cancel")}</Button>
                             <Button onClick={handleUpload} disabled={!file || data.length === 0 || uploading}>
-                                Upload {data.filter(d => d.isValid).length} Records
+                                {t("firstMile.import.upload")} {data.filter(d => d.isValid).length} {t("firstMile.import.records")}
                             </Button>
                         </>
                     )}

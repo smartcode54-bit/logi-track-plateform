@@ -53,6 +53,7 @@ import { firstMileTaskSchema, FirstMileTask, SOC_KEYS, SOC_DESTINATIONS } from "
 import { Driver } from "@/validate/driverSchema";
 import { collection, addDoc, doc, updateDoc, getDocs, query, where, getCountFromServer } from "firebase/firestore";
 import { db } from "@/firebase/client";
+import { useLanguage } from "@/context/language";
 
 interface ItemDialogProps {
     mode: "create" | "edit";
@@ -68,6 +69,7 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
     const [hubs, setHubs] = useState<Record<string, any>[]>([]);
     const [drivers, setDrivers] = useState<Driver[]>([]);
     const [loading, setLoading] = useState(false);
+    const { t } = useLanguage();
 
     // Controlled open state
     const isOpen = open !== undefined ? open : internalOpen;
@@ -224,9 +226,9 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
             {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
             <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
-                    <DialogTitle>{mode === "create" ? "New Assignment" : "Edit Assignment"}</DialogTitle>
+                    <DialogTitle>{mode === "create" ? t("firstMile.task.createTitle") : t("firstMile.task.editTitle")}</DialogTitle>
                     <DialogDescription>
-                        {mode === "create" ? "Create a new first mile task." : "Update task details."}
+                        {mode === "create" ? t("firstMile.task.createDesc") : t("firstMile.task.editDesc")}
                     </DialogDescription>
                 </DialogHeader>
 
@@ -239,7 +241,7 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                                 name="date"
                                 render={({ field }) => (
                                     <FormItem className="flex flex-col">
-                                        <FormLabel>Date</FormLabel>
+                                        <FormLabel>{t("firstMile.task.date")}</FormLabel>
                                         <Popover>
                                             <PopoverTrigger asChild>
                                                 <FormControl>
@@ -253,7 +255,7 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                                                         {field.value ? (
                                                             format(field.value, "dd/MM/yyyy")
                                                         ) : (
-                                                            <span>Pick a date</span>
+                                                            <span>{t("firstMile.task.pickDate")}</span>
                                                         )}
                                                         <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
                                                     </Button>
@@ -279,11 +281,11 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                                 name="time"
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel>Time (HH:MM)</FormLabel>
+                                        <FormLabel>{t("firstMile.task.time")}</FormLabel>
                                         <Select onValueChange={field.onChange} value={field.value}>
                                             <FormControl>
                                                 <SelectTrigger>
-                                                    <SelectValue placeholder="Select Time" />
+                                                    <SelectValue placeholder={t("firstMile.task.selectTime")} />
                                                 </SelectTrigger>
                                             </FormControl>
                                             <SelectContent className="h-[200px]" position="popper">
@@ -312,7 +314,7 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                                 name="sourceHub"
                                 render={({ field }) => (
                                     <FormItem className="flex flex-col">
-                                        <FormLabel>Source Hub</FormLabel>
+                                        <FormLabel>{t("firstMile.task.sourceHub")}</FormLabel>
                                         <Popover>
                                             <PopoverTrigger asChild>
                                                 <FormControl>
@@ -333,16 +335,16 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                                                                 const name = h ? (h['Hub Name'] || h['station_name_en'] || val) : "";
                                                                 return `${val} - ${name}`;
                                                             })()
-                                                            : "Select hub"}
+                                                            : t("firstMile.task.selectHub")}
                                                         <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                                                     </Button>
                                                 </FormControl>
                                             </PopoverTrigger>
                                             <PopoverContent className="w-[300px] p-0">
                                                 <Command>
-                                                    <CommandInput placeholder="Search hub..." />
+                                                    <CommandInput placeholder={t("firstMile.task.searchHub")} />
                                                     <CommandList>
-                                                        <CommandEmpty>No hub found.</CommandEmpty>
+                                                        <CommandEmpty>{t("firstMile.task.noHub")}</CommandEmpty>
                                                         <CommandGroup>
                                                             {/* Slice to prevent performance issues if list is huge */}
                                                             {hubs.slice(0, 100).map((hub, idx) => {
@@ -385,11 +387,11 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                                 name="destination"
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel>Destination (SOC)</FormLabel>
+                                        <FormLabel>{t("firstMile.task.destination")}</FormLabel>
                                         <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
                                             <FormControl>
                                                 <SelectTrigger>
-                                                    <SelectValue placeholder="Select SOC" />
+                                                    <SelectValue placeholder={t("firstMile.task.selectSOC")} />
                                                 </SelectTrigger>
                                             </FormControl>
                                             <SelectContent>
@@ -413,11 +415,11 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                                 name="truckType"
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel>Truck Type</FormLabel>
+                                        <FormLabel>{t("firstMile.task.truckType")}</FormLabel>
                                         <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
                                             <FormControl>
                                                 <SelectTrigger>
-                                                    <SelectValue placeholder="Select truck type" />
+                                                    <SelectValue placeholder={t("firstMile.task.selectTruckType")} />
                                                 </SelectTrigger>
                                             </FormControl>
                                             <SelectContent>
@@ -438,9 +440,9 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                                 name="FirstMileTaskId"
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel>First Mile Task ID (Auto-generated)</FormLabel>
+                                        <FormLabel>{t("firstMile.task.taskId")}</FormLabel>
                                         <FormControl>
-                                            <Input placeholder="Auto-generated" {...field} readOnly className="bg-muted" />
+                                            <Input placeholder={t("firstMile.task.autoGenerated")} {...field} readOnly className="bg-muted" />
                                         </FormControl>
                                         <FormMessage />
                                     </FormItem>
@@ -449,14 +451,14 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                         </div>
 
                         <div className="border-t pt-2 mt-2">
-                            <h3 className="text-sm font-medium mb-3">Driver Info</h3>
+                            <h3 className="text-sm font-medium mb-3">{t("firstMile.task.driverInfo")}</h3>
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                 <FormField
                                     control={form.control}
                                     name="driverName"
                                     render={({ field }) => (
                                         <FormItem>
-                                            <FormLabel>Name</FormLabel>
+                                            <FormLabel>{t("firstMile.task.driverName")}</FormLabel>
                                             <Select
                                                 onValueChange={(val) => {
                                                     const selectedDriver = drivers.find(d => d.id === val);
@@ -476,8 +478,8 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                                             >
                                                 <FormControl>
                                                     <SelectTrigger>
-                                                        <SelectValue placeholder="Select Driver">
-                                                            {field.value || "Select Driver"}
+                                                        <SelectValue placeholder={t("firstMile.task.selectDriver")}>
+                                                            {field.value || t("firstMile.task.selectDriver")}
                                                         </SelectValue>
                                                     </SelectTrigger>
                                                 </FormControl>
@@ -498,7 +500,7 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                                     name="driverPhone"
                                     render={({ field }) => (
                                         <FormItem>
-                                            <FormLabel>Phone</FormLabel>
+                                            <FormLabel>{t("firstMile.task.phone")}</FormLabel>
                                             <FormControl>
                                                 <Input placeholder="09xxxxxxx" {...field} readOnly className="bg-muted" />
                                             </FormControl>
@@ -511,7 +513,7 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                                     name="licensePlate"
                                     render={({ field }) => (
                                         <FormItem>
-                                            <FormLabel>License Plate</FormLabel>
+                                            <FormLabel>{t("firstMile.task.licensePlate")}</FormLabel>
                                             <FormControl>
                                                 <Input placeholder="e.g. 1กก-1234" {...field} readOnly className="bg-muted" />
                                             </FormControl>
@@ -523,10 +525,10 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                         </div>
 
                         <DialogFooter>
-                            <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>Cancel</Button>
+                            <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>{t("firstMile.task.cancel")}</Button>
                             <Button type="submit" disabled={loading}>
                                 {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                {mode === "create" ? "Create Assignment" : "Save Changes"}
+                                {mode === "create" ? t("firstMile.task.create") : t("firstMile.task.save")}
                             </Button>
                         </DialogFooter>
                     </form>
