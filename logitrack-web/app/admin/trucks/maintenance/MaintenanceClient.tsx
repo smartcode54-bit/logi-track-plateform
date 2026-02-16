@@ -223,7 +223,7 @@ export default function MaintenanceClient() {
                     <ArrowLeft className="h-5 w-5" />
                 </Button>
                 <div>
-                    <h1 className="text-2xl font-bold tracking-tight">{t("Maintenance Management")}</h1>
+                    <h1 className="text-2xl font-bold tracking-tight">{t("maintenance.title")}</h1>
                     <p className="text-muted-foreground">
                         {truck.brand} {truck.model} - <span className="font-mono font-medium text-foreground">{formatLicensePlate(truck.licensePlate)}</span>
                     </p>
@@ -231,7 +231,7 @@ export default function MaintenanceClient() {
                 <div className="ml-auto">
                     <Badge variant={truck.truckStatus === 'maintenance' ? "destructive" : "secondary"} className="text-base px-3 py-1">
                         {truck.truckStatus === 'maintenance' ? (
-                            <span className="flex items-center gap-2"><Wrench className="w-4 h-4" /> {t("Under Maintenance")}</span>
+                            <span className="flex items-center gap-2"><Wrench className="w-4 h-4" /> {t("maintenance.form.underMaintenance")}</span>
                         ) : (
                             <span className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> {t(truck.truckStatus)}</span>
                         )}
@@ -246,21 +246,21 @@ export default function MaintenanceClient() {
                         <Card className="border-l-4 border-l-blue-500 bg-blue-50/10">
                             <CardContent className="p-4 pt-4">
                                 <div className="flex justify-between items-center">
-                                    <h3 className="text-sm font-medium text-blue-600 mb-1">{t("Preventive Cost")}</h3>
+                                    <h3 className="text-sm font-medium text-blue-600 mb-1">{t("maintenance.form.preventiveCost")}</h3>
                                     <History className="h-4 w-4 text-blue-500" />
                                 </div>
                                 <div className="text-2xl font-bold text-blue-700">฿{totalPMCost.toLocaleString()}</div>
-                                <p className="text-xs text-muted-foreground mt-1">Total spend on scheduled maintenance</p>
+                                <p className="text-xs text-muted-foreground mt-1">{t("maintenance.pmCosts")}</p>
                             </CardContent>
                         </Card>
                         <Card className="border-l-4 border-l-red-500 bg-red-50/10">
                             <CardContent className="p-4 pt-4">
                                 <div className="flex justify-between items-center">
-                                    <h3 className="text-sm font-medium text-red-600 mb-1">{t("Corrective Cost")}</h3>
+                                    <h3 className="text-sm font-medium text-red-600 mb-1">{t("maintenance.form.correctiveCost")}</h3>
                                     <AlertTriangle className="h-4 w-4 text-red-500" />
                                 </div>
                                 <div className="text-2xl font-bold text-red-700">฿{totalCMCost.toLocaleString()}</div>
-                                <p className="text-xs text-muted-foreground mt-1">Total spend on repairs & fixes</p>
+                                <p className="text-xs text-muted-foreground mt-1">{t("maintenance.cmCosts")}</p>
                             </CardContent>
                         </Card>
                     </div>
@@ -274,15 +274,15 @@ export default function MaintenanceClient() {
             ) : (
                 <Card className="border-t-4 border-t-blue-500 shadow-md">
                     <CardHeader>
-                        <CardTitle>{selectedRecordId ? t("Edit Maintenance Record") : t("New Maintenance Record")}</CardTitle>
-                        <CardDescription>{selectedRecordId ? t("Update existing service details") : t("Record a new service or repair job")}</CardDescription>
+                        <CardTitle>{selectedRecordId ? t("maintenance.form.editTitle") : t("maintenance.form.newTitle")}</CardTitle>
+                        <CardDescription>{selectedRecordId ? t("maintenance.form.editDesc") : t("maintenance.form.newDesc")}</CardDescription>
                     </CardHeader>
                     <CardContent>
                         <form onSubmit={handleSave} className="space-y-8">
 
                             {/* Type Selection */}
                             <div className="space-y-3">
-                                <Label className="text-base">{t("Maintenance Type")}</Label>
+                                <Label className="text-base">{t("maintenance.form.type")}</Label>
                                 <div className="flex gap-4">
                                     <div
                                         onClick={() => !selectedRecordId && setType("PM")}
@@ -291,8 +291,8 @@ export default function MaintenanceClient() {
                                             {type === 'PM' && <div className="w-2 h-2 rounded-full bg-blue-600" />}
                                         </div>
                                         <div className="flex-1">
-                                            <span className="font-semibold block">{t("Preventive (PM)")}</span>
-                                            <span className="text-xs text-muted-foreground">{t("Scheduled maintenance, oil change, checkups")}</span>
+                                            <span className="font-semibold block">{t("maintenance.form.pm")}</span>
+                                            <span className="text-xs text-muted-foreground">{t("maintenance.form.pmDesc")}</span>
                                         </div>
                                     </div>
                                     <div
@@ -302,8 +302,8 @@ export default function MaintenanceClient() {
                                             {type === 'CM' && <div className="w-2 h-2 rounded-full bg-red-600" />}
                                         </div>
                                         <div className="flex-1">
-                                            <span className="font-semibold block">{t("Corrective (CM)")}</span>
-                                            <span className="text-xs text-muted-foreground">{t("Repairs, accidents, fix upon failure")}</span>
+                                            <span className="font-semibold block">{t("maintenance.form.cm")}</span>
+                                            <span className="text-xs text-muted-foreground">{t("maintenance.form.cmDesc")}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -312,26 +312,26 @@ export default function MaintenanceClient() {
                             {/* Service Details */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-2">
-                                    <Label>{t("Issue / Service Name")}</Label>
+                                    <Label>{t("maintenance.form.issueService")}</Label>
                                     {type === "PM" ? (
                                         <Select value={serviceType} onValueChange={setServiceType}>
-                                            <SelectTrigger><SelectValue placeholder="Select Service" /></SelectTrigger>
+                                            <SelectTrigger><SelectValue placeholder={t("maintenance.form.selectService")} /></SelectTrigger>
                                             <SelectContent>
-                                                {SERVICE_TYPES_PM.map(s => <SelectItem key={s.value} value={s.label}>{t(s.label)}</SelectItem>)}
+                                                {SERVICE_TYPES_PM.map(s => <SelectItem key={s.value} value={s.value}>{t(`maintenance.service.${s.value}`)}</SelectItem>)}
                                             </SelectContent>
                                         </Select>
                                     ) : (
                                         <Input
-                                            placeholder={t("Describe the issue (e.g., Broken Mirror)")}
+                                            placeholder={t("maintenance.form.describeIssue")}
                                             value={customServiceType}
                                             onChange={e => setCustomServiceType(e.target.value)}
                                         />
                                     )}
                                 </div>
                                 <div className="space-y-2">
-                                    <Label>{t("Service Provider (Garage)")}</Label>
+                                    <Label>{t("maintenance.form.provider")}</Label>
                                     <Input
-                                        placeholder={t("Enter garage name")}
+                                        placeholder={t("maintenance.form.enterGarage")}
                                         value={provider}
                                         onChange={e => setProvider(e.target.value)}
                                     />
@@ -340,16 +340,16 @@ export default function MaintenanceClient() {
 
                             {/* Payment Method */}
                             <div className="space-y-2">
-                                <Label>{t("Payment Method")}</Label>
+                                <Label>{t("maintenance.form.paymentMethod")}</Label>
                                 <Select value={paymentMethod} onValueChange={setPaymentMethod}>
                                     <SelectTrigger>
-                                        <SelectValue placeholder="Select Payment Method" />
+                                        <SelectValue placeholder={t("maintenance.form.selectPayment")} />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="cash">Cash</SelectItem>
+                                        <SelectItem value="cash">{t("renewals.form.select.cash")}</SelectItem>
                                         <SelectItem value="credit_card">Credit Card</SelectItem>
                                         <SelectItem value="billing">Billing / Invoice</SelectItem>
-                                        <SelectItem value="transfer">Bank Transfer</SelectItem>
+                                        <SelectItem value="transfer">{t("renewals.form.select.transfer")}</SelectItem>
                                         <SelectItem value="insurance_claim">Insurance Claim</SelectItem>
                                     </SelectContent>
                                 </Select>
@@ -358,27 +358,27 @@ export default function MaintenanceClient() {
                             {/* Status & Dates */}
                             <div className="p-4 bg-muted/20 rounded-lg space-y-4">
                                 <h3 className="font-semibold text-sm text-foreground/80 flex items-center gap-2">
-                                    <Clock className="w-4 h-4" /> {t("Status & Validation")}
+                                    <Clock className="w-4 h-4" /> {t("maintenance.form.statusValidation")}
                                 </h3>
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                     <div className="space-y-2">
-                                        <Label>{t("Job Status")}</Label>
+                                        <Label>{t("maintenance.form.jobStatus")}</Label>
                                         <Select value={status} onValueChange={(v: "in_progress" | "completed") => setStatus(v)}>
                                             <SelectTrigger>
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
                                                 <SelectItem value="in_progress">
-                                                    <span className="flex items-center gap-2 text-amber-600"><Loader2 className="w-4 h-4" /> In Progress (Truck Unavailable)</span>
+                                                    <span className="flex items-center gap-2 text-amber-600"><Loader2 className="w-4 h-4" /> {t("maintenance.form.inProgress")}</span>
                                                 </SelectItem>
                                                 <SelectItem value="completed">
-                                                    <span className="flex items-center gap-2 text-green-600"><CheckCircle2 className="w-4 h-4" /> Completed (Truck Available)</span>
+                                                    <span className="flex items-center gap-2 text-green-600"><CheckCircle2 className="w-4 h-4" /> {t("maintenance.form.completed")}</span>
                                                 </SelectItem>
                                             </SelectContent>
                                         </Select>
                                     </div>
                                     <div className="space-y-2">
-                                        <Label>{t("Start Date")}</Label>
+                                        <Label>{t("maintenance.form.startDate")}</Label>
                                         <DatePicker
                                             value={startDate ? new Date(startDate) : undefined}
                                             onChange={(date) => setStartDate(date ? format(date, "yyyy-MM-dd") : "")}
@@ -388,7 +388,7 @@ export default function MaintenanceClient() {
                                     </div>
                                     {status === "completed" && (
                                         <div className="space-y-2">
-                                            <Label>{t("End Date")}</Label>
+                                            <Label>{t("maintenance.form.endDate")}</Label>
                                             <DatePicker
                                                 value={endDate ? new Date(endDate) : undefined}
                                                 onChange={(date) => setEndDate(date ? format(date, "yyyy-MM-dd") : "")}
@@ -403,15 +403,15 @@ export default function MaintenanceClient() {
                             {/* Costs */}
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                 <div className="space-y-2">
-                                    <Label>{t("Labor Cost")}</Label>
+                                    <Label>{t("maintenance.form.laborCost")}</Label>
                                     <Input type="number" placeholder="0.00" value={costLabor} onChange={e => setCostLabor(e.target.value)} />
                                 </div>
                                 <div className="space-y-2">
-                                    <Label>{t("Parts / Material Cost")}</Label>
+                                    <Label>{t("maintenance.form.partsCost")}</Label>
                                     <Input type="number" placeholder="0.00" value={costParts} onChange={e => setCostParts(e.target.value)} />
                                 </div>
                                 <div className="space-y-2">
-                                    <Label>{t("Total Cost")}</Label>
+                                    <Label>{t("maintenance.form.totalCost")}</Label>
                                     <Input disabled value={((parseFloat(costLabor) || 0) + (parseFloat(costParts) || 0)).toFixed(2)} className="bg-muted font-bold" />
                                 </div>
                             </div>
@@ -419,7 +419,7 @@ export default function MaintenanceClient() {
                             {/* Mileage */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-2">
-                                    <Label>{t("Odometer Reading (Current)")}</Label>
+                                    <Label>{t("maintenance.form.odometer")}</Label>
                                     <Input type="number" value={currentMileage} onChange={e => {
                                         setCurrentMileage(e.target.value);
                                         // Auto calc next service if PM
@@ -430,7 +430,7 @@ export default function MaintenanceClient() {
                                 </div>
                                 {type === "PM" && (
                                     <div className="space-y-2">
-                                        <Label>{t("Next Service Distance")}</Label>
+                                        <Label>{t("maintenance.form.nextServiceDistance")}</Label>
                                         <Input type="number" value={nextServiceMileage} onChange={e => setNextServiceMileage(e.target.value)} />
                                     </div>
                                 )}
@@ -438,7 +438,7 @@ export default function MaintenanceClient() {
 
                             {/* Upload & Notes */}
                             <div className="space-y-2">
-                                <Label>{t("Receipt / Photo")}</Label>
+                                <Label>{t("maintenance.form.receipt")}</Label>
                                 <div className="border border-dashed rounded-lg p-4 bg-background">
                                     <Input type="file" onChange={handleFileChange} />
                                     {selectedFile && <p className="text-xs text-muted-foreground mt-2">{selectedFile.name}</p>}
@@ -446,12 +446,12 @@ export default function MaintenanceClient() {
                             </div>
 
                             <div className="space-y-2">
-                                <Label>{t("Notes")}</Label>
+                                <Label>{t("maintenance.form.notes")}</Label>
                                 <Input value={notes} onChange={e => setNotes(e.target.value)} />
                             </div>
 
                             <div className="flex justify-end gap-2 pt-4 border-t">
-                                <Button type="button" variant="ghost" onClick={() => setView("list")}>{t("Cancel")}</Button>
+                                <Button type="button" variant="ghost" onClick={() => setView("list")}>{t("maintenance.form.cancel")}</Button>
                                 {status !== 'completed' && (
                                     <Button
                                         type="button"
@@ -466,10 +466,10 @@ export default function MaintenanceClient() {
                                             }, 0);
                                         }}
                                     >
-                                        <CheckCircle2 className="w-4 h-4" /> {t("Complete Maintenance")}
+                                        <CheckCircle2 className="w-4 h-4" /> {t("maintenance.form.complete")}
                                     </Button>
                                 )}
-                                <Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : t("Save Record")}</Button>
+                                <Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : t("maintenance.form.save")}</Button>
                             </div>
                         </form>
                     </CardContent>
@@ -485,9 +485,9 @@ function MaintenanceHistoryList({ history, onNewClick, onEditClick }: { history:
         return (
             <div className="text-center py-12 bg-muted/10 rounded-xl border border-dashed">
                 <Wrench className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-medium">{t("No Maintenance Records")}</h3>
-                <p className="text-muted-foreground mb-6">{t("Start tracking repairs and services for this vehicle.")}</p>
-                <Button onClick={onNewClick}><Plus className="w-4 h-4 mr-2" /> {t("New Record")}</Button>
+                <h3 className="text-lg font-medium">{t("maintenance.form.noRecordsTitle")}</h3>
+                <p className="text-muted-foreground mb-6">{t("maintenance.form.noRecordsDesc")}</p>
+                <Button onClick={onNewClick}><Plus className="w-4 h-4 mr-2" /> {t("maintenance.form.newRecord")}</Button>
             </div>
         )
     }
@@ -495,8 +495,8 @@ function MaintenanceHistoryList({ history, onNewClick, onEditClick }: { history:
     return (
         <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>{t("Service History")}</CardTitle>
-                <Button onClick={onNewClick} size="sm"><Plus className="w-4 h-4 mr-2" /> {t("Add Record")}</Button>
+                <CardTitle>{t("maintenance.serviceHistory")}</CardTitle>
+                <Button onClick={onNewClick} size="sm"><Plus className="w-4 h-4 mr-2" /> {t("maintenance.form.addRecord")}</Button>
             </CardHeader>
             <CardContent>
                 <div className="space-y-4">
@@ -511,7 +511,7 @@ function MaintenanceHistoryList({ history, onNewClick, onEditClick }: { history:
                                 </div>
                                 <div>
                                     <div className="flex items-center gap-2">
-                                        <p className="font-semibold">{record.serviceType}</p>
+                                        <p className="font-semibold">{t(`maintenance.service.${record.serviceType}`) !== `maintenance.service.${record.serviceType}` ? t(`maintenance.service.${record.serviceType}`) : record.serviceType}</p>
                                         <Badge variant="outline" className="text-xs">{record.status.replace("_", " ")}</Badge>
                                     </div>
                                     <p className="text-sm text-muted-foreground">{record.startDate} {record.endDate ? ` - ${record.endDate}` : ''} • {record.provider}</p>
@@ -532,7 +532,7 @@ function MaintenanceHistoryList({ history, onNewClick, onEditClick }: { history:
                                         </Button>
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="end">
-                                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                                        <DropdownMenuLabel>{t("maintenance.table.actions")}</DropdownMenuLabel>
                                         <DropdownMenuItem onClick={() => onEditClick(record)} className="cursor-pointer">
                                             <Pencil className="mr-2 h-4 w-4" />
                                             Edit Update
