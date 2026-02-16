@@ -97,11 +97,10 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                 const hubList = hubSnapshot.docs.map(doc => {
                     const data = doc.data();
                     return {
-                        'Hub Code': data.hubId || data.hubCode,
-                        'Hub Name': data.hubName,
-                        'Hub Name TH': data.hubTHName,
-                        lat: data.lat,
-                        lng: data.lng,
+                        'Hub Code': data.source_id ?? data.hubId ?? data.hubCode,
+                        'Hub Name': data.source_name_en ?? data.hubName,
+                        lat: data.latitude ?? data.lat,
+                        lng: data.longitude ?? data.lng,
                         source: 'custom',
                         id: doc.id
                     };
@@ -165,10 +164,18 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                     updatedAt: new Date(),
                 });
             } else if (mode === "edit" && task?.id) {
-                await updateDoc(doc(db, "first_mile_tasks", task.id), {
+                const payload: Record<string, unknown> = {
                     ...values,
                     updatedAt: new Date(),
-                });
+                };
+                // Re-assign: if task was Cancelled and we now have a driver, set status to Assigned
+                if (task.status === "Cancelled" && values.driverId) {
+                    payload.status = "Assigned";
+                }
+                const clean = Object.fromEntries(
+                    Object.entries(payload).filter(([, v]) => v !== undefined)
+                ) as Record<string, unknown>;
+                await updateDoc(doc(db, "first_mile_tasks", task.id), clean);
             }
             form.reset();
             setIsOpen(false);
@@ -510,12 +517,8 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                                                     </SelectTrigger>
                                                 </FormControl>
                                                 <SelectContent>
-                                                    {drivers.filter(driver => {
-                                                        if (!watchedTruckType) return true; // Show all if no type selected
-
-                                                        // Map FM Task Type to Truck Entity Type
+                                                    {(() => {
                                                         const getMappedTruckType = (fmType: string) => {
-
                                                             if (fmType === "4WH" || fmType === "4WJ") return "4 Wheels Jumbo";
                                                             if (fmType === "6WH") return "6 Wheels";
                                                             if (fmType === "10WH") return "10 Wheels";
@@ -524,27 +527,26 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                                                             if (fmType === "VAN") return "Van";
                                                             return fmType;
                                                         };
-
-                                                        const targetType = getMappedTruckType(watchedTruckType);
-
-                                                        // Find driver's assigned truck
-                                                        const assignedTruckId = driver.currentAssignment?.truckId;
-                                                        if (!assignedTruckId) return false;
-
-                                                        const truck = trucks.find(t => t.id === assignedTruckId);
-                                                        if (!truck) return false;
-
-                                                        // Check if truck type matches (Handle legacy "4 Wheels" vs new "4 Wheels Jumbo")
-                                                        if (targetType === "4 Wheels Jumbo") {
-                                                            return truck.type === "4 Wheels" || truck.type === "4 Wheels Jumbo";
-                                                        }
-
-                                                        return truck.type === targetType;
-                                                    }).map((driver) => (
-                                                        <SelectItem key={driver.id} value={driver.id || "unknown"}>
-                                                            {driver.firstName} {driver.lastName}
-                                                        </SelectItem>
-                                                    ))}
+                                                        const filtered = drivers.filter(driver => {
+                                                            if (!watchedTruckType) return true;
+                                                            const targetType = getMappedTruckType(watchedTruckType);
+                                                            const assignedTruckId = driver.currentAssignment?.truckId;
+                                                            if (!assignedTruckId) return false;
+                                                            const truck = trucks.find(t => t.id === assignedTruckId);
+                                                            if (!truck) return false;
+                                                            if (targetType === "4 Wheels Jumbo") {
+                                                                return truck.type === "4 Wheels" || truck.type === "4 Wheels Jumbo";
+                                                            }
+                                                            return truck.type === targetType;
+                                                        });
+                                                        // In edit/assign mode: if filter leaves no drivers, show all so assign always works
+                                                        const list = mode === "edit" && filtered.length === 0 ? drivers : filtered;
+                                                        return list.map((driver) => (
+                                                            <SelectItem key={driver.id} value={driver.id || "unknown"}>
+                                                                {driver.firstName} {driver.lastName}
+                                                            </SelectItem>
+                                                        ));
+                                                    })()}
                                                 </SelectContent>
                                             </Select>
                                             <FormMessage />

@@ -60,6 +60,9 @@ export const driverSchema = z.object({
         previousStatus: z.string().optional()
     })).optional().default([]),
 
+    /** FCM token for push notifications (e.g. task assigned) */
+    fcmToken: z.string().optional(),
+
     // Legacy/Compatibility fields
     currentTruckId: z.string().optional().nullable(),
     currentAssignment: z.object({

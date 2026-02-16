@@ -1,8 +1,13 @@
 import 'package:easy_localization/easy_localization.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import '../../../../core/theme/theme_controller.dart';
+import '../../../../core/services/fcm_service.dart';
 import '../../../../features/auth/data/repositories/auth_repository.dart';
 import '../../data/repositories/driver_repository.dart';
+import '../../data/repositories/first_mile_task_repository.dart';
+import '../../data/repositories/first_mile_checkin_repository.dart';
+import 'package:image_picker/image_picker.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -16,6 +21,7 @@ class _HomePageState extends State<HomePage> {
   final _authRepository = AuthRepository();
 
   Map<String, dynamic>? _driverData;
+  String? _driverId;
   bool _isLoading = true;
   String? _error;
 
@@ -23,6 +29,20 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _fetchDriverData();
+    _setupFcmForeground();
+  }
+
+  void _setupFcmForeground() {
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      if (message.notification != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message.notification!.body ?? 'New task assigned'),
+            action: SnackBarAction(label: 'OK', onPressed: () {}),
+          ),
+        );
+      }
+    });
   }
 
   Future<void> _fetchDriverData() async {
@@ -33,8 +53,12 @@ class _HomePageState extends State<HomePage> {
         if (mounted) {
           setState(() {
             _driverData = data;
+            _driverId = data?['id'] as String?;
             _isLoading = false;
           });
+          if (data != null && data['id'] != null) {
+            initFcmAndSaveToken(data['id'] as String);
+          }
         }
       } else {
         if (mounted) {
@@ -178,7 +202,17 @@ class _HomePageState extends State<HomePage> {
               style: Theme.of(context).textTheme.headlineSmall,
             ),
             const SizedBox(height: 24),
-            _buildSummaryCard(context),
+            StreamBuilder<List<Map<String, dynamic>>>(
+              stream: streamTasksForDriver(_driverId ?? ''),
+              builder: (context, snap) {
+                final tasks = snap.data ?? [];
+                final activeCount = tasks.where((t) {
+                  final s = t['status'] as String?;
+                  return s != 'Completed' && s != 'Cancelled';
+                }).length;
+                return _buildSummaryCard(context, taskCount: activeCount, totalCount: tasks.length);
+              },
+            ),
             const SizedBox(height: 24),
             Text(
               'quick_actions'.tr(),
@@ -192,7 +226,7 @@ class _HomePageState extends State<HomePage> {
                     context,
                     icon: Icons.local_shipping,
                     label: 'my_tasks'.tr(),
-                    onTap: () {},
+                    onTap: () => _showMyTasks(context),
                   ),
                 ),
                 const SizedBox(width: 16),
@@ -212,7 +246,8 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildSummaryCard(BuildContext context) {
+  Widget _buildSummaryCard(BuildContext context, {int taskCount = 0, int totalCount = 0}) {
+    final hasTasks = totalCount > 0;
     return Card(
       elevation: 4,
       child: Padding(
@@ -231,15 +266,17 @@ class _HomePageState extends State<HomePage> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'no_active_tasks'.tr(),
-                      style: const TextStyle(color: Colors.grey),
+                      hasTasks
+                          ? (taskCount == 1 ? '1 task' : '$taskCount tasks')
+                          : 'no_active_tasks'.tr(),
+                      style: TextStyle(color: hasTasks ? Theme.of(context).colorScheme.primary : Colors.grey),
                     ),
                   ],
                 ),
-                const Icon(
+                Icon(
                   Icons.assignment_turned_in,
                   size: 40,
-                  color: Colors.green,
+                  color: hasTasks ? Theme.of(context).colorScheme.primary : Colors.green,
                 ),
               ],
             ),
@@ -247,6 +284,138 @@ class _HomePageState extends State<HomePage> {
         ),
       ),
     );
+  }
+
+  void _showMyTasks(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        minChildSize: 0.3,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (_, scrollController) => StreamBuilder<List<Map<String, dynamic>>>(
+          stream: streamTasksForDriver(_driverId ?? ''),
+          builder: (context, snap) {
+            if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+              return const Center(child: Padding(
+                padding: EdgeInsets.all(24.0),
+                child: CircularProgressIndicator(),
+              ));
+            }
+            if (snap.hasError) {
+              return Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.error_outline, size: 48, color: Colors.red[700]),
+                    const SizedBox(height: 16),
+                    Text('Error: ${snap.error}', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey[700], fontSize: 12)),
+                    const SizedBox(height: 8),
+                    Text('If you see "index", create the Firestore index from the link in the error.', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey[600], fontSize: 11)),
+                  ],
+                ),
+              );
+            }
+            final tasks = snap.data ?? [];
+            if (tasks.isEmpty) {
+              return Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('no_active_tasks'.tr(), style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 16),
+                    Text('No tasks assigned yet.', style: TextStyle(color: Colors.grey[600])),
+                  ],
+                ),
+              );
+            }
+            return ListView.builder(
+              controller: scrollController,
+              padding: const EdgeInsets.all(16),
+              itemCount: tasks.length,
+              itemBuilder: (_, i) {
+                final t = tasks[i];
+                final taskId = t['id'] as String?;
+                final source = t['sourceHub'] ?? '';
+                final dest = t['destination'] ?? '';
+                final date = t['date'];
+                final time = t['time'] ?? '';
+                final status = t['status'] ?? '';
+                final canCheckIn = taskId != null &&
+                    status != 'Checked in' &&
+                    status != 'Completed' &&
+                    status != 'Cancelled';
+                String dateStr = '';
+                if (date != null && date is DateTime) dateStr = '${date.day}/${date.month}/${date.year}';
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: ListTile(
+                    title: Text('$source → $dest'),
+                    subtitle: Text('$dateStr $time · $status'),
+                    trailing: canCheckIn
+                        ? TextButton.icon(
+                            icon: const Icon(Icons.camera_alt, size: 20),
+                            label: Text('Check in'.tr()),
+                            onPressed: () => _doCheckIn(ctx, taskId),
+                          )
+                        : null,
+                  ),
+                );
+              },
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _doCheckIn(BuildContext context, String taskId) async {
+    if (!context.mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+    bool dialogOpen = true;
+    try {
+      final position = await getCurrentPosition();
+      if (!context.mounted) return;
+      if (dialogOpen) { Navigator.of(context).pop(); dialogOpen = false; }
+      final picker = ImagePicker();
+      final xfile = await picker.pickImage(source: ImageSource.camera, imageQuality: 85);
+      if (xfile == null || !context.mounted) return;
+      final timestamp = DateTime.now();
+      if (!context.mounted) return;
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(child: CircularProgressIndicator()),
+      );
+      dialogOpen = true;
+      await submitCheckIn(
+        taskId: taskId,
+        imagePath: xfile.path,
+        lat: position.latitude,
+        lng: position.longitude,
+        timestamp: timestamp,
+      );
+      if (!context.mounted) return;
+      if (dialogOpen) { Navigator.of(context).pop(); dialogOpen = false; }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Check-in saved'.tr())),
+      );
+    } catch (e) {
+      if (context.mounted) {
+        if (dialogOpen) Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Check-in failed: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
   void _showLanguageSheet(BuildContext context) {

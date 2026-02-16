@@ -49,5 +49,7 @@
     "truck_assignment_start": "Start",
     "truck_assignment_end": "End",
     "truck_assignment_current": "Current",
-    "truck_assignment_revoked": "Revoked"
+    "truck_assignment_revoked": "Revoked",
+    "Check in": "Check in",
+    "Check-in saved": "Check-in saved"
 }

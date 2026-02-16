@@ -18,7 +18,7 @@ export default {
 
     // Table Headers
     "firstMile.table.date": "วันที่",
-    "firstMile.table.sourceHub": "Hub ต้นทาง",
+    "firstMile.table.sourceHub": "ต้นทาง",
     "firstMile.table.destination": "ปลายทาง",
     "firstMile.table.time": "เวลา",
     "firstMile.table.type": "ประเภท",
@@ -54,7 +54,7 @@ export default {
     // Import Table Headers
     "firstMile.import.table.row": "แถว",
     "firstMile.import.table.date": "วันที่",
-    "firstMile.import.table.source": "ต้นทาง",
+    "firstMile.import.table.source": "จุดรับงาน",
     "firstMile.import.table.dest": "ปลายทาง",
     "firstMile.import.table.time": "เวลา",
     "firstMile.import.table.truckType": "ประเภทรถ",
@@ -95,30 +95,39 @@ export default {
     // ========================
     // Hub Dialog (Add Source)
     // ========================
-    "firstMile.hub.title": "เพิ่มต้นทางใหม่",
+    "firstMile.hub.title": "เพิ่มจุดรับงานใหม่",
+    "firstMile.hub.titleEdit": "แก้ไขต้นทาง",
     "firstMile.hub.description": "ลงทะเบียนตำแหน่งต้นทางใหม่พร้อมพิกัด",
-    "firstMile.hub.sourceId": "รหัสต้นทาง",
+    "firstMile.hub.descriptionEdit": "แก้ไขรหัสต้นทาง ชื่อ พิกัด และประเภทสถานี",
+    "firstMile.hub.sourceId": "รหัสจุดรับงาน",
     "firstMile.hub.sourceIdPlaceholder": "เช่น SPX01",
     "firstMile.hub.spxName": "ชื่อ SPX",
     "firstMile.hub.spxNamePlaceholder": "เช่น Bangkok Hub",
     "firstMile.hub.nameThai": "ชื่อต้นทาง (ภาษาไทย)",
     "firstMile.hub.nameThaiPlaceholder": "เช่น ศูนย์คัดแยกกรุงเทพ",
     "firstMile.hub.location": "ตำแหน่ง",
+    "firstMile.hub.stationType": "ประเภทสถานี",
+    "firstMile.hub.stationTypePlaceholder": "เลือกประเภท",
+    "firstMile.hub.stationType.HUB": "ศูนย์ย่อย(Hub)",
+    "firstMile.hub.stationType.SOC": "ศูนย์คัดแยกและกระจาย(SOC)",
     "firstMile.hub.cancel": "ยกเลิก",
     "firstMile.hub.save": "บันทึกต้นทาง",
 
     // ========================
     // Sources Page
     // ========================
-    "firstMile.sources.title": "จัดการต้นทาง",
-    "firstMile.sources.newSource": "เพิ่มต้นทางใหม่",
-    "firstMile.sources.dbSources": "ต้นทางในฐานข้อมูล",
+    "firstMile.sources.title": "จัดการจุดรับงาน",
+    "firstMile.sources.newSource": "เพิ่มจุดรับงานใหม่",
+    "firstMile.sources.dbSources": "จุดรับงานในฐานข้อมูล",
     "firstMile.sources.search": "ค้นหาต้นทาง...",
-    "firstMile.sources.table.sourceId": "รหัสต้นทาง",
+    "firstMile.sources.table.sourceId": "รหัสจุดรับงาน",
     "firstMile.sources.table.nameSPX": "ชื่อ (SPX)",
     "firstMile.sources.table.nameThai": "ชื่อ (ไทย)",
     "firstMile.sources.table.coordinates": "พิกัด",
+    "firstMile.sources.table.stationType": "ประเภทสถานี",
+    "firstMile.sources.table.actions": "การดำเนินการ",
     "firstMile.sources.loading": "กำลังโหลด...",
     "firstMile.sources.noData": "ไม่พบต้นทางในฐานข้อมูล สร้างใหม่เพื่อเริ่มต้น",
     "firstMile.sources.noCoords": "ไม่มีพิกัด",
+    "firstMile.sources.edit": "แก้ไข",
 };

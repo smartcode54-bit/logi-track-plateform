@@ -36,8 +36,23 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { SOC_DESTINATIONS, SOC_KEYS, FirstMileTask } from "@/validate/firstMileTaskSchema";
-import { collection, getDocs, onSnapshot, query, orderBy, limit } from "firebase/firestore";
+import { collection, getDocs, onSnapshot, query, orderBy, limit, doc, updateDoc } from "firebase/firestore";
 import { db } from "@/firebase/client";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
+import { MoreHorizontal } from "lucide-react";
 
 export default function FirstMilePage() {
     const { t } = useLanguage();
@@ -51,6 +66,8 @@ export default function FirstMilePage() {
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [dialogMode, setDialogMode] = useState<"create" | "edit">("create");
     const [selectedTask, setSelectedTask] = useState<Partial<FirstMileTask> | undefined>(undefined);
+    const [cancelTask, setCancelTask] = useState<FirstMileTask | null>(null);
+    const [detailTask, setDetailTask] = useState<FirstMileTask | null>(null);
 
     // Fetch Hubs directly from Firestore
     const fetchHubs = async () => {
@@ -59,11 +76,10 @@ export default function FirstMilePage() {
             const hubList = querySnapshot.docs.map(doc => {
                 const data = doc.data();
                 return {
-                    'Hub Code': data.hubId || data.hubCode,
-                    'Hub Name': data.hubName,
-                    'Hub Name TH': data.hubTHName,
-                    lat: data.lat,
-                    lng: data.lng,
+                    'Hub Code': data.source_id ?? data.hubId ?? data.hubCode,
+                    'Hub Name': data.source_name_en ?? data.hubName,
+                    lat: data.latitude ?? data.lat,
+                    lng: data.longitude ?? data.lng,
                     source: 'custom',
                     id: doc.id
                 };
@@ -82,13 +98,17 @@ export default function FirstMilePage() {
     useEffect(() => {
         const q = query(collection(db, "first_mile_tasks"), orderBy("createdAt", "desc"), limit(100));
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            const fetched: FirstMileTask[] = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data(),
-                date: doc.data().date?.toDate(), // Convert timestamp
-                createdAt: doc.data().createdAt?.toDate(),
-                updatedAt: doc.data().updatedAt?.toDate(),
-            })) as FirstMileTask[];
+            const fetched: FirstMileTask[] = snapshot.docs.map(d => {
+                const data = d.data();
+                return {
+                    id: d.id,
+                    ...data,
+                    date: data.date?.toDate?.() ?? data.date,
+                    createdAt: data.createdAt?.toDate?.() ?? data.createdAt,
+                    updatedAt: data.updatedAt?.toDate?.() ?? data.updatedAt,
+                    checkInAt: data.checkInAt?.toDate?.() ?? data.checkInAt,
+                };
+            }) as FirstMileTask[];
             setTasks(fetched);
         });
         return () => unsubscribe();
@@ -113,6 +133,19 @@ export default function FirstMilePage() {
         setDialogMode("edit");
         setSelectedTask(task);
         setIsDialogOpen(true);
+    };
+
+    const handleCancelTask = async (task: FirstMileTask) => {
+        if (!task.id) return;
+        try {
+            await updateDoc(doc(db, "first_mile_tasks", task.id), {
+                status: "Cancelled",
+                updatedAt: new Date(),
+            });
+            setCancelTask(null);
+        } catch (err) {
+            console.error("Failed to cancel task:", err);
+        }
     };
 
     // Filter Logic
@@ -232,19 +265,24 @@ export default function FirstMilePage() {
                             <TableHead>{t("firstMile.table.licensePlate")}</TableHead>
                             <TableHead>{t("firstMile.table.driver")}</TableHead>
                             <TableHead>{t("firstMile.table.phone")}</TableHead>
+                            <TableHead>{t("firstMile.table.status", "Status")}</TableHead>
                             <TableHead className="text-right">{t("firstMile.table.actions")}</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {filteredTasks.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={10} className="h-24 text-center">
+                                <TableCell colSpan={11} className="h-24 text-center">
                                     {t("firstMile.table.noTasks")}
                                 </TableCell>
                             </TableRow>
                         ) : (
                             filteredTasks.map((task) => (
-                                <TableRow key={task.id} className="hover:bg-muted/50">
+                                <TableRow
+                                    key={task.id}
+                                    className="hover:bg-muted/50 cursor-pointer"
+                                    onClick={() => setDetailTask(task)}
+                                >
                                     <TableCell>{task.date ? format(task.date, 'dd/MM/yyyy') : '-'}</TableCell>
                                     <TableCell className="font-medium">{task.sourceHub}</TableCell>
                                     <TableCell>
@@ -271,14 +309,35 @@ export default function FirstMilePage() {
                                     <TableCell className="font-mono">{task.licensePlate}</TableCell>
                                     <TableCell>{task.driverName}</TableCell>
                                     <TableCell className="text-sm text-muted-foreground">{task.driverPhone}</TableCell>
-                                    <TableCell className="text-right">
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() => handleEdit(task)}
-                                        >
-                                            {t("firstMile.table.edit")}
-                                        </Button>
+                                    <TableCell>
+                                        <Badge variant={task.status === "Cancelled" ? "secondary" : task.status === "Checked in" || task.status === "Completed" ? "default" : "outline"}>
+                                            {t(`firstMile.status.${task.status}` as any, task.status)}
+                                        </Badge>
+                                    </TableCell>
+                                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                                        <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                                <Button variant="ghost" size="icon" className="h-8 w-8">
+                                                    <MoreHorizontal className="h-4 w-4" />
+                                                </Button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent align="end">
+                                                <DropdownMenuItem onClick={() => handleEdit(task)}>
+                                                    {t("firstMile.table.edit")}
+                                                </DropdownMenuItem>
+                                                <DropdownMenuItem onClick={() => handleEdit(task)}>
+                                                    {t("firstMile.table.assign", "Assign")}
+                                                </DropdownMenuItem>
+                                                {task.status !== "Cancelled" && (
+                                                    <DropdownMenuItem
+                                                        className="text-destructive focus:text-destructive"
+                                                        onClick={() => setCancelTask(task)}
+                                                    >
+                                                        {t("firstMile.table.cancel", "Cancel")}
+                                                    </DropdownMenuItem>
+                                                )}
+                                            </DropdownMenuContent>
+                                        </DropdownMenu>
                                     </TableCell>
                                 </TableRow>
                             ))
@@ -292,8 +351,89 @@ export default function FirstMilePage() {
                 onOpenChange={setIsDialogOpen}
                 mode={dialogMode}
                 task={selectedTask}
-                onSuccess={() => { }} // Could show toast
+                onSuccess={() => { }}
             />
+
+            <Dialog open={!!cancelTask} onOpenChange={(open) => !open && setCancelTask(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>{t("firstMile.cancelTaskTitle", "Cancel Task")}</DialogTitle>
+                        <DialogDescription>{t("firstMile.cancelTaskMessage", "Are you sure you want to cancel this task?")}</DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setCancelTask(null)}>{t("firstMile.cancelAbort", "No")}</Button>
+                        <Button variant="destructive" onClick={() => cancelTask && handleCancelTask(cancelTask)}>{t("firstMile.cancelConfirm", "Yes, Cancel")}</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Task detail modal */}
+            <Dialog open={!!detailTask} onOpenChange={(open) => !open && setDetailTask(null)}>
+                <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>{t("firstMile.task.editTitle")} – {detailTask?.FirstMileTaskId ?? detailTask?.id}</DialogTitle>
+                        <DialogDescription>{t("firstMile.subtitle")}</DialogDescription>
+                    </DialogHeader>
+                    {detailTask && (
+                        <div className="grid gap-4 py-2">
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                                <span className="text-muted-foreground">{t("firstMile.table.date")}</span>
+                                <span>{detailTask.date ? format(detailTask.date, "dd/MM/yyyy") : "-"}</span>
+                                <span className="text-muted-foreground">{t("firstMile.table.time")}</span>
+                                <span>{detailTask.time ?? "-"}</span>
+                                <span className="text-muted-foreground">{t("firstMile.table.sourceHub")}</span>
+                                <span className="font-medium">{detailTask.sourceHub ?? "-"}</span>
+                                <span className="text-muted-foreground">{t("firstMile.table.destination")}</span>
+                                <span>{detailTask.destination ? SOC_DESTINATIONS[detailTask.destination as keyof typeof SOC_DESTINATIONS] : "-"}</span>
+                                <span className="text-muted-foreground">{t("firstMile.table.type")}</span>
+                                <span>{detailTask.truckType ?? "-"}</span>
+                                <span className="text-muted-foreground">{t("firstMile.table.shipmentId")}</span>
+                                <span className="font-mono text-xs">{detailTask.FirstMileTaskId ?? "-"}</span>
+                                <span className="text-muted-foreground">{t("firstMile.table.licensePlate")}</span>
+                                <span className="font-mono">{detailTask.licensePlate ?? "-"}</span>
+                                <span className="text-muted-foreground">{t("firstMile.table.driver")}</span>
+                                <span>{detailTask.driverName ?? "-"}</span>
+                                <span className="text-muted-foreground">{t("firstMile.table.phone")}</span>
+                                <span>{detailTask.driverPhone ?? "-"}</span>
+                                <span className="text-muted-foreground">{t("firstMile.table.status", "Status")}</span>
+                                <span>
+                                    <Badge variant={detailTask.status === "Cancelled" ? "secondary" : "outline"}>
+                                        {t(`firstMile.status.${detailTask.status}` as any, detailTask.status)}
+                                    </Badge>
+                                </span>
+                            </div>
+                            {(detailTask.checkInAt || detailTask.checkInPhotoUrl) && (
+                                <div className="border-t pt-3 space-y-2">
+                                    <h4 className="text-sm font-medium text-muted-foreground">Check-in</h4>
+                                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                                        {detailTask.checkInAt && (
+                                            <>
+                                                <span className="text-muted-foreground">Time</span>
+                                                <span>{detailTask.checkInAt instanceof Date ? format(detailTask.checkInAt, "dd/MM/yyyy HH:mm") : String(detailTask.checkInAt)}</span>
+                                            </>
+                                        )}
+                                        {detailTask.checkInLat != null && (
+                                            <>
+                                                <span className="text-muted-foreground">Location</span>
+                                                <span>{detailTask.checkInLat.toFixed(5)}, {detailTask.checkInLng?.toFixed(5)}</span>
+                                            </>
+                                        )}
+                                    </div>
+                                    {detailTask.checkInPhotoUrl && (
+                                        <a href={detailTask.checkInPhotoUrl} target="_blank" rel="noopener noreferrer" className="text-primary text-sm underline">View photo</a>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setDetailTask(null)}>{t("firstMile.task.cancel")}</Button>
+                        <Button onClick={() => { if (detailTask) { setDetailTask(null); handleEdit(detailTask); } }}>
+                            {detailTask?.status === "Cancelled" ? t("firstMile.table.assign", "Re-assign") : t("firstMile.table.edit")}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

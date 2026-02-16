@@ -30,7 +30,7 @@ export default {
     "nav.reporting": "Reporting",
     "nav.operations": "Operations",
     "nav.firstMileTasks": "First Mile Tasks",
-    "nav.sourceManagement": "Source Management",
+    "nav.sourceManagement": "Pickup Location Management",
     "nav.supportCenter": "Support Center",
 
     "nav.subcontractors": "Subcontractors",

@@ -48,20 +48,30 @@ async function importHubs() {
     // Inspecting data structure usually helps. Assuming standard headers.
 
     for (const row of data as any[]) {
-        // Adjust these field names based on actual Excel headers
-        const hubCode = row['Hub Code'] || row['Code'] || row['station_id'];
-        const hubName = row['Hub Name'] || row['Name'] || row['station_name_en'];
+        // New schema: source_id, source_name_en, latitude, longitude, station_type (HUB | SOC)
+        const sourceId = row['Source ID'] ?? row['source_id'] ?? row['Hub Code'] ?? row['Code'] ?? row['station_id'];
+        const sourceNameEn = row['Name (SPX)'] ?? row['source_name_en'] ?? row['Hub Name'] ?? row['Name'] ?? row['station_name_en'];
+        const latRaw = row['Latitude'] ?? row['latitude'] ?? row['lat'];
+        const lngRaw = row['Longitude'] ?? row['longitude'] ?? row['lng'];
+        const lat = typeof latRaw === 'number' ? latRaw : (latRaw != null ? Number(latRaw) : NaN);
+        const lng = typeof lngRaw === 'number' ? lngRaw : (lngRaw != null ? Number(lngRaw) : NaN);
+        const rawType = (row['Station Type'] ?? row['station_type'] ?? '').toString().toUpperCase();
+        const stationType = (rawType === 'SOC' || rawType === 'RETURN_CENTER') ? 'SOC' : 'HUB';
 
-        if (!hubName) continue;
+        if (!sourceNameEn) continue;
 
-        const docRef = db.collection('hubs').doc(hubCode ? String(hubCode) : 'unknown_' + count);
+        const docId = sourceId ? String(sourceId) : 'unknown_' + count;
+        const docRef = db.collection('hubs').doc(docId);
 
-        batch.set(docRef, {
-            code: hubCode || '',
-            name: hubName || '',
-            raw: row, // Store generic raw data just in case
+        const payload: Record<string, unknown> = {
+            source_id: docId,
+            source_name_en: String(sourceNameEn),
+            station_type: stationType,
             updatedAt: admin.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
+        };
+        if (!isNaN(lat)) payload.latitude = lat;
+        if (!isNaN(lng)) payload.longitude = lng;
+        batch.set(docRef, payload, { merge: true });
 
         count++;
         // Batches have a limit of 500

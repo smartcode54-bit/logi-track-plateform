@@ -54,7 +54,7 @@ export default {
     // Import Table Headers
     "firstMile.import.table.row": "Row",
     "firstMile.import.table.date": "Date",
-    "firstMile.import.table.source": "Source",
+    "firstMile.import.table.source": "Pickup Location",
     "firstMile.import.table.dest": "Dest",
     "firstMile.import.table.time": "Time",
     "firstMile.import.table.truckType": "Truck Type",
@@ -73,7 +73,7 @@ export default {
     "firstMile.task.pickDate": "Pick a date",
     "firstMile.task.time": "Time (HH:MM)",
     "firstMile.task.selectTime": "Select Time",
-    "firstMile.task.sourceHub": "Source Hub",
+    "firstMile.task.sourceHub": "Pickup Point",
     "firstMile.task.selectHub": "Select hub",
     "firstMile.task.searchHub": "Search hub...",
     "firstMile.task.noHub": "No hub found.",
@@ -95,8 +95,10 @@ export default {
     // ========================
     // Hub Dialog (Add Source)
     // ========================
-    "firstMile.hub.title": "Add New Source",
+    "firstMile.hub.title": "Add New Pickup Point",
+    "firstMile.hub.titleEdit": "Edit Pickup Point",
     "firstMile.hub.description": "Register a new source location with coordinates.",
+    "firstMile.hub.descriptionEdit": "Update source ID, name, coordinates, and station type.",
     "firstMile.hub.sourceId": "Source ID",
     "firstMile.hub.sourceIdPlaceholder": "e.g. SPX01",
     "firstMile.hub.spxName": "SPX Name",
@@ -104,21 +106,28 @@ export default {
     "firstMile.hub.nameThai": "Source Name (Thai)",
     "firstMile.hub.nameThaiPlaceholder": "e.g. ศูนย์คัดแยกกรุงเทพ",
     "firstMile.hub.location": "Location",
+    "firstMile.hub.stationType": "Station Type",
+    "firstMile.hub.stationTypePlaceholder": "Select type",
+    "firstMile.hub.stationType.HUB": "Hub",
+    "firstMile.hub.stationType.SOC": "SOC",
     "firstMile.hub.cancel": "Cancel",
     "firstMile.hub.save": "Save Source",
 
     // ========================
     // Sources Page
     // ========================
-    "firstMile.sources.title": "Source Management",
-    "firstMile.sources.newSource": "New Source",
-    "firstMile.sources.dbSources": "Database Sources",
-    "firstMile.sources.search": "Search sources...",
-    "firstMile.sources.table.sourceId": "Source ID",
+    "firstMile.sources.title": "Pickup Location Management",
+    "firstMile.sources.newSource": "New Pickup Point",
+    "firstMile.sources.dbSources": "Database Pickup Points",
+    "firstMile.sources.search": "Search pickup points...",
+    "firstMile.sources.table.sourceId": "Pickup Point ID",
     "firstMile.sources.table.nameSPX": "Name (SPX)",
     "firstMile.sources.table.nameThai": "Name (Thai)",
     "firstMile.sources.table.coordinates": "Coordinates",
+    "firstMile.sources.table.stationType": "Station Type",
+    "firstMile.sources.table.actions": "Actions",
     "firstMile.sources.loading": "Loading...",
     "firstMile.sources.noData": "No database sources found. Create one to get started.",
     "firstMile.sources.noCoords": "No coords",
+    "firstMile.sources.edit": "Edit",
 };

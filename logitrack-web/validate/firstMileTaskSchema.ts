@@ -8,7 +8,7 @@ export const SOC_DESTINATIONS = {
 
 export const SOC_KEYS = ["SOCE", "SOCN", "SOCW"] as const;
 
-export const FIRST_MILE_STATUS_ENUM = ["Pending", "Assigned", "In-Transit", "Completed", "Cancelled"] as const;
+export const FIRST_MILE_STATUS_ENUM = ["Pending", "Assigned", "Checked in", "In-Transit", "Completed", "Cancelled"] as const;
 
 export const firstMileTaskSchema = z.object({
     id: z.string().optional(),
@@ -34,6 +34,12 @@ export const firstMileTaskSchema = z.object({
     licensePlate: z.string().optional(),
 
     status: z.enum(FIRST_MILE_STATUS_ENUM).default("Pending"),
+
+    /** Check-in at pickup: set by driver on mobile */
+    checkInAt: z.any().optional(),
+    checkInPhotoUrl: z.string().optional(),
+    checkInLat: z.number().optional(),
+    checkInLng: z.number().optional(),
 
     createdAt: z.coerce.date().optional(),
     updatedAt: z.coerce.date().optional(),

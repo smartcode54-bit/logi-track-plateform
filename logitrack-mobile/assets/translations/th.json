@@ -49,5 +49,7 @@
     "truck_assignment_start": "เริ่ม",
     "truck_assignment_end": "สิ้นสุด",
     "truck_assignment_current": "ปัจจุบัน",
-    "truck_assignment_revoked": "ยกเลิกแล้ว"
+    "truck_assignment_revoked": "ยกเลิกแล้ว",
+    "Check in": "เช็คอิน",
+    "Check-in saved": "บันทึกเช็คอินแล้ว"
 }

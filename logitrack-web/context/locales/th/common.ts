@@ -30,7 +30,7 @@ export default {
     "nav.reporting": "รายงานผล",
     "nav.operations": "ปฏิบัติการ",
     "nav.firstMileTasks": "งาน First Mile",
-    "nav.sourceManagement": "จัดการต้นทาง",
+    "nav.sourceManagement": "จัดการจุดรับงาน",
     "nav.supportCenter": "ศูนย์ช่วยเหลือ",
 
     "nav.subcontractors": "ผู้รับเหมาช่วง",

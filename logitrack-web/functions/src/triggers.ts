@@ -1,6 +1,8 @@
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
 
+const REGION = "asia-southeast1";
+
 
 /**
  * Trigger: Sync new Auth user to Firestore
@@ -220,3 +222,73 @@ export const createDriverAccount = onCall(
         }
     }
 );
+
+async function sendFcmToDriver(driverId: string, title: string, body: string, data: Record<string, string>) {
+    const driverSnap = await admin.firestore().collection("drivers").doc(driverId).get();
+    const fcmToken = driverSnap.data()?.fcmToken as string | undefined;
+    if (!fcmToken) {
+        console.log(`[FCM] No fcmToken for driver ${driverId}, skip`);
+        return;
+    }
+    await admin.messaging().send({
+        token: fcmToken,
+        notification: { title, body },
+        data: { ...data, driverId },
+        android: { priority: "high", notification: { channelId: "task_assignments" } },
+        apns: { payload: { aps: { sound: "default" } }, fcmOptions: {} },
+    });
+}
+
+/**
+ * On first_mile_task write: notify new driver when assigned; notify old driver when cancelled or reassigned.
+ */
+export const onFirstMileTaskAssigned = functions
+    .region(REGION)
+    .firestore.document("first_mile_tasks/{taskId}")
+    .onWrite(async (change, context) => {
+        const after = change.after.exists ? change.after.data() : null;
+        const before = change.before.exists ? change.before.data() : null;
+        const taskId = context.params.taskId;
+        const oldDriverId = before?.driverId as string | undefined;
+        const newDriverId = after?.driverId as string | undefined;
+        const status = after?.status;
+
+        try {
+            // Task cancelled: notify assigned driver
+            if (status === "Cancelled" && newDriverId) {
+                await sendFcmToDriver(
+                    newDriverId,
+                    "Task cancelled",
+                    "This first mile task has been cancelled.",
+                    { type: "first_mile_task_cancelled", taskId }
+                );
+                return;
+            }
+
+            // Reassigned: notify old driver
+            if (oldDriverId && oldDriverId !== newDriverId) {
+                await sendFcmToDriver(
+                    oldDriverId,
+                    "Assignment cancelled",
+                    "You have been unassigned from this task.",
+                    { type: "first_mile_task_unassigned", taskId }
+                );
+            }
+
+            // New assignment: notify new driver
+            if (newDriverId && oldDriverId !== newDriverId) {
+                const sourceHub = after?.sourceHub ?? "";
+                const destination = after?.destination ?? "";
+                const dateStr = after?.date?.toDate?.()?.toLocaleDateString?.() ?? "";
+                const time = after?.time ?? "";
+                await sendFcmToDriver(
+                    newDriverId,
+                    "New task assigned",
+                    `${sourceHub} → ${destination}${dateStr ? ` (${dateStr} ${time})` : ""}`,
+                    { type: "first_mile_task_assigned", taskId }
+                );
+            }
+        } catch (err) {
+            console.error("[onFirstMileTaskAssigned] FCM error:", err);
+        }
+    });

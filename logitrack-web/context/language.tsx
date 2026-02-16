@@ -8,7 +8,7 @@ type Language = "en" | "th";
 type LanguageContextType = {
     language: Language;
     setLanguage: (lang: Language) => void;
-    t: (key: string) => string;
+    t: (key: string, fallback?: string) => string;
 };
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
@@ -28,9 +28,10 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem("language", lang);
     };
 
-    const t = (key: string): string => {
+    const t = (key: string, fallback?: string): string => {
         // @ts-ignore
-        return translations[language][key] || key;
+        const value = translations[language][key];
+        return value !== undefined && value !== "" ? value : (fallback !== undefined ? fallback : key);
     };
 
     return (

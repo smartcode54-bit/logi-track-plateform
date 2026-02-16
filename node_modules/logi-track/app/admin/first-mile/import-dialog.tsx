@@ -77,7 +77,7 @@ export function FirstMileImportDialog({ onSuccess }: ImportDialogProps) {
                 };
 
                 const rawDate = getValue(['date', 'วัน']);
-                const sourceHub = getValue(['source', 'hub', 'ต้นทาง']);
+                const sourceHub = getValue(['source', 'hub', 'ต้นทาง', 'pickup', 'จุดรับงาน', 'pickup location']);
                 const destination = getValue(['destination', 'soc', 'ปลายทาง']);
                 const time = getValue(['time', 'เวลา']);
                 const plateType = getValue(['plateType', 'plate', 'ประเภทรถ', 'Truck Type']) || "4WH";
@@ -141,7 +141,7 @@ export function FirstMileImportDialog({ onSuccess }: ImportDialogProps) {
     const handleDownloadTemplate = () => {
         const headers = [
             "Date (วัน)",
-            "Source Hub (ค้นทาง)",
+            "Pickup Location (จุดรับงาน)",
             "Destination (ปลายทาง)",
             "Time (เวลา)",
             "Truck Type (ประเภทรถ)",

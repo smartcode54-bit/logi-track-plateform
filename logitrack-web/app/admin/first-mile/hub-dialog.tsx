@@ -23,8 +23,15 @@ import {
     FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { hubSchema, Hub } from "@/validate/hubSchema";
-import { collection, addDoc } from "firebase/firestore";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import { hubSchema, Hub, STATION_TYPE_ENUM } from "@/validate/hubSchema";
+import { collection, addDoc, doc, updateDoc } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import SimpleMap from "@/components/map/SimpleMap";
 import { useLanguage } from "@/context/language";
@@ -34,9 +41,12 @@ interface HubDialogProps {
     open?: boolean;
     onOpenChange?: (open: boolean) => void;
     onSuccess?: () => void;
+    /** When set, dialog opens in edit mode with these values and updates this document */
+    defaultValues?: Partial<Hub>;
+    documentId?: string;
 }
 
-export function HubDialog({ trigger, open, onOpenChange, onSuccess }: HubDialogProps) {
+export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValues, documentId }: HubDialogProps) {
     const [internalOpen, setInternalOpen] = useState(false);
     const [loading, setLoading] = useState(false);
     const { t } = useLanguage();
@@ -48,38 +58,54 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess }: HubDialogP
     const form = useForm<Hub>({
         resolver: zodResolver(hubSchema as any),
         defaultValues: {
-            hubId: "",
-            hubName: "",
-            hubTHName: "",
-            source: "custom",
-            lat: 13.7563, // Default BKK
-            lng: 100.5018
+            source_id: "",
+            source_name_en: "",
+            latitude: 13.7563, // Default BKK
+            longitude: 100.5018,
+            station_type: "HUB",
         },
     });
 
-    // Reset form when dialog opens
+    const isEditMode = Boolean(documentId && defaultValues);
+
+    // Reset form when dialog opens (add vs edit)
     useEffect(() => {
         if (isOpen) {
-            form.reset({
-                hubId: "",
-                hubName: "",
-                hubTHName: "",
-                lat: 13.7563,
-                lng: 100.5018,
-                source: "custom",
-            });
+            if (isEditMode && defaultValues) {
+                form.reset({
+                    source_id: defaultValues.source_id ?? "",
+                    source_name_en: defaultValues.source_name_en ?? "",
+                    latitude: defaultValues.latitude ?? 13.7563,
+                    longitude: defaultValues.longitude ?? 100.5018,
+                    station_type: defaultValues.station_type ?? "HUB",
+                });
+            } else {
+                form.reset({
+                    source_id: "",
+                    source_name_en: "",
+                    latitude: 13.7563,
+                    longitude: 100.5018,
+                    station_type: "HUB",
+                });
+            }
         }
-    }, [isOpen, form]);
+    }, [isOpen, isEditMode, defaultValues, form]);
 
     const onSubmit = async (values: Hub) => {
         setLoading(true);
         try {
-            await addDoc(collection(db, "hubs"), {
+            const payload = {
                 ...values,
-                hubCode: values.hubId, // Backwards compat or if code relies on it
-                createdAt: new Date(),
                 updatedAt: new Date(),
-            });
+            };
+            if (documentId) {
+                await updateDoc(doc(db, "hubs", documentId), payload);
+            } else {
+                await addDoc(collection(db, "hubs"), {
+                    ...payload,
+                    createdAt: new Date(),
+                });
+            }
             setIsOpen(false);
             if (onSuccess) onSuccess();
         } catch (error) {
@@ -94,9 +120,9 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess }: HubDialogP
             {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
             <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
-                    <DialogTitle>{t("firstMile.hub.title")}</DialogTitle>
+                    <DialogTitle>{isEditMode ? t("firstMile.hub.titleEdit") : t("firstMile.hub.title")}</DialogTitle>
                     <DialogDescription>
-                        {t("firstMile.hub.description")}
+                        {isEditMode ? t("firstMile.hub.descriptionEdit") : t("firstMile.hub.description")}
                     </DialogDescription>
                 </DialogHeader>
 
@@ -105,7 +131,7 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess }: HubDialogP
                         <div className="grid grid-cols-2 gap-4">
                             <FormField
                                 control={form.control}
-                                name="hubId"
+                                name="source_id"
                                 render={({ field }) => (
                                     <FormItem>
                                         <FormLabel>{t("firstMile.hub.sourceId")}</FormLabel>
@@ -119,7 +145,7 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess }: HubDialogP
 
                             <FormField
                                 control={form.control}
-                                name="hubName"
+                                name="source_name_en"
                                 render={({ field }) => (
                                     <FormItem>
                                         <FormLabel>{t("firstMile.hub.spxName")}</FormLabel>
@@ -134,13 +160,24 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess }: HubDialogP
 
                         <FormField
                             control={form.control}
-                            name="hubTHName"
+                            name="station_type"
                             render={({ field }) => (
                                 <FormItem>
-                                    <FormLabel>{t("firstMile.hub.nameThai")}</FormLabel>
-                                    <FormControl>
-                                        <Input placeholder={t("firstMile.hub.nameThaiPlaceholder")} {...field} />
-                                    </FormControl>
+                                    <FormLabel>{t("firstMile.hub.stationType")}</FormLabel>
+                                    <Select onValueChange={field.onChange} value={field.value}>
+                                        <FormControl>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder={t("firstMile.hub.stationTypePlaceholder")} />
+                                            </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                            {STATION_TYPE_ENUM.map((type) => (
+                                                <SelectItem key={type} value={type}>
+                                                    {t(`firstMile.hub.stationType.${type}`)}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
                                     <FormMessage />
                                 </FormItem>
                             )}
@@ -150,16 +187,16 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess }: HubDialogP
                             <FormLabel>{t("firstMile.hub.location")}</FormLabel>
                             <div className="border rounded-md p-1">
                                 <SimpleMap
-                                    value={form.watch("lat") && form.watch("lng") ? { lat: form.watch("lat")!, lng: form.watch("lng")! } : undefined}
+                                    value={form.watch("latitude") != null && form.watch("longitude") != null ? { lat: form.watch("latitude")!, lng: form.watch("longitude")! } : undefined}
                                     onChange={(pos) => {
-                                        form.setValue("lat", pos.lat);
-                                        form.setValue("lng", pos.lng);
+                                        form.setValue("latitude", pos.lat);
+                                        form.setValue("longitude", pos.lng);
                                     }}
                                 />
                             </div>
                             <div className="flex gap-4 text-xs text-muted-foreground">
-                                <span>Lat: {form.watch("lat")?.toFixed(6)}</span>
-                                <span>Lng: {form.watch("lng")?.toFixed(6)}</span>
+                                <span>Lat: {form.watch("latitude")?.toFixed(6)}</span>
+                                <span>Lng: {form.watch("longitude")?.toFixed(6)}</span>
                             </div>
                         </div>
 
