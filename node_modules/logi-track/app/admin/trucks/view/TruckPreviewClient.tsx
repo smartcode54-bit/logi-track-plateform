@@ -228,6 +228,23 @@ export default function TruckPreviewClient() {
                                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">{t("trucks.detail.maxLoad")}</p>
                                 <p className="font-semibold">{truck.maxLoadWeight ? `${truck.maxLoadWeight.toLocaleString()} kg` : "-"}</p>
                             </div>
+                            <div>
+                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">{t("trucks.section.truckType")}</p>
+                                <p className="font-semibold">
+                                    {(() => {
+                                        const typeMap: Record<string, string> = {
+                                            "Pickup": "trucks.type.pickup",
+                                            "4 Wheels": "trucks.type.4wheels",
+                                            "4 Wheels Jumbo": "trucks.type.4wheels",
+                                            "6 Wheels": "trucks.type.6wheels",
+                                            "10 Wheels": "trucks.type.10wheels",
+                                            "18 Wheels": "trucks.type.18wheels",
+                                            "Van": "trucks.type.van",
+                                        };
+                                        return typeMap[truck.type] ? t(typeMap[truck.type]) : truck.type;
+                                    })()}
+                                </p>
+                            </div>
                         </CardContent>
                     </Card>
 

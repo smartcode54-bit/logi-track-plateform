@@ -12,7 +12,8 @@ import {
     Bell,
     Settings,
     Plus,
-    LayoutDashboard
+    LayoutDashboard,
+    RotateCcw
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -317,7 +318,7 @@ export default function TruckAssignmentPage() {
                             <Combobox
                                 options={drivers.map(d => ({
                                     value: d.id,
-                                    label: `${d.name} ${d.licenseNumber ? `(${d.licenseNumber})` : ''}`
+                                    label: `${d.name} ${d.licenseType ? `- ${d.licenseType}` : ''}`
                                 }))}
                                 value={selectedDriver}
                                 onSelect={setSelectedDriver}
@@ -332,7 +333,10 @@ export default function TruckAssignmentPage() {
                                     <User className="h-5 w-5" />
                                 </div>
                                 <span className="text-sm text-muted-foreground italic">
-                                    {drivers.find(d => d.id === selectedDriver)?.name || t('assignments.noDriverSelected')}
+                                    {drivers.find(d => d.id === selectedDriver)
+                                        ? `${drivers.find(d => d.id === selectedDriver)?.name} ${drivers.find(d => d.id === selectedDriver)?.licenseType ? `- ${drivers.find(d => d.id === selectedDriver)?.licenseType}` : ''}`
+                                        : t('assignments.noDriverSelected')
+                                    }
                                 </span>
                             </div>
                         </div>
@@ -351,7 +355,7 @@ export default function TruckAssignmentPage() {
                             <Combobox
                                 options={trucks.map(t => ({
                                     value: t.id,
-                                    label: `${t.model} (${t.plate})`
+                                    label: `${t.type || t.model} - ${t.plate}`
                                 }))}
                                 value={selectedTruck}
                                 onSelect={setSelectedTruck}
@@ -367,7 +371,7 @@ export default function TruckAssignmentPage() {
                                 </div>
                                 <span className="text-sm text-muted-foreground italic">
                                     {trucks.find(t => t.id === selectedTruck)
-                                        ? `${trucks.find(t => t.id === selectedTruck)?.model} (${trucks.find(t => t.id === selectedTruck)?.plate})`
+                                        ? `${trucks.find(t => t.id === selectedTruck)?.type || trucks.find(t => t.id === selectedTruck)?.model} - ${trucks.find(t => t.id === selectedTruck)?.plate}`
                                         : t('assignments.noTruckSelected')
                                     }
                                 </span>
@@ -376,14 +380,30 @@ export default function TruckAssignmentPage() {
                     </div>
 
                     <div className="mt-8 flex flex-col items-center gap-4">
-                        <Button
-                            size="lg"
-                            className="w-full max-w-sm bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-900/20 h-12 text-base font-semibold"
-                            onClick={handleDeploy}
-                            disabled={isSubmitting}
-                        >
-                            {isSubmitting ? t('assignments.deploying') : t('assignments.deploy')}
-                        </Button>
+                        <div className="flex flex-col sm:flex-row items-center gap-3 w-full max-w-sm">
+                            <Button
+                                size="lg"
+                                className="w-full sm:flex-1 bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-900/20 h-12 text-base font-semibold"
+                                onClick={handleDeploy}
+                                disabled={isSubmitting}
+                            >
+                                {isSubmitting ? t('assignments.deploying') : t('assignments.deploy')}
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="lg"
+                                className="w-full sm:w-auto h-12 text-base border-border/50 bg-background/50 hover:bg-muted/50"
+                                onClick={() => {
+                                    setSelectedDriver("");
+                                    setSelectedTruck("");
+                                }}
+                                disabled={isSubmitting}
+                            >
+                                <RotateCcw className="h-4 w-4 mr-2" />
+                                {t('assignments.resetForm')}
+                            </Button>
+                        </div>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                             <span className="relative flex h-2 w-2">
                                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>

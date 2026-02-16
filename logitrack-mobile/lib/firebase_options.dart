@@ -3,6 +3,7 @@
 import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, kIsWeb, TargetPlatform;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 /// Default [FirebaseOptions] for use with your Firebase apps.
 ///
@@ -43,40 +44,37 @@ class DefaultFirebaseOptions {
     }
   }
 
-  static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyDCm7dBuw7x_GVVSmzZhRWdKJ3jL_J4pxA',
-    appId: '1:841355267296:web:6bdb2b5292889fa7f25485',
-    messagingSenderId: '841355267296',
-    projectId: 'logi-track-wrt-dev',
-    authDomain: 'logi-track-wrt-dev.firebaseapp.com',
-    storageBucket: 'logi-track-wrt-dev.firebasestorage.app',
-    measurementId: 'G-224HJTVS7Z',
+  static final FirebaseOptions web = FirebaseOptions(
+    apiKey: dotenv.env['FIREBASE_API_KEY']!,
+    appId: dotenv.env['FIREBASE_APP_ID_WEB']!,
+    messagingSenderId: dotenv.env['FIREBASE_MESSAGING_SENDER_ID']!,
+    projectId: dotenv.env['FIREBASE_PROJECT_ID']!,
+    authDomain: dotenv.env['FIREBASE_AUTH_DOMAIN']!,
+    storageBucket: dotenv.env['FIREBASE_STORAGE_BUCKET']!,
+    measurementId: dotenv.env['FIREBASE_MEASUREMENT_ID']!,
   );
 
-  static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyDCm7dBuw7x_GVVSmzZhRWdKJ3jL_J4pxA',
-    appId:
-        '1:841355267296:web:6bdb2b5292889fa7f25485', // Using web app ID for now as placeholder or hybrid
-    messagingSenderId: '841355267296',
-    projectId: 'logi-track-wrt-dev',
-    storageBucket: 'logi-track-wrt-dev.firebasestorage.app',
+  static final FirebaseOptions android = FirebaseOptions(
+    apiKey: dotenv.env['FIREBASE_API_KEY']!,
+    appId: dotenv.env['FIREBASE_APP_ID_WEB']!,
+    messagingSenderId: dotenv.env['FIREBASE_MESSAGING_SENDER_ID']!,
+    projectId: dotenv.env['FIREBASE_PROJECT_ID']!,
+    storageBucket: dotenv.env['FIREBASE_STORAGE_BUCKET']!,
   );
 
-  static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyDCm7dBuw7x_GVVSmzZhRWdKJ3jL_J4pxA',
-    appId:
-        '1:841355267296:web:6bdb2b5292889fa7f25485', // Using web app ID for now as placeholder or hybrid
-    messagingSenderId: '841355267296',
-    projectId: 'logi-track-wrt-dev',
-    storageBucket: 'logi-track-wrt-dev.firebasestorage.app',
+  static final FirebaseOptions ios = FirebaseOptions(
+    apiKey: dotenv.env['FIREBASE_API_KEY']!,
+    appId: dotenv.env['FIREBASE_APP_ID_WEB']!,
+    messagingSenderId: dotenv.env['FIREBASE_MESSAGING_SENDER_ID']!,
+    projectId: dotenv.env['FIREBASE_PROJECT_ID']!,
+    storageBucket: dotenv.env['FIREBASE_STORAGE_BUCKET']!,
   );
 
-  static const FirebaseOptions macos = FirebaseOptions(
-    apiKey: 'AIzaSyDCm7dBuw7x_GVVSmzZhRWdKJ3jL_J4pxA',
-    appId:
-        '1:841355267296:web:6bdb2b5292889fa7f25485', // Using web app ID for now as placeholder or hybrid
-    messagingSenderId: '841355267296',
-    projectId: 'logi-track-wrt-dev',
-    storageBucket: 'logi-track-wrt-dev.firebasestorage.app',
+  static final FirebaseOptions macos = FirebaseOptions(
+    apiKey: dotenv.env['FIREBASE_API_KEY']!,
+    appId: dotenv.env['FIREBASE_APP_ID_WEB']!,
+    messagingSenderId: dotenv.env['FIREBASE_MESSAGING_SENDER_ID']!,
+    projectId: dotenv.env['FIREBASE_PROJECT_ID']!,
+    storageBucket: dotenv.env['FIREBASE_STORAGE_BUCKET']!,
   );
 }

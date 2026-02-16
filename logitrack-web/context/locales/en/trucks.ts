@@ -273,6 +273,7 @@ export default {
     "trucks.detail.insuranceDoc": "Insurance Document",
     "trucks.detail.viewInsuranceDoc": "View Insurance Document",
     "trucks.detail.missingImage": "image or file for view",
+    "trucks.detail.status.active": "Active",
     "trucks.detail.status.completed": "Completed",
     "trucks.detail.status.inProgress": "In Progress",
     "trucks.detail.status.pending": "Pending",
@@ -309,7 +310,7 @@ export default {
 
     // Truck Types
     "trucks.type.pickup": "Pickup",
-    "trucks.type.4wheels": "4 Wheels",
+    "trucks.type.4wheels": "4 Wheels Jumbo",
     "trucks.type.6wheels": "6 Wheels",
     "trucks.type.10wheels": "10 Wheels",
     "trucks.type.18wheels": "18 Wheels",

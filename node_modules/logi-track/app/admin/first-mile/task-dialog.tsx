@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 
 import { format } from "date-fns";
-import { CalendarIcon, Loader2, Check, ChevronsUpDown } from "lucide-react";
+import { CalendarIcon, Loader2, Check, ChevronsUpDown, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -39,14 +39,6 @@ import {
     PopoverContent,
     PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-    Command,
-    CommandEmpty,
-    CommandGroup,
-    CommandInput,
-    CommandItem,
-    CommandList,
-} from "@/components/ui/command";
 
 import { cn } from "@/lib/utils";
 import { firstMileTaskSchema, FirstMileTask, SOC_KEYS, SOC_DESTINATIONS } from "@/validate/firstMileTaskSchema";
@@ -67,8 +59,11 @@ interface ItemDialogProps {
 export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, onSuccess }: ItemDialogProps) {
     const [internalOpen, setInternalOpen] = useState(false);
     const [hubs, setHubs] = useState<Record<string, any>[]>([]);
+    const [trucks, setTrucks] = useState<any[]>([]);
     const [drivers, setDrivers] = useState<Driver[]>([]);
     const [loading, setLoading] = useState(false);
+    const [hubDropdownOpen, setHubDropdownOpen] = useState(false);
+    const [hubSearch, setHubSearch] = useState("");
     const { t } = useLanguage();
 
     // Controlled open state
@@ -112,6 +107,11 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                     };
                 });
                 setHubs(hubList);
+
+                // Fetch Trucks (needed for type mapping)
+                const truckSnapshot = await getDocs(collection(db, 'trucks'));
+                const truckList = truckSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                setTrucks(truckList);
 
                 // Fetch Drivers
                 const driverSnapshot = await getDocs(collection(db, 'drivers'));
@@ -183,6 +183,7 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
     // Auto-generate ID on Date or Destination Change (Create Mode)
     const watchedDate = form.watch("date");
     const watchedDestination = form.watch("destination");
+    const watchedTruckType = form.watch("truckType");
 
     useEffect(() => {
         const generateId = async () => {
@@ -242,7 +243,7 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                                 render={({ field }) => (
                                     <FormItem className="flex flex-col">
                                         <FormLabel>{t("firstMile.task.date")}</FormLabel>
-                                        <Popover>
+                                        <Popover modal={true}>
                                             <PopoverTrigger asChild>
                                                 <FormControl>
                                                     <Button
@@ -261,7 +262,7 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                                                     </Button>
                                                 </FormControl>
                                             </PopoverTrigger>
-                                            <PopoverContent className="w-auto p-0" align="start">
+                                            <PopoverContent className="w-auto p-0 pointer-events-auto" align="start">
                                                 <Calendar
                                                     mode="single"
                                                     selected={field.value}
@@ -308,55 +309,78 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {/* Source Hub - Combobox */}
+                            {/* Source Hub - Inline Searchable Dropdown */}
                             <FormField
                                 control={form.control}
                                 name="sourceHub"
-                                render={({ field }) => (
-                                    <FormItem className="flex flex-col">
-                                        <FormLabel>{t("firstMile.task.sourceHub")}</FormLabel>
-                                        <Popover>
-                                            <PopoverTrigger asChild>
-                                                <FormControl>
-                                                    <Button
-                                                        variant="outline"
-                                                        role="combobox"
-                                                        className={cn(
-                                                            "w-full justify-between",
-                                                            !field.value && "text-muted-foreground"
-                                                        )}
-                                                    >
-                                                        {field.value
-                                                            ? (() => {
-                                                                const h = hubs.find(
-                                                                    (hub) => (hub['Hub Code'] || hub['Code']) === field.value
-                                                                );
-                                                                const val = h ? (h['Hub Code'] || h['Code']) : field.value;
-                                                                const name = h ? (h['Hub Name'] || h['station_name_en'] || val) : "";
-                                                                return `${val} - ${name}`;
-                                                            })()
-                                                            : t("firstMile.task.selectHub")}
-                                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                                    </Button>
-                                                </FormControl>
-                                            </PopoverTrigger>
-                                            <PopoverContent className="w-[300px] p-0">
-                                                <Command>
-                                                    <CommandInput placeholder={t("firstMile.task.searchHub")} />
-                                                    <CommandList>
-                                                        <CommandEmpty>{t("firstMile.task.noHub")}</CommandEmpty>
-                                                        <CommandGroup>
-                                                            {/* Slice to prevent performance issues if list is huge */}
-                                                            {hubs.slice(0, 100).map((hub, idx) => {
+                                render={({ field }) => {
+                                    const filteredHubs = hubs.filter((hub) => {
+                                        const val = hub['Hub Code'] || hub['Code'] || '';
+                                        const name = hub['Hub Name'] || hub['station_name_en'] || '';
+                                        const searchLower = hubSearch.toLowerCase();
+                                        return val.toLowerCase().includes(searchLower) || name.toLowerCase().includes(searchLower);
+                                    });
+
+                                    return (
+                                        <FormItem className="flex flex-col relative">
+                                            <FormLabel>{t("firstMile.task.sourceHub")}</FormLabel>
+                                            <FormControl>
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    role="combobox"
+                                                    className={cn(
+                                                        "w-full justify-between",
+                                                        !field.value && "text-muted-foreground"
+                                                    )}
+                                                    onClick={() => {
+                                                        setHubDropdownOpen(!hubDropdownOpen);
+                                                        setHubSearch("");
+                                                    }}
+                                                >
+                                                    {field.value
+                                                        ? (() => {
+                                                            const h = hubs.find(
+                                                                (hub) => (hub['Hub Code'] || hub['Code']) === field.value
+                                                            );
+                                                            const val = h ? (h['Hub Code'] || h['Code']) : field.value;
+                                                            const name = h ? (h['Hub Name'] || h['station_name_en'] || val) : "";
+                                                            return `${val} - ${name}`;
+                                                        })()
+                                                        : t("firstMile.task.selectHub")}
+                                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                                </Button>
+                                            </FormControl>
+                                            {hubDropdownOpen && (
+                                                <div className="absolute top-[calc(100%+4px)] left-0 w-full z-50 rounded-md border bg-popover text-popover-foreground shadow-md">
+                                                    <div className="flex items-center border-b px-3">
+                                                        <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                                                        <input
+                                                            className="flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
+                                                            placeholder={t("firstMile.task.searchHub")}
+                                                            value={hubSearch}
+                                                            onChange={(e) => setHubSearch(e.target.value)}
+                                                            autoFocus
+                                                        />
+                                                    </div>
+                                                    <div className="max-h-[200px] overflow-y-auto p-1">
+                                                        {filteredHubs.length === 0 ? (
+                                                            <div className="py-4 text-center text-sm text-muted-foreground">
+                                                                {t("firstMile.task.noHub")}
+                                                            </div>
+                                                        ) : (
+                                                            filteredHubs.slice(0, 100).map((hub, idx) => {
                                                                 const val = hub['Hub Code'] || hub['Code'];
                                                                 const name = hub['Hub Name'] || hub['station_name_en'] || val;
                                                                 if (!val) return null;
                                                                 return (
-                                                                    <CommandItem
-                                                                        value={`${val} ${name}`}
+                                                                    <div
                                                                         key={`${val}-${idx}`}
-                                                                        onSelect={() => {
+                                                                        className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
+                                                                        onClick={() => {
                                                                             form.setValue("sourceHub", val);
+                                                                            setHubDropdownOpen(false);
+                                                                            setHubSearch("");
                                                                         }}
                                                                     >
                                                                         <Check
@@ -368,17 +392,17 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                                                                             )}
                                                                         />
                                                                         {val} - {name}
-                                                                    </CommandItem>
+                                                                    </div>
                                                                 );
-                                                            })}
-                                                        </CommandGroup>
-                                                    </CommandList>
-                                                </Command>
-                                            </PopoverContent>
-                                        </Popover>
-                                        <FormMessage />
-                                    </FormItem>
-                                )}
+                                                            })
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
+                                            <FormMessage />
+                                        </FormItem>
+                                    );
+                                }}
                             />
 
                             {/* Destination */}
@@ -423,10 +447,12 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                                                 </SelectTrigger>
                                             </FormControl>
                                             <SelectContent>
-                                                <SelectItem value="4WH">4WH</SelectItem>
+                                                <SelectItem value="PICKUP">Pickup</SelectItem>
                                                 <SelectItem value="4WJ">4WJ</SelectItem>
                                                 <SelectItem value="6WH">6WH</SelectItem>
                                                 <SelectItem value="10WH">10WH</SelectItem>
+                                                <SelectItem value="18WH">18WH</SelectItem>
+                                                <SelectItem value="VAN">Van</SelectItem>
                                             </SelectContent>
                                         </Select>
                                         <FormMessage />
@@ -484,7 +510,37 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                                                     </SelectTrigger>
                                                 </FormControl>
                                                 <SelectContent>
-                                                    {drivers.map((driver) => (
+                                                    {drivers.filter(driver => {
+                                                        if (!watchedTruckType) return true; // Show all if no type selected
+
+                                                        // Map FM Task Type to Truck Entity Type
+                                                        const getMappedTruckType = (fmType: string) => {
+
+                                                            if (fmType === "4WH" || fmType === "4WJ") return "4 Wheels Jumbo";
+                                                            if (fmType === "6WH") return "6 Wheels";
+                                                            if (fmType === "10WH") return "10 Wheels";
+                                                            if (fmType === "18WH") return "18 Wheels";
+                                                            if (fmType === "PICKUP") return "Pickup";
+                                                            if (fmType === "VAN") return "Van";
+                                                            return fmType;
+                                                        };
+
+                                                        const targetType = getMappedTruckType(watchedTruckType);
+
+                                                        // Find driver's assigned truck
+                                                        const assignedTruckId = driver.currentAssignment?.truckId;
+                                                        if (!assignedTruckId) return false;
+
+                                                        const truck = trucks.find(t => t.id === assignedTruckId);
+                                                        if (!truck) return false;
+
+                                                        // Check if truck type matches (Handle legacy "4 Wheels" vs new "4 Wheels Jumbo")
+                                                        if (targetType === "4 Wheels Jumbo") {
+                                                            return truck.type === "4 Wheels" || truck.type === "4 Wheels Jumbo";
+                                                        }
+
+                                                        return truck.type === targetType;
+                                                    }).map((driver) => (
                                                         <SelectItem key={driver.id} value={driver.id || "unknown"}>
                                                             {driver.firstName} {driver.lastName}
                                                         </SelectItem>

@@ -112,7 +112,7 @@ export function VehicleDetailsSection() {
                                     </FormControl>
                                     <SelectContent>
                                         <SelectItem value="Pickup">{t("trucks.type.pickup")}</SelectItem>
-                                        <SelectItem value="4 Wheels">{t("trucks.type.4wheels")}</SelectItem>
+                                        <SelectItem value="4 Wheels Jumbo">{t("trucks.type.4wheels")}</SelectItem>
                                         <SelectItem value="6 Wheels">{t("trucks.type.6wheels")}</SelectItem>
                                         <SelectItem value="10 Wheels">{t("trucks.type.10wheels")}</SelectItem>
                                         <SelectItem value="18 Wheels">{t("trucks.type.18wheels")}</SelectItem>

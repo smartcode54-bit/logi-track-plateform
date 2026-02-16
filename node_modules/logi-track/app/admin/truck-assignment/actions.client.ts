@@ -33,6 +33,7 @@ export interface DriverOption {
     id: string;
     name: string;
     licenseNumber?: string;
+    licenseType?: string; // Added licenseType
     status: 'available' | 'assigned';
     currentAssignment?: any;
 }
@@ -41,6 +42,7 @@ export interface TruckOption {
     id: string;
     plate: string;
     model: string;
+    type?: string; // Added type
     status: 'available' | 'assigned' | 'maintenance' | 'Active'; // standardizing status
     currentAssignments?: any[];
     ownershipType?: string;
@@ -317,6 +319,7 @@ export async function getAvailableDrivers(): Promise<DriverOption[]> {
                     id: doc.id,
                     name: `${data.firstName} ${data.lastName}`,
                     licenseNumber: data.truckLicenseId,
+                    licenseType: data.licenseType, // Map licenseType
                     status: data.status,
                     currentAssignment: data.currentAssignment
                 } as unknown as DriverOption;
@@ -358,6 +361,7 @@ export async function getAvailableTrucks(): Promise<TruckOption[]> {
                     id: doc.id,
                     plate: data.licensePlate,
                     model: data.model,
+                    type: data.type, // Map type
                     status: data.truckStatus,
                     ownershipType: data.ownershipType || 'own',
                     currentAssignments: data.currentAssignments || (data.currentAssignment ? [data.currentAssignment] : [])

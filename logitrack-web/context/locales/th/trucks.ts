@@ -272,6 +272,7 @@ export default {
     "trucks.detail.insuranceDoc": "เอกสารประกันภัย",
     "trucks.detail.viewInsuranceDoc": "ดูเอกสารประกันภัย",
     "trucks.detail.missingImage": "รูปภาพหรือไฟล์สำหรับดู",
+    "trucks.detail.status.active": "ใช้งาน",
     "trucks.detail.status.completed": "เรียบร้อย",
     "trucks.detail.status.inProgress": "กำลังดำเนินการ",
     "trucks.detail.status.pending": "รอดำเนินการ",
@@ -308,7 +309,7 @@ export default {
 
     // Truck Types
     "trucks.type.pickup": "รถกระบะ",
-    "trucks.type.4wheels": "4 ล้อ",
+    "trucks.type.4wheels": "4 ล้อ จัมโบ้",
     "trucks.type.6wheels": "6 ล้อ",
     "trucks.type.10wheels": "10 ล้อ",
     "trucks.type.18wheels": "18 ล้อ",

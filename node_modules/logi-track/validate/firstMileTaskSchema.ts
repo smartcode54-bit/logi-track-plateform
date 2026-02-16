@@ -21,7 +21,8 @@ export const firstMileTaskSchema = z.object({
     destination: z.enum(SOC_KEYS),
 
     // Vehicle Requirements
-    truckType: z.enum(["4WH", "4WJ", "6WH", "10WH"]).optional(),
+    // Vehicle Requirements
+    truckType: z.enum(["4WH", "4WJ", "6WH", "10WH", "18WH", "PICKUP", "VAN"]).optional(),
 
     // Shipment Info
     FirstMileTaskId: z.string().optional(),
