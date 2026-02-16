@@ -14,7 +14,7 @@ export default {
     "renewals.card.insuranceCritical": "Insurance Critical",
     "renewals.card.policiesExpired": "Policies expired",
     "renewals.card.complianceRate": "Compliance Rate",
-    "renewals.card.legalOperation": "Operating fully legally",
+    "renewals.card.legalOperation": "Renewals Rate",
     "renewals.table.title": "Vehicle Renewal Status",
     "renewals.table.vehicle": "Vehicle",
     "renewals.table.ownership": "Ownership",

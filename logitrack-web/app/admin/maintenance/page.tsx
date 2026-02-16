@@ -129,9 +129,11 @@ export default function MaintenanceDashboardPage() {
                     <CardContent>
                         <div className="text-2xl font-bold">{activeJobs}</div>
                         <p className="text-xs text-muted-foreground">{t("maintenance.vehiclesInShop")}</p>
-                        <div className="mt-2 text-xs text-orange-600 font-medium">
-                            {activeJobs > 0 ? t("maintenance.requiresAttention") : t("maintenance.allFleetActive")}
-                        </div>
+                        {activeJobs > 0 && (
+                            <div className="mt-2 text-xs text-orange-600 font-medium">
+                                {t("maintenance.requiresAttention")}
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
             </div>

@@ -11,7 +11,7 @@ export default {
     "maintenance.cmCosts": "CM Costs",
     "maintenance.correctiveRepairs": "Corrective Repairs",
     "maintenance.activeJobs": "Active Jobs",
-    "maintenance.vehiclesInShop": "Vehicles currently in shop",
+    "maintenance.vehiclesInShop": "Vehicles currently in PM/CM",
     "maintenance.requiresAttention": "Requires Attention",
     "maintenance.allFleetActive": "All Fleet Active",
     "maintenance.serviceHistory": "Service History",

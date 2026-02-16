@@ -11,7 +11,7 @@ export default {
     "maintenance.cmCosts": "ค่าใช้จ่าย CM",
     "maintenance.correctiveRepairs": "การซ่อมแซมแก้ไข",
     "maintenance.activeJobs": "งานที่กำลังดำเนินการ",
-    "maintenance.vehiclesInShop": "รถที่กำลังซ่อม",
+    "maintenance.vehiclesInShop": "รถที่กำลังซ่อม/เช็คระยะ",
     "maintenance.requiresAttention": "ต้องการความสนใจ",
     "maintenance.allFleetActive": "รถทั้งหมดใช้งานได้ปกติ",
     "maintenance.serviceHistory": "ประวัติการบริการ",

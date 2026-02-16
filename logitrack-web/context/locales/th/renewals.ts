@@ -14,7 +14,7 @@ export default {
     "renewals.card.insuranceCritical": "ประกันภัยเกินกำหนด",
     "renewals.card.policiesExpired": "กรมธรรม์หมดอายุ",
     "renewals.card.complianceRate": "อัตราการต่ออายุ",
-    "renewals.card.legalOperation": "การดำเนินงานตามกำหนดเวลา",
+    "renewals.card.legalOperation": "การต่ออายุตามกำหนดเวลา",
     "renewals.table.title": "สถานะการต่ออายุรถ",
     "renewals.table.vehicle": "รถบรรทุก",
     "renewals.table.ownership": "ความเป็นเจ้าของ",

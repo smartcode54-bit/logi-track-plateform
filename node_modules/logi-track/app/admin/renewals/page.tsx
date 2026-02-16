@@ -47,6 +47,11 @@ export default function RenewalsPage() {
     // Calculate total estimated cost
     const totalCost = trucks.reduce((sum, t) => sum + (t.taxExpense || 0) + (t.insurancePremium || 0), 0);
 
+    // Renewal rate: items renewed on time / total items needing renewal
+    const totalRenewalItems = totalTrucks * 2; // each truck has tax + insurance
+    const renewedOnTime = trucks.filter(t => t.taxStatus === "ok").length + trucks.filter(t => t.insuranceStatus === "ok").length;
+    const renewalRate = totalRenewalItems > 0 ? ((renewedOnTime / totalRenewalItems) * 100).toFixed(2) : "0.00";
+
     // Filter Logic
     const filteredTrucks = trucks.filter(truck => {
         const matchesSearch =
@@ -144,9 +149,8 @@ export default function RenewalsPage() {
                         <CheckCircle2 className="h-4 w-4 text-green-500" />
                     </CardHeader>
                     <CardContent>
-                        {/* Simple compliance calc */}
                         <div className="text-2xl font-bold">
-                            {trucks.length > 0 ? Math.round(((totalTrucks - (taxOverdue + insuranceOverdue)) / totalTrucks) * 100) : 0}%
+                            {renewalRate}%
                         </div>
                         <p className="text-xs text-muted-foreground">{t("renewals.card.legalOperation")}</p>
                     </CardContent>
