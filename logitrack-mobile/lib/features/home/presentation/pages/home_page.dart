@@ -69,29 +69,104 @@ class _HomePageState extends State<HomePage> {
     final displayName = '$firstName $lastName'.trim();
 
     return Scaffold(
+      drawer: Drawer(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            DrawerHeader(
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  CircleAvatar(
+                    radius: 28,
+                    backgroundColor: Colors.white.withOpacity(0.3),
+                    child: Text(
+                      displayName.isNotEmpty ? displayName[0].toUpperCase() : 'D',
+                      style: const TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    displayName,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    _authRepository.currentUser?.email ?? '',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.9),
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.person_outline),
+              title: Text('driver_profile'.tr()),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.pushNamed(context, '/profile');
+              },
+            ),
+            ListTile(
+              leading: Icon(
+                Theme.of(context).brightness == Brightness.dark
+                    ? Icons.light_mode
+                    : Icons.dark_mode,
+              ),
+              title: Text('theme_toggle'.tr()),
+              onTap: () {
+                Navigator.pop(context);
+                ThemeController().toggleTheme();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.language),
+              title: Text('language'.tr()),
+              subtitle: Text(
+                context.locale.languageCode == 'th' ? 'language_th'.tr() : 'language_en'.tr(),
+              ),
+              onTap: () {
+                Navigator.pop(context);
+                _showLanguageSheet(context);
+              },
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.logout),
+              title: Text('logout'.tr()),
+              onTap: () async {
+                Navigator.pop(context);
+                await _authRepository.signOut();
+                if (context.mounted) {
+                  Navigator.pushReplacementNamed(context, '/');
+                }
+              },
+            ),
+          ],
+        ),
+      ),
       appBar: AppBar(
         title: Text('app_title'.tr()),
-        actions: [
-          IconButton(
-            icon: Icon(
-              Theme.of(context).brightness == Brightness.dark
-                  ? Icons.light_mode
-                  : Icons.dark_mode,
-            ),
-            onPressed: () {
-              ThemeController().toggleTheme();
-            },
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu),
+            onPressed: () => Scaffold.of(context).openDrawer(),
           ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () async {
-              await _authRepository.signOut();
-              if (context.mounted) {
-                Navigator.pushReplacementNamed(context, '/');
-              }
-            },
-          ),
-        ],
+        ),
+        actions: const [],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
@@ -169,6 +244,55 @@ class _HomePageState extends State<HomePage> {
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  void _showLanguageSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'language'.tr(),
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                title: Text('language_en'.tr()),
+                trailing: context.locale.languageCode == 'en'
+                    ? Icon(Icons.radio_button_checked, color: Theme.of(context).colorScheme.primary)
+                    : const Icon(Icons.radio_button_off),
+                onTap: () async {
+                  await context.setLocale(const Locale('en'));
+                  if (context.mounted) {
+                    Navigator.pop(context);
+                    setState(() {});
+                  }
+                },
+              ),
+              ListTile(
+                title: Text('language_th'.tr()),
+                trailing: context.locale.languageCode == 'th'
+                    ? Icon(Icons.radio_button_checked, color: Theme.of(context).colorScheme.primary)
+                    : const Icon(Icons.radio_button_off),
+                onTap: () async {
+                  await context.setLocale(const Locale('th'));
+                  if (context.mounted) {
+                    Navigator.pop(context);
+                    setState(() {});
+                  }
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );

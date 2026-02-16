@@ -7,6 +7,7 @@ import 'package:device_preview/device_preview.dart';
 import 'core/theme/theme_controller.dart';
 import 'features/auth/presentation/pages/login_page.dart';
 import 'features/home/presentation/pages/home_page.dart';
+import 'features/profile/presentation/pages/profile_page.dart';
 import 'firebase_options.dart';
 
 void main() async {
@@ -134,7 +135,10 @@ class MyApp extends StatelessWidget {
             ),
           ),
           home: const LoginPage(),
-          routes: {'/home': (context) => const HomePage()},
+          routes: {
+            '/home': (context) => const HomePage(),
+            '/profile': (context) => const ProfilePage(),
+          },
         );
       },
     );
