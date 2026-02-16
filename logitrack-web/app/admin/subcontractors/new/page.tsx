@@ -31,18 +31,20 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
-
-const STEPS = [
-    { id: 1, title: "Company Profile", description: "Identity & Legal" },
-    { id: 2, title: "Contact Details", description: "POC & Communication" },
-    { id: 3, title: "Fleet & Service", description: "Capacity & Coverage" },
-    { id: 4, title: "Documents", description: "Uploads & Review" },
-];
+import { useLanguage } from "@/context/language";
 
 export default function NewSubcontractorPage() {
     const router = useRouter();
+    const { t } = useLanguage();
     const [currentStep, setCurrentStep] = useState(1);
     const [isSubmitting, setIsSubmitting] = useState(false);
+
+    const STEPS = [
+        { id: 1, title: t("subcontractors.step1.title"), description: t("subcontractors.step1.description") },
+        { id: 2, title: t("subcontractors.step2.title"), description: t("subcontractors.step2.description") },
+        { id: 3, title: t("subcontractors.step3.title"), description: t("subcontractors.step3.description") },
+        { id: 4, title: t("subcontractors.step4.title"), description: t("subcontractors.step4.description") },
+    ];
 
     const form = useForm<SubcontractorFormValues>({
         resolver: zodResolver(subcontractorSchema),
@@ -54,11 +56,11 @@ export default function NewSubcontractorPage() {
         try {
             setIsSubmitting(true);
             await createSubcontractor(data as unknown as SubcontractorValidatedData);
-            toast.success("Subcontractor registered successfully");
+            toast.success(t("subcontractors.toast.registerSuccess"));
             router.push("/admin/subcontractors");
         } catch (error) {
             console.error(error);
-            toast.error("Failed to register subcontractor");
+            toast.error(t("subcontractors.toast.registerError"));
         } finally {
             setIsSubmitting(false);
         }
@@ -97,8 +99,8 @@ export default function NewSubcontractorPage() {
                     </Link>
                 </Button>
                 <div>
-                    <h1 className="text-2xl font-bold">Add New Subcontractor</h1>
-                    <p className="text-muted-foreground text-sm">Step {currentStep} of {STEPS.length}: {STEPS[currentStep - 1].title}</p>
+                    <h1 className="text-2xl font-bold">{t("subcontractors.new.title")}</h1>
+                    <p className="text-muted-foreground text-sm">{t("subcontractors.new.step")} {currentStep} {t("subcontractors.new.of")} {STEPS.length}: {STEPS[currentStep - 1].title}</p>
                 </div>
             </div>
 
@@ -135,10 +137,10 @@ export default function NewSubcontractorPage() {
                     <div className="mt-8 p-4 bg-blue-950/20 border border-blue-900/30 rounded-lg">
                         <div className="flex items-center gap-2 mb-2 text-blue-600 dark:text-blue-400">
                             <div className="h-4 w-4 font-bold border rounded-full flex items-center justify-center text-[10px]">i</div>
-                            <span className="text-xs font-bold uppercase tracking-wider">Tips</span>
+                            <span className="text-xs font-bold uppercase tracking-wider">{t("subcontractors.tips")}</span>
                         </div>
                         <p className="text-xs text-muted-foreground leading-relaxed">
-                            Ensure the Tax ID matches your official documents to avoid verification delays.
+                            {t("subcontractors.tips.taxId")}
                         </p>
                     </div>
                 </div>
@@ -153,8 +155,8 @@ export default function NewSubcontractorPage() {
                                     <div className="space-y-6">
                                         <Card className="border-none shadow-sm">
                                             <CardHeader>
-                                                <CardTitle>Company Profile</CardTitle>
-                                                <CardDescription>Enter the legal and business details.</CardDescription>
+                                                <CardTitle>{t("subcontractors.form.companyProfile")}</CardTitle>
+                                                <CardDescription>{t("subcontractors.form.companyProfile.desc")}</CardDescription>
                                             </CardHeader>
                                             <CardContent className="space-y-6">
                                                 <div className="grid md:grid-cols-2 gap-6">
@@ -163,9 +165,9 @@ export default function NewSubcontractorPage() {
                                                         name="name"
                                                         render={({ field }) => (
                                                             <FormItem>
-                                                                <FormLabel>Legal Business Name</FormLabel>
+                                                                <FormLabel>{t("subcontractors.form.legalName")}</FormLabel>
                                                                 <FormControl>
-                                                                    <Input placeholder="e.g. SwiftLogistics Inc." {...field} />
+                                                                    <Input placeholder={t("subcontractors.form.legalName.placeholder")} {...field} />
                                                                 </FormControl>
                                                                 <FormMessage />
                                                             </FormItem>
@@ -176,16 +178,16 @@ export default function NewSubcontractorPage() {
                                                         name="type"
                                                         render={({ field }) => (
                                                             <FormItem>
-                                                                <FormLabel>Type</FormLabel>
+                                                                <FormLabel>{t("subcontractors.form.type")}</FormLabel>
                                                                 <Select onValueChange={field.onChange} defaultValue={field.value}>
                                                                     <FormControl>
                                                                         <SelectTrigger>
-                                                                            <SelectValue placeholder="Select type" />
+                                                                            <SelectValue placeholder={t("subcontractors.form.type.placeholder")} />
                                                                         </SelectTrigger>
                                                                     </FormControl>
                                                                     <SelectContent>
-                                                                        <SelectItem value="individual">Individual</SelectItem>
-                                                                        <SelectItem value="company">Company</SelectItem>
+                                                                        <SelectItem value="individual">{t("subcontractors.form.type.individual")}</SelectItem>
+                                                                        <SelectItem value="company">{t("subcontractors.form.type.company")}</SelectItem>
                                                                     </SelectContent>
                                                                 </Select>
                                                                 <FormMessage />
@@ -201,9 +203,9 @@ export default function NewSubcontractorPage() {
                                                             name="taxId"
                                                             render={({ field }) => (
                                                                 <FormItem>
-                                                                    <FormLabel>Tax ID / EIN</FormLabel>
+                                                                    <FormLabel>{t("subcontractors.form.taxId")}</FormLabel>
                                                                     <FormControl>
-                                                                        <Input placeholder="12-3456789" {...field} />
+                                                                        <Input placeholder={t("subcontractors.form.taxId.placeholder")} {...field} />
                                                                     </FormControl>
                                                                     <FormMessage />
                                                                 </FormItem>
@@ -216,9 +218,9 @@ export default function NewSubcontractorPage() {
                                                             name="idCardNumber"
                                                             render={({ field }) => (
                                                                 <FormItem>
-                                                                    <FormLabel>National ID Number</FormLabel>
+                                                                    <FormLabel>{t("subcontractors.form.nationalId")}</FormLabel>
                                                                     <FormControl>
-                                                                        <Input placeholder="1234567890123" {...field} />
+                                                                        <Input placeholder={t("subcontractors.form.nationalId.placeholder")} {...field} />
                                                                     </FormControl>
                                                                     <FormMessage />
                                                                 </FormItem>
@@ -232,11 +234,11 @@ export default function NewSubcontractorPage() {
                                                     name="website"
                                                     render={({ field }) => (
                                                         <FormItem>
-                                                            <FormLabel>Company Website</FormLabel>
+                                                            <FormLabel>{t("subcontractors.form.website")}</FormLabel>
                                                             <FormControl>
                                                                 <div className="relative">
                                                                     <Globe className="absolute left-3 top-2.5 h-5 w-5 text-muted-foreground" />
-                                                                    <Input className="pl-10" placeholder="https://www.example.com" {...field} />
+                                                                    <Input className="pl-10" placeholder={t("subcontractors.form.website.placeholder")} {...field} />
                                                                 </div>
                                                             </FormControl>
                                                             <FormMessage />
@@ -249,10 +251,10 @@ export default function NewSubcontractorPage() {
                                                     name="address"
                                                     render={({ field }) => (
                                                         <FormItem>
-                                                            <FormLabel>Registered Headquarters Address</FormLabel>
+                                                            <FormLabel>{t("subcontractors.form.address")}</FormLabel>
                                                             <FormControl>
                                                                 <Textarea
-                                                                    placeholder="Street address, City, State, Zip code"
+                                                                    placeholder={t("subcontractors.form.address.placeholder")}
                                                                     className="min-h-[100px]"
                                                                     {...field}
                                                                 />
@@ -271,8 +273,8 @@ export default function NewSubcontractorPage() {
                                     <div className="space-y-6">
                                         <Card className="border-none shadow-sm">
                                             <CardHeader>
-                                                <CardTitle>Contact Information</CardTitle>
-                                                <CardDescription>Primary point of contact for dispatch.</CardDescription>
+                                                <CardTitle>{t("subcontractors.form.contactInfo")}</CardTitle>
+                                                <CardDescription>{t("subcontractors.form.contactInfo.desc")}</CardDescription>
                                             </CardHeader>
                                             <CardContent className="space-y-6">
                                                 <FormField
@@ -280,9 +282,9 @@ export default function NewSubcontractorPage() {
                                                     name="contactPerson"
                                                     render={({ field }) => (
                                                         <FormItem>
-                                                            <FormLabel>Full Name</FormLabel>
+                                                            <FormLabel>{t("subcontractors.form.fullName")}</FormLabel>
                                                             <FormControl>
-                                                                <Input placeholder="e.g. John Doe" {...field} />
+                                                                <Input placeholder={t("subcontractors.form.fullName.placeholder")} {...field} />
                                                             </FormControl>
                                                             <FormMessage />
                                                         </FormItem>
@@ -294,9 +296,9 @@ export default function NewSubcontractorPage() {
                                                     name="designation"
                                                     render={({ field }) => (
                                                         <FormItem>
-                                                            <FormLabel>Designation/Position</FormLabel>
+                                                            <FormLabel>{t("subcontractors.form.designation")}</FormLabel>
                                                             <FormControl>
-                                                                <Input placeholder="e.g. Operations Manager" {...field} />
+                                                                <Input placeholder={t("subcontractors.form.designation.placeholder")} {...field} />
                                                             </FormControl>
                                                             <FormMessage />
                                                         </FormItem>
@@ -309,11 +311,11 @@ export default function NewSubcontractorPage() {
                                                         name="phone"
                                                         render={({ field }) => (
                                                             <FormItem>
-                                                                <FormLabel>Mobile Phone Number</FormLabel>
+                                                                <FormLabel>{t("subcontractors.form.mobilePhone")}</FormLabel>
                                                                 <FormControl>
                                                                     <div className="relative">
                                                                         <Smartphone className="absolute left-3 top-2.5 h-5 w-5 text-muted-foreground" />
-                                                                        <Input className="pl-10" placeholder="+1 (555) 000-0000" {...field} />
+                                                                        <Input className="pl-10" placeholder={t("subcontractors.form.mobilePhone.placeholder")} {...field} />
                                                                     </div>
                                                                 </FormControl>
                                                                 <FormMessage />
@@ -325,11 +327,11 @@ export default function NewSubcontractorPage() {
                                                         name="email"
                                                         render={({ field }) => (
                                                             <FormItem>
-                                                                <FormLabel>Work Email Address</FormLabel>
+                                                                <FormLabel>{t("subcontractors.form.workEmail")}</FormLabel>
                                                                 <FormControl>
                                                                     <div className="relative">
                                                                         <Mail className="absolute left-3 top-2.5 h-5 w-5 text-muted-foreground" />
-                                                                        <Input className="pl-10" placeholder="example@company.com" {...field} />
+                                                                        <Input className="pl-10" placeholder={t("subcontractors.form.workEmail.placeholder")} {...field} />
                                                                     </div>
                                                                 </FormControl>
                                                                 <FormMessage />
@@ -347,23 +349,23 @@ export default function NewSubcontractorPage() {
                                     <div className="space-y-6">
                                         <Card className="border-none shadow-sm">
                                             <CardHeader>
-                                                <CardTitle>Fleet & Service Area</CardTitle>
-                                                <CardDescription>Operational capabilities and coverage.</CardDescription>
+                                                <CardTitle>{t("subcontractors.form.fleetService")}</CardTitle>
+                                                <CardDescription>{t("subcontractors.form.fleetService.desc")}</CardDescription>
                                             </CardHeader>
                                             <CardContent className="space-y-8">
                                                 <div>
-                                                    <h3 className="text-sm font-semibold mb-4 flex items-center gap-2"><Truck className="w-4 h-4 text-blue-600" /> Fleet Capacity</h3>
+                                                    <h3 className="text-sm font-semibold mb-4 flex items-center gap-2"><Truck className="w-4 h-4 text-blue-600" /> {t("subcontractors.form.fleetCapacity")}</h3>
                                                     <div className="grid md:grid-cols-2 gap-6">
                                                         <FormField
                                                             control={form.control}
                                                             name="fleetSize"
                                                             render={({ field }) => (
                                                                 <FormItem>
-                                                                    <FormLabel>Total Available Trucks</FormLabel>
+                                                                    <FormLabel>{t("subcontractors.form.totalTrucks")}</FormLabel>
                                                                     <Select onValueChange={(val) => field.onChange(parseInt(val))} defaultValue={field.value?.toString()}>
                                                                         <FormControl>
                                                                             <SelectTrigger>
-                                                                                <SelectValue placeholder="Select amount" />
+                                                                                <SelectValue placeholder={t("subcontractors.form.totalTrucks.placeholder")} />
                                                                             </SelectTrigger>
                                                                         </FormControl>
                                                                         <SelectContent>
@@ -374,7 +376,7 @@ export default function NewSubcontractorPage() {
                                                                             <SelectItem value="100">50+</SelectItem>
                                                                         </SelectContent>
                                                                     </Select>
-                                                                    <FormDescription>Active fleet count ready for dispatch.</FormDescription>
+                                                                    <FormDescription>{t("subcontractors.form.totalTrucks.desc")}</FormDescription>
                                                                     <FormMessage />
                                                                 </FormItem>
                                                             )}
@@ -384,17 +386,17 @@ export default function NewSubcontractorPage() {
                                                             name="dispatchCenter"
                                                             render={({ field }) => (
                                                                 <FormItem>
-                                                                    <FormLabel>Primary Dispatch Center</FormLabel>
+                                                                    <FormLabel>{t("subcontractors.form.dispatchCenter")}</FormLabel>
                                                                     <Select onValueChange={field.onChange} defaultValue={field.value}>
                                                                         <FormControl>
                                                                             <SelectTrigger>
-                                                                                <SelectValue placeholder="Select center" />
+                                                                                <SelectValue placeholder={t("subcontractors.form.dispatchCenter.placeholder")} />
                                                                             </SelectTrigger>
                                                                         </FormControl>
                                                                         <SelectContent>
-                                                                            <SelectItem value="Central Hub - North">Central Hub - North</SelectItem>
-                                                                            <SelectItem value="Central Hub - South">Central Hub - South</SelectItem>
-                                                                            <SelectItem value="East Coast Depot">East Coast Depot</SelectItem>
+                                                                            <SelectItem value="Central Hub - North">{t("subcontractors.form.dispatchCenter.northHub")}</SelectItem>
+                                                                            <SelectItem value="Central Hub - South">{t("subcontractors.form.dispatchCenter.southHub")}</SelectItem>
+                                                                            <SelectItem value="East Coast Depot">{t("subcontractors.form.dispatchCenter.eastCoast")}</SelectItem>
                                                                         </SelectContent>
                                                                     </Select>
                                                                     <FormMessage />
@@ -405,7 +407,7 @@ export default function NewSubcontractorPage() {
                                                 </div>
 
                                                 <div>
-                                                    <h3 className="text-sm font-semibold mb-4 flex items-center gap-2"><MapPin className="w-4 h-4 text-blue-600" /> Service Provinces & Regions</h3>
+                                                    <h3 className="text-sm font-semibold mb-4 flex items-center gap-2"><MapPin className="w-4 h-4 text-blue-600" /> {t("subcontractors.form.serviceRegions")}</h3>
                                                     <FormField
                                                         control={form.control}
                                                         name="serviceRegions"
@@ -415,7 +417,7 @@ export default function NewSubcontractorPage() {
                                                                     <div className="space-y-3">
                                                                         <div className="relative">
                                                                             <Check className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                                                                            <Input placeholder="Search and add regions..." className="pl-10" />
+                                                                            <Input placeholder={t("subcontractors.form.serviceRegions.search")} className="pl-10" />
                                                                         </div>
                                                                         <div className="flex flex-wrap gap-2">
                                                                             {["California", "Texas", "Florida", "New York"].map(region => (
@@ -435,7 +437,7 @@ export default function NewSubcontractorPage() {
                                                 </div>
 
                                                 <div>
-                                                    <h3 className="text-sm font-semibold mb-4 flex items-center gap-2"><Truck className="w-4 h-4 text-blue-600" /> Vehicle Types & Specialization</h3>
+                                                    <h3 className="text-sm font-semibold mb-4 flex items-center gap-2"><Truck className="w-4 h-4 text-blue-600" /> {t("subcontractors.form.vehicleTypes")}</h3>
                                                     <FormField
                                                         control={form.control}
                                                         name="vehicleTypes"
@@ -443,12 +445,12 @@ export default function NewSubcontractorPage() {
                                                             <FormItem>
                                                                 <div className="grid md:grid-cols-3 gap-4">
                                                                     {[
-                                                                        { id: "4-wheeler", label: "4-Wheeler (LDT)", sub: "Light delivery trucks" },
-                                                                        { id: "6-wheeler", label: "6-Wheeler (MDT)", sub: "Medium duty trucks" },
-                                                                        { id: "10-wheeler", label: "10-Wheeler (HDT)", sub: "Heavy duty trucks" },
-                                                                        { id: "cold-chain", label: "Cold Chain", sub: "Refrigerated transport", icon: "❄️" },
-                                                                        { id: "flatbed", label: "Flatbed", sub: "Oversized cargo" },
-                                                                        { id: "hazmat", label: "Hazmat", sub: "Dangerous goods" },
+                                                                        { id: "4-wheeler", label: t("subcontractors.form.vehicle.4wheeler"), sub: t("subcontractors.form.vehicle.4wheeler.desc") },
+                                                                        { id: "6-wheeler", label: t("subcontractors.form.vehicle.6wheeler"), sub: t("subcontractors.form.vehicle.6wheeler.desc") },
+                                                                        { id: "10-wheeler", label: t("subcontractors.form.vehicle.10wheeler"), sub: t("subcontractors.form.vehicle.10wheeler.desc") },
+                                                                        { id: "cold-chain", label: t("subcontractors.form.vehicle.coldChain"), sub: t("subcontractors.form.vehicle.coldChain.desc"), icon: "❄️" },
+                                                                        { id: "flatbed", label: t("subcontractors.form.vehicle.flatbed"), sub: t("subcontractors.form.vehicle.flatbed.desc") },
+                                                                        { id: "hazmat", label: t("subcontractors.form.vehicle.hazmat"), sub: t("subcontractors.form.vehicle.hazmat.desc") },
                                                                     ].map((item) => (
                                                                         <FormField
                                                                             key={item.id}
@@ -509,22 +511,22 @@ export default function NewSubcontractorPage() {
                                             <div className="lg:col-span-2 space-y-6">
                                                 <Card className="border-none shadow-sm">
                                                     <CardHeader>
-                                                        <CardTitle>Required Documents</CardTitle>
+                                                        <CardTitle>{t("subcontractors.form.requiredDocs")}</CardTitle>
                                                     </CardHeader>
                                                     <CardContent className="space-y-8">
                                                         <div>
-                                                            <h4 className="text-sm font-medium mb-4">Business License</h4>
+                                                            <h4 className="text-sm font-medium mb-4">{t("subcontractors.form.businessLicense")}</h4>
                                                             <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-8 flex flex-col items-center justify-center text-center hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors cursor-pointer">
                                                                 <div className="h-10 w-10 bg-blue-100 dark:bg-blue-900/50 rounded-full flex items-center justify-center text-blue-600 dark:text-blue-400 mb-2">
                                                                     <Upload className="h-5 w-5" />
                                                                 </div>
-                                                                <p className="font-medium text-slate-900 dark:text-slate-100">Drag and drop or click to upload</p>
-                                                                <p className="text-xs text-slate-500 mt-1">PDF, PNG, JPG (Max 10MB)</p>
+                                                                <p className="font-medium text-slate-900 dark:text-slate-100">{t("subcontractors.form.dragDrop")}</p>
+                                                                <p className="text-xs text-slate-500 mt-1">{t("subcontractors.form.fileFormats")}</p>
                                                             </div>
                                                         </div>
 
                                                         <div>
-                                                            <h4 className="text-sm font-medium mb-4">Insurance Certificate</h4>
+                                                            <h4 className="text-sm font-medium mb-4">{t("subcontractors.form.insuranceCert")}</h4>
                                                             <div className="bg-green-50 dark:bg-green-900/10 border border-green-100 dark:border-green-900/50 rounded-xl p-4 flex items-center justify-between">
                                                                 <div className="flex items-center gap-3">
                                                                     <div className="h-8 w-8 bg-green-100 dark:bg-green-900/50 rounded-full flex items-center justify-center text-green-600 dark:text-green-400">
@@ -532,7 +534,7 @@ export default function NewSubcontractorPage() {
                                                                     </div>
                                                                     <div>
                                                                         <p className="text-sm font-medium text-green-800 dark:text-green-200">insurance_cert_2024.pdf</p>
-                                                                        <p className="text-xs text-green-600 dark:text-green-400">Successfully uploaded</p>
+                                                                        <p className="text-xs text-green-600 dark:text-green-400">{t("subcontractors.form.uploadSuccess")}</p>
                                                                     </div>
                                                                 </div>
                                                                 <Button variant="ghost" size="icon" className="text-slate-400 hover:text-red-500">
@@ -548,18 +550,18 @@ export default function NewSubcontractorPage() {
                                             <div>
                                                 <Card className="border-none shadow-sm">
                                                     <CardHeader>
-                                                        <CardTitle>Summary Review</CardTitle>
+                                                        <CardTitle>{t("subcontractors.form.summaryReview")}</CardTitle>
                                                     </CardHeader>
                                                     <CardContent className="space-y-6">
                                                         <div>
                                                             <div className="flex justify-between items-center mb-2">
-                                                                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Company Details</h4>
-                                                                <Button variant="link" size="sm" className="h-auto p-0 text-blue-600" onClick={() => setCurrentStep(1)}>Edit</Button>
+                                                                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t("subcontractors.form.companyDetails")}</h4>
+                                                                <Button variant="link" size="sm" className="h-auto p-0 text-blue-600" onClick={() => setCurrentStep(1)}>{t("subcontractors.form.edit")}</Button>
                                                             </div>
                                                             <div className="space-y-1">
-                                                                <p className="font-semibold text-slate-900 dark:text-slate-100">{form.getValues("name") || "Not entered"}</p>
+                                                                <p className="font-semibold text-slate-900 dark:text-slate-100">{form.getValues("name") || t("subcontractors.form.notEntered")}</p>
                                                                 <p className="text-xs text-slate-500">Tax ID: {form.getValues("taxId") || form.getValues("idCardNumber") || "-"}</p>
-                                                                <p className="text-xs text-slate-500">{form.getValues("address") || "No address"}</p>
+                                                                <p className="text-xs text-slate-500">{form.getValues("address") || t("subcontractors.form.noAddress")}</p>
                                                             </div>
                                                         </div>
 
@@ -567,8 +569,8 @@ export default function NewSubcontractorPage() {
 
                                                         <div>
                                                             <div className="flex justify-between items-center mb-2">
-                                                                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Primary Contact</h4>
-                                                                <Button variant="link" size="sm" className="h-auto p-0 text-blue-600" onClick={() => setCurrentStep(2)}>Edit</Button>
+                                                                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t("subcontractors.form.primaryContact")}</h4>
+                                                                <Button variant="link" size="sm" className="h-auto p-0 text-blue-600" onClick={() => setCurrentStep(2)}>{t("subcontractors.form.edit")}</Button>
                                                             </div>
                                                             <div className="space-y-1">
                                                                 <p className="font-semibold text-slate-900 dark:text-slate-100">{form.getValues("contactPerson") || "-"}</p>
@@ -581,13 +583,13 @@ export default function NewSubcontractorPage() {
 
                                                         <div>
                                                             <div className="flex justify-between items-center mb-2">
-                                                                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Operational Info</h4>
-                                                                <Button variant="link" size="sm" className="h-auto p-0 text-blue-600" onClick={() => setCurrentStep(3)}>Edit</Button>
+                                                                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t("subcontractors.form.operationalInfo")}</h4>
+                                                                <Button variant="link" size="sm" className="h-auto p-0 text-blue-600" onClick={() => setCurrentStep(3)}>{t("subcontractors.form.edit")}</Button>
                                                             </div>
                                                             <div className="grid grid-cols-2 gap-y-2 text-sm">
-                                                                <span className="text-slate-500">Fleet Size</span>
-                                                                <span className="text-right font-medium">{String(form.getValues("fleetSize"))} Trucks</span>
-                                                                <span className="text-slate-500">Service Areas</span>
+                                                                <span className="text-slate-500">{t("subcontractors.table.fleetSize")}</span>
+                                                                <span className="text-right font-medium">{String(form.getValues("fleetSize"))} {t("subcontractors.form.trucks")}</span>
+                                                                <span className="text-slate-500">{t("subcontractors.form.serviceAreas")}</span>
                                                                 <span className="text-right font-medium">Midwest, Northeast</span>
                                                             </div>
                                                         </div>
@@ -609,7 +611,7 @@ export default function NewSubcontractorPage() {
                             onClick={currentStep === 1 ? () => router.push('/admin/subcontractors') : prevStep}
                             className="bg-background"
                         >
-                            {currentStep === 1 ? "Cancel" : "Back"}
+                            {currentStep === 1 ? t("subcontractors.form.cancel") : t("subcontractors.form.back")}
                         </Button>
 
                         <Button
@@ -618,7 +620,7 @@ export default function NewSubcontractorPage() {
                             onClick={currentStep === 4 ? form.handleSubmit(onSubmit) : nextStep}
                             disabled={isSubmitting}
                         >
-                            {isSubmitting ? "Saving..." : currentStep === 4 ? "Complete Registration" : "Next Step"}
+                            {isSubmitting ? t("subcontractors.form.saving") : currentStep === 4 ? t("subcontractors.form.completeRegistration") : t("subcontractors.form.nextStep")}
                             {currentStep !== 4 && <ArrowLeft className="ml-2 h-4 w-4 rotate-180" />}
                         </Button>
                     </div>
@@ -627,4 +629,3 @@ export default function NewSubcontractorPage() {
         </div>
     );
 }
-

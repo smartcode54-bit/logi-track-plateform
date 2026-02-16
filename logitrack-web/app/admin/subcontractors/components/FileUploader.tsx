@@ -8,6 +8,7 @@ import { Loader2, Upload, FileText, X, Image as ImageIcon } from "lucide-react";
 import { uploadSubcontractorFile } from "../actions.client";
 import { toast } from "sonner";
 import Image from "next/image";
+import { useLanguage } from "@/context/language";
 
 interface FileUploaderProps {
     label: string;
@@ -20,6 +21,7 @@ interface FileUploaderProps {
 
 export default function FileUploader({ label, folder, onUploadComplete, currentUrls = [], onRemove, multiple = false }: FileUploaderProps) {
     const [uploading, setUploading] = useState(false);
+    const { t } = useLanguage();
 
     const isImageUrl = (url: string) => {
         try {
@@ -41,13 +43,13 @@ export default function FileUploader({ label, folder, onUploadComplete, currentU
             const path = `subcontractors/${folder}/${Date.now()}_${file.name}`;
             const url = await uploadSubcontractorFile(file, path);
             onUploadComplete(url);
-            toast.success("File uploaded successfully");
+            toast.success(t("subcontractors.toast.uploadSuccess"));
 
             // Reset input
             e.target.value = "";
         } catch (error) {
             console.error(error);
-            toast.error("Failed to upload file");
+            toast.error(t("subcontractors.toast.uploadError"));
         } finally {
             setUploading(false);
         }
@@ -71,14 +73,14 @@ export default function FileUploader({ label, folder, onUploadComplete, currentU
                                             {/* eslint-disable-next-line @next/next/no-img-element */}
                                             <img
                                                 src={url}
-                                                alt={`Document ${index + 1}`}
+                                                alt={`${t("subcontractors.file.document")} ${index + 1}`}
                                                 className="w-full h-full object-cover transition-transform hover:scale-105"
                                             />
                                         </div>
                                     ) : (
                                         <div className="flex flex-col items-center justify-center w-full h-full p-4 gap-2 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
                                             <FileText className="h-8 w-8" />
-                                            <span className="text-xs text-center truncate w-full px-2">Document {index + 1}</span>
+                                            <span className="text-xs text-center truncate w-full px-2">{t("subcontractors.file.document")} {index + 1}</span>
                                         </div>
                                     )}
                                 </a>
@@ -114,7 +116,7 @@ export default function FileUploader({ label, folder, onUploadComplete, currentU
                 {uploading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
             </div>
             <p className="text-xs text-muted-foreground">
-                Accepted formats: JPG, PNG, PDF
+                {t("subcontractors.file.acceptedFormats")}
             </p>
         </div>
     );

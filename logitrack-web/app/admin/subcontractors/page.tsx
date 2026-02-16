@@ -46,9 +46,11 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useLanguage } from "@/context/language";
 
 export default function SubcontractorManagementPage() {
     const router = useRouter();
+    const { t } = useLanguage();
     const [subcontractors, setSubcontractors] = useState<SubcontractorData[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -150,11 +152,11 @@ export default function SubcontractorManagementPage() {
     const getStatusBadge = (status: string) => {
         switch (status) {
             case 'active':
-                return <Badge className="bg-green-500/10 text-green-600 hover:bg-green-500/20 border-green-500/20 shadow-none uppercase text-[10px] tracking-wider px-2 py-0.5">Active</Badge>;
+                return <Badge className="bg-green-500/10 text-green-600 hover:bg-green-500/20 border-green-500/20 shadow-none uppercase text-[10px] tracking-wider px-2 py-0.5">{t("subcontractors.status.active")}</Badge>;
             case 'pending':
-                return <Badge className="bg-orange-500/10 text-orange-600 hover:bg-orange-500/20 border-orange-500/20 shadow-none uppercase text-[10px] tracking-wider px-2 py-0.5">On Trial</Badge>;
+                return <Badge className="bg-orange-500/10 text-orange-600 hover:bg-orange-500/20 border-orange-500/20 shadow-none uppercase text-[10px] tracking-wider px-2 py-0.5">{t("subcontractors.status.onTrial")}</Badge>;
             case 'suspended':
-                return <Badge className="bg-red-500/10 text-red-600 hover:bg-red-500/20 border-red-500/20 shadow-none uppercase text-[10px] tracking-wider px-2 py-0.5">Terminated</Badge>;
+                return <Badge className="bg-red-500/10 text-red-600 hover:bg-red-500/20 border-red-500/20 shadow-none uppercase text-[10px] tracking-wider px-2 py-0.5">{t("subcontractors.status.terminated")}</Badge>;
             default:
                 return <Badge variant="secondary">{status}</Badge>;
         }
@@ -165,15 +167,15 @@ export default function SubcontractorManagementPage() {
             {/* Header */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Subcontractor Management</h1>
+                    <h1 className="text-3xl font-bold tracking-tight">{t("subcontractors.title")}</h1>
                     <p className="text-muted-foreground mt-1">
-                        Monitor performance and compliance of third-party logistics partners
+                        {t("subcontractors.subtitle")}
                     </p>
                 </div>
                 <Button asChild className="bg-blue-600 hover:bg-blue-700 text-white gap-2 shadow-lg shadow-blue-900/20">
                     <Link href="/admin/subcontractors/new">
                         <Plus className="h-4 w-4" />
-                        Add Subcontractor
+                        {t("subcontractors.add")}
                     </Link>
                 </Button>
             </div>
@@ -184,14 +186,14 @@ export default function SubcontractorManagementPage() {
                     <CardContent className="p-6">
                         <div className="flex justify-between items-start">
                             <div className="space-y-2">
-                                <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Total Partners</p>
+                                <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t("subcontractors.stats.totalPartners")}</p>
                                 <div className="flex items-baseline gap-2">
                                     <span className="text-3xl font-bold font-mono text-foreground">
                                         {loading ? "-" : stats.totalPartners}
                                     </span>
                                     <span className="text-xs font-medium text-green-500">↑5%</span>
                                 </div>
-                                <p className="text-xs text-muted-foreground">Active business entities</p>
+                                <p className="text-xs text-muted-foreground">{t("subcontractors.stats.totalPartners.desc")}</p>
                             </div>
                             <div className="p-2 bg-blue-500/10 rounded-lg text-blue-500 group-hover:scale-110 transition-transform">
                                 <Users className="h-5 w-5" />
@@ -204,14 +206,14 @@ export default function SubcontractorManagementPage() {
                     <CardContent className="p-6">
                         <div className="flex justify-between items-start">
                             <div className="space-y-2">
-                                <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Active Trucks</p>
+                                <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t("subcontractors.stats.activeTrucks")}</p>
                                 <div className="flex items-baseline gap-2">
                                     <span className="text-3xl font-bold font-mono text-foreground">
                                         {loading ? "-" : stats.activeTrucks}
                                     </span>
                                     <span className="text-xs font-medium text-green-500">↑12%</span>
                                 </div>
-                                <p className="text-xs text-muted-foreground">Currently in circulation</p>
+                                <p className="text-xs text-muted-foreground">{t("subcontractors.stats.activeTrucks.desc")}</p>
                             </div>
                             <div className="p-2 bg-blue-500/10 rounded-lg text-blue-500 group-hover:scale-110 transition-transform">
                                 <Truck className="h-5 w-5" />
@@ -224,14 +226,14 @@ export default function SubcontractorManagementPage() {
                     <CardContent className="p-6">
                         <div className="flex justify-between items-start">
                             <div className="space-y-2">
-                                <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Pending Contracts</p>
+                                <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t("subcontractors.stats.pendingContracts")}</p>
                                 <div className="flex items-baseline gap-2">
                                     <span className="text-3xl font-bold font-mono text-foreground">
                                         {loading ? "-" : stats.pendingContracts}
                                     </span>
                                     <span className="text-xs font-medium text-orange-500">↓2%</span>
                                 </div>
-                                <p className="text-xs text-muted-foreground">Awaiting verification</p>
+                                <p className="text-xs text-muted-foreground">{t("subcontractors.stats.pendingContracts.desc")}</p>
                             </div>
                             <div className="p-2 bg-blue-500/10 rounded-lg text-blue-500 group-hover:scale-110 transition-transform">
                                 <FileText className="h-5 w-5" />
@@ -246,7 +248,7 @@ export default function SubcontractorManagementPage() {
                 <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                        placeholder="Search companies or contacts..."
+                        placeholder={t("subcontractors.search")}
                         className="pl-10 bg-background/50 border-border/50 focus-visible:ring-1"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
@@ -258,22 +260,22 @@ export default function SubcontractorManagementPage() {
                     </Button>
                     <Select value={statusFilter} onValueChange={setStatusFilter}>
                         <SelectTrigger className="w-[140px] bg-background/50 border-border/50">
-                            <SelectValue placeholder="All Statuses" />
+                            <SelectValue placeholder={t("subcontractors.filter.allStatuses")} />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="all">All Statuses</SelectItem>
-                            <SelectItem value="active">Active</SelectItem>
-                            <SelectItem value="pending">On Trial</SelectItem>
-                            <SelectItem value="suspended">Terminated</SelectItem>
+                            <SelectItem value="all">{t("subcontractors.filter.allStatuses")}</SelectItem>
+                            <SelectItem value="active">{t("subcontractors.filter.active")}</SelectItem>
+                            <SelectItem value="pending">{t("subcontractors.filter.onTrial")}</SelectItem>
+                            <SelectItem value="suspended">{t("subcontractors.filter.terminated")}</SelectItem>
                         </SelectContent>
                     </Select>
 
                     <Select value={regionFilter} onValueChange={setRegionFilter}>
                         <SelectTrigger className="w-[160px] bg-background/50 border-border/50">
-                            <SelectValue placeholder="Region" />
+                            <SelectValue placeholder={t("subcontractors.filter.allRegions")} />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="all">All Regions</SelectItem>
+                            <SelectItem value="all">{t("subcontractors.filter.allRegions")}</SelectItem>
                             {regions.map(r => (
                                 <SelectItem key={r} value={r}>{r}</SelectItem>
                             ))}
@@ -282,13 +284,13 @@ export default function SubcontractorManagementPage() {
 
                     <Select value={fleetSizeFilter} onValueChange={setFleetSizeFilter}>
                         <SelectTrigger className="w-[140px] bg-background/50 border-border/50">
-                            <SelectValue placeholder="Fleet Size" />
+                            <SelectValue placeholder={t("subcontractors.filter.fleetSize")} />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="all">All Sizes</SelectItem>
-                            <SelectItem value="small">Small (&lt;20)</SelectItem>
-                            <SelectItem value="medium">Medium (20-50)</SelectItem>
-                            <SelectItem value="large">Large (&gt;50)</SelectItem>
+                            <SelectItem value="all">{t("subcontractors.filter.allSizes")}</SelectItem>
+                            <SelectItem value="small">{t("subcontractors.filter.small")}</SelectItem>
+                            <SelectItem value="medium">{t("subcontractors.filter.medium")}</SelectItem>
+                            <SelectItem value="large">{t("subcontractors.filter.large")}</SelectItem>
                         </SelectContent>
                     </Select>
                 </div>
@@ -300,17 +302,17 @@ export default function SubcontractorManagementPage() {
                     <TableHeader className="bg-muted/30">
                         <TableRow className="hover:bg-transparent border-border/50">
                             <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase pl-6 cursor-pointer" onClick={() => handleSort('name')}>
-                                <div className="flex items-center gap-1">company name {sortConfig?.key === 'name' && (sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}</div>
+                                <div className="flex items-center gap-1">{t("subcontractors.table.companyName")} {sortConfig?.key === 'name' && (sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}</div>
                             </TableHead>
                             <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase cursor-pointer" onClick={() => handleSort('contactPerson')}>
-                                <div className="flex items-center gap-1">primary contact {sortConfig?.key === 'contactPerson' && (sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}</div>
+                                <div className="flex items-center gap-1">{t("subcontractors.table.primaryContact")} {sortConfig?.key === 'contactPerson' && (sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}</div>
                             </TableHead>
                             <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase cursor-pointer" onClick={() => handleSort('fleetSize')}>
-                                <div className="flex items-center gap-1">fleet size {sortConfig?.key === 'fleetSize' && (sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}</div>
+                                <div className="flex items-center gap-1">{t("subcontractors.table.fleetSize")} {sortConfig?.key === 'fleetSize' && (sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}</div>
                             </TableHead>
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">service area</TableHead>
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">status</TableHead>
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase text-right pr-6">actions</TableHead>
+                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t("subcontractors.table.serviceArea")}</TableHead>
+                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t("subcontractors.table.status")}</TableHead>
+                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase text-right pr-6">{t("subcontractors.table.actions")}</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -318,12 +320,12 @@ export default function SubcontractorManagementPage() {
                             <TableRow>
                                 <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
                                     <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
-                                    Loading partners...
+                                    {t("subcontractors.loading")}
                                 </TableCell>
                             </TableRow>
                         ) : paginatedSubs.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">No subcontractors found matching your filters.</TableCell>
+                                <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">{t("subcontractors.noData")}</TableCell>
                             </TableRow>
                         ) : (
                             paginatedSubs.map((sub) => (
@@ -348,11 +350,11 @@ export default function SubcontractorManagementPage() {
                                     <TableCell>
                                         <div className="flex items-center gap-2">
                                             <span className="font-mono font-bold text-foreground">{sub.fleetSize || 0}</span>
-                                            <span className="text-xs text-muted-foreground">Vehicles</span>
+                                            <span className="text-xs text-muted-foreground">{t("subcontractors.table.vehicles")}</span>
                                         </div>
                                     </TableCell>
                                     <TableCell>
-                                        <span className="text-sm text-foreground/80">{sub.serviceArea || "Global"}</span>
+                                        <span className="text-sm text-foreground/80">{sub.serviceArea || t("subcontractors.table.global")}</span>
                                     </TableCell>
                                     <TableCell>
                                         {getStatusBadge(sub.status)}
@@ -366,10 +368,10 @@ export default function SubcontractorManagementPage() {
                                             </DropdownMenuTrigger>
                                             <DropdownMenuContent align="end">
                                                 <DropdownMenuItem onClick={() => router.push(`/admin/subcontractors/${sub.id}`)}>
-                                                    View Profile
+                                                    {t("subcontractors.action.viewProfile")}
                                                 </DropdownMenuItem>
-                                                <DropdownMenuItem>Manage Contracts</DropdownMenuItem>
-                                                <DropdownMenuItem className="text-destructive focus:text-destructive">Suspend Partner</DropdownMenuItem>
+                                                <DropdownMenuItem>{t("subcontractors.action.manageContracts")}</DropdownMenuItem>
+                                                <DropdownMenuItem className="text-destructive focus:text-destructive">{t("subcontractors.action.suspendPartner")}</DropdownMenuItem>
                                             </DropdownMenuContent>
                                         </DropdownMenu>
                                     </TableCell>
@@ -382,7 +384,7 @@ export default function SubcontractorManagementPage() {
                 {/* Pagination */}
                 <div className="flex items-center justify-between px-6 py-4 border-t border-border/50 bg-muted/20">
                     <div className="text-xs text-muted-foreground">
-                        Showing <span className="font-medium text-foreground">{(currentPage - 1) * itemsPerPage + 1}</span> to <span className="font-medium text-foreground">{Math.min(currentPage * itemsPerPage, filteredSubs.length)}</span> of <span className="font-medium text-foreground">{filteredSubs.length}</span> results
+                        {t("subcontractors.pagination.showing")} <span className="font-medium text-foreground">{(currentPage - 1) * itemsPerPage + 1}</span> {t("subcontractors.pagination.to")} <span className="font-medium text-foreground">{Math.min(currentPage * itemsPerPage, filteredSubs.length)}</span> {t("subcontractors.pagination.of")} <span className="font-medium text-foreground">{filteredSubs.length}</span> {t("subcontractors.pagination.results")}
                     </div>
                     <div className="flex items-center gap-2">
                         <Button
@@ -392,7 +394,7 @@ export default function SubcontractorManagementPage() {
                             onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                             disabled={currentPage === 1}
                         >
-                            Previous
+                            {t("subcontractors.pagination.previous")}
                         </Button>
                         <Button
                             variant="outline"
@@ -401,7 +403,7 @@ export default function SubcontractorManagementPage() {
                             onClick={() => setCurrentPage(p => Math.min(Math.ceil(filteredSubs.length / itemsPerPage), p + 1))}
                             disabled={currentPage >= Math.ceil(filteredSubs.length / itemsPerPage)}
                         >
-                            Next
+                            {t("subcontractors.pagination.next")}
                         </Button>
                     </div>
                 </div>

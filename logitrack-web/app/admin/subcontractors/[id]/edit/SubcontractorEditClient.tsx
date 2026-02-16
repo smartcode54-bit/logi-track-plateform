@@ -29,10 +29,12 @@ import { Loader2, ArrowLeft, Save } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 import FileUploader from "../../components/FileUploader";
+import { useLanguage } from "@/context/language";
 
 export default function SubcontractorEditClient() {
     const router = useRouter();
     const params = useParams();
+    const { t } = useLanguage();
     const id = params?.id as string;
 
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -73,12 +75,12 @@ export default function SubcontractorEditClient() {
                         documents: data.documents || [],
                     });
                 } else {
-                    toast.error("Subcontractor not found");
+                    toast.error(t("subcontractors.toast.notFound"));
                     router.push("/admin/subcontractors");
                 }
             } catch (error) {
                 console.error("Error fetching subcontractor:", error);
-                toast.error("Failed to load subcontractor data");
+                toast.error(t("subcontractors.toast.loadError"));
             } finally {
                 setIsLoading(false);
             }
@@ -91,11 +93,11 @@ export default function SubcontractorEditClient() {
         try {
             setIsSubmitting(true);
             await updateSubcontractor(id, data as unknown as SubcontractorValidatedData);
-            toast.success("Subcontractor updated successfully");
+            toast.success(t("subcontractors.toast.updateSuccess"));
             router.push(`/admin/subcontractors/${id}`);
         } catch (error) {
             console.error(error);
-            toast.error("Failed to update subcontractor");
+            toast.error(t("subcontractors.toast.updateError"));
         } finally {
             setIsSubmitting(false);
         }
@@ -115,19 +117,19 @@ export default function SubcontractorEditClient() {
                 <Button variant="ghost" asChild className="mb-4 pl-0">
                     <Link href={`/admin/subcontractors/${id}`}>
                         <ArrowLeft className="mr-2 h-4 w-4" />
-                        Back to Details
+                        {t("subcontractors.edit.backToDetails")}
                     </Link>
                 </Button>
 
                 <div className="flex items-center justify-between mb-8">
-                    <h1 className="text-3xl font-bold">Edit Subcontractor</h1>
+                    <h1 className="text-3xl font-bold">{t("subcontractors.edit.title")}</h1>
                 </div>
 
                 <Form {...form}>
                     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
                         <Card>
                             <CardHeader>
-                                <CardTitle>Basic Information</CardTitle>
+                                <CardTitle>{t("subcontractors.edit.basicInfo")}</CardTitle>
                             </CardHeader>
                             <CardContent className="grid gap-6">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -136,16 +138,16 @@ export default function SubcontractorEditClient() {
                                         name="type"
                                         render={({ field }) => (
                                             <FormItem>
-                                                <FormLabel>Type</FormLabel>
+                                                <FormLabel>{t("subcontractors.form.type")}</FormLabel>
                                                 <Select onValueChange={field.onChange} value={field.value}>
                                                     <FormControl>
                                                         <SelectTrigger>
-                                                            <SelectValue placeholder="Select type" />
+                                                            <SelectValue placeholder={t("subcontractors.form.type.placeholder")} />
                                                         </SelectTrigger>
                                                     </FormControl>
                                                     <SelectContent>
-                                                        <SelectItem value="individual">Individual</SelectItem>
-                                                        <SelectItem value="company">Company</SelectItem>
+                                                        <SelectItem value="individual">{t("subcontractors.form.type.individual")}</SelectItem>
+                                                        <SelectItem value="company">{t("subcontractors.form.type.company")}</SelectItem>
                                                     </SelectContent>
                                                 </Select>
                                                 <FormMessage />
@@ -157,17 +159,17 @@ export default function SubcontractorEditClient() {
                                         name="status"
                                         render={({ field }) => (
                                             <FormItem>
-                                                <FormLabel>Status</FormLabel>
+                                                <FormLabel>{t("subcontractors.edit.status")}</FormLabel>
                                                 <Select onValueChange={field.onChange} value={field.value}>
                                                     <FormControl>
                                                         <SelectTrigger>
-                                                            <SelectValue placeholder="Select status" />
+                                                            <SelectValue placeholder={t("subcontractors.edit.status.placeholder")} />
                                                         </SelectTrigger>
                                                     </FormControl>
                                                     <SelectContent>
-                                                        <SelectItem value="active">Active</SelectItem>
-                                                        <SelectItem value="pending">Pending Registration</SelectItem>
-                                                        <SelectItem value="suspended">Suspended</SelectItem>
+                                                        <SelectItem value="active">{t("subcontractors.edit.status.active")}</SelectItem>
+                                                        <SelectItem value="pending">{t("subcontractors.edit.status.pending")}</SelectItem>
+                                                        <SelectItem value="suspended">{t("subcontractors.edit.status.suspended")}</SelectItem>
                                                     </SelectContent>
                                                 </Select>
                                                 <FormMessage />
@@ -183,9 +185,9 @@ export default function SubcontractorEditClient() {
                                         name="idCardNumber"
                                         render={({ field }) => (
                                             <FormItem>
-                                                <FormLabel>ID Card Number <span className="text-red-500">*</span></FormLabel>
+                                                <FormLabel>{t("subcontractors.edit.idCard")} <span className="text-red-500">*</span></FormLabel>
                                                 <FormControl>
-                                                    <Input placeholder="National ID Number" maxLength={13} {...field} />
+                                                    <Input placeholder={t("subcontractors.edit.idCard.placeholder")} maxLength={13} {...field} />
                                                 </FormControl>
                                                 <FormMessage />
                                             </FormItem>
@@ -198,9 +200,9 @@ export default function SubcontractorEditClient() {
                                         name="taxId"
                                         render={({ field }) => (
                                             <FormItem>
-                                                <FormLabel>Tax ID / Commercial Registration <span className="text-red-500">*</span></FormLabel>
+                                                <FormLabel>{t("subcontractors.edit.taxId")} <span className="text-red-500">*</span></FormLabel>
                                                 <FormControl>
-                                                    <Input placeholder="Tax ID" maxLength={13} {...field} />
+                                                    <Input placeholder={t("subcontractors.edit.taxId.placeholder")} maxLength={13} {...field} />
                                                 </FormControl>
                                                 <FormMessage />
                                             </FormItem>
@@ -213,9 +215,9 @@ export default function SubcontractorEditClient() {
                                     name="name"
                                     render={({ field }) => (
                                         <FormItem>
-                                            <FormLabel>Name / Company Name</FormLabel>
+                                            <FormLabel>{t("subcontractors.edit.nameCompany")}</FormLabel>
                                             <FormControl>
-                                                <Input placeholder="e.g. John Doe Transport" {...field} />
+                                                <Input placeholder={t("subcontractors.edit.nameCompany.placeholder")} {...field} />
                                             </FormControl>
                                             <FormMessage />
                                         </FormItem>
@@ -228,9 +230,9 @@ export default function SubcontractorEditClient() {
                                         name="contactPerson"
                                         render={({ field }) => (
                                             <FormItem>
-                                                <FormLabel>Contact Person</FormLabel>
+                                                <FormLabel>{t("subcontractors.edit.contactPerson")}</FormLabel>
                                                 <FormControl>
-                                                    <Input placeholder="Primary contact" {...field} />
+                                                    <Input placeholder={t("subcontractors.edit.contactPerson.placeholder")} {...field} />
                                                 </FormControl>
                                                 <FormMessage />
                                             </FormItem>
@@ -241,9 +243,9 @@ export default function SubcontractorEditClient() {
                                         name="phone"
                                         render={({ field }) => (
                                             <FormItem>
-                                                <FormLabel>Phone</FormLabel>
+                                                <FormLabel>{t("subcontractors.edit.phone")}</FormLabel>
                                                 <FormControl>
-                                                    <Input placeholder="08x-xxx-xxxx" {...field} />
+                                                    <Input placeholder={t("subcontractors.edit.phone.placeholder")} {...field} />
                                                 </FormControl>
                                                 <FormMessage />
                                             </FormItem>
@@ -257,9 +259,9 @@ export default function SubcontractorEditClient() {
                                         name="email"
                                         render={({ field }) => (
                                             <FormItem>
-                                                <FormLabel>Email</FormLabel>
+                                                <FormLabel>{t("subcontractors.edit.email")}</FormLabel>
                                                 <FormControl>
-                                                    <Input type="email" placeholder="Optional" {...field} />
+                                                    <Input type="email" placeholder={t("subcontractors.edit.email.placeholder")} {...field} />
                                                 </FormControl>
                                                 <FormMessage />
                                             </FormItem>
@@ -272,9 +274,9 @@ export default function SubcontractorEditClient() {
                                     name="address"
                                     render={({ field }) => (
                                         <FormItem>
-                                            <FormLabel>Address</FormLabel>
+                                            <FormLabel>{t("subcontractors.edit.address")}</FormLabel>
                                             <FormControl>
-                                                <Textarea placeholder="Full address" {...field} />
+                                                <Textarea placeholder={t("subcontractors.edit.address.placeholder")} {...field} />
                                             </FormControl>
                                             <FormMessage />
                                         </FormItem>
@@ -285,12 +287,12 @@ export default function SubcontractorEditClient() {
 
                         <Card>
                             <CardHeader>
-                                <CardTitle>Documents</CardTitle>
+                                <CardTitle>{t("subcontractors.edit.documents")}</CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-6">
                                 {form.watch("type") === "individual" ? (
                                     <FileUploader
-                                        label="ID Card Copy"
+                                        label={t("subcontractors.edit.idCardCopy")}
                                         folder="id_cards"
                                         currentUrls={form.watch("documents")}
                                         onUploadComplete={(url) => {
@@ -305,14 +307,14 @@ export default function SubcontractorEditClient() {
                                 ) : (
                                     <div className="space-y-6">
                                         <div className="bg-yellow-50 p-4 rounded-md border border-yellow-200 text-sm text-yellow-800 mb-4">
-                                            <strong>Required Documents:</strong>
+                                            <strong>{t("subcontractors.edit.requiredDocs")}</strong>
                                             <ul className="list-disc pl-5 mt-1">
-                                                <li>Por Por 20 (ภพ.20)</li>
-                                                <li>Company Registration (DBD/DIT)</li>
+                                                <li>{t("subcontractors.edit.pp20")}</li>
+                                                <li>{t("subcontractors.edit.companyReg")}</li>
                                             </ul>
                                         </div>
                                         <FileUploader
-                                            label="Company Documents (PP20, Registration)"
+                                            label={t("subcontractors.edit.companyDocs")}
                                             folder="company_docs"
                                             currentUrls={form.watch("documents")}
                                             onUploadComplete={(url) => {
@@ -331,7 +333,7 @@ export default function SubcontractorEditClient() {
 
                         <div className="flex justify-end gap-4">
                             <Button variant="outline" type="button" onClick={() => router.back()}>
-                                Cancel
+                                {t("subcontractors.form.cancel")}
                             </Button>
                             <Button type="submit" disabled={isSubmitting}>
                                 {isSubmitting ? (
@@ -339,7 +341,7 @@ export default function SubcontractorEditClient() {
                                 ) : (
                                     <Save className="mr-2 h-4 w-4" />
                                 )}
-                                Save Changes
+                                {t("subcontractors.edit.saveChanges")}
                             </Button>
                         </div>
                     </form>
