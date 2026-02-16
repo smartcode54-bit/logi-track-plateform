@@ -71,6 +71,21 @@ export default {
     "maintenance.form.newRecord": "New Record",
     "maintenance.form.addRecord": "Add Record",
 
+    // Payment Methods
+    "maintenance.payment.credit_card": "Credit Card",
+    "maintenance.payment.billing": "Billing / Invoice",
+    "maintenance.payment.insurance_claim": "Insurance Claim",
+
+    // History List
+    "maintenance.history.labor": "Labor",
+    "maintenance.history.parts": "Parts",
+    "maintenance.history.editUpdate": "Edit / Update",
+    "maintenance.history.openMenu": "Open menu",
+
+    // Error / Status
+    "maintenance.truckNotFound": "Truck not found",
+    "maintenance.saveFailed": "Failed to save record. Please check inputs.",
+
     // Service Types
     "maintenance.service.oil_change": "Oil Change",
     "maintenance.service.tire_rotation": "Tire Rotation",

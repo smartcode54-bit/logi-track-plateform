@@ -167,7 +167,7 @@ export default function MaintenanceClient() {
 
         } catch (error) {
             console.error("Error saving record:", error);
-            alert("Failed to save record. Please check inputs.");
+            alert(t("maintenance.saveFailed"));
         } finally {
             setIsSubmitting(false);
         }
@@ -213,7 +213,7 @@ export default function MaintenanceClient() {
     };
 
     if (loading) return <div className="flex h-screen justify-center items-center"><Loader2 className="animate-spin" /></div>;
-    if (!truck) return <div>Truck not found</div>;
+    if (!truck) return <div>{t("maintenance.truckNotFound")}</div>;
 
     return (
         <div className="container mx-auto max-w-5xl p-6 space-y-6">
@@ -347,10 +347,10 @@ export default function MaintenanceClient() {
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="cash">{t("renewals.form.select.cash")}</SelectItem>
-                                        <SelectItem value="credit_card">Credit Card</SelectItem>
-                                        <SelectItem value="billing">Billing / Invoice</SelectItem>
+                                        <SelectItem value="credit_card">{t("maintenance.payment.credit_card")}</SelectItem>
+                                        <SelectItem value="billing">{t("maintenance.payment.billing")}</SelectItem>
                                         <SelectItem value="transfer">{t("renewals.form.select.transfer")}</SelectItem>
-                                        <SelectItem value="insurance_claim">Insurance Claim</SelectItem>
+                                        <SelectItem value="insurance_claim">{t("maintenance.payment.insurance_claim")}</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -521,13 +521,13 @@ function MaintenanceHistoryList({ history, onNewClick, onEditClick }: { history:
                             <div className="flex items-center gap-4">
                                 <div className="text-right">
                                     <p className="font-bold text-lg">฿{record.totalCost?.toLocaleString() || "0"}</p>
-                                    <p className="text-xs text-muted-foreground">Labor: {record.costLabor || 0} | Parts: {record.costParts || 0}</p>
+                                    <p className="text-xs text-muted-foreground">{t("maintenance.history.labor")}: {record.costLabor || 0} | {t("maintenance.history.parts")}: {record.costParts || 0}</p>
                                     <p className="text-xs mt-1 text-muted-foreground">{record.currentMileage?.toLocaleString()} km</p>
                                 </div>
                                 <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
                                         <Button variant="ghost" className="h-8 w-8 p-0" onClick={(e) => e.stopPropagation()}>
-                                            <span className="sr-only">Open menu</span>
+                                            <span className="sr-only">{t("maintenance.history.openMenu")}</span>
                                             <MoreHorizontal className="h-4 w-4" />
                                         </Button>
                                     </DropdownMenuTrigger>
@@ -535,7 +535,7 @@ function MaintenanceHistoryList({ history, onNewClick, onEditClick }: { history:
                                         <DropdownMenuLabel>{t("maintenance.table.actions")}</DropdownMenuLabel>
                                         <DropdownMenuItem onClick={() => onEditClick(record)} className="cursor-pointer">
                                             <Pencil className="mr-2 h-4 w-4" />
-                                            Edit Update
+                                            {t("maintenance.history.editUpdate")}
                                         </DropdownMenuItem>
                                     </DropdownMenuContent>
                                 </DropdownMenu>

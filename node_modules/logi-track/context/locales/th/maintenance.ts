@@ -71,6 +71,21 @@ export default {
     "maintenance.form.newRecord": "รายการใหม่",
     "maintenance.form.addRecord": "เพิ่มรายการ",
 
+    // Payment Methods
+    "maintenance.payment.credit_card": "บัตรเครดิต",
+    "maintenance.payment.billing": "วางบิล / ใบแจ้งหนี้",
+    "maintenance.payment.insurance_claim": "เคลมประกัน",
+
+    // History List
+    "maintenance.history.labor": "ค่าแรง",
+    "maintenance.history.parts": "ค่าอะไหล่",
+    "maintenance.history.editUpdate": "แก้ไข / อัปเดต",
+    "maintenance.history.openMenu": "เปิดเมนู",
+
+    // Error / Status
+    "maintenance.truckNotFound": "ไม่พบรถบรรทุก",
+    "maintenance.saveFailed": "ไม่สามารถบันทึกข้อมูลได้ กรุณาตรวจสอบข้อมูลอีกครั้ง",
+
     // Service Types
     "maintenance.service.oil_change": "เปลี่ยนถ่ายน้ำมันเครื่อง",
     "maintenance.service.tire_rotation": "สลับยาง",
