@@ -1,6 +1,7 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../../../../core/theme/theme_controller.dart';
 import '../../../../core/services/fcm_service.dart';
 import '../../../../features/auth/data/repositories/auth_repository.dart';
@@ -146,18 +147,6 @@ class _HomePageState extends State<HomePage> {
               },
             ),
             ListTile(
-              leading: Icon(
-                Theme.of(context).brightness == Brightness.dark
-                    ? Icons.light_mode
-                    : Icons.dark_mode,
-              ),
-              title: Text('theme_toggle'.tr()),
-              onTap: () {
-                Navigator.pop(context);
-                ThemeController().toggleTheme();
-              },
-            ),
-            ListTile(
               leading: const Icon(Icons.language),
               title: Text('language'.tr()),
               subtitle: Text(
@@ -191,7 +180,15 @@ class _HomePageState extends State<HomePage> {
             onPressed: () => Scaffold.of(context).openDrawer(),
           ),
         ),
-        actions: const [],
+        actions: [
+          Tooltip(
+            message: 'theme_toggle_tooltip'.tr(),
+            child: IconButton(
+              icon: const Icon(Icons.lightbulb_outline),
+              onPressed: () => ThemeController().toggleTheme(),
+            ),
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
@@ -227,7 +224,7 @@ class _HomePageState extends State<HomePage> {
                     context,
                     icon: Icons.local_shipping,
                     label: 'my_tasks'.tr(),
-                    onTap: () => _showMyTasks(context),
+                    onTap: () => Navigator.pushNamed(context, '/check-in', arguments: _driverId),
                   ),
                 ),
                 const SizedBox(width: 16),
@@ -239,6 +236,21 @@ class _HomePageState extends State<HomePage> {
                     onTap: () {},
                   ),
                 ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildActionCard(
+                    context,
+                    icon: Icons.inventory_2_outlined,
+                    label: 'loading_phase_form_title'.tr(),
+                    onTap: () => Navigator.pushNamed(context, '/loading-phase'),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                const Expanded(child: SizedBox()),
               ],
             ),
           ],
@@ -262,7 +274,7 @@ class _HomePageState extends State<HomePage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'todays_status'.tr(),
+                      "${'todays_status'.tr()}, ${DateFormat('dd/MM/yyyy').format(DateTime.now())}",
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: 8),
@@ -388,6 +400,8 @@ class _HomePageState extends State<HomePage> {
     final picker = ImagePicker();
     final xfile = await picker.pickImage(source: ImageSource.camera, imageQuality: 85);
     if (xfile == null || !context.mounted) return;
+    final imageBytes = await xfile.readAsBytes();
+    if (!context.mounted) return;
     final timestamp = DateTime.now();
 
     bool dialogOpen = false;
@@ -404,7 +418,7 @@ class _HomePageState extends State<HomePage> {
       if (dialogOpen) { Navigator.of(context).pop(); dialogOpen = false; }
       await submitCheckIn(
         taskId: taskId,
-        imagePath: xfile.path,
+        imageBytes: imageBytes,
         lat: position.latitude,
         lng: position.longitude,
         timestamp: timestamp,

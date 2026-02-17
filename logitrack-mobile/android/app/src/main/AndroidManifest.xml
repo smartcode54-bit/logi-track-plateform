@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- สิทธิ์ตำแหน่งสำหรับใส่พิกัดบนรูปถ่าย (ถ่ายรูป บันทึกรับงาน / Check-in) -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.CAMERA" />
     <application
         android:label="logi_track_driver_app"
         android:name="${applicationName}"

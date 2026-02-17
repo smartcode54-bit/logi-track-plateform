@@ -1,52 +1,23 @@
-import 'dart:io';
 import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:image/image.dart' as img;
+import '../services/photo_overlay_service.dart';
 
 /// Stamps geolocation and timestamp onto image bytes. Returns new PNG bytes.
+/// Delegates to [overlayGeocodingAndTimestamp] for Loading Phase / Check-in consistency.
 Future<List<int>> stampImageWithLocationAndTime({
-  required String imagePath,
+  required List<int> imageBytes,
   required double lat,
   required double lng,
   required DateTime timestamp,
 }) async {
-  final bytes = await File(imagePath).readAsBytes();
-  final image = img.decodeImage(bytes);
-  if (image == null) throw Exception('Could not decode image');
-
-  final stamp = '${lat.toStringAsFixed(6)}, ${lng.toStringAsFixed(6)}\n${timestamp.toIso8601String()}';
-  const lineHeight = 18;
-  const padding = 8;
-  final numLines = stamp.split('\n').length;
-  final stampHeight = (lineHeight * numLines) + padding * 2;
-  final textY = image.height - stampHeight + padding;
-  final textX = padding;
-  if (textY > 0 && textX < image.width) {
-    // Draw semi-transparent dark bar behind text so stamp is readable on any photo
-    final barTop = textY - 2;
-    final barBottom = image.height;
-    final barLeft = 0;
-    final barRight = image.width;
-    img.fillRect(
-      image,
-      x1: barLeft,
-      y1: barTop,
-      x2: barRight,
-      y2: barBottom,
-      color: img.ColorRgba8(0, 0, 0, 180),
-    );
-    img.drawString(
-      image,
-      stamp,
-      font: img.arial14,
-      x: textX,
-      y: textY,
-      color: img.ColorRgba8(255, 255, 255, 255),
-    );
-  }
-  return img.encodePng(image) ?? bytes;
+  return overlayGeocodingAndTimestamp(
+    imageBytes: imageBytes,
+    lat: lat,
+    lng: lng,
+    timestamp: timestamp,
+  );
 }
 
 /// Get current position. Throws if permission denied or unavailable.
@@ -64,15 +35,16 @@ Future<Position> getCurrentPosition() async {
 }
 
 /// Upload stamped image to Storage and update first_mile_tasks with check-in data.
+/// [imageBytes] — use XFile.readAsBytes() so it works on web and mobile.
 Future<void> submitCheckIn({
   required String taskId,
-  required String imagePath,
+  required List<int> imageBytes,
   required double lat,
   required double lng,
   required DateTime timestamp,
 }) async {
   final stamped = await stampImageWithLocationAndTime(
-    imagePath: imagePath,
+    imageBytes: imageBytes,
     lat: lat,
     lng: lng,
     timestamp: timestamp,

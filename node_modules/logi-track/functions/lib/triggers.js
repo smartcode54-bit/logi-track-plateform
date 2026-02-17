@@ -33,9 +33,11 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.createDriverAccount = exports.onUserDeleted = exports.onUserCreated = void 0;
+exports.notifyFirstMileTaskUpdate = exports.createDriverAccount = exports.onUserDeleted = exports.onUserCreated = void 0;
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
+// asia-southeast3 (Firestore region) does not support 1st Gen Cloud Functions.
+// FCM for first_mile_tasks is triggered by the web app via callable notifyFirstMileTaskUpdate.
 /**
  * Trigger: Sync new Auth user to Firestore
  */
@@ -231,6 +233,51 @@ exports.createDriverAccount = (0, https_1.onCall)({
     catch (error) {
         console.error("[createDriverAccount] Error:", error);
         throw new https_1.HttpsError("internal", error.message);
+    }
+});
+async function sendFcmToDriver(driverId, title, body, data) {
+    const driverSnap = await admin.firestore().collection("drivers").doc(driverId).get();
+    const fcmToken = driverSnap.data()?.fcmToken;
+    if (!fcmToken) {
+        console.log(`[FCM] No fcmToken for driver ${driverId}, skip`);
+        return;
+    }
+    await admin.messaging().send({
+        token: fcmToken,
+        notification: { title, body },
+        data: { ...data, driverId },
+        android: { priority: "high", notification: { channelId: "task_assignments" } },
+        apns: { payload: { aps: { sound: "default" } }, fcmOptions: {} },
+    });
+}
+/**
+ * Callable: send FCM when a first_mile_task is created/updated (assign, cancel, reassign).
+ * Called by the web app after Firestore write; avoids Firestore trigger region mismatch (DB in asia-southeast3, 1st Gen not supported there).
+ */
+exports.notifyFirstMileTaskUpdate = (0, https_1.onCall)({ region: "asia-southeast1" }, async (request) => {
+    const data = request.data;
+    const { taskId, oldDriverId, newDriverId, status, sourceHub, destination, date, time } = data;
+    if (!taskId) {
+        throw new https_1.HttpsError("invalid-argument", "taskId is required");
+    }
+    try {
+        if (status === "Cancelled" && newDriverId) {
+            await sendFcmToDriver(newDriverId, "Task cancelled", "This first mile task has been cancelled.", { type: "first_mile_task_cancelled", taskId });
+            return { ok: true };
+        }
+        if (oldDriverId && oldDriverId !== newDriverId) {
+            await sendFcmToDriver(oldDriverId, "Assignment cancelled", "You have been unassigned from this task.", { type: "first_mile_task_unassigned", taskId });
+        }
+        if (newDriverId && oldDriverId !== newDriverId) {
+            const dateStr = date ?? "";
+            const timeStr = time ?? "";
+            await sendFcmToDriver(newDriverId, "New task assigned", `${sourceHub ?? ""} → ${destination ?? ""}${dateStr ? ` (${dateStr} ${timeStr})` : ""}`.trim() || "You have a new first mile task.", { type: "first_mile_task_assigned", taskId });
+        }
+        return { ok: true };
+    }
+    catch (err) {
+        console.error("[notifyFirstMileTaskUpdate] FCM error:", err);
+        throw new https_1.HttpsError("internal", err.message);
     }
 });
 //# sourceMappingURL=triggers.js.map

@@ -1,7 +1,8 @@
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
 
-const REGION = "asia-southeast1";
+// asia-southeast3 (Firestore region) does not support 1st Gen Cloud Functions.
+// FCM for first_mile_tasks is triggered by the web app via callable notifyFirstMileTaskUpdate.
 
 
 /**
@@ -239,22 +240,31 @@ async function sendFcmToDriver(driverId: string, title: string, body: string, da
     });
 }
 
-/**
- * On first_mile_task write: notify new driver when assigned; notify old driver when cancelled or reassigned.
- */
-export const onFirstMileTaskAssigned = functions
-    .region(REGION)
-    .firestore.document("first_mile_tasks/{taskId}")
-    .onWrite(async (change, context) => {
-        const after = change.after.exists ? change.after.data() : null;
-        const before = change.before.exists ? change.before.data() : null;
-        const taskId = context.params.taskId;
-        const oldDriverId = before?.driverId as string | undefined;
-        const newDriverId = after?.driverId as string | undefined;
-        const status = after?.status;
+/** Payload from web app after creating/updating a first_mile_task */
+interface NotifyFirstMileTaskPayload {
+    taskId: string;
+    oldDriverId?: string;
+    newDriverId?: string;
+    status?: string;
+    sourceHub?: string;
+    destination?: string;
+    date?: string;
+    time?: string;
+}
 
+/**
+ * Callable: send FCM when a first_mile_task is created/updated (assign, cancel, reassign).
+ * Called by the web app after Firestore write; avoids Firestore trigger region mismatch (DB in asia-southeast3, 1st Gen not supported there).
+ */
+export const notifyFirstMileTaskUpdate = onCall(
+    { region: "asia-southeast1" },
+    async (request): Promise<{ ok: boolean }> => {
+        const data = request.data as NotifyFirstMileTaskPayload;
+        const { taskId, oldDriverId, newDriverId, status, sourceHub, destination, date, time } = data;
+        if (!taskId) {
+            throw new HttpsError("invalid-argument", "taskId is required");
+        }
         try {
-            // Task cancelled: notify assigned driver
             if (status === "Cancelled" && newDriverId) {
                 await sendFcmToDriver(
                     newDriverId,
@@ -262,10 +272,8 @@ export const onFirstMileTaskAssigned = functions
                     "This first mile task has been cancelled.",
                     { type: "first_mile_task_cancelled", taskId }
                 );
-                return;
+                return { ok: true };
             }
-
-            // Reassigned: notify old driver
             if (oldDriverId && oldDriverId !== newDriverId) {
                 await sendFcmToDriver(
                     oldDriverId,
@@ -274,21 +282,20 @@ export const onFirstMileTaskAssigned = functions
                     { type: "first_mile_task_unassigned", taskId }
                 );
             }
-
-            // New assignment: notify new driver
             if (newDriverId && oldDriverId !== newDriverId) {
-                const sourceHub = after?.sourceHub ?? "";
-                const destination = after?.destination ?? "";
-                const dateStr = after?.date?.toDate?.()?.toLocaleDateString?.() ?? "";
-                const time = after?.time ?? "";
+                const dateStr = date ?? "";
+                const timeStr = time ?? "";
                 await sendFcmToDriver(
                     newDriverId,
                     "New task assigned",
-                    `${sourceHub} → ${destination}${dateStr ? ` (${dateStr} ${time})` : ""}`,
+                    `${sourceHub ?? ""} → ${destination ?? ""}${dateStr ? ` (${dateStr} ${timeStr})` : ""}`.trim() || "You have a new first mile task.",
                     { type: "first_mile_task_assigned", taskId }
                 );
             }
+            return { ok: true };
         } catch (err) {
-            console.error("[onFirstMileTaskAssigned] FCM error:", err);
+            console.error("[notifyFirstMileTaskUpdate] FCM error:", err);
+            throw new HttpsError("internal", (err as Error).message);
         }
-    });
+    }
+);

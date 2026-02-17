@@ -44,7 +44,8 @@ import { cn } from "@/lib/utils";
 import { firstMileTaskSchema, FirstMileTask, SOC_KEYS, SOC_DESTINATIONS } from "@/validate/firstMileTaskSchema";
 import { Driver } from "@/validate/driverSchema";
 import { collection, addDoc, doc, updateDoc, getDocs, query, where, getCountFromServer } from "firebase/firestore";
-import { db } from "@/firebase/client";
+import { httpsCallable } from "firebase/functions";
+import { db, functions } from "@/firebase/client";
 import { useLanguage } from "@/context/language";
 
 interface ItemDialogProps {
@@ -158,24 +159,52 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
         setLoading(true);
         try {
             if (mode === "create") {
-                await addDoc(collection(db, "first_mile_tasks"), {
+                const ref = await addDoc(collection(db, "first_mile_tasks"), {
                     ...values,
                     createdAt: new Date(),
                     updatedAt: new Date(),
                 });
+                try {
+                    const notify = httpsCallable<{ taskId: string; oldDriverId?: string; newDriverId?: string; status?: string; sourceHub?: string; destination?: string; date?: string; time?: string }, { ok: boolean }>(functions, "notifyFirstMileTaskUpdate");
+                    await notify({
+                        taskId: ref.id,
+                        newDriverId: values.driverId || undefined,
+                        status: values.status,
+                        sourceHub: values.sourceHub,
+                        destination: values.destination,
+                        date: values.date ? format(values.date, "yyyy-MM-dd") : undefined,
+                        time: values.time,
+                    });
+                } catch (fcmErr) {
+                    console.warn("FCM notify after create:", fcmErr);
+                }
             } else if (mode === "edit" && task?.id) {
                 const payload: Record<string, unknown> = {
                     ...values,
                     updatedAt: new Date(),
                 };
-                // Re-assign: if task was Cancelled and we now have a driver, set status to Assigned
                 if (task.status === "Cancelled" && values.driverId) {
                     payload.status = "Assigned";
                 }
                 const clean = Object.fromEntries(
                     Object.entries(payload).filter(([, v]) => v !== undefined)
-                ) as Record<string, unknown>;
-                await updateDoc(doc(db, "first_mile_tasks", task.id), clean);
+                );
+                await updateDoc(doc(db, "first_mile_tasks", task.id), clean as Record<string, import("firebase/firestore").FieldValue | object>);
+                try {
+                    const notify = httpsCallable<{ taskId: string; oldDriverId?: string; newDriverId?: string; status?: string; sourceHub?: string; destination?: string; date?: string; time?: string }, { ok: boolean }>(functions, "notifyFirstMileTaskUpdate");
+                    await notify({
+                        taskId: task.id,
+                        oldDriverId: task.driverId || undefined,
+                        newDriverId: values.driverId || undefined,
+                        status: (clean.status as string) ?? values.status,
+                        sourceHub: values.sourceHub,
+                        destination: values.destination,
+                        date: values.date ? format(values.date, "yyyy-MM-dd") : undefined,
+                        time: values.time,
+                    });
+                } catch (fcmErr) {
+                    console.warn("FCM notify after update:", fcmErr);
+                }
             }
             form.reset();
             setIsOpen(false);
