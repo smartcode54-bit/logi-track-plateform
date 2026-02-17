@@ -37,7 +37,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { SOC_DESTINATIONS, SOC_KEYS, FirstMileTask } from "@/validate/firstMileTaskSchema";
 import { collection, getDocs, onSnapshot, query, orderBy, limit, doc, updateDoc } from "firebase/firestore";
-import { db } from "@/firebase/client";
+import { httpsCallable } from "firebase/functions";
+import { db, functions } from "@/firebase/client";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -142,6 +143,12 @@ export default function FirstMilePage() {
                 status: "Cancelled",
                 updatedAt: new Date(),
             });
+            try {
+                const notify = httpsCallable(functions, "notifyFirstMileTaskUpdate");
+                await notify({ taskId: task.id, newDriverId: task.driverId || undefined, status: "Cancelled" });
+            } catch (fcmErr) {
+                console.warn("FCM notify after cancel:", fcmErr);
+            }
             setCancelTask(null);
         } catch (err) {
             console.error("Failed to cancel task:", err);
