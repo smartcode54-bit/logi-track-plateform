@@ -68,6 +68,11 @@ export const tripRecordSchema = z.object({
     // Seal code (จากฟอร์มหรือ OCR)
     sealCode: z.string().optional(),
 
+    // Delivery completion (เมื่อส่งงานเสร็จ)
+    deliveredTimestamp: z.date().optional(),
+    deliveredLat: z.number().optional(),
+    deliveredLng: z.number().optional(),
+
     // Audit
     createdAt: z.date().optional(),
     updatedAt: z.date().optional(),

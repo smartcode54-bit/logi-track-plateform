@@ -18,14 +18,19 @@ class SavedTripSummary {
 }
 
 /// ให้ tab อย่าง LoadingPhasePage เรียกไปหน้า Delivery พร้อมส่ง summary ได้
+/// และให้ Delivery เรียก onDeliveryCompleted เมื่อส่งงานเสร็จแล้ว (เพื่อปลดล็อก Pick up)
 class MainLayoutScope extends InheritedWidget {
   const MainLayoutScope({
     super.key,
     required this.goToDeliveryTab,
+    this.onDeliveryCompleted,
     required super.child,
   });
 
   final void Function(SavedTripSummary? summary) goToDeliveryTab;
+
+  /// เรียกเมื่อส่งงาน (Delivery) บันทึกเสร็จแล้ว เพื่อเคลียร์ active trip และปลดล็อกแท็บ Pick up
+  final void Function()? onDeliveryCompleted;
 
   static MainLayoutScope? of(BuildContext context) {
     return context.dependOnInheritedWidgetOfExactType<MainLayoutScope>();
@@ -33,5 +38,6 @@ class MainLayoutScope extends InheritedWidget {
 
   @override
   bool updateShouldNotify(MainLayoutScope old) =>
-      goToDeliveryTab != old.goToDeliveryTab;
+      goToDeliveryTab != old.goToDeliveryTab ||
+      onDeliveryCompleted != old.onDeliveryCompleted;
 }

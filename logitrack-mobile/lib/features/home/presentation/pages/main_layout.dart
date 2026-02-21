@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'home_page.dart';
-import 'loading_phase_page.dart';
+import '../../../loading_phase/presentation/pages/loading_phase_page.dart';
 import 'main_layout_scope.dart';
 import '../../../delivery_phase/presentation/pages/delivery_phase_page.dart';
 
@@ -50,8 +50,18 @@ class _MainLayoutState extends State<MainLayout> {
     });
   }
 
-  // TODO: Replace with actual state from Riverpod/Provider tracking trip status
-  bool get _hasActiveDelivery => true;
+  /// งานที่รับยังไม่ส่ง → ต้องส่งก่อน จึงจะกด Pick up รับงานใหม่ได้
+  bool get _hasActiveDelivery => _savedTripSummary != null;
+
+  /// Disable Pick up เมื่อมีงานที่รับแล้วยังไม่ส่ง
+  bool get _isPickupDisabled => _hasActiveDelivery;
+
+  /// Disable Delivery เมื่อยังไม่มีการรับงาน
+  bool get _isDeliveryDisabled => !_hasActiveDelivery;
+
+  void _onDeliveryCompleted() {
+    setState(() => _savedTripSummary = null);
+  }
 
   List<Widget> get _screens => [
     const HomePage(),
@@ -61,13 +71,22 @@ class _MainLayoutState extends State<MainLayout> {
 
   void _onItemTapped(int index) {
     if (index == 3) {
-      // 4th tab is Vehicle Management. Show bottom sheet and don't change _currentIndex
       _showVehicleBottomSheet(context);
-    } else {
-      setState(() {
-        _currentIndex = index;
-      });
+      return;
     }
+    if (index == 1 && _isPickupDisabled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('nav_pickup_disabled_hint'.tr())),
+      );
+      return;
+    }
+    if (index == 2 && _isDeliveryDisabled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('nav_delivery_disabled_hint'.tr())),
+      );
+      return;
+    }
+    setState(() => _currentIndex = index);
   }
 
   void _showVehicleBottomSheet(BuildContext context) {
@@ -143,6 +162,7 @@ class _MainLayoutState extends State<MainLayout> {
   Widget build(BuildContext context) {
     return MainLayoutScope(
       goToDeliveryTab: _goToDeliveryTab,
+      onDeliveryCompleted: _onDeliveryCompleted,
       child: Scaffold(
         body: IndexedStack(index: _currentIndex, children: _screens),
       bottomNavigationBar: BottomNavigationBar(
@@ -158,14 +178,20 @@ class _MainLayoutState extends State<MainLayout> {
             label: 'nav_home'.tr(),
           ),
           BottomNavigationBarItem(
-            icon: const Icon(Icons.local_shipping),
+            icon: Icon(
+              Icons.local_shipping,
+              color: _isPickupDisabled ? Colors.grey : null,
+            ),
             label: 'nav_pickup'.tr(),
           ),
           BottomNavigationBarItem(
             icon: Badge(
               isLabelVisible: _hasActiveDelivery,
               backgroundColor: Colors.red,
-              child: const Icon(Icons.inventory),
+              child: Icon(
+                Icons.inventory,
+                color: _isDeliveryDisabled ? Colors.grey : null,
+              ),
             ),
             label: 'nav_delivery'.tr(),
           ),

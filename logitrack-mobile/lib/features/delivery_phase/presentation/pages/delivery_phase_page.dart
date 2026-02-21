@@ -1,6 +1,22 @@
-import 'package:flutter/material.dart';
+import 'dart:typed_data';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import '../../../home/data/repositories/first_mile_checkin_repository.dart';
+import '../../../home/data/repositories/trip_records_repository.dart';
+import '../../data/repositories/delivery_trip_repository.dart';
+import '../../../home/data/services/image_compression_service.dart';
+import '../../../home/data/services/ocr_screenshot_service.dart';
 import '../../../home/presentation/pages/main_layout_scope.dart';
+
+/// ขั้นตอนรูป Delivery (ถ่ายภาพเหมือนการรับงาน)
+const List<String> _deliveryPhotoStepKeys = [
+  'pre_open',
+  'opening',
+  'empty_container',
+  'runsheet_received',
+];
 
 class DeliveryPhasePage extends StatefulWidget {
   const DeliveryPhasePage({super.key, this.savedTripSummary});
@@ -12,17 +28,226 @@ class DeliveryPhasePage extends StatefulWidget {
 }
 
 class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
-  // Mock states for the 4 required photos
-  bool _hasBeforeOpenPhoto = false;
-  bool _hasDuringOpenPhoto = false;
-  bool _hasEmptyContainerPhoto = false;
-  bool _hasReceivedScreenshot = false;
+  final Map<String, Uint8List> _deliveryPhotos = {};
+
+  double? _lat;
+  double? _lng;
+  bool _locationLoading = true;
+  bool _saving = false;
 
   bool get _canSubmit =>
-      _hasBeforeOpenPhoto &&
-      _hasDuringOpenPhoto &&
-      _hasEmptyContainerPhoto &&
-      _hasReceivedScreenshot;
+      _deliveryPhotos.length == _deliveryPhotoStepKeys.length;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLocation();
+  }
+
+  Future<void> _loadLocation() async {
+    try {
+      final position = await getCurrentPosition();
+      if (mounted) {
+        setState(() {
+          _lat = position.latitude;
+          _lng = position.longitude;
+          _locationLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _locationLoading = false);
+    }
+  }
+
+  /// ปกติแล้ว Trip ID เป็น LT + ตัวอักษร/ตัวเลข ใช้เปรียบเทียบแบบไม่สนใจตัวพิมพ์
+  static String _normalizeTripId(String? v) =>
+      (v ?? '').trim().toUpperCase().replaceAll(RegExp(r'\s+'), '');
+
+  /// ตรวจว่า Trip ID ในภาพ (จาก OCR) ตรงกับเที่ยวนี้หรือไม่
+  /// [showDialogOnError] true = แสดง dialog เมื่อไม่ตรง/ไม่พบ (ใช้ตอนอัปโหลด), false = ไม่แสดง dialog (ใช้ตอนกดยืนยันส่ง)
+  Future<bool> _validateRunsheetTripId(
+    List<int> imageBytes, {
+    bool showDialogOnError = true,
+  }) async {
+    final expected = _normalizeTripId(widget.savedTripSummary?.tripId);
+    if (expected.isEmpty) return true;
+    if (kIsWeb) return true;
+    try {
+      final result = await runOcrOnImageBytes(imageBytes);
+      final fromImage = _normalizeTripId(result.tripId);
+      if (fromImage.isEmpty) {
+        if (mounted && showDialogOnError) {
+          await showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: Text('delivery_trip_id_mismatch_title'.tr()),
+              content: Text('delivery_trip_id_not_found_in_image'.tr()),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: Text(MaterialLocalizations.of(ctx).okButtonLabel),
+                ),
+              ],
+            ),
+          );
+        }
+        return false;
+      }
+      if (fromImage != expected) {
+        if (mounted && showDialogOnError) {
+          await showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: Text('delivery_trip_id_mismatch_title'.tr()),
+              content: Text(
+                '${'delivery_trip_id_mismatch_message'.tr()}\n${'delivery_trip_id_expected'.tr()}: ${widget.savedTripSummary!.tripId}\n${'delivery_trip_id_in_image'.tr()}: ${result.tripId}',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: Text(MaterialLocalizations.of(ctx).okButtonLabel),
+                ),
+              ],
+            ),
+          );
+        }
+        return false;
+      }
+      return true;
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('delivery_trip_id_ocr_failed'.tr()),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return false;
+    }
+  }
+
+  /// ถ่ายภาพหรืออัปโหลดรูป: 3 ขั้นแรกเปิดกล้อง, ขั้นรันชีท/ใบส่งของอัปโหลดจากแกลเลอรี (เช็ค Trip ID ในภาพตรงกับเที่ยวนี้)
+  Future<void> _takeDeliveryPhoto(String stepKey) async {
+    if (kIsWeb) return;
+    final picker = ImagePicker();
+    final isRunsheetReceived = stepKey == 'runsheet_received';
+    final xfile = await picker.pickImage(
+      source: isRunsheetReceived ? ImageSource.gallery : ImageSource.camera,
+      imageQuality: 85,
+    );
+    if (xfile == null || !mounted) return;
+    final imageBytes = await xfile.readAsBytes();
+    if (!mounted) return;
+    if (isRunsheetReceived) {
+      final ok = await _validateRunsheetTripId(imageBytes);
+      if (!mounted) return;
+      if (!ok) return;
+    }
+    final compressed = await compressImageForUpload(imageBytes);
+    if (!mounted) return;
+    setState(() => _deliveryPhotos[stepKey] = compressed);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isRunsheetReceived
+                ? 'delivery_runsheet_uploaded'.tr()
+                : 'loading_phase_photo_stamped'.tr(),
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _submitDelivery() async {
+    final tripId = widget.savedTripSummary?.tripId?.trim();
+    if (tripId == null || tripId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('loading_phase_trip_id_required'.tr()),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+    if (!_canSubmit) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('loading_phase_photos_required'.tr()),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+    if (_lat == null || _lng == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('delivery_location_required'.tr()),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    // เช็ค Trip ID ในภาพรันชีทตรงกับเที่ยวนี้ก่อนยืนยันส่ง (ไม่แสดง dialog แค่ return false)
+    final runsheetBytes = _deliveryPhotos['runsheet_received']!;
+    final runsheetOk = await _validateRunsheetTripId(
+      runsheetBytes,
+      showDialogOnError: false,
+    );
+    if (!mounted) return;
+    if (!runsheetOk) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('delivery_trip_id_mismatch_cannot_confirm'.tr()),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _saving = true);
+    try {
+      final position = await getCurrentPosition();
+      final timestamp = DateTime.now();
+      final deliveryPhotos = <String, StampedPhotoInput>{};
+      for (final key in _deliveryPhotoStepKeys) {
+        final bytes = _deliveryPhotos[key]!;
+        deliveryPhotos[key] = StampedPhotoInput(
+          bytes: bytes,
+          lat: position.latitude,
+          lng: position.longitude,
+          timestamp: timestamp,
+        );
+      }
+      await submitDeliveryPhaseRecord(
+        tripId: tripId,
+        deliveryPhotos: deliveryPhotos,
+        deliveredLat: position.latitude,
+        deliveredLng: position.longitude,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('delivery_saved'.tr())),
+      );
+      MainLayoutScope.of(context)?.onDeliveryCompleted?.call();
+      setState(() {
+        _saving = false;
+        _deliveryPhotos.clear();
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${'loading_phase_save_failed'.tr()} $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -126,7 +351,8 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
                       const SizedBox(height: 4),
                       Text(
                         '${'loading_phase_origin'.tr()}: ${widget.savedTripSummary!.origin}',
-                        style: const TextStyle(color: Colors.white54, fontSize: 12),
+                        style: const TextStyle(
+                            color: Colors.white54, fontSize: 12),
                       ),
                     ],
                   ],
@@ -135,13 +361,13 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
             ),
             const SizedBox(height: 24),
 
-            // Checklist Header
+            // Photo capture header (เหมือนการรับงาน)
             Text(
               'mandatory_evidence'.tr(),
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: isDarkMode ? Colors.white : darkNavy,
-              ),
+                    fontWeight: FontWeight.bold,
+                    color: isDarkMode ? Colors.white : darkNavy,
+                  ),
             ),
             const SizedBox(height: 8),
             Text(
@@ -153,56 +379,42 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
             ),
             const SizedBox(height: 16),
 
-            // Photo Checklist Cards
-            _buildPhotoUploadTile(
+            // Photo capture tiles (ถ่ายภาพแทนการเช็ค)
+            _buildPhotoCaptureTile(
               title: 'delivery_photo_pre_open'.tr(),
               subtitle: 'delivery_photo_pre_open_desc'.tr(),
-              isCaptured: _hasBeforeOpenPhoto,
-              onTap: () {
-                setState(() => _hasBeforeOpenPhoto = !_hasBeforeOpenPhoto);
-              },
+              stepKey: 'pre_open',
+              icon: Icons.camera_alt,
             ),
             const SizedBox(height: 12),
-            _buildPhotoUploadTile(
+            _buildPhotoCaptureTile(
               title: 'delivery_photo_opening'.tr(),
               subtitle: 'delivery_photo_opening_desc'.tr(),
-              isCaptured: _hasDuringOpenPhoto,
-              onTap: () {
-                setState(() => _hasDuringOpenPhoto = !_hasDuringOpenPhoto);
-              },
+              stepKey: 'opening',
+              icon: Icons.camera_alt,
             ),
             const SizedBox(height: 12),
-            _buildPhotoUploadTile(
+            _buildPhotoCaptureTile(
               title: 'delivery_photo_empty'.tr(),
               subtitle: 'delivery_photo_empty_desc'.tr(),
-              isCaptured: _hasEmptyContainerPhoto,
-              onTap: () {
-                setState(
-                  () => _hasEmptyContainerPhoto = !_hasEmptyContainerPhoto,
-                );
-              },
+              stepKey: 'empty_container',
+              icon: Icons.camera_alt,
             ),
             const SizedBox(height: 12),
-            _buildPhotoUploadTile(
+            _buildPhotoCaptureTile(
               title: 'delivery_photo_received'.tr(),
               subtitle: 'delivery_photo_received_desc'.tr(),
-              isCaptured: _hasReceivedScreenshot,
-              onTap: () {
-                setState(
-                  () => _hasReceivedScreenshot = !_hasReceivedScreenshot,
-                );
-              },
-              icon: Icons.screenshot_monitor,
+              stepKey: 'runsheet_received',
+              icon: Icons.photo_library,
+              useGallery: true,
             ),
 
             const SizedBox(height: 32),
 
             // Submit Button
             ElevatedButton(
-              onPressed: _canSubmit
-                  ? () {
-                      // TODO: Handle submit delivery transition to DELIVERED
-                    }
+              onPressed: (_canSubmit && !_saving)
+                  ? _submitDelivery
                   : null,
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blueAccent,
@@ -212,14 +424,23 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
                 ),
                 disabledBackgroundColor: Colors.grey.shade400,
               ),
-              child: Text(
-                'submit_delivery'.tr(),
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
+              child: _saving
+                  ? const SizedBox(
+                      height: 24,
+                      width: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Text(
+                      'submit_delivery'.tr(),
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
             ),
             const SizedBox(height: 24),
           ],
@@ -228,15 +449,16 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
     );
   }
 
-  Widget _buildPhotoUploadTile({
+  Widget _buildPhotoCaptureTile({
     required String title,
     required String subtitle,
-    required bool isCaptured,
-    required VoidCallback onTap,
-    IconData icon = Icons.camera_alt,
+    required String stepKey,
+    required IconData icon,
+    bool useGallery = false,
   }) {
+    final isCaptured = _deliveryPhotos.containsKey(stepKey);
     return InkWell(
-      onTap: onTap,
+      onTap: () => _takeDeliveryPhoto(stepKey),
       borderRadius: BorderRadius.circular(12),
       child: Container(
         padding: const EdgeInsets.all(16),
@@ -252,19 +474,25 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
         ),
         child: Row(
           children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: isCaptured
-                    ? Colors.green
-                    : Colors.blueAccent.withOpacity(0.1),
-                shape: BoxShape.circle,
+            if (isCaptured && _deliveryPhotos[stepKey] != null)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.memory(
+                  _deliveryPhotos[stepKey]!,
+                  height: 56,
+                  width: 56,
+                  fit: BoxFit.cover,
+                ),
+              )
+            else
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blueAccent.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: Colors.blueAccent),
               ),
-              child: Icon(
-                isCaptured ? Icons.check : icon,
-                color: isCaptured ? Colors.white : Colors.blueAccent,
-              ),
-            ),
             const SizedBox(width: 16),
             Expanded(
               child: Column(
@@ -286,12 +514,12 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
               ),
             ),
             if (isCaptured)
-              const Icon(Icons.arrow_forward_ios, color: Colors.green, size: 16)
+              const Icon(Icons.check_circle, color: Colors.green, size: 28)
             else
               Icon(
-                Icons.arrow_forward_ios,
+                useGallery ? Icons.photo_library : Icons.camera_alt,
                 color: Colors.grey.shade400,
-                size: 16,
+                size: 24,
               ),
           ],
         ),

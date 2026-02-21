@@ -4,14 +4,14 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart' as intl;
-import '../../data/repositories/first_mile_checkin_repository.dart';
-import '../../data/repositories/hubs_repository.dart';
-import '../../data/repositories/trip_records_repository.dart';
-import '../../data/services/image_compression_service.dart';
-import '../../data/services/photo_overlay_service.dart';
-import '../../data/services/ocr_screenshot_service.dart';
-import 'main_layout_scope.dart';
-import 'qr_scan_page.dart';
+import '../../../home/data/repositories/first_mile_checkin_repository.dart';
+import '../../../home/data/repositories/hubs_repository.dart';
+import '../../../home/data/repositories/trip_records_repository.dart';
+import '../../../home/data/services/image_compression_service.dart';
+import '../../../home/data/services/photo_overlay_service.dart';
+import '../../../home/presentation/pages/main_layout_scope.dart';
+import '../../../home/presentation/pages/qr_scan_page.dart';
+import '../../data/repositories/loading_trip_repository.dart';
 
 /// ขั้นตอนรูป Loading (ไม่รวม runsheet ที่ย้ายขึ้นไปข้างบน)
 const List<String> _cameraPhotoStepKeys = ['pre_close', 'closing', 'seal'];
@@ -39,7 +39,6 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
   Uint8List? _runsheetPhoto;
   final Map<String, Uint8List> _stepPhotos = {};
 
-  bool _ocrLoading = false;
   bool _saving = false;
 
   /// Inline duplicate validation (set when user blurs Trip ID / Seal Code)
@@ -125,8 +124,8 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     if (value != null && mounted) controller.text = value;
   }
 
-  /// อัปโหลดรันชีทจาก gallery แล้วรัน OCR อัตโนมัติ
-  Future<void> _pickRunsheetAndOcr() async {
+  /// แนบรันชีทจาก gallery (ไม่อ่าน OCR) นำภาพไปเก็บใน tripRecording
+  Future<void> _pickRunsheetOnly() async {
     final picker = ImagePicker();
     final xfile = await picker.pickImage(
       source: ImageSource.gallery,
@@ -135,90 +134,12 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     if (xfile == null || !mounted) return;
     final imageBytes = await xfile.readAsBytes();
     if (!mounted) return;
-
-    setState(() => _ocrLoading = true);
-
-    try {
-      // OCR on original resolution for better text recognition
-      final result = await runOcrOnImageBytes(imageBytes);
-      if (!mounted) return;
-      // Compress for display and upload (max 1024px, JPEG ~75%, <500KB)
-      final compressed = await compressImageForUpload(imageBytes);
-      if (!mounted) return;
-      if (!mounted) return;
-      setState(() {
-        _runsheetPhoto = compressed;
-        _ocrLoading = false;
-        if (result.tripId != null) _tripIdController.text = result.tripId!;
-        if (result.sealCode != null) {
-          _sealCodeController.text = result.sealCode!;
-        }
-        if (result.origin != null) _originController.text = result.origin!;
-        if (result.destination != null) {
-          _destinationController.text = result.destination!;
-        }
-        if (result.distance != null) {
-          _distanceController.text = result.distance!;
-        }
-        if (result.parcelCount != null) {
-          _parcelCountController.text = result.parcelCount!;
-        }
-        if (result.sealTime != null) {
-          _sealTimeController.text = result.sealTime!;
-        }
-        if (result.totalWeight != null) {
-          _totalWeightController.text = result.totalWeight!;
-        }
-      });
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('loading_phase_ocr_done'.tr())),
-      );
-      // Check duplicate Trip ID / Seal as soon as OCR has filled the form
-      final ocrTripId = result.tripId?.trim();
-      if (ocrTripId != null && ocrTripId.isNotEmpty) {
-        final ocrSeal = result.sealCode?.trim();
-        final duplicate = await checkDuplicateTripIdAndSeal(
-          tripId: ocrTripId,
-          sealCode: (ocrSeal != null && ocrSeal.isNotEmpty) ? ocrSeal : null,
-        );
-        if (duplicate.hasDuplicate && mounted) {
-          setState(() {
-            _tripIdDuplicateError = duplicate.tripIdExists
-                ? 'loading_phase_duplicate_trip_id'.tr()
-                : null;
-            _sealCodeDuplicateError = duplicate.sealCodeExists
-                ? 'loading_phase_duplicate_seal_code'.tr()
-                : null;
-          });
-          String msg;
-          if (duplicate.tripIdExists && duplicate.sealCodeExists) {
-            msg = 'loading_phase_duplicate_trip_and_seal'.tr();
-          } else if (duplicate.tripIdExists) {
-            msg = 'loading_phase_duplicate_trip_id'.tr();
-          } else {
-            msg = 'loading_phase_duplicate_seal_code'.tr();
-          }
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(msg),
-              backgroundColor: Colors.orange,
-            ),
-          );
-          _scrollToRunsheetSection();
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _ocrLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${'loading_phase_ocr_failed'.tr()} $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
+    final compressed = await compressImageForUpload(imageBytes);
+    if (!mounted) return;
+    setState(() => _runsheetPhoto = compressed);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('loading_phase_runsheet_added'.tr())),
+    );
   }
 
   Future<void> _takeStepPhoto(String stepKey) async {
@@ -661,26 +582,8 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                               ),
                               const SizedBox(height: 8),
                             ],
-                            if (_ocrLoading)
-                              const Padding(
-                                padding: EdgeInsets.symmetric(vertical: 12),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    ),
-                                    SizedBox(width: 12),
-                                    Text('กำลังอ่านเอกสาร...'),
-                                  ],
-                                ),
-                              ),
                             OutlinedButton.icon(
-                              onPressed: _ocrLoading ? null : _pickRunsheetAndOcr,
+                              onPressed: _pickRunsheetOnly,
                               icon: const Icon(Icons.photo_library, size: 20),
                               label: Text(
                                 _runsheetPhoto != null

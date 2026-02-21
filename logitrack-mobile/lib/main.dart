@@ -12,7 +12,7 @@ import 'features/auth/presentation/pages/login_page.dart';
 import 'features/home/presentation/pages/main_layout.dart';
 import 'features/home/presentation/pages/main_layout_scope.dart';
 import 'features/home/presentation/pages/check_in_page.dart';
-import 'features/home/presentation/pages/loading_phase_page.dart';
+import 'features/loading_phase/presentation/pages/loading_phase_page.dart';
 import 'features/profile/presentation/pages/profile_page.dart';
 import 'features/job_record/presentation/pages/job_record_page.dart';
 import 'firebase_options.dart';

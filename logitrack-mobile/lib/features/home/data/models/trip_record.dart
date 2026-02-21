@@ -17,6 +17,9 @@ class TripRecord {
   final String? totalWeight;
   final double? lat;
   final double? lng;
+  final DateTime? deliveredTimestamp;
+  final double? deliveredLat;
+  final double? deliveredLng;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -37,6 +40,9 @@ class TripRecord {
     this.totalWeight,
     this.lat,
     this.lng,
+    this.deliveredTimestamp,
+    this.deliveredLat,
+    this.deliveredLng,
     this.createdAt,
     this.updatedAt,
   });
@@ -59,6 +65,9 @@ class TripRecord {
       if (totalWeight != null) 'totalWeight': totalWeight,
       if (lat != null) 'lat': lat,
       if (lng != null) 'lng': lng,
+      if (deliveredTimestamp != null) 'deliveredTimestamp': deliveredTimestamp,
+      if (deliveredLat != null) 'deliveredLat': deliveredLat,
+      if (deliveredLng != null) 'deliveredLng': deliveredLng,
       'createdAt': createdAt ?? now,
       'updatedAt': updatedAt ?? now,
     };
