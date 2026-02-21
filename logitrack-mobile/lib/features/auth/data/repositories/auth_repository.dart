@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 class AuthRepository {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -13,19 +14,70 @@ class AuthRepository {
       final User? user = userCredential.user;
 
       if (user != null) {
-        // Verify user exists in Firestore users collection
-        final userDoc = await _firestore
-            .collection('users')
-            .doc(user.uid)
-            .get();
+        // Verify user is a driver
+        final idTokenResult = await user.getIdTokenResult(true);
+        final role = idTokenResult.claims?['role'];
 
-        if (!userDoc.exists) {
-          // Optional: You might want to sign out if they don't have a user record
-          // await _auth.signOut();
-          // throw Exception('User record not found in database');
-          // For now, we'll allow it, assuming the web app handles creation
-          // Or we could sync it here if needed, but the requirement is to use the existing collection.
+        if (role != 'driver') {
+          await _auth.signOut();
+          throw Exception(
+            'Access Denied: You must be a registered driver to use this app.',
+          );
         }
+
+        return user;
+      }
+      return null;
+    } on FirebaseAuthException catch (e) {
+      throw Exception(e.message ?? 'Authentication failed');
+    } catch (e) {
+      throw Exception(e.toString());
+    }
+  }
+
+  Future<User?> signInWithGoogle() async {
+    try {
+      final GoogleSignInAccount googleUser;
+      try {
+        googleUser = await GoogleSignIn.instance.authenticate();
+      } catch (e) {
+        // User canceled the sign-in or other UI error
+        return null;
+      }
+
+      final GoogleSignInAuthentication googleAuth = googleUser.authentication;
+      final AuthCredential credential = GoogleAuthProvider.credential(
+        accessToken: null, // accessToken is no longer provided directly in v7.x
+        idToken: googleAuth.idToken,
+      );
+
+      final UserCredential userCredential = await _auth.signInWithCredential(
+        credential,
+      );
+      final User? user = userCredential.user;
+
+      if (user != null) {
+        // Verify user is a driver
+        final idTokenResult = await user.getIdTokenResult(true);
+        final role = idTokenResult.claims?['role'];
+
+        if (role != 'driver') {
+          // Check if they are in the drivers collection in case claims haven't propagated
+          final driverQuery = await _firestore
+              .collection('drivers')
+              .where('authId', isEqualTo: user.uid)
+              .limit(1)
+              .get();
+
+          if (driverQuery.docs.isEmpty) {
+            await GoogleSignIn.instance.signOut();
+            await _auth.signOut();
+            throw Exception(
+              'Access Denied: You must be a registered driver to use this app.',
+            );
+          }
+        }
+
         return user;
       }
       return null;

@@ -25,6 +25,36 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
+  void _loginWithGoogle() async {
+    setState(() => _isLoading = true);
+
+    try {
+      final user = await _authRepository.signInWithGoogle();
+
+      if (mounted && user != null) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('login_success'.tr())));
+        Navigator.pushReplacementNamed(context, '/home');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '${'error'.tr()}: ${e.toString().replaceAll("Exception: ", "")}',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
   void _login() async {
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
@@ -193,6 +223,36 @@ class _LoginPageState extends State<LoginPage> {
                                 ),
                               )
                             : Text('login'.tr()),
+                      ),
+                      const SizedBox(height: 16),
+
+                      Row(
+                        children: [
+                          const Expanded(child: Divider()),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Text(
+                              'or'.tr(),
+                              style: TextStyle(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurface.withValues(alpha: 0.6),
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          const Expanded(child: Divider()),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.g_mobiledata, size: 28),
+                        onPressed: _isLoading ? null : _loginWithGoogle,
+                        label: Text('sign_in_google'.tr()),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
                       ),
                       const SizedBox(height: 24),
 
