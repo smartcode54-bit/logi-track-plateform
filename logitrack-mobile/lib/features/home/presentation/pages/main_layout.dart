@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'home_page.dart';
 import 'loading_phase_page.dart';
+import '../../../delivery_phase/presentation/pages/delivery_phase_page.dart';
 
 class MainLayout extends StatefulWidget {
   const MainLayout({super.key});
@@ -13,11 +14,14 @@ class MainLayout extends StatefulWidget {
 class _MainLayoutState extends State<MainLayout> {
   int _currentIndex = 0;
 
+  // TODO: Replace with actual state from Riverpod/Provider tracking trip status
+  final bool _hasActiveDelivery = true;
+
   // List of screens for the first 3 tabs
   final List<Widget> _screens = [
     const HomePage(),
     const LoadingPhasePage(),
-    const _PlaceholderScreen(titleKey: 'nav_delivery'),
+    const DeliveryPhasePage(),
   ];
 
   void _onItemTapped(int index) {
@@ -121,7 +125,11 @@ class _MainLayoutState extends State<MainLayout> {
             label: 'nav_pickup'.tr(),
           ),
           BottomNavigationBarItem(
-            icon: const Icon(Icons.inventory),
+            icon: Badge(
+              isLabelVisible: _hasActiveDelivery,
+              backgroundColor: Colors.red,
+              child: const Icon(Icons.inventory),
+            ),
             label: 'nav_delivery'.tr(),
           ),
           BottomNavigationBarItem(
@@ -129,26 +137,6 @@ class _MainLayoutState extends State<MainLayout> {
             label: 'nav_vehicle'.tr(),
           ),
         ],
-      ),
-    );
-  }
-}
-
-// Simple placeholder for pickup/delivery screens while they are built
-class _PlaceholderScreen extends StatelessWidget {
-  final String titleKey;
-
-  const _PlaceholderScreen({required this.titleKey});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(titleKey.tr())),
-      body: Center(
-        child: Text(
-          titleKey.tr(),
-          style: Theme.of(context).textTheme.headlineMedium,
-        ),
       ),
     );
   }

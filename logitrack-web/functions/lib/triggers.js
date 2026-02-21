@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.notifyFirstMileTaskUpdate = exports.createDriverAccount = exports.onUserDeleted = exports.onUserCreated = void 0;
+exports.notifyFirstMileTaskUpdate = exports.updateDriverAccount = exports.createDriverAccount = exports.onUserDeleted = exports.onUserCreated = void 0;
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
 // asia-southeast3 (Firestore region) does not support 1st Gen Cloud Functions.
@@ -232,6 +232,87 @@ exports.createDriverAccount = (0, https_1.onCall)({
     }
     catch (error) {
         console.error("[createDriverAccount] Error:", error);
+        throw new https_1.HttpsError("internal", error.message);
+    }
+});
+exports.updateDriverAccount = (0, https_1.onCall)({
+    region: "asia-southeast1",
+}, async (request) => {
+    // Ensure the user calling this is an admin
+    // if (!request.auth || request.auth.token.role !== 'admin') {
+    //     throw new HttpsError('permission-denied', 'Only admins can update drivers.');
+    // }
+    const data = request.data;
+    const { id, updates } = data;
+    if (!id || !updates) {
+        throw new https_1.HttpsError("invalid-argument", "Missing required fields: id, updates");
+    }
+    try {
+        // 1. Fetch current driver to get authId
+        const driverRef = admin.firestore().collection("drivers").doc(id);
+        const driverSnap = await driverRef.get();
+        if (!driverSnap.exists) {
+            throw new https_1.HttpsError("not-found", "Driver not found in Firestore");
+        }
+        const driverData = driverSnap.data();
+        const authId = driverData.authId || driverData.authUid;
+        // 2. If Auth updating is needed (email change or password logic)
+        if (authId) {
+            const authUpdates = {};
+            if (typeof updates.email === 'string' && updates.email.trim() !== '') {
+                const newEmail = updates.email.trim();
+                try {
+                    // Always verify against actual Auth record to fix any unsynced states
+                    const userRecord = await admin.auth().getUser(authId);
+                    if (userRecord.email !== newEmail) {
+                        authUpdates.email = newEmail;
+                    }
+                }
+                catch (error) {
+                    console.error("[updateDriverAccount] Error fetching Auth user:", error);
+                }
+            }
+            if (typeof updates.password === 'string' && updates.password.trim() !== '') {
+                authUpdates.password = updates.password.trim();
+            }
+            if (Object.keys(authUpdates).length > 0) {
+                try {
+                    console.log(`[updateDriverAccount] Syncing Auth user ${authId} with payload`, authUpdates);
+                    await admin.auth().updateUser(authId, authUpdates);
+                }
+                catch (authError) {
+                    console.error("[updateDriverAccount] Error updating Auth user:", authError);
+                    throw new https_1.HttpsError("aborted", "Failed to update Auth user credentials: " + authError.message);
+                }
+            }
+        }
+        // Always delete password from updates before saving to firestore
+        if ('password' in updates) {
+            delete updates.password;
+        }
+        // 3. Update Firestore Document
+        // Append an update to history if status is changing
+        if (updates.status && updates.status !== driverData.status) {
+            const newHistoryEntry = {
+                status: updates.status,
+                changedAt: admin.firestore.Timestamp.now(),
+                changedBy: request.auth?.uid || "system",
+                changedByName: request.auth?.token.email || "System",
+                reason: "Status update via web portal"
+            };
+            updates.statusHistory = admin.firestore.FieldValue.arrayUnion(newHistoryEntry);
+        }
+        const finalUpdates = {
+            ...updates,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+        await driverRef.update(finalUpdates);
+        return { success: true, driverId: id };
+    }
+    catch (error) {
+        console.error("[updateDriverAccount] Error:", error);
+        if (error instanceof https_1.HttpsError)
+            throw error;
         throw new https_1.HttpsError("internal", error.message);
     }
 });

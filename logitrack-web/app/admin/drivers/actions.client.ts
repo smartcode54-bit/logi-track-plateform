@@ -147,10 +147,12 @@ export const updateDriver = async (id: string, data: Partial<Driver>, files?: Dr
         // For simplicity, we'll assume the client passes the *complete* new driver object or specific fields.
         // If we want to track every update, we could add to a separate audit log, but statusHistory is specific to status.
 
-        updates.updatedAt = serverTimestamp();
-
-        const docRef = doc(db, COLLECTIONS.DRIVERS, id);
-        await updateDoc(docRef, removeUndefined(updates));
+        // Use Cloud Function instead of direct Firestore update to sync Email/Password with Auth
+        const updateDriverAccount = httpsCallable(functions, 'updateDriverAccount');
+        await updateDriverAccount({
+            id: id,
+            updates: removeUndefined(updates)
+        });
 
         return true;
     } catch (error) {

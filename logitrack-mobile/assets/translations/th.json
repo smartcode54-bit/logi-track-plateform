@@ -111,5 +111,19 @@
     "loading_phase_photo_seal": "ซีล (Physical Seal)",
     "loading_phase_photo_seal_desc": "ถ่ายซีลที่ปิดตู้แล้ว",
     "loading_phase_photo_runsheet": "รันชีท/เอกสารส่งมอบ",
-    "loading_phase_photo_runsheet_desc": "ถ่ายรันชีทหรือเอกสารส่งมอบที่ลงนามแล้ว"
+    "loading_phase_photo_runsheet_desc": "ถ่ายรันชีทหรือเอกสารส่งมอบที่ลงนามแล้ว",
+    "active_delivery": "งานส่งที่กำลังดำเนินการ",
+    "status_in_transit": "ระหว่างจัดส่ง",
+    "report_incident": "รายงานปัญหา",
+    "mandatory_evidence": "หลักฐานบังคับ",
+    "mandatory_evidence_desc": "กรุณาถ่ายภาพตามรายการด้านล่างเพื่อยืนยันการจัดส่ง",
+    "delivery_photo_pre_open": "ก่อนเปิดตู้",
+    "delivery_photo_pre_open_desc": "ถ่ายภาพประตูตู้ก่อนทำการตัดซีล",
+    "delivery_photo_opening": "ระหว่างเปิดตู้",
+    "delivery_photo_opening_desc": "ถ่ายภาพแสดงขั้นตอนการนำของลง",
+    "delivery_photo_empty": "ตู้เปล่า",
+    "delivery_photo_empty_desc": "ถ่ายภาพยืนยันว่าไม่มีสินค้าตกค้าง",
+    "delivery_photo_received": "ภาพหน้าจอสถานะรับของ",
+    "delivery_photo_received_desc": "ภาพหน้าจอสถานะ 'Received' จากแอป Shopee Express",
+    "submit_delivery": "ยืนยันส่งงาน"
 }
