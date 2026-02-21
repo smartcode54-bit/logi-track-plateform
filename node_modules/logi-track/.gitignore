@@ -58,3 +58,6 @@ playwright-video
 #playwright-mcp
 playwright-mcp.json
 
+#Vibe
+.vibe-rules.md
+
