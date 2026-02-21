@@ -1,4 +1,5 @@
 import 'package:easy_localization/easy_localization.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
@@ -9,6 +10,7 @@ import 'core/theme/theme_controller.dart';
 import 'core/services/fcm_service.dart';
 import 'features/auth/presentation/pages/login_page.dart';
 import 'features/home/presentation/pages/main_layout.dart';
+import 'features/home/presentation/pages/main_layout_scope.dart';
 import 'features/home/presentation/pages/check_in_page.dart';
 import 'features/home/presentation/pages/loading_phase_page.dart';
 import 'features/profile/presentation/pages/profile_page.dart';
@@ -32,6 +34,15 @@ void main() async {
       rethrow;
     }
   }
+
+  // App Check: ใช้ Debug provider ตอนพัฒนา เพื่อไม่ให้เกิด "No AppCheckProvider installed"
+  if (kDebugMode) {
+    await FirebaseAppCheck.instance.activate(
+      androidProvider: AndroidProvider.debug,
+      appleProvider: AppleProvider.debug,
+    );
+  }
+
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
   runApp(
@@ -154,7 +165,28 @@ class MyApp extends StatelessWidget {
           ),
           home: const LoginPage(),
           routes: {
-            '/home': (context) => const MainLayout(),
+            '/home': (context) {
+              final args = ModalRoute.of(context)?.settings.arguments;
+              int? tab;
+              SavedTripSummary? summary;
+              if (args is Map) {
+                tab = args['tab'] as int?;
+                final tripId = args['tripId'] as String?;
+                if (tripId != null) {
+                  summary = SavedTripSummary(
+                    tripId: tripId,
+                    origin: args['origin'] as String?,
+                    destination: args['destination'] as String?,
+                    sealCode: args['sealCode'] as String?,
+                    jobType: args['jobType'] as String?,
+                  );
+                }
+              }
+              return MainLayout(
+                initialTabIndex: tab,
+                initialTripSummary: summary,
+              );
+            },
             '/check-in': (context) {
               final driverId =
                   ModalRoute.of(context)?.settings.arguments as String?;

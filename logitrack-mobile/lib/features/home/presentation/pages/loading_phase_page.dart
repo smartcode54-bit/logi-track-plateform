@@ -7,8 +7,10 @@ import 'package:intl/intl.dart' as intl;
 import '../../data/repositories/first_mile_checkin_repository.dart';
 import '../../data/repositories/hubs_repository.dart';
 import '../../data/repositories/trip_records_repository.dart';
+import '../../data/services/image_compression_service.dart';
 import '../../data/services/photo_overlay_service.dart';
 import '../../data/services/ocr_screenshot_service.dart';
+import 'main_layout_scope.dart';
 import 'qr_scan_page.dart';
 
 /// ขั้นตอนรูป Loading (ไม่รวม runsheet ที่ย้ายขึ้นไปข้างบน)
@@ -40,6 +42,12 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
   bool _ocrLoading = false;
   bool _saving = false;
 
+  /// Inline duplicate validation (set when user blurs Trip ID / Seal Code)
+  String? _tripIdDuplicateError;
+  String? _sealCodeDuplicateError;
+
+  final GlobalKey _runsheetSectionKey = GlobalKey();
+
   List<HubDoc> _allHubs = [];
 
   double? _lat;
@@ -54,6 +62,20 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     _sealTimeController.text = intl.DateFormat('yyyy-MM-dd HH:mm').format(now);
     _loadHubs();
     _loadLocation();
+    _tripIdController.addListener(_clearTripIdDuplicateError);
+    _sealCodeController.addListener(_clearSealCodeDuplicateError);
+  }
+
+  void _clearTripIdDuplicateError() {
+    if (_tripIdDuplicateError != null && mounted) {
+      setState(() => _tripIdDuplicateError = null);
+    }
+  }
+
+  void _clearSealCodeDuplicateError() {
+    if (_sealCodeDuplicateError != null && mounted) {
+      setState(() => _sealCodeDuplicateError = null);
+    }
   }
 
   Future<void> _loadHubs() async {
@@ -82,6 +104,8 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
 
   @override
   void dispose() {
+    _tripIdController.removeListener(_clearTripIdDuplicateError);
+    _sealCodeController.removeListener(_clearSealCodeDuplicateError);
     _tripIdController.dispose();
     _sealCodeController.dispose();
     _originController.dispose();
@@ -112,40 +136,77 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     final imageBytes = await xfile.readAsBytes();
     if (!mounted) return;
 
-    setState(() {
-      _runsheetPhoto = imageBytes;
-      _ocrLoading = true;
-    });
+    setState(() => _ocrLoading = true);
 
     try {
+      // OCR on original resolution for better text recognition
       final result = await runOcrOnImageBytes(imageBytes);
-      if (mounted) {
-        setState(() {
-          _ocrLoading = false;
-          if (result.tripId != null) _tripIdController.text = result.tripId!;
-          if (result.sealCode != null) {
-            _sealCodeController.text = result.sealCode!;
+      if (!mounted) return;
+      // Compress for display and upload (max 1024px, JPEG ~75%, <500KB)
+      final compressed = await compressImageForUpload(imageBytes);
+      if (!mounted) return;
+      if (!mounted) return;
+      setState(() {
+        _runsheetPhoto = compressed;
+        _ocrLoading = false;
+        if (result.tripId != null) _tripIdController.text = result.tripId!;
+        if (result.sealCode != null) {
+          _sealCodeController.text = result.sealCode!;
+        }
+        if (result.origin != null) _originController.text = result.origin!;
+        if (result.destination != null) {
+          _destinationController.text = result.destination!;
+        }
+        if (result.distance != null) {
+          _distanceController.text = result.distance!;
+        }
+        if (result.parcelCount != null) {
+          _parcelCountController.text = result.parcelCount!;
+        }
+        if (result.sealTime != null) {
+          _sealTimeController.text = result.sealTime!;
+        }
+        if (result.totalWeight != null) {
+          _totalWeightController.text = result.totalWeight!;
+        }
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('loading_phase_ocr_done'.tr())),
+      );
+      // Check duplicate Trip ID / Seal as soon as OCR has filled the form
+      final ocrTripId = result.tripId?.trim();
+      if (ocrTripId != null && ocrTripId.isNotEmpty) {
+        final ocrSeal = result.sealCode?.trim();
+        final duplicate = await checkDuplicateTripIdAndSeal(
+          tripId: ocrTripId,
+          sealCode: (ocrSeal != null && ocrSeal.isNotEmpty) ? ocrSeal : null,
+        );
+        if (duplicate.hasDuplicate && mounted) {
+          setState(() {
+            _tripIdDuplicateError = duplicate.tripIdExists
+                ? 'loading_phase_duplicate_trip_id'.tr()
+                : null;
+            _sealCodeDuplicateError = duplicate.sealCodeExists
+                ? 'loading_phase_duplicate_seal_code'.tr()
+                : null;
+          });
+          String msg;
+          if (duplicate.tripIdExists && duplicate.sealCodeExists) {
+            msg = 'loading_phase_duplicate_trip_and_seal'.tr();
+          } else if (duplicate.tripIdExists) {
+            msg = 'loading_phase_duplicate_trip_id'.tr();
+          } else {
+            msg = 'loading_phase_duplicate_seal_code'.tr();
           }
-          if (result.origin != null) _originController.text = result.origin!;
-          if (result.destination != null) {
-            _destinationController.text = result.destination!;
-          }
-          if (result.distance != null) {
-            _distanceController.text = result.distance!;
-          }
-          if (result.parcelCount != null) {
-            _parcelCountController.text = result.parcelCount!;
-          }
-          if (result.sealTime != null) {
-            _sealTimeController.text = result.sealTime!;
-          }
-          if (result.totalWeight != null) {
-            _totalWeightController.text = result.totalWeight!;
-          }
-        });
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('loading_phase_ocr_done'.tr())));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(msg),
+              backgroundColor: Colors.orange,
+            ),
+          );
+          _scrollToRunsheetSection();
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -170,11 +231,16 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     if (xfile == null || !mounted) return;
     final imageBytes = await xfile.readAsBytes();
     if (!mounted) return;
-    setState(() => _stepPhotos[stepKey] = imageBytes);
+    final compressed = await compressImageForUpload(imageBytes);
+    if (!mounted) return;
+    setState(() => _stepPhotos[stepKey] = compressed);
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text('loading_phase_photo_stamped'.tr())));
   }
+
+  bool get _hasDuplicateError =>
+      _tripIdDuplicateError != null || _sealCodeDuplicateError != null;
 
   Future<void> _showPreviewAndSubmit() async {
     if (!_formKey.currentState!.validate()) return;
@@ -188,6 +254,16 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       );
       return;
     }
+    if (_hasDuplicateError) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('loading_phase_fix_duplicate_to_save'.tr()),
+          backgroundColor: Colors.red,
+        ),
+      );
+      _scrollToRunsheetSection();
+      return;
+    }
     if (_runsheetPhoto == null ||
         _stepPhotos.length != _cameraPhotoStepKeys.length) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -198,6 +274,9 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       );
       return;
     }
+
+    // ปิด keyboard ก่อนเปิด preview เพื่อไม่ให้ numeric pad โผล่เมื่อปิด sheet
+    FocusScope.of(context).unfocus();
 
     final confirmed = await showModalBottomSheet<bool>(
       context: context,
@@ -226,15 +305,127 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       ),
     );
 
-    if (confirmed == true) _doSubmit();
+    if (confirmed == true) {
+      // ปิด focus อีกครั้งหลังปิด sheet เพื่อไม่ให้แป้นตัวเลขโผล่ระหว่าง/หลัง save
+      if (mounted) FocusScope.of(context).unfocus();
+      _doSubmit();
+    }
   }
 
+  /// Validate duplicate when user leaves Trip ID or Seal Code field.
+  Future<void> _validateDuplicateOnBlur() async {
+    final tripId = _tripIdController.text.trim();
+    if (tripId.isEmpty) {
+      if (mounted) setState(() {
+        _tripIdDuplicateError = null;
+        _sealCodeDuplicateError = null;
+      });
+      return;
+    }
+    final sealCode = _sealCodeController.text.trim();
+    final duplicate = await checkDuplicateTripIdAndSeal(
+      tripId: tripId,
+      sealCode: sealCode.isEmpty ? null : sealCode,
+    );
+    if (!mounted) return;
+    setState(() {
+      _tripIdDuplicateError = duplicate.tripIdExists
+          ? 'loading_phase_duplicate_trip_id'.tr()
+          : null;
+      _sealCodeDuplicateError = duplicate.sealCodeExists
+          ? 'loading_phase_duplicate_seal_code'.tr()
+          : null;
+    });
+    _scrollToRunsheetSection();
+  }
+
+  /// เลื่อนหน้าจอไปที่ส่วนรันชีท (เมื่อตรวจพบซ้ำ)
+  void _scrollToRunsheetSection() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final ctx = _runsheetSectionKey.currentContext;
+      if (ctx != null) {
+        Scrollable.ensureVisible(
+          ctx,
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeInOut,
+          alignment: 0.2,
+        );
+      }
+    });
+  }
+
+  /// ยืนยันก่อนล้างฟอร์ม (เรียกจากปุ่ม Clear form)
+  Future<void> _confirmClearForm() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('loading_phase_clear_form'.tr()),
+        content: Text('loading_phase_clear_form_confirm'.tr()),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(MaterialLocalizations.of(ctx).cancelButtonLabel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text('loading_phase_clear_form'.tr()),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true && mounted) _clearForm();
+  }
+
+  /// ล้างฟอร์มและรูปทั้งหมด หลัง save สำเร็จ
+  void _clearForm() {
+    _tripIdController.clear();
+    _sealCodeController.clear();
+    _originController.clear();
+    _destinationController.clear();
+    _distanceController.clear();
+    _parcelCountController.clear();
+    _totalWeightController.clear();
+    final now = DateTime.now();
+    _sealTimeController.text = intl.DateFormat('yyyy-MM-dd HH:mm').format(now);
+    setState(() {
+      _jobType = jobTypeFirstMile;
+      _runsheetPhoto = null;
+      _stepPhotos.clear();
+      _tripIdDuplicateError = null;
+      _sealCodeDuplicateError = null;
+    });
+  }
+
+  /// Save ช้าเพราะ: (1) getCurrentPosition (2) fetchOverlayContext (3) วน overlay 3 รูป (4) อัปโหลด 4 รูป + บันทึก Firestore
   Future<void> _doSubmit() async {
     setState(() => _saving = true);
     try {
+      final tripId = _tripIdController.text.trim();
+      final sealCode = _sealCodeController.text.trim();
+
+      final duplicate = await checkDuplicateTripIdAndSeal(
+        tripId: tripId,
+        sealCode: sealCode.isEmpty ? null : sealCode,
+      );
+      if (duplicate.hasDuplicate && mounted) {
+        setState(() => _saving = false);
+        String msg;
+        if (duplicate.tripIdExists && duplicate.sealCodeExists) {
+          msg = 'loading_phase_duplicate_trip_and_seal'.tr();
+        } else if (duplicate.tripIdExists) {
+          msg = 'loading_phase_duplicate_trip_id'.tr();
+        } else {
+          msg = 'loading_phase_duplicate_seal_code'.tr();
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg), backgroundColor: Colors.red),
+        );
+        return;
+      }
+
       final position = await getCurrentPosition();
       final timestamp = DateTime.now();
-      final tripId = _tripIdController.text.trim();
 
       // Pre-fetch address + compass ONCE
       final overlayCtx = await fetchOverlayContext(
@@ -244,21 +435,30 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
 
       final allStepPhotos = <String, StampedPhotoInput>{};
 
-      for (final key in _cameraPhotoStepKeys) {
-        final rawBytes = _stepPhotos[key]!;
-        final stampedBytes = await overlayGeocodingAndTimestamp(
-          imageBytes: rawBytes,
-          lat: position.latitude,
-          lng: position.longitude,
-          timestamp: timestamp,
-          ctx: overlayCtx,
-        );
-        allStepPhotos[key] = StampedPhotoInput(
-          bytes: stampedBytes,
-          lat: position.latitude,
-          lng: position.longitude,
-          timestamp: timestamp,
-        );
+      // Stamp step photos in parallel to reduce save time
+      final stampedEntries = await Future.wait(
+        _cameraPhotoStepKeys.map((key) async {
+          final rawBytes = _stepPhotos[key]!;
+          final stampedBytes = await overlayGeocodingAndTimestamp(
+            imageBytes: rawBytes,
+            lat: position.latitude,
+            lng: position.longitude,
+            timestamp: timestamp,
+            ctx: overlayCtx,
+          );
+          return MapEntry(
+            key,
+            StampedPhotoInput(
+              bytes: stampedBytes,
+              lat: position.latitude,
+              lng: position.longitude,
+              timestamp: timestamp,
+            ),
+          );
+        }),
+      );
+      for (final e in stampedEntries) {
+        allStepPhotos[e.key] = e.value;
       }
 
       allStepPhotos['runsheet'] = StampedPhotoInput(
@@ -300,7 +500,40 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         stepPhotos: allStepPhotos,
       );
       if (!mounted) return;
+      final origin = _originController.text.trim();
+      final destination = _destinationController.text.trim();
+      final jobType = _jobType ?? jobTypeFirstMile;
+
       setState(() => _saving = false);
+      _clearForm();
+
+      final summary = SavedTripSummary(
+        tripId: tripId,
+        origin: origin.isEmpty ? null : origin,
+        destination: destination.isEmpty ? null : destination,
+        sealCode: sealCode.isEmpty ? null : sealCode,
+        jobType: jobType,
+      );
+
+      final scope = MainLayoutScope.of(context);
+      if (scope != null) {
+        scope.goToDeliveryTab(summary);
+      } else {
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          '/home',
+          (_) => false,
+          arguments: {
+            'tab': 2,
+            'tripId': tripId,
+            'origin': origin.isEmpty ? null : origin,
+            'destination': destination.isEmpty ? null : destination,
+            'sealCode': sealCode.isEmpty ? null : sealCode,
+            'jobType': jobType,
+          },
+        );
+      }
+
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('loading_phase_saved'.tr())));
@@ -346,7 +579,19 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('loading_phase_form_title'.tr())),
+      appBar: AppBar(
+        title: Text('loading_phase_form_title'.tr()),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: TextButton.icon(
+              onPressed: _saving ? null : _confirmClearForm,
+              icon: const Icon(Icons.clear_all, size: 20),
+              label: Text('loading_phase_clear_form'.tr()),
+            ),
+          ),
+        ],
+      ),
       body: Form(
         key: _formKey,
         child: SingleChildScrollView(
@@ -385,61 +630,69 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
               const SizedBox(height: 24),
 
               // ========== STEP 2: อัปโหลดรันชีท ==========
-              _sectionTitle('loading_phase_photo_runsheet'.tr()),
-              Text(
-                'loading_phase_photo_runsheet_desc'.tr(),
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
-              ),
-              const SizedBox(height: 8),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (_runsheetPhoto != null) ...[
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: Image.memory(
-                            _runsheetPhoto!,
-                            height: 150,
-                            width: double.infinity,
-                            fit: BoxFit.cover,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                      ],
-                      if (_ocrLoading)
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 12),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
+              KeyedSubtree(
+                key: _runsheetSectionKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _sectionTitle('loading_phase_photo_runsheet'.tr()),
+                    Text(
+                      'loading_phase_photo_runsheet_desc'.tr(),
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
+                    ),
+                    const SizedBox(height: 8),
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (_runsheetPhoto != null) ...[
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: Image.memory(
+                                  _runsheetPhoto!,
+                                  height: 150,
+                                  width: double.infinity,
+                                  fit: BoxFit.cover,
                                 ),
                               ),
-                              SizedBox(width: 12),
-                              Text('กำลังอ่านเอกสาร...'),
+                              const SizedBox(height: 8),
                             ],
-                          ),
-                        ),
-                      OutlinedButton.icon(
-                        onPressed: _ocrLoading ? null : _pickRunsheetAndOcr,
-                        icon: const Icon(Icons.photo_library, size: 20),
-                        label: Text(
-                          _runsheetPhoto != null
-                              ? 'loading_phase_change_runsheet'.tr()
-                              : 'loading_phase_upload_from_gallery'.tr(),
+                            if (_ocrLoading)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 12),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    ),
+                                    SizedBox(width: 12),
+                                    Text('กำลังอ่านเอกสาร...'),
+                                  ],
+                                ),
+                              ),
+                            OutlinedButton.icon(
+                              onPressed: _ocrLoading ? null : _pickRunsheetAndOcr,
+                              icon: const Icon(Icons.photo_library, size: 20),
+                              label: Text(
+                                _runsheetPhoto != null
+                                    ? 'loading_phase_change_runsheet'.tr()
+                                    : 'loading_phase_upload_from_gallery'.tr(),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: 24),
@@ -449,30 +702,36 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
               const SizedBox(height: 8),
               TextFormField(
                 controller: _tripIdController,
+                readOnly: true,
                 decoration: InputDecoration(
                   labelText: 'loading_phase_trip_id'.tr(),
                   hintText: 'LTQ...',
                   border: const OutlineInputBorder(),
+                  errorText: _tripIdDuplicateError,
                   suffixIcon: IconButton(
                     icon: const Icon(Icons.qr_code_scanner),
                     tooltip: 'loading_phase_scan_qr'.tr(),
                     onPressed: () => _scanAndSet(_tripIdController),
                   ),
                 ),
+                onTap: _validateDuplicateOnBlur,
               ),
               const SizedBox(height: 12),
               TextFormField(
                 controller: _sealCodeController,
+                readOnly: true,
                 decoration: InputDecoration(
                   labelText: 'loading_phase_seal_code'.tr(),
                   hintText: 'SPX...',
                   border: const OutlineInputBorder(),
+                  errorText: _sealCodeDuplicateError,
                   suffixIcon: IconButton(
                     icon: const Icon(Icons.qr_code_scanner),
                     tooltip: 'loading_phase_scan_qr'.tr(),
                     onPressed: () => _scanAndSet(_sealCodeController),
                   ),
                 ),
+                onTap: _validateDuplicateOnBlur,
               ),
               const SizedBox(height: 12),
 
@@ -679,7 +938,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
 
               // ========== STEP 6: Preview & Submit ==========
               FilledButton.icon(
-                onPressed: _saving ? null : _showPreviewAndSubmit,
+                onPressed: (_saving || _hasDuplicateError) ? null : _showPreviewAndSubmit,
                 icon: _saving
                     ? const SizedBox(
                         width: 20,
@@ -902,8 +1161,8 @@ class _PreviewSheet extends StatelessWidget {
         'loading_phase_job_type'.tr(),
         jobType == jobTypeFirstMile ? 'First Mile' : 'Line Haul',
       ),
-      _row('Trip ID', tripId),
-      _row('Seal Code', sealCode),
+      _row('loading_phase_trip_id'.tr(), tripId),
+      _row('loading_phase_seal_code'.tr(), sealCode),
       _row('loading_phase_origin'.tr(), origin),
       _row('loading_phase_destination'.tr(), destination),
       _row('loading_phase_distance'.tr(), distance),
@@ -911,7 +1170,7 @@ class _PreviewSheet extends StatelessWidget {
       _row('loading_phase_total_weight'.tr(), totalWeight),
       _row('loading_phase_seal_time'.tr(), sealTime),
       _row('loading_phase_coordination'.tr(), coordination),
-      _row('Timestamp', timestamp),
+      _row('loading_phase_timestamp'.tr(), timestamp),
     ];
   }
 

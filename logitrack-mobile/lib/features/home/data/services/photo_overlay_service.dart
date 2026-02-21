@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show compute, debugPrint;
 import 'package:geocoding/geocoding.dart';
 import 'package:flutter_compass/flutter_compass.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image/image.dart' as img;
 
 /// Compass direction in Thai from bearing degrees
@@ -77,12 +78,27 @@ Future<List<int>> overlayGeocodingAndTimestamp({
   String? address,
   OverlayContext? ctx,
 }) async {
-  // Run heavy image processing in isolate to avoid blocking UI
+  // 1. Resize to max width 1024px, JPEG quality 75% (70–80% for OCR/evidence clarity)
+  List<int> compressedBytes = imageBytes;
+  try {
+    final result = await FlutterImageCompress.compressWithList(
+      Uint8List.fromList(imageBytes),
+      minWidth: 1024,
+      minHeight: 1, // scale by width so output width ≤ 1024
+      quality: 75,
+      format: CompressFormat.jpeg,
+    );
+    compressedBytes = result.toList();
+  } catch (e) {
+    debugPrint('Compression failed, using original bytes: $e');
+  }
+
+  // 2. Run heavy image processing in isolate to avoid blocking UI
   try {
     return await compute(
       _processOverlay,
       _OverlayParams(
-        imageBytes: imageBytes,
+        imageBytes: compressedBytes,
         lat: lat,
         lng: lng,
         timestamp: timestamp,
@@ -92,7 +108,7 @@ Future<List<int>> overlayGeocodingAndTimestamp({
     );
   } catch (e) {
     debugPrint('Overlay failed, returning original: $e');
-    return imageBytes;
+    return compressedBytes;
   }
 }
 

@@ -96,6 +96,10 @@
     "loading_phase_save_failed": "บันทึกไม่สำเร็จ:",
     "loading_phase_trip_id_required": "กรุณากรอก Trip ID",
     "loading_phase_photos_required": "กรุณาถ่ายรูปครบทั้ง 4 ขั้นตอน",
+    "loading_phase_duplicate_trip_id": "Trip ID นี้มีในระบบแล้ว กรุณาเปลี่ยนรันชีท (อัปโหลดรันชีทอื่น)",
+    "loading_phase_duplicate_seal_code": "Seal Code นี้ถูกใช้กับเที่ยวอื่นแล้ว กรุณาเปลี่ยนรันชีท (อัปโหลดรันชีทอื่น)",
+    "loading_phase_duplicate_trip_and_seal": "Trip ID และ Seal Code นี้มีในระบบแล้ว กรุณาเปลี่ยนรันชีท (อัปโหลดรันชีทอื่น)",
+    "loading_phase_fix_duplicate_to_save": "กรุณาเปลี่ยนรันชีท (อัปโหลดรันชีทอื่น) ก่อนบันทึก",
     "loading_phase_scan_qr": "สแกน QR/Barcode",
     "loading_phase_scan_from_image": "อ่านจากรูป",
     "loading_phase_scan_hint": "เล็งกล้องไปที่ QR หรือ Barcode",
@@ -140,5 +144,8 @@
     "loading_phase_preview_title": "ตรวจสอบข้อมูล",
     "loading_phase_confirm": "ยืนยัน",
     "loading_phase_edit": "แก้ไข",
-    "loading_phase_total_weight": "น้ำหนักรวม (kg)"
+    "loading_phase_total_weight": "น้ำหนักรวม (kg)",
+    "loading_phase_timestamp": "วันเวลา",
+    "loading_phase_clear_form": "ล้างฟอร์ม",
+    "loading_phase_clear_form_confirm": "ล้างทุกช่องและรูปถ่ายหรือไม่? การดำเนินการนี้ไม่สามารถย้อนกลับได้"
 }

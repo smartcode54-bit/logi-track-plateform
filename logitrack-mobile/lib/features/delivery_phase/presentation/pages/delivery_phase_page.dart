@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:easy_localization/easy_localization.dart';
+import '../../../home/presentation/pages/main_layout_scope.dart';
 
 class DeliveryPhasePage extends StatefulWidget {
-  const DeliveryPhasePage({super.key});
+  const DeliveryPhasePage({super.key, this.savedTripSummary});
+
+  final SavedTripSummary? savedTripSummary;
 
   @override
   State<DeliveryPhasePage> createState() => _DeliveryPhasePageState();
@@ -103,19 +106,29 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
                       ],
                     ),
                     const SizedBox(height: 16),
-                    const Text(
-                      'Shopee Express - Chiang Mai DC',
-                      style: TextStyle(
+                    Text(
+                      widget.savedTripSummary?.destination?.isNotEmpty == true
+                          ? widget.savedTripSummary!.destination!
+                          : 'active_delivery'.tr(),
+                      style: const TextStyle(
                         color: Colors.white,
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
-                      'Trip ID: #TRP-9042',
-                      style: TextStyle(color: Colors.white54, fontSize: 14),
+                    Text(
+                      'Trip ID: ${widget.savedTripSummary?.tripId ?? '-'}',
+                      style: const TextStyle(color: Colors.white54, fontSize: 14),
                     ),
+                    if (widget.savedTripSummary?.origin != null &&
+                        widget.savedTripSummary!.origin!.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        '${'loading_phase_origin'.tr()}: ${widget.savedTripSummary!.origin}',
+                        style: const TextStyle(color: Colors.white54, fontSize: 12),
+                      ),
+                    ],
                   ],
                 ),
               ),

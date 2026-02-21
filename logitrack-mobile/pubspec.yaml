@@ -36,6 +36,7 @@ dependencies:
   firebase_auth: ^6.1.4
   firebase_messaging: ^16.1.1
   firebase_storage: ^13.0.6
+  firebase_app_check: ^0.4.1
   image_picker: ^1.0.7
   geolocator: ^13.0.2
   image: ^4.1.7
@@ -53,6 +54,7 @@ dependencies:
   google_sign_in: ^7.2.0
   geocoding: ^4.0.0
   flutter_compass: ^0.8.1
+  flutter_image_compress: ^2.4.0
 
 dev_dependencies:
   flutter_test:

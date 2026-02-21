@@ -2,26 +2,74 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import '../models/trip_record.dart';
+import '../services/image_compression_service.dart';
 
 /// ชื่อ collection ตาม shared-docs (TripRecords - SSOT for Web Dashboard & Billing)
 const String tripRecordsCollection = 'trip_records';
 
-/// Path ใน Storage สำหรับรูปของ trip: trip_records/{tripId}/{photoType}.png
+/// Path ใน Storage สำหรับรูปของ trip: trip_records/{tripId}/{photoType}.jpg (compressed JPEG)
 String tripRecordPhotoPath(String tripId, String photoType) =>
-    'trip_records/$tripId/$photoType.png';
+    'trip_records/$tripId/$photoType.jpg';
 
-/// อัปโหลดรูป (bytes) ขึ้น Storage แล้วคืน URL
+/// Result of duplicate check for Trip ID and Seal Code.
+class DuplicateCheckResult {
+  final bool tripIdExists;
+  final bool sealCodeExists;
+
+  const DuplicateCheckResult({
+    required this.tripIdExists,
+    required this.sealCodeExists,
+  });
+
+  bool get hasDuplicate => tripIdExists || sealCodeExists;
+}
+
+/// Check if [tripId] or [sealCode] already exists in trip_records.
+/// - tripId: document with id [tripId] exists.
+/// - sealCode: another trip (different document) has the same sealCode; only checked if [sealCode] is not null/empty.
+Future<DuplicateCheckResult> checkDuplicateTripIdAndSeal({
+  required String tripId,
+  String? sealCode,
+}) async {
+  final col = FirebaseFirestore.instance.collection(tripRecordsCollection);
+
+  final tripDoc = await col.doc(tripId).get();
+  final tripIdExists = tripDoc.exists;
+
+  bool sealCodeExists = false;
+  final seal = sealCode?.trim();
+  if (seal != null && seal.isNotEmpty) {
+    final sealQuery = await col
+        .where('sealCode', isEqualTo: seal)
+        .limit(2)
+        .get();
+    for (final doc in sealQuery.docs) {
+      if (doc.id != tripId) {
+        sealCodeExists = true;
+        break;
+      }
+    }
+  }
+
+  return DuplicateCheckResult(
+    tripIdExists: tripIdExists,
+    sealCodeExists: sealCodeExists,
+  );
+}
+
+/// อัปโหลดรูป (bytes) ขึ้น Storage หลังบีบอัดเป็น JPEG max 1024px, quality 70–80%, เป้าหมาย <500KB
 Future<String> uploadTripPhoto({
   required String tripId,
   required String photoType,
   required List<int> imageBytes,
 }) async {
+  final compressed = await compressImageForUpload(imageBytes);
   final ref = FirebaseStorage.instance.ref().child(
     tripRecordPhotoPath(tripId, photoType),
   );
   await ref.putData(
-    Uint8List.fromList(imageBytes),
-    SettableMetadata(contentType: 'image/png'),
+    compressed,
+    SettableMetadata(contentType: 'image/jpeg'),
   );
   return ref.getDownloadURL();
 }
@@ -42,8 +90,8 @@ Future<void> submitLoadingPhaseRecord({
   required Map<String, StampedPhotoInput> stepPhotos,
   TripOcrData? ocrData,
 }) async {
-  final photos = <TripPhoto>[];
-  for (final entry in stepPhotos.entries) {
+  // Upload all photos in parallel to reduce save time on slow networks
+  final photoFutures = stepPhotos.entries.map((entry) async {
     final type = entry.key;
     final photo = entry.value;
     final url = await uploadTripPhoto(
@@ -51,18 +99,17 @@ Future<void> submitLoadingPhaseRecord({
       photoType: type,
       imageBytes: photo.bytes,
     );
-    photos.add(
-      TripPhoto(
-        url: url,
-        type: type,
-        geocoding: TripPhotoGeocoding(
-          lat: photo.lat,
-          lng: photo.lng,
-          timestamp: photo.timestamp,
-        ),
+    return TripPhoto(
+      url: url,
+      type: type,
+      geocoding: TripPhotoGeocoding(
+        lat: photo.lat,
+        lng: photo.lng,
+        timestamp: photo.timestamp,
       ),
     );
-  }
+  });
+  final photos = await Future.wait(photoFutures);
   final record = TripRecord(
     id: tripId,
     status: 'loading',

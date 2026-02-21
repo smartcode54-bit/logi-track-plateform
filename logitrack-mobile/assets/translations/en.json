@@ -96,6 +96,10 @@
     "loading_phase_save_failed": "Save failed:",
     "loading_phase_trip_id_required": "Please enter Trip ID",
     "loading_phase_photos_required": "Please take all 4 step photos",
+    "loading_phase_duplicate_trip_id": "This Trip ID already exists. Please change the runsheet (upload a different one).",
+    "loading_phase_duplicate_seal_code": "This Seal Code is already used. Please change the runsheet (upload a different one).",
+    "loading_phase_duplicate_trip_and_seal": "This Trip ID and Seal Code already exist. Please change the runsheet (upload a different one).",
+    "loading_phase_fix_duplicate_to_save": "Please change the runsheet (upload a different one) before saving.",
     "loading_phase_scan_qr": "Scan QR/Barcode",
     "loading_phase_scan_from_image": "From image",
     "loading_phase_scan_hint": "Point camera at QR or Barcode",
@@ -140,5 +144,8 @@
     "loading_phase_preview_title": "Review Data",
     "loading_phase_confirm": "Confirm",
     "loading_phase_edit": "Edit",
-    "loading_phase_total_weight": "Total Weight (kg)"
+    "loading_phase_total_weight": "Total Weight (kg)",
+    "loading_phase_timestamp": "Timestamp",
+    "loading_phase_clear_form": "Clear form",
+    "loading_phase_clear_form_confirm": "Clear all fields and photos? This cannot be undone."
 }

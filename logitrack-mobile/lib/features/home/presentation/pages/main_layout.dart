@@ -2,26 +2,61 @@ import 'package:flutter/material.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'home_page.dart';
 import 'loading_phase_page.dart';
+import 'main_layout_scope.dart';
 import '../../../delivery_phase/presentation/pages/delivery_phase_page.dart';
 
 class MainLayout extends StatefulWidget {
-  const MainLayout({super.key});
+  const MainLayout({
+    super.key,
+    this.initialTabIndex,
+    this.initialTripSummary,
+  });
+
+  final int? initialTabIndex;
+  final SavedTripSummary? initialTripSummary;
 
   @override
   State<MainLayout> createState() => _MainLayoutState();
 }
 
 class _MainLayoutState extends State<MainLayout> {
-  int _currentIndex = 0;
+  late int _currentIndex;
+
+  /// สรุปเที่ยวที่เพิ่ง save จาก Loading (แสดงบน Delivery)
+  SavedTripSummary? _savedTripSummary;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialTabIndex ?? 0;
+    _savedTripSummary = widget.initialTripSummary;
+  }
+
+  @override
+  void didUpdateWidget(MainLayout oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialTabIndex != null && widget.initialTabIndex != oldWidget.initialTabIndex) {
+      _currentIndex = widget.initialTabIndex!;
+    }
+    if (widget.initialTripSummary != null) {
+      _savedTripSummary = widget.initialTripSummary;
+    }
+  }
+
+  void _goToDeliveryTab(SavedTripSummary? summary) {
+    setState(() {
+      _currentIndex = 2;
+      if (summary != null) _savedTripSummary = summary;
+    });
+  }
 
   // TODO: Replace with actual state from Riverpod/Provider tracking trip status
-  final bool _hasActiveDelivery = true;
+  bool get _hasActiveDelivery => true;
 
-  // List of screens for the first 3 tabs
-  final List<Widget> _screens = [
+  List<Widget> get _screens => [
     const HomePage(),
     const LoadingPhasePage(),
-    const DeliveryPhasePage(),
+    DeliveryPhasePage(savedTripSummary: _savedTripSummary),
   ];
 
   void _onItemTapped(int index) {
@@ -106,8 +141,10 @@ class _MainLayoutState extends State<MainLayout> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: IndexedStack(index: _currentIndex, children: _screens),
+    return MainLayoutScope(
+      goToDeliveryTab: _goToDeliveryTab,
+      child: Scaffold(
+        body: IndexedStack(index: _currentIndex, children: _screens),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: _onItemTapped,
@@ -138,6 +175,7 @@ class _MainLayoutState extends State<MainLayout> {
           ),
         ],
       ),
-    );
+    ),
+  );
   }
 }
