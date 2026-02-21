@@ -112,7 +112,10 @@ export function AppSidebar() {
                     title: t("nav.sourceManagement"),
                     url: "/admin/sources",
                 },
-                // Future: Line Haul, etc.
+                {
+                    title: t("nav.driverMonitor"),
+                    url: "/admin/driver-monitor",
+                },
             ],
         },
     ]

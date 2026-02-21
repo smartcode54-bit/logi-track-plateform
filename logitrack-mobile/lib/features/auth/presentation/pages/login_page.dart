@@ -1,6 +1,7 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import '../../../../core/theme/theme_controller.dart';
+import '../../../home/data/services/draft_storage_service.dart';
 import '../../data/repositories/auth_repository.dart';
 
 class LoginPage extends StatefulWidget {
@@ -35,7 +36,7 @@ class _LoginPageState extends State<LoginPage> {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('login_success'.tr())));
-        Navigator.pushReplacementNamed(context, '/home');
+        await _navigateToHome();
       }
     } catch (e) {
       if (mounted) {
@@ -55,6 +56,23 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  Future<void> _navigateToHome() async {
+    final draft = await DraftStorageService.instance.loadDeliveryDraft();
+    final args = draft != null
+        ? {
+            'tab': 2,
+            'tripId': draft.tripId,
+            'origin': draft.origin,
+            'destination': draft.destination,
+            'sealCode': draft.sealCode,
+            'jobType': draft.jobType,
+          }
+        : null;
+    if (mounted) {
+      Navigator.pushReplacementNamed(context, '/home', arguments: args);
+    }
+  }
+
   void _login() async {
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
@@ -69,7 +87,7 @@ class _LoginPageState extends State<LoginPage> {
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(SnackBar(content: Text('login_success'.tr())));
-          Navigator.pushReplacementNamed(context, '/home');
+          await _navigateToHome();
         }
       } catch (e) {
         if (mounted) {

@@ -1,5 +1,9 @@
+import 'dart:convert';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../data/repositories/trip_records_repository.dart';
 import 'home_page.dart';
 import '../../../loading_phase/presentation/pages/loading_phase_page.dart';
 import 'main_layout_scope.dart';
@@ -25,11 +29,59 @@ class _MainLayoutState extends State<MainLayout> {
   /// สรุปเที่ยวที่เพิ่ง save จาก Loading (แสดงบน Delivery)
   SavedTripSummary? _savedTripSummary;
 
+  static const String _prefKeyPendingDelivery = 'logitrack_pending_delivery_summary';
+
   @override
   void initState() {
     super.initState();
     _currentIndex = widget.initialTabIndex ?? 0;
     _savedTripSummary = widget.initialTripSummary;
+    if (_savedTripSummary != null) _savePendingDeliverySummary(_savedTripSummary);
+    // โหลดงานที่ยังไม่ส่ง (ค้างอยู่) หลังปิดแอป — ให้เมนู Delivery ยังแสดงงานค้าง
+    if (_savedTripSummary == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _loadPendingDeliverySummary());
+    }
+  }
+
+  Future<void> _loadPendingDeliverySummary() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_prefKeyPendingDelivery);
+      if (raw != null && raw.isNotEmpty) {
+        final map = jsonDecode(raw) as Map<String, dynamic>?;
+        final summary = SavedTripSummary.fromJson(map);
+        if (summary != null && summary.tripId.trim().isNotEmpty) {
+          final status = await getTripStatus(summary.tripId);
+          if (status == null || status == 'delivered') {
+            await _savePendingDeliverySummary(null);
+            if (mounted) setState(() => _savedTripSummary = null);
+            return;
+          }
+          if (mounted) setState(() => _savedTripSummary = summary);
+        }
+        return;
+      }
+      // ไม่มีในเครื่อง → ดึงจาก Firestore (งานค้าง status in_transit ของ Driver คนนี้)
+      final driverId = FirebaseAuth.instance.currentUser?.uid;
+      final inTransit = await getPendingInTransitTrip(driverId);
+      if (inTransit == null || !mounted) return;
+      final summary = SavedTripSummary.fromJson(inTransit);
+      if (summary != null && mounted) {
+        setState(() => _savedTripSummary = summary);
+        _savePendingDeliverySummary(summary);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _savePendingDeliverySummary(SavedTripSummary? summary) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (summary == null) {
+        await prefs.remove(_prefKeyPendingDelivery);
+      } else {
+        await prefs.setString(_prefKeyPendingDelivery, jsonEncode(summary.toJson()));
+      }
+    } catch (_) {}
   }
 
   @override
@@ -48,6 +100,7 @@ class _MainLayoutState extends State<MainLayout> {
       _currentIndex = 2;
       if (summary != null) _savedTripSummary = summary;
     });
+    if (summary != null) _savePendingDeliverySummary(summary);
   }
 
   /// งานที่รับยังไม่ส่ง → ต้องส่งก่อน จึงจะกด Pick up รับงานใหม่ได้
@@ -60,7 +113,11 @@ class _MainLayoutState extends State<MainLayout> {
   bool get _isDeliveryDisabled => !_hasActiveDelivery;
 
   void _onDeliveryCompleted() {
-    setState(() => _savedTripSummary = null);
+    setState(() {
+      _savedTripSummary = null;
+      _currentIndex = 0; // กลับไปหน้า Home หลังบันทึกส่งสำเร็จ
+    });
+    _savePendingDeliverySummary(null); // เคลียร์งานค้างจาก storage
   }
 
   List<Widget> get _screens => [
@@ -87,6 +144,22 @@ class _MainLayoutState extends State<MainLayout> {
       return;
     }
     setState(() => _currentIndex = index);
+    if (index == 2 && _savedTripSummary != null) {
+      _validatePendingDeliveryAndClearIfDelivered();
+    }
+  }
+
+  /// เช็คใน DB ว่าเที่ยวค้างยังเป็น in_transit หรือไม่ ถ้าไม่มีหรือ delivered แล้ว ให้เคลียร์และไม่แสดง
+  Future<void> _validatePendingDeliveryAndClearIfDelivered() async {
+    final summary = _savedTripSummary;
+    if (summary == null || summary.tripId.trim().isEmpty) return;
+    try {
+      final status = await getTripStatus(summary.tripId);
+      if (status == null || status == 'delivered') {
+        await _savePendingDeliverySummary(null);
+        if (mounted) setState(() => _savedTripSummary = null);
+      }
+    } catch (_) {}
   }
 
   void _showVehicleBottomSheet(BuildContext context) {

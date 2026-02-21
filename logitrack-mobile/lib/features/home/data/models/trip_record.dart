@@ -11,6 +11,7 @@ class TripRecord {
   final String? origin;
   final String? destination;
   final String? sealCode;
+  final String? driverId;
   final String? distance;
   final int? parcelCount;
   final String? sealTime;
@@ -34,6 +35,7 @@ class TripRecord {
     this.origin,
     this.destination,
     this.sealCode,
+    this.driverId,
     this.distance,
     this.parcelCount,
     this.sealTime,
@@ -59,6 +61,7 @@ class TripRecord {
       if (origin != null) 'origin': origin,
       if (destination != null) 'destination': destination,
       if (sealCode != null) 'sealCode': sealCode,
+      if (driverId != null) 'driverId': driverId,
       if (distance != null) 'distance': distance,
       if (parcelCount != null) 'parcelCount': parcelCount,
       if (sealTime != null) 'sealTime': sealTime,

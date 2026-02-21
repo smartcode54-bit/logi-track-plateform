@@ -1,14 +1,20 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart' as intl;
+import 'package:geolocator/geolocator.dart';
 import '../../../home/data/repositories/first_mile_checkin_repository.dart';
 import '../../../home/data/repositories/hubs_repository.dart';
-import '../../../home/data/repositories/trip_records_repository.dart';
-import '../../../home/data/services/image_compression_service.dart';
 import '../../../home/data/services/photo_overlay_service.dart';
+import '../../../home/data/models/trip_record.dart';
+import '../../../home/data/repositories/trip_records_repository.dart';
+import '../../../home/data/services/draft_storage_service.dart';
+import '../../../home/data/services/image_compression_service.dart';
+import '../../../home/data/services/ocr_screenshot_service.dart';
 import '../../../home/presentation/pages/main_layout_scope.dart';
 import '../../../home/presentation/pages/qr_scan_page.dart';
 import '../../data/repositories/loading_trip_repository.dart';
@@ -39,6 +45,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
   Uint8List? _runsheetPhoto;
   final Map<String, Uint8List> _stepPhotos = {};
 
+  bool _ocrLoading = false;
   bool _saving = false;
 
   /// Inline duplicate validation (set when user blurs Trip ID / Seal Code)
@@ -53,6 +60,13 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
   double? _lng;
   bool _locationLoading = true;
 
+  /// Cache position + overlay สำหรับรูป step 2, 3 — ไม่หน่วงซ้ำ
+  Position? _cachedOverlayPosition;
+  OverlayContext? _cachedOverlayContext;
+
+  Timer? _draftSaveTimer;
+  static const Duration _draftDebounce = Duration(milliseconds: 800);
+
   @override
   void initState() {
     super.initState();
@@ -63,6 +77,88 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     _loadLocation();
     _tripIdController.addListener(_clearTripIdDuplicateError);
     _sealCodeController.addListener(_clearSealCodeDuplicateError);
+    _tripIdController.addListener(_scheduleSaveDraft);
+    _sealCodeController.addListener(_scheduleSaveDraft);
+    _originController.addListener(_scheduleSaveDraft);
+    _destinationController.addListener(_scheduleSaveDraft);
+    _distanceController.addListener(_scheduleSaveDraft);
+    _parcelCountController.addListener(_scheduleSaveDraft);
+    _sealTimeController.addListener(_scheduleSaveDraft);
+    _totalWeightController.addListener(_scheduleSaveDraft);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _tryRestoreLoadingDraft());
+  }
+
+  void _scheduleSaveDraft() {
+    _draftSaveTimer?.cancel();
+    _draftSaveTimer = Timer(_draftDebounce, _saveLoadingDraft);
+  }
+
+  Future<void> _saveLoadingDraft() async {
+    if (!mounted) return;
+    await DraftStorageService.instance.saveLoadingDraft(
+      tripId: _tripIdController.text,
+      sealCode: _sealCodeController.text,
+      origin: _originController.text,
+      destination: _destinationController.text,
+      distance: _distanceController.text,
+      parcelCount: _parcelCountController.text,
+      sealTime: _sealTimeController.text,
+      totalWeight: _totalWeightController.text,
+      jobType: _jobType,
+      runsheetPhoto: _runsheetPhoto,
+      stepPhotos: _stepPhotos.isNotEmpty ? _stepPhotos : null,
+    );
+  }
+
+  Future<void> _tryRestoreLoadingDraft() async {
+    final draft = await DraftStorageService.instance.loadLoadingDraft();
+    if (draft == null || !mounted) return;
+    final hasData = draft.tripId.isNotEmpty ||
+        draft.sealCode.isNotEmpty ||
+        draft.runsheetPath != null ||
+        draft.stepPhotoPaths.isNotEmpty;
+    if (!hasData) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('draft_restore_title'.tr()),
+        content: Text('draft_restore_loading_message'.tr()),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('draft_restore_discard'.tr()),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('draft_restore_restore'.tr()),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (confirm != true) {
+      DraftStorageService.instance.clearLoadingDraft();
+      return;
+    }
+    _tripIdController.text = draft.tripId;
+    _sealCodeController.text = draft.sealCode;
+    _originController.text = draft.origin;
+    _destinationController.text = draft.destination;
+    _distanceController.text = draft.distance;
+    _parcelCountController.text = draft.parcelCount;
+    _sealTimeController.text = draft.sealTime;
+    _totalWeightController.text = draft.totalWeight;
+    if (draft.jobType != null) _jobType = draft.jobType;
+    if (draft.runsheetPath != null) {
+      final bytes = await DraftStorageService.instance.loadLoadingDraftPhoto(draft.runsheetPath!);
+      if (bytes != null && mounted) _runsheetPhoto = Uint8List.fromList(bytes);
+    }
+    final stepPhotos = <String, Uint8List>{};
+    for (final e in draft.stepPhotoPaths.entries) {
+      final bytes = await DraftStorageService.instance.loadLoadingDraftPhoto(e.value);
+      if (bytes != null) stepPhotos[e.key] = Uint8List.fromList(bytes);
+    }
+    if (mounted) setState(() => _stepPhotos.addAll(stepPhotos));
   }
 
   void _clearTripIdDuplicateError() {
@@ -103,8 +199,17 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
 
   @override
   void dispose() {
+    _draftSaveTimer?.cancel();
     _tripIdController.removeListener(_clearTripIdDuplicateError);
     _sealCodeController.removeListener(_clearSealCodeDuplicateError);
+    _tripIdController.removeListener(_scheduleSaveDraft);
+    _sealCodeController.removeListener(_scheduleSaveDraft);
+    _originController.removeListener(_scheduleSaveDraft);
+    _destinationController.removeListener(_scheduleSaveDraft);
+    _distanceController.removeListener(_scheduleSaveDraft);
+    _parcelCountController.removeListener(_scheduleSaveDraft);
+    _sealTimeController.removeListener(_scheduleSaveDraft);
+    _totalWeightController.removeListener(_scheduleSaveDraft);
     _tripIdController.dispose();
     _sealCodeController.dispose();
     _originController.dispose();
@@ -124,8 +229,8 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     if (value != null && mounted) controller.text = value;
   }
 
-  /// แนบรันชีทจาก gallery (ไม่อ่าน OCR) นำภาพไปเก็บใน tripRecording
-  Future<void> _pickRunsheetOnly() async {
+  /// แนบรันชีทจาก gallery แล้วรัน OCR สกัด Trip ID/Seal/ต้นทาง-ปลายทาง เติมฟอร์ม
+  Future<void> _pickRunsheetAndOcr() async {
     final picker = ImagePicker();
     final xfile = await picker.pickImage(
       source: ImageSource.gallery,
@@ -134,14 +239,71 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     if (xfile == null || !mounted) return;
     final imageBytes = await xfile.readAsBytes();
     if (!mounted) return;
-    final compressed = await compressImageForUpload(imageBytes);
-    if (!mounted) return;
-    setState(() => _runsheetPhoto = compressed);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('loading_phase_runsheet_added'.tr())),
-    );
+
+    setState(() => _ocrLoading = true);
+    try {
+      final result = await runOcrOnImageBytes(imageBytes);
+      if (!mounted) return;
+      final compressed = await compressImageForUpload(imageBytes);
+      if (!mounted) return;
+      setState(() {
+        _runsheetPhoto = compressed;
+        _ocrLoading = false;
+        if (result.tripId != null) _tripIdController.text = result.tripId!;
+        if (result.sealCode != null) _sealCodeController.text = result.sealCode!;
+        if (result.origin != null) _originController.text = result.origin!;
+        if (result.destination != null) _destinationController.text = result.destination!;
+        if (result.distance != null) _distanceController.text = result.distance!;
+        if (result.parcelCount != null) _parcelCountController.text = result.parcelCount!;
+        if (result.sealTime != null) _sealTimeController.text = result.sealTime!;
+        if (result.totalWeight != null) _totalWeightController.text = result.totalWeight!;
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('loading_phase_ocr_done'.tr())),
+      );
+      final ocrTripId = result.tripId?.trim();
+      if (ocrTripId != null && ocrTripId.isNotEmpty) {
+        final ocrSeal = result.sealCode?.trim();
+        final duplicate = await checkDuplicateTripIdAndSeal(
+          tripId: ocrTripId,
+          sealCode: (ocrSeal != null && ocrSeal.isNotEmpty) ? ocrSeal : null,
+        );
+        if (duplicate.hasDuplicate && mounted) {
+          setState(() {
+            _tripIdDuplicateError = duplicate.tripIdExists
+                ? 'loading_phase_duplicate_trip_id'.tr()
+                : null;
+            _sealCodeDuplicateError = duplicate.sealCodeExists
+                ? 'loading_phase_duplicate_seal_code'.tr()
+                : null;
+          });
+          final msg = duplicate.tripIdExists && duplicate.sealCodeExists
+              ? 'loading_phase_duplicate_trip_and_seal'.tr()
+              : duplicate.tripIdExists
+                  ? 'loading_phase_duplicate_trip_id'.tr()
+                  : 'loading_phase_duplicate_seal_code'.tr();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(msg), backgroundColor: Colors.orange),
+          );
+          _scrollToRunsheetSection();
+        }
+      }
+      if (mounted) _saveLoadingDraft();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _ocrLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${'loading_phase_ocr_failed'.tr()} $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
+  /// ถ่ายภาพขั้นตอน: stamp overlay (วันเวลา สถานที่ พิกัด เข็มทิศ) + compress — รูป 2, 3 reuse cache
   Future<void> _takeStepPhoto(String stepKey) async {
     if (kIsWeb) return;
     final picker = ImagePicker();
@@ -152,9 +314,25 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     if (xfile == null || !mounted) return;
     final imageBytes = await xfile.readAsBytes();
     if (!mounted) return;
-    final compressed = await compressImageForUpload(imageBytes);
+    if (_cachedOverlayPosition == null || _cachedOverlayContext == null) {
+      try {
+        final pos = await getCurrentPosition();
+        final ctx = await fetchOverlayContext(pos.latitude, pos.longitude);
+        if (mounted) setState(() {
+          _cachedOverlayPosition = pos;
+          _cachedOverlayContext = ctx;
+        });
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    final compressed = await stampOverlayAndCompressForEvidence(
+      imageBytes,
+      position: _cachedOverlayPosition,
+      overlayContext: _cachedOverlayContext,
+    );
     if (!mounted) return;
     setState(() => _stepPhotos[stepKey] = compressed);
+    _saveLoadingDraft();
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text('loading_phase_photo_stamped'.tr())));
@@ -316,6 +494,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       _tripIdDuplicateError = null;
       _sealCodeDuplicateError = null;
     });
+    DraftStorageService.instance.clearLoadingDraft();
   }
 
   /// Save ช้าเพราะ: (1) getCurrentPosition (2) fetchOverlayContext (3) วน overlay 3 รูป (4) อัปโหลด 4 รูป + บันทึก Firestore
@@ -348,38 +527,15 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       final position = await getCurrentPosition();
       final timestamp = DateTime.now();
 
-      // Pre-fetch address + compass ONCE
-      final overlayCtx = await fetchOverlayContext(
-        position.latitude,
-        position.longitude,
-      );
-
       final allStepPhotos = <String, StampedPhotoInput>{};
-
-      // Stamp step photos in parallel to reduce save time
-      final stampedEntries = await Future.wait(
-        _cameraPhotoStepKeys.map((key) async {
-          final rawBytes = _stepPhotos[key]!;
-          final stampedBytes = await overlayGeocodingAndTimestamp(
-            imageBytes: rawBytes,
-            lat: position.latitude,
-            lng: position.longitude,
-            timestamp: timestamp,
-            ctx: overlayCtx,
-          );
-          return MapEntry(
-            key,
-            StampedPhotoInput(
-              bytes: stampedBytes,
-              lat: position.latitude,
-              lng: position.longitude,
-              timestamp: timestamp,
-            ),
-          );
-        }),
-      );
-      for (final e in stampedEntries) {
-        allStepPhotos[e.key] = e.value;
+      // รูปขั้นตอน (pre_close, closing, seal) มี overlay stamp ไว้แล้วตอนถ่าย — ใช้ตรงๆ
+      for (final key in _cameraPhotoStepKeys) {
+        allStepPhotos[key] = StampedPhotoInput(
+          bytes: _stepPhotos[key]!,
+          lat: position.latitude,
+          lng: position.longitude,
+          timestamp: timestamp,
+        );
       }
 
       allStepPhotos['runsheet'] = StampedPhotoInput(
@@ -397,6 +553,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       await submitLoadingPhaseRecord(
         tripId: tripId,
         jobType: _jobType ?? jobTypeFirstMile,
+        driverId: FirebaseAuth.instance.currentUser?.uid,
         sealCode: _sealCodeController.text.trim().isEmpty
             ? null
             : _sealCodeController.text.trim(),
@@ -419,6 +576,10 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         lat: _lat,
         lng: _lng,
         stepPhotos: allStepPhotos,
+        ocrData: TripOcrData(
+          tripId: tripId,
+          sealCode: sealCode.isEmpty ? null : sealCode,
+        ),
       );
       if (!mounted) return;
       final origin = _originController.text.trim();
@@ -515,9 +676,11 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       ),
       body: Form(
         key: _formKey,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
+        child: AbsorbPointer(
+          absorbing: _saving,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
@@ -582,8 +745,24 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                               ),
                               const SizedBox(height: 8),
                             ],
+                            if (_ocrLoading)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 12),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                    ),
+                                    SizedBox(width: 12),
+                                    Text('กำลังอ่านเอกสาร...'),
+                                  ],
+                                ),
+                              ),
                             OutlinedButton.icon(
-                              onPressed: _pickRunsheetOnly,
+                              onPressed: _ocrLoading ? null : _pickRunsheetAndOcr,
                               icon: const Icon(Icons.photo_library, size: 20),
                               label: Text(
                                 _runsheetPhoto != null
@@ -849,13 +1028,18 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.preview),
-                label: Text('loading_phase_preview_and_save'.tr()),
+                label: Text(
+                  _saving
+                      ? 'loading_phase_saving'.tr()
+                      : 'loading_phase_preview_and_save'.tr(),
+                ),
                 style: FilledButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                 ),
               ),
             ],
           ),
+        ),
         ),
       ),
     );

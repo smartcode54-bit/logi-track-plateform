@@ -2,27 +2,37 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show compute, debugPrint;
 import 'package:geocoding/geocoding.dart';
 import 'package:flutter_compass/flutter_compass.dart';
-import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image/image.dart' as img;
 
-/// Compass direction in Thai from bearing degrees
-String _compassDirectionThai(double heading) {
+/// Compass direction (short) from bearing degrees
+String _compassDirection(double heading) {
   const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
   final index = ((heading + 22.5) % 360 / 45).floor();
   return directions[index % 8];
 }
+
+/// Month abbreviations (Latin for bitmap font)
+const _monthAbbr = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+const _weekdayShort = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+/// Timeouts for overlay context (ลดจาก 5s/3s เพื่อไม่ให้ step overlay หน่วงเกินไป)
+const Duration _kGeocodeTimeout = Duration(seconds: 3);
+const Duration _kCompassTimeout = Duration(seconds: 2);
 
 /// Pre-fetch address and compass once (call before stamping multiple photos)
 Future<OverlayContext> fetchOverlayContext(double lat, double lng) async {
   String address = '';
   double? heading;
 
-  // Reverse geocode (with timeout)
+  // Reverse geocode (จุดช้า: network call)
   try {
     final placemarks = await placemarkFromCoordinates(
       lat,
       lng,
-    ).timeout(const Duration(seconds: 5));
+    ).timeout(_kGeocodeTimeout);
     if (placemarks.isNotEmpty) {
       final p = placemarks.first;
       final parts = <String>[];
@@ -48,28 +58,33 @@ Future<OverlayContext> fetchOverlayContext(double lat, double lng) async {
     debugPrint('Reverse geocode failed: $e');
   }
 
-  // Compass (with timeout)
+  // Compass (จุดช้า: sensor; timeout สั้นเพื่อไม่หน่วง)
   try {
     final event = await FlutterCompass.events?.first.timeout(
-      const Duration(seconds: 3),
+      _kCompassTimeout,
     );
     heading = event?.heading;
   } catch (e) {
     debugPrint('Compass failed: $e');
   }
 
-  return OverlayContext(address: address, heading: heading);
+  return OverlayContext(address: address, heading: heading, temperature: null);
 }
 
-/// Cached overlay data (address + compass heading)
+/// Cached overlay data (address, compass heading, optional temperature)
 class OverlayContext {
   final String address;
   final double? heading;
-  OverlayContext({required this.address, this.heading});
+  final double? temperature;
+  OverlayContext({required this.address, this.heading, this.temperature});
 }
 
-/// Stamp image with rich overlay. Uses pre-fetched [OverlayContext] so
-/// geocod/compass calls happen only once.
+/// Stamp image with evidence overlay (date, time, location, coords, compass, optional temp).
+/// Uses pre-fetched [OverlayContext] so geocode/compass calls happen only once.
+///
+/// จุดที่เคยทำให้ช้า: (1) compress บน main thread ก่อน compute → ย้ายไปทำใน isolate
+/// (2) geocode timeout 5s / compass 3s → ลดเหลือ 3s/2s
+/// (3) แต่ละรูปเรียก getCurrentPosition + fetchOverlayContext → ใช้ [ctx] แบบ reuse ได้
 Future<List<int>> overlayGeocodingAndTimestamp({
   required List<int> imageBytes,
   required double lat,
@@ -77,38 +92,25 @@ Future<List<int>> overlayGeocodingAndTimestamp({
   required DateTime timestamp,
   String? address,
   OverlayContext? ctx,
+  double? temperature,
 }) async {
-  // 1. Resize to max width 1024px, JPEG quality 75% (70–80% for OCR/evidence clarity)
-  List<int> compressedBytes = imageBytes;
-  try {
-    final result = await FlutterImageCompress.compressWithList(
-      Uint8List.fromList(imageBytes),
-      minWidth: 1024,
-      minHeight: 1, // scale by width so output width ≤ 1024
-      quality: 75,
-      format: CompressFormat.jpeg,
-    );
-    compressedBytes = result.toList();
-  } catch (e) {
-    debugPrint('Compression failed, using original bytes: $e');
-  }
-
-  // 2. Run heavy image processing in isolate to avoid blocking UI
+  // ทำทั้งหมดใน isolate: decode, resize (ถ้า >1024), วาด overlay, encode JPEG — ไม่ block UI
   try {
     return await compute(
       _processOverlay,
       _OverlayParams(
-        imageBytes: compressedBytes,
+        imageBytes: imageBytes,
         lat: lat,
         lng: lng,
         timestamp: timestamp,
         address: address ?? ctx?.address ?? '',
         heading: ctx?.heading,
+        temperature: temperature ?? ctx?.temperature,
       ),
     );
   } catch (e) {
     debugPrint('Overlay failed, returning original: $e');
-    return compressedBytes;
+    return imageBytes;
   }
 }
 
@@ -120,6 +122,7 @@ class _OverlayParams {
   final DateTime timestamp;
   final String address;
   final double? heading;
+  final double? temperature;
 
   _OverlayParams({
     required this.imageBytes,
@@ -128,92 +131,113 @@ class _OverlayParams {
     required this.timestamp,
     required this.address,
     this.heading,
+    this.temperature,
   });
 }
 
-/// Runs in isolate — pure image processing, no Flutter/platform calls
+/// Runs in isolate — decode, resize to max 1024px, draw overlay, encode JPEG (ไม่ block UI).
+/// Template: left = big day, month year, weekday, time (AM/PM); right = address, coords, temp, compass.
 List<int> _processOverlay(_OverlayParams p) {
-  final decoded = img.decodeImage(Uint8List.fromList(p.imageBytes));
+  var decoded = img.decodeImage(Uint8List.fromList(p.imageBytes));
   if (decoded == null) return p.imageBytes;
+  if (decoded.width > 1024) {
+    decoded = img.copyResize(decoded, width: 1024);
+  }
 
-  // ===== Build text content =====
   final ts = p.timestamp;
-  final day = ts.day.toString().padLeft(2, '0');
-  final mon = ts.month.toString().padLeft(2, '0');
-  final year = ts.year;
-  final dateLine = '$year-$mon-$day';
-
-  final hour = ts.hour.toString().padLeft(2, '0');
-  final minute = ts.minute.toString().padLeft(2, '0');
-  final sec = ts.second.toString().padLeft(2, '0');
-  final timeLine = '$hour:$minute:$sec';
+  final dayNum = ts.day.toString();
+  final monthYearStr = '${_monthAbbr[ts.month - 1]} ${ts.year}';
+  final weekday = _weekdayShort[ts.weekday - 1];
+  final hour12 = ts.hour % 12;
+  final hourStr = (hour12 == 0 ? 12 : hour12).toString();
+  final minuteStr = ts.minute.toString().padLeft(2, '0');
+  final amPm = ts.hour < 12 ? 'AM' : 'PM';
+  final timeLine = '$hourStr:$minuteStr $amPm';
 
   final coordLine =
       'Lat: ${p.lat.toStringAsFixed(6)}, Lng: ${p.lng.toStringAsFixed(6)}';
-
   final compassLine = p.heading != null
-      ? '${p.heading!.toStringAsFixed(0)} ${_compassDirectionThai(p.heading!)}'
+      ? '${p.heading!.toStringAsFixed(0)} ${_compassDirection(p.heading!)}'
+      : null;
+  final tempLine = p.temperature != null
+      ? '${p.temperature!.toStringAsFixed(2)}°'
       : null;
 
-  // ===== Layout calculations =====
-  final fontSmall = img.arial14;
-  final fontLarge = img.arial24;
+  // 2.5x larger for readability (arial14→24, arial24→48)
+  final fontSmall = img.arial24;
+  final fontLarge = img.arial48;
 
-  const leftPanelWidth = 90;
-  const paddingH = 8;
-  const paddingV = 6;
-  const lineHeight14 = 18;
-  const lineHeight24 = 28;
+  // Scaled ~2.5x from original (line heights and panel for larger fonts)
+  const leftPanelWidth = 200;
+  const paddingH = 18;
+  const paddingV = 20;
+  const lineHeight14 = 72;  // was 36
+  const lineHeight24 = 96;  // was 44
+  const lineHeightBig = 110; // day number, was 72
 
-  // Calculate lines for right panel
   final addrLines = _wrapText(
     p.address,
-    decoded.width - leftPanelWidth - paddingH * 3,
+    decoded.width - leftPanelWidth - paddingH * 4,
   );
-  final rightLineCount = addrLines.length + 1 + (compassLine != null ? 1 : 0);
+  var rightLineCount = addrLines.length + 1; // address + coords
+  if (compassLine != null) rightLineCount += 1;
+  if (tempLine != null) rightLineCount += 1;
 
-  final leftHeight = lineHeight24 + lineHeight14 + paddingV * 2;
+  final leftHeight = lineHeightBig + lineHeight14 * 3 + paddingV * 2;
   final rightHeight = lineHeight14 * rightLineCount + paddingV * 2;
   final overlayHeight = leftHeight > rightHeight ? leftHeight : rightHeight;
 
   final overlayTop = decoded.height - overlayHeight;
-  if (overlayTop <= 0) return img.encodePng(decoded);
+  if (overlayTop <= 0) return img.encodeJpg(decoded, quality: 75);
 
-  // ===== Draw overlay =====
-
-  // Dark background
+  // Terracotta/reddish-brown background (like template)
+  final overlayColor = img.ColorRgba8(180, 95, 75, 245);
+  final leftPanelColor = img.ColorRgba8(160, 85, 65, 250);
   img.fillRect(
     decoded,
     x1: 0,
     y1: overlayTop,
     x2: decoded.width,
     y2: decoded.height,
-    color: img.ColorRgba8(0, 0, 0, 200),
+    color: overlayColor,
   );
-
-  // Left panel (teal)
   img.fillRect(
     decoded,
     x1: 0,
     y1: overlayTop,
     x2: leftPanelWidth,
     y2: decoded.height,
-    color: img.ColorRgba8(0, 100, 80, 230),
+    color: leftPanelColor,
   );
 
-  // Date (large)
   var y = overlayTop + paddingV;
   img.drawString(
     decoded,
-    dateLine,
+    dayNum,
+    font: fontLarge,
+    x: paddingH,
+    y: y,
+    color: img.ColorRgba8(255, 255, 255, 255),
+  );
+  y += lineHeightBig;
+  img.drawString(
+    decoded,
+    monthYearStr,
     font: fontSmall,
     x: paddingH,
     y: y,
     color: img.ColorRgba8(255, 255, 255, 255),
   );
   y += lineHeight14;
-
-  // Time
+  img.drawString(
+    decoded,
+    weekday,
+    font: fontSmall,
+    x: paddingH,
+    y: y,
+    color: img.ColorRgba8(255, 255, 255, 255),
+  );
+  y += lineHeight14;
   img.drawString(
     decoded,
     timeLine,
@@ -223,11 +247,8 @@ List<int> _processOverlay(_OverlayParams p) {
     color: img.ColorRgba8(255, 255, 255, 255),
   );
 
-  // ===== Right panel =====
   final rightX = leftPanelWidth + paddingH;
   var ry = overlayTop + paddingV;
-
-  // Address (green text)
   for (final line in addrLines) {
     img.drawString(
       decoded,
@@ -235,12 +256,10 @@ List<int> _processOverlay(_OverlayParams p) {
       font: fontSmall,
       x: rightX,
       y: ry,
-      color: img.ColorRgba8(0, 220, 100, 255),
+      color: img.ColorRgba8(255, 255, 255, 255),
     );
     ry += lineHeight14;
   }
-
-  // Coordinates (white)
   img.drawString(
     decoded,
     coordLine,
@@ -250,8 +269,17 @@ List<int> _processOverlay(_OverlayParams p) {
     color: img.ColorRgba8(255, 255, 255, 255),
   );
   ry += lineHeight14;
-
-  // Compass (yellow)
+  if (tempLine != null) {
+    img.drawString(
+      decoded,
+      tempLine,
+      font: fontSmall,
+      x: rightX,
+      y: ry,
+      color: img.ColorRgba8(255, 220, 200, 255),
+    );
+    ry += lineHeight14;
+  }
   if (compassLine != null) {
     img.drawString(
       decoded,
@@ -259,17 +287,17 @@ List<int> _processOverlay(_OverlayParams p) {
       font: fontSmall,
       x: rightX,
       y: ry,
-      color: img.ColorRgba8(255, 200, 50, 255),
+      color: img.ColorRgba8(255, 200, 150, 255),
     );
   }
 
-  return img.encodePng(decoded);
+  return img.encodeJpg(decoded, quality: 75);
 }
 
-/// Simple text wrapping
+/// Simple text wrapping (charWidth tuned for arial24)
 List<String> _wrapText(String text, int maxWidth) {
   if (text.isEmpty) return [''];
-  const charWidth = 8;
+  const charWidth = 14; // ~2.5x from 8 for arial24
   final maxChars = maxWidth ~/ charWidth;
   if (maxChars <= 0) return [text];
 

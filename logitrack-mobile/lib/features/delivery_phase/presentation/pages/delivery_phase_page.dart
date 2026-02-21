@@ -2,13 +2,17 @@ import 'dart:typed_data';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../home/data/repositories/first_mile_checkin_repository.dart';
+import '../../../home/data/services/photo_overlay_service.dart';
 import '../../../home/data/repositories/trip_records_repository.dart';
 import '../../data/repositories/delivery_trip_repository.dart';
+import '../../../home/data/services/draft_storage_service.dart';
 import '../../../home/data/services/image_compression_service.dart';
 import '../../../home/data/services/ocr_screenshot_service.dart';
 import '../../../home/presentation/pages/main_layout_scope.dart';
+import 'incident_report_page.dart';
 
 /// ขั้นตอนรูป Delivery (ถ่ายภาพเหมือนการรับงาน)
 const List<String> _deliveryPhotoStepKeys = [
@@ -35,6 +39,10 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
   bool _locationLoading = true;
   bool _saving = false;
 
+  /// Cache position + overlay (ที่อยู่, เข็มทิศ) สำหรับรูป step 2, 3 — ไม่หน่วงซ้ำ
+  Position? _cachedOverlayPosition;
+  OverlayContext? _cachedOverlayContext;
+
   bool get _canSubmit =>
       _deliveryPhotos.length == _deliveryPhotoStepKeys.length;
 
@@ -42,6 +50,53 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
   void initState() {
     super.initState();
     _loadLocation();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _tryRestoreDeliveryDraft());
+  }
+
+  Future<void> _saveDeliveryDraft() async {
+    final s = widget.savedTripSummary;
+    if (s == null || s.tripId.trim().isEmpty) return;
+    if (!mounted) return;
+    await DraftStorageService.instance.saveDeliveryDraft(
+      tripId: s.tripId,
+      origin: s.origin,
+      destination: s.destination,
+      sealCode: s.sealCode,
+      jobType: s.jobType,
+      photos: Map.from(_deliveryPhotos),
+    );
+  }
+
+  Future<void> _tryRestoreDeliveryDraft() async {
+    final s = widget.savedTripSummary;
+    if (s == null || s.tripId.trim().isEmpty) return;
+    final draft = await DraftStorageService.instance.loadDeliveryDraft();
+    if (draft == null || draft.tripId.trim() != s.tripId.trim()) return;
+    if (draft.photoPaths.isEmpty || !mounted) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('draft_restore_title'.tr()),
+        content: Text('draft_restore_delivery_message'.tr()),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('draft_restore_discard'.tr()),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('draft_restore_restore'.tr()),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+    final restored = <String, Uint8List>{};
+    for (final e in draft.photoPaths.entries) {
+      final bytes = await DraftStorageService.instance.loadDeliveryDraftPhoto(e.value);
+      if (bytes != null) restored[e.key] = Uint8List.fromList(bytes);
+    }
+    if (mounted) setState(() => _deliveryPhotos.addAll(restored));
   }
 
   Future<void> _loadLocation() async {
@@ -127,7 +182,7 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
     }
   }
 
-  /// ถ่ายภาพหรืออัปโหลดรูป: 3 ขั้นแรกเปิดกล้อง, ขั้นรันชีท/ใบส่งของอัปโหลดจากแกลเลอรี (เช็ค Trip ID ในภาพตรงกับเที่ยวนี้)
+  /// ถ่ายภาพหรืออัปโหลดรูป: 3 ขั้นแรกเปิดกล้อง (ใช้ฟังก์ชันร่วม stamp overlay), ขั้นรันชีทอัปโหลดจากแกลเลอรี
   Future<void> _takeDeliveryPhoto(String stepKey) async {
     if (kIsWeb) return;
     final picker = ImagePicker();
@@ -137,16 +192,37 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
       imageQuality: 85,
     );
     if (xfile == null || !mounted) return;
-    final imageBytes = await xfile.readAsBytes();
+    List<int> imageBytes = await xfile.readAsBytes();
     if (!mounted) return;
     if (isRunsheetReceived) {
       final ok = await _validateRunsheetTripId(imageBytes);
       if (!mounted) return;
       if (!ok) return;
     }
-    final compressed = await compressImageForUpload(imageBytes);
+    Uint8List compressed;
+    if (isRunsheetReceived) {
+      compressed = await compressImageForUpload(imageBytes);
+    } else {
+      if (_cachedOverlayPosition == null || _cachedOverlayContext == null) {
+        try {
+          final pos = await getCurrentPosition();
+          final ctx = await fetchOverlayContext(pos.latitude, pos.longitude);
+          if (mounted) setState(() {
+            _cachedOverlayPosition = pos;
+            _cachedOverlayContext = ctx;
+          });
+        } catch (_) {}
+      }
+      if (!mounted) return;
+      compressed = await stampOverlayAndCompressForEvidence(
+        imageBytes,
+        position: _cachedOverlayPosition,
+        overlayContext: _cachedOverlayContext,
+      );
+    }
     if (!mounted) return;
     setState(() => _deliveryPhotos[stepKey] = compressed);
+    _saveDeliveryDraft();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -231,6 +307,7 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('delivery_saved'.tr())),
       );
+      DraftStorageService.instance.clearDeliveryDraft();
       MainLayoutScope.of(context)?.onDeliveryCompleted?.call();
       setState(() {
         _saving = false;
@@ -267,8 +344,14 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           TextButton.icon(
-            onPressed: () {
-              // TODO: Handle incident reporting logic
+            onPressed: () async {
+              await Navigator.of(context).push<bool>(
+                MaterialPageRoute<bool>(
+                  builder: (context) => IncidentReportPage(
+                    savedTripSummary: widget.savedTripSummary,
+                  ),
+                ),
+              );
             },
             icon: const Icon(Icons.warning_amber_rounded, color: Colors.orange),
             label: Text(
@@ -332,27 +415,36 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      widget.savedTripSummary?.destination?.isNotEmpty == true
-                          ? widget.savedTripSummary!.destination!
-                          : 'active_delivery'.tr(),
+                      '${'loading_phase_origin'.tr()}  ${widget.savedTripSummary?.origin?.trim().isNotEmpty == true ? widget.savedTripSummary!.origin! : '-'}',
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${'loading_phase_destination'.tr()}  ${widget.savedTripSummary?.destination?.trim().isNotEmpty == true ? widget.savedTripSummary!.destination! : '-'}',
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
                       ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 12),
                     Text(
                       'Trip ID: ${widget.savedTripSummary?.tripId ?? '-'}',
-                      style: const TextStyle(color: Colors.white54, fontSize: 14),
+                      style: const TextStyle(color: Colors.white54, fontSize: 13),
                     ),
-                    if (widget.savedTripSummary?.origin != null &&
-                        widget.savedTripSummary!.origin!.isNotEmpty) ...[
-                      const SizedBox(height: 4),
+                    if (widget.savedTripSummary?.sealCode != null &&
+                        widget.savedTripSummary!.sealCode!.trim().isNotEmpty) ...[
+                      const SizedBox(height: 2),
                       Text(
-                        '${'loading_phase_origin'.tr()}: ${widget.savedTripSummary!.origin}',
-                        style: const TextStyle(
-                            color: Colors.white54, fontSize: 12),
+                        '${'loading_phase_seal_code'.tr()}: ${widget.savedTripSummary!.sealCode}',
+                        style: const TextStyle(color: Colors.white54, fontSize: 13),
                       ),
                     ],
                   ],

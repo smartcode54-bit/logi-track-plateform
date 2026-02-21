@@ -6,6 +6,7 @@ import '../../../home/data/repositories/trip_records_repository.dart';
 Future<void> submitLoadingPhaseRecord({
   required String tripId,
   required String jobType,
+  String? driverId,
   String? sealCode,
   String? origin,
   String? destination,
@@ -39,12 +40,13 @@ Future<void> submitLoadingPhaseRecord({
   final photos = await Future.wait(photoFutures);
   final record = TripRecord(
     id: tripId,
-    status: 'loading',
+    status: 'in_transit', // รับงานแล้ว กำลังนำส่ง (ไม่ใช่ loading)
     jobType: jobType,
     photos: photos,
     ocrData: ocrData,
     spxTripId: tripId,
     sealCode: sealCode,
+    driverId: driverId,
     origin: origin,
     destination: destination,
     distance: distance,

@@ -31,6 +31,7 @@ export default {
     "nav.operations": "Operations",
     "nav.firstMileTasks": "First Mile Tasks",
     "nav.sourceManagement": "Pickup Location Management",
+    "nav.driverMonitor": "Driver Job Monitor",
     "nav.supportCenter": "Support Center",
 
     "nav.subcontractors": "Subcontractors",

@@ -55,6 +55,56 @@ Future<DuplicateCheckResult> checkDuplicateTripIdAndSeal({
   );
 }
 
+/// เช็คสถานะเที่ยวใน DB: คืนค่า status (เช่น 'in_transit', 'delivered') หรือ null ถ้าไม่มีเอกสาร
+/// ใช้ก่อนแสดง/เก็บงาน delivery ค้าง — ถ้าไม่มีหรือ status เป็น delivered แล้ว ไม่เก็บ/ไม่แสดง
+Future<String?> getTripStatus(String tripId) async {
+  if (tripId.trim().isEmpty) return null;
+  try {
+    final doc = await FirebaseFirestore.instance
+        .collection(tripRecordsCollection)
+        .doc(tripId)
+        .get();
+    if (!doc.exists) return null;
+    return doc.data()?['status'] as String?;
+  } catch (_) {
+    return null;
+  }
+}
+
+/// ดึงงานค้างที่ยังไม่ส่ง (status = in_transit) ของ Driver คนนี้ จาก Firestore
+/// ใช้เมื่อเปิดแอปแล้วไม่มี summary ในเครื่อง — query ตาม [driverId]
+/// คืนค่า map สำหรับสร้าง SavedTripSummary หรือ null (ถ้า driverId ว่างหรือไม่มีเที่ยวค้าง)
+Future<Map<String, dynamic>?> getPendingInTransitTrip(String? driverId) async {
+  if (driverId == null || driverId.isEmpty) return null;
+  try {
+    final snapshot = await FirebaseFirestore.instance
+        .collection(tripRecordsCollection)
+        .where('driverId', isEqualTo: driverId)
+        .where('status', isEqualTo: 'in_transit')
+        .limit(10)
+        .get();
+    if (snapshot.docs.isEmpty) return null;
+    // เลือกเที่ยวล่าสุดตาม updatedAt (เรียงใน memory)
+    final doc = snapshot.docs.reduce((a, b) {
+      final aAt = a.data()['updatedAt'] as Timestamp?;
+      final bAt = b.data()['updatedAt'] as Timestamp?;
+      if (aAt == null) return b;
+      if (bAt == null) return a;
+      return bAt.compareTo(aAt) > 0 ? b : a;
+    });
+    final data = doc.data();
+    return {
+      'tripId': doc.id,
+      'origin': data['origin'] as String?,
+      'destination': data['destination'] as String?,
+      'sealCode': data['sealCode'] as String?,
+      'jobType': data['jobType'] as String?,
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
 /// อัปโหลดรูป (bytes) ขึ้น Storage หลังบีบอัดเป็น JPEG max 1024px, quality 70–80%, เป้าหมาย <500KB
 Future<String> uploadTripPhoto({
   required String tripId,

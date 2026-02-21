@@ -33,6 +33,9 @@ export const COLLECTIONS = {
 
     /** Maintenance history records */
     MAINTENANCE: "maintenance",
+
+    /** Trip records (driver jobs - first_mile / line_haul) */
+    TRIP_RECORDS: "trip_records",
 } as const;
 
 /** Type for collection names */

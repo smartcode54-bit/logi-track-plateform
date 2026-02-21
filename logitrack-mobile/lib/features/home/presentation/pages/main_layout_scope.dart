@@ -15,6 +15,27 @@ class SavedTripSummary {
     this.sealCode,
     this.jobType,
   });
+
+  Map<String, dynamic> toJson() => {
+        'tripId': tripId,
+        'origin': origin,
+        'destination': destination,
+        'sealCode': sealCode,
+        'jobType': jobType,
+      };
+
+  static SavedTripSummary? fromJson(Map<String, dynamic>? map) {
+    if (map == null) return null;
+    final tripId = map['tripId'] as String?;
+    if (tripId == null || tripId.isEmpty) return null;
+    return SavedTripSummary(
+      tripId: tripId,
+      origin: map['origin'] as String?,
+      destination: map['destination'] as String?,
+      sealCode: map['sealCode'] as String?,
+      jobType: map['jobType'] as String?,
+    );
+  }
 }
 
 /// ให้ tab อย่าง LoadingPhasePage เรียกไปหน้า Delivery พร้อมส่ง summary ได้

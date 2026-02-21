@@ -31,6 +31,7 @@ export default {
     "nav.operations": "ปฏิบัติการ",
     "nav.firstMileTasks": "งาน First Mile",
     "nav.sourceManagement": "จัดการจุดรับงาน",
+    "nav.driverMonitor": "ติดตามงานคนขับ",
     "nav.supportCenter": "ศูนย์ช่วยเหลือ",
 
     "nav.subcontractors": "ผู้รับเหมาช่วง",

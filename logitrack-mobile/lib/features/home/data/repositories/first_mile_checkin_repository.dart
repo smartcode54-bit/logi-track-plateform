@@ -21,6 +21,35 @@ Future<List<int>> stampImageWithLocationAndTime({
   );
 }
 
+/// ถ่ายรูปหลักฐาน: ใส่ stamp overlay (วันเวลา สถานที่ พิกัด เข็มทิศ) แล้ว compress
+/// [skipOverlay] ถ้า true จะ compress อย่างเดียว (ไม่ stamp) — ใช้เมื่อต้องการความเร็ว
+/// [position] และ [overlayContext] ถ้าส่งมา จะข้าม getCurrentPosition + fetchOverlayContext (ใช้ cache ตอนถ่ายหลายรูป)
+Future<Uint8List> stampOverlayAndCompressForEvidence(
+  List<int> imageBytes, {
+  bool skipOverlay = false,
+  Position? position,
+  OverlayContext? overlayContext,
+}) async {
+  if (skipOverlay) {
+    return compressImageForUpload(imageBytes);
+  }
+  try {
+    final pos = position ?? await getCurrentPosition();
+    final timestamp = DateTime.now();
+    final ctx = overlayContext ?? await fetchOverlayContext(pos.latitude, pos.longitude);
+    final stamped = await overlayGeocodingAndTimestamp(
+      imageBytes: imageBytes,
+      lat: pos.latitude,
+      lng: pos.longitude,
+      timestamp: timestamp,
+      ctx: ctx,
+    );
+    return compressImageForUpload(stamped);
+  } catch (_) {
+    return compressImageForUpload(imageBytes);
+  }
+}
+
 /// Get current position. Throws if permission denied or unavailable.
 Future<Position> getCurrentPosition() async {
   final enabled = await Geolocator.isLocationServiceEnabled();
@@ -36,6 +65,7 @@ Future<Position> getCurrentPosition() async {
 }
 
 /// Upload stamped image to Storage and update first_mile_tasks with check-in data.
+/// รูป Check-in ใส่ stamp overlay เต็ม (วันเวลา สถานที่ พิกัด เข็มทิศ) เพื่อหลักฐาน
 /// [imageBytes] — use XFile.readAsBytes() so it works on web and mobile.
 Future<void> submitCheckIn({
   required String taskId,
@@ -44,11 +74,13 @@ Future<void> submitCheckIn({
   required double lng,
   required DateTime timestamp,
 }) async {
-  final stamped = await stampImageWithLocationAndTime(
+  final ctx = await fetchOverlayContext(lat, lng);
+  final stamped = await overlayGeocodingAndTimestamp(
     imageBytes: imageBytes,
     lat: lat,
     lng: lng,
     timestamp: timestamp,
+    ctx: ctx,
   );
   final compressed = await compressImageForUpload(stamped);
   final ref = FirebaseStorage.instance
