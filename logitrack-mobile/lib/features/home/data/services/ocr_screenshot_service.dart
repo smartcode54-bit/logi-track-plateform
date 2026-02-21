@@ -7,9 +7,17 @@ import 'package:path_provider/path_provider.dart';
 class OcrScreenshotResult {
   final String? tripId;
   final String? sealCode;
-  final String? routeInfo;
+  final String? routeInfo; // (Fallback / old)
+  final String? origin;
+  final String? destination;
 
-  OcrScreenshotResult({this.tripId, this.sealCode, this.routeInfo});
+  OcrScreenshotResult({
+    this.tripId,
+    this.sealCode,
+    this.routeInfo,
+    this.origin,
+    this.destination,
+  });
 }
 
 /// Picks an image from gallery (screenshot), runs OCR, and extracts tripId (LTQ...) and sealCode (SPX...).
@@ -37,7 +45,9 @@ Future<OcrScreenshotResult> runOcrOnImageBytes(List<int> imageBytes) async {
 
   try {
     final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/ocr_screenshot_${DateTime.now().millisecondsSinceEpoch}.jpg');
+    final file = File(
+      '${dir.path}/ocr_screenshot_${DateTime.now().millisecondsSinceEpoch}.jpg',
+    );
     await file.writeAsBytes(imageBytes);
 
     final inputImage = InputImage.fromFilePath(file.path);
@@ -53,11 +63,15 @@ Future<OcrScreenshotResult> runOcrOnImageBytes(List<int> imageBytes) async {
     final tripId = _extractTripId(fullText);
     final sealCode = _extractSealCode(fullText);
     final routeInfo = _extractRouteInfo(fullText);
+    final origin = _extractOrigin(fullText);
+    final destination = _extractDestination(fullText);
 
     return OcrScreenshotResult(
       tripId: tripId?.isNotEmpty == true ? tripId : null,
       sealCode: sealCode?.isNotEmpty == true ? sealCode : null,
       routeInfo: routeInfo?.isNotEmpty == true ? routeInfo : null,
+      origin: origin?.isNotEmpty == true ? origin : null,
+      destination: destination?.isNotEmpty == true ? destination : null,
     );
   } catch (_) {
     return OcrScreenshotResult();
@@ -65,7 +79,8 @@ Future<OcrScreenshotResult> runOcrOnImageBytes(List<int> imageBytes) async {
 }
 
 String? _extractTripId(String text) {
-  final match = RegExp(r'LTQ[A-Za-z0-9\-]+').firstMatch(text);
+  // Support either LTQ... or LT0Q... (Trip IDs)
+  final match = RegExp(r'LT[A-Za-z0-9\-]+').firstMatch(text);
   return match?.group(0);
 }
 
@@ -78,4 +93,27 @@ String? _extractRouteInfo(String text) {
   final routeMatch = RegExp(r'[Rr]oute\s*[:\s]*([^\n]+)').firstMatch(text);
   if (routeMatch != null) return routeMatch.group(1)?.trim();
   return null;
+}
+
+String? _extractOrigin(String text) {
+  // MLKit latin sometimes reads 'สถานีเริ่มต้น' as 'aanūñalu' or similar.
+  // We match either the Thai, or the common garbled result 'aanūñalu' followed by a colon.
+  final match = RegExp(
+    r'(?:สถานีเริ่มต้น|aan[ūu]ñalu|STA|aan[ūu]ri)[:\s]*([a-zA-Z0-9\-]+(?:[\s\-]+[a-zA-Z0-9]+)*)',
+    caseSensitive: false,
+  ).firstMatch(text);
+  return match?.group(1)?.trim();
+}
+
+String? _extractDestination(String text) {
+  // Regex to match "สถานีถัดไป:" or its common garbled equivalent.
+  // "ปลายทาง" is often caught as "Uanu1v" or "UanE1v" depending on the scan.
+  // Let's also look for 'SOCE' or standard patterns if needed, but we'll try to just match following the colon if we can.
+  // The screenshot shows 'ปลายทาง' dropping down, but the label next to SOCE is 'สถานีถัดไป:'.
+  // MLKit might read it as 'anürialJ:'
+  final match = RegExp(
+    r'(?:สถานีถัดไป|anürialJ|Uanu1v|ปลายทางTO|ปลายทาง|STD)[:\s]*([a-zA-Z0-9\-]+(?:[\s\-]+[a-zA-Z0-9]+)*)',
+    caseSensitive: false,
+  ).firstMatch(text);
+  return match?.group(1)?.trim();
 }

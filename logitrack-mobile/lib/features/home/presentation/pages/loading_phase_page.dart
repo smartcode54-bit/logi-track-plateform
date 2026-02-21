@@ -12,10 +12,10 @@ import 'qr_scan_page.dart';
 
 /// ขั้นตอนรูป Loading ตาม shared-docs/.vibe-rules.md (Loading Checklist 4 รูป)
 const List<String> _loadingPhotoStepKeys = [
-  'pre_close',   // ก่อนปิดตู้
-  'closing',     // ระหว่างปิดตู้
-  'seal',        // ซีล
-  'runsheet',    // รันชีท/เอกสารส่งมอบ
+  'pre_close', // ก่อนปิดตู้
+  'closing', // ระหว่างปิดตู้
+  'seal', // ซีล
+  'runsheet', // รันชีท/เอกสารส่งมอบ
 ];
 
 /// หน้างาน Loading Phase: ผู้ใช้กรอก Trip ID, Seal Code, เส้นทาง (manual) ก่อน
@@ -37,9 +37,30 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
   String? _jobType = jobTypeFirstMile;
 
   /// รูปตามขั้นตอน (key = pre_close | closing | seal | runsheet)
-  final Map<String, StampedPhoto> _stepPhotos = {};
+  final Map<String, Uint8List> _stepPhotos = {};
   bool _ocrLoading = false;
   bool _saving = false;
+
+  List<HubDoc> _allHubs = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHubs();
+  }
+
+  Future<void> _loadHubs() async {
+    try {
+      final hubs = await fetchAllHubs();
+      if (mounted) {
+        setState(() {
+          _allHubs = hubs;
+        });
+      }
+    } catch (e) {
+      debugPrint('Failed to load hubs: $e');
+    }
+  }
 
   @override
   void dispose() {
@@ -59,9 +80,9 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       }
       return;
     }
-    final value = await Navigator.of(context).push<String>(
-      MaterialPageRoute(builder: (_) => const QrScanPage()),
-    );
+    final value = await Navigator.of(
+      context,
+    ).push<String>(MaterialPageRoute(builder: (_) => const QrScanPage()));
     if (value != null && mounted) controller.text = value;
   }
 
@@ -75,7 +96,10 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       return;
     }
     final picker = ImagePicker();
-    final xfile = await picker.pickImage(source: ImageSource.camera, imageQuality: 85);
+    final xfile = await picker.pickImage(
+      source: ImageSource.camera,
+      imageQuality: 85,
+    );
     if (xfile == null || !mounted) return;
     final imageBytes = await xfile.readAsBytes();
     if (!mounted) return;
@@ -90,26 +114,15 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         );
         dialogOpen = true;
       }
-      final position = await getCurrentPosition();
-      final timestamp = DateTime.now();
-      final stampedBytes = await overlayGeocodingAndTimestamp(
-        imageBytes: imageBytes,
-        lat: position.latitude,
-        lng: position.longitude,
-        timestamp: timestamp,
-      );
+
+      // Save raw bytes now. We will stamp them on submit.
       if (mounted && dialogOpen) {
         Navigator.of(context).pop();
         dialogOpen = false;
       }
       if (!mounted) return;
       setState(() {
-        _stepPhotos[stepKey] = StampedPhoto(
-          bytes: Uint8List.fromList(stampedBytes),
-          lat: position.latitude,
-          lng: position.longitude,
-          timestamp: timestamp,
-        );
+        _stepPhotos[stepKey] = imageBytes;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('loading_phase_photo_stamped'.tr())),
@@ -118,7 +131,12 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       if (mounted) {
         if (dialogOpen) Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${'loading_phase_photo_failed'.tr()} ${e.toString()}'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text(
+              '${'loading_phase_photo_failed'.tr()} ${e.toString()}',
+            ),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -137,24 +155,40 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     try {
       final picker = ImagePicker();
       final result = await pickScreenshotAndRunOcr(
-        pickImageFromGallery: () => picker.pickImage(source: ImageSource.gallery, imageQuality: 90),
+        pickImageFromGallery: () =>
+            picker.pickImage(source: ImageSource.gallery, imageQuality: 90),
       );
       if (mounted) {
         setState(() {
           _ocrLoading = false;
           if (result.tripId != null) _tripIdController.text = result.tripId!;
-          if (result.sealCode != null) _sealCodeController.text = result.sealCode!;
-          if (result.routeInfo != null) _originController.text = result.routeInfo!;
+          if (result.sealCode != null)
+            _sealCodeController.text = result.sealCode!;
+          if (result.routeInfo != null) {
+            // Fallback for old formatting if Origin is not explicitly found
+            if (_originController.text.isEmpty && result.origin == null) {
+              _originController.text = result.routeInfo!;
+            }
+          }
+          if (result.origin != null) {
+            _originController.text = result.origin!;
+          }
+          if (result.destination != null) {
+            _destinationController.text = result.destination!;
+          }
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('loading_phase_ocr_done'.tr())),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('loading_phase_ocr_done'.tr())));
       }
     } catch (e) {
       if (mounted) {
         setState(() => _ocrLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${'loading_phase_ocr_failed'.tr()} ${e.toString()}'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('${'loading_phase_ocr_failed'.tr()} ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -165,46 +199,70 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     final tripId = _tripIdController.text.trim();
     if (tripId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('loading_phase_trip_id_required'.tr()), backgroundColor: Colors.orange),
+        SnackBar(
+          content: Text('loading_phase_trip_id_required'.tr()),
+          backgroundColor: Colors.orange,
+        ),
       );
       return;
     }
     if (_stepPhotos.length != _loadingPhotoStepKeys.length) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('loading_phase_photos_required'.tr()), backgroundColor: Colors.orange),
+        SnackBar(
+          content: Text('loading_phase_photos_required'.tr()),
+          backgroundColor: Colors.orange,
+        ),
       );
       return;
     }
     setState(() => _saving = true);
     try {
+      final position = await getCurrentPosition();
+      final timestamp = DateTime.now();
+
       final stepPhotos = <String, StampedPhotoInput>{};
       for (final key in _loadingPhotoStepKeys) {
-        final photo = _stepPhotos[key]!;
+        final rawBytes = _stepPhotos[key]!;
+        final stampedBytes = await overlayGeocodingAndTimestamp(
+          imageBytes: rawBytes,
+          lat: position.latitude,
+          lng: position.longitude,
+          timestamp: timestamp,
+        );
         stepPhotos[key] = StampedPhotoInput(
-          bytes: photo.bytes.toList(),
-          lat: photo.lat,
-          lng: photo.lng,
-          timestamp: photo.timestamp,
+          bytes: stampedBytes,
+          lat: position.latitude,
+          lng: position.longitude,
+          timestamp: timestamp,
         );
       }
       await submitLoadingPhaseRecord(
         tripId: tripId,
         jobType: _jobType ?? jobTypeFirstMile,
-        sealCode: _sealCodeController.text.trim().isEmpty ? null : _sealCodeController.text.trim(),
-        origin: _originController.text.trim().isEmpty ? null : _originController.text.trim(),
-        destination: _destinationController.text.trim().isEmpty ? null : _destinationController.text.trim(),
+        sealCode: _sealCodeController.text.trim().isEmpty
+            ? null
+            : _sealCodeController.text.trim(),
+        origin: _originController.text.trim().isEmpty
+            ? null
+            : _originController.text.trim(),
+        destination: _destinationController.text.trim().isEmpty
+            ? null
+            : _destinationController.text.trim(),
         stepPhotos: stepPhotos,
       );
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('loading_phase_saved'.tr())),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('loading_phase_saved'.tr())));
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${'loading_phase_save_failed'.tr()} $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('${'loading_phase_save_failed'.tr()} $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -212,30 +270,38 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
 
   String _stepTitleKey(String stepKey) {
     switch (stepKey) {
-      case 'pre_close': return 'loading_phase_photo_pre_close';
-      case 'closing': return 'loading_phase_photo_closing';
-      case 'seal': return 'loading_phase_photo_seal';
-      case 'runsheet': return 'loading_phase_photo_runsheet';
-      default: return stepKey;
+      case 'pre_close':
+        return 'loading_phase_photo_pre_close';
+      case 'closing':
+        return 'loading_phase_photo_closing';
+      case 'seal':
+        return 'loading_phase_photo_seal';
+      case 'runsheet':
+        return 'loading_phase_photo_runsheet';
+      default:
+        return stepKey;
     }
   }
 
   String _stepDescKey(String stepKey) {
     switch (stepKey) {
-      case 'pre_close': return 'loading_phase_photo_pre_close_desc';
-      case 'closing': return 'loading_phase_photo_closing_desc';
-      case 'seal': return 'loading_phase_photo_seal_desc';
-      case 'runsheet': return 'loading_phase_photo_runsheet_desc';
-      default: return stepKey;
+      case 'pre_close':
+        return 'loading_phase_photo_pre_close_desc';
+      case 'closing':
+        return 'loading_phase_photo_closing_desc';
+      case 'seal':
+        return 'loading_phase_photo_seal_desc';
+      case 'runsheet':
+        return 'loading_phase_photo_runsheet_desc';
+      default:
+        return stepKey;
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('loading_phase_form_title'.tr()),
-      ),
+      appBar: AppBar(title: Text('loading_phase_form_title'.tr())),
       body: Form(
         key: _formKey,
         child: SingleChildScrollView(
@@ -245,20 +311,36 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
             children: [
               Text(
                 'loading_phase_form_subtitle'.tr(),
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
               ),
               const SizedBox(height: 20),
 
               // ประเภทงาน
-              Text('loading_phase_job_type'.tr(), style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
+              Text(
+                'loading_phase_job_type'.tr(),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+              ),
               const SizedBox(height: 8),
               SegmentedButton<String>(
                 segments: [
-                  ButtonSegment(value: jobTypeFirstMile, label: Text('loading_phase_first_mile'.tr()), icon: const Icon(Icons.local_shipping, size: 20)),
-                  ButtonSegment(value: jobTypeLineHaul, label: Text('loading_phase_line_haul'.tr()), icon: const Icon(Icons.directions_transit, size: 20)),
+                  ButtonSegment(
+                    value: jobTypeFirstMile,
+                    label: Text('loading_phase_first_mile'.tr()),
+                    icon: const Icon(Icons.local_shipping, size: 20),
+                  ),
+                  ButtonSegment(
+                    value: jobTypeLineHaul,
+                    label: Text('loading_phase_line_haul'.tr()),
+                    icon: const Icon(Icons.directions_transit, size: 20),
+                  ),
                 ],
                 selected: {_jobType ?? jobTypeFirstMile},
-                onSelectionChanged: (Set<String> selected) => setState(() => _jobType = selected.first),
+                onSelectionChanged: (Set<String> selected) =>
+                    setState(() => _jobType = selected.first),
               ),
               const SizedBox(height: 20),
 
@@ -280,7 +362,9 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                       IconButton(
                         icon: const Icon(Icons.document_scanner),
                         tooltip: 'loading_phase_add_screenshot'.tr(),
-                        onPressed: _ocrLoading ? null : _pickScreenshotAndRunOcr,
+                        onPressed: _ocrLoading
+                            ? null
+                            : _pickScreenshotAndRunOcr,
                       ),
                     ],
                   ),
@@ -303,38 +387,72 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
               ),
               const SizedBox(height: 16),
 
-              TextFormField(
+              DropdownMenu<HubDoc>(
                 controller: _originController,
-                decoration: InputDecoration(
-                  labelText: 'loading_phase_origin'.tr(),
-                  hintText: 'loading_phase_origin_hint'.tr(),
-                  border: const OutlineInputBorder(),
+                expandedInsets: EdgeInsets.zero,
+                label: Text('loading_phase_origin'.tr()),
+                hintText: 'loading_phase_origin_hint'.tr(),
+                enableSearch: true,
+                enableFilter: true,
+                inputDecorationTheme: const InputDecorationTheme(
+                  border: OutlineInputBorder(),
                 ),
+                onSelected: (HubDoc? hub) {
+                  if (hub != null) {
+                    _originController.text = hub.sourceNameEn;
+                  }
+                },
+                dropdownMenuEntries: _allHubs.map((hub) {
+                  return DropdownMenuEntry<HubDoc>(
+                    value: hub,
+                    label: '${hub.sourceNameEn} (${hub.sourceId})',
+                  );
+                }).toList(),
               ),
               const SizedBox(height: 16),
-              TextFormField(
+              DropdownMenu<HubDoc>(
                 controller: _destinationController,
-                decoration: InputDecoration(
-                  labelText: 'loading_phase_destination'.tr(),
-                  hintText: 'loading_phase_destination_hint'.tr(),
-                  border: const OutlineInputBorder(),
+                expandedInsets: EdgeInsets.zero,
+                label: Text('loading_phase_destination'.tr()),
+                hintText: 'loading_phase_destination_hint'.tr(),
+                enableSearch: true,
+                enableFilter: true,
+                inputDecorationTheme: const InputDecorationTheme(
+                  border: OutlineInputBorder(),
                 ),
+                onSelected: (HubDoc? hub) {
+                  if (hub != null) {
+                    _destinationController.text = hub.sourceNameEn;
+                  }
+                },
+                dropdownMenuEntries: _allHubs.map((hub) {
+                  return DropdownMenuEntry<HubDoc>(
+                    value: hub,
+                    label: '${hub.sourceNameEn} (${hub.sourceId})',
+                  );
+                }).toList(),
               ),
               const SizedBox(height: 8),
               Text(
                 'loading_phase_add_screenshot_subtitle'.tr(),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
               ),
               const SizedBox(height: 24),
 
               // --- รูปถ่ายตามขั้นตอน (4 รูป ตาม .vibe-rules.md) ---
               Text(
                 'loading_phase_photos_step_title'.tr(),
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
               ),
               Text(
                 'loading_phase_photos_step_subtitle'.tr(),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
               ),
               const SizedBox(height: 12),
               ..._loadingPhotoStepKeys.map((stepKey) {
@@ -354,13 +472,19 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                           const SizedBox(height: 4),
                           Text(
                             _stepDescKey(stepKey).tr(),
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: Colors.grey[600]),
                           ),
                           const SizedBox(height: 8),
                           if (photo != null) ...[
                             ClipRRect(
                               borderRadius: BorderRadius.circular(8),
-                              child: Image.memory(photo.bytes, height: 120, width: double.infinity, fit: BoxFit.cover),
+                              child: Image.memory(
+                                photo,
+                                height: 120,
+                                width: double.infinity,
+                                fit: BoxFit.cover,
+                              ),
                             ),
                             const SizedBox(height: 8),
                             OutlinedButton.icon(
@@ -384,9 +508,17 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
 
               FilledButton.icon(
                 onPressed: _saving ? null : _submitForm,
-                icon: _saving ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save),
+                icon: _saving
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.save),
                 label: Text('loading_phase_save'.tr()),
-                style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
               ),
             ],
           ),
@@ -402,5 +534,10 @@ class StampedPhoto {
   final double lng;
   final DateTime timestamp;
 
-  StampedPhoto({required this.bytes, required this.lat, required this.lng, required this.timestamp});
+  StampedPhoto({
+    required this.bytes,
+    required this.lat,
+    required this.lng,
+    required this.timestamp,
+  });
 }

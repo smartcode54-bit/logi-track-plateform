@@ -42,14 +42,19 @@ class HubDoc {
       sourceNameEn: (data['source_name_en'] ?? '').toString(),
       latitude: lat is num ? lat.toDouble() : null,
       longitude: lng is num ? lng.toDouble() : null,
-      stationType: (data['station_type'] ?? stationTypeHub).toString().toUpperCase() == stationTypeSoc
+      stationType:
+          (data['station_type'] ?? stationTypeHub).toString().toUpperCase() ==
+              stationTypeSoc
           ? stationTypeSoc
           : stationTypeHub,
     );
   }
 
   bool get hasCoordinates =>
-      latitude != null && longitude != null && latitude!.isFinite && longitude!.isFinite;
+      latitude != null &&
+      longitude != null &&
+      latitude!.isFinite &&
+      longitude!.isFinite;
 }
 
 /// Fetches all hubs (and SOCs) with coordinates from Firestore.
@@ -62,6 +67,19 @@ Future<List<HubDoc>> fetchHubsWithCoordinates() async {
   for (final doc in snap.docs) {
     final hub = HubDoc.fromFirestore(doc.data(), doc.id);
     if (hub.hasCoordinates) list.add(hub);
+  }
+  return list;
+}
+
+/// Fetches all hubs (and SOCs) from Firestore, regardless of whether they have coordinates.
+Future<List<HubDoc>> fetchAllHubs() async {
+  final snap = await FirebaseFirestore.instance
+      .collection(hubsCollection)
+      .get();
+
+  final list = <HubDoc>[];
+  for (final doc in snap.docs) {
+    list.add(HubDoc.fromFirestore(doc.data(), doc.id));
   }
   return list;
 }

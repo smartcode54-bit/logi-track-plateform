@@ -41,8 +41,14 @@ class AuthRepository {
       try {
         googleUser = await GoogleSignIn.instance.authenticate();
       } catch (e) {
-        // User canceled the sign-in or other UI error
-        return null;
+        // If the user cancelled, we return null so the UI doesn't show a scary red error.
+        // Otherwise, throw so we can see the real issue (like missing SHA-1 hash).
+        if (e.toString().contains('sign_in_canceled')) {
+          return null;
+        }
+        // Print and throw for debugging
+        print('Google Sign-In Error: $e');
+        throw Exception('Google Sign-In Error: $e');
       }
 
       final GoogleSignInAuthentication googleAuth = googleUser.authentication;
