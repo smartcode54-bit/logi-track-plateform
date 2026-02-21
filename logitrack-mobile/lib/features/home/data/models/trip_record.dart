@@ -11,6 +11,12 @@ class TripRecord {
   final String? origin;
   final String? destination;
   final String? sealCode;
+  final String? distance;
+  final int? parcelCount;
+  final String? sealTime;
+  final String? totalWeight;
+  final double? lat;
+  final double? lng;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -25,6 +31,12 @@ class TripRecord {
     this.origin,
     this.destination,
     this.sealCode,
+    this.distance,
+    this.parcelCount,
+    this.sealTime,
+    this.totalWeight,
+    this.lat,
+    this.lng,
     this.createdAt,
     this.updatedAt,
   });
@@ -41,6 +53,12 @@ class TripRecord {
       if (origin != null) 'origin': origin,
       if (destination != null) 'destination': destination,
       if (sealCode != null) 'sealCode': sealCode,
+      if (distance != null) 'distance': distance,
+      if (parcelCount != null) 'parcelCount': parcelCount,
+      if (sealTime != null) 'sealTime': sealTime,
+      if (totalWeight != null) 'totalWeight': totalWeight,
+      if (lat != null) 'lat': lat,
+      if (lng != null) 'lng': lng,
       'createdAt': createdAt ?? now,
       'updatedAt': updatedAt ?? now,
     };
@@ -55,10 +73,10 @@ class TripPhoto {
   const TripPhoto({required this.url, required this.type, this.geocoding});
 
   Map<String, dynamic> toMap() => {
-        'url': url,
-        'type': type,
-        if (geocoding != null) 'geocoding': geocoding!.toMap(),
-      };
+    'url': url,
+    'type': type,
+    if (geocoding != null) 'geocoding': geocoding!.toMap(),
+  };
 }
 
 class TripPhotoGeocoding {
@@ -70,11 +88,11 @@ class TripPhotoGeocoding {
   const TripPhotoGeocoding({this.lat, this.lng, this.address, this.timestamp});
 
   Map<String, dynamic> toMap() => {
-        if (lat != null) 'lat': lat,
-        if (lng != null) 'lng': lng,
-        if (address != null) 'address': address,
-        if (timestamp != null) 'timestamp': timestamp?.toIso8601String(),
-      };
+    if (lat != null) 'lat': lat,
+    if (lng != null) 'lng': lng,
+    if (address != null) 'address': address,
+    if (timestamp != null) 'timestamp': timestamp?.toIso8601String(),
+  };
 }
 
 class TripOcrData {
@@ -85,8 +103,8 @@ class TripOcrData {
   const TripOcrData({this.tripId, this.sealCode, this.routeInfo});
 
   Map<String, dynamic> toMap() => {
-        if (tripId != null) 'tripId': tripId,
-        if (sealCode != null) 'sealCode': sealCode,
-        if (routeInfo != null) 'routeInfo': routeInfo,
-      };
+    if (tripId != null) 'tripId': tripId,
+    if (sealCode != null) 'sealCode': sealCode,
+    if (routeInfo != null) 'routeInfo': routeInfo,
+  };
 }

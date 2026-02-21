@@ -16,9 +16,9 @@ Future<String> uploadTripPhoto({
   required String photoType,
   required List<int> imageBytes,
 }) async {
-  final ref = FirebaseStorage.instance
-      .ref()
-      .child(tripRecordPhotoPath(tripId, photoType));
+  final ref = FirebaseStorage.instance.ref().child(
+    tripRecordPhotoPath(tripId, photoType),
+  );
   await ref.putData(
     Uint8List.fromList(imageBytes),
     SettableMetadata(contentType: 'image/png'),
@@ -27,14 +27,18 @@ Future<String> uploadTripPhoto({
 }
 
 /// บันทึกรับงาน (Loading Phase) ลง TripRecords
-/// [tripId] = Trip ID จาก Shop Express (spxTripId) ใช้เป็น document id
-/// [stepPhotos] = map key เป็น pre_close | closing | seal | runsheet, value เป็น StampedPhoto (bytes + lat, lng, timestamp)
 Future<void> submitLoadingPhaseRecord({
   required String tripId,
   required String jobType,
   String? sealCode,
   String? origin,
   String? destination,
+  String? distance,
+  int? parcelCount,
+  String? sealTime,
+  String? totalWeight,
+  double? lat,
+  double? lng,
   required Map<String, StampedPhotoInput> stepPhotos,
   TripOcrData? ocrData,
 }) async {
@@ -47,15 +51,17 @@ Future<void> submitLoadingPhaseRecord({
       photoType: type,
       imageBytes: photo.bytes,
     );
-    photos.add(TripPhoto(
-      url: url,
-      type: type,
-      geocoding: TripPhotoGeocoding(
-        lat: photo.lat,
-        lng: photo.lng,
-        timestamp: photo.timestamp,
+    photos.add(
+      TripPhoto(
+        url: url,
+        type: type,
+        geocoding: TripPhotoGeocoding(
+          lat: photo.lat,
+          lng: photo.lng,
+          timestamp: photo.timestamp,
+        ),
       ),
-    ));
+    );
   }
   final record = TripRecord(
     id: tripId,
@@ -67,14 +73,23 @@ Future<void> submitLoadingPhaseRecord({
     sealCode: sealCode,
     origin: origin,
     destination: destination,
+    distance: distance,
+    parcelCount: parcelCount,
+    sealTime: sealTime,
+    totalWeight: totalWeight,
+    lat: lat,
+    lng: lng,
     createdAt: DateTime.now(),
     updatedAt: DateTime.now(),
   );
   final data = record.toFirestore();
-  // Convert DateTime to Timestamp for Firestore
   final map = Map<String, dynamic>.from(data);
-  if (map['createdAt'] is DateTime) map['createdAt'] = Timestamp.fromDate(map['createdAt'] as DateTime);
-  if (map['updatedAt'] is DateTime) map['updatedAt'] = Timestamp.fromDate(map['updatedAt'] as DateTime);
+  if (map['createdAt'] is DateTime) {
+    map['createdAt'] = Timestamp.fromDate(map['createdAt'] as DateTime);
+  }
+  if (map['updatedAt'] is DateTime) {
+    map['updatedAt'] = Timestamp.fromDate(map['updatedAt'] as DateTime);
+  }
   await FirebaseFirestore.instance
       .collection(tripRecordsCollection)
       .doc(tripId)

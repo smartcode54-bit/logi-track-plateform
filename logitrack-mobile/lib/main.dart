@@ -19,7 +19,19 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: ".env");
   await EasyLocalization.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (e) {
+    // If Firebase is already initialized by google-services.json (Android),
+    // just use the existing instance.
+    if (e.toString().contains('duplicate-app')) {
+      Firebase.app(); // Use the already-initialized default app
+    } else {
+      rethrow;
+    }
+  }
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
   runApp(

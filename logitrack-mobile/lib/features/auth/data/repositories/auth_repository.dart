@@ -1,10 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 class AuthRepository {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  static bool _googleInitialized = false;
 
   Future<User?> signInWithEmail(String email, String password) async {
     try {
@@ -39,6 +41,14 @@ class AuthRepository {
     try {
       final GoogleSignInAccount googleUser;
       try {
+        // Initialize GoogleSignIn with the Web Client ID from env (only once)
+        if (!_googleInitialized) {
+          final serverClientId = dotenv.env['FIREBASE_WEB_CLIENT_ID'];
+          await GoogleSignIn.instance.initialize(
+            serverClientId: serverClientId,
+          );
+          _googleInitialized = true;
+        }
         googleUser = await GoogleSignIn.instance.authenticate();
       } catch (e) {
         // If the user cancelled, we return null so the UI doesn't show a scary red error.

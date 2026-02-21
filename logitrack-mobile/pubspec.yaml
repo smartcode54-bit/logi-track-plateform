@@ -51,6 +51,8 @@ dependencies:
   cupertino_icons: ^1.0.8
   flutter_dotenv: ^6.0.0
   google_sign_in: ^7.2.0
+  geocoding: ^4.0.0
+  flutter_compass: ^0.8.1
 
 dev_dependencies:
   flutter_test:
