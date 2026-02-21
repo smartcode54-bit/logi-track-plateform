@@ -1,0 +1,155 @@
+import 'package:flutter/material.dart';
+import 'package:easy_localization/easy_localization.dart';
+import 'home_page.dart';
+import 'loading_phase_page.dart';
+
+class MainLayout extends StatefulWidget {
+  const MainLayout({super.key});
+
+  @override
+  State<MainLayout> createState() => _MainLayoutState();
+}
+
+class _MainLayoutState extends State<MainLayout> {
+  int _currentIndex = 0;
+
+  // List of screens for the first 3 tabs
+  final List<Widget> _screens = [
+    const HomePage(),
+    const LoadingPhasePage(),
+    const _PlaceholderScreen(titleKey: 'nav_delivery'),
+  ];
+
+  void _onItemTapped(int index) {
+    if (index == 3) {
+      // 4th tab is Vehicle Management. Show bottom sheet and don't change _currentIndex
+      _showVehicleBottomSheet(context);
+    } else {
+      setState(() {
+        _currentIndex = index;
+      });
+    }
+  }
+
+  void _showVehicleBottomSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              vertical: 24.0,
+              horizontal: 16.0,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'nav_vehicle'.tr(),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: Colors.blue.withOpacity(0.1),
+                    child: const Icon(
+                      Icons.local_gas_station,
+                      color: Colors.blue,
+                    ),
+                  ),
+                  title: Text('vehicle_refuel'.tr()),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    // Handle refuel action
+                  },
+                ),
+                ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: Colors.orange.withOpacity(0.1),
+                    child: const Icon(Icons.tire_repair, color: Colors.orange),
+                  ),
+                  title: Text('vehicle_tire_repair'.tr()),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    // Handle tire repair action
+                  },
+                ),
+                ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: Colors.grey.withOpacity(0.1),
+                    child: const Icon(Icons.car_repair, color: Colors.grey),
+                  ),
+                  title: Text('vehicle_other'.tr()),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    // Handle other car related action
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: IndexedStack(index: _currentIndex, children: _screens),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _currentIndex,
+        onTap: _onItemTapped,
+        type: BottomNavigationBarType.fixed,
+        selectedItemColor: Theme.of(context).colorScheme.primary,
+        unselectedItemColor: Colors.grey,
+        showUnselectedLabels: true,
+        items: [
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.home),
+            label: 'nav_home'.tr(),
+          ),
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.local_shipping),
+            label: 'nav_pickup'.tr(),
+          ),
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.inventory),
+            label: 'nav_delivery'.tr(),
+          ),
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.directions_car),
+            label: 'nav_vehicle'.tr(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// Simple placeholder for pickup/delivery screens while they are built
+class _PlaceholderScreen extends StatelessWidget {
+  final String titleKey;
+
+  const _PlaceholderScreen({required this.titleKey});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(titleKey.tr())),
+      body: Center(
+        child: Text(
+          titleKey.tr(),
+          style: Theme.of(context).textTheme.headlineMedium,
+        ),
+      ),
+    );
+  }
+}

@@ -10,6 +10,7 @@ import '../../data/repositories/first_mile_task_repository.dart';
 import '../../data/repositories/first_mile_checkin_repository.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
+import '../../../../components/quick_action_card.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -111,7 +112,9 @@ class _HomePageState extends State<HomePage> {
                     radius: 28,
                     backgroundColor: Colors.white.withOpacity(0.3),
                     child: Text(
-                      displayName.isNotEmpty ? displayName[0].toUpperCase() : 'D',
+                      displayName.isNotEmpty
+                          ? displayName[0].toUpperCase()
+                          : 'D',
                       style: const TextStyle(
                         fontSize: 28,
                         fontWeight: FontWeight.bold,
@@ -150,7 +153,9 @@ class _HomePageState extends State<HomePage> {
               leading: const Icon(Icons.language),
               title: Text('language'.tr()),
               subtitle: Text(
-                context.locale.languageCode == 'th' ? 'language_th'.tr() : 'language_en'.tr(),
+                context.locale.languageCode == 'th'
+                    ? 'language_th'.tr()
+                    : 'language_en'.tr(),
               ),
               onTap: () {
                 Navigator.pop(context);
@@ -190,76 +195,88 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'welcome_user'.tr(args: [displayName]),
-              style: Theme.of(context).textTheme.headlineSmall,
+      body: CustomScrollView(
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.all(16.0),
+            sliver: SliverToBoxAdapter(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'welcome_user'.tr(args: [displayName]),
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: 24),
+                  StreamBuilder<List<Map<String, dynamic>>>(
+                    stream: streamTasksForDriver(_driverId ?? ''),
+                    builder: (context, snap) {
+                      final tasks = snap.data ?? [];
+                      final activeCount = tasks.where((t) {
+                        final s = t['status'] as String?;
+                        return s != 'Completed' && s != 'Cancelled';
+                      }).length;
+                      return _buildSummaryCard(
+                        context,
+                        taskCount: activeCount,
+                        totalCount: tasks.length,
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 24),
+                  Text(
+                    'quick_actions'.tr(),
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
             ),
-            const SizedBox(height: 24),
-            StreamBuilder<List<Map<String, dynamic>>>(
-              stream: streamTasksForDriver(_driverId ?? ''),
-              builder: (context, snap) {
-                final tasks = snap.data ?? [];
-                final activeCount = tasks.where((t) {
-                  final s = t['status'] as String?;
-                  return s != 'Completed' && s != 'Cancelled';
-                }).length;
-                return _buildSummaryCard(context, taskCount: activeCount, totalCount: tasks.length);
-              },
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'quick_actions'.tr(),
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 16),
-            Row(
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            sliver: SliverGrid.count(
+              crossAxisCount: 2,
+              mainAxisSpacing: 16.0,
+              crossAxisSpacing: 16.0,
+              childAspectRatio: 1.2,
               children: [
-                Expanded(
-                  child: _buildActionCard(
+                QuickActionCard(
+                  icon: Icons.local_shipping,
+                  label: 'my_tasks'.tr(),
+                  onTap: () => Navigator.pushNamed(
                     context,
-                    icon: Icons.local_shipping,
-                    label: 'my_tasks'.tr(),
-                    onTap: () => Navigator.pushNamed(context, '/check-in', arguments: _driverId),
+                    '/check-in',
+                    arguments: _driverId,
                   ),
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildActionCard(
-                    context,
-                    icon: Icons.history,
-                    label: 'history'.tr(),
-                    onTap: () {},
-                  ),
+                QuickActionCard(
+                  icon: Icons.history,
+                  label: 'history'.tr(),
+                  onTap: () {},
+                ),
+                QuickActionCard(
+                  icon: Icons.warning_amber_rounded,
+                  label: 'admin_support'.tr(),
+                  iconColor: Colors.orange,
+                  onTap: () {
+                    // Navigate to emergency support or open dialog
+                  },
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildActionCard(
-                    context,
-                    icon: Icons.inventory_2_outlined,
-                    label: 'loading_phase_form_title'.tr(),
-                    onTap: () => Navigator.pushNamed(context, '/loading-phase'),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                const Expanded(child: SizedBox()),
-              ],
-            ),
-          ],
-        ),
+          ),
+          const SliverPadding(padding: EdgeInsets.only(bottom: 32.0)),
+        ],
       ),
     );
   }
 
-  Widget _buildSummaryCard(BuildContext context, {int taskCount = 0, int totalCount = 0}) {
+  Widget _buildSummaryCard(
+    BuildContext context, {
+    int taskCount = 0,
+    int totalCount = 0,
+  }) {
     final hasTasks = totalCount > 0;
     return Card(
       elevation: 4,
@@ -282,14 +299,20 @@ class _HomePageState extends State<HomePage> {
                       hasTasks
                           ? (taskCount == 1 ? '1 task' : '$taskCount tasks')
                           : 'no_active_tasks'.tr(),
-                      style: TextStyle(color: hasTasks ? Theme.of(context).colorScheme.primary : Colors.grey),
+                      style: TextStyle(
+                        color: hasTasks
+                            ? Theme.of(context).colorScheme.primary
+                            : Colors.grey,
+                      ),
                     ),
                   ],
                 ),
                 Icon(
                   Icons.assignment_turned_in,
                   size: 40,
-                  color: hasTasks ? Theme.of(context).colorScheme.primary : Colors.green,
+                  color: hasTasks
+                      ? Theme.of(context).colorScheme.primary
+                      : Colors.green,
                 ),
               ],
             ),
@@ -311,11 +334,14 @@ class _HomePageState extends State<HomePage> {
         builder: (_, scrollController) => StreamBuilder<List<Map<String, dynamic>>>(
           stream: streamTasksForDriver(_driverId ?? ''),
           builder: (context, snap) {
-            if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
-              return const Center(child: Padding(
-                padding: EdgeInsets.all(24.0),
-                child: CircularProgressIndicator(),
-              ));
+            if (snap.connectionState == ConnectionState.waiting &&
+                !snap.hasData) {
+              return const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(24.0),
+                  child: CircularProgressIndicator(),
+                ),
+              );
             }
             if (snap.hasError) {
               return Padding(
@@ -325,9 +351,17 @@ class _HomePageState extends State<HomePage> {
                   children: [
                     Icon(Icons.error_outline, size: 48, color: Colors.red[700]),
                     const SizedBox(height: 16),
-                    Text('Error: ${snap.error}', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey[700], fontSize: 12)),
+                    Text(
+                      'Error: ${snap.error}',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.grey[700], fontSize: 12),
+                    ),
                     const SizedBox(height: 8),
-                    Text('If you see "index", create the Firestore index from the link in the error.', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey[600], fontSize: 11)),
+                    Text(
+                      'If you see "index", create the Firestore index from the link in the error.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.grey[600], fontSize: 11),
+                    ),
                   ],
                 ),
               );
@@ -339,9 +373,15 @@ class _HomePageState extends State<HomePage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('no_active_tasks'.tr(), style: Theme.of(context).textTheme.titleMedium),
+                    Text(
+                      'no_active_tasks'.tr(),
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
                     const SizedBox(height: 16),
-                    Text('No tasks assigned yet.', style: TextStyle(color: Colors.grey[600])),
+                    Text(
+                      'No tasks assigned yet.',
+                      style: TextStyle(color: Colors.grey[600]),
+                    ),
                   ],
                 ),
               );
@@ -358,12 +398,14 @@ class _HomePageState extends State<HomePage> {
                 final date = t['date'];
                 final time = t['time'] ?? '';
                 final status = t['status'] ?? '';
-                final canCheckIn = taskId != null &&
+                final canCheckIn =
+                    taskId != null &&
                     status != 'Checked in' &&
                     status != 'Completed' &&
                     status != 'Cancelled';
                 String dateStr = '';
-                if (date != null && date is DateTime) dateStr = '${date.day}/${date.month}/${date.year}';
+                if (date != null && date is DateTime)
+                  dateStr = '${date.day}/${date.month}/${date.year}';
                 return Card(
                   margin: const EdgeInsets.only(bottom: 8),
                   child: ListTile(
@@ -392,13 +434,19 @@ class _HomePageState extends State<HomePage> {
     if (kIsWeb && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('On web: select an image file. To use camera, run the app on Android or iOS.'.tr()),
+          content: Text(
+            'On web: select an image file. To use camera, run the app on Android or iOS.'
+                .tr(),
+          ),
           duration: const Duration(seconds: 4),
         ),
       );
     }
     final picker = ImagePicker();
-    final xfile = await picker.pickImage(source: ImageSource.camera, imageQuality: 85);
+    final xfile = await picker.pickImage(
+      source: ImageSource.camera,
+      imageQuality: 85,
+    );
     if (xfile == null || !context.mounted) return;
     final imageBytes = await xfile.readAsBytes();
     if (!context.mounted) return;
@@ -415,7 +463,10 @@ class _HomePageState extends State<HomePage> {
       dialogOpen = true;
       final position = await getCurrentPosition();
       if (!context.mounted) return;
-      if (dialogOpen) { Navigator.of(context).pop(); dialogOpen = false; }
+      if (dialogOpen) {
+        Navigator.of(context).pop();
+        dialogOpen = false;
+      }
       await submitCheckIn(
         taskId: taskId,
         imageBytes: imageBytes,
@@ -424,14 +475,17 @@ class _HomePageState extends State<HomePage> {
         timestamp: timestamp,
       );
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Check-in saved'.tr())),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Check-in saved'.tr())));
     } catch (e) {
       if (context.mounted) {
         if (dialogOpen) Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Check-in failed: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Check-in failed: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -448,15 +502,18 @@ class _HomePageState extends State<HomePage> {
             children: [
               Text(
                 'language'.tr(),
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 16),
               ListTile(
                 title: Text('language_en'.tr()),
                 trailing: context.locale.languageCode == 'en'
-                    ? Icon(Icons.radio_button_checked, color: Theme.of(context).colorScheme.primary)
+                    ? Icon(
+                        Icons.radio_button_checked,
+                        color: Theme.of(context).colorScheme.primary,
+                      )
                     : const Icon(Icons.radio_button_off),
                 onTap: () async {
                   await context.setLocale(const Locale('en'));
@@ -469,7 +526,10 @@ class _HomePageState extends State<HomePage> {
               ListTile(
                 title: Text('language_th'.tr()),
                 trailing: context.locale.languageCode == 'th'
-                    ? Icon(Icons.radio_button_checked, color: Theme.of(context).colorScheme.primary)
+                    ? Icon(
+                        Icons.radio_button_checked,
+                        color: Theme.of(context).colorScheme.primary,
+                      )
                     : const Icon(Icons.radio_button_off),
                 onTap: () async {
                   await context.setLocale(const Locale('th'));
@@ -479,35 +539,6 @@ class _HomePageState extends State<HomePage> {
                   }
                 },
               ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildActionCard(
-    BuildContext context, {
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-  }) {
-    return Card(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 24.0, horizontal: 16.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                icon,
-                size: 32,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-              const SizedBox(height: 12),
-              Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
             ],
           ),
         ),

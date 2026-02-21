@@ -12,13 +12,13 @@ export default {
     "firstMile.filter.pickDate": "Pick a date",
     "firstMile.filter.destination": "Destination (SOC)",
     "firstMile.filter.allSOCs": "All SOCs",
-    "firstMile.filter.sourceHub": "Source Hub",
-    "firstMile.filter.selectHub": "Select Hub...",
-    "firstMile.filter.allHubs": "All Hubs",
+    "firstMile.filter.sourceHub": "Pickup Point",
+    "firstMile.filter.selectHub": "Select pickup point...",
+    "firstMile.filter.allHubs": "All Pickup Points",
 
     // Table Headers
     "firstMile.table.date": "Date",
-    "firstMile.table.sourceHub": "Source Hub",
+    "firstMile.table.sourceHub": "Pickup Point",
     "firstMile.table.destination": "Destination",
     "firstMile.table.time": "Time",
     "firstMile.table.type": "Type",

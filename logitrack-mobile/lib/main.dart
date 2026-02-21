@@ -8,10 +8,11 @@ import 'package:device_preview/device_preview.dart';
 import 'core/theme/theme_controller.dart';
 import 'core/services/fcm_service.dart';
 import 'features/auth/presentation/pages/login_page.dart';
-import 'features/home/presentation/pages/home_page.dart';
+import 'features/home/presentation/pages/main_layout.dart';
 import 'features/home/presentation/pages/check_in_page.dart';
 import 'features/home/presentation/pages/loading_phase_page.dart';
 import 'features/profile/presentation/pages/profile_page.dart';
+import 'features/job_record/presentation/pages/job_record_page.dart';
 import 'firebase_options.dart';
 
 void main() async {
@@ -141,13 +142,15 @@ class MyApp extends StatelessWidget {
           ),
           home: const LoginPage(),
           routes: {
-            '/home': (context) => const HomePage(),
+            '/home': (context) => const MainLayout(),
             '/check-in': (context) {
-              final driverId = ModalRoute.of(context)?.settings.arguments as String?;
+              final driverId =
+                  ModalRoute.of(context)?.settings.arguments as String?;
               return CheckInPage(driverId: driverId ?? '');
             },
             '/loading-phase': (context) => const LoadingPhasePage(),
             '/profile': (context) => const ProfilePage(),
+            '/job-record': (context) => const JobRecordPage(),
           },
         );
       },
