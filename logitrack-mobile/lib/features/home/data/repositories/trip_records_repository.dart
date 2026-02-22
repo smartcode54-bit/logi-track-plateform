@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import '../models/trip_record.dart';
 import '../services/image_compression_service.dart';
 
 /// ชื่อ collection ตาม shared-docs (TripRecords - SSOT for Web Dashboard & Billing)
@@ -53,6 +54,37 @@ Future<DuplicateCheckResult> checkDuplicateTripIdAndSeal({
     tripIdExists: tripIdExists,
     sealCodeExists: sealCodeExists,
   );
+}
+
+/// ดึงประวัติเที่ยวของคนขับ (สำหรับหน้า ประวัติการรับและส่ง) เรียง createdAt ล่าสุดก่อน
+/// ใช้แค่ where(driverId) แล้วเรียงใน memory เพื่อไม่ต้องใช้ composite index
+Future<List<TripRecord>> getTripHistoryByDriver(String driverId) async {
+  if (driverId.isEmpty) return [];
+  try {
+    final snapshot = await FirebaseFirestore.instance
+        .collection(tripRecordsCollection)
+        .where('driverId', isEqualTo: driverId)
+        .get();
+    final list = snapshot.docs
+        .map((doc) => TripRecord.fromMap(
+              doc.data(),
+              id: doc.id,
+            ))
+        .toList();
+    list.sort((a, b) {
+      final at = a.createdAt ?? DateTime(0);
+      final bt = b.createdAt ?? DateTime(0);
+      return bt.compareTo(at);
+    });
+    return list.take(300).toList();
+  } catch (e, st) {
+    assert(() {
+      // ignore: avoid_print
+      print('getTripHistoryByDriver error: $e\n$st');
+      return true;
+    }());
+    return [];
+  }
 }
 
 /// เช็คสถานะเที่ยวใน DB: คืนค่า status (เช่น 'in_transit', 'delivered') หรือ null ถ้าไม่มีเอกสาร

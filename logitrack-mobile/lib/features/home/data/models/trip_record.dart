@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 /// โมเดลตาม shared-docs/schemas/trip-record.ts (TripRecords collection)
 /// ใช้สำหรับบันทึกรับงาน (Loading Phase) และสถานะ trip อื่นๆ
 class TripRecord {
@@ -31,6 +33,79 @@ class TripRecord {
   final double? durationMinutes;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+
+  static DateTime? _parseDate(dynamic v) {
+    if (v == null) return null;
+    if (v is DateTime) return v;
+    if (v is Timestamp) return v.toDate();
+    if (v is String) return DateTime.tryParse(v);
+    return null;
+  }
+
+  /// สร้างจาก Firestore doc (หรือ map จาก API)
+  factory TripRecord.fromMap(Map<String, dynamic> map, {String? id}) {
+    final photosRaw = map['photos'];
+    List<TripPhoto> photos = const [];
+    if (photosRaw is List) {
+      photos = photosRaw.map((e) {
+        if (e is Map<String, dynamic>) {
+          TripPhotoGeocoding? geo;
+          final g = e['geocoding'];
+          if (g is Map<String, dynamic>) {
+            geo = TripPhotoGeocoding(
+              lat: (g['lat'] as num?)?.toDouble(),
+              lng: (g['lng'] as num?)?.toDouble(),
+              address: g['address'] as String?,
+              timestamp: _parseDate(g['timestamp']),
+            );
+          }
+          return TripPhoto(
+            url: (e['url'] as String?) ?? '',
+            type: (e['type'] as String?) ?? '',
+            geocoding: geo,
+          );
+        }
+        return const TripPhoto(url: '', type: '');
+      }).toList();
+    }
+    TripOcrData? ocrData;
+    final ocr = map['ocrData'];
+    if (ocr is Map<String, dynamic>) {
+      ocrData = TripOcrData(
+        tripId: ocr['tripId'] as String?,
+        sealCode: ocr['sealCode'] as String?,
+        routeInfo: ocr['routeInfo'] as String?,
+      );
+    }
+    return TripRecord(
+      id: id ?? map['id'] as String?,
+      status: (map['status'] as String?) ?? 'loading',
+      jobType: (map['jobType'] as String?) ?? 'first_mile',
+      photos: photos,
+      ocrData: ocrData,
+      spxTripId: map['spxTripId'] as String?,
+      taskId: map['taskId'] as String?,
+      origin: map['origin'] as String?,
+      destination: map['destination'] as String?,
+      sealCode: map['sealCode'] as String?,
+      driverId: map['driverId'] as String?,
+      distance: map['distance'] as String?,
+      parcelCount: (map['parcelCount'] as num?)?.toInt(),
+      sealTime: map['sealTime'] as String?,
+      totalWeight: map['totalWeight'] as String?,
+      lat: (map['lat'] as num?)?.toDouble(),
+      lng: (map['lng'] as num?)?.toDouble(),
+      deliveredTimestamp: _parseDate(map['deliveredTimestamp']),
+      deliveredLat: (map['deliveredLat'] as num?)?.toDouble(),
+      deliveredLng: (map['deliveredLng'] as num?)?.toDouble(),
+      std: _parseDate(map['std']),
+      sta: _parseDate(map['sta']),
+      ata: _parseDate(map['ata']),
+      durationMinutes: (map['durationMinutes'] as num?)?.toDouble(),
+      createdAt: _parseDate(map['createdAt']),
+      updatedAt: _parseDate(map['updatedAt']),
+    );
+  }
 
   const TripRecord({
     this.id,

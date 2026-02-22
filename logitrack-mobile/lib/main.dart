@@ -5,7 +5,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:device_preview/device_preview.dart';
+// import 'package:device_preview/device_preview.dart';
 import 'core/theme/theme_controller.dart';
 import 'core/services/fcm_service.dart';
 import 'features/auth/presentation/pages/login_page.dart';
@@ -15,6 +15,7 @@ import 'features/home/presentation/pages/check_in_page.dart';
 import 'features/loading_phase/presentation/pages/loading_phase_page.dart';
 import 'features/profile/presentation/pages/profile_page.dart';
 import 'features/job_record/presentation/pages/job_record_page.dart';
+import 'features/trip_history/presentation/pages/trip_history_page.dart';
 import 'firebase_options.dart';
 
 void main() async {
@@ -50,10 +51,11 @@ void main() async {
       supportedLocales: const [Locale('en'), Locale('th')],
       path: 'assets/translations',
       fallbackLocale: const Locale('en'),
-      child: DevicePreview(
-        enabled: !kReleaseMode,
-        builder: (context) => const MyApp(),
-      ),
+      // child: DevicePreview(
+      //   enabled: !kReleaseMode,
+      //   builder: (context) => const MyApp(),
+      // ),
+      child: const MyApp(),
     ),
   );
 }
@@ -70,7 +72,7 @@ class MyApp extends StatelessWidget {
       builder: (context, themeMode, _) {
         return MaterialApp(
           locale: context.locale,
-          builder: DevicePreview.appBuilder,
+          // builder: DevicePreview.appBuilder,
           localizationsDelegates: context.localizationDelegates,
           supportedLocales: context.supportedLocales,
           title: 'LogiTrack Driver',
@@ -195,6 +197,7 @@ class MyApp extends StatelessWidget {
             '/loading-phase': (context) => const LoadingPhasePage(),
             '/profile': (context) => const ProfilePage(),
             '/job-record': (context) => const JobRecordPage(),
+            '/trip-history': (context) => const TripHistoryPage(),
           },
         );
       },

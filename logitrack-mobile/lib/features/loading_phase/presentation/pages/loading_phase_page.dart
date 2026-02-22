@@ -1116,19 +1116,19 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
               child: ModalBarrier(color: Colors.black38),
             ),
           if (_saving)
-            const Center(
+            Center(
               child: Card(
                 child: Padding(
-                  padding: EdgeInsets.all(24),
+                  padding: const EdgeInsets.all(24),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      SizedBox(
+                      const SizedBox(
                         width: 32,
                         height: 32,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       ),
-                      SizedBox(height: 16),
+                      const SizedBox(height: 16),
                       Text('loading_phase_saving'.tr()),
                     ],
                   ),

@@ -253,12 +253,11 @@ class _HomePageState extends State<HomePage> {
                 QuickActionCard(
                   icon: Icons.history,
                   label: 'history'.tr(),
-                  onTap: () {},
+                  onTap: () => Navigator.pushNamed(context, '/trip-history'),
                 ),
                 QuickActionCard(
-                  icon: Icons.warning_amber_rounded,
+                  icon: Icons.chat,
                   label: 'admin_support'.tr(),
-                  iconColor: Colors.orange,
                   onTap: () {
                     // Navigate to emergency support or open dialog
                   },
