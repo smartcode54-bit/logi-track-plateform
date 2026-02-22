@@ -151,6 +151,7 @@ export default function DriverMonitorPage() {
     }, []);
 
     // ─── Fetch drivers for name lookup ──────────────────────
+    // trip_records.driverId is Firebase Auth UID; drivers are keyed by doc id and have authId
     useEffect(() => {
         const q = query(collection(db, COLLECTIONS.DRIVERS), limit(300));
         const unsub = onSnapshot(q, (snap) => {
@@ -163,6 +164,20 @@ export default function DriverMonitorPage() {
         });
         return () => unsub();
     }, []);
+
+    // Lookup driver by authId (trip.driverId) or by document id
+    const driversByAuthId = useMemo(() => {
+        const byAuth: Record<string, Driver> = {};
+        Object.values(drivers).forEach((d) => {
+            if (d.authId) byAuth[d.authId] = d;
+        });
+        return byAuth;
+    }, [drivers]);
+
+    const getDriver = (driverId?: string): Driver | null => {
+        if (!driverId) return null;
+        return driversByAuthId[driverId] ?? drivers[driverId] ?? null;
+    };
 
     // ─── Fetch first_mile_tasks for check-in stats ──────────
     useEffect(() => {
@@ -220,10 +235,10 @@ export default function DriverMonitorPage() {
             // Job type
             if (jobTypeFilter !== "all" && trip.jobType !== jobTypeFilter) return false;
 
-            // Search (driver name or trip id)
+            // Search (driver name or trip id; trip.driverId is authId)
             if (searchQuery.trim()) {
                 const q = searchQuery.toLowerCase();
-                const driver = trip.driverId ? drivers[trip.driverId] : null;
+                const driver = getDriver(trip.driverId);
                 const driverName = driver
                     ? `${driver.firstName} ${driver.lastName}`.toLowerCase()
                     : "";
@@ -239,7 +254,7 @@ export default function DriverMonitorPage() {
 
             return true;
         });
-    }, [trips, date, statusFilter, jobTypeFilter, searchQuery, drivers]);
+    }, [trips, date, statusFilter, jobTypeFilter, searchQuery, drivers, driversByAuthId]);
 
     // ─── Pagination ─────────────────────────────────────────
     const paginatedTrips = filteredTrips.slice(
@@ -255,10 +270,22 @@ export default function DriverMonitorPage() {
 
     // ─── Helpers ────────────────────────────────────────────
 
-    const getDriverName = (driverId?: string) => {
+    /** Driver Job Monitor table: "First - LicensePlate" (driverId = authId from trip_records) */
+    const getDriverDisplayShort = (driverId?: string) => {
         if (!driverId) return t("driverMonitor.table.unknown");
-        const driver = drivers[driverId];
-        return driver ? `${driver.firstName} ${driver.lastName}` : driverId.slice(0, 8) + "...";
+        const driver = getDriver(driverId);
+        if (!driver) return driverId.slice(0, 8) + "...";
+        const plate = driver.currentAssignment?.truckPlate ?? "-";
+        return `${driver.firstName} - ${plate}`;
+    };
+
+    /** Trip Details: "FirstName LastName - LicensePlate" */
+    const getDriverDisplayFull = (driverId?: string) => {
+        if (!driverId) return t("driverMonitor.table.unknown");
+        const driver = getDriver(driverId);
+        if (!driver) return driverId.slice(0, 8) + "...";
+        const plate = driver.currentAssignment?.truckPlate ?? "-";
+        return `${driver.firstName} ${driver.lastName} - ${plate}`;
     };
 
     const formatTimestamp = (val: any) => {
@@ -530,10 +557,10 @@ export default function DriverMonitorPage() {
                                             {formatTimestamp(trip.createdAt)}
                                         </TableCell>
 
-                                        {/* Driver */}
+                                        {/* Driver: First - LicensePlate */}
                                         <TableCell>
                                             <span className="font-medium text-sm">
-                                                {getDriverName(trip.driverId)}
+                                                {getDriverDisplayShort(trip.driverId)}
                                             </span>
                                         </TableCell>
 
@@ -725,11 +752,11 @@ export default function DriverMonitorPage() {
                                 </h4>
                                 <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm bg-muted/30 rounded-lg p-4">
                                     <span className="text-muted-foreground">{t("driverMonitor.table.driver")}</span>
-                                    <span className="font-medium">{getDriverName(detailTrip.driverId)}</span>
-                                    {detailTrip.driverId && drivers[detailTrip.driverId]?.mobile && (
+                                    <span className="font-medium">{getDriverDisplayFull(detailTrip.driverId)}</span>
+                                    {detailTrip.driverId && getDriver(detailTrip.driverId)?.mobile && (
                                         <>
                                             <span className="text-muted-foreground">Mobile</span>
-                                            <span>{drivers[detailTrip.driverId].mobile}</span>
+                                            <span>{getDriver(detailTrip.driverId)!.mobile}</span>
                                         </>
                                     )}
                                 </div>

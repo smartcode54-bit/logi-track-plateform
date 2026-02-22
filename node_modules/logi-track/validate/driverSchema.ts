@@ -6,6 +6,9 @@ export const EMPLOYMENT_TYPE_ENUM = ["FULL_TIME", "SUBCONTRACTOR", "PART_TIME"] 
 export const driverSchema = z.object({
     id: z.string().optional(),
 
+    /** Firebase Auth UID – trip_records.driverId references this */
+    authId: z.string().optional(),
+
     // Personal Info
     firstName: z.string().min(1, "First Name is required"),
     lastName: z.string().min(1, "Last Name is required"),
