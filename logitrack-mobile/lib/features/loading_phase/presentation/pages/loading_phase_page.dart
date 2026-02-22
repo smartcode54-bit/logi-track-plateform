@@ -11,6 +11,7 @@ import '../../../home/data/repositories/first_mile_checkin_repository.dart';
 import '../../../home/data/repositories/hubs_repository.dart';
 import '../../../home/data/services/photo_overlay_service.dart';
 import '../../../home/data/models/trip_record.dart';
+import '../../../home/data/repositories/hub_soc_distances_repository.dart';
 import '../../../home/data/repositories/trip_records_repository.dart';
 import '../../../home/data/services/draft_storage_service.dart';
 import '../../../home/data/services/image_compression_service.dart';
@@ -35,7 +36,6 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
   final _sealCodeController = TextEditingController();
   final _originController = TextEditingController();
   final _destinationController = TextEditingController();
-  final _distanceController = TextEditingController();
   final _parcelCountController = TextEditingController();
   final _sealTimeController = TextEditingController();
   final _totalWeightController = TextEditingController();
@@ -56,6 +56,20 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
 
   List<HubDoc> _allHubs = [];
 
+  /// SOC standby (รหัส 0XXX) ไม่แสดงใน dropdown ต้นทาง/ปลายทาง
+  static bool _isSocStandby(HubDoc h) =>
+      h.stationType == stationTypeSoc && h.sourceId.trim().startsWith('0');
+
+  /// FM: ต้นทาง = HUB, ปลายทาง = SOC เท่านั้น | LH: ต้นทาง = SOC, ปลายทาง = HUB เท่านั้น (ไม่รวม SOC standby 0XXX)
+  List<HubDoc> get _originOptions =>
+      (_jobType == jobTypeFirstMile)
+          ? _allHubs.where((h) => h.stationType == stationTypeHub).toList()
+          : _allHubs.where((h) => h.stationType == stationTypeSoc && !_isSocStandby(h)).toList();
+  List<HubDoc> get _destinationOptions =>
+      (_jobType == jobTypeFirstMile)
+          ? _allHubs.where((h) => h.stationType == stationTypeSoc && !_isSocStandby(h)).toList()
+          : _allHubs.where((h) => h.stationType == stationTypeHub).toList();
+
   double? _lat;
   double? _lng;
   bool _locationLoading = true;
@@ -72,7 +86,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     super.initState();
     // Default seal time = now (date + time)
     final now = DateTime.now();
-    _sealTimeController.text = intl.DateFormat('yyyy-MM-dd HH:mm').format(now);
+    _sealTimeController.text = intl.DateFormat('dd-MM-yyyy HH:mm:ss').format(now);
     _loadHubs();
     _loadLocation();
     _tripIdController.addListener(_clearTripIdDuplicateError);
@@ -81,7 +95,6 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     _sealCodeController.addListener(_scheduleSaveDraft);
     _originController.addListener(_scheduleSaveDraft);
     _destinationController.addListener(_scheduleSaveDraft);
-    _distanceController.addListener(_scheduleSaveDraft);
     _parcelCountController.addListener(_scheduleSaveDraft);
     _sealTimeController.addListener(_scheduleSaveDraft);
     _totalWeightController.addListener(_scheduleSaveDraft);
@@ -100,7 +113,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       sealCode: _sealCodeController.text,
       origin: _originController.text,
       destination: _destinationController.text,
-      distance: _distanceController.text,
+      distance: '', // ระยะทางดึงจาก hub_soc_distances เท่านั้น ไม่มีช่องในฟอร์ม
       parcelCount: _parcelCountController.text,
       sealTime: _sealTimeController.text,
       totalWeight: _totalWeightController.text,
@@ -144,7 +157,6 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     _sealCodeController.text = draft.sealCode;
     _originController.text = draft.origin;
     _destinationController.text = draft.destination;
-    _distanceController.text = draft.distance;
     _parcelCountController.text = draft.parcelCount;
     _sealTimeController.text = draft.sealTime;
     _totalWeightController.text = draft.totalWeight;
@@ -206,7 +218,6 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     _sealCodeController.removeListener(_scheduleSaveDraft);
     _originController.removeListener(_scheduleSaveDraft);
     _destinationController.removeListener(_scheduleSaveDraft);
-    _distanceController.removeListener(_scheduleSaveDraft);
     _parcelCountController.removeListener(_scheduleSaveDraft);
     _sealTimeController.removeListener(_scheduleSaveDraft);
     _totalWeightController.removeListener(_scheduleSaveDraft);
@@ -214,7 +225,6 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     _sealCodeController.dispose();
     _originController.dispose();
     _destinationController.dispose();
-    _distanceController.dispose();
     _parcelCountController.dispose();
     _sealTimeController.dispose();
     _totalWeightController.dispose();
@@ -253,7 +263,6 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         if (result.sealCode != null) _sealCodeController.text = result.sealCode!;
         if (result.origin != null) _originController.text = result.origin!;
         if (result.destination != null) _destinationController.text = result.destination!;
-        if (result.distance != null) _distanceController.text = result.distance!;
         if (result.parcelCount != null) _parcelCountController.text = result.parcelCount!;
         if (result.sealTime != null) _sealTimeController.text = result.sealTime!;
         if (result.totalWeight != null) _totalWeightController.text = result.totalWeight!;
@@ -374,8 +383,80 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       return;
     }
 
+    // FM: ต้นทาง=HUB ปลายทาง=SOC | LH: ต้นทาง=SOC ปลายทาง=HUB
+    final originName = _originController.text.trim();
+    final destName = _destinationController.text.trim();
+    HubDoc? originHub;
+    HubDoc? destHub;
+    for (final h in _allHubs) {
+      if (h.sourceNameEn == originName) originHub = h;
+      if (h.sourceNameEn == destName) destHub = h;
+    }
+    final isFm = _jobType == jobTypeFirstMile;
+    if (originName.isEmpty || destName.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('loading_phase_origin_dest_required'.tr()),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+    if (originHub == null || destHub == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('loading_phase_origin_dest_required'.tr()),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+    final originOk = isFm
+        ? originHub.stationType == stationTypeHub
+        : originHub.stationType == stationTypeSoc;
+    final destOk = isFm
+        ? destHub.stationType == stationTypeSoc
+        : destHub.stationType == stationTypeHub;
+    if (!originOk || !destOk) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(isFm
+              ? 'loading_phase_origin_dest_rule_fm'.tr()
+              : 'loading_phase_origin_dest_rule_lh'.tr()),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
     // ปิด keyboard ก่อนเปิด preview เพื่อไม่ให้ numeric pad โผล่เมื่อปิด sheet
     FocusScope.of(context).unfocus();
+
+    // ดึงระยะทาง/เวลาเดินทางจาก hub_soc_distances ตามต้นทาง-ปลายทางที่เลือก
+    HubSocDistanceResult? hubSocResult;
+    if (originName.isNotEmpty && destName.isNotEmpty && originHub != null && destHub != null) {
+      hubSocResult = await fetchHubSocDistance(
+        originSourceId: originHub.sourceId,
+        destinationSourceId: destHub.sourceId,
+        originStationType: originHub.stationType,
+        destinationStationType: destHub.stationType,
+      );
+    }
+    if (!mounted) return;
+    final distanceDisplay = hubSocResult != null
+        ? '${hubSocResult.distanceKm == hubSocResult.distanceKm.roundToDouble() ? hubSocResult.distanceKm.round() : hubSocResult.distanceKm.toStringAsFixed(2)} km'
+        : '-';
+    String staDisplay = '';
+    if (hubSocResult != null) {
+      final sealStr = _sealTimeController.text.trim();
+      if (sealStr.isNotEmpty) {
+        try {
+          final seal = intl.DateFormat('dd-MM-yyyy HH:mm:ss').parse(sealStr);
+          final sta = seal.add(Duration(minutes: hubSocResult.durationMinutes.round()));
+          staDisplay = intl.DateFormat('dd-MM-yyyy HH:mm:ss').format(sta);
+        } catch (_) {}
+      }
+    }
 
     final confirmed = await showModalBottomSheet<bool>(
       context: context,
@@ -387,9 +468,10 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         jobType: _jobType ?? jobTypeFirstMile,
         tripId: tripId,
         sealCode: _sealCodeController.text.trim(),
-        origin: _originController.text.trim(),
-        destination: _destinationController.text.trim(),
-        distance: _distanceController.text.trim(),
+        origin: originName,
+        destination: destName,
+        distance: distanceDisplay.isEmpty ? '-' : distanceDisplay,
+        staDisplay: staDisplay.isEmpty ? '-' : staDisplay,
         parcelCount: _parcelCountController.text.trim(),
         sealTime: _sealTimeController.text.trim(),
         totalWeight: _totalWeightController.text.trim(),
@@ -397,7 +479,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
             ? '${_lat!.toStringAsFixed(6)}, ${_lng!.toStringAsFixed(6)}'
             : '-',
         timestamp: intl.DateFormat(
-          'yyyy-MM-dd HH:mm:ss',
+          'dd-MM-yyyy HH:mm:ss',
         ).format(DateTime.now()),
         runsheetPhoto: _runsheetPhoto!,
         stepPhotos: _stepPhotos,
@@ -482,11 +564,10 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     _sealCodeController.clear();
     _originController.clear();
     _destinationController.clear();
-    _distanceController.clear();
     _parcelCountController.clear();
     _totalWeightController.clear();
     final now = DateTime.now();
-    _sealTimeController.text = intl.DateFormat('yyyy-MM-dd HH:mm').format(now);
+    _sealTimeController.text = intl.DateFormat('dd-MM-yyyy HH:mm:ss').format(now);
     setState(() {
       _jobType = jobTypeFirstMile;
       _runsheetPhoto = null;
@@ -550,6 +631,25 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
           ? int.tryParse(parcelText)
           : null;
 
+      // ดึงระยะทาง/เวลาเดินทางจาก hub_soc_distances สำหรับบันทึก trip_records (STD/STA/ระยะทาง)
+      final originName = _originController.text.trim();
+      final destName = _destinationController.text.trim();
+      HubDoc? originHub;
+      HubDoc? destHub;
+      for (final h in _allHubs) {
+        if (h.sourceNameEn == originName) originHub = h;
+        if (h.sourceNameEn == destName) destHub = h;
+      }
+      HubSocDistanceResult? hubSocResult;
+      if (originName.isNotEmpty && destName.isNotEmpty && originHub != null && destHub != null) {
+        hubSocResult = await fetchHubSocDistance(
+          originSourceId: originHub.sourceId,
+          destinationSourceId: destHub.sourceId,
+          originStationType: originHub.stationType,
+          destinationStationType: destHub.stationType,
+        );
+      }
+
       await submitLoadingPhaseRecord(
         tripId: tripId,
         jobType: _jobType ?? jobTypeFirstMile,
@@ -557,15 +657,11 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         sealCode: _sealCodeController.text.trim().isEmpty
             ? null
             : _sealCodeController.text.trim(),
-        origin: _originController.text.trim().isEmpty
-            ? null
-            : _originController.text.trim(),
-        destination: _destinationController.text.trim().isEmpty
-            ? null
-            : _destinationController.text.trim(),
-        distance: _distanceController.text.trim().isEmpty
-            ? null
-            : _distanceController.text.trim(),
+        origin: originName.isEmpty ? null : originName,
+        destination: destName.isEmpty ? null : destName,
+        distance: null,
+        distanceFromHubSocKm: hubSocResult?.distanceKm,
+        durationMinutes: hubSocResult?.durationMinutes,
         parcelCount: parcelCount,
         sealTime: _sealTimeController.text.trim().isEmpty
             ? null
@@ -660,25 +756,29 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('loading_phase_form_title'.tr()),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: TextButton.icon(
-              onPressed: _saving ? null : _confirmClearForm,
-              icon: const Icon(Icons.clear_all, size: 20),
-              label: Text('loading_phase_clear_form'.tr()),
+    return PopScope(
+      canPop: !_saving,
+      child: Stack(
+        children: [
+          Scaffold(
+            appBar: AppBar(
+              title: Text('loading_phase_form_title'.tr()),
+              actions: [
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: TextButton.icon(
+                    onPressed: _saving ? null : _confirmClearForm,
+                    icon: const Icon(Icons.clear_all, size: 20),
+                    label: Text('loading_phase_clear_form'.tr()),
+                  ),
+                ),
+              ],
             ),
-          ),
-        ],
-      ),
-      body: Form(
-        key: _formKey,
-        child: AbsorbPointer(
-          absorbing: _saving,
-          child: SingleChildScrollView(
+            body: Form(
+              key: _formKey,
+              child: AbsorbPointer(
+                absorbing: _saving,
+                child: SingleChildScrollView(
             padding: const EdgeInsets.all(16),
             child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -708,8 +808,15 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                   ),
                 ],
                 selected: {_jobType ?? jobTypeFirstMile},
-                onSelectionChanged: (Set<String> selected) =>
-                    setState(() => _jobType = selected.first),
+                onSelectionChanged: (Set<String> selected) {
+                  final newType = selected.first;
+                  setState(() {
+                    _jobType = newType;
+                    // ล้างต้นทาง/ปลายทางเมื่อสลับประเภทงาน เพื่อให้เลือกตามกฎ FM/LH ใหม่
+                    _originController.clear();
+                    _destinationController.clear();
+                  });
+                },
               ),
               const SizedBox(height: 24),
 
@@ -817,68 +924,29 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
               ),
               const SizedBox(height: 12),
 
-              // Origin / Destination dropdowns
-              DropdownMenu<HubDoc>(
-                controller: _originController,
-                expandedInsets: EdgeInsets.zero,
-                label: Text('loading_phase_origin'.tr()),
-                hintText: 'loading_phase_origin_hint'.tr(),
-                enableSearch: true,
-                enableFilter: true,
-                inputDecorationTheme: const InputDecorationTheme(
-                  border: OutlineInputBorder(),
-                ),
+              // Origin / Destination — FM: ต้นทาง=HUB ปลายทาง=SOC | LH: ต้นทาง=SOC ปลายทาง=HUB
+              _SearchableHubPicker(
+                label: 'loading_phase_origin'.tr(),
+                hintText: _jobType == jobTypeFirstMile
+                    ? 'loading_phase_origin_hint_fm'.tr()
+                    : 'loading_phase_origin_hint_lh'.tr(),
+                value: _originController.text,
+                hubs: _originOptions,
                 onSelected: (hub) {
-                  if (hub != null) _originController.text = hub.sourceNameEn;
+                  setState(() => _originController.text = hub.sourceNameEn);
                 },
-                dropdownMenuEntries: _allHubs
-                    .map(
-                      (h) => DropdownMenuEntry<HubDoc>(
-                        value: h,
-                        label: '${h.sourceNameEn} (${h.sourceId})',
-                      ),
-                    )
-                    .toList(),
               ),
               const SizedBox(height: 12),
-              DropdownMenu<HubDoc>(
-                controller: _destinationController,
-                expandedInsets: EdgeInsets.zero,
-                label: Text('loading_phase_destination'.tr()),
-                hintText: 'loading_phase_destination_hint'.tr(),
-                enableSearch: true,
-                enableFilter: true,
-                inputDecorationTheme: const InputDecorationTheme(
-                  border: OutlineInputBorder(),
-                ),
+              _SearchableHubPicker(
+                label: 'loading_phase_destination'.tr(),
+                hintText: _jobType == jobTypeFirstMile
+                    ? 'loading_phase_destination_hint_fm'.tr()
+                    : 'loading_phase_destination_hint_lh'.tr(),
+                value: _destinationController.text,
+                hubs: _destinationOptions,
                 onSelected: (hub) {
-                  if (hub != null) {
-                    _destinationController.text = hub.sourceNameEn;
-                  }
+                  setState(() => _destinationController.text = hub.sourceNameEn);
                 },
-                dropdownMenuEntries: _allHubs
-                    .map(
-                      (h) => DropdownMenuEntry<HubDoc>(
-                        value: h,
-                        label: '${h.sourceNameEn} (${h.sourceId})',
-                      ),
-                    )
-                    .toList(),
-              ),
-              const SizedBox(height: 12),
-
-              // Distance
-              TextFormField(
-                controller: _distanceController,
-                decoration: InputDecoration(
-                  labelText: 'loading_phase_distance'.tr(),
-                  hintText: 'e.g. 120 km',
-                  border: const OutlineInputBorder(),
-                  prefixIcon: const Icon(Icons.straighten),
-                ),
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
               ),
               const SizedBox(height: 12),
 
@@ -917,7 +985,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                 controller: _sealTimeController,
                 decoration: InputDecoration(
                   labelText: 'loading_phase_seal_time'.tr(),
-                  hintText: 'yyyy-MM-dd HH:mm',
+                  hintText: 'dd-MM-yyyy HH:mm:ss',
                   border: const OutlineInputBorder(),
                   prefixIcon: const Icon(Icons.lock_clock),
                 ),
@@ -1042,6 +1110,33 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         ),
         ),
       ),
+        ),
+          if (_saving)
+            Positioned.fill(
+              child: ModalBarrier(color: Colors.black38),
+            ),
+          if (_saving)
+            const Center(
+              child: Card(
+                child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 32,
+                        height: 32,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(height: 16),
+                      Text('loading_phase_saving'.tr()),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -1075,8 +1170,181 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         time.hour,
         time.minute,
       );
-      controller.text = intl.DateFormat('yyyy-MM-dd HH:mm').format(dt);
+      controller.text = intl.DateFormat('dd-MM-yyyy HH:mm:ss').format(dt);
     }
+  }
+}
+
+// ===== Searchable Hub Picker (ใช้แทน DropdownMenu เพราะ enableSearch ไม่ทำงานบน mobile) =====
+
+class _SearchableHubPicker extends StatelessWidget {
+  final String label;
+  final String hintText;
+  final String value;
+  final List<HubDoc> hubs;
+  final ValueChanged<HubDoc> onSelected;
+
+  const _SearchableHubPicker({
+    required this.label,
+    required this.hintText,
+    required this.value,
+    required this.hubs,
+    required this.onSelected,
+  });
+
+  static bool _matchHub(HubDoc hub, String query) {
+    if (query.isEmpty) return true;
+    final q = query.trim().toLowerCase();
+    return hub.sourceNameEn.toLowerCase().contains(q) ||
+        hub.sourceId.toLowerCase().contains(q);
+  }
+
+  Future<void> _openPicker(BuildContext context) async {
+    final selected = await showModalBottomSheet<HubDoc>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => _SearchableHubSheet(
+        hubs: hubs,
+        initialValue: value,
+        onSelected: (hub) => Navigator.of(ctx).pop(hub),
+      ),
+    );
+    if (selected != null) onSelected(selected);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () => _openPicker(context),
+      borderRadius: BorderRadius.circular(4),
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hintText,
+          border: const OutlineInputBorder(),
+          suffixIcon: const Icon(Icons.arrow_drop_down),
+        ),
+        child: Text(
+          value.isEmpty ? '' : value,
+          style: TextStyle(
+            color: value.isEmpty
+                ? Theme.of(context).hintColor
+                : Theme.of(context).textTheme.titleMedium?.color,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SearchableHubSheet extends StatefulWidget {
+  final List<HubDoc> hubs;
+  final String initialValue;
+  final ValueChanged<HubDoc> onSelected;
+
+  const _SearchableHubSheet({
+    required this.hubs,
+    required this.initialValue,
+    required this.onSelected,
+  });
+
+  @override
+  State<_SearchableHubSheet> createState() => _SearchableHubSheetState();
+}
+
+class _SearchableHubSheetState extends State<_SearchableHubSheet> {
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _searchFocus.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _searchFocus.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.6,
+      maxChildSize: 0.9,
+      minChildSize: 0.4,
+      builder: (context, scrollController) {
+        return Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              child: TextField(
+                controller: _searchController,
+                focusNode: _searchFocus,
+                decoration: InputDecoration(
+                  hintText: 'loading_phase_hub_search_hint'.tr(),
+                  prefixIcon: const Icon(Icons.search),
+                  border: const OutlineInputBorder(),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+            ),
+            Expanded(
+              child: ValueListenableBuilder<TextEditingValue>(
+                valueListenable: _searchController,
+                builder: (context, value, _) {
+                  final query = value.text;
+                  final filtered = widget.hubs
+                      .where((h) => _SearchableHubPicker._matchHub(h, query))
+                      .toList();
+                  if (filtered.isEmpty) {
+                    return Center(
+                      child: Text(
+                        query.isEmpty
+                            ? 'loading_phase_hub_no_list'.tr()
+                            : 'loading_phase_hub_no_match'.tr(args: [query]),
+                        style: TextStyle(color: Colors.grey[600]),
+                      ),
+                    );
+                  }
+                  return ListView.builder(
+                    controller: scrollController,
+                    itemCount: filtered.length,
+                    itemBuilder: (context, index) {
+                      final hub = filtered[index];
+                      final label =
+                          '${hub.sourceNameEn} (${hub.sourceId})';
+                      final isSelected =
+                          hub.sourceNameEn == widget.initialValue;
+                      return ListTile(
+                        title: Text(label),
+                        trailing: isSelected
+                            ? const Icon(Icons.check, color: Colors.green)
+                            : null,
+                        onTap: () => widget.onSelected(hub),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        );
+      },
+    );
   }
 }
 
@@ -1089,6 +1357,8 @@ class _PreviewSheet extends StatelessWidget {
   final String origin;
   final String destination;
   final String distance;
+  /// STA = เวลาที่ใช้ในการเดินทาง (sealTime + durationMinutes จาก hub_soc_distances)
+  final String staDisplay;
   final String parcelCount;
   final String sealTime;
   final String totalWeight;
@@ -1104,6 +1374,7 @@ class _PreviewSheet extends StatelessWidget {
     required this.origin,
     required this.destination,
     required this.distance,
+    required this.staDisplay,
     required this.parcelCount,
     required this.sealTime,
     required this.totalWeight,
@@ -1256,6 +1527,7 @@ class _PreviewSheet extends StatelessWidget {
       _row('loading_phase_origin'.tr(), origin),
       _row('loading_phase_destination'.tr(), destination),
       _row('loading_phase_distance'.tr(), distance),
+      _row('loading_phase_sta'.tr(), staDisplay),
       _row('loading_phase_parcel_count'.tr(), parcelCount),
       _row('loading_phase_total_weight'.tr(), totalWeight),
       _row('loading_phase_seal_time'.tr(), sealTime),

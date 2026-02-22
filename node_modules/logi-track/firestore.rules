@@ -2,6 +2,17 @@ rules_version='2'
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Hub→SOC distances (Google Distance Matrix cache). Read by web map & mobile; write via Admin API only.
+    match /hub_soc_distances/{docId} {
+      allow read: if request.time < timestamp.date(2026, 3, 10);
+      allow write: if request.time < timestamp.date(2026, 3, 10);
+    }
+    // SOC→Hub distances (Google Distance Matrix cache). Read by web map & mobile; write via Admin API only.
+    match /soc_hub_distances/{docId} {
+      allow read: if request.time < timestamp.date(2026, 3, 10);
+      allow write: if request.time < timestamp.date(2026, 3, 10);
+    }
+
     match /{document=**} {
       // This rule allows anyone with your database reference to view, edit,
       // and delete all data in your database. It is useful for getting

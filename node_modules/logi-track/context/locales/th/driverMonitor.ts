@@ -70,6 +70,7 @@ export default {
     "driverMonitor.detail.createdAt": "สร้างเมื่อ",
     "driverMonitor.detail.updatedAt": "อัปเดตเมื่อ",
     "driverMonitor.detail.close": "ปิด",
+    "driverMonitor.detail.openInNewTab": "เปิดในแท็บใหม่",
     "driverMonitor.detail.noPhotos": "ไม่มีรูปภาพ",
     "driverMonitor.detail.distance": "ระยะทาง",
     "driverMonitor.detail.parcelCount": "จำนวนพัสดุ",

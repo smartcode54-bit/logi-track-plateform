@@ -36,6 +36,7 @@ dependencies:
   firebase_auth: ^6.1.4
   firebase_messaging: ^16.1.1
   firebase_storage: ^13.0.6
+  cloud_functions: ^6.0.6
   firebase_app_check: ^0.4.1
   image_picker: ^1.0.7
   geolocator: ^13.0.2

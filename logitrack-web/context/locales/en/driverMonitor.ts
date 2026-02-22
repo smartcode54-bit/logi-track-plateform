@@ -70,6 +70,7 @@ export default {
     "driverMonitor.detail.createdAt": "Created At",
     "driverMonitor.detail.updatedAt": "Updated At",
     "driverMonitor.detail.close": "Close",
+    "driverMonitor.detail.openInNewTab": "Open in new tab",
     "driverMonitor.detail.noPhotos": "No photos available",
     "driverMonitor.detail.distance": "Distance",
     "driverMonitor.detail.parcelCount": "Parcel Count",

@@ -113,6 +113,7 @@ export default function DriverMonitorPage() {
 
     // Detail Dialog
     const [detailTrip, setDetailTrip] = useState<TripRecord | null>(null);
+    const [previewPhoto, setPreviewPhoto] = useState<{ url: string; type: string; address?: string } | null>(null);
 
     // Pagination
     const [currentPage, setCurrentPage] = useState(1);
@@ -771,12 +772,11 @@ export default function DriverMonitorPage() {
                                     </h4>
                                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                                         {detailTrip.photos.map((photo, idx) => (
-                                            <a
+                                            <button
                                                 key={idx}
-                                                href={photo.url}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="group relative block rounded-lg overflow-hidden border border-border/50 aspect-square bg-muted/50 hover:border-primary/50 transition-colors"
+                                                type="button"
+                                                onClick={() => setPreviewPhoto({ url: photo.url, type: photo.type, address: photo.geocoding?.address })}
+                                                className="group relative block rounded-lg overflow-hidden border border-border/50 aspect-square bg-muted/50 hover:border-primary/50 transition-colors text-left w-full"
                                             >
                                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                                 <img
@@ -791,9 +791,9 @@ export default function DriverMonitorPage() {
                                                     )}
                                                 </div>
                                                 <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <ExternalLink className="h-4 w-4 text-white drop-shadow" />
+                                                    <Camera className="h-4 w-4 text-white drop-shadow" />
                                                 </div>
-                                            </a>
+                                            </button>
                                         ))}
                                     </div>
                                 </div>
@@ -847,6 +847,41 @@ export default function DriverMonitorPage() {
                             {t("driverMonitor.detail.close")}
                         </Button>
                     </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Image preview dialog */}
+            <Dialog open={!!previewPhoto} onOpenChange={(open) => !open && setPreviewPhoto(null)}>
+                <DialogContent className="max-w-[95vw] max-h-[95vh] w-auto p-2">
+                    {previewPhoto && (
+                        <div className="flex flex-col gap-2">
+                            <div className="relative flex items-center justify-center bg-muted/30 rounded-lg overflow-hidden min-h-[200px]">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                    src={previewPhoto.url}
+                                    alt={previewPhoto.type}
+                                    className="max-w-full max-h-[85vh] w-auto h-auto object-contain"
+                                />
+                            </div>
+                            <div className="flex items-center justify-between gap-4 px-1">
+                                <div className="min-w-0">
+                                    <p className="font-medium text-sm">{previewPhoto.type.replace(/_/g, " ")}</p>
+                                    {previewPhoto.address && (
+                                        <p className="text-muted-foreground text-xs truncate">{previewPhoto.address}</p>
+                                    )}
+                                </div>
+                                <a
+                                    href={previewPhoto.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="shrink-0 inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
+                                    >
+                                    <ExternalLink className="h-3.5 w-3.5" />
+                                    {t("driverMonitor.detail.openInNewTab")}
+                                </a>
+                            </div>
+                        </div>
+                    )}
                 </DialogContent>
             </Dialog>
         </div>

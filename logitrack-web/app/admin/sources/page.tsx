@@ -25,7 +25,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { HubDialog } from "../first-mile/hub-dialog";
 import { PickupLocationImportDialog } from "./pickup-import-dialog";
 import { collection, getDocs } from "firebase/firestore";
-import { db } from "@/firebase/client";
+import { httpsCallable } from "firebase/functions";
+import { db, functions } from "@/firebase/client";
 import { useLanguage } from "@/context/language";
 import { COLLECTIONS } from "@/lib/collections";
 import type { Hub, StationType } from "@/validate/hubSchema";
@@ -153,9 +154,12 @@ export default function SourcesPage() {
         setCalculatingDistances(true);
         setDistancesMessage(null);
         try {
-            const res = await fetch("/api/admin/distances/hub-soc", { method: "POST" });
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok) {
+            const computeHubSocDistances = httpsCallable<
+                void,
+                { ok: boolean; written: number; hubsCount: number; socsCount: number; error?: string }
+            >(functions, "computeHubSocDistances");
+            const { data } = await computeHubSocDistances();
+            if (!data.ok && data.error) {
                 setDistancesMessage({ type: "error", text: data.error || t("firstMile.sources.distancesError") });
                 return;
             }

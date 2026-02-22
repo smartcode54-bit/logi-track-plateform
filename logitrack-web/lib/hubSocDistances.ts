@@ -14,9 +14,12 @@ import type { Firestore } from "firebase/firestore";
 import { COLLECTIONS } from "@/lib/collections";
 import { SOC_KEYS } from "@/validate/firstMileTaskSchema";
 import { hubSocDistanceDocId } from "@/validate/hubSocDistanceSchema";
+import { socHubDistanceDocId } from "@/validate/socHubDistanceSchema";
 
-const MAX_ELEMENTS_PER_REQUEST = 100; // Google limit: origins × destinations ≤ 100 per request
+// Google Distance Matrix: max 25 origins, max 25 destinations, max 100 elements (origins×destinations) per request
+const MAX_ELEMENTS_PER_REQUEST = 100;
 const MAX_ORIGINS_PER_REQUEST = 25;
+const MAX_DESTINATIONS_PER_REQUEST = 25;
 
 export interface HubOrSocPoint {
     id: string;
@@ -132,7 +135,7 @@ export interface HubSocDistanceRow {
     socLng: number;
 }
 
-/** Run full flow: get hubs/SOCs, call API in batches, write to Firestore. Returns count written. */
+/** Run full flow: get hubs/SOCs, call API in batches, write to Firestore. Computes both Hub→SOC and SOC→Hub (ใช้ร่วมกัน collection เดิม). */
 export async function computeAndSaveHubSocDistances(
     db: Firestore,
     apiKey: string,
@@ -142,17 +145,21 @@ export async function computeAndSaveHubSocDistances(
     if (socs.length === 0) return { written: 0, hubsCount: hubs.length, socsCount: 0, error: "No SOCs with coordinates" };
     if (hubs.length === 0) return { written: 0, hubsCount: 0, socsCount: socs.length, error: "No Hubs with coordinates" };
 
-    const allRows: HubSocDistanceRow[] = [];
+    const hubToSocRows: HubSocDistanceRow[] = [];
+    const socToHubRows: { socId: string; hubId: string; distanceMeters: number; durationSeconds: number; socLat: number; socLng: number; hubLat: number; hubLng: number }[] = [];
     const delayMs = 200;
 
-    // Keep origins × destinations ≤ 100 per request
-    const batchSizeOrigins = Math.min(MAX_ORIGINS_PER_REQUEST, Math.floor(MAX_ELEMENTS_PER_REQUEST / socs.length));
-    if (batchSizeOrigins < 1) {
-        return { written: 0, hubsCount: hubs.length, socsCount: socs.length, error: "Too many SOCs for one request (max 100 elements)." };
+    // ——— ขาออก Hub→SOC (เก็บใน hub_soc_distances) ———
+    const batchSizeOriginsHub = Math.min(
+        MAX_ORIGINS_PER_REQUEST,
+        MAX_DESTINATIONS_PER_REQUEST >= socs.length ? Math.floor(MAX_ELEMENTS_PER_REQUEST / socs.length) : 0
+    );
+    if (batchSizeOriginsHub < 1 || socs.length > MAX_DESTINATIONS_PER_REQUEST) {
+        return { written: 0, hubsCount: hubs.length, socsCount: socs.length, error: "Too many SOCs (max 25 per request)." };
     }
 
-    for (let start = 0; start < hubs.length; start += batchSizeOrigins) {
-        const chunk = hubs.slice(start, start + batchSizeOrigins);
+    for (let start = 0; start < hubs.length; start += batchSizeOriginsHub) {
+        const chunk = hubs.slice(start, start + batchSizeOriginsHub);
         const json = await distanceMatrixRequest(apiKey, chunk, socs);
         const rows = json.rows;
         if (!Array.isArray(rows)) continue;
@@ -163,7 +170,7 @@ export async function computeAndSaveHubSocDistances(
                 const soc = socs[j];
                 const parsed = parseElement(rows[i], i, j, hub, soc);
                 if (parsed)
-                    allRows.push({
+                    hubToSocRows.push({
                         ...parsed,
                         hubLat: hub.lat,
                         hubLng: hub.lng,
@@ -172,31 +179,66 @@ export async function computeAndSaveHubSocDistances(
                     });
             }
         }
-        if (start + batchSizeOrigins < hubs.length) await new Promise((r) => setTimeout(r, delayMs));
+        if (start + batchSizeOriginsHub < hubs.length) await new Promise((r) => setTimeout(r, delayMs));
     }
 
-    const collRef = collection(db, COLLECTIONS.HUB_SOC_DISTANCES);
+    // ——— ขากลับ SOC→Hub (เก็บใน soc_hub_distances แยก collection) ———
+    // Google: max 25 origins, max 25 destinations, max 100 elements ต่อ request
+    const batchSizeSocs = Math.min(MAX_ORIGINS_PER_REQUEST, Math.max(1, Math.floor(MAX_ELEMENTS_PER_REQUEST / Math.min(hubs.length, MAX_DESTINATIONS_PER_REQUEST))));
+    const batchSizeHubs = Math.min(MAX_DESTINATIONS_PER_REQUEST, hubs.length, Math.floor(MAX_ELEMENTS_PER_REQUEST / batchSizeSocs));
+    for (let socStart = 0; socStart < socs.length; socStart += batchSizeSocs) {
+        const socChunk = socs.slice(socStart, socStart + batchSizeSocs);
+        for (let hubStart = 0; hubStart < hubs.length; hubStart += batchSizeHubs) {
+            const hubChunk = hubs.slice(hubStart, hubStart + batchSizeHubs);
+            const json = await distanceMatrixRequest(apiKey, socChunk, hubChunk);
+            const rows = json.rows;
+            if (!Array.isArray(rows)) continue;
+            for (let i = 0; i < rows.length; i++) {
+                const soc = socChunk[i];
+                if (!soc) continue;
+                for (let j = 0; j < hubChunk.length; j++) {
+                    const hub = hubChunk[j];
+                    const el = rows[i]?.elements?.[j];
+                    if (!el || el.status !== "OK" || el.distance?.value == null || el.duration?.value == null) continue;
+                    const socId = normalizeSocIdToKey(soc.source_id);
+                    socToHubRows.push({
+                        socId,
+                        hubId: hub.source_id,
+                        distanceMeters: el.distance.value,
+                        durationSeconds: el.duration.value,
+                        socLat: soc.lat,
+                        socLng: soc.lng,
+                        hubLat: hub.lat,
+                        hubLng: hub.lng,
+                    });
+                }
+            }
+            if (hubStart + batchSizeHubs < hubs.length) await new Promise((r) => setTimeout(r, delayMs));
+        }
+        if (socStart + batchSizeSocs < socs.length) await new Promise((r) => setTimeout(r, delayMs));
+    }
+
     const now = Timestamp.now();
     const uid = userId ?? null;
-
-    // Preserve createdBy on update: read existing docs once
-    const existingSnapshot = await getDocs(collection(db, COLLECTIONS.HUB_SOC_DISTANCES));
-    const existingCreatedBy = new Map<string, string>();
-    existingSnapshot.docs.forEach((d) => {
-        const createdBy = d.data().createdBy;
-        if (typeof createdBy === "string") existingCreatedBy.set(d.id, createdBy);
-    });
-
     const BATCH_WRITE_LIMIT = 500;
-    for (let i = 0; i < allRows.length; i += BATCH_WRITE_LIMIT) {
-        const chunk = allRows.slice(i, i + BATCH_WRITE_LIMIT);
+
+    // ——— เขียน Hub→SOC ลง hub_soc_distances ———
+    const hubSocCollRef = collection(db, COLLECTIONS.HUB_SOC_DISTANCES);
+    const existingHubSoc = await getDocs(collection(db, COLLECTIONS.HUB_SOC_DISTANCES));
+    const existingHubSocCreatedBy = new Map<string, string>();
+    existingHubSoc.docs.forEach((d) => {
+        const createdBy = d.data().createdBy;
+        if (typeof createdBy === "string") existingHubSocCreatedBy.set(d.id, createdBy);
+    });
+    for (let i = 0; i < hubToSocRows.length; i += BATCH_WRITE_LIMIT) {
+        const chunk = hubToSocRows.slice(i, i + BATCH_WRITE_LIMIT);
         const batch = writeBatch(db);
         for (const row of chunk) {
             const docId = hubSocDistanceDocId(row.hubId, row.socId);
             const distanceKm = row.distanceMeters / 1000;
             const durationMinutes = row.durationSeconds / 60;
-            const isNew = !existingCreatedBy.has(docId);
-            const createdByVal = existingCreatedBy.get(docId) ?? uid;
+            const isNew = !existingHubSocCreatedBy.has(docId);
+            const createdByVal = existingHubSocCreatedBy.get(docId) ?? uid;
             const payload: Record<string, unknown> = {
                 hubId: row.hubId,
                 socId: row.socId,
@@ -213,9 +255,49 @@ export async function computeAndSaveHubSocDistances(
             if (createdByVal != null && createdByVal !== "") payload.createdBy = createdByVal;
             if (uid != null && uid !== "") payload.updatedBy = uid;
             if (isNew && now) payload.createdAt = now;
-            batch.set(doc(collRef, docId), payload);
+            batch.set(doc(hubSocCollRef, docId), payload);
         }
         await batch.commit();
     }
-    return { written: allRows.length, hubsCount: hubs.length, socsCount: socs.length };
+
+    // ——— เขียน SOC→Hub ลง soc_hub_distances ———
+    const socHubCollRef = collection(db, COLLECTIONS.SOC_HUB_DISTANCES);
+    const existingSocHub = await getDocs(collection(db, COLLECTIONS.SOC_HUB_DISTANCES));
+    const existingSocHubCreatedBy = new Map<string, string>();
+    existingSocHub.docs.forEach((d) => {
+        const createdBy = d.data().createdBy;
+        if (typeof createdBy === "string") existingSocHubCreatedBy.set(d.id, createdBy);
+    });
+    for (let i = 0; i < socToHubRows.length; i += BATCH_WRITE_LIMIT) {
+        const chunk = socToHubRows.slice(i, i + BATCH_WRITE_LIMIT);
+        const batch = writeBatch(db);
+        for (const row of chunk) {
+            const docId = socHubDistanceDocId(row.socId, row.hubId);
+            const distanceKm = row.distanceMeters / 1000;
+            const durationMinutes = row.durationSeconds / 60;
+            const isNew = !existingSocHubCreatedBy.has(docId);
+            const createdByVal = existingSocHubCreatedBy.get(docId) ?? uid;
+            const payload: Record<string, unknown> = {
+                socId: row.socId,
+                hubId: row.hubId,
+                distanceMeters: row.distanceMeters,
+                distanceKm: Math.round(distanceKm * 100) / 100,
+                durationSeconds: row.durationSeconds,
+                durationMinutes: Math.round(durationMinutes * 100) / 100,
+                socLat: row.socLat,
+                socLng: row.socLng,
+                hubLat: row.hubLat,
+                hubLng: row.hubLng,
+                updatedAt: now,
+            };
+            if (createdByVal != null && createdByVal !== "") payload.createdBy = createdByVal;
+            if (uid != null && uid !== "") payload.updatedBy = uid;
+            if (isNew && now) payload.createdAt = now;
+            batch.set(doc(socHubCollRef, docId), payload);
+        }
+        await batch.commit();
+    }
+
+    const totalWritten = hubToSocRows.length + socToHubRows.length;
+    return { written: totalWritten, hubsCount: hubs.length, socsCount: socs.length };
 }

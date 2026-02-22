@@ -21,6 +21,14 @@ class TripRecord {
   final DateTime? deliveredTimestamp;
   final double? deliveredLat;
   final double? deliveredLng;
+  /// STD = Scheduled Time of Departure (CreateAt / บันทึกเมื่อ)
+  final DateTime? std;
+  /// STA = Scheduled Time of Arrival (เวลา Seal รถ + durationMinutes จาก hub_soc_distances)
+  final DateTime? sta;
+  /// ATA = Actual Time of Arrival (จะอัปเดตเมื่อถึง Hub/SOC ด้วย Geofencing)
+  final DateTime? ata;
+  /// เวลาเดินทาง (นาที) จาก hub_soc_distances
+  final double? durationMinutes;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -45,6 +53,10 @@ class TripRecord {
     this.deliveredTimestamp,
     this.deliveredLat,
     this.deliveredLng,
+    this.std,
+    this.sta,
+    this.ata,
+    this.durationMinutes,
     this.createdAt,
     this.updatedAt,
   });
@@ -71,6 +83,10 @@ class TripRecord {
       if (deliveredTimestamp != null) 'deliveredTimestamp': deliveredTimestamp,
       if (deliveredLat != null) 'deliveredLat': deliveredLat,
       if (deliveredLng != null) 'deliveredLng': deliveredLng,
+      if (std != null) 'std': std,
+      if (sta != null) 'sta': sta,
+      if (ata != null) 'ata': ata,
+      if (durationMinutes != null) 'durationMinutes': durationMinutes,
       'createdAt': createdAt ?? now,
       'updatedAt': updatedAt ?? now,
     };

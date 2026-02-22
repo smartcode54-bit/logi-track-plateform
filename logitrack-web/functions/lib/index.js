@@ -49,4 +49,5 @@ admin.initializeApp();
 __exportStar(require("./auth"), exports);
 __exportStar(require("./users"), exports);
 __exportStar(require("./triggers"), exports);
+__exportStar(require("./distances"), exports);
 //# sourceMappingURL=index.js.map

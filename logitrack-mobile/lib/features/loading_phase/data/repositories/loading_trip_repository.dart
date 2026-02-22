@@ -1,8 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart' as intl;
 import '../../../home/data/models/trip_record.dart';
 import '../../../home/data/repositories/trip_records_repository.dart';
 
 /// บันทึกรับงาน (Loading Phase) ลง TripRecords
+/// [distanceFromHubSocKm] และ [durationMinutes] จาก hub_soc_distances (ถ้ามี) ใช้สำหรับ STD/STA และระยะทางใน record
 Future<void> submitLoadingPhaseRecord({
   required String tripId,
   required String jobType,
@@ -11,6 +13,8 @@ Future<void> submitLoadingPhaseRecord({
   String? origin,
   String? destination,
   String? distance,
+  double? distanceFromHubSocKm,
+  double? durationMinutes,
   int? parcelCount,
   String? sealTime,
   String? totalWeight,
@@ -38,6 +42,23 @@ Future<void> submitLoadingPhaseRecord({
     );
   });
   final photos = await Future.wait(photoFutures);
+  final now = DateTime.now();
+  // STD = CreateAt (เวลาบันทึก)
+  final std = now;
+  // STA = เวลา Seal รถ + durationMinutes (จาก hub_soc_distances)
+  DateTime? sta;
+  if (sealTime != null && sealTime.trim().isNotEmpty && durationMinutes != null) {
+    try {
+      final seal = intl.DateFormat('dd-MM-yyyy HH:mm:ss').parse(sealTime.trim());
+      sta = seal.add(Duration(minutes: durationMinutes.round()));
+    } catch (_) {}
+  }
+  // ระยะทาง: จาก hub_soc_distances ก่อน ไม่มีถึงใช้จาก form
+  final distanceValue = distanceFromHubSocKm != null
+      ? (distanceFromHubSocKm == distanceFromHubSocKm.roundToDouble()
+          ? '${distanceFromHubSocKm.round()}'
+          : distanceFromHubSocKm.toStringAsFixed(2))
+      : distance;
   final record = TripRecord(
     id: tripId,
     status: 'in_transit', // รับงานแล้ว กำลังนำส่ง (ไม่ใช่ loading)
@@ -49,22 +70,33 @@ Future<void> submitLoadingPhaseRecord({
     driverId: driverId,
     origin: origin,
     destination: destination,
-    distance: distance,
+    distance: distanceValue,
     parcelCount: parcelCount,
     sealTime: sealTime,
     totalWeight: totalWeight,
     lat: lat,
     lng: lng,
-    createdAt: DateTime.now(),
-    updatedAt: DateTime.now(),
+    std: std,
+    sta: sta,
+    ata: null, // จะอัปเดตเมื่อถึง Hub/SOC ด้วย Geofencing
+    durationMinutes: durationMinutes,
+    createdAt: now,
+    updatedAt: now,
   );
   final data = record.toFirestore();
   final map = Map<String, dynamic>.from(data);
-  if (map['createdAt'] is DateTime) {
-    map['createdAt'] = Timestamp.fromDate(map['createdAt'] as DateTime);
+  void toTimestamp(String key) {
+    if (map[key] is DateTime) {
+      map[key] = Timestamp.fromDate(map[key] as DateTime);
+    }
   }
-  if (map['updatedAt'] is DateTime) {
-    map['updatedAt'] = Timestamp.fromDate(map['updatedAt'] as DateTime);
+  toTimestamp('createdAt');
+  toTimestamp('updatedAt');
+  toTimestamp('std');
+  toTimestamp('sta');
+  toTimestamp('ata');
+  if (map['deliveredTimestamp'] is DateTime) {
+    map['deliveredTimestamp'] = Timestamp.fromDate(map['deliveredTimestamp'] as DateTime);
   }
   await FirebaseFirestore.instance
       .collection(tripRecordsCollection)

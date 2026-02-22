@@ -42,6 +42,9 @@ export const COLLECTIONS = {
 
     /** Cached driving distance/duration from each Hub to each SOC (Google Distance Matrix) */
     HUB_SOC_DISTANCES: "hub_soc_distances",
+
+    /** Cached driving distance/duration from each SOC to each Hub (Google Distance Matrix) — แยกจาก hub_soc_distances */
+    SOC_HUB_DISTANCES: "soc_hub_distances",
 } as const;
 
 /** Type for collection names */

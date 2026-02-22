@@ -31,15 +31,29 @@ Future<void> submitDeliveryPhaseRecord({
   final newPhotos = await Future.wait(photoFutures);
   final newPhotoMaps = newPhotos.map((p) => p.toMap()).toList();
 
-  await FirebaseFirestore.instance
+  final ref = FirebaseFirestore.instance
       .collection(tripRecordsCollection)
-      .doc(tripId)
-      .update({
+      .doc(tripId);
+
+  // ใช้ set(merge: true) แทน update() เพื่อให้สถานะ delivered ถูกเขียนเสมอ (รวมกรณี LH ที่ doc อาจยังไม่ถูก merge จากที่อื่น)
+  final snap = await ref.get();
+  final List<Map<String, dynamic>> mergedPhotos = [];
+  if (snap.exists && snap.data() != null) {
+    final existing = snap.data()!['photos'];
+    if (existing is List) {
+      for (final e in existing) {
+        if (e is Map<String, dynamic>) mergedPhotos.add(e);
+      }
+    }
+  }
+  mergedPhotos.addAll(newPhotoMaps);
+
+  await ref.set({
     'status': 'delivered',
     'deliveredTimestamp': Timestamp.fromDate(now),
     'deliveredLat': deliveredLat,
     'deliveredLng': deliveredLng,
     'updatedAt': Timestamp.fromDate(now),
-    'photos': FieldValue.arrayUnion(newPhotoMaps),
-  });
+    'photos': mergedPhotos,
+  }, SetOptions(merge: true));
 }

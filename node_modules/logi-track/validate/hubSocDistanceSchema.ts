@@ -20,7 +20,7 @@ export const hubSocDistanceSchema = z.object({
 
 export type HubSocDistance = z.infer<typeof hubSocDistanceSchema>;
 
-/** Document ID for Firestore: hubId_socId */
-export function hubSocDistanceDocId(hubId: string, socId: string): string {
-    return `${hubId}_${socId}`;
+/** Document ID for Firestore: ต้นทาง_ปลายทาง (origin_destination). ใช้ทั้ง Hub→SOC (hubId_socId) และ SOC→Hub (socId_hubId). */
+export function hubSocDistanceDocId(originId: string, destinationId: string): string {
+    return `${originId}_${destinationId}`;
 }

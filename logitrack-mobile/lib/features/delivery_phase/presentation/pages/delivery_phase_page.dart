@@ -331,7 +331,9 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     const darkNavy = Color(0xFF0F172A);
 
-    return Scaffold(
+    return PopScope(
+      canPop: !_saving,
+      child: Scaffold(
       backgroundColor: isDarkMode
           ? Theme.of(context).scaffoldBackgroundColor
           : Colors.grey[50],
@@ -344,15 +346,17 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           TextButton.icon(
-            onPressed: () async {
-              await Navigator.of(context).push<bool>(
-                MaterialPageRoute<bool>(
-                  builder: (context) => IncidentReportPage(
-                    savedTripSummary: widget.savedTripSummary,
-                  ),
-                ),
-              );
-            },
+            onPressed: _saving
+                ? null
+                : () async {
+                    await Navigator.of(context).push<bool>(
+                      MaterialPageRoute<bool>(
+                        builder: (context) => IncidentReportPage(
+                          savedTripSummary: widget.savedTripSummary,
+                        ),
+                      ),
+                    );
+                  },
             icon: const Icon(Icons.warning_amber_rounded, color: Colors.orange),
             label: Text(
               'report_incident'.tr(),
@@ -364,9 +368,13 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
+      body: Stack(
+        children: [
+          AbsorbPointer(
+            absorbing: _saving,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // Header Summary Card
@@ -538,6 +546,34 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
           ],
         ),
       ),
+          ),
+          if (_saving)
+            Positioned.fill(
+              child: ModalBarrier(color: Colors.black38),
+            ),
+          if (_saving)
+            Center(
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const SizedBox(
+                        width: 32,
+                        height: 32,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(height: 16),
+                      Text('loading_phase_saving'.tr(), style: const TextStyle(fontSize: 14)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    ),
     );
   }
 

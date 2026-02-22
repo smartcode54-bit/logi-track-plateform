@@ -16,6 +16,16 @@ export function socIdMatchesKey(socId: string, key: string): boolean {
     return u === k || u.startsWith(k + " ") || u.startsWith(k + "(");
 }
 
+/** แปลง source_id ของ SOC เป็น key มาตรฐาน SOCE/SOCN/SOCW (ใช้ query hub_soc_distances สำหรับ SOC→Hub). */
+export function normalizeSocIdToKey(sourceId: string): string {
+    const u = (sourceId ?? "").trim().toUpperCase();
+    for (const key of SOC_KEYS) {
+        const k = key.toUpperCase();
+        if (u === k || u.startsWith(k + " ") || u.startsWith(k + "(")) return key;
+    }
+    return sourceId;
+}
+
 export const FIRST_MILE_STATUS_ENUM = ["Pending", "Assigned", "Checked in", "In-Transit", "Completed", "Cancelled"] as const;
 
 export const firstMileTaskSchema = z.object({
