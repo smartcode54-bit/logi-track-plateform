@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import dynamic from "next/dynamic";
-import { Plus, MapPin, Search, Pencil, ChevronLeft, ChevronRight, RefreshCw, Download } from "lucide-react";
+import { Plus, MapPin, Search, Pencil, ChevronLeft, ChevronRight, RefreshCw, Download, Route, MoreHorizontal, Link } from "lucide-react";
 import * as XLSX from "xlsx";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,13 +14,22 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { HubDialog } from "../first-mile/hub-dialog";
 import { PickupLocationImportDialog } from "./pickup-import-dialog";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import { useLanguage } from "@/context/language";
+import { COLLECTIONS } from "@/lib/collections";
 import type { Hub, StationType } from "@/validate/hubSchema";
+import { toast } from "sonner";
 
 const SourcesMap = dynamic(() => import("@/components/map/SourcesMap"), {
     ssr: false,
@@ -65,6 +74,8 @@ export default function SourcesPage() {
     /** คลิกแถวตามราง → แผนที่บินไปที่พิกัดและแสดง tooltip */
     const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
+    const [calculatingDistances, setCalculatingDistances] = useState(false);
+    const [distancesMessage, setDistancesMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
     /** จำนวนแถวต่อหน้า fix ที่ 10 */
     const itemsPerPage = 10;
@@ -72,7 +83,7 @@ export default function SourcesPage() {
     const fetchHubs = async () => {
         setLoading(true);
         try {
-            const querySnapshot = await getDocs(collection(db, "hubs"));
+            const querySnapshot = await getDocs(collection(db, COLLECTIONS.HUBS));
             const list: SourceRow[] = querySnapshot.docs.map((doc) =>
                 mapDocToSourceRow({ id: doc.id, data: doc.data() as Record<string, unknown> })
             );
@@ -138,11 +149,54 @@ export default function SourcesPage() {
         XLSX.writeFile(wb, `Sources_${new Date().toISOString().slice(0, 10)}.xlsx`);
     };
 
+    const handleCalculateDistances = async () => {
+        setCalculatingDistances(true);
+        setDistancesMessage(null);
+        try {
+            const res = await fetch("/api/admin/distances/hub-soc", { method: "POST" });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setDistancesMessage({ type: "error", text: data.error || t("firstMile.sources.distancesError") });
+                return;
+            }
+            const msg = t("firstMile.sources.distancesSuccess")
+                .replace("{{written}}", String(data.written ?? 0))
+                .replace("{{hubsCount}}", String(data.hubsCount ?? 0))
+                .replace("{{socsCount}}", String(data.socsCount ?? 0));
+            setDistancesMessage({ type: "success", text: msg });
+        } catch {
+            setDistancesMessage({ type: "error", text: t("firstMile.sources.distancesError") });
+        } finally {
+            setCalculatingDistances(false);
+        }
+    };
+
     return (
         <div className="flex-1 space-y-4 p-8 pt-6">
             <div className="flex items-center justify-between space-y-2">
                 <h2 className="text-3xl font-bold tracking-tight">{t("firstMile.sources.title")}</h2>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-col items-end gap-2">
+                    {distancesMessage && (
+                        <p className={distancesMessage.type === "success" ? "text-sm text-green-600" : "text-sm text-destructive"}>
+                            {distancesMessage.text}
+                        </p>
+                    )}
+                    <div className="flex items-center gap-2">
+                    <Button
+                        variant="outline"
+                        onClick={handleCalculateDistances}
+                        disabled={calculatingDistances}
+                        className="gap-2"
+                    >
+                        {calculatingDistances ? (
+                            <span className="animate-pulse">{t("firstMile.sources.calculatingDistances")}</span>
+                        ) : (
+                            <>
+                                <Route className="h-4 w-4" />
+                                {t("firstMile.sources.calculateDistances")}
+                            </>
+                        )}
+                    </Button>
                     <PickupLocationImportDialog onSuccess={fetchHubs} />
                     <HubDialog
                         trigger={
@@ -173,6 +227,7 @@ export default function SourcesPage() {
                             setEditSource(null);
                         }}
                     />
+                    </div>
                 </div>
             </div>
 
@@ -273,18 +328,38 @@ export default function SourcesPage() {
                                                 </TableCell>
                                                 <TableCell>{t(`firstMile.hub.stationType.${row.station_type}`)}</TableCell>
                                                 <TableCell onClick={(e) => e.stopPropagation()}>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        className="h-8 w-8"
-                                                        onClick={() => {
-                                                            setEditSource(row);
-                                                            setEditOpen(true);
-                                                        }}
-                                                        aria-label={t("firstMile.sources.edit")}
-                                                    >
-                                                        <Pencil className="h-4 w-4" />
-                                                    </Button>
+                                                    <DropdownMenu>
+                                                        <DropdownMenuTrigger asChild>
+                                                            <Button variant="ghost" size="icon" className="h-8 w-8">
+                                                                <span className="sr-only">{t("firstMile.sources.table.actions")}</span>
+                                                                <MoreHorizontal className="h-4 w-4" />
+                                                            </Button>
+                                                        </DropdownMenuTrigger>
+                                                        <DropdownMenuContent align="end">
+                                                            <DropdownMenuLabel>{t("firstMile.sources.table.actions")}</DropdownMenuLabel>
+                                                            <DropdownMenuItem
+                                                                onClick={() => {
+                                                                    setEditSource(row);
+                                                                    setEditOpen(true);
+                                                                }}
+                                                            >
+                                                                <Pencil className="mr-2 h-4 w-4" />
+                                                                {t("firstMile.sources.edit")}
+                                                            </DropdownMenuItem>
+                                                            {hasCoords && (
+                                                                <DropdownMenuItem
+                                                                    onClick={async () => {
+                                                                        const url = `https://www.google.com/maps/search/?api=1&query=${row.latitude},${row.longitude}`;
+                                                                        await navigator.clipboard.writeText(url);
+                                                                        toast.success(t("firstMile.sources.copyMapUrlSuccess"));
+                                                                    }}
+                                                                >
+                                                                    <Link className="mr-2 h-4 w-4" />
+                                                                    {t("firstMile.sources.copyMapUrl")}
+                                                                </DropdownMenuItem>
+                                                            )}
+                                                        </DropdownMenuContent>
+                                                    </DropdownMenu>
                                                 </TableCell>
                                             </TableRow>
                                         );

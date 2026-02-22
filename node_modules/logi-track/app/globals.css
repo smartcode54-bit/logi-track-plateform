@@ -138,3 +138,11 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Sources map popup: ลด margin ความสูงตามเนื้อหา scroll เฉพาะเมื่อเนื้อหาล้น */
+.leaflet-popup.sources-map-selected-popup .leaflet-popup-content-wrapper {
+  margin: 0;
+}
+.leaflet-popup.sources-map-selected-popup .leaflet-popup-content {
+  margin: 4px 8px;
+}

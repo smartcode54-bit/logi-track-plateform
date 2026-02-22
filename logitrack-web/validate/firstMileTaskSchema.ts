@@ -8,6 +8,14 @@ export const SOC_DESTINATIONS = {
 
 export const SOC_KEYS = ["SOCE", "SOCN", "SOCW"] as const;
 
+/** เช็คว่า socId จาก Firestore ตรงกับ key (SOCE/SOCN/SOCW) หรือไม่ รองรับทั้ง "SOCE" และ "SOCE (Bueroi)" */
+export function socIdMatchesKey(socId: string, key: string): boolean {
+    const u = (socId ?? "").trim().toUpperCase();
+    const k = (key ?? "").trim().toUpperCase();
+    if (!k) return false;
+    return u === k || u.startsWith(k + " ") || u.startsWith(k + "(");
+}
+
 export const FIRST_MILE_STATUS_ENUM = ["Pending", "Assigned", "Checked in", "In-Transit", "Completed", "Cancelled"] as const;
 
 export const firstMileTaskSchema = z.object({

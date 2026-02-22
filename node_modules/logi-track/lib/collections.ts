@@ -36,6 +36,12 @@ export const COLLECTIONS = {
 
     /** Trip records (driver jobs - first_mile / line_haul) */
     TRIP_RECORDS: "trip_records",
+
+    /** Hub and SOC locations (pickup/delivery points) */
+    HUBS: "hubs",
+
+    /** Cached driving distance/duration from each Hub to each SOC (Google Distance Matrix) */
+    HUB_SOC_DISTANCES: "hub_soc_distances",
 } as const;
 
 /** Type for collection names */

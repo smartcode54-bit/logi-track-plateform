@@ -1,10 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
+import { collection, getDocs, query, where } from "firebase/firestore";
+import { db } from "@/firebase/client";
 import { useLanguage } from "@/context/language";
+import { COLLECTIONS } from "@/lib/collections";
+import { SOC_KEYS, socIdMatchesKey } from "@/validate/firstMileTaskSchema";
 
 const defaultIcon = L.icon({
     iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
@@ -67,50 +71,134 @@ function FitBounds({ points, skipWhenSelected, selectedSourceId }: FitBoundsProp
     return null;
 }
 
-/** เมื่อเลือกแถวตามราง: บินไปที่พิกัดและเปิด popup แสดงรายละเอียดจุดรับส่ง */
+/** เมื่อเลือกแถวตามราง: บินไปที่พิกัดและเปิด popup แสดงรายละเอียดจุดรับส่ง + ระยะทางไป SOC (ถ้าเป็น Hub) */
 function SelectedSourcePopup({
     selectedSourceId,
     sources,
     getStationTypeLabel,
+    t,
     onClearSelection,
 }: {
     selectedSourceId: string | null;
     sources: (SourcePoint & { latitude: number; longitude: number })[];
     getStationTypeLabel: (type: string) => string;
+    t: (key: string) => string;
     onClearSelection?: () => void;
 }) {
     const map = useMap();
+    const popupRef = useRef<L.Popup | null>(null);
     const selected = useMemo(
         () => sources.find((s) => s.id === selectedSourceId || s.source_id === selectedSourceId),
         [sources, selectedSourceId]
     );
+    const [hubDistances, setHubDistances] = useState<{ socId: string; distanceKm: number; durationMinutes: number }[]>([]);
 
     useEffect(() => {
         if (!selected) {
             map.closePopup();
+            popupRef.current = null;
+            setHubDistances([]);
             return;
         }
         const latlng: L.LatLngExpression = [selected.latitude, selected.longitude];
         map.flyTo(latlng, 16, { duration: 0.5 });
 
-        const stationLabel = selected.station_type ? getStationTypeLabel(selected.station_type) : "";
-        const content = `
-            <div class="p-1 text-sm min-w-[160px]">
-                <p class="font-semibold text-foreground">${escapeHtml(selected.source_id)}</p>
-                <p class="text-muted-foreground">${escapeHtml(selected.source_name_en)}</p>
-                ${stationLabel ? `<p class="text-xs mt-1 text-muted-foreground">${escapeHtml(stationLabel)}</p>` : ""}
-                <p class="text-xs mt-0.5 text-muted-foreground">${selected.latitude.toFixed(5)}, ${selected.longitude.toFixed(5)}</p>
+        const buildContent = (distances: { socId: string; distanceKm: number; durationMinutes: number }[]) => {
+            const getBySoc = (key: string) => distances.find((d) => socIdMatchesKey(d.socId, key));
+            let distanceRows = "";
+            if (selected!.station_type === "HUB") {
+                const kmMinTpl = (() => {
+                    const s = t("firstMile.sources.kmMin");
+                    return s && !s.includes("kmMin") ? s : "{{km}} km / {{min}} min";
+                })();
+                const noDataLabel = (() => {
+                    const s = t("firstMile.sources.noDistanceData");
+                    return s && !s.includes("noDistanceData") ? s : "—";
+                })();
+                distanceRows = SOC_KEYS.map((key) => {
+                    const d = getBySoc(key);
+                    const value = d
+                        ? kmMinTpl.replace("{{km}}", d.distanceKm.toFixed(2)).replace("{{min}}", d.durationMinutes.toFixed(1))
+                        : noDataLabel;
+                    return `<p class="text-xs mt-0"><span class="font-medium">${key}</span> : ${escapeHtml(value)}</p>`;
+                }).join("");
+            }
+            const distanceToSocLabel = (() => {
+                const s = t("firstMile.sources.distanceToSoc");
+                return s && !s.includes("distanceToSoc") ? s : "Distance to SOC";
+            })();
+            return `
+            <div class="px-1.5 py-0.5 text-sm min-w-[140px] max-h-[200px] overflow-y-auto">
+                <p class="text-muted-foreground text-xs leading-tight">${escapeHtml(selected!.source_name_en)}</p>
+                ${distanceRows ? `<div class="mt-1 pt-1 border-t border-border"><p class="text-xs font-medium text-muted-foreground mb-0.5 leading-tight">${escapeHtml(distanceToSocLabel)}</p>${distanceRows}</div>` : ""}
             </div>
         `;
+        };
+
+        const content = buildContent(hubDistances);
         const popup = L.popup({ className: "sources-map-selected-popup" })
             .setLatLng(latlng)
             .setContent(content)
             .openOn(map);
+        popupRef.current = popup;
+
+        if (selected.station_type === "HUB") {
+            getDocs(query(collection(db, COLLECTIONS.HUB_SOC_DISTANCES), where("hubId", "==", selected.source_id)))
+                .then((snap) => {
+                    const list = snap.docs.map((d) => {
+                        const data = d.data();
+                        return {
+                            socId: (data.socId ?? "") as string,
+                            distanceKm: Number(data.distanceKm ?? 0),
+                            durationMinutes: Number(data.durationMinutes ?? 0),
+                        };
+                    });
+                    setHubDistances(list);
+                })
+                .catch(() => setHubDistances([]));
+        } else {
+            setHubDistances([]);
+        }
 
         return () => {
             map.removeLayer(popup);
+            popupRef.current = null;
         };
-    }, [map, selected, getStationTypeLabel]);
+    }, [map, selected, getStationTypeLabel, selectedSourceId]);
+
+    useEffect(() => {
+        if (!selected || !popupRef.current) return;
+        const getBySoc = (key: string) => hubDistances.find((d) => socIdMatchesKey(d.socId, key));
+        let distanceRows = "";
+        if (selected.station_type === "HUB") {
+            const kmMinTpl = (() => {
+                const s = t("firstMile.sources.kmMin");
+                return s && !s.includes("kmMin") ? s : "{{km}} km / {{min}} min";
+            })();
+            const noDataLabel = (() => {
+                const s = t("firstMile.sources.noDistanceData");
+                return s && !s.includes("noDistanceData") ? s : "—";
+            })();
+            distanceRows = SOC_KEYS.map((key) => {
+                const d = getBySoc(key);
+                const value = d
+                    ? kmMinTpl.replace("{{km}}", d.distanceKm.toFixed(2)).replace("{{min}}", d.durationMinutes.toFixed(1))
+                    : noDataLabel;
+                return `<p class="text-xs mt-0"><span class="font-medium">${key}</span> : ${escapeHtml(value)}</p>`;
+            }).join("");
+        }
+        const distanceToSocLabel = (() => {
+            const s = t("firstMile.sources.distanceToSoc");
+            return s && !s.includes("distanceToSoc") ? s : "Distance to SOC";
+        })();
+        const content = `
+            <div class="px-1.5 py-0.5 text-sm min-w-[140px] max-h-[200px] overflow-y-auto">
+                <p class="text-muted-foreground text-xs leading-tight">${escapeHtml(selected.source_name_en)}</p>
+                ${distanceRows ? `<div class="mt-1 pt-1 border-t border-border"><p class="text-xs font-medium text-muted-foreground mb-0.5 leading-tight">${escapeHtml(distanceToSocLabel)}</p>${distanceRows}</div>` : ""}
+            </div>
+        `;
+        popupRef.current.setContent(content);
+    }, [hubDistances, selected, getStationTypeLabel, t]);
 
     return null;
 }
@@ -124,11 +212,12 @@ function escapeHtml(text: string): string {
 interface SourcesMapProps {
     sources: SourcePoint[];
     selectedSourceId?: string | null;
+    onSourceSelect?: (sourceId: string) => void;
     onClearSelection?: () => void;
     className?: string;
 }
 
-export default function SourcesMap({ sources, selectedSourceId = null, onClearSelection, className = "" }: SourcesMapProps) {
+export default function SourcesMap({ sources, selectedSourceId = null, onSourceSelect, onClearSelection, className = "" }: SourcesMapProps) {
     const { t } = useLanguage();
     const [mapId] = useState(() => `sources-map-${Math.random().toString(36).slice(2, 9)}`);
 
@@ -191,25 +280,34 @@ export default function SourcesMap({ sources, selectedSourceId = null, onClearSe
                     selectedSourceId={selectedSourceId}
                     sources={pointsWithCoords}
                     getStationTypeLabel={getStationTypeLabel}
+                    t={t}
                     onClearSelection={onClearSelection}
                 />
-                {pointsWithCoords.map((src, idx) => (
-                    <Marker
-                        key={src.id ?? `${src.source_id}-${src.latitude}-${src.longitude}-${idx}`}
-                        position={[src.latitude!, src.longitude!]}
-                        icon={defaultIcon}
-                    >
-                        <Popup>
-                            <div className="text-sm">
-                                <p className="font-semibold">{src.source_id}</p>
-                                <p className="text-muted-foreground">{src.source_name_en}</p>
-                                {src.station_type && (
-                                    <p className="text-xs mt-1">{getStationTypeLabel(src.station_type)}</p>
-                                )}
-                            </div>
-                        </Popup>
-                    </Marker>
-                ))}
+                {pointsWithCoords.map((src, idx) => {
+                    const sourceKey = src.id ?? src.source_id;
+                    return (
+                        <Marker
+                            key={src.id ?? `${src.source_id}-${src.latitude}-${src.longitude}-${idx}`}
+                            position={[src.latitude!, src.longitude!]}
+                            icon={defaultIcon}
+                            eventHandlers={{
+                                click: () => {
+                                    if (onSourceSelect) onSourceSelect(sourceKey);
+                                },
+                            }}
+                        >
+                            <Popup>
+                                <div className="text-sm">
+                                    <p className="font-semibold">{src.source_id}</p>
+                                    <p className="text-muted-foreground">{src.source_name_en}</p>
+                                    {src.station_type && (
+                                        <p className="text-xs mt-1">{getStationTypeLabel(src.station_type)}</p>
+                                    )}
+                                </div>
+                            </Popup>
+                        </Marker>
+                    );
+                })}
             </MapContainer>
         </div>
     );
