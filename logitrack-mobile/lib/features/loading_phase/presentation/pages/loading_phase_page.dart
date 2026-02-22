@@ -1164,31 +1164,34 @@ class _PreviewSheet extends StatelessWidget {
                       style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(height: 8),
-                    GestureDetector(
-                      onTap: () => _showFullImage(context, runsheetPhoto),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Image.memory(
-                          runsheetPhoto,
-                          height: 100,
-                          fit: BoxFit.cover,
-                        ),
-                      ),
+                    _buildPreviewThumb(
+                      context,
+                      runsheetPhoto,
+                      height: 100,
+                      allImages: [runsheetPhoto, ...stepPhotos.entries.map((e) => e.value)],
+                      initialIndex: 0,
                     ),
                     const SizedBox(height: 12),
-                    // Camera photos (tappable)
+                    // Camera photos (tappable) — เลื่อนซ้าย/ขวาได้ใน full-screen
                     Text(
                       'loading_phase_photos_step_title'.tr(),
                       style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(height: 8),
                     Row(
-                      children: stepPhotos.entries.map((e) {
+                      children: stepPhotos.entries.toList().asMap().entries.map((entry) {
+                        final i = entry.key;
+                        final e = entry.value;
+                        final allImages = [runsheetPhoto, ...stepPhotos.entries.map((x) => x.value)];
                         return Expanded(
                           child: Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 2),
                             child: GestureDetector(
-                              onTap: () => _showFullImage(context, e.value),
+                              onTap: () => _showFullImage(
+                                context,
+                                allImages,
+                                initialIndex: 1 + i,
+                              ),
                               child: ClipRRect(
                                 borderRadius: BorderRadius.circular(8),
                                 child: Image.memory(
@@ -1289,28 +1292,134 @@ class _PreviewSheet extends StatelessWidget {
     );
   }
 
-  /// Show full-screen image preview with pinch-to-zoom
-  void _showFullImage(BuildContext context, Uint8List imageBytes) {
+  Widget _buildPreviewThumb(
+    BuildContext context,
+    Uint8List imageBytes, {
+    required double height,
+    required List<Uint8List> allImages,
+    required int initialIndex,
+  }) {
+    return GestureDetector(
+      onTap: () => _showFullImage(context, allImages, initialIndex: initialIndex),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Image.memory(
+          imageBytes,
+          height: height,
+          fit: BoxFit.cover,
+        ),
+      ),
+    );
+  }
+
+  /// Full-screen preview: เลื่อนซ้าย/ขวาดูรูปทั้งหมดได้, pinch-to-zoom
+  void _showFullImage(
+    BuildContext context,
+    List<Uint8List> images, {
+    int initialIndex = 0,
+  }) {
+    if (images.isEmpty) return;
     showDialog(
       context: context,
-      builder: (ctx) => Dialog(
-        backgroundColor: Colors.black,
-        insetPadding: const EdgeInsets.all(16),
-        child: Stack(
-          children: [
-            InteractiveViewer(
-              child: Image.memory(imageBytes, fit: BoxFit.contain),
-            ),
-            Positioned(
-              top: 8,
-              right: 8,
-              child: IconButton(
-                icon: const Icon(Icons.close, color: Colors.white, size: 28),
-                onPressed: () => Navigator.of(ctx).pop(),
+      builder: (ctx) => _FullScreenPreviewDialog(
+        images: images,
+        initialIndex: initialIndex.clamp(0, images.length - 1),
+        onClose: () => Navigator.of(ctx).pop(),
+      ),
+    );
+  }
+}
+
+/// Dialog แสดงรูปเต็มจอ — เลื่อนซ้าย/ขวาได้ตามรูปที่มี
+class _FullScreenPreviewDialog extends StatefulWidget {
+  final List<Uint8List> images;
+  final int initialIndex;
+  final VoidCallback onClose;
+
+  const _FullScreenPreviewDialog({
+    required this.images,
+    required this.initialIndex,
+    required this.onClose,
+  });
+
+  @override
+  State<_FullScreenPreviewDialog> createState() => _FullScreenPreviewDialogState();
+}
+
+class _FullScreenPreviewDialogState extends State<_FullScreenPreviewDialog> {
+  late PageController _pageController;
+  late int _currentIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController(initialPage: widget.initialIndex);
+    _currentIndex = widget.initialIndex;
+    _pageController.addListener(_onPageChanged);
+  }
+
+  void _onPageChanged() {
+    final page = _pageController.page?.round() ?? _currentIndex;
+    if (page != _currentIndex && mounted) {
+      setState(() => _currentIndex = page);
+    }
+  }
+
+  @override
+  void dispose() {
+    _pageController.removeListener(_onPageChanged);
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.black,
+      insetPadding: const EdgeInsets.all(16),
+      child: Stack(
+        children: [
+          PageView.builder(
+            controller: _pageController,
+            itemCount: widget.images.length,
+            itemBuilder: (context, index) => InteractiveViewer(
+              child: Image.memory(
+                widget.images[index],
+                fit: BoxFit.contain,
               ),
             ),
-          ],
-        ),
+          ),
+          Positioned(
+            top: 8,
+            right: 8,
+            child: IconButton(
+              icon: const Icon(Icons.close, color: Colors.white, size: 28),
+              onPressed: widget.onClose,
+            ),
+          ),
+          if (widget.images.length > 1)
+            Positioned(
+              bottom: 24,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '${_currentIndex + 1} / ${widget.images.length}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

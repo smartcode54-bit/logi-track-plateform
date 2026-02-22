@@ -140,6 +140,7 @@ class _OverlayParams {
 List<int> _processOverlay(_OverlayParams p) {
   var decoded = img.decodeImage(Uint8List.fromList(p.imageBytes));
   if (decoded == null) return p.imageBytes;
+  // ปรับขนาดรูปก่อนวาด overlay: เปลี่ยน 1024 เป็นค่าอื่น (px) ถ้าอยากให้ overlay ใหญ่/เล็กตามความละเอียดรูป
   if (decoded.width > 1024) {
     decoded = img.copyResize(decoded, width: 1024);
   }
@@ -148,51 +149,60 @@ List<int> _processOverlay(_OverlayParams p) {
   final dayNum = ts.day.toString();
   final monthYearStr = '${_monthAbbr[ts.month - 1]} ${ts.year}';
   final weekday = _weekdayShort[ts.weekday - 1];
-  final hour12 = ts.hour % 12;
-  final hourStr = (hour12 == 0 ? 12 : hour12).toString();
+  final hourStr = ts.hour.toString().padLeft(2, '0');
   final minuteStr = ts.minute.toString().padLeft(2, '0');
-  final amPm = ts.hour < 12 ? 'AM' : 'PM';
-  final timeLine = '$hourStr:$minuteStr $amPm';
+  final secondStr = ts.second.toString().padLeft(2, '0');
+  final timeLine = '$hourStr:$minuteStr:$secondStr';
 
   final coordLine =
       'Lat: ${p.lat.toStringAsFixed(6)}, Lng: ${p.lng.toStringAsFixed(6)}';
-  final compassLine = p.heading != null
+  final compassPart = p.heading != null
       ? '${p.heading!.toStringAsFixed(0)} ${_compassDirection(p.heading!)}'
       : null;
-  final tempLine = p.temperature != null
+  final tempPart = p.temperature != null
       ? '${p.temperature!.toStringAsFixed(2)}°'
       : null;
+  // อุณหภูมิ + เข็มทิศ บรรทัดเดียวกัน (เหมือนในรูปอ้างอิง)
+  final tempCompassLine = [
+    if (tempPart != null) tempPart,
+    if (compassPart != null) compassPart,
+  ].join('   ');
 
-  // 2.5x larger for readability (arial14→24, arial24→48)
+  // ─── ปรับขนาดตัวอักษร (package image มี arial14, arial24, arial48)
   final fontSmall = img.arial24;
   final fontLarge = img.arial48;
+  final fontRight = img.arial24; // ที่อยู่ + ทิศ (ลดขนาด; package มีแค่ 14/24/48)
 
-  // Scaled ~2.5x from original (line heights and panel for larger fonts)
-  const leftPanelWidth = 200;
+  // ─── ปรับขนาด overlay (แก้ค่าตรงนี้แล้วรันใหม่จะเห็นผล)
+  // • leftPanelWidth = ความกว้างแผงซ้าย (วัน/เวลา). ลด 10% จาก 1/3 → 0.3 * width
+  final leftPanelWidth = ((decoded.width / 3) * 0.9).round().clamp(180, 342);
+  // • paddingH / paddingV = ช่องว่างขอบซ้าย–ขวา / บน–ล่าง ของข้อความ (px)
   const paddingH = 18;
-  const paddingV = 20;
-  const lineHeight14 = 72;  // was 36
-  const lineHeight24 = 96;  // was 44
-  const lineHeightBig = 110; // day number, was 72
+  const paddingV = 10; // 0.5x (เดิม 20)
+  // • lineHeightSmall = ความสูง 1 บรรทัดของข้อความเล็ก (เดือน, ที่อยู่, พิกัด ฯลฯ). ยิ่งมาก overlay สูงขึ้น
+  const lineHeightSmall = 36; // 0.5x (เดิม 72)
+  // • lineHeightBig = ความสูงของบรรทัด “วันที่” กับ “เวลา”. อยากให้เลขวัน/เวลาใหญ่เด่น → เพิ่มค่า
+  const lineHeightBig = 55; // 0.5x (เดิม 110)
+  const lineHeightRight = 33; // ความสูง 1 บรรทัดฝั่งขวา (36 * 0.9 ≈ ลด 10%)
 
   final addrLines = _wrapText(
     p.address,
-    decoded.width - leftPanelWidth - paddingH * 4,
+    decoded.width - leftPanelWidth - paddingH * 3,
+    14, // charWidth สำหรับ arial24 (ที่อยู่ + ทิศ ลดขนาด)
   );
-  var rightLineCount = addrLines.length + 1; // address + coords
-  if (compassLine != null) rightLineCount += 1;
-  if (tempLine != null) rightLineCount += 1;
+  var rightLineCount = addrLines.length + 1; // ที่อยู่ + พิกัด
+  if (tempCompassLine.isNotEmpty) rightLineCount += 1; // อุณหภูมิ+เข็มทิศบรรทัดเดียว
 
-  final leftHeight = lineHeightBig + lineHeight14 * 3 + paddingV * 2;
-  final rightHeight = lineHeight14 * rightLineCount + paddingV * 2;
+  final leftHeight = lineHeightBig + lineHeightSmall * 3 + paddingV * 2;
+  final rightHeight = lineHeightRight * rightLineCount + paddingV * 2;
   final overlayHeight = leftHeight > rightHeight ? leftHeight : rightHeight;
 
   final overlayTop = decoded.height - overlayHeight;
   if (overlayTop <= 0) return img.encodeJpg(decoded, quality: 75);
 
-  // Terracotta/reddish-brown background (like template)
-  final overlayColor = img.ColorRgba8(180, 95, 75, 245);
-  final leftPanelColor = img.ColorRgba8(160, 85, 65, 250);
+  // พื้นหลังเทาอ่อน ตามรูปอ้างอิง (ซ้ายเข้มกว่านิดหนึ่ง)
+  final overlayColor = img.ColorRgba8(235, 235, 235, 250);
+  final leftPanelColor = img.ColorRgba8(220, 220, 220, 252);
   img.fillRect(
     decoded,
     x1: 0,
@@ -210,6 +220,10 @@ List<int> _processOverlay(_OverlayParams p) {
     color: leftPanelColor,
   );
 
+  // สีตามรูป: ข้อความหลักแดง, วันในสัปดาห์+เวลาเทาเข้ม
+  final colorRed = img.ColorRgba8(180, 50, 50, 255);
+  final colorDarkGrey = img.ColorRgba8(80, 80, 80, 255);
+
   var y = overlayTop + paddingV;
   img.drawString(
     decoded,
@@ -217,7 +231,7 @@ List<int> _processOverlay(_OverlayParams p) {
     font: fontLarge,
     x: paddingH,
     y: y,
-    color: img.ColorRgba8(255, 255, 255, 255),
+    color: colorRed,
   );
   y += lineHeightBig;
   img.drawString(
@@ -226,25 +240,25 @@ List<int> _processOverlay(_OverlayParams p) {
     font: fontSmall,
     x: paddingH,
     y: y,
-    color: img.ColorRgba8(255, 255, 255, 255),
+    color: colorRed,
   );
-  y += lineHeight14;
+  y += lineHeightSmall;
   img.drawString(
     decoded,
     weekday,
     font: fontSmall,
     x: paddingH,
     y: y,
-    color: img.ColorRgba8(255, 255, 255, 255),
+    color: colorDarkGrey,
   );
-  y += lineHeight14;
+  y += lineHeightSmall;
   img.drawString(
     decoded,
     timeLine,
     font: fontLarge,
     x: paddingH,
     y: y,
-    color: img.ColorRgba8(255, 255, 255, 255),
+    color: colorDarkGrey,
   );
 
   final rightX = leftPanelWidth + paddingH;
@@ -253,51 +267,40 @@ List<int> _processOverlay(_OverlayParams p) {
     img.drawString(
       decoded,
       line,
-      font: fontSmall,
+      font: fontRight,
       x: rightX,
       y: ry,
-      color: img.ColorRgba8(255, 255, 255, 255),
+      color: colorRed,
     );
-    ry += lineHeight14;
+    ry += lineHeightRight;
   }
   img.drawString(
     decoded,
     coordLine,
-    font: fontSmall,
+    font: fontRight,
     x: rightX,
     y: ry,
-    color: img.ColorRgba8(255, 255, 255, 255),
+    color: colorRed,
   );
-  ry += lineHeight14;
-  if (tempLine != null) {
+  ry += lineHeightRight;
+  if (tempCompassLine.isNotEmpty) {
     img.drawString(
       decoded,
-      tempLine,
-      font: fontSmall,
+      tempCompassLine,
+      font: fontRight,
       x: rightX,
       y: ry,
-      color: img.ColorRgba8(255, 220, 200, 255),
-    );
-    ry += lineHeight14;
-  }
-  if (compassLine != null) {
-    img.drawString(
-      decoded,
-      compassLine,
-      font: fontSmall,
-      x: rightX,
-      y: ry,
-      color: img.ColorRgba8(255, 200, 150, 255),
+      color: colorRed,
     );
   }
 
   return img.encodeJpg(decoded, quality: 75);
 }
 
-/// Simple text wrapping (charWidth tuned for arial24)
-List<String> _wrapText(String text, int maxWidth) {
+/// Simple text wrapping สำหรับที่อยู่หลายบรรทัด
+/// [charWidth] ประมาณความกว้างต่อตัวอักษร (px): arial24≈14, arial48≈21
+List<String> _wrapText(String text, int maxWidth, [int charWidth = 14]) {
   if (text.isEmpty) return [''];
-  const charWidth = 14; // ~2.5x from 8 for arial24
   final maxChars = maxWidth ~/ charWidth;
   if (maxChars <= 0) return [text];
 

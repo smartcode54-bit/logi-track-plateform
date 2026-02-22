@@ -270,26 +270,32 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
     );
   }
 
-  /// Combobox + search สำหรับเลือกเหตุที่ทำให้การจัดส่งล่าช้า
+  /// Combobox + search สำหรับเลือกเหตุที่ทำให้การจัดส่งล่าช้า (ปิดแก้ไขตอน save)
   Widget _buildDelayCauseComboBox(BuildContext context, bool isDarkMode) {
-    return InkWell(
-      onTap: () => _showDelayCausePicker(context, isDarkMode),
-      borderRadius: BorderRadius.circular(4),
-      child: InputDecorator(
-        decoration: InputDecoration(
-          hintText: 'incident_delay_cause_hint'.tr(),
-          border: const OutlineInputBorder(),
-          suffixIcon: const Icon(Icons.arrow_drop_down),
-          errorText: _selectedDelayCause == null || _selectedDelayCause!.isEmpty
-              ? null
-              : null,
-        ),
-        child: Text(
-          _selectedDelayCause != null ? _selectedDelayCause!.tr() : '',
-          style: TextStyle(
-            color: _selectedDelayCause != null
-                ? (isDarkMode ? Colors.white : Colors.black87)
-                : (isDarkMode ? Colors.white54 : Colors.black38),
+    return IgnorePointer(
+      ignoring: _saving,
+      child: Opacity(
+        opacity: _saving ? 0.6 : 1,
+        child: InkWell(
+          onTap: () => _showDelayCausePicker(context, isDarkMode),
+          borderRadius: BorderRadius.circular(4),
+          child: InputDecorator(
+            decoration: InputDecoration(
+              hintText: 'incident_delay_cause_hint'.tr(),
+              border: const OutlineInputBorder(),
+              suffixIcon: const Icon(Icons.arrow_drop_down),
+              errorText: _selectedDelayCause == null || _selectedDelayCause!.isEmpty
+                  ? null
+                  : null,
+            ),
+            child: Text(
+              _selectedDelayCause != null ? _selectedDelayCause!.tr() : '',
+              style: TextStyle(
+                color: _selectedDelayCause != null
+                    ? (isDarkMode ? Colors.white : Colors.black87)
+                    : (isDarkMode ? Colors.white54 : Colors.black38),
+              ),
+            ),
           ),
         ),
       ),
@@ -318,32 +324,36 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
     required bool isDarkMode,
   }) {
     final hasPhoto = _photos[key] != null && _photos[key]!.isNotEmpty;
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              titleKey.tr(),
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: isDarkMode ? Colors.white : Colors.black87,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              descKey.tr(),
-              style: TextStyle(
-                fontSize: 12,
-                color: isDarkMode ? Colors.white60 : Colors.black54,
-              ),
-            ),
-            const SizedBox(height: 12),
-            InkWell(
-              onTap: () => _showPhotoSourceSheet(key),
-              borderRadius: BorderRadius.circular(12),
+    return IgnorePointer(
+      ignoring: _saving,
+      child: Opacity(
+        opacity: _saving ? 0.6 : 1,
+        child: Card(
+          elevation: 2,
+          child: Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  titleKey.tr(),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: isDarkMode ? Colors.white : Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  descKey.tr(),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isDarkMode ? Colors.white60 : Colors.black54,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                InkWell(
+                  onTap: () => _showPhotoSourceSheet(key),
+                  borderRadius: BorderRadius.circular(12),
               child: Container(
                 height: 140,
                 decoration: BoxDecoration(
@@ -385,6 +395,8 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
               ),
             ),
           ],
+        ),
+      ),
         ),
       ),
     );
