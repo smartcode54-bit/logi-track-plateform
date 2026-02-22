@@ -194,5 +194,23 @@
     "draft_restore_loading_message": "You have unsaved loading (pick-up) data. Restore it?",
     "draft_restore_delivery_message": "You have unsaved delivery photos. Restore them?",
     "draft_restore_discard": "Discard",
-    "draft_restore_restore": "Restore draft"
+    "draft_restore_restore": "Restore draft",
+    "pickUp": {
+        "title": "Pickup Location Management",
+        "newSource": "New Pickup-Delivery Point",
+        "dbSources": "Database Pickup-Delivery Points",
+        "search": "Search pickup-delivery points...",
+        "loading": "Loading...",
+        "noData": "No database sources found. Create one to get started.",
+        "noCoords": "No coords",
+        "edit": "Edit",
+        "table": {
+            "sourceId": "Pickup-Delivery Point ID",
+            "nameSPX": "Name (SPX)",
+            "nameThai": "Name (Thai)",
+            "coordinates": "Coordinates",
+            "stationType": "Station Type",
+            "actions": "Actions"
+        }
+    }
 }

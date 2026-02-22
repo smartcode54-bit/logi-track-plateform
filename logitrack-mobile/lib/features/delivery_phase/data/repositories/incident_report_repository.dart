@@ -28,9 +28,9 @@ Future<String> uploadIncidentPhoto({
 
 /// เหตุที่ทำให้การจัดส่งล่าช้า — ใช้ translation key (incident_cause_*) แสดงใน UI กับ en/th
 const List<String> incidentDelayCauseOptionKeys = [
+  'incident_cause_accident',
   'incident_cause_engine',
   'incident_cause_tire',
-  'incident_cause_accident',
   'incident_cause_traffic',
   'incident_cause_weather',
   'incident_cause_checkpoint',
