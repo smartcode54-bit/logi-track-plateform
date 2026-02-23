@@ -189,17 +189,27 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> with RouteAware
                         ),
                         const SizedBox(height: 12),
                         Container(
+                          constraints: BoxConstraints(
+                            maxHeight: MediaQuery.of(context).size.height * 0.45,
+                          ),
                           decoration: BoxDecoration(
                             color: Theme.of(context).colorScheme.surfaceContainerLowest,
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(color: Theme.of(context).dividerColor),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Theme.of(context).colorScheme.shadow.withOpacity(0.06),
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
                           ),
-                          constraints: BoxConstraints(
-                            maxHeight: MediaQuery.of(context).size.height * 0.45,
-                          ),
+                          clipBehavior: Clip.antiAlias,
                           child: Scrollbar(
                             controller: _historyScrollController,
                             thumbVisibility: true,
+                            thickness: 6,
+                            radius: const Radius.circular(3),
                             child: _recentList.isEmpty
                                 ? Padding(
                                     padding: const EdgeInsets.symmetric(vertical: 24.0),
@@ -214,7 +224,8 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> with RouteAware
                                   )
                                 : ListView.builder(
                                     controller: _historyScrollController,
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                    padding: const EdgeInsets.fromLTRB(12, 8, 8, 12),
+                                    physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
                                     itemCount: _recentList.length,
                                     itemBuilder: (context, index) => _buildRecordTile(context, _recentList[index]),
                                   ),

@@ -14,7 +14,8 @@ import {
     HelpCircle,
     GitBranch,
     Shield,
-    MapPin
+    MapPin,
+    Calculator
 } from "lucide-react"
 
 import {
@@ -99,6 +100,20 @@ export function AppSidebar() {
             title: t("nav.reporting"),
             url: "/admin/analytics",
             icon: BarChart3,
+        },
+        {
+            title: t("nav.accounting"),
+            icon: Calculator,
+            items: [
+                {
+                    title: t("nav.fuel"),
+                    url: "/admin/accounting/fuel",
+                },
+                {
+                    title: t("nav.other"),
+                    url: "/admin/accounting/other",
+                },
+            ],
         },
         {
             title: t("nav.operations"),

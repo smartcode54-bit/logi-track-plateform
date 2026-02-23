@@ -45,6 +45,9 @@ export const COLLECTIONS = {
 
     /** Cached driving distance/duration from each SOC to each Hub (Google Distance Matrix) — แยกจาก hub_soc_distances */
     SOC_HUB_DISTANCES: "soc_hub_distances",
+
+    /** Vehicle expenses (fuel refills, other expenses from mobile) */
+    VEHICLE_EXPENSES: "vehicle_expenses",
 } as const;
 
 /** Type for collection names */

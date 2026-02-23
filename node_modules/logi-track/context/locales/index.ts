@@ -12,6 +12,7 @@ import landingEn from './en/landing';
 import driversEn from './en/drivers';
 import firstMileEn from './en/firstMile';
 import driverMonitorEn from './en/driverMonitor';
+import accountingEn from './en/accounting';
 
 import commonTh from './th/common';
 import authTh from './th/auth';
@@ -27,6 +28,7 @@ import landingTh from './th/landing';
 import driversTh from './th/drivers';
 import firstMileTh from './th/firstMile';
 import driverMonitorTh from './th/driverMonitor';
+import accountingTh from './th/accounting';
 
 export const translations = {
     en: {
@@ -44,6 +46,7 @@ export const translations = {
         ...driversEn,
         ...firstMileEn,
         ...driverMonitorEn,
+        ...accountingEn,
     },
     th: {
         ...commonTh,
@@ -60,5 +63,6 @@ export const translations = {
         ...driversTh,
         ...firstMileTh,
         ...driverMonitorTh,
+        ...accountingTh,
     },
 };
