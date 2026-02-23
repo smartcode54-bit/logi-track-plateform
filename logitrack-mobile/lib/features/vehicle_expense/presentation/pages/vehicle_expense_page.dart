@@ -1,0 +1,344 @@
+import 'package:easy_localization/easy_localization.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart' as intl;
+import '../../../../core/route_observer.dart';
+import '../../data/models/vehicle_expense.dart';
+import '../../data/repositories/vehicle_expense_repository.dart';
+import 'refuel_form_page.dart';
+import 'other_expense_form_page.dart';
+
+/// หน้าหลัก "จัดการรถ / เปลี่ยนค่าใช้จ่าย" — เลือกบันทึกเติมน้ำมัน หรือค่าใช้จ่ายอื่น + แสดงประวัติล่าสุด
+class VehicleExpensePage extends StatefulWidget {
+  const VehicleExpensePage({super.key});
+
+  @override
+  State<VehicleExpensePage> createState() => _VehicleExpensePageState();
+}
+
+class _VehicleExpensePageState extends State<VehicleExpensePage> with RouteAware {
+  List<VehicleExpense> _recentList = [];
+  bool _loading = true;
+  bool _refreshing = false;
+  String? _error;
+  bool _routeObserverSubscribed = false;
+  final ScrollController _historyScrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRecent();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_routeObserverSubscribed) {
+      final route = ModalRoute.of(context);
+      if (route != null) {
+        routeObserver.subscribe(this, route);
+        _routeObserverSubscribed = true;
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _historyScrollController.dispose();
+    routeObserver.unsubscribe(this);
+    super.dispose();
+  }
+
+  @override
+  void didPopNext() {
+    // กลับมาแสดงหน้านี้ (เช่น กลับจากฟอร์มหรือหน้าอื่น) → โหลดประวัติใหม่
+    _loadRecent();
+  }
+
+  Future<void> _loadRecent() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || uid.isEmpty) {
+      setState(() {
+        _loading = false;
+        _refreshing = false;
+        _error = 'user_not_authenticated'.tr();
+      });
+      return;
+    }
+    final alreadyHaveList = _recentList.isNotEmpty;
+    setState(() {
+      if (alreadyHaveList) {
+        _refreshing = true;
+      } else {
+        _loading = true;
+      }
+    });
+    try {
+      await syncPendingVehicleExpenses(uid);
+      final fromServer = await getVehicleExpensesByDriver(uid, limit: 20);
+      final pending = await getPendingVehicleExpenses(uid);
+      final merged = <VehicleExpense>[...fromServer, ...pending];
+      merged.sort((a, b) => (b.date).compareTo(a.date));
+      final list = List<VehicleExpense>.from(merged.take(30));
+      if (mounted) setState(() {
+        _recentList = list;
+        _loading = false;
+        _refreshing = false;
+        _error = null;
+      });
+    } catch (e) {
+      if (mounted) setState(() {
+        _loading = false;
+        _refreshing = false;
+        _error = e.toString();
+      });
+    }
+  }
+
+  Future<void> _openRefuelForm() async {
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const RefuelFormPage()),
+    );
+    if (result == true) _loadRecent();
+  }
+
+  Future<void> _openOtherExpenseForm() async {
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const OtherExpenseFormPage()),
+    );
+    if (result == true) _loadRecent();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('vehicle_expense_title'.tr()),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.error_outline, size: 48, color: Theme.of(context).colorScheme.error),
+                        const SizedBox(height: 16),
+                        Text(_error!, textAlign: TextAlign.center),
+                      ],
+                    ),
+                  ),
+                )
+              : RefreshIndicator(
+                  onRefresh: _loadRecent,
+                  child: Stack(
+                    children: [
+                      SingleChildScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (_refreshing)
+                              const Padding(
+                                padding: EdgeInsets.only(bottom: 8.0),
+                                child: Center(
+                                  child: SizedBox(
+                                    height: 24,
+                                    width: 24,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  ),
+                                ),
+                              ),
+                            Text(
+                              'vehicle_expense_subtitle'.tr(),
+                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+                              ),
+                            ),
+                        const SizedBox(height: 24),
+                        _buildActionCard(
+                          context,
+                          icon: Icons.local_gas_station,
+                          iconColor: Colors.blue,
+                          title: 'vehicle_expense_refuel'.tr(),
+                          subtitle: 'vehicle_expense_refuel_hint'.tr(),
+                          onTap: _openRefuelForm,
+                        ),
+                        const SizedBox(height: 12),
+                        _buildActionCard(
+                          context,
+                          icon: Icons.receipt_long,
+                          iconColor: Colors.orange,
+                          title: 'vehicle_expense_other'.tr(),
+                          subtitle: 'vehicle_expense_other_hint'.tr(),
+                          onTap: _openOtherExpenseForm,
+                        ),
+                        const SizedBox(height: 28),
+                        Text(
+                          'vehicle_expense_recent'.tr(),
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                        ),
+                        const SizedBox(height: 12),
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.surfaceContainerLowest,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Theme.of(context).dividerColor),
+                          ),
+                          constraints: BoxConstraints(
+                            maxHeight: MediaQuery.of(context).size.height * 0.45,
+                          ),
+                          child: Scrollbar(
+                            controller: _historyScrollController,
+                            thumbVisibility: true,
+                            child: _recentList.isEmpty
+                                ? Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 24.0),
+                                    child: Center(
+                                      child: Text(
+                                        'vehicle_expense_no_records'.tr(),
+                                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                                            ),
+                                      ),
+                                    ),
+                                  )
+                                : ListView.builder(
+                                    controller: _historyScrollController,
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                    itemCount: _recentList.length,
+                                    itemBuilder: (context, index) => _buildRecordTile(context, _recentList[index]),
+                                  ),
+                          ),
+                        ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+    );
+  }
+
+  Widget _buildActionCard(
+    BuildContext context, {
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Theme.of(context).cardTheme.color ?? Theme.of(context).cardColor,
+      borderRadius: BorderRadius.circular(12),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: iconColor.withOpacity(0.15),
+                radius: 28,
+                child: Icon(icon, color: iconColor, size: 28),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  bool _isPending(VehicleExpense e) => e.id != null && e.id!.startsWith('pending_');
+
+  Widget _buildRecordTile(BuildContext context, VehicleExpense e) {
+    final dateStr = intl.DateFormat('dd/MM/yyyy HH:mm').format(e.date);
+    final typeLabel = e.isFuel ? 'vehicle_expense_refuel'.tr() : _categoryLabel(e.category);
+    final pending = _isPending(e);
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: e.isFuel ? Colors.blue.withOpacity(0.15) : Colors.orange.withOpacity(0.15),
+          child: Icon(
+            e.isFuel ? Icons.local_gas_station : Icons.receipt_long,
+            color: e.isFuel ? Colors.blue : Colors.orange,
+            size: 22,
+          ),
+        ),
+        title: Row(
+          children: [
+            Expanded(child: Text(typeLabel)),
+            if (pending)
+              Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: Text(
+                  'vehicle_expense_pending'.tr(),
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: Theme.of(context).colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ),
+          ],
+        ),
+        subtitle: Text(dateStr),
+        trailing: Text(
+          '฿${e.amount.toStringAsFixed(0)}',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+        ),
+      ),
+    );
+  }
+
+  String _categoryLabel(OtherExpenseCategory? c) {
+    if (c == null) return 'vehicle_expense_other'.tr();
+    switch (c) {
+      case OtherExpenseCategory.tireRepair:
+        return 'vehicle_expense_category_tire'.tr();
+      case OtherExpenseCategory.maintenance:
+        return 'vehicle_expense_category_maintenance'.tr();
+      case OtherExpenseCategory.toll:
+        return 'vehicle_expense_category_toll'.tr();
+      case OtherExpenseCategory.parking:
+        return 'vehicle_expense_category_parking'.tr();
+      case OtherExpenseCategory.other:
+        return 'vehicle_expense_category_other'.tr();
+    }
+  }
+}

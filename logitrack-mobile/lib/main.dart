@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 // import 'package:device_preview/device_preview.dart';
+import 'core/route_observer.dart';
 import 'core/theme/theme_controller.dart';
 import 'core/services/fcm_service.dart';
 import 'features/auth/presentation/pages/login_page.dart';
@@ -16,6 +17,7 @@ import 'features/loading_phase/presentation/pages/loading_phase_page.dart';
 import 'features/profile/presentation/pages/profile_page.dart';
 import 'features/job_record/presentation/pages/job_record_page.dart';
 import 'features/trip_history/presentation/pages/trip_history_page.dart';
+import 'features/vehicle_expense/presentation/pages/vehicle_expense_page.dart';
 import 'firebase_options.dart';
 
 void main() async {
@@ -71,6 +73,7 @@ class MyApp extends StatelessWidget {
       valueListenable: themeController.themeMode,
       builder: (context, themeMode, _) {
         return MaterialApp(
+          navigatorObservers: [routeObserver],
           locale: context.locale,
           // builder: DevicePreview.appBuilder,
           localizationsDelegates: context.localizationDelegates,
@@ -198,6 +201,7 @@ class MyApp extends StatelessWidget {
             '/profile': (context) => const ProfilePage(),
             '/job-record': (context) => const JobRecordPage(),
             '/trip-history': (context) => const TripHistoryPage(),
+            '/vehicle-expense': (context) => const VehicleExpensePage(),
           },
         );
       },

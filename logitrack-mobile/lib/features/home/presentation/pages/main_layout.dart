@@ -128,7 +128,7 @@ class _MainLayoutState extends State<MainLayout> {
 
   void _onItemTapped(int index) {
     if (index == 3) {
-      _showVehicleBottomSheet(context);
+      Navigator.of(context).pushNamed('/vehicle-expense');
       return;
     }
     if (index == 1 && _isPickupDisabled) {
@@ -160,75 +160,6 @@ class _MainLayoutState extends State<MainLayout> {
         if (mounted) setState(() => _savedTripSummary = null);
       }
     } catch (_) {}
-  }
-
-  void _showVehicleBottomSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              vertical: 24.0,
-              horizontal: 16.0,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  'nav_vehicle'.tr(),
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 24),
-                ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: Colors.blue.withOpacity(0.1),
-                    child: const Icon(
-                      Icons.local_gas_station,
-                      color: Colors.blue,
-                    ),
-                  ),
-                  title: Text('vehicle_refuel'.tr()),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    // Handle refuel action
-                  },
-                ),
-                ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: Colors.orange.withOpacity(0.1),
-                    child: const Icon(Icons.tire_repair, color: Colors.orange),
-                  ),
-                  title: Text('vehicle_tire_repair'.tr()),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    // Handle tire repair action
-                  },
-                ),
-                ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: Colors.grey.withOpacity(0.1),
-                    child: const Icon(Icons.car_repair, color: Colors.grey),
-                  ),
-                  title: Text('vehicle_other'.tr()),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    // Handle other car related action
-                  },
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
   }
 
   @override

@@ -1,9 +1,8 @@
-import 'dart:io' show File, Platform;
-import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
-import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 
-/// Result of OCR on a runsheet / Shopee screenshot.
+import 'cloud_vision_ocr_service.dart';
+
+/// Result of OCR on a runsheet / Shopee screenshot (Vision API, key เดียวกับแผนที่).
 class OcrScreenshotResult {
   final String? tripId;
   final String? sealCode;
@@ -28,29 +27,15 @@ class OcrScreenshotResult {
   });
 }
 
-/// Runs OCR on raw image bytes and extracts all available fields.
+/// Runs OCR on raw image bytes (Vision API). อ่านไม่ได้ให้ใส่มือได้
 Future<OcrScreenshotResult> runOcrOnImageBytes(List<int> imageBytes) async {
-  if (kIsWeb) return OcrScreenshotResult();
-  if (!Platform.isAndroid && !Platform.isIOS) return OcrScreenshotResult();
-
   try {
-    final dir = await getTemporaryDirectory();
-    final file = File(
-      '${dir.path}/ocr_screenshot_${DateTime.now().millisecondsSinceEpoch}.jpg',
-    );
-    await file.writeAsBytes(imageBytes);
+    final fullText = await runCloudVisionOcrOnImageBytes(imageBytes);
 
-    final inputImage = InputImage.fromFilePath(file.path);
-    final textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
-    final recognizedText = await textRecognizer.processImage(inputImage);
-    await textRecognizer.close();
+    // Log ผลอ่านไว้ดู
+    debugPrint('=== OCR Full Text (Vision API) ===\n${fullText == null || fullText.isEmpty ? "(ว่าง)" : fullText}\n=====================');
 
-    try {
-      await file.delete();
-    } catch (_) {}
-
-    final fullText = recognizedText.text;
-    debugPrint('=== OCR Full Text ===\n$fullText\n=====================');
+    if (fullText == null || fullText.isEmpty) return OcrScreenshotResult();
 
     return OcrScreenshotResult(
       tripId: _clean(_extractTripId(fullText)),
@@ -63,7 +48,8 @@ Future<OcrScreenshotResult> runOcrOnImageBytes(List<int> imageBytes) async {
       sealTime: _clean(_extractSealTime(fullText)),
       totalWeight: _clean(_extractTotalWeight(fullText)),
     );
-  } catch (_) {
+  } catch (e, st) {
+    debugPrint('OCR screenshot error: $e\n$st');
     return OcrScreenshotResult();
   }
 }
