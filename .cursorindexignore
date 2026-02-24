@@ -1,0 +1,74 @@
+# ============================================
+# Cursor Indexing Ignore
+# ไฟล์/โฟลเดอร์ที่ไม่ต้อง index เพื่อลด noise
+# ============================================
+
+# === Dependencies ===
+**/node_modules/
+**/.pub/
+**/.pub-cache/
+
+# === Build Artifacts ===
+**/.next/
+**/out/
+**/build/
+**/.turbo/
+**/.dart_tool/
+**/.firebase/
+
+# === Android Build ===
+**/.gradle/
+**/android/app/build/
+**/android/app/debug/
+**/android/app/profile/
+**/android/app/release/
+
+# === iOS Build ===
+**/ios/Pods/
+**/ios/Flutter/Flutter.framework/
+**/ios/.symlinks/
+
+# === Test Artifacts ===
+**/playwright-report/
+**/test-results/
+**/playwright-video/
+**/coverage/
+
+# === Cloud Functions compiled output ===
+logitrack-web/functions/lib/
+
+# === Lock files ===
+package-lock.json
+**/pubspec.lock
+
+# === Platform-specific (Desktop - not actively developed) ===
+logitrack-mobile/linux/
+logitrack-mobile/windows/
+logitrack-mobile/macos/
+
+# === Misc generated ===
+**/*.tsbuildinfo
+**/next-env.d.ts
+**/.flutter-plugins-dependencies
+**/.flutter-plugins
+**/app.*.symbols
+**/app.*.map.json
+
+# === IDE / OS ===
+**/.DS_Store
+**/.idea/
+**/.vscode/
+**/*.iml
+**/*.ipr
+**/*.iws
+
+# === Logs ===
+**/*.log
+**/npm-debug.log*
+**/yarn-debug.log*
+**/yarn-error.log*
+
+# === Environment / Secrets ===
+**/.env
+**/.env.*
+**/*.pem

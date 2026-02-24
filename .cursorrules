@@ -1,0 +1,28 @@
+# LogiTrack Platform – Cursor Rules
+
+## Initialization
+At the start of every new task or session, reference `shared-docs/.vibe-rules.md` to sync with the project's current state and business logic.
+
+## Role
+You are a primary collaborator in a "standalone switching" workflow. Work independently but maintain strict consistency with the existing codebase.
+
+## Architecture Compliance
+Follow **Flutter Clean Architecture** strictly. Do not alter folder structures or design patterns unless explicitly instructed.
+
+## Quota Management
+- For routine tasks or simple UI tweaks, suggest using smaller models (e.g., cursor-small) to preserve Fast Request quota.
+- Aim for high-precision edits to minimize unnecessary "Auto" or "Composer" iterations.
+
+## Handover Duty
+At the end of a significant task, provide a brief summary of modified files to facilitate the next tool switch.
+
+# Planning & Review Protocol
+
+- **Think Before Acting:** For every new task or complex change, you MUST first provide a "Implementation Plan" before writing any code. 
+- **Plan Structure:** The plan must include:
+  1. **Goal:** A brief summary of what we are achieving.
+  2. **Proposed Changes:** List of files to be modified or created.
+  3. **Logic Flow:** A step-by-step breakdown of the logic (especially for Flutter Clean Architecture layers).
+  4. **Potential Risks:** Any breaking changes or edge cases (e.g., impact on the POCO C85 testing).
+- **Review Step:** After presenting the plan, you must ask: "Shall I proceed with this plan?" and WAIT for my approval.
+- **Verification:** Once approved and implemented, briefly review the code against the original plan to ensure no steps were missed.
