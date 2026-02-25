@@ -25,14 +25,14 @@ export function ImagePreviewGallery({ items, compact }: { items: { url: string; 
 
     const goPrev = useCallback(() => {
         if (fullScreenIndex == null) return;
-        setFullScreenIndex((i) => (i <= 0 ? items.length - 1 : i - 1));
+        setFullScreenIndex((i) => (i == null || i <= 0 ? items.length - 1 : i - 1));
         setZoomIndex(1);
         setPan({ x: 0, y: 0 });
     }, [fullScreenIndex, items.length]);
 
     const goNext = useCallback(() => {
         if (fullScreenIndex == null) return;
-        setFullScreenIndex((i) => (i >= items.length - 1 ? 0 : i + 1));
+        setFullScreenIndex((i) => (i == null || i >= items.length - 1 ? 0 : i + 1));
         setZoomIndex(1);
         setPan({ x: 0, y: 0 });
     }, [fullScreenIndex, items.length]);
