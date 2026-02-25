@@ -141,6 +141,17 @@ class _ProfilePageState extends State<ProfilePage> {
           _buildSectionTitle(context, 'truck_assignment'.tr()),
           const SizedBox(height: 8),
           _buildAssignmentCard(context),
+          const SizedBox(height: 24),
+          Card(
+            elevation: 2,
+            child: ListTile(
+              leading: Icon(Icons.chat_bubble_outline, color: Theme.of(context).colorScheme.primary),
+              title: Text('chat_with_support'.tr(), style: const TextStyle(fontWeight: FontWeight.w600)),
+              subtitle: Text('chat_support_subtitle'.tr()),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).pushNamed('/chat'),
+            ),
+          ),
         ],
       ),
     );

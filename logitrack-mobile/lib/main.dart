@@ -9,6 +9,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'core/route_observer.dart';
 import 'core/theme/theme_controller.dart';
 import 'core/services/fcm_service.dart';
+import 'core/services/notification_service.dart';
 import 'features/auth/presentation/pages/login_page.dart';
 import 'features/home/presentation/pages/main_layout.dart';
 import 'features/home/presentation/pages/main_layout_scope.dart';
@@ -18,7 +19,20 @@ import 'features/profile/presentation/pages/profile_page.dart';
 import 'features/job_record/presentation/pages/job_record_page.dart';
 import 'features/trip_history/presentation/pages/trip_history_page.dart';
 import 'features/vehicle_expense/presentation/pages/vehicle_expense_page.dart';
+import 'features/chat/presentation/pages/chat_list_page.dart';
+import 'features/chat/presentation/pages/chat_room_page.dart';
+import 'features/chat/presentation/widgets/chat_balloon_overlay.dart';
+import 'features/broadcast/presentation/pages/broadcast_list_page.dart';
 import 'firebase_options.dart';
+
+/// When app is opened from a chat notification (terminated), MainLayout will navigate to this chat.
+String? pendingChatIdFromNotification;
+
+/// When app is opened from a broadcast notification (terminated), MainLayout will open broadcast list.
+bool pendingBroadcastFromNotification = false;
+
+/// เรียกเมื่อออกจากห้องแชท (ChatRoomPage dispose) เพื่อให้ MainLayout reset badge จาก server.
+void Function()? onChatRoomExited;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -48,6 +62,20 @@ void main() async {
 
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
+  // Store chatId when app is opened from a chat notification (terminated state)
+  FirebaseMessaging.instance.getInitialMessage().then((RemoteMessage? msg) {
+    final type = msg?.data['type'] as String?;
+    final chatId = msg?.data['chatId'] as String?;
+    if (type == 'broadcast') {
+      pendingBroadcastFromNotification = true;
+    } else if (type == 'chat' && chatId != null && chatId.isNotEmpty) {
+      pendingChatIdFromNotification = chatId;
+    }
+  });
+
+  final navigatorKey = GlobalKey<NavigatorState>();
+  await initLocalNotifications(navigatorKey);
+
   runApp(
     EasyLocalization(
       supportedLocales: const [Locale('en'), Locale('th')],
@@ -57,13 +85,14 @@ void main() async {
       //   enabled: !kReleaseMode,
       //   builder: (context) => const MyApp(),
       // ),
-      child: const MyApp(),
+      child: MyApp(navigatorKey: navigatorKey),
     ),
   );
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  const MyApp({super.key, required this.navigatorKey});
+  final GlobalKey<NavigatorState> navigatorKey;
 
   @override
   Widget build(BuildContext context) {
@@ -73,8 +102,10 @@ class MyApp extends StatelessWidget {
       valueListenable: themeController.themeMode,
       builder: (context, themeMode, _) {
         return MaterialApp(
+          navigatorKey: navigatorKey,
           navigatorObservers: [routeObserver],
           locale: context.locale,
+          builder: (context, child) => child ?? const SizedBox.shrink(),
           // builder: DevicePreview.appBuilder,
           localizationsDelegates: context.localizationDelegates,
           supportedLocales: context.supportedLocales,
@@ -202,6 +233,15 @@ class MyApp extends StatelessWidget {
             '/job-record': (context) => const JobRecordPage(),
             '/trip-history': (context) => const TripHistoryPage(),
             '/vehicle-expense': (context) => const VehicleExpensePage(),
+            '/chat': (context) => const ChatListPage(),
+            '/broadcast': (context) => const BroadcastListPage(),
+            '/chat-room': (context) {
+              final chatId = ModalRoute.of(context)?.settings.arguments as String?;
+              if (chatId == null || chatId.isEmpty) {
+                return const Scaffold(body: Center(child: Text('Invalid chat')));
+              }
+              return ChatRoomPage(chatId: chatId);
+            },
           },
         );
       },

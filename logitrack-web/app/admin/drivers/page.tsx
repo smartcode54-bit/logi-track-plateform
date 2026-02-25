@@ -14,7 +14,8 @@ import {
     Activity,
     CalendarOff,
     MoreHorizontal,
-    Plus
+    Plus,
+    MessageCircle
 } from "lucide-react";
 import {
     DropdownMenu,
@@ -326,10 +327,16 @@ export default function DriversListPage() {
                                                         <MoreHorizontal className="h-4 w-4" />
                                                     </Button>
                                                 </DropdownMenuTrigger>
-                                                <DropdownMenuContent align="end">
+                                                <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
                                                     <DropdownMenuLabel>{t("drivers.action.label")}</DropdownMenuLabel>
-                                                    <DropdownMenuItem onClick={() => router.push(`/admin/drivers/view?id=${driver.id}`)}>{t("drivers.action.viewProfile")}</DropdownMenuItem>
-                                                    <DropdownMenuItem onClick={() => router.push(`/admin/drivers/edit?id=${driver.id}`)}>{t("drivers.action.editDetails")}</DropdownMenuItem>
+                                                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); router.push(`/admin/drivers/view?id=${driver.id}`); }}>{t("drivers.action.viewProfile")}</DropdownMenuItem>
+                                                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); router.push(`/admin/drivers/edit?id=${driver.id}`); }}>{t("drivers.action.editDetails")}</DropdownMenuItem>
+                                                    {(driver as { authId?: string }).authId && (
+                                                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); router.push(`/admin/chat/with-driver?authId=${(driver as { authId: string }).authId}`); }} className="gap-2">
+                                                            <MessageCircle className="h-4 w-4" />
+                                                            Chat
+                                                        </DropdownMenuItem>
+                                                    )}
                                                 </DropdownMenuContent>
                                             </DropdownMenu>
                                         </TableCell>

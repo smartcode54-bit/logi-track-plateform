@@ -1,8 +1,15 @@
+import 'dart:async';
 import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../../../main.dart' show pendingChatIdFromNotification, pendingBroadcastFromNotification, onChatRoomExited;
+import '../../../../core/route_observer.dart';
+import '../../../../core/services/notification_service.dart';
+import '../../../chat/data/repositories/chat_repository.dart';
 import '../../data/repositories/trip_records_repository.dart';
 import 'home_page.dart';
 import '../../../loading_phase/presentation/pages/loading_phase_page.dart';
@@ -23,11 +30,16 @@ class MainLayout extends StatefulWidget {
   State<MainLayout> createState() => _MainLayoutState();
 }
 
-class _MainLayoutState extends State<MainLayout> {
+class _MainLayoutState extends State<MainLayout> with RouteAware {
   late int _currentIndex;
 
   /// สรุปเที่ยวที่เพิ่ง save จาก Loading (แสดงบน Delivery)
   SavedTripSummary? _savedTripSummary;
+
+  /// จำนวนแชทที่ข้อความล่าสุดมาจาก Admin (lastMessageBy != ฉัน) — reset ทุกครั้งจาก snapshot
+  int _chatUnreadCount = 0;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _chatUnreadSubscription;
+  bool _routeObserverSubscribed = false;
 
   static const String _prefKeyPendingDelivery = 'logitrack_pending_delivery_summary';
 
@@ -41,6 +53,132 @@ class _MainLayoutState extends State<MainLayout> {
     if (_savedTripSummary == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _loadPendingDeliverySummary());
     }
+    _setupChatFcm();
+    _setupChatUnreadBadge();
+    onChatRoomExited = _refreshChatUnreadFromServer;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _handlePendingChatNotification();
+      _handlePendingBroadcastNotification();
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_routeObserverSubscribed) {
+      final route = ModalRoute.of(context);
+      if (route != null) {
+        routeObserver.subscribe(this, route);
+        _routeObserverSubscribed = true;
+      }
+    }
+  }
+
+  @override
+  void didPopNext() {
+    _refreshChatUnreadFromServer();
+  }
+
+  void _setupChatFcm() {
+    // Foreground: แจ้งเตือนด้วย system notification + เสียง (channel chat ใช้ custom sound จาก MainActivity)
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
+      if (!mounted) return;
+      final type = message.data['type'] as String?;
+      final chatId = message.data['chatId'] as String?;
+      if (type == 'chat' && chatId != null && chatId.isNotEmpty) {
+        final title = message.notification?.title ?? message.data['title'] ?? 'แชท';
+        final body = message.notification?.body ?? message.data['body'] ?? 'ข้อความใหม่จาก Admin';
+        try {
+          await showChatNotification(
+            title: title,
+            body: body,
+            chatId: chatId,
+            id: chatId.hashCode & 0x7FFFFFFF,
+          );
+        } catch (e) {
+          debugPrint('showChatNotification error: $e');
+        }
+      }
+    });
+    // เปิดแอปจาก notification (background): broadcast → หน้า Broadcast, chat → ห้องแชท
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+      if (!mounted) return;
+      final type = message.data['type'] as String?;
+      final chatId = message.data['chatId'] as String?;
+      if (type == 'broadcast') {
+        Navigator.of(context).pushNamed('/broadcast');
+      } else if (type == 'chat' && chatId != null && chatId.isNotEmpty) {
+        Navigator.of(context).pushNamed('/chat-room', arguments: chatId);
+      }
+    });
+  }
+
+  void _handlePendingChatNotification() {
+    final chatId = pendingChatIdFromNotification;
+    if (chatId != null && chatId.isNotEmpty && mounted) {
+      pendingChatIdFromNotification = null;
+      Navigator.of(context).pushNamed('/chat-room', arguments: chatId);
+    }
+  }
+
+  void _handlePendingBroadcastNotification() {
+    if (pendingBroadcastFromNotification && mounted) {
+      pendingBroadcastFromNotification = false;
+      Navigator.of(context).pushNamed('/broadcast');
+    }
+  }
+
+  void _setupChatUnreadBadge() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    final repo = ChatRepository();
+    _chatUnreadSubscription = repo.watchChatsForDriver(uid).listen((snap) {
+      if (!mounted) return;
+      final count = _computeUnreadCount(snap, uid);
+      setState(() => _chatUnreadCount = count);
+    });
+  }
+
+  /// นับเฉพาะแชทที่ยังไม่ปิด ข้อความล่าสุดมาจาก Admin และ driver ยังไม่ได้อ่าน (lastReadByDriver อยู่ก่อน lastMessageAt)
+  int _computeUnreadCount(QuerySnapshot<Map<String, dynamic>> snap, String uid) {
+    int count = 0;
+    for (final doc in snap.docs) {
+      final data = doc.data();
+      if (data['status'] == 'closed') continue;
+      final lastBy = data['lastMessageBy']?.toString().trim();
+      if (lastBy == null || lastBy.isEmpty) continue;
+      if (lastBy == uid) continue;
+      final lastMessageAt = data['lastMessageAt'];
+      final lastReadByDriver = data['lastReadByDriver'];
+      if (lastMessageAt != null && lastReadByDriver != null &&
+          lastMessageAt is Timestamp && lastReadByDriver is Timestamp) {
+        if (lastMessageAt.compareTo(lastReadByDriver) <= 0) continue;
+      }
+      count++;
+    }
+    return count;
+  }
+
+  /// กลับจากห้องแชท → ดึงแชทจาก server แล้วอัปเดต badge ให้ตรงกับข้อมูลล่าสุด (reset ไม่นับต่อเนื่อง).
+  Future<void> _refreshChatUnreadFromServer() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || !mounted) return;
+    try {
+      final snap = await ChatRepository().getChatsForDriverFromServer(uid);
+      if (!mounted) return;
+      final count = _computeUnreadCount(snap, uid);
+      setState(() => _chatUnreadCount = count);
+    } catch (_) {}
+  }
+
+  @override
+  void dispose() {
+    onChatRoomExited = null;
+    if (_routeObserverSubscribed) {
+      routeObserver.unsubscribe(this);
+    }
+    _chatUnreadSubscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadPendingDeliverySummary() async {
@@ -131,6 +269,10 @@ class _MainLayoutState extends State<MainLayout> {
       Navigator.of(context).pushNamed('/vehicle-expense');
       return;
     }
+    if (index == 4) {
+      Navigator.of(context).pushNamed('/chat');
+      return;
+    }
     if (index == 1 && _isPickupDisabled) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('nav_pickup_disabled_hint'.tr())),
@@ -202,6 +344,15 @@ class _MainLayoutState extends State<MainLayout> {
           BottomNavigationBarItem(
             icon: const Icon(Icons.directions_car),
             label: 'nav_vehicle'.tr(),
+          ),
+          BottomNavigationBarItem(
+            icon: Badge(
+              isLabelVisible: _chatUnreadCount > 0,
+              label: Text(_chatUnreadCount > 99 ? '99+' : '$_chatUnreadCount'),
+              backgroundColor: Colors.red,
+              child: const Icon(Icons.chat_bubble_outline),
+            ),
+            label: 'nav_chat'.tr(),
           ),
         ],
       ),

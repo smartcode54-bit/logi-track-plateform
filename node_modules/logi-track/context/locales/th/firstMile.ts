@@ -79,6 +79,7 @@ export default {
     "firstMile.task.noHub": "ไม่พบจุดรับงาน",
     "firstMile.task.destination": "ปลายทาง (SOC)",
     "firstMile.task.selectSOC": "เลือก SOC",
+    "firstMile.task.noSOC": "ไม่มีจุด SOC เพิ่มจุดรับงานประเภท SOC ในหน้าจุดรับส่ง",
     "firstMile.task.truckType": "ประเภทรถ",
     "firstMile.task.selectTruckType": "เลือกประเภทรถ",
     "firstMile.task.taskId": "รหัสงาน First Mile (สร้างอัตโนมัติ)",

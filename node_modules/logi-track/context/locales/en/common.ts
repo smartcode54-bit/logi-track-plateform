@@ -25,6 +25,7 @@ export default {
     "nav.maintenanceCosts": "Maintenance Costs",
     "nav.manageSubcontractors": "Manage Subcontractors",
     "nav.driverManagement": "Driver Management",
+    "nav.chat": "Chat",
     "nav.activeShipments": "Active Shipments",
     "nav.userRoles": "User Roles",
     "nav.reporting": "Reporting",

@@ -1,6 +1,7 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import '../../../../core/theme/theme_controller.dart';
+import '../../../../core/services/fcm_service.dart';
 import '../../../home/data/services/draft_storage_service.dart';
 import '../../data/repositories/auth_repository.dart';
 
@@ -33,6 +34,7 @@ class _LoginPageState extends State<LoginPage> {
       final user = await _authRepository.signInWithGoogle();
 
       if (mounted && user != null) {
+        saveFcmTokenToUser(user.uid);
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('login_success'.tr())));
@@ -84,6 +86,7 @@ class _LoginPageState extends State<LoginPage> {
         );
 
         if (mounted && user != null) {
+          saveFcmTokenToUser(user.uid);
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(SnackBar(content: Text('login_success'.tr())));

@@ -3,6 +3,7 @@
 import { DashboardStats } from "./components/DashboardStats";
 import { ActivityChart } from "./components/ActivityChart";
 import { RecentUpdates } from "./components/RecentUpdates";
+import { ChatStatusWidget } from "./components/ChatStatusWidget";
 
 export default function AdminDashboardPage() {
   return (
@@ -35,7 +36,8 @@ export default function AdminDashboardPage() {
         </div>
 
         {/* Recent Updates Section - Takes up 1 column */}
-        <div className="lg:col-span-1 h-full">
+        <div className="lg:col-span-1 h-full space-y-6">
+          <ChatStatusWidget />
           <RecentUpdates />
         </div>
       </div>

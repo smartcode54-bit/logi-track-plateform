@@ -136,7 +136,7 @@ class JobRecordPage extends StatelessWidget {
                   icon: Icons.chat_bubble_outline,
                   label: 'Contact Hub'.tr(),
                   iconColor: Colors.orange,
-                  onTap: () {},
+                  onTap: () => Navigator.of(context).pushNamed('/chat'),
                 ),
               ],
             ),

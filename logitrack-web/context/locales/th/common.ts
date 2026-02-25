@@ -25,6 +25,7 @@ export default {
     "nav.maintenanceCosts": "ค่าใช้จ่ายซ่อมบำรุง",
     "nav.manageSubcontractors": "จัดการผู้รับเหมาช่วง",
     "nav.driverManagement": "จัดการคนขับรถ",
+    "nav.chat": "แชท",
     "nav.activeShipments": "การจัดส่งที่ดำเนินการอยู่",
     "nav.userRoles": "บทบาทผู้ใช้งาน",
     "nav.reporting": "รายงานผล",

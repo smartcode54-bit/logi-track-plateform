@@ -36,7 +36,8 @@ export const firstMileTaskSchema = z.object({
     time: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "Time must be in HH:MM format (e.g. 15:00)"),
 
     sourceHub: z.string().min(1, "Source Hub is required"), // From SPX_Hub
-    destination: z.enum(SOC_KEYS),
+    /** Destination SOC: source_id from hubs where station_type starts with "SOC" */
+    destination: z.string().min(1, "Destination (SOC) is required"),
 
     // Vehicle Requirements
     // Vehicle Requirements

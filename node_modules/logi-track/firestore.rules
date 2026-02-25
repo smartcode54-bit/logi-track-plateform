@@ -13,16 +13,57 @@ service cloud.firestore {
       allow write: if request.time < timestamp.date(2026, 3, 10);
     }
 
+    // Users: drivers can read/write their own doc (e.g. fcmTokens). Admins need full access via token.
+    match /users/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Chats: Admins read all chats; drivers only their own (driverId == authId).
+    // status, assignedAdminId, priority, lastReadByAdmin (Map), lastMessage, lastMessageAt.
+    match /chats/{chatId} {
+      allow read: if request.auth != null && (
+        request.auth.token.admin == true ||
+        resource.data.driverId == request.auth.uid
+      );
+      allow create: if request.auth != null && (
+        request.auth.token.admin == true ||
+        (request.resource.data.driverId == request.auth.uid && request.resource.data.assignedAdminId == null)
+      );
+      allow update, delete: if request.auth != null && (
+        request.auth.token.admin == true ||
+        resource.data.driverId == request.auth.uid
+      );
+
+      // Messages subcollection: same visibility as parent chat.
+      match /messages/{messageId} {
+        allow read, write: if request.auth != null && (
+          request.auth.token.admin == true ||
+          get(/databases/$(database)/documents/chats/$(chatId)).data.driverId == request.auth.uid
+        );
+      }
+    }
+
+    // Incident reports: drivers create/read own; admins can create (e.g. Report Incident from Command Center) and read.
+    match /incidentReport/{reportId} {
+      allow read: if request.auth != null && (
+        request.auth.token.admin == true ||
+        resource.data.driverId == request.auth.uid
+      );
+      allow create: if request.auth != null;
+      allow update, delete: if request.auth != null && (
+        request.auth.token.admin == true ||
+        resource.data.driverId == request.auth.uid
+      );
+    }
+
+    // Broadcasts: history of sent broadcasts. Drivers can read (for Broadcast list); only admins can write.
+    match /broadcasts/{broadcastId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.token.admin == true;
+    }
+
+    // Legacy permissive rule (expires); keep other collections working until migrated.
     match /{document=**} {
-      // This rule allows anyone with your database reference to view, edit,
-      // and delete all data in your database. It is useful for getting
-      // started, but it is configured to expire after 30 days because it
-      // leaves your app open to attackers. At that time, all client
-      // requests to your database will be denied.
-      //
-      // Make sure to write security rules for your app before that time, or
-      // else all client requests to your database will be denied until you
-      // update your rules.
       allow read, write: if request.time < timestamp.date(2026, 3, 10);
     }
   }

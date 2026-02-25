@@ -30,6 +30,7 @@ import {
     Select,
     SelectContent,
     SelectItem,
+    SelectLabel,
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
@@ -41,7 +42,7 @@ import {
 } from "@/components/ui/popover";
 
 import { cn } from "@/lib/utils";
-import { firstMileTaskSchema, FirstMileTask, SOC_KEYS, SOC_DESTINATIONS } from "@/validate/firstMileTaskSchema";
+import { firstMileTaskSchema, FirstMileTask, normalizeSocIdToKey } from "@/validate/firstMileTaskSchema";
 import { Driver } from "@/validate/driverSchema";
 import { collection, addDoc, doc, updateDoc, getDocs, query, where, getCountFromServer } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
@@ -60,6 +61,10 @@ interface ItemDialogProps {
 export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, onSuccess }: ItemDialogProps) {
     const [internalOpen, setInternalOpen] = useState(false);
     const [hubs, setHubs] = useState<Record<string, any>[]>([]);
+    /** Pickup point options: only HUB (exclude SOC) */
+    const [hubOptions, setHubOptions] = useState<Record<string, any>[]>([]);
+    /** SOC options from hubs where station_type starts with "SOC" */
+    const [socOptions, setSocOptions] = useState<{ source_id: string; name: string }[]>([]);
     const [trucks, setTrucks] = useState<any[]>([]);
     const [drivers, setDrivers] = useState<Driver[]>([]);
     const [loading, setLoading] = useState(false);
@@ -78,8 +83,8 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
             date: new Date(),
             time: "15:00",
             sourceHub: "",
-            destination: undefined as any, // Force selection
-            truckType: undefined as any, // Force selection
+            destination: "",
+            truckType: "PICKUP",
             FirstMileTaskId: "",
             driverId: "",
             driverName: "",
@@ -93,13 +98,14 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
     useEffect(() => {
         const fetchData = async () => {
             try {
-                // Fetch Hubs directly from Firestore
+                // Fetch Hubs (pickup locations) from Firestore; include station_type for SOC filter
                 const hubSnapshot = await getDocs(collection(db, "hubs"));
                 const hubList = hubSnapshot.docs.map(doc => {
                     const data = doc.data();
                     return {
                         'Hub Code': data.source_id ?? data.hubId ?? data.hubCode,
                         'Hub Name': data.source_name_en ?? data.hubName,
+                        station_type: data.station_type ?? "",
                         lat: data.latitude ?? data.lat,
                         lng: data.longitude ?? data.lng,
                         source: 'custom',
@@ -107,6 +113,22 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                     };
                 });
                 setHubs(hubList);
+                // Pickup point: only HUB (exclude SOC / RETURN_CENTER and any type starting with SOC)
+                const isHub = (st: string) => {
+                    const v = String(st ?? "").trim().toUpperCase();
+                    if (v === "SOC" || v === "RETURN_CENTER" || v.startsWith("SOC")) return false;
+                    return true;
+                };
+                setHubOptions(hubList.filter((h) => isHub(h.station_type ?? "")));
+                // SOC options: only stations whose station_type starts with "SOC"
+                const socList = hubList
+                    .filter((h) => String(h.station_type ?? "").trim().toUpperCase().startsWith("SOC"))
+                    .map((h) => ({
+                        source_id: (h["Hub Code"] ?? "").toString(),
+                        name: (h["Hub Name"] ?? h["Hub Code"] ?? "").toString(),
+                    }))
+                    .filter((s) => s.source_id.length > 0);
+                setSocOptions(socList);
 
                 // Fetch Trucks (needed for type mapping)
                 const truckSnapshot = await getDocs(collection(db, 'trucks'));
@@ -135,7 +157,7 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                     // Ensure fields are present
                     time: task.time || "",
                     sourceHub: task.sourceHub || "",
-                    destination: (task.destination as FirstMileTask["destination"]) || "SOC-E",
+                    destination: (task.destination as string) || "",
                     status: (task.status as FirstMileTask["status"]) || "Pending"
                 } as FirstMileTask);
             } else {
@@ -143,8 +165,8 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                     date: new Date(),
                     time: "15:00",
                     sourceHub: "",
-                    destination: undefined as any, // Force selection
-                    truckType: undefined as any, // Force selection
+                    destination: socOptions[0]?.source_id ?? "",
+                    truckType: "PICKUP",
                     FirstMileTaskId: "",
                     driverName: "",
                     driverPhone: "",
@@ -153,7 +175,7 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                 });
             }
         }
-    }, [isOpen, mode, task, form]);
+    }, [isOpen, mode, task, form, socOptions]);
 
     const onSubmit = async (values: FirstMileTask) => {
         setLoading(true);
@@ -319,13 +341,13 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                                 render={({ field }) => (
                                     <FormItem>
                                         <FormLabel>{t("firstMile.task.time")}</FormLabel>
-                                        <Select onValueChange={field.onChange} value={field.value}>
+                                        <Select onValueChange={field.onChange} value={field.value ?? "15:00"}>
                                             <FormControl>
                                                 <SelectTrigger>
                                                     <SelectValue placeholder={t("firstMile.task.selectTime")} />
                                                 </SelectTrigger>
                                             </FormControl>
-                                            <SelectContent className="h-[200px]" position="popper">
+                                            <SelectContent className="max-h-[200px]" position="popper">
                                                 {Array.from({ length: 48 }).map((_, i) => {
                                                     const hour = Math.floor(i / 2).toString().padStart(2, '0');
                                                     const minute = (i % 2 === 0 ? '00' : '30');
@@ -350,11 +372,11 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                                 control={form.control}
                                 name="sourceHub"
                                 render={({ field }) => {
-                                    const filteredHubs = hubs.filter((hub) => {
-                                        const val = hub['Hub Code'] || hub['Code'] || '';
-                                        const name = hub['Hub Name'] || hub['station_name_en'] || '';
+                                    const filteredHubs = hubOptions.filter((hub) => {
+                                        const val = hub['Hub Code'] ?? '';
+                                        const name = hub['Hub Name'] ?? '';
                                         const searchLower = hubSearch.toLowerCase();
-                                        return val.toLowerCase().includes(searchLower) || name.toLowerCase().includes(searchLower);
+                                        return val.toString().toLowerCase().includes(searchLower) || name.toString().toLowerCase().includes(searchLower);
                                     });
 
                                     return (
@@ -376,11 +398,11 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                                                 >
                                                     {field.value
                                                         ? (() => {
-                                                            const h = hubs.find(
-                                                                (hub) => (hub['Hub Code'] || hub['Code']) === field.value
+                                                            const h = hubOptions.find(
+                                                                (hub) => (hub['Hub Code'] ?? '') === field.value
                                                             );
-                                                            const val = h ? (h['Hub Code'] || h['Code']) : field.value;
-                                                            const name = h ? (h['Hub Name'] || h['station_name_en'] || val) : "";
+                                                            const val = h ? (h['Hub Code'] ?? '') : field.value;
+                                                            const name = h ? (h['Hub Name'] ?? val) : "";
                                                             return `${val} - ${name}`;
                                                         })()
                                                         : t("firstMile.task.selectHub")}
@@ -406,8 +428,8 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                                                             </div>
                                                         ) : (
                                                             filteredHubs.slice(0, 100).map((hub, idx) => {
-                                                                const val = hub['Hub Code'] || hub['Code'];
-                                                                const name = hub['Hub Name'] || hub['station_name_en'] || val;
+                                                                const val = hub['Hub Code'] ?? '';
+                                                                const name = hub['Hub Name'] ?? val;
                                                                 if (!val) return null;
                                                                 return (
                                                                     <div
@@ -441,25 +463,41 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                                 }}
                             />
 
-                            {/* Destination */}
+                            {/* Destination (SOC): from pickup locations where station_type starts with SOC */}
                             <FormField
                                 control={form.control}
                                 name="destination"
                                 render={({ field }) => (
                                     <FormItem>
                                         <FormLabel>{t("firstMile.task.destination")}</FormLabel>
-                                        <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
+                                        <Select
+                                            onValueChange={field.onChange}
+                                            value={(() => {
+                                                const v = field.value ?? "";
+                                                if (!v) return socOptions[0]?.source_id ?? "";
+                                                if (socOptions.some((s) => s.source_id === v)) return v;
+                                                const normalized = normalizeSocIdToKey(v);
+                                                const matched = socOptions.find((s) => normalizeSocIdToKey(s.source_id) === normalized);
+                                                return matched?.source_id ?? socOptions[0]?.source_id ?? "";
+                                            })()}
+                                        >
                                             <FormControl>
                                                 <SelectTrigger>
                                                     <SelectValue placeholder={t("firstMile.task.selectSOC")} />
                                                 </SelectTrigger>
                                             </FormControl>
-                                            <SelectContent>
-                                                {SOC_KEYS.map((key) => (
-                                                    <SelectItem key={key} value={key}>
-                                                        {SOC_DESTINATIONS[key]}
-                                                    </SelectItem>
-                                                ))}
+                                            <SelectContent position="popper">
+                                                {socOptions.length === 0 ? (
+                                                    <SelectLabel className="text-muted-foreground">
+                                                        {t("firstMile.task.noSOC", "No SOC locations. Add pickup points with station type SOC.")}
+                                                    </SelectLabel>
+                                                ) : (
+                                                    socOptions.map((soc) => (
+                                                        <SelectItem key={soc.source_id} value={soc.source_id}>
+                                                            {soc.source_id} {soc.name ? `- ${soc.name}` : ""}
+                                                        </SelectItem>
+                                                    ))
+                                                )}
                                             </SelectContent>
                                         </Select>
                                         <FormMessage />
@@ -476,13 +514,13 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                                 render={({ field }) => (
                                     <FormItem>
                                         <FormLabel>{t("firstMile.task.truckType")}</FormLabel>
-                                        <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
+                                        <Select onValueChange={field.onChange} value={field.value ?? "PICKUP"}>
                                             <FormControl>
                                                 <SelectTrigger>
                                                     <SelectValue placeholder={t("firstMile.task.selectTruckType")} />
                                                 </SelectTrigger>
                                             </FormControl>
-                                            <SelectContent>
+                                            <SelectContent position="popper">
                                                 <SelectItem value="PICKUP">Pickup</SelectItem>
                                                 <SelectItem value="4WJ">4WJ</SelectItem>
                                                 <SelectItem value="6WH">6WH</SelectItem>
@@ -523,12 +561,18 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                                             <FormLabel>{t("firstMile.task.driverName")}</FormLabel>
                                             <Select
                                                 onValueChange={(val) => {
+                                                    if (val === "__none__" || !val) {
+                                                        field.onChange("");
+                                                        form.setValue("driverId", "");
+                                                        form.setValue("driverPhone", "");
+                                                        form.setValue("licensePlate", "");
+                                                        return;
+                                                    }
                                                     const selectedDriver = drivers.find(d => d.id === val);
                                                     if (selectedDriver) {
                                                         field.onChange(`${selectedDriver.firstName} ${selectedDriver.lastName}`);
                                                         form.setValue("driverId", selectedDriver.id);
                                                         form.setValue("driverPhone", selectedDriver.mobile || "");
-                                                        // Auto-fill plate if available from current assignment
                                                         if (selectedDriver.currentAssignment?.truckPlate) {
                                                             form.setValue("licensePlate", selectedDriver.currentAssignment.truckPlate);
                                                         }
@@ -536,7 +580,7 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                                                         field.onChange(val);
                                                     }
                                                 }}
-                                                value={drivers.find(d => `${d.firstName} ${d.lastName}` === field.value)?.id || ""}
+                                                value={drivers.find(d => `${d.firstName} ${d.lastName}` === field.value)?.id ?? "__none__"}
                                             >
                                                 <FormControl>
                                                     <SelectTrigger>
@@ -545,7 +589,8 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                                                         </SelectValue>
                                                     </SelectTrigger>
                                                 </FormControl>
-                                                <SelectContent>
+                                                <SelectContent position="popper">
+                                                    <SelectItem value="__none__">{t("firstMile.task.selectDriver")}</SelectItem>
                                                     {(() => {
                                                         const getMappedTruckType = (fmType: string) => {
                                                             if (fmType === "4WH" || fmType === "4WJ") return "4 Wheels Jumbo";

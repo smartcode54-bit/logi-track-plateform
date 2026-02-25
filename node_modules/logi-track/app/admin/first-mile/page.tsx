@@ -35,7 +35,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { SOC_DESTINATIONS, SOC_KEYS, FirstMileTask } from "@/validate/firstMileTaskSchema";
+import { SOC_DESTINATIONS, SOC_KEYS, FirstMileTask, normalizeSocIdToKey } from "@/validate/firstMileTaskSchema";
 import { collection, getDocs, onSnapshot, query, orderBy, limit, doc, updateDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "@/firebase/client";
@@ -116,13 +116,17 @@ export default function FirstMilePage() {
     }, []);
 
     const getSOCColor = (soc: string) => {
-        switch (soc) {
-            case "SOC-E": return "bg-emerald-600 hover:bg-emerald-700 text-white";
-            case "SOC-N": return "bg-blue-600 hover:bg-blue-700 text-white";
-            case "SOC-W": return "bg-orange-600 hover:bg-orange-700 text-white";
+        const key = normalizeSocIdToKey(soc);
+        switch (key) {
+            case "SOCE": return "bg-emerald-600 hover:bg-emerald-700 text-white";
+            case "SOCN": return "bg-blue-600 hover:bg-blue-700 text-white";
+            case "SOCW": return "bg-orange-600 hover:bg-orange-700 text-white";
             default: return "bg-slate-600 text-white";
         }
     };
+
+    const getDestinationLabel = (dest: string | undefined) =>
+        dest ? (SOC_DESTINATIONS[dest as keyof typeof SOC_DESTINATIONS] ?? dest) : "-";
 
     const handleCreate = () => {
         setDialogMode("create");
@@ -163,8 +167,8 @@ export default function FirstMilePage() {
             const taskStr = task.date ? format(task.date, "dd/MM/yyyy") : "";
             if (filterStr !== taskStr) return false;
         }
-        // SOC
-        if (selectedSOC !== "all" && task.destination !== selectedSOC) return false;
+        // SOC (compare normalized key so legacy "SOCE" and hub source_id both match)
+        if (selectedSOC !== "all" && normalizeSocIdToKey(task.destination || "") !== selectedSOC) return false;
         // Hub
         if (selectedHub !== "all" && task.sourceHub !== selectedHub) return false;
 
@@ -295,7 +299,7 @@ export default function FirstMilePage() {
                                     <TableCell className="font-medium">{task.sourceHub}</TableCell>
                                     <TableCell>
                                         <Badge className={cn("font-normal border-0", getSOCColor(task.destination || ""))}>
-                                            {task.destination ? SOC_DESTINATIONS[task.destination as keyof typeof SOC_DESTINATIONS] : task.destination}
+                                            {getDestinationLabel(task.destination)}
                                         </Badge>
                                     </TableCell>
                                     <TableCell>{task.time}</TableCell>
@@ -407,7 +411,7 @@ export default function FirstMilePage() {
                                 <span className="text-muted-foreground">{t("firstMile.table.sourceHub")}</span>
                                 <span className="font-medium">{detailTask.sourceHub ?? "-"}</span>
                                 <span className="text-muted-foreground">{t("firstMile.table.destination")}</span>
-                                <span>{detailTask.destination ? SOC_DESTINATIONS[detailTask.destination as keyof typeof SOC_DESTINATIONS] : "-"}</span>
+                                <span>{getDestinationLabel(detailTask.destination)}</span>
                                 <span className="text-muted-foreground">{t("firstMile.table.type")}</span>
                                 <span>{detailTask.truckType ?? "-"}</span>
                                 <span className="text-muted-foreground">{t("firstMile.table.shipmentId")}</span>

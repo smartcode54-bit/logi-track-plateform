@@ -10,6 +10,22 @@ class CheckInPage extends StatelessWidget {
 
   const CheckInPage({super.key, required this.driverId});
 
+  static bool _canCheckIn(Map<String, dynamic> t) {
+    final taskId = t['id'] as String?;
+    final status = t['status'] ?? '';
+    return taskId != null &&
+        status != 'Checked in' &&
+        status != 'Completed' &&
+        status != 'Cancelled';
+  }
+
+  static bool _isHistory(Map<String, dynamic> t) {
+    final status = t['status'] ?? '';
+    return status == 'Checked in' ||
+        status == 'Completed' ||
+        status == 'Cancelled';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -51,6 +67,9 @@ class CheckInPage extends StatelessWidget {
             );
           }
           final tasks = snap.data ?? [];
+          final newTasks = tasks.where((t) => !_isHistory(t)).toList();
+          final historyTasks = tasks.where(_isHistory).toList();
+
           if (tasks.isEmpty) {
             return Padding(
               padding: const EdgeInsets.all(24.0),
@@ -78,42 +97,112 @@ class CheckInPage extends StatelessWidget {
               ),
             );
           }
-          return ListView.builder(
+
+          return ListView(
             padding: const EdgeInsets.all(16),
-            itemCount: tasks.length,
-            itemBuilder: (_, i) {
-              final t = tasks[i];
-              final taskId = t['id'] as String?;
-              final source = t['sourceHub'] ?? '';
-              final dest = t['destination'] ?? '';
-              final date = t['date'];
-              final time = t['time'] ?? '';
-              final status = t['status'] ?? '';
-              final canCheckIn = taskId != null &&
-                  status != 'Checked in' &&
-                  status != 'Completed' &&
-                  status != 'Cancelled';
-              String dateStr = '';
-              if (date != null && date is DateTime) {
-                dateStr = '${date.day}/${date.month}/${date.year}';
-              }
-              return Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: ListTile(
-                  title: Text('$source → $dest'),
-                  subtitle: Text('$dateStr $time · $status'),
-                  trailing: canCheckIn
-                      ? TextButton.icon(
-                          icon: const Icon(Icons.camera_alt, size: 20),
-                          label: Text('Check in'.tr()),
-                          onPressed: () => _doCheckIn(context, taskId),
-                        )
-                      : null,
+            children: [
+              // --- New task ---
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  'check_in_new_task'.tr(),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
                 ),
-              );
-            },
+              ),
+              if (newTasks.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 24),
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Icon(Icons.check_circle_outline,
+                              color: Colors.grey[400], size: 32),
+                          const SizedBox(width: 12),
+                          Text(
+                            'no_active_tasks'.tr(),
+                            style: TextStyle(color: Colors.grey[600]),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                )
+              else
+                ...newTasks.map((t) => _buildTaskCard(context, t, canCheckIn: true)),
+              const SizedBox(height: 16),
+              // --- History ---
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  'check_in_history'.tr(),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: Theme.of(context).colorScheme.secondary,
+                      ),
+                ),
+              ),
+              if (historyTasks.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 24),
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Icon(Icons.history, color: Colors.grey[400], size: 32),
+                          const SizedBox(width: 12),
+                          Text(
+                            'check_in_no_history'.tr(),
+                            style: TextStyle(color: Colors.grey[600]),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                )
+              else
+                ...historyTasks.map((t) => _buildTaskCard(context, t, canCheckIn: false)),
+            ],
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildTaskCard(BuildContext context, Map<String, dynamic> t,
+      {required bool canCheckIn}) {
+    final taskId = t['id'] as String?;
+    final source = t['sourceHub'] ?? '';
+    final dest = t['destination'] ?? '';
+    final date = t['date'];
+    final time = t['time'] ?? '';
+    final status = t['status'] ?? '';
+    final showCheckIn = canCheckIn &&
+        taskId != null &&
+        status != 'Checked in' &&
+        status != 'Completed' &&
+        status != 'Cancelled';
+    String dateStr = '';
+    if (date != null && date is DateTime) {
+      dateStr = '${date.day}/${date.month}/${date.year}';
+    }
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        title: Text('$source → $dest'),
+        subtitle: Text('$dateStr $time · $status'),
+        trailing: showCheckIn
+            ? TextButton.icon(
+                icon: const Icon(Icons.camera_alt, size: 20),
+                label: Text('Check in'.tr()),
+                onPressed: () => _doCheckIn(context, taskId!),
+              )
+            : null,
       ),
     );
   }
@@ -163,6 +252,7 @@ class CheckInPage extends StatelessWidget {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Check-in saved'.tr())),
       );
+      // Stream จะอัปเดตจาก Firestore อัตโนมัติ → งานที่เช็คอินจะย้ายไป History (reset สถานะงานวันนี้)
     } catch (e) {
       if (context.mounted) {
         if (dialogOpen) Navigator.of(context).pop();

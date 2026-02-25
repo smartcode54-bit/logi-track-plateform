@@ -50,4 +50,5 @@ __exportStar(require("./auth"), exports);
 __exportStar(require("./users"), exports);
 __exportStar(require("./triggers"), exports);
 __exportStar(require("./distances"), exports);
+__exportStar(require("./chat"), exports);
 //# sourceMappingURL=index.js.map

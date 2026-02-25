@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- สิทธิ์ตำแหน่งสำหรับใส่พิกัดบนรูปถ่าย (ถ่ายรูป บันทึกรับงาน / Check-in) -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- Android 13+ แจ้งเตือน (ต้องขอ runtime ด้วย FirebaseMessaging.requestPermission) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.CAMERA" />
     <application

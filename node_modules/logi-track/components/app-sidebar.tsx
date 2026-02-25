@@ -15,7 +15,8 @@ import {
     GitBranch,
     Shield,
     MapPin,
-    Calculator
+    Calculator,
+    MessageCircle
 } from "lucide-react"
 
 import {
@@ -85,6 +86,11 @@ export function AppSidebar() {
             title: t("nav.driverManagement"),
             url: "/admin/drivers",
             icon: User,
+        },
+        {
+            title: t("nav.chat") || "Chat",
+            url: "/admin/chat",
+            icon: MessageCircle,
         },
         {
             title: t("nav.activeShipments"),

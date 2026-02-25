@@ -79,6 +79,7 @@ export default {
     "firstMile.task.noHub": "No hub found.",
     "firstMile.task.destination": "Destination (SOC)",
     "firstMile.task.selectSOC": "Select SOC",
+    "firstMile.task.noSOC": "No SOC locations. Add pickup points with station type SOC.",
     "firstMile.task.truckType": "Truck Type",
     "firstMile.task.selectTruckType": "Select truck type",
     "firstMile.task.taskId": "First Mile Task ID (Auto-generated)",

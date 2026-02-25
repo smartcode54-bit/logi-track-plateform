@@ -48,6 +48,15 @@ export const COLLECTIONS = {
 
     /** Vehicle expenses (fuel refills, other expenses from mobile) */
     VEHICLE_EXPENSES: "vehicle_expenses",
+
+    /** Admin–driver chat rooms */
+    CHATS: "chats",
+
+    /** Incident reports (delivery delay / problem reports from driver or admin) */
+    INCIDENT_REPORTS: "incidentReport",
+
+    /** Broadcast history (admin sends; for listing past broadcasts) */
+    BROADCASTS: "broadcasts",
 } as const;
 
 /** Type for collection names */

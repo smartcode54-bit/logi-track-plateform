@@ -11,6 +11,8 @@ import '../../data/repositories/first_mile_checkin_repository.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
 import '../../../../components/quick_action_card.dart';
+import '../../../broadcast/data/repositories/broadcast_repository.dart';
+import '../../../broadcast/data/services/broadcast_read_tracker.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -27,12 +29,19 @@ class _HomePageState extends State<HomePage> {
   String? _driverId;
   bool _isLoading = true;
   String? _error;
+  int? _lastReadBroadcastMs;
 
   @override
   void initState() {
     super.initState();
     _fetchDriverData();
     _setupFcmForeground();
+    _loadLastReadBroadcast();
+  }
+
+  Future<void> _loadLastReadBroadcast() async {
+    final ms = await getLastReadBroadcastMs();
+    if (mounted) setState(() => _lastReadBroadcastMs = ms);
   }
 
   void _setupFcmForeground() {
@@ -62,6 +71,7 @@ class _HomePageState extends State<HomePage> {
           if (data != null && data['id'] != null) {
             initFcmAndSaveToken(data['id'] as String);
           }
+          saveFcmTokenToUser(user.uid);
         }
       } else {
         if (mounted) {
@@ -195,8 +205,13 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-      body: CustomScrollView(
-        slivers: [
+      body: RefreshIndicator(
+        onRefresh: () async {
+          await _fetchDriverData();
+        },
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
           SliverPadding(
             padding: const EdgeInsets.all(16.0),
             sliver: SliverToBoxAdapter(
@@ -206,6 +221,85 @@ class _HomePageState extends State<HomePage> {
                   Text(
                     'welcome_user'.tr(args: [displayName]),
                     style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: 16),
+                  StreamBuilder<int?>(
+                    stream: BroadcastRepository().watchLatestBroadcastSentAtMs(),
+                    builder: (context, latestSnap) {
+                      final latestMs = latestSnap.data;
+                      final hasNew = latestMs != null &&
+                          latestMs > (_lastReadBroadcastMs ?? 0);
+                      return InkWell(
+                        onTap: () async {
+                          await Navigator.pushNamed(context, '/broadcast');
+                          if (!mounted) return;
+                          await _loadLastReadBroadcast();
+                        },
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.5),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  Icon(
+                                    Icons.campaign_outlined,
+                                    color: Theme.of(context).colorScheme.primary,
+                                    size: 28,
+                                  ),
+                                  if (hasNew)
+                                    Positioned(
+                                      right: -4,
+                                      top: -4,
+                                      child: Container(
+                                        width: 10,
+                                        height: 10,
+                                        decoration: const BoxDecoration(
+                                          color: Colors.red,
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'menu_broadcast'.tr(),
+                                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              if (hasNew)
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: Text(
+                                    'broadcast_new'.tr(),
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Theme.of(context).colorScheme.error,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              Icon(
+                                Icons.chevron_right,
+                                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
                   ),
                   const SizedBox(height: 24),
                   StreamBuilder<List<Map<String, dynamic>>>(
@@ -255,18 +349,12 @@ class _HomePageState extends State<HomePage> {
                   label: 'history'.tr(),
                   onTap: () => Navigator.pushNamed(context, '/trip-history'),
                 ),
-                QuickActionCard(
-                  icon: Icons.chat,
-                  label: 'admin_support'.tr(),
-                  onTap: () {
-                    // Navigate to emergency support or open dialog
-                  },
-                ),
               ],
             ),
           ),
           const SliverPadding(padding: EdgeInsets.only(bottom: 32.0)),
         ],
+        ),
       ),
     );
   }
