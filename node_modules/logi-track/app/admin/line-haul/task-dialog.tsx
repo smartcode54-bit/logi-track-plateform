@@ -42,12 +42,13 @@ import {
 } from "@/components/ui/popover";
 
 import { cn } from "@/lib/utils";
-import { firstMileTaskSchema, FirstMileTask, normalizeSocIdToKey } from "@/validate/firstMileTaskSchema";
+import { taskSchema as firstMileTaskSchema, Task as FirstMileTask, normalizeSocIdToKey } from "@/validate/taskSchema";
 import { Driver } from "@/validate/driverSchema";
 import { collection, addDoc, doc, updateDoc, getDocs, query, where, getCountFromServer } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "@/firebase/client";
 import { useLanguage } from "@/context/language";
+import { COLLECTIONS } from "@/lib/collections";
 
 interface ItemDialogProps {
     mode: "create" | "edit";
@@ -58,7 +59,7 @@ interface ItemDialogProps {
     onSuccess?: () => void;
 }
 
-export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, onSuccess }: ItemDialogProps) {
+export function LineHaulTaskDialog({ mode, task, trigger, open, onOpenChange, onSuccess }: ItemDialogProps) {
     const [internalOpen, setInternalOpen] = useState(false);
     const [hubs, setHubs] = useState<Record<string, any>[]>([]);
     /** Pickup point options: only HUB (exclude SOC) */
@@ -86,12 +87,13 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
             sourceHub: "",
             destination: "",
             truckType: "PICKUP",
-            FirstMileTaskId: "",
+            taskId: "",
             driverId: "",
             driverName: "",
             driverPhone: "",
             licensePlate: "",
-            status: "Pending" as const
+            status: "Pending" as const,
+            taskType: "LINE_HAUL" as const,
         },
     });
 
@@ -146,9 +148,9 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                 const driverList = driverSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Driver));
                 setDrivers(driverList);
 
-                // Fetch active First Mile Tasks to filter out busy drivers
+                // Fetch active Tasks to filter out busy drivers
                 const activeTasksQuery = query(
-                    collection(db, 'first_mile_tasks'),
+                    collection(db, COLLECTIONS.TASKS),
                     where("status", "in", ["Pending", "Assigned", "Checked in", "In-Transit"])
                 );
                 const activeTasksSnapshot = await getDocs(activeTasksQuery);
@@ -188,11 +190,12 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                     sourceHub: "",
                     destination: "",
                     truckType: "PICKUP",
-                    FirstMileTaskId: "",
+                    taskId: "",
                     driverName: "",
                     driverPhone: "",
                     licensePlate: "",
-                    status: "Pending"
+                    status: "Pending",
+                    taskType: "LINE_HAUL"
                 });
             }
         }
@@ -209,15 +212,18 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
         setLoading(true);
         try {
             if (mode === "create") {
-                const ref = await addDoc(collection(db, "first_mile_tasks"), {
+                const dateStr = values.date ? format(values.date, "ddMMyyyy") : "";
+                const ref = await addDoc(collection(db, COLLECTIONS.TASKS), {
                     ...values,
+                    dateStr,
                     createdAt: new Date(),
                     updatedAt: new Date(),
                 });
                 try {
-                    const notify = httpsCallable<{ taskId: string; oldDriverId?: string; newDriverId?: string; status?: string; sourceHub?: string; destination?: string; date?: string; time?: string }, { ok: boolean }>(functions, "notifyFirstMileTaskUpdate");
+                    const notify = httpsCallable<{ taskId: string; oldDriverId?: string; newDriverId?: string; status?: string; sourceHub?: string; destination?: string; date?: string; time?: string, taskType: string }, { ok: boolean }>(functions, "notifyTaskUpdate");
                     await notify({
                         taskId: ref.id,
+                        taskType: values.taskType,
                         newDriverId: values.driverId || undefined,
                         status: values.status,
                         sourceHub: values.sourceHub,
@@ -239,11 +245,16 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                 const clean = Object.fromEntries(
                     Object.entries(payload).filter(([, v]) => v !== undefined)
                 );
-                await updateDoc(doc(db, "first_mile_tasks", task.id), clean as Record<string, import("firebase/firestore").FieldValue | object>);
+                const dateStr = values.date ? format(values.date, "ddMMyyyy") : "";
+                await updateDoc(doc(db, COLLECTIONS.TASKS, task.id), {
+                    ...clean as any,
+                    dateStr,
+                });
                 try {
-                    const notify = httpsCallable<{ taskId: string; oldDriverId?: string; newDriverId?: string; status?: string; sourceHub?: string; destination?: string; date?: string; time?: string }, { ok: boolean }>(functions, "notifyFirstMileTaskUpdate");
+                    const notify = httpsCallable<{ taskId: string; oldDriverId?: string; newDriverId?: string; status?: string; sourceHub?: string; destination?: string; date?: string; time?: string, taskType: string }, { ok: boolean }>(functions, "notifyTaskUpdate");
                     await notify({
                         taskId: task.id,
+                        taskType: values.taskType,
                         oldDriverId: task.driverId || undefined,
                         newDriverId: values.driverId || undefined,
                         status: (clean.status as string) ?? values.status,
@@ -283,7 +294,7 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
 
                     // Running number based on Date (daily count)
                     const qByDate = query(
-                        collection(db, "first_mile_tasks"),
+                        collection(db, COLLECTIONS.TASKS),
                         where("date", ">=", startOfDay),
                         where("date", "<=", endOfDay)
                     );
@@ -293,11 +304,11 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                     const runningNumber = (count + 1).toString().padStart(3, '0');
                     const dateStr = format(watchedDate, "ddMMyyyy");
 
-                    // Format: LH-[Date]-[Destination]-[RunningNumber]
-                    // Example: LH-05022026-SOC-E-001
-                    const newId = `LH-${dateStr}-${watchedDestination}-${runningNumber}`;
+                    // Format: LH-[Date]-[RunningNumber]
+                    // Example: LH-05022026-001
+                    const newId = `LH-${dateStr}-${runningNumber}`;
 
-                    form.setValue("FirstMileTaskId", newId);
+                    form.setValue("taskId", newId);
                 } catch (err) {
                     console.error("Error generating ID:", err);
                 }
@@ -565,10 +576,10 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
                                 )}
                             />
 
-                            {/* first mile task ID */}
+                            {/* task ID */}
                             <FormField
                                 control={form.control}
-                                name="FirstMileTaskId"
+                                name="taskId"
                                 render={({ field }) => (
                                     <FormItem>
                                         <FormLabel>Task ID</FormLabel>

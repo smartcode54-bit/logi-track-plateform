@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart' as intl;
-import '../../../home/data/repositories/first_mile_checkin_repository.dart';
+import '../../../home/data/repositories/checkin_repository.dart';
 import '../../../home/data/services/fuel_receipt_ocr_service.dart';
 import '../../../home/data/services/image_compression_service.dart';
 import '../../data/models/vehicle_expense.dart';
@@ -38,6 +38,7 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
   Uint8List? _odometerPhoto;
   bool _ocrLoading = false;
   String? _ocrError;
+
   /// สถานที่เติม "lat,lng" จาก getCurrentPosition (วิธีเดียวกับ loading_phase / delivery_phase)
   String? _refillLocation;
   bool _locationLoading = false;
@@ -102,7 +103,13 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
     );
     if (time == null || !mounted) return;
     setState(() {
-      _selectedDateTime = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+      _selectedDateTime = DateTime(
+        date.year,
+        date.month,
+        date.day,
+        time.hour,
+        time.minute,
+      );
       _updateDateTimeDisplay();
     });
   }
@@ -152,21 +159,24 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
       setState(() {
         _receiptPhoto = compressed;
         _ocrLoading = false;
-        if (result.amountThb != null) _amountController.text = result.amountThb!.toStringAsFixed(2);
-        if (result.liters != null) _volumeController.text = result.liters!.toStringAsFixed(2);
+        if (result.amountThb != null)
+          _amountController.text = result.amountThb!.toStringAsFixed(2);
+        if (result.liters != null)
+          _volumeController.text = result.liters!.toStringAsFixed(2);
         if (result.stationTaxId != null && result.stationTaxId!.isNotEmpty) {
           _taxIdController.text = result.stationTaxId!;
         }
         if (result.taxInvId != null && result.taxInvId!.isNotEmpty) {
           _taxInvIdController.text = result.taxInvId!;
         }
-        if (result.odometerKm != null) _odometerController.text = result.odometerKm.toString();
+        if (result.odometerKm != null)
+          _odometerController.text = result.odometerKm.toString();
         _updatePricePerLiter();
       });
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('refuel_ocr_done'.tr())),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('refuel_ocr_done'.tr())));
       }
     } catch (e) {
       if (mounted) {
@@ -340,7 +350,9 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
     try {
       final amount = double.tryParse(_amountController.text.trim()) ?? 0;
       final volume = double.tryParse(_volumeController.text.trim());
-      final pricePerLiter = double.tryParse(_pricePerLiterController.text.trim());
+      final pricePerLiter = double.tryParse(
+        _pricePerLiterController.text.trim(),
+      );
       final odometer = int.tryParse(_odometerController.text.trim());
       final expense = VehicleExpense(
         driverId: driverId,
@@ -350,20 +362,28 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
         volumeLiters: volume,
         pricePerLiter: pricePerLiter,
         odometer: odometer,
-        stationTaxId: _taxIdController.text.trim().isEmpty ? null : _taxIdController.text.trim(),
-        taxInvId: _taxInvIdController.text.trim().isEmpty ? null : _taxInvIdController.text.trim(),
+        stationTaxId: _taxIdController.text.trim().isEmpty
+            ? null
+            : _taxIdController.text.trim(),
+        taxInvId: _taxInvIdController.text.trim().isEmpty
+            ? null
+            : _taxInvIdController.text.trim(),
         refillLocation: _refillLocation,
         note: null,
       );
       await saveVehicleExpense(
         expense,
-        receiptPhoto: _receiptPhoto != null ? List<int>.from(_receiptPhoto!) : null,
-        odometerPhoto: _odometerPhoto != null ? List<int>.from(_odometerPhoto!) : null,
+        receiptPhoto: _receiptPhoto != null
+            ? List<int>.from(_receiptPhoto!)
+            : null,
+        odometerPhoto: _odometerPhoto != null
+            ? List<int>.from(_odometerPhoto!)
+            : null,
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('vehicle_expense_saved'.tr())),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('vehicle_expense_saved'.tr())));
         Navigator.of(context).pop(true);
       }
     } on VehicleExpenseOfflineSavedException catch (_) {
@@ -374,10 +394,11 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
         Navigator.of(context).pop(true);
       }
     } catch (e) {
-      if (mounted) setState(() {
-        _saving = false;
-        _saveError = e.toString();
-      });
+      if (mounted)
+        setState(() {
+          _saving = false;
+          _saveError = e.toString();
+        });
     }
   }
 
@@ -409,319 +430,369 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(16.0),
               child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'vehicle_expense_refuel_form_hint'.tr(),
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'vehicle_expense_refuel_form_hint'.tr(),
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withOpacity(0.7),
                     ),
-              ),
-              const SizedBox(height: 20),
-              // วันที่เวลา — UI แบบกล่องมี icon นาฬิกา
-              Text(
-                'refuel_date_time'.tr(),
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.8),
+                  ),
+                  const SizedBox(height: 20),
+                  // วันที่เวลา — UI แบบกล่องมี icon นาฬิกา
+                  Text(
+                    'refuel_date_time'.tr(),
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withOpacity(0.8),
                     ),
-              ),
-              const SizedBox(height: 6),
-              Material(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(12),
-                child: InkWell(
-                  onTap: _saving ? null : _pickDateTime,
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  ),
+                  const SizedBox(height: 6),
+                  Material(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(12),
+                    child: InkWell(
+                      onTap: _saving ? null : _pickDateTime,
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 14,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Theme.of(context).dividerColor,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.access_time,
+                              size: 24,
+                              color: Theme.of(context).colorScheme.onSurface,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                _dateTimeController.text,
+                                style: Theme.of(context).textTheme.bodyLarge
+                                    ?.copyWith(fontWeight: FontWeight.w500),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  // ถ่ายรูปบิลน้ำมัน (OCR: จำนวนลิตร, ยอดเงิน, ชื่อสถานี, เลขไมล์)
+                  Text(
+                    'refuel_receipt_title'.tr(),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'refuel_receipt_subtitle'.tr(),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withOpacity(0.6),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  if (_receiptPhoto != null) ...[
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.memory(
+                        _receiptPhoto!,
+                        height: 160,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  if (_ocrLoading)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(refuelOcrReadingLabel),
+                        ],
+                      ),
+                    ),
+                  if (_ocrError != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        _ocrError!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  OutlinedButton.icon(
+                    onPressed: (_saving || _ocrLoading)
+                        ? null
+                        : _pickReceiptAndOcr,
+                    icon: const Icon(Icons.receipt_long, size: 20),
+                    label: Text(
+                      _receiptPhoto != null
+                          ? 'refuel_receipt_change'.tr()
+                          : 'refuel_receipt_take'.tr(),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  // ลำดับ: TAX ID, TAX INV ID, ยอดเงิน, ปริมาณลิตร, ราคาต่อลิตร (คำนวณ/ disable)
+                  TextFormField(
+                    controller: _taxIdController,
+                    readOnly: _saving,
+                    decoration: InputDecoration(
+                      labelText: 'refuel_station_tax_id'.tr(),
+                      hintText: 'refuel_station_tax_id_hint'.tr(),
+                    ),
+                    keyboardType: TextInputType.number,
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _taxInvIdController,
+                    readOnly: _saving,
+                    decoration: InputDecoration(
+                      labelText: 'refuel_tax_inv_id'.tr(),
+                      hintText: 'refuel_tax_inv_id_hint'.tr(),
+                    ),
+                    keyboardType: TextInputType.number,
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _amountController,
+                    readOnly: _saving,
+                    decoration: InputDecoration(
+                      labelText: 'vehicle_expense_amount'.tr(),
+                      hintText: 'vehicle_expense_amount_hint'.tr(),
+                      prefixText: '฿ ',
+                    ),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    validator: (v) {
+                      final n = double.tryParse(v?.trim() ?? '');
+                      if (n == null || n <= 0)
+                        return 'vehicle_expense_amount_required'.tr();
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _volumeController,
+                    readOnly: _saving,
+                    decoration: InputDecoration(
+                      labelText: 'vehicle_expense_volume'.tr(),
+                      hintText: 'vehicle_expense_volume_hint'.tr(),
+                    ),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _pricePerLiterController,
+                    readOnly: true,
+                    decoration: InputDecoration(
+                      labelText: 'vehicle_expense_price_per_liter'.tr(),
+                      hintText: 'vehicle_expense_price_per_liter_hint'.tr(),
+                      prefixText: '฿ ',
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _odometerController,
+                    readOnly: _saving,
+                    decoration: InputDecoration(
+                      labelText: 'vehicle_expense_odometer'.tr(),
+                      hintText: 'vehicle_expense_odometer_hint'.tr(),
+                    ),
+                    keyboardType: TextInputType.number,
+                  ),
+                  const SizedBox(height: 16),
+                  // หลังกรอกเลขไมล์: ถ่ายรูปบันทึกเลขไมล์
+                  Text(
+                    'refuel_odometer_photo_title'.tr(),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'refuel_odometer_photo_subtitle'.tr(),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withOpacity(0.6),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  if (_odometerPhoto != null) ...[
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.memory(
+                        _odometerPhoto!,
+                        height: 140,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  OutlinedButton.icon(
+                    onPressed: _saving ? null : _pickOdometerPhoto,
+                    icon: const Icon(Icons.speed, size: 20),
+                    label: Text(
+                      _odometerPhoto != null
+                          ? 'refuel_odometer_photo_change'.tr()
+                          : 'refuel_odometer_photo_take'.tr(),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  // สถานที่เติม — UI แบบกล่องมี icon สถานที่ + ปุ่ม refresh
+                  Text(
+                    'vehicle_expense_refill_location'.tr(),
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withOpacity(0.8),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
                     decoration: BoxDecoration(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: Theme.of(context).dividerColor),
                     ),
                     child: Row(
                       children: [
                         Icon(
-                          Icons.access_time,
+                          Icons.location_on,
                           size: 24,
-                          color: Theme.of(context).colorScheme.onSurface,
+                          color: Colors.red.shade700,
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
-                            _dateTimeController.text,
-                            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                            _refillLocation ??
+                                'vehicle_expense_refill_location_get'.tr(),
+                            style: Theme.of(context).textTheme.bodyLarge
+                                ?.copyWith(
                                   fontWeight: FontWeight.w500,
+                                  color: _refillLocation != null
+                                      ? Theme.of(context).colorScheme.onSurface
+                                      : Theme.of(context).colorScheme.onSurface
+                                            .withOpacity(0.6),
                                 ),
                           ),
+                        ),
+                        if (_locationLoading)
+                          const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        else
+                          IconButton(
+                            icon: Icon(
+                              Icons.refresh,
+                              color: Theme.of(context).colorScheme.onSurface,
+                            ),
+                            onPressed: _saving ? null : _getRefillLocation,
+                            tooltip: 'vehicle_expense_refill_location_get'.tr(),
+                          ),
+                      ],
+                    ),
+                  ),
+                  if (_locationError != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      _locationError!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                  if (_saveError != null) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      _saveError!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 24),
+                  ElevatedButton(
+                    onPressed: _saving ? null : _submit,
+                    child: _saving
+                        ? const SizedBox(
+                            height: 24,
+                            width: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Text('vehicle_expense_save'.tr()),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_saving)
+            Positioned.fill(
+              child: AbsorbPointer(
+                child: ColoredBox(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withOpacity(0.3),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const CircularProgressIndicator(),
+                        const SizedBox(height: 16),
+                        Text(
+                          'vehicle_expense_saving'.tr(),
+                          style: Theme.of(context).textTheme.bodyLarge
+                              ?.copyWith(
+                                color: Theme.of(context).colorScheme.onSurface,
+                                fontWeight: FontWeight.w500,
+                              ),
                         ),
                       ],
                     ),
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
-              // ถ่ายรูปบิลน้ำมัน (OCR: จำนวนลิตร, ยอดเงิน, ชื่อสถานี, เลขไมล์)
-              Text(
-                'refuel_receipt_title'.tr(),
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'refuel_receipt_subtitle'.tr(),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                    ),
-              ),
-              const SizedBox(height: 8),
-              if (_receiptPhoto != null) ...[
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.memory(
-                    _receiptPhoto!,
-                    height: 160,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                  ),
-                ),
-                const SizedBox(height: 8),
-              ],
-              if (_ocrLoading)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                      const SizedBox(width: 12),
-                      Text(refuelOcrReadingLabel),
-                    ],
-                  ),
-                ),
-              if (_ocrError != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Text(
-                    _ocrError!,
-                    style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 12),
-                  ),
-                ),
-              OutlinedButton.icon(
-                onPressed: (_saving || _ocrLoading) ? null : _pickReceiptAndOcr,
-                icon: const Icon(Icons.receipt_long, size: 20),
-                label: Text(
-                  _receiptPhoto != null ? 'refuel_receipt_change'.tr() : 'refuel_receipt_take'.tr(),
-                ),
-              ),
-              const SizedBox(height: 20),
-              // ลำดับ: TAX ID, TAX INV ID, ยอดเงิน, ปริมาณลิตร, ราคาต่อลิตร (คำนวณ/ disable)
-              TextFormField(
-                controller: _taxIdController,
-                readOnly: _saving,
-                decoration: InputDecoration(
-                  labelText: 'refuel_station_tax_id'.tr(),
-                  hintText: 'refuel_station_tax_id_hint'.tr(),
-                ),
-                keyboardType: TextInputType.number,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _taxInvIdController,
-                readOnly: _saving,
-                decoration: InputDecoration(
-                  labelText: 'refuel_tax_inv_id'.tr(),
-                  hintText: 'refuel_tax_inv_id_hint'.tr(),
-                ),
-                keyboardType: TextInputType.number,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _amountController,
-                readOnly: _saving,
-                decoration: InputDecoration(
-                  labelText: 'vehicle_expense_amount'.tr(),
-                  hintText: 'vehicle_expense_amount_hint'.tr(),
-                  prefixText: '฿ ',
-                ),
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                validator: (v) {
-                  final n = double.tryParse(v?.trim() ?? '');
-                  if (n == null || n <= 0) return 'vehicle_expense_amount_required'.tr();
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _volumeController,
-                readOnly: _saving,
-                decoration: InputDecoration(
-                  labelText: 'vehicle_expense_volume'.tr(),
-                  hintText: 'vehicle_expense_volume_hint'.tr(),
-                ),
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _pricePerLiterController,
-                readOnly: true,
-                decoration: InputDecoration(
-                  labelText: 'vehicle_expense_price_per_liter'.tr(),
-                  hintText: 'vehicle_expense_price_per_liter_hint'.tr(),
-                  prefixText: '฿ ',
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _odometerController,
-                readOnly: _saving,
-                decoration: InputDecoration(
-                  labelText: 'vehicle_expense_odometer'.tr(),
-                  hintText: 'vehicle_expense_odometer_hint'.tr(),
-                ),
-                keyboardType: TextInputType.number,
-              ),
-              const SizedBox(height: 16),
-              // หลังกรอกเลขไมล์: ถ่ายรูปบันทึกเลขไมล์
-              Text(
-                'refuel_odometer_photo_title'.tr(),
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'refuel_odometer_photo_subtitle'.tr(),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                    ),
-              ),
-              const SizedBox(height: 8),
-              if (_odometerPhoto != null) ...[
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.memory(
-                    _odometerPhoto!,
-                    height: 140,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                  ),
-                ),
-                const SizedBox(height: 8),
-              ],
-              OutlinedButton.icon(
-                onPressed: _saving ? null : _pickOdometerPhoto,
-                icon: const Icon(Icons.speed, size: 20),
-                label: Text(
-                  _odometerPhoto != null ? 'refuel_odometer_photo_change'.tr() : 'refuel_odometer_photo_take'.tr(),
-                ),
-              ),
-              const SizedBox(height: 16),
-              // สถานที่เติม — UI แบบกล่องมี icon สถานที่ + ปุ่ม refresh
-              Text(
-                'vehicle_expense_refill_location'.tr(),
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.8),
-                    ),
-              ),
-              const SizedBox(height: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Theme.of(context).dividerColor),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.location_on,
-                      size: 24,
-                      color: Colors.red.shade700,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        _refillLocation ?? 'vehicle_expense_refill_location_get'.tr(),
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                              fontWeight: FontWeight.w500,
-                              color: _refillLocation != null
-                                  ? Theme.of(context).colorScheme.onSurface
-                                  : Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                            ),
-                      ),
-                    ),
-                    if (_locationLoading)
-                      const SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    else
-                      IconButton(
-                        icon: Icon(
-                          Icons.refresh,
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                        onPressed: _saving ? null : _getRefillLocation,
-                        tooltip: 'vehicle_expense_refill_location_get'.tr(),
-                      ),
-                  ],
-                ),
-              ),
-              if (_locationError != null) ...[
-                const SizedBox(height: 4),
-                Text(
-                  _locationError!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 12),
-                ),
-              ],
-              if (_saveError != null) ...[
-                const SizedBox(height: 16),
-                Text(
-                  _saveError!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-              ],
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: _saving ? null : _submit,
-                child: _saving
-                    ? const SizedBox(
-                        height: 24,
-                        width: 24,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Text('vehicle_expense_save'.tr()),
-              ),
-            ],
-          ),
-        ),
-      ),
-      if (_saving)
-        Positioned.fill(
-          child: AbsorbPointer(
-            child: ColoredBox(
-              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3),
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const CircularProgressIndicator(),
-                    const SizedBox(height: 16),
-                    Text(
-                      'vehicle_expense_saving'.tr(),
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                            color: Theme.of(context).colorScheme.onSurface,
-                            fontWeight: FontWeight.w500,
-                          ),
-                    ),
-                  ],
-                ),
-              ),
             ),
-          ),
-        ),
         ],
       ),
     );
@@ -779,12 +850,15 @@ class _RefuelPreviewSheet extends StatelessWidget {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 4,
+                ),
                 child: Text(
                   'refuel_preview_title'.tr(),
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
               const Divider(),
@@ -821,7 +895,10 @@ class _RefuelPreviewSheet extends StatelessWidget {
                         odometerPhoto!,
                         height: 80,
                         allImages: _allImages(),
-                        initialIndex: receiptPhoto != null && receiptPhoto!.isNotEmpty ? 1 : 0,
+                        initialIndex:
+                            receiptPhoto != null && receiptPhoto!.isNotEmpty
+                            ? 1
+                            : 0,
                       ),
                     ],
                   ],
@@ -870,7 +947,10 @@ class _RefuelPreviewSheet extends StatelessWidget {
       _row('refuel_tax_inv_id'.tr(), taxInvId),
       _row('vehicle_expense_amount'.tr(), amount.isEmpty ? '' : '฿ $amount'),
       _row('vehicle_expense_volume'.tr(), volume),
-      _row('vehicle_expense_price_per_liter'.tr(), pricePerLiter.isEmpty ? '' : '฿ $pricePerLiter'),
+      _row(
+        'vehicle_expense_price_per_liter'.tr(),
+        pricePerLiter.isEmpty ? '' : '฿ $pricePerLiter',
+      ),
       _row('vehicle_expense_odometer'.tr(), odometer),
       _row('vehicle_expense_refill_location'.tr(), refillLocation ?? ''),
     ];
@@ -878,8 +958,10 @@ class _RefuelPreviewSheet extends StatelessWidget {
 
   List<Uint8List> _allImages() {
     final list = <Uint8List>[];
-    if (receiptPhoto != null && receiptPhoto!.isNotEmpty) list.add(receiptPhoto!);
-    if (odometerPhoto != null && odometerPhoto!.isNotEmpty) list.add(odometerPhoto!);
+    if (receiptPhoto != null && receiptPhoto!.isNotEmpty)
+      list.add(receiptPhoto!);
+    if (odometerPhoto != null && odometerPhoto!.isNotEmpty)
+      list.add(odometerPhoto!);
     return list;
   }
 
@@ -891,14 +973,11 @@ class _RefuelPreviewSheet extends StatelessWidget {
     required int initialIndex,
   }) {
     return GestureDetector(
-      onTap: () => _showFullImage(context, allImages, initialIndex: initialIndex),
+      onTap: () =>
+          _showFullImage(context, allImages, initialIndex: initialIndex),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(8),
-        child: Image.memory(
-          imageBytes,
-          height: height,
-          fit: BoxFit.cover,
-        ),
+        child: Image.memory(imageBytes, height: height, fit: BoxFit.cover),
       ),
     );
   }
@@ -961,10 +1040,12 @@ class _RefuelFullScreenPreviewDialog extends StatefulWidget {
   });
 
   @override
-  State<_RefuelFullScreenPreviewDialog> createState() => _RefuelFullScreenPreviewDialogState();
+  State<_RefuelFullScreenPreviewDialog> createState() =>
+      _RefuelFullScreenPreviewDialogState();
 }
 
-class _RefuelFullScreenPreviewDialogState extends State<_RefuelFullScreenPreviewDialog> {
+class _RefuelFullScreenPreviewDialogState
+    extends State<_RefuelFullScreenPreviewDialog> {
   late PageController _pageController;
   late int _currentIndex;
 
@@ -1001,10 +1082,7 @@ class _RefuelFullScreenPreviewDialogState extends State<_RefuelFullScreenPreview
             controller: _pageController,
             itemCount: widget.images.length,
             itemBuilder: (context, index) => InteractiveViewer(
-              child: Image.memory(
-                widget.images[index],
-                fit: BoxFit.contain,
-              ),
+              child: Image.memory(widget.images[index], fit: BoxFit.contain),
             ),
           ),
           Positioned(
@@ -1022,17 +1100,17 @@ class _RefuelFullScreenPreviewDialogState extends State<_RefuelFullScreenPreview
               right: 0,
               child: Center(
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.black54,
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
                     '${_currentIndex + 1} / ${widget.images.length}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                    ),
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
                   ),
                 ),
               ),

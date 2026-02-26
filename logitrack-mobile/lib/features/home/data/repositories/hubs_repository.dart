@@ -20,6 +20,7 @@ class HubDoc {
   final String? id;
   final String sourceId;
   final String sourceNameEn;
+  final String sourceNameTh;
   final double? latitude;
   final double? longitude;
   final String stationType; // HUB | SOC
@@ -28,6 +29,7 @@ class HubDoc {
     this.id,
     required this.sourceId,
     required this.sourceNameEn,
+    required this.sourceNameTh,
     this.latitude,
     this.longitude,
     this.stationType = stationTypeHub,
@@ -40,6 +42,8 @@ class HubDoc {
       id: docId,
       sourceId: (data['source_id'] ?? '').toString(),
       sourceNameEn: (data['source_name_en'] ?? '').toString(),
+      sourceNameTh: (data['source_name_th'] ?? data['source_name_en'] ?? '')
+          .toString(),
       latitude: lat is num ? lat.toDouble() : null,
       longitude: lng is num ? lng.toDouble() : null,
       stationType:

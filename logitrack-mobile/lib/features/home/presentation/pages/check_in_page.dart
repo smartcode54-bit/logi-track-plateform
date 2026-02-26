@@ -1,12 +1,16 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../../data/repositories/first_mile_task_repository.dart';
-import '../../data/repositories/first_mile_checkin_repository.dart';
+import '../../data/repositories/task_repository.dart';
+import '../../data/repositories/checkin_repository.dart';
+import '../../data/services/draft_storage_service.dart';
+import '../../data/repositories/hubs_repository.dart';
+import '../../../../core/presentation/widgets/searchable_hub_picker.dart';
 
 enum TaskFilter { all, fm, lh }
 
@@ -112,11 +116,18 @@ class _CheckInPageState extends State<CheckInPage> {
             }
 
             final filteredTasks = tasks.where((t) {
-              final firstMileTaskId = t['FirstMileTaskId'] as String? ?? '';
+              final taskId =
+                  t['taskId'] as String? ??
+                  t['FirstMileTaskId'] as String? ??
+                  '';
+              final taskType =
+                  t['taskType'] as String? ??
+                  (taskId.startsWith('LH') ? 'LINE_HAUL' : 'FIRST_MILE');
+
               if (_filter == TaskFilter.fm) {
-                return firstMileTaskId.startsWith('FM');
+                return taskType == 'FIRST_MILE';
               } else if (_filter == TaskFilter.lh) {
-                return firstMileTaskId.startsWith('LH');
+                return taskType == 'LINE_HAUL';
               }
               return true;
             }).toList();
@@ -389,7 +400,9 @@ class _CheckInPageState extends State<CheckInPage> {
                 ),
               )
             : null,
-        title: Text('$source → $dest'),
+        title: Text(
+          '${t['taskId'] ?? t['FirstMileTaskId'] ?? 'Task'}: $source → $dest',
+        ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -510,6 +523,7 @@ class _CheckInPageState extends State<CheckInPage> {
         lng: position.longitude,
         timestamp: timestamp,
       );
+      await DraftStorageService.instance.saveActiveCheckInTaskId(taskId);
       if (!context.mounted) return;
       ScaffoldMessenger.of(
         context,
@@ -544,8 +558,8 @@ class _ManualCheckInSheetState extends State<_ManualCheckInSheet> {
   bool _loading = true;
   bool _submitting = false;
 
-  List<Map<String, dynamic>> _socs = [];
-  List<Map<String, dynamic>> _hubs = [];
+  List<HubDoc> _socs = [];
+  List<HubDoc> _hubs = [];
   Map<String, dynamic>? _driverData;
   Map<String, dynamic>? _assignedTruck;
 
@@ -584,26 +598,21 @@ class _ManualCheckInSheetState extends State<_ManualCheckInSheet> {
         }
       }
 
-      final hubsSnap = await FirebaseFirestore.instance
-          .collection('hubs')
-          .get();
-      final all = hubsSnap.docs.map((d) => d.data()).toList();
+      final all = await fetchAllHubs();
 
       _hubs = all.where((h) {
-        final st = (h['station_type'] ?? '').toString().toUpperCase();
+        final st = h.stationType.toUpperCase();
         return st != 'SOC' && st != 'RETURN_CENTER' && !st.startsWith('SOC');
       }).toList();
 
       _socs = all.where((h) {
-        final st = (h['station_type'] ?? '').toString().toUpperCase();
-        final code = (h['source_id'] ?? h['hubId'] ?? '').toString();
+        final st = h.stationType.toUpperCase();
+        final code = h.sourceId;
         return st.startsWith('SOC') && !RegExp(r'^\d').hasMatch(code);
       }).toList();
 
-      if (_socs.isNotEmpty)
-        _origin = (_socs[0]['source_id'] ?? _socs[0]['hubId']).toString();
-      if (_hubs.isNotEmpty)
-        _dest = (_hubs[0]['source_id'] ?? _hubs[0]['hubId']).toString();
+      if (_socs.isNotEmpty) _origin = _socs[0].sourceId;
+      if (_hubs.isNotEmpty) _dest = _hubs[0].sourceId;
     } catch (e) {
       debugPrint('Error fetching manual check-in data: $e');
     } finally {
@@ -631,41 +640,37 @@ class _ManualCheckInSheetState extends State<_ManualCheckInSheet> {
     setState(() => _submitting = true);
     try {
       final now = DateTime.now();
-      final startOfDay = DateTime(now.year, now.month, now.day);
-      final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59, 999);
-      final snap = await FirebaseFirestore.instance
-          .collection('first_mile_tasks')
-          .where('date', isGreaterThanOrEqualTo: startOfDay)
-          .where('date', isLessThanOrEqualTo: endOfDay)
-          .count()
-          .get();
-      final count = snap.count ?? 0;
-      final runningN = (count + 1).toString().padLeft(3, '0');
+
+      // Use Cloud Function to get sequential ID
       final dateStr = DateFormat('ddMMyyyy').format(now);
-      final newId = 'FM-$dateStr-$_dest-$runningN';
+      final results =
+          await FirebaseFunctions.instanceFor(region: 'asia-southeast1')
+              .httpsCallable('getNextTaskId')
+              .call({'date': dateStr, 'taskType': 'LINE_HAUL'});
+
+      final String newTaskId = results.data['taskId'];
 
       final dName =
           '${_driverData?['firstName'] ?? ''} ${_driverData?['lastName'] ?? ''}'
               .trim();
 
-      final docRef = await FirebaseFirestore.instance
-          .collection('first_mile_tasks')
-          .add({
-            'FirstMileTaskId': newId,
-            'createdAt': FieldValue.serverTimestamp(),
-            'updatedAt': FieldValue.serverTimestamp(),
-            'date': now,
-            'time': DateFormat('HH:mm').format(now),
-            'destination': _dest,
-            'sourceHub': _origin,
-            'status': 'Pending',
-            'truckType': _truckType,
-            'driverId': widget.driverId,
-            'driverName': dName,
-            'driverPhone': _driverData?['mobile'] ?? '',
-            'licensePlate':
-                _driverData?['currentAssignment']?['truckPlate'] ?? '',
-          });
+      final docRef = await FirebaseFirestore.instance.collection('tasks').add({
+        'taskId': newTaskId,
+        'taskType': 'LINE_HAUL',
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+        'date': Timestamp.fromDate(now),
+        'dateStr': dateStr,
+        'time': DateFormat('HH:mm').format(now),
+        'destination': _dest,
+        'sourceHub': _origin,
+        'status': 'Pending',
+        'truckType': _truckType,
+        'driverId': widget.driverId,
+        'driverName': dName,
+        'driverPhone': _driverData?['mobile'] ?? '',
+        'licensePlate': _driverData?['currentAssignment']?['truckPlate'] ?? '',
+      });
 
       final pos = await getCurrentPosition();
       await submitCheckIn(
@@ -675,6 +680,7 @@ class _ManualCheckInSheetState extends State<_ManualCheckInSheet> {
         lng: pos.longitude,
         timestamp: now,
       );
+      await DraftStorageService.instance.saveActiveCheckInTaskId(docRef.id);
 
       if (mounted) {
         Navigator.pop(context);
@@ -725,26 +731,20 @@ class _ManualCheckInSheetState extends State<_ManualCheckInSheet> {
             ],
           ),
           const SizedBox(height: 16),
-          DropdownButtonFormField<String>(
-            decoration: InputDecoration(labelText: 'Origin (SOC)'.tr()),
-            value: _origin,
-            isExpanded: true,
-            items: _socs.map((e) {
-              final id = (e['source_id'] ?? e['hubId']).toString();
-              return DropdownMenuItem(value: id, child: Text(id));
-            }).toList(),
-            onChanged: (v) => setState(() => _origin = v),
+          SearchableHubPicker(
+            label: 'Origin (SOC)'.tr(),
+            hintText: 'Select origin SOC'.tr(),
+            value: _origin ?? '',
+            hubs: _socs,
+            onSelected: (hub) => setState(() => _origin = hub.sourceId),
           ),
           const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            decoration: InputDecoration(labelText: 'Destination (Hub)'.tr()),
-            value: _dest,
-            isExpanded: true,
-            items: _hubs.map((e) {
-              final id = (e['source_id'] ?? e['hubId']).toString();
-              return DropdownMenuItem(value: id, child: Text(id));
-            }).toList(),
-            onChanged: (v) => setState(() => _dest = v),
+          SearchableHubPicker(
+            label: 'Destination (Hub)'.tr(),
+            hintText: 'Select destination Hub'.tr(),
+            value: _dest ?? '',
+            hubs: _hubs,
+            onSelected: (hub) => setState(() => _dest = hub.sourceId),
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(

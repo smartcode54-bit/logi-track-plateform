@@ -7,6 +7,7 @@ class SavedTripSummary {
   final String? destination;
   final String? sealCode;
   final String? jobType;
+  final String? taskId;
 
   const SavedTripSummary({
     required this.tripId,
@@ -14,15 +15,17 @@ class SavedTripSummary {
     this.destination,
     this.sealCode,
     this.jobType,
+    this.taskId,
   });
 
   Map<String, dynamic> toJson() => {
-        'tripId': tripId,
-        'origin': origin,
-        'destination': destination,
-        'sealCode': sealCode,
-        'jobType': jobType,
-      };
+    'tripId': tripId,
+    'origin': origin,
+    'destination': destination,
+    'sealCode': sealCode,
+    'jobType': jobType,
+    'taskId': taskId,
+  };
 
   static SavedTripSummary? fromJson(Map<String, dynamic>? map) {
     if (map == null) return null;
@@ -34,6 +37,7 @@ class SavedTripSummary {
       destination: map['destination'] as String?,
       sealCode: map['sealCode'] as String?,
       jobType: map['jobType'] as String?,
+      taskId: map['taskId'] as String?,
     );
   }
 }

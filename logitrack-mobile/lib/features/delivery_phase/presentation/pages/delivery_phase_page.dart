@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
-import '../../../home/data/repositories/first_mile_checkin_repository.dart';
+import '../../../home/data/repositories/checkin_repository.dart';
 import '../../../home/data/services/photo_overlay_service.dart';
 import '../../../home/data/repositories/trip_records_repository.dart';
 import '../../data/repositories/delivery_trip_repository.dart';
@@ -50,7 +50,9 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
   void initState() {
     super.initState();
     _loadLocation();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _tryRestoreDeliveryDraft());
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _tryRestoreDeliveryDraft(),
+    );
   }
 
   Future<void> _saveDeliveryDraft() async {
@@ -93,7 +95,9 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
     if (confirm != true || !mounted) return;
     final restored = <String, Uint8List>{};
     for (final e in draft.photoPaths.entries) {
-      final bytes = await DraftStorageService.instance.loadDeliveryDraftPhoto(e.value);
+      final bytes = await DraftStorageService.instance.loadDeliveryDraftPhoto(
+        e.value,
+      );
       if (bytes != null) restored[e.key] = Uint8List.fromList(bytes);
     }
     if (mounted) setState(() => _deliveryPhotos.addAll(restored));
@@ -207,10 +211,11 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
         try {
           final pos = await getCurrentPosition();
           final ctx = await fetchOverlayContext(pos.latitude, pos.longitude);
-          if (mounted) setState(() {
-            _cachedOverlayPosition = pos;
-            _cachedOverlayContext = ctx;
-          });
+          if (mounted)
+            setState(() {
+              _cachedOverlayPosition = pos;
+              _cachedOverlayContext = ctx;
+            });
         } catch (_) {}
       }
       if (!mounted) return;
@@ -237,7 +242,7 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
   }
 
   Future<void> _submitDelivery() async {
-    final tripId = widget.savedTripSummary?.tripId?.trim();
+    final tripId = widget.savedTripSummary?.tripId.trim();
     if (tripId == null || tripId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -299,14 +304,15 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
       }
       await submitDeliveryPhaseRecord(
         tripId: tripId,
+        taskId: widget.savedTripSummary?.taskId,
         deliveryPhotos: deliveryPhotos,
         deliveredLat: position.latitude,
         deliveredLng: position.longitude,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('delivery_saved'.tr())),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('delivery_saved'.tr())));
       DraftStorageService.instance.clearDeliveryDraft();
       MainLayoutScope.of(context)?.onDeliveryCompleted?.call();
       setState(() {
@@ -334,246 +340,260 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
     return PopScope(
       canPop: !_saving,
       child: Scaffold(
-      backgroundColor: isDarkMode
-          ? Theme.of(context).scaffoldBackgroundColor
-          : Colors.grey[50],
-      appBar: AppBar(
-        title: Text(
-          'nav_delivery'.tr(),
-          style: const TextStyle(color: Colors.white),
-        ),
-        backgroundColor: darkNavy,
-        iconTheme: const IconThemeData(color: Colors.white),
-        actions: [
-          TextButton.icon(
-            onPressed: _saving
-                ? null
-                : () async {
-                    await Navigator.of(context).push<bool>(
-                      MaterialPageRoute<bool>(
-                        builder: (context) => IncidentReportPage(
-                          savedTripSummary: widget.savedTripSummary,
+        backgroundColor: isDarkMode
+            ? Theme.of(context).scaffoldBackgroundColor
+            : Colors.grey[50],
+        appBar: AppBar(
+          title: Text(
+            'nav_delivery'.tr(),
+            style: const TextStyle(color: Colors.white),
+          ),
+          backgroundColor: darkNavy,
+          iconTheme: const IconThemeData(color: Colors.white),
+          actions: [
+            TextButton.icon(
+              onPressed: _saving
+                  ? null
+                  : () async {
+                      await Navigator.of(context).push<bool>(
+                        MaterialPageRoute<bool>(
+                          builder: (context) => IncidentReportPage(
+                            savedTripSummary: widget.savedTripSummary,
+                          ),
                         ),
-                      ),
-                    );
-                  },
-            icon: const Icon(Icons.warning_amber_rounded, color: Colors.orange),
-            label: Text(
-              'report_incident'.tr(),
-              style: const TextStyle(
+                      );
+                    },
+              icon: const Icon(
+                Icons.warning_amber_rounded,
                 color: Colors.orange,
-                fontWeight: FontWeight.bold,
+              ),
+              label: Text(
+                'report_incident'.tr(),
+                style: const TextStyle(
+                  color: Colors.orange,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
-          ),
-        ],
-      ),
-      body: Stack(
-        children: [
-          AbsorbPointer(
-            absorbing: _saving,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          ],
+        ),
+        body: Stack(
           children: [
-            // Header Summary Card
-            Card(
-              elevation: 4,
-              color: darkNavy,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(20.0),
+            AbsorbPointer(
+              absorbing: _saving,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16.0),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'active_delivery'.tr(),
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.green.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.green.shade300),
-                          ),
-                          child: Text(
-                            'status_in_transit'.tr(),
-                            style: const TextStyle(
-                              color: Colors.greenAccent,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
+                    // Header Summary Card
+                    Card(
+                      elevation: 4,
+                      color: darkNavy,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(20.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'active_delivery'.tr(),
+                                  style: const TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green.withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: Colors.green.shade300,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    'status_in_transit'.tr(),
+                                    style: const TextStyle(
+                                      color: Colors.greenAccent,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
+                            const SizedBox(height: 16),
+                            Text(
+                              '${'loading_phase_origin'.tr()}  ${widget.savedTripSummary?.origin?.trim().isNotEmpty == true ? widget.savedTripSummary!.origin! : '-'}',
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 14,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              '${'loading_phase_destination'.tr()}  ${widget.savedTripSummary?.destination?.trim().isNotEmpty == true ? widget.savedTripSummary!.destination! : '-'}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Trip ID: ${widget.savedTripSummary?.tripId ?? '-'}',
+                              style: const TextStyle(
+                                color: Colors.white54,
+                                fontSize: 13,
+                              ),
+                            ),
+                            if (widget.savedTripSummary?.sealCode != null &&
+                                widget.savedTripSummary!.sealCode!
+                                    .trim()
+                                    .isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                '${'loading_phase_seal_code'.tr()}: ${widget.savedTripSummary!.sealCode}',
+                                style: const TextStyle(
+                                  color: Colors.white54,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
-                      ],
+                      ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 24),
+
+                    // Photo capture header (เหมือนการรับงาน)
                     Text(
-                      '${'loading_phase_origin'.tr()}  ${widget.savedTripSummary?.origin?.trim().isNotEmpty == true ? widget.savedTripSummary!.origin! : '-'}',
-                      style: const TextStyle(
-                        color: Colors.white70,
+                      'mandatory_evidence'.tr(),
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: isDarkMode ? Colors.white : darkNavy,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'mandatory_evidence_desc'.tr(),
+                      style: TextStyle(
+                        color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
                         fontSize: 14,
                       ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '${'loading_phase_destination'.tr()}  ${widget.savedTripSummary?.destination?.trim().isNotEmpty == true ? widget.savedTripSummary!.destination! : '-'}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                    const SizedBox(height: 16),
+
+                    // Photo capture tiles (ถ่ายภาพแทนการเช็ค)
+                    _buildPhotoCaptureTile(
+                      title: 'delivery_photo_pre_open'.tr(),
+                      subtitle: 'delivery_photo_pre_open_desc'.tr(),
+                      stepKey: 'pre_open',
+                      icon: Icons.camera_alt,
                     ),
                     const SizedBox(height: 12),
-                    Text(
-                      'Trip ID: ${widget.savedTripSummary?.tripId ?? '-'}',
-                      style: const TextStyle(color: Colors.white54, fontSize: 13),
+                    _buildPhotoCaptureTile(
+                      title: 'delivery_photo_opening'.tr(),
+                      subtitle: 'delivery_photo_opening_desc'.tr(),
+                      stepKey: 'opening',
+                      icon: Icons.camera_alt,
                     ),
-                    if (widget.savedTripSummary?.sealCode != null &&
-                        widget.savedTripSummary!.sealCode!.trim().isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        '${'loading_phase_seal_code'.tr()}: ${widget.savedTripSummary!.sealCode}',
-                        style: const TextStyle(color: Colors.white54, fontSize: 13),
+                    const SizedBox(height: 12),
+                    _buildPhotoCaptureTile(
+                      title: 'delivery_photo_empty'.tr(),
+                      subtitle: 'delivery_photo_empty_desc'.tr(),
+                      stepKey: 'empty_container',
+                      icon: Icons.camera_alt,
+                    ),
+                    const SizedBox(height: 12),
+                    _buildPhotoCaptureTile(
+                      title: 'delivery_photo_received'.tr(),
+                      subtitle: 'delivery_photo_received_desc'.tr(),
+                      stepKey: 'runsheet_received',
+                      icon: Icons.photo_library,
+                      useGallery: true,
+                    ),
+
+                    const SizedBox(height: 32),
+
+                    // Submit Button
+                    ElevatedButton(
+                      onPressed: (_canSubmit && !_saving)
+                          ? _submitDelivery
+                          : null,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blueAccent,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        disabledBackgroundColor: Colors.grey.shade400,
                       ),
-                    ],
+                      child: _saving
+                          ? const SizedBox(
+                              height: 24,
+                              width: 24,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Text(
+                              'submit_delivery'.tr(),
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                    ),
+                    const SizedBox(height: 24),
                   ],
                 ),
               ),
             ),
-            const SizedBox(height: 24),
-
-            // Photo capture header (เหมือนการรับงาน)
-            Text(
-              'mandatory_evidence'.tr(),
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: isDarkMode ? Colors.white : darkNavy,
-                  ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'mandatory_evidence_desc'.tr(),
-              style: TextStyle(
-                color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
-                fontSize: 14,
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Photo capture tiles (ถ่ายภาพแทนการเช็ค)
-            _buildPhotoCaptureTile(
-              title: 'delivery_photo_pre_open'.tr(),
-              subtitle: 'delivery_photo_pre_open_desc'.tr(),
-              stepKey: 'pre_open',
-              icon: Icons.camera_alt,
-            ),
-            const SizedBox(height: 12),
-            _buildPhotoCaptureTile(
-              title: 'delivery_photo_opening'.tr(),
-              subtitle: 'delivery_photo_opening_desc'.tr(),
-              stepKey: 'opening',
-              icon: Icons.camera_alt,
-            ),
-            const SizedBox(height: 12),
-            _buildPhotoCaptureTile(
-              title: 'delivery_photo_empty'.tr(),
-              subtitle: 'delivery_photo_empty_desc'.tr(),
-              stepKey: 'empty_container',
-              icon: Icons.camera_alt,
-            ),
-            const SizedBox(height: 12),
-            _buildPhotoCaptureTile(
-              title: 'delivery_photo_received'.tr(),
-              subtitle: 'delivery_photo_received_desc'.tr(),
-              stepKey: 'runsheet_received',
-              icon: Icons.photo_library,
-              useGallery: true,
-            ),
-
-            const SizedBox(height: 32),
-
-            // Submit Button
-            ElevatedButton(
-              onPressed: (_canSubmit && !_saving)
-                  ? _submitDelivery
-                  : null,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blueAccent,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                disabledBackgroundColor: Colors.grey.shade400,
-              ),
-              child: _saving
-                  ? const SizedBox(
-                      height: 24,
-                      width: 24,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : Text(
-                      'submit_delivery'.tr(),
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
+            if (_saving)
+              Positioned.fill(child: ModalBarrier(color: Colors.black38)),
+            if (_saving)
+              Center(
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(
+                          width: 32,
+                          height: 32,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'loading_phase_saving'.tr(),
+                          style: const TextStyle(fontSize: 14),
+                        ),
+                      ],
                     ),
-            ),
-            const SizedBox(height: 24),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
-          ),
-          if (_saving)
-            Positioned.fill(
-              child: ModalBarrier(color: Colors.black38),
-            ),
-          if (_saving)
-            Center(
-              child: Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const SizedBox(
-                        width: 32,
-                        height: 32,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                      const SizedBox(height: 16),
-                      Text('loading_phase_saving'.tr(), style: const TextStyle(fontSize: 14)),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    ),
     );
   }
 

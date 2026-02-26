@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -7,7 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart' as intl;
 import 'package:geolocator/geolocator.dart';
-import '../../../home/data/repositories/first_mile_checkin_repository.dart';
+import '../../../home/data/repositories/checkin_repository.dart';
 import '../../../home/data/repositories/hubs_repository.dart';
 import '../../../home/data/services/photo_overlay_service.dart';
 import '../../../home/data/models/trip_record.dart';
@@ -19,6 +20,7 @@ import '../../../home/data/services/ocr_screenshot_service.dart';
 import '../../../home/presentation/pages/main_layout_scope.dart';
 import '../../../home/presentation/pages/qr_scan_page.dart';
 import '../../data/repositories/loading_trip_repository.dart';
+import '../../../../core/presentation/widgets/searchable_hub_picker.dart';
 
 /// ขั้นตอนรูป Loading (ไม่รวม runsheet ที่ย้ายขึ้นไปข้างบน)
 const List<String> _cameraPhotoStepKeys = ['pre_close', 'closing', 'seal'];
@@ -61,14 +63,16 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       h.stationType == stationTypeSoc && h.sourceId.trim().startsWith('0');
 
   /// FM: ต้นทาง = HUB, ปลายทาง = SOC เท่านั้น | LH: ต้นทาง = SOC, ปลายทาง = HUB เท่านั้น (ไม่รวม SOC standby 0XXX)
-  List<HubDoc> get _originOptions =>
-      (_jobType == jobTypeFirstMile)
-          ? _allHubs.where((h) => h.stationType == stationTypeHub).toList()
-          : _allHubs.where((h) => h.stationType == stationTypeSoc && !_isSocStandby(h)).toList();
-  List<HubDoc> get _destinationOptions =>
-      (_jobType == jobTypeFirstMile)
-          ? _allHubs.where((h) => h.stationType == stationTypeSoc && !_isSocStandby(h)).toList()
-          : _allHubs.where((h) => h.stationType == stationTypeHub).toList();
+  List<HubDoc> get _originOptions => (_jobType == jobTypeFirstMile)
+      ? _allHubs.where((h) => h.stationType == stationTypeHub).toList()
+      : _allHubs
+            .where((h) => h.stationType == stationTypeSoc && !_isSocStandby(h))
+            .toList();
+  List<HubDoc> get _destinationOptions => (_jobType == jobTypeFirstMile)
+      ? _allHubs
+            .where((h) => h.stationType == stationTypeSoc && !_isSocStandby(h))
+            .toList()
+      : _allHubs.where((h) => h.stationType == stationTypeHub).toList();
 
   double? _lat;
   double? _lng;
@@ -86,7 +90,9 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     super.initState();
     // Default seal time = now (date + time)
     final now = DateTime.now();
-    _sealTimeController.text = intl.DateFormat('dd-MM-yyyy HH:mm:ss').format(now);
+    _sealTimeController.text = intl.DateFormat(
+      'dd-MM-yyyy HH:mm:ss',
+    ).format(now);
     _loadHubs();
     _loadLocation();
     _tripIdController.addListener(_clearTripIdDuplicateError);
@@ -98,7 +104,35 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     _parcelCountController.addListener(_scheduleSaveDraft);
     _sealTimeController.addListener(_scheduleSaveDraft);
     _totalWeightController.addListener(_scheduleSaveDraft);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _tryRestoreLoadingDraft());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _tryRestoreLoadingDraft();
+      _lockJobTypeByActiveTask();
+    });
+  }
+
+  Future<void> _lockJobTypeByActiveTask() async {
+    final activeTaskId = await DraftStorageService.instance
+        .loadActiveCheckInTaskId();
+    if (activeTaskId == null) return;
+
+    try {
+      final taskDoc = await FirebaseFirestore.instance
+          .collection('tasks')
+          .doc(activeTaskId)
+          .get();
+      if (!taskDoc.exists) return;
+      final data = taskDoc.data();
+      final taskType = data?['taskType'] as String?;
+      if (taskType != null && mounted) {
+        setState(() {
+          _jobType = (taskType == 'LINE_HAUL')
+              ? jobTypeLineHaul
+              : jobTypeFirstMile;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error locking job type: $e');
+    }
   }
 
   void _scheduleSaveDraft() {
@@ -126,7 +160,8 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
   Future<void> _tryRestoreLoadingDraft() async {
     final draft = await DraftStorageService.instance.loadLoadingDraft();
     if (draft == null || !mounted) return;
-    final hasData = draft.tripId.isNotEmpty ||
+    final hasData =
+        draft.tripId.isNotEmpty ||
         draft.sealCode.isNotEmpty ||
         draft.runsheetPath != null ||
         draft.stepPhotoPaths.isNotEmpty;
@@ -162,12 +197,16 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     _totalWeightController.text = draft.totalWeight;
     if (draft.jobType != null) _jobType = draft.jobType;
     if (draft.runsheetPath != null) {
-      final bytes = await DraftStorageService.instance.loadLoadingDraftPhoto(draft.runsheetPath!);
+      final bytes = await DraftStorageService.instance.loadLoadingDraftPhoto(
+        draft.runsheetPath!,
+      );
       if (bytes != null && mounted) _runsheetPhoto = Uint8List.fromList(bytes);
     }
     final stepPhotos = <String, Uint8List>{};
     for (final e in draft.stepPhotoPaths.entries) {
-      final bytes = await DraftStorageService.instance.loadLoadingDraftPhoto(e.value);
+      final bytes = await DraftStorageService.instance.loadLoadingDraftPhoto(
+        e.value,
+      );
       if (bytes != null) stepPhotos[e.key] = Uint8List.fromList(bytes);
     }
     if (mounted) setState(() => _stepPhotos.addAll(stepPhotos));
@@ -236,7 +275,17 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     final value = await Navigator.of(
       context,
     ).push<String>(MaterialPageRoute(builder: (_) => const QrScanPage()));
-    if (value != null && mounted) controller.text = value;
+    if (value != null && mounted) {
+      if (controller == _tripIdController) {
+        final match = RegExp(r'LT[A-Za-z0-9\-]{8,}').firstMatch(value);
+        controller.text = match?.group(0) ?? value;
+      } else if (controller == _sealCodeController) {
+        final match = RegExp(r'SPX[A-Za-z0-9\-]{5,}').firstMatch(value);
+        controller.text = match?.group(0) ?? value;
+      } else {
+        controller.text = value;
+      }
+    }
   }
 
   /// แนบรันชีทจาก gallery แล้วรัน OCR สกัด Trip ID/Seal/ต้นทาง-ปลายทาง เติมฟอร์ม
@@ -260,17 +309,23 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         _runsheetPhoto = compressed;
         _ocrLoading = false;
         if (result.tripId != null) _tripIdController.text = result.tripId!;
-        if (result.sealCode != null) _sealCodeController.text = result.sealCode!;
-        if (result.origin != null) _originController.text = result.origin!;
-        if (result.destination != null) _destinationController.text = result.destination!;
-        if (result.parcelCount != null) _parcelCountController.text = result.parcelCount!;
-        if (result.sealTime != null) _sealTimeController.text = result.sealTime!;
-        if (result.totalWeight != null) _totalWeightController.text = result.totalWeight!;
+        if (result.sealCode != null) {
+          _sealCodeController.text = result.sealCode!;
+        }
+        if (result.parcelCount != null) {
+          _parcelCountController.text = result.parcelCount!;
+        }
+        if (result.sealTime != null) {
+          _sealTimeController.text = result.sealTime!;
+        }
+        if (result.totalWeight != null) {
+          _totalWeightController.text = result.totalWeight!;
+        }
       });
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('loading_phase_ocr_done'.tr())),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('loading_phase_ocr_done'.tr())));
       final ocrTripId = result.tripId?.trim();
       if (ocrTripId != null && ocrTripId.isNotEmpty) {
         final ocrSeal = result.sealCode?.trim();
@@ -290,8 +345,8 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
           final msg = duplicate.tripIdExists && duplicate.sealCodeExists
               ? 'loading_phase_duplicate_trip_and_seal'.tr()
               : duplicate.tripIdExists
-                  ? 'loading_phase_duplicate_trip_id'.tr()
-                  : 'loading_phase_duplicate_seal_code'.tr();
+              ? 'loading_phase_duplicate_trip_id'.tr()
+              : 'loading_phase_duplicate_seal_code'.tr();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(msg), backgroundColor: Colors.orange),
           );
@@ -327,10 +382,12 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       try {
         final pos = await getCurrentPosition();
         final ctx = await fetchOverlayContext(pos.latitude, pos.longitude);
-        if (mounted) setState(() {
-          _cachedOverlayPosition = pos;
-          _cachedOverlayContext = ctx;
-        });
+        if (mounted) {
+          setState(() {
+            _cachedOverlayPosition = pos;
+            _cachedOverlayContext = ctx;
+          });
+        }
       } catch (_) {}
     }
     if (!mounted) return;
@@ -420,9 +477,11 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     if (!originOk || !destOk) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(isFm
-              ? 'loading_phase_origin_dest_rule_fm'.tr()
-              : 'loading_phase_origin_dest_rule_lh'.tr()),
+          content: Text(
+            isFm
+                ? 'loading_phase_origin_dest_rule_fm'.tr()
+                : 'loading_phase_origin_dest_rule_lh'.tr(),
+          ),
           backgroundColor: Colors.orange,
         ),
       );
@@ -434,7 +493,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
 
     // ดึงระยะทาง/เวลาเดินทางจาก hub_soc_distances ตามต้นทาง-ปลายทางที่เลือก
     HubSocDistanceResult? hubSocResult;
-    if (originName.isNotEmpty && destName.isNotEmpty && originHub != null && destHub != null) {
+    if (originName.isNotEmpty && destName.isNotEmpty) {
       hubSocResult = await fetchHubSocDistance(
         originSourceId: originHub.sourceId,
         destinationSourceId: destHub.sourceId,
@@ -452,7 +511,9 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       if (sealStr.isNotEmpty) {
         try {
           final seal = intl.DateFormat('dd-MM-yyyy HH:mm:ss').parse(sealStr);
-          final sta = seal.add(Duration(minutes: hubSocResult.durationMinutes.round()));
+          final sta = seal.add(
+            Duration(minutes: hubSocResult.durationMinutes.round()),
+          );
           staDisplay = intl.DateFormat('dd-MM-yyyy HH:mm:ss').format(sta);
         } catch (_) {}
       }
@@ -497,10 +558,12 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
   Future<void> _validateDuplicateOnBlur() async {
     final tripId = _tripIdController.text.trim();
     if (tripId.isEmpty) {
-      if (mounted) setState(() {
-        _tripIdDuplicateError = null;
-        _sealCodeDuplicateError = null;
-      });
+      if (mounted) {
+        setState(() {
+          _tripIdDuplicateError = null;
+          _sealCodeDuplicateError = null;
+        });
+      }
       return;
     }
     final sealCode = _sealCodeController.text.trim();
@@ -567,7 +630,9 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     _parcelCountController.clear();
     _totalWeightController.clear();
     final now = DateTime.now();
-    _sealTimeController.text = intl.DateFormat('dd-MM-yyyy HH:mm:ss').format(now);
+    _sealTimeController.text = intl.DateFormat(
+      'dd-MM-yyyy HH:mm:ss',
+    ).format(now);
     setState(() {
       _jobType = jobTypeFirstMile;
       _runsheetPhoto = null;
@@ -641,7 +706,10 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         if (h.sourceNameEn == destName) destHub = h;
       }
       HubSocDistanceResult? hubSocResult;
-      if (originName.isNotEmpty && destName.isNotEmpty && originHub != null && destHub != null) {
+      if (originName.isNotEmpty &&
+          destName.isNotEmpty &&
+          originHub != null &&
+          destHub != null) {
         hubSocResult = await fetchHubSocDistance(
           originSourceId: originHub.sourceId,
           destinationSourceId: destHub.sourceId,
@@ -650,10 +718,14 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         );
       }
 
+      final activeTaskId = await DraftStorageService.instance
+          .loadActiveCheckInTaskId();
+
       await submitLoadingPhaseRecord(
         tripId: tripId,
         jobType: _jobType ?? jobTypeFirstMile,
         driverId: FirebaseAuth.instance.currentUser?.uid,
+        taskId: activeTaskId,
         sealCode: _sealCodeController.text.trim().isEmpty
             ? null
             : _sealCodeController.text.trim(),
@@ -691,7 +763,11 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         destination: destination.isEmpty ? null : destination,
         sealCode: sealCode.isEmpty ? null : sealCode,
         jobType: jobType,
+        taskId: activeTaskId,
       );
+
+      // Clear the task ID from local storage since it is now safely recorded in the remote trip record
+      await DraftStorageService.instance.clearActiveCheckInTaskId();
 
       final scope = MainLayoutScope.of(context);
       if (scope != null) {
@@ -779,342 +855,371 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
               child: AbsorbPointer(
                 absorbing: _saving,
                 child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'loading_phase_form_subtitle'.tr(),
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
-              ),
-              const SizedBox(height: 20),
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'loading_phase_form_subtitle'.tr(),
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                      const SizedBox(height: 20),
 
-              // ========== STEP 1: ประเภทงาน ==========
-              _sectionTitle('loading_phase_job_type'.tr()),
-              const SizedBox(height: 8),
-              SegmentedButton<String>(
-                segments: [
-                  ButtonSegment(
-                    value: jobTypeFirstMile,
-                    label: Text('loading_phase_first_mile'.tr()),
-                    icon: const Icon(Icons.local_shipping, size: 20),
-                  ),
-                  ButtonSegment(
-                    value: jobTypeLineHaul,
-                    label: Text('loading_phase_line_haul'.tr()),
-                    icon: const Icon(Icons.directions_transit, size: 20),
-                  ),
-                ],
-                selected: {_jobType ?? jobTypeFirstMile},
-                onSelectionChanged: (Set<String> selected) {
-                  final newType = selected.first;
-                  setState(() {
-                    _jobType = newType;
-                    // ล้างต้นทาง/ปลายทางเมื่อสลับประเภทงาน เพื่อให้เลือกตามกฎ FM/LH ใหม่
-                    _originController.clear();
-                    _destinationController.clear();
-                  });
-                },
-              ),
-              const SizedBox(height: 24),
+                      // ========== STEP 1: ประเภทงาน ==========
+                      _sectionTitle('loading_phase_job_type'.tr()),
+                      const SizedBox(height: 8),
+                      SegmentedButton<String>(
+                        segments: [
+                          ButtonSegment(
+                            value: jobTypeFirstMile,
+                            label: Text('loading_phase_first_mile'.tr()),
+                            icon: const Icon(Icons.local_shipping, size: 20),
+                          ),
+                          ButtonSegment(
+                            value: jobTypeLineHaul,
+                            label: Text('loading_phase_line_haul'.tr()),
+                            icon: const Icon(
+                              Icons.directions_transit,
+                              size: 20,
+                            ),
+                          ),
+                        ],
+                        selected: {_jobType ?? jobTypeFirstMile},
+                        onSelectionChanged: (Set<String> selected) {
+                          final newType = selected.first;
+                          setState(() {
+                            _jobType = newType;
+                            // ล้างต้นทาง/ปลายทางเมื่อสลับประเภทงาน เพื่อให้เลือกตามกฎ FM/LH ใหม่
+                            _originController.clear();
+                            _destinationController.clear();
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 24),
 
-              // ========== STEP 2: อัปโหลดรันชีท ==========
-              KeyedSubtree(
-                key: _runsheetSectionKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _sectionTitle('loading_phase_photo_runsheet'.tr()),
-                    Text(
-                      'loading_phase_photo_runsheet_desc'.tr(),
-                      style: Theme.of(
-                        context,
-                      ).textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
-                    ),
-                    const SizedBox(height: 8),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
+                      // ========== STEP 2: อัปโหลดรันชีท ==========
+                      KeyedSubtree(
+                        key: _runsheetSectionKey,
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            if (_runsheetPhoto != null) ...[
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: Image.memory(
-                                  _runsheetPhoto!,
-                                  height: 150,
-                                  width: double.infinity,
-                                  fit: BoxFit.cover,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                            ],
-                            if (_ocrLoading)
-                              const Padding(
-                                padding: EdgeInsets.symmetric(vertical: 12),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
+                            _sectionTitle('loading_phase_photo_runsheet'.tr()),
+                            Text(
+                              'loading_phase_photo_runsheet_desc'.tr(),
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(color: Colors.grey[600]),
+                            ),
+                            const SizedBox(height: 8),
+                            Card(
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
                                   children: [
-                                    SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                    if (_runsheetPhoto != null) ...[
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: Image.memory(
+                                          _runsheetPhoto!,
+                                          height: 150,
+                                          width: double.infinity,
+                                          fit: BoxFit.cover,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                    ],
+                                    if (_ocrLoading)
+                                      const Padding(
+                                        padding: EdgeInsets.symmetric(
+                                          vertical: 12,
+                                        ),
+                                        child: Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          children: [
+                                            SizedBox(
+                                              width: 20,
+                                              height: 20,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                              ),
+                                            ),
+                                            SizedBox(width: 12),
+                                            Text('กำลังอ่านเอกสาร...'),
+                                          ],
+                                        ),
+                                      ),
+                                    OutlinedButton.icon(
+                                      onPressed: _ocrLoading
+                                          ? null
+                                          : _pickRunsheetAndOcr,
+                                      icon: const Icon(
+                                        Icons.photo_library,
+                                        size: 20,
+                                      ),
+                                      label: Text(
+                                        _runsheetPhoto != null
+                                            ? 'loading_phase_change_runsheet'
+                                                  .tr()
+                                            : 'loading_phase_upload_from_gallery'
+                                                  .tr(),
+                                      ),
                                     ),
-                                    SizedBox(width: 12),
-                                    Text('กำลังอ่านเอกสาร...'),
                                   ],
                                 ),
                               ),
-                            OutlinedButton.icon(
-                              onPressed: _ocrLoading ? null : _pickRunsheetAndOcr,
-                              icon: const Icon(Icons.photo_library, size: 20),
-                              label: Text(
-                                _runsheetPhoto != null
-                                    ? 'loading_phase_change_runsheet'.tr()
-                                    : 'loading_phase_upload_from_gallery'.tr(),
-                              ),
                             ),
                           ],
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
+                      const SizedBox(height: 24),
 
-              // ========== STEP 3-4: ข้อมูล ==========
-              _sectionTitle('loading_phase_trip_details'.tr()),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _tripIdController,
-                readOnly: true,
-                decoration: InputDecoration(
-                  labelText: 'loading_phase_trip_id'.tr(),
-                  hintText: 'LTQ...',
-                  border: const OutlineInputBorder(),
-                  errorText: _tripIdDuplicateError,
-                  suffixIcon: IconButton(
-                    icon: const Icon(Icons.qr_code_scanner),
-                    tooltip: 'loading_phase_scan_qr'.tr(),
-                    onPressed: () => _scanAndSet(_tripIdController),
-                  ),
-                ),
-                onTap: _validateDuplicateOnBlur,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _sealCodeController,
-                readOnly: true,
-                decoration: InputDecoration(
-                  labelText: 'loading_phase_seal_code'.tr(),
-                  hintText: 'SPX...',
-                  border: const OutlineInputBorder(),
-                  errorText: _sealCodeDuplicateError,
-                  suffixIcon: IconButton(
-                    icon: const Icon(Icons.qr_code_scanner),
-                    tooltip: 'loading_phase_scan_qr'.tr(),
-                    onPressed: () => _scanAndSet(_sealCodeController),
-                  ),
-                ),
-                onTap: _validateDuplicateOnBlur,
-              ),
-              const SizedBox(height: 12),
+                      // ========== STEP 3-4: ข้อมูล ==========
+                      _sectionTitle('loading_phase_trip_details'.tr()),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: _tripIdController,
+                        readOnly: true,
+                        decoration: InputDecoration(
+                          labelText: 'loading_phase_trip_id'.tr(),
+                          hintText: 'LTQ...',
+                          border: const OutlineInputBorder(),
+                          errorText: _tripIdDuplicateError,
+                          suffixIcon: IconButton(
+                            icon: const Icon(Icons.qr_code_scanner),
+                            tooltip: 'loading_phase_scan_qr'.tr(),
+                            onPressed: () => _scanAndSet(_tripIdController),
+                          ),
+                        ),
+                        onTap: _validateDuplicateOnBlur,
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _sealCodeController,
+                        readOnly: true,
+                        decoration: InputDecoration(
+                          labelText: 'loading_phase_seal_code'.tr(),
+                          hintText: 'SPX...',
+                          border: const OutlineInputBorder(),
+                          errorText: _sealCodeDuplicateError,
+                          suffixIcon: IconButton(
+                            icon: const Icon(Icons.qr_code_scanner),
+                            tooltip: 'loading_phase_scan_qr'.tr(),
+                            onPressed: () => _scanAndSet(_sealCodeController),
+                          ),
+                        ),
+                        onTap: _validateDuplicateOnBlur,
+                      ),
+                      const SizedBox(height: 12),
 
-              // Origin / Destination — FM: ต้นทาง=HUB ปลายทาง=SOC | LH: ต้นทาง=SOC ปลายทาง=HUB
-              _SearchableHubPicker(
-                label: 'loading_phase_origin'.tr(),
-                hintText: _jobType == jobTypeFirstMile
-                    ? 'loading_phase_origin_hint_fm'.tr()
-                    : 'loading_phase_origin_hint_lh'.tr(),
-                value: _originController.text,
-                hubs: _originOptions,
-                onSelected: (hub) {
-                  setState(() => _originController.text = hub.sourceNameEn);
-                },
-              ),
-              const SizedBox(height: 12),
-              _SearchableHubPicker(
-                label: 'loading_phase_destination'.tr(),
-                hintText: _jobType == jobTypeFirstMile
-                    ? 'loading_phase_destination_hint_fm'.tr()
-                    : 'loading_phase_destination_hint_lh'.tr(),
-                value: _destinationController.text,
-                hubs: _destinationOptions,
-                onSelected: (hub) {
-                  setState(() => _destinationController.text = hub.sourceNameEn);
-                },
-              ),
-              const SizedBox(height: 12),
+                      // Origin / Destination — FM: ต้นทาง=HUB ปลายทาง=SOC | LH: ต้นทาง=SOC ปลายทาง=HUB
+                      SearchableHubPicker(
+                        label: 'loading_phase_origin'.tr(),
+                        hintText: _jobType == jobTypeFirstMile
+                            ? 'loading_phase_origin_hint_fm'.tr()
+                            : 'loading_phase_origin_hint_lh'.tr(),
+                        value: _originController.text,
+                        hubs: _originOptions,
+                        onSelected: (hub) {
+                          setState(
+                            () => _originController.text = hub.sourceNameEn,
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      SearchableHubPicker(
+                        label: 'loading_phase_destination'.tr(),
+                        hintText: _jobType == jobTypeFirstMile
+                            ? 'loading_phase_destination_hint_fm'.tr()
+                            : 'loading_phase_destination_hint_lh'.tr(),
+                        value: _destinationController.text,
+                        hubs: _destinationOptions,
+                        onSelected: (hub) {
+                          setState(
+                            () =>
+                                _destinationController.text = hub.sourceNameEn,
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 12),
 
-              // Parcel Count
-              TextFormField(
-                controller: _parcelCountController,
-                decoration: InputDecoration(
-                  labelText: 'loading_phase_parcel_count'.tr(),
-                  hintText: 'e.g. 547',
-                  border: const OutlineInputBorder(),
-                  prefixIcon: const Icon(Icons.inventory_2),
-                ),
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-              ),
-              const SizedBox(height: 12),
+                      // Parcel Count
+                      TextFormField(
+                        controller: _parcelCountController,
+                        decoration: InputDecoration(
+                          labelText: 'loading_phase_parcel_count'.tr(),
+                          hintText: 'e.g. 547',
+                          border: const OutlineInputBorder(),
+                          prefixIcon: const Icon(Icons.inventory_2),
+                        ),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
 
-              // Total Weight
-              TextFormField(
-                controller: _totalWeightController,
-                decoration: InputDecoration(
-                  labelText: 'loading_phase_total_weight'.tr(),
-                  hintText: 'e.g. 608.985 kg',
-                  border: const OutlineInputBorder(),
-                  prefixIcon: const Icon(Icons.scale),
-                ),
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-              ),
-              const SizedBox(height: 12),
+                      // Total Weight
+                      TextFormField(
+                        controller: _totalWeightController,
+                        decoration: InputDecoration(
+                          labelText: 'loading_phase_total_weight'.tr(),
+                          hintText: 'e.g. 608.985 kg',
+                          border: const OutlineInputBorder(),
+                          prefixIcon: const Icon(Icons.scale),
+                        ),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
 
-              // Seal Time (default = now, date + time picker)
-              TextFormField(
-                controller: _sealTimeController,
-                decoration: InputDecoration(
-                  labelText: 'loading_phase_seal_time'.tr(),
-                  hintText: 'dd-MM-yyyy HH:mm:ss',
-                  border: const OutlineInputBorder(),
-                  prefixIcon: const Icon(Icons.lock_clock),
-                ),
-                onTap: () => _pickDateTime(_sealTimeController),
-                readOnly: true,
-              ),
-              const SizedBox(height: 16),
+                      // Seal Time (default = now, date + time picker)
+                      TextFormField(
+                        controller: _sealTimeController,
+                        decoration: InputDecoration(
+                          labelText: 'loading_phase_seal_time'.tr(),
+                          hintText: 'dd-MM-yyyy HH:mm:ss',
+                          border: const OutlineInputBorder(),
+                          prefixIcon: const Icon(Icons.lock_clock),
+                        ),
+                        onTap: () => _pickDateTime(_sealTimeController),
+                        readOnly: true,
+                      ),
+                      const SizedBox(height: 16),
 
-              // Coordination (auto-fill, read-only)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: _locationLoading
-                      ? const Center(child: CircularProgressIndicator())
-                      : Row(
-                          children: [
-                            const Icon(
-                              Icons.location_on,
-                              color: Colors.red,
-                              size: 20,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                _lat != null
-                                    ? '${_lat!.toStringAsFixed(6)}, ${_lng!.toStringAsFixed(6)}'
-                                    : '-',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w500,
+                      // Coordination (auto-fill, read-only)
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: _locationLoading
+                              ? const Center(child: CircularProgressIndicator())
+                              : Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.location_on,
+                                      color: Colors.red,
+                                      size: 20,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        _lat != null
+                                            ? '${_lat!.toStringAsFixed(6)}, ${_lng!.toStringAsFixed(6)}'
+                                            : '-',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.refresh, size: 20),
+                                      onPressed: () {
+                                        setState(() => _locationLoading = true);
+                                        _loadLocation();
+                                      },
+                                    ),
+                                  ],
                                 ),
-                              ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.refresh, size: 20),
-                              onPressed: () {
-                                setState(() => _locationLoading = true);
-                                _loadLocation();
-                              },
-                            ),
-                          ],
                         ),
-                ),
-              ),
-              const SizedBox(height: 24),
+                      ),
+                      const SizedBox(height: 24),
 
-              // ========== STEP 5: ถ่ายรูป 3 ขั้นตอน ==========
-              _sectionTitle('loading_phase_photos_step_title'.tr()),
-              Text(
-                'loading_phase_photos_step_subtitle'.tr(),
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
-              ),
-              const SizedBox(height: 12),
-              ..._cameraPhotoStepKeys.map((stepKey) {
-                final photo = _stepPhotos[stepKey];
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  child: Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Text(
-                            _stepTitleKey(stepKey).tr(),
-                            style: const TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _stepDescKey(stepKey).tr(),
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(color: Colors.grey[600]),
-                          ),
-                          const SizedBox(height: 8),
-                          if (photo != null) ...[
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: Image.memory(
-                                photo,
-                                height: 120,
-                                width: double.infinity,
-                                fit: BoxFit.cover,
+                      // ========== STEP 5: ถ่ายรูป 3 ขั้นตอน ==========
+                      _sectionTitle('loading_phase_photos_step_title'.tr()),
+                      Text(
+                        'loading_phase_photos_step_subtitle'.tr(),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      ..._cameraPhotoStepKeys.map((stepKey) {
+                        final photo = _stepPhotos[stepKey];
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Text(
+                                    _stepTitleKey(stepKey).tr(),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    _stepDescKey(stepKey).tr(),
+                                    style: Theme.of(context).textTheme.bodySmall
+                                        ?.copyWith(color: Colors.grey[600]),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  if (photo != null) ...[
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Image.memory(
+                                        photo,
+                                        height: 120,
+                                        width: double.infinity,
+                                        fit: BoxFit.cover,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                  ],
+                                  OutlinedButton.icon(
+                                    onPressed: () => _takeStepPhoto(stepKey),
+                                    icon: const Icon(
+                                      Icons.camera_alt,
+                                      size: 20,
+                                    ),
+                                    label: Text(
+                                      'loading_phase_take_photo'.tr(),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                            const SizedBox(height: 8),
-                          ],
-                          OutlinedButton.icon(
-                            onPressed: () => _takeStepPhoto(stepKey),
-                            icon: const Icon(Icons.camera_alt, size: 20),
-                            label: Text('loading_phase_take_photo'.tr()),
                           ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              }),
-              const SizedBox(height: 24),
+                        );
+                      }),
+                      const SizedBox(height: 24),
 
-              // ========== STEP 6: Preview & Submit ==========
-              FilledButton.icon(
-                onPressed: (_saving || _hasDuplicateError) ? null : _showPreviewAndSubmit,
-                icon: _saving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.preview),
-                label: Text(
-                  _saving
-                      ? 'loading_phase_saving'.tr()
-                      : 'loading_phase_preview_and_save'.tr(),
-                ),
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
+                      // ========== STEP 6: Preview & Submit ==========
+                      FilledButton.icon(
+                        onPressed: (_saving || _hasDuplicateError)
+                            ? null
+                            : _showPreviewAndSubmit,
+                        icon: _saving
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.preview),
+                        label: Text(
+                          _saving
+                              ? 'loading_phase_saving'.tr()
+                              : 'loading_phase_preview_and_save'.tr(),
+                        ),
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ],
-          ),
-        ),
-        ),
-      ),
-        ),
-          if (_saving)
-            Positioned.fill(
-              child: ModalBarrier(color: Colors.black38),
             ),
+          ),
+          if (_saving)
+            Positioned.fill(child: ModalBarrier(color: Colors.black38)),
           if (_saving)
             Center(
               child: Card(
@@ -1175,179 +1280,6 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
   }
 }
 
-// ===== Searchable Hub Picker (ใช้แทน DropdownMenu เพราะ enableSearch ไม่ทำงานบน mobile) =====
-
-class _SearchableHubPicker extends StatelessWidget {
-  final String label;
-  final String hintText;
-  final String value;
-  final List<HubDoc> hubs;
-  final ValueChanged<HubDoc> onSelected;
-
-  const _SearchableHubPicker({
-    required this.label,
-    required this.hintText,
-    required this.value,
-    required this.hubs,
-    required this.onSelected,
-  });
-
-  static bool _matchHub(HubDoc hub, String query) {
-    if (query.isEmpty) return true;
-    final q = query.trim().toLowerCase();
-    return hub.sourceNameEn.toLowerCase().contains(q) ||
-        hub.sourceId.toLowerCase().contains(q);
-  }
-
-  Future<void> _openPicker(BuildContext context) async {
-    final selected = await showModalBottomSheet<HubDoc>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => _SearchableHubSheet(
-        hubs: hubs,
-        initialValue: value,
-        onSelected: (hub) => Navigator.of(ctx).pop(hub),
-      ),
-    );
-    if (selected != null) onSelected(selected);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: () => _openPicker(context),
-      borderRadius: BorderRadius.circular(4),
-      child: InputDecorator(
-        decoration: InputDecoration(
-          labelText: label,
-          hintText: hintText,
-          border: const OutlineInputBorder(),
-          suffixIcon: const Icon(Icons.arrow_drop_down),
-        ),
-        child: Text(
-          value.isEmpty ? '' : value,
-          style: TextStyle(
-            color: value.isEmpty
-                ? Theme.of(context).hintColor
-                : Theme.of(context).textTheme.titleMedium?.color,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SearchableHubSheet extends StatefulWidget {
-  final List<HubDoc> hubs;
-  final String initialValue;
-  final ValueChanged<HubDoc> onSelected;
-
-  const _SearchableHubSheet({
-    required this.hubs,
-    required this.initialValue,
-    required this.onSelected,
-  });
-
-  @override
-  State<_SearchableHubSheet> createState() => _SearchableHubSheetState();
-}
-
-class _SearchableHubSheetState extends State<_SearchableHubSheet> {
-  final TextEditingController _searchController = TextEditingController();
-  final FocusNode _searchFocus = FocusNode();
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _searchFocus.requestFocus();
-    });
-  }
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    _searchFocus.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return DraggableScrollableSheet(
-      expand: false,
-      initialChildSize: 0.6,
-      maxChildSize: 0.9,
-      minChildSize: 0.4,
-      builder: (context, scrollController) {
-        return Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-              child: TextField(
-                controller: _searchController,
-                focusNode: _searchFocus,
-                decoration: InputDecoration(
-                  hintText: 'loading_phase_hub_search_hint'.tr(),
-                  prefixIcon: const Icon(Icons.search),
-                  border: const OutlineInputBorder(),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                ),
-                onChanged: (_) => setState(() {}),
-              ),
-            ),
-            Expanded(
-              child: ValueListenableBuilder<TextEditingValue>(
-                valueListenable: _searchController,
-                builder: (context, value, _) {
-                  final query = value.text;
-                  final filtered = widget.hubs
-                      .where((h) => _SearchableHubPicker._matchHub(h, query))
-                      .toList();
-                  if (filtered.isEmpty) {
-                    return Center(
-                      child: Text(
-                        query.isEmpty
-                            ? 'loading_phase_hub_no_list'.tr()
-                            : 'loading_phase_hub_no_match'.tr(args: [query]),
-                        style: TextStyle(color: Colors.grey[600]),
-                      ),
-                    );
-                  }
-                  return ListView.builder(
-                    controller: scrollController,
-                    itemCount: filtered.length,
-                    itemBuilder: (context, index) {
-                      final hub = filtered[index];
-                      final label =
-                          '${hub.sourceNameEn} (${hub.sourceId})';
-                      final isSelected =
-                          hub.sourceNameEn == widget.initialValue;
-                      return ListTile(
-                        title: Text(label),
-                        trailing: isSelected
-                            ? const Icon(Icons.check, color: Colors.green)
-                            : null,
-                        onTap: () => widget.onSelected(hub),
-                      );
-                    },
-                  );
-                },
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
 // ===== Preview Bottom Sheet =====
 
 class _PreviewSheet extends StatelessWidget {
@@ -1357,6 +1289,7 @@ class _PreviewSheet extends StatelessWidget {
   final String origin;
   final String destination;
   final String distance;
+
   /// STA = เวลาที่ใช้ในการเดินทาง (sealTime + durationMinutes จาก hub_soc_distances)
   final String staDisplay;
   final String parcelCount;
@@ -1439,7 +1372,10 @@ class _PreviewSheet extends StatelessWidget {
                       context,
                       runsheetPhoto,
                       height: 100,
-                      allImages: [runsheetPhoto, ...stepPhotos.entries.map((e) => e.value)],
+                      allImages: [
+                        runsheetPhoto,
+                        ...stepPhotos.entries.map((e) => e.value),
+                      ],
                       initialIndex: 0,
                     ),
                     const SizedBox(height: 12),
@@ -1450,31 +1386,38 @@ class _PreviewSheet extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Row(
-                      children: stepPhotos.entries.toList().asMap().entries.map((entry) {
-                        final i = entry.key;
-                        final e = entry.value;
-                        final allImages = [runsheetPhoto, ...stepPhotos.entries.map((x) => x.value)];
-                        return Expanded(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 2),
-                            child: GestureDetector(
-                              onTap: () => _showFullImage(
-                                context,
-                                allImages,
-                                initialIndex: 1 + i,
+                      children: stepPhotos.entries.toList().asMap().entries.map(
+                        (entry) {
+                          final i = entry.key;
+                          final e = entry.value;
+                          final allImages = [
+                            runsheetPhoto,
+                            ...stepPhotos.entries.map((x) => x.value),
+                          ];
+                          return Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 2,
                               ),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: Image.memory(
-                                  e.value,
-                                  height: 80,
-                                  fit: BoxFit.cover,
+                              child: GestureDetector(
+                                onTap: () => _showFullImage(
+                                  context,
+                                  allImages,
+                                  initialIndex: 1 + i,
+                                ),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Image.memory(
+                                    e.value,
+                                    height: 80,
+                                    fit: BoxFit.cover,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                        );
-                      }).toList(),
+                          );
+                        },
+                      ).toList(),
                     ),
                   ],
                 ),
@@ -1572,14 +1515,11 @@ class _PreviewSheet extends StatelessWidget {
     required int initialIndex,
   }) {
     return GestureDetector(
-      onTap: () => _showFullImage(context, allImages, initialIndex: initialIndex),
+      onTap: () =>
+          _showFullImage(context, allImages, initialIndex: initialIndex),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(8),
-        child: Image.memory(
-          imageBytes,
-          height: height,
-          fit: BoxFit.cover,
-        ),
+        child: Image.memory(imageBytes, height: height, fit: BoxFit.cover),
       ),
     );
   }
@@ -1615,7 +1555,8 @@ class _FullScreenPreviewDialog extends StatefulWidget {
   });
 
   @override
-  State<_FullScreenPreviewDialog> createState() => _FullScreenPreviewDialogState();
+  State<_FullScreenPreviewDialog> createState() =>
+      _FullScreenPreviewDialogState();
 }
 
 class _FullScreenPreviewDialogState extends State<_FullScreenPreviewDialog> {
@@ -1655,10 +1596,7 @@ class _FullScreenPreviewDialogState extends State<_FullScreenPreviewDialog> {
             controller: _pageController,
             itemCount: widget.images.length,
             itemBuilder: (context, index) => InteractiveViewer(
-              child: Image.memory(
-                widget.images[index],
-                fit: BoxFit.contain,
-              ),
+              child: Image.memory(widget.images[index], fit: BoxFit.contain),
             ),
           ),
           Positioned(
@@ -1676,17 +1614,17 @@ class _FullScreenPreviewDialogState extends State<_FullScreenPreviewDialog> {
               right: 0,
               child: Center(
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.black54,
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
                     '${_currentIndex + 1} / ${widget.images.length}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                    ),
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
                   ),
                 ),
               ),

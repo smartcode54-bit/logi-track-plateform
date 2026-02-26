@@ -30,9 +30,11 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# Ignore all env files
+# Ignore all env files (allow example templates)
 .env
 .env.*
+!.env.prod.example
+!.env.production.example
 
 # vercel
 .vercel

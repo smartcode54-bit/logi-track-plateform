@@ -35,10 +35,11 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { SOC_DESTINATIONS, SOC_KEYS, FirstMileTask, normalizeSocIdToKey } from "@/validate/firstMileTaskSchema";
-import { collection, getDocs, onSnapshot, query, orderBy, limit, doc, updateDoc } from "firebase/firestore";
+import { SOC_DESTINATIONS, SOC_KEYS, Task as FirstMileTask, normalizeSocIdToKey } from "@/validate/taskSchema";
+import { collection, getDocs, onSnapshot, query, orderBy, limit, doc, updateDoc, where } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "@/firebase/client";
+import { COLLECTIONS } from "@/lib/collections";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -97,7 +98,12 @@ export default function FirstMilePage() {
 
     // Listen to Tasks
     useEffect(() => {
-        const q = query(collection(db, "first_mile_tasks"), orderBy("createdAt", "desc"), limit(100));
+        const q = query(
+            collection(db, COLLECTIONS.TASKS),
+            where("taskType", "==", "FIRST_MILE"),
+            orderBy("createdAt", "desc"),
+            limit(100)
+        );
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const fetched: FirstMileTask[] = snapshot.docs.map(d => {
                 const data = d.data();
@@ -143,13 +149,13 @@ export default function FirstMilePage() {
     const handleCancelTask = async (task: FirstMileTask) => {
         if (!task.id) return;
         try {
-            await updateDoc(doc(db, "first_mile_tasks", task.id), {
+            await updateDoc(doc(db, COLLECTIONS.TASKS, task.id), {
                 status: "Cancelled",
                 updatedAt: new Date(),
             });
             try {
-                const notify = httpsCallable(functions, "notifyFirstMileTaskUpdate");
-                await notify({ taskId: task.id, newDriverId: task.driverId || undefined, status: "Cancelled" });
+                const notify = httpsCallable(functions, "notifyTaskUpdate");
+                await notify({ taskId: task.id, taskType: "FIRST_MILE", newDriverId: task.driverId || undefined, status: "Cancelled" });
             } catch (fcmErr) {
                 console.warn("FCM notify after cancel:", fcmErr);
             }
@@ -317,7 +323,7 @@ export default function FirstMilePage() {
                                             {task.truckType}
                                         </span>
                                     </TableCell>
-                                    <TableCell className="font-mono text-sm">{task.FirstMileTaskId}</TableCell>
+                                    <TableCell className="font-mono text-sm">{task.taskId}</TableCell>
                                     <TableCell className="font-mono">{task.licensePlate}</TableCell>
                                     <TableCell>{task.driverName}</TableCell>
                                     <TableCell className="text-sm text-muted-foreground">{task.driverPhone}</TableCell>
@@ -398,7 +404,7 @@ export default function FirstMilePage() {
             <Dialog open={!!detailTask} onOpenChange={(open) => !open && setDetailTask(null)}>
                 <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
-                        <DialogTitle>{t("firstMile.task.editTitle")} – {detailTask?.FirstMileTaskId ?? detailTask?.id}</DialogTitle>
+                        <DialogTitle>{t("firstMile.task.editTitle")} – {detailTask?.taskId ?? detailTask?.id}</DialogTitle>
                         <DialogDescription>{t("firstMile.subtitle")}</DialogDescription>
                     </DialogHeader>
                     {detailTask && (
@@ -415,7 +421,7 @@ export default function FirstMilePage() {
                                 <span className="text-muted-foreground">{t("firstMile.table.type")}</span>
                                 <span>{detailTask.truckType ?? "-"}</span>
                                 <span className="text-muted-foreground">{t("firstMile.table.shipmentId")}</span>
-                                <span className="font-mono text-xs">{detailTask.FirstMileTaskId ?? "-"}</span>
+                                <span className="font-mono text-xs">{detailTask.taskId ?? "-"}</span>
                                 <span className="text-muted-foreground">{t("firstMile.table.licensePlate")}</span>
                                 <span className="font-mono">{detailTask.licensePlate ?? "-"}</span>
                                 <span className="text-muted-foreground">{t("firstMile.table.driver")}</span>

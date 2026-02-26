@@ -28,7 +28,7 @@ import {
     type TripJobType,
 } from "@/validate/tripRecordSchema";
 import { Driver } from "@/validate/driverSchema";
-import { FirstMileTask } from "@/validate/firstMileTaskSchema";
+import { Task } from "@/validate/taskSchema";
 import { useLanguage } from "@/context/language";
 
 import { Button } from "@/components/ui/button";
@@ -94,6 +94,16 @@ const JOB_TYPE_LABEL: Record<string, string> = {
     line_haul: "Line Haul",
 };
 
+// ─── Task Status Label (for stats) ──────────────────────────
+const TASK_STATUS_LABEL: Record<string, string> = {
+    "Pending": "Pending",
+    "Assigned": "Assigned",
+    "Checked in": "Checked in",
+    "In-Transit": "In-Transit",
+    "Completed": "Completed",
+    "Cancelled": "Cancelled",
+};
+
 // ─── Component ──────────────────────────────────────────────
 
 export default function DriverMonitorPage() {
@@ -102,7 +112,7 @@ export default function DriverMonitorPage() {
     // Data
     const [trips, setTrips] = useState<TripRecord[]>([]);
     const [drivers, setDrivers] = useState<Record<string, Driver>>({});
-    const [firstMileTasks, setFirstMileTasks] = useState<FirstMileTask[]>([]);
+    const [tasks, setTasks] = useState<Task[]>([]);
     const [loading, setLoading] = useState(true);
 
     // Filters
@@ -183,7 +193,7 @@ export default function DriverMonitorPage() {
     // ─── Fetch first_mile_tasks for check-in stats ──────────
     useEffect(() => {
         const q = query(
-            collection(db, "first_mile_tasks"),
+            collection(db, COLLECTIONS.TASKS),
             orderBy("createdAt", "desc"),
             limit(200)
         );
@@ -191,8 +201,8 @@ export default function DriverMonitorPage() {
             const list = snap.docs.map((d) => ({
                 id: d.id,
                 ...d.data(),
-            })) as FirstMileTask[];
-            setFirstMileTasks(list);
+            })) as Task[];
+            setTasks(list);
         });
         return () => unsub();
     }, []);
@@ -204,16 +214,14 @@ export default function DriverMonitorPage() {
         const delivered = trips.filter((t) => t.status === "delivered").length;
         const loadingCount = trips.filter((t) => t.status === "loading").length;
 
-        // Check in: "Checked in" from first_mile_tasks
-        const assignedTasks = firstMileTasks.filter((t) =>
-            ["Assigned", "Checked in", "In-Transit", "Completed"].includes(t.status)
-        );
-        const checkedInTasks = firstMileTasks.filter((t) => t.status === "Checked in");
+        // Check in: "Checked in" from tasks (Admin monitors both types)
+        const activeTasks = tasks.filter((t) => ["Assigned", "Checked in", "In-Transit", "Completed"].includes(t.status));
+        const checkedInTasks = tasks.filter((t) => t.status === "Checked in");
         const checkInActual = checkedInTasks.length;
-        const checkInTotal = assignedTasks.length;
+        const checkInTotal = activeTasks.length;
 
         return { total, inTransit, delivered, loading: loadingCount, checkInActual, checkInTotal };
-    }, [trips, firstMileTasks]);
+    }, [trips, tasks]);
 
     // ─── Filtering ──────────────────────────────────────────
     const filteredTrips = useMemo(() => {
@@ -875,7 +883,7 @@ export default function DriverMonitorPage() {
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="shrink-0 inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
-                                    >
+                                >
                                     <ExternalLink className="h-3.5 w-3.5" />
                                     {t("driverMonitor.detail.openInNewTab")}
                                 </a>

@@ -9,6 +9,7 @@ Future<void> submitLoadingPhaseRecord({
   required String tripId,
   required String jobType,
   String? driverId,
+  String? taskId,
   String? sealCode,
   String? origin,
   String? destination,
@@ -47,17 +48,21 @@ Future<void> submitLoadingPhaseRecord({
   final std = now;
   // STA = เวลา Seal รถ + durationMinutes (จาก hub_soc_distances)
   DateTime? sta;
-  if (sealTime != null && sealTime.trim().isNotEmpty && durationMinutes != null) {
+  if (sealTime != null &&
+      sealTime.trim().isNotEmpty &&
+      durationMinutes != null) {
     try {
-      final seal = intl.DateFormat('dd-MM-yyyy HH:mm:ss').parse(sealTime.trim());
+      final seal = intl.DateFormat(
+        'dd-MM-yyyy HH:mm:ss',
+      ).parse(sealTime.trim());
       sta = seal.add(Duration(minutes: durationMinutes.round()));
     } catch (_) {}
   }
   // ระยะทาง: จาก hub_soc_distances ก่อน ไม่มีถึงใช้จาก form
   final distanceValue = distanceFromHubSocKm != null
       ? (distanceFromHubSocKm == distanceFromHubSocKm.roundToDouble()
-          ? '${distanceFromHubSocKm.round()}'
-          : distanceFromHubSocKm.toStringAsFixed(2))
+            ? '${distanceFromHubSocKm.round()}'
+            : distanceFromHubSocKm.toStringAsFixed(2))
       : distance;
   final record = TripRecord(
     id: tripId,
@@ -66,6 +71,7 @@ Future<void> submitLoadingPhaseRecord({
     photos: photos,
     ocrData: ocrData,
     spxTripId: tripId,
+    taskId: taskId,
     sealCode: sealCode,
     driverId: driverId,
     origin: origin,
@@ -90,13 +96,16 @@ Future<void> submitLoadingPhaseRecord({
       map[key] = Timestamp.fromDate(map[key] as DateTime);
     }
   }
+
   toTimestamp('createdAt');
   toTimestamp('updatedAt');
   toTimestamp('std');
   toTimestamp('sta');
   toTimestamp('ata');
   if (map['deliveredTimestamp'] is DateTime) {
-    map['deliveredTimestamp'] = Timestamp.fromDate(map['deliveredTimestamp'] as DateTime);
+    map['deliveredTimestamp'] = Timestamp.fromDate(
+      map['deliveredTimestamp'] as DateTime,
+    );
   }
   await FirebaseFirestore.instance
       .collection(tripRecordsCollection)

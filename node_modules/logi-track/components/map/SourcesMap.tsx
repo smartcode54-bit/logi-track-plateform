@@ -8,7 +8,7 @@ import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import { useLanguage } from "@/context/language";
 import { COLLECTIONS } from "@/lib/collections";
-import { normalizeSocIdToKey, SOC_KEYS, socIdMatchesKey } from "@/validate/firstMileTaskSchema";
+import { normalizeSocIdToKey, SOC_KEYS, socIdMatchesKey } from "@/validate/taskSchema";
 
 const defaultIcon = L.icon({
     iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",

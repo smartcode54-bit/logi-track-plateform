@@ -36,7 +36,9 @@ Future<Uint8List> stampOverlayAndCompressForEvidence(
   try {
     final pos = position ?? await getCurrentPosition();
     final timestamp = DateTime.now();
-    final ctx = overlayContext ?? await fetchOverlayContext(pos.latitude, pos.longitude);
+    final ctx =
+        overlayContext ??
+        await fetchOverlayContext(pos.latitude, pos.longitude);
     final stamped = await overlayGeocodingAndTimestamp(
       imageBytes: imageBytes,
       lat: pos.latitude,
@@ -57,14 +59,15 @@ Future<Position> getCurrentPosition() async {
   final permission = await Geolocator.checkPermission();
   if (permission == LocationPermission.denied) {
     final requested = await Geolocator.requestPermission();
-    if (requested == LocationPermission.denied || requested == LocationPermission.deniedForever) {
+    if (requested == LocationPermission.denied ||
+        requested == LocationPermission.deniedForever) {
       throw Exception('Location permission denied');
     }
   }
   return Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
 }
 
-/// Upload stamped image to Storage and update first_mile_tasks with check-in data.
+/// Upload stamped image to Storage and update tasks with check-in data.
 /// รูป Check-in ใส่ stamp overlay เต็ม (วันเวลา สถานที่ พิกัด เข็มทิศ) เพื่อหลักฐาน
 /// [imageBytes] — use XFile.readAsBytes() so it works on web and mobile.
 Future<void> submitCheckIn({
@@ -85,16 +88,13 @@ Future<void> submitCheckIn({
   final compressed = await compressImageForUpload(stamped);
   final ref = FirebaseStorage.instance
       .ref()
-      .child('first_mile_checkin')
+      .child('checkin')
       .child(taskId)
       .child('${timestamp.millisecondsSinceEpoch}.jpg');
-  await ref.putData(
-    compressed,
-    SettableMetadata(contentType: 'image/jpeg'),
-  );
+  await ref.putData(compressed, SettableMetadata(contentType: 'image/jpeg'));
   final photoUrl = await ref.getDownloadURL();
 
-  await FirebaseFirestore.instance.collection('first_mile_tasks').doc(taskId).update({
+  await FirebaseFirestore.instance.collection('tasks').doc(taskId).update({
     'status': 'Checked in',
     'checkInAt': Timestamp.fromDate(timestamp),
     'checkInPhotoUrl': photoUrl,

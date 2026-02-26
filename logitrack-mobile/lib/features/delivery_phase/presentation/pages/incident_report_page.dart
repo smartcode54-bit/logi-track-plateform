@@ -4,7 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import '../../../home/data/repositories/first_mile_checkin_repository.dart';
+import '../../../home/data/repositories/checkin_repository.dart';
 import '../../../home/data/services/image_compression_service.dart';
 import '../../../home/presentation/pages/main_layout_scope.dart';
 import '../../data/repositories/incident_report_repository.dart';
@@ -20,7 +20,8 @@ class IncidentReportPage extends StatefulWidget {
 }
 
 class _IncidentReportPageState extends State<IncidentReportPage> {
-  final Map<String, Uint8List> _photos = {}; // 'map', 'situation1', 'situation2'
+  final Map<String, Uint8List> _photos =
+      {}; // 'map', 'situation1', 'situation2'
   static const List<String> _photoKeys = ['map', 'situation1', 'situation2'];
   String? _selectedDelayCause;
   bool _saving = false;
@@ -29,8 +30,12 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
   bool _locationLoading = true;
 
   /// รูปรายงานปัญหา: อย่างน้อย 1 รูป
-  bool get _hasAtLeastOnePhoto =>
-      _photoKeys.any((key) => _photos.containsKey(key) && _photos[key] != null && _photos[key]!.isNotEmpty);
+  bool get _hasAtLeastOnePhoto => _photoKeys.any(
+    (key) =>
+        _photos.containsKey(key) &&
+        _photos[key] != null &&
+        _photos[key]!.isNotEmpty,
+  );
 
   @override
   void initState() {
@@ -142,14 +147,21 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
         tripId: widget.savedTripSummary?.tripId,
         delayCause: _selectedDelayCause,
         mapImage: _photos['map']?.isNotEmpty == true ? _photos['map']! : null,
-        situation1Image: _photos['situation1']?.isNotEmpty == true ? _photos['situation1']! : null,
-        situation2Image: _photos['situation2']?.isNotEmpty == true ? _photos['situation2']! : null,
+        situation1Image: _photos['situation1']?.isNotEmpty == true
+            ? _photos['situation1']!
+            : null,
+        situation2Image: _photos['situation2']?.isNotEmpty == true
+            ? _photos['situation2']!
+            : null,
         lat: _lat,
         lng: _lng,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('incident_saved'.tr()), backgroundColor: Colors.green),
+        SnackBar(
+          content: Text('incident_saved'.tr()),
+          backgroundColor: Colors.green,
+        ),
       );
       Navigator.of(context).pop(true);
     } catch (e) {
@@ -192,92 +204,93 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'incident_report_subtitle'.tr(),
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: isDarkMode ? Colors.white70 : Colors.black87,
-                  ),
-            ),
-            const SizedBox(height: 16),
-            if (widget.savedTripSummary != null)
-              Card(
-                color: darkNavy.withOpacity(0.8),
-                child: Padding(
-                  padding: const EdgeInsets.all(12.0),
-                  child: Text(
-                    'Trip ID: ${widget.savedTripSummary!.tripId}',
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontWeight: FontWeight.w600,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'incident_report_subtitle'.tr(),
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: isDarkMode ? Colors.white70 : Colors.black87,
+                      ),
                     ),
-                  ),
+                    const SizedBox(height: 16),
+                    if (widget.savedTripSummary != null)
+                      Card(
+                        color: darkNavy.withOpacity(0.8),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12.0),
+                          child: Text(
+                            'Trip ID: ${widget.savedTripSummary!.tripId}',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'incident_delay_cause_label'.tr(),
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: isDarkMode ? Colors.white70 : Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    _buildDelayCauseComboBox(context, isDarkMode),
+                    const SizedBox(height: 24),
+                    _buildPhotoSlot(
+                      key: 'map',
+                      titleKey: 'incident_photo_map',
+                      descKey: 'incident_photo_map_desc',
+                      isDarkMode: isDarkMode,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildPhotoSlot(
+                      key: 'situation1',
+                      titleKey: 'incident_photo_situation1',
+                      descKey: 'incident_photo_situation1_desc',
+                      isDarkMode: isDarkMode,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildPhotoSlot(
+                      key: 'situation2',
+                      titleKey: 'incident_photo_situation2',
+                      descKey: 'incident_photo_situation2_desc',
+                      isDarkMode: isDarkMode,
+                    ),
+                    if (_locationLoading)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 16),
+                        child: Center(child: CircularProgressIndicator()),
+                      ),
+                    const SizedBox(height: 24),
+                    FilledButton.icon(
+                      onPressed:
+                          _saving ||
+                              !_hasAtLeastOnePhoto ||
+                              _selectedDelayCause == null
+                          ? null
+                          : _submit,
+                      icon: _saving
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.send),
+                      label: Text('incident_submit'.tr()),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.orange,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            const SizedBox(height: 16),
-            Text(
-              'incident_delay_cause_label'.tr(),
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: isDarkMode ? Colors.white70 : Colors.black87,
-                  ),
-            ),
-            const SizedBox(height: 8),
-            _buildDelayCauseComboBox(context, isDarkMode),
-            const SizedBox(height: 24),
-            _buildPhotoSlot(
-              key: 'map',
-              titleKey: 'incident_photo_map',
-              descKey: 'incident_photo_map_desc',
-              isDarkMode: isDarkMode,
-            ),
-            const SizedBox(height: 16),
-            _buildPhotoSlot(
-              key: 'situation1',
-              titleKey: 'incident_photo_situation1',
-              descKey: 'incident_photo_situation1_desc',
-              isDarkMode: isDarkMode,
-            ),
-            const SizedBox(height: 16),
-            _buildPhotoSlot(
-              key: 'situation2',
-              titleKey: 'incident_photo_situation2',
-              descKey: 'incident_photo_situation2_desc',
-              isDarkMode: isDarkMode,
-            ),
-            if (_locationLoading)
-              const Padding(
-                padding: EdgeInsets.only(top: 16),
-                child: Center(child: CircularProgressIndicator()),
-              ),
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: _saving || !_hasAtLeastOnePhoto || _selectedDelayCause == null
-                  ? null
-                  : _submit,
-              icon: _saving
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.send),
-              label: Text('incident_submit'.tr()),
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.orange,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-              ),
-            ),
-          ],
-        ),
-      ),
             ),
             if (_saving)
-              Positioned.fill(
-                child: ModalBarrier(color: Colors.black38),
-              ),
+              Positioned.fill(child: ModalBarrier(color: Colors.black38)),
             if (_saving)
               Center(
                 child: Card(
@@ -292,7 +305,10 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         ),
                         const SizedBox(height: 16),
-                        Text('loading_phase_saving'.tr(), style: const TextStyle(fontSize: 14)),
+                        Text(
+                          'loading_phase_saving'.tr(),
+                          style: const TextStyle(fontSize: 14),
+                        ),
                       ],
                     ),
                   ),
@@ -318,7 +334,8 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
               hintText: 'incident_delay_cause_hint'.tr(),
               border: const OutlineInputBorder(),
               suffixIcon: const Icon(Icons.arrow_drop_down),
-              errorText: _selectedDelayCause == null || _selectedDelayCause!.isEmpty
+              errorText:
+                  _selectedDelayCause == null || _selectedDelayCause!.isEmpty
                   ? null
                   : null,
             ),
@@ -388,49 +405,53 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
                 InkWell(
                   onTap: () => _showPhotoSourceSheet(key),
                   borderRadius: BorderRadius.circular(12),
-              child: Container(
-                height: 140,
-                decoration: BoxDecoration(
-                  color: isDarkMode ? Colors.grey[800] : Colors.grey[200],
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: hasPhoto ? Colors.green : Colors.grey,
-                    width: hasPhoto ? 2 : 1,
+                  child: Container(
+                    height: 140,
+                    decoration: BoxDecoration(
+                      color: isDarkMode ? Colors.grey[800] : Colors.grey[200],
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: hasPhoto ? Colors.green : Colors.grey,
+                        width: hasPhoto ? 2 : 1,
+                      ),
+                    ),
+                    child: hasPhoto
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Image.memory(
+                              _photos[key]!,
+                              fit: BoxFit.cover,
+                              width: double.infinity,
+                            ),
+                          )
+                        : Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.add_photo_alternate,
+                                  size: 40,
+                                  color: isDarkMode
+                                      ? Colors.white38
+                                      : Colors.grey[600],
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'incident_attach_or_take_photo'.tr(),
+                                  style: TextStyle(
+                                    color: isDarkMode
+                                        ? Colors.white54
+                                        : Colors.grey[600],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                   ),
                 ),
-                child: hasPhoto
-                    ? ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Image.memory(
-                          _photos[key]!,
-                          fit: BoxFit.cover,
-                          width: double.infinity,
-                        ),
-                      )
-                    : Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.add_photo_alternate,
-                              size: 40,
-                              color: isDarkMode ? Colors.white38 : Colors.grey[600],
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'incident_attach_or_take_photo'.tr(),
-                              style: TextStyle(
-                                color: isDarkMode ? Colors.white54 : Colors.grey[600],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-              ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
         ),
       ),
     );
@@ -479,8 +500,8 @@ class _DelayCausePickerSheetState extends State<_DelayCausePickerSheet> {
         final filtered = query.isEmpty
             ? List<String>.from(incidentDelayCauseOptionKeys)
             : incidentDelayCauseOptionKeys
-                .where((key) => key.tr().toLowerCase().contains(query))
-                .toList();
+                  .where((key) => key.tr().toLowerCase().contains(query))
+                  .toList();
         return DraggableScrollableSheet(
           initialChildSize: 0.6,
           minChildSize: 0.3,
@@ -522,7 +543,10 @@ class _DelayCausePickerSheetState extends State<_DelayCausePickerSheet> {
                         title: Text(optionKey.tr()),
                         selected: isSelected,
                         leading: isSelected
-                            ? const Icon(Icons.check_circle, color: Colors.green)
+                            ? const Icon(
+                                Icons.check_circle,
+                                color: Colors.green,
+                              )
                             : null,
                         onTap: () => widget.onSelect(optionKey),
                       );

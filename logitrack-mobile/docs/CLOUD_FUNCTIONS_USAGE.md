@@ -42,7 +42,7 @@ print(result.data); // ข้อมูลที่ function return
 ### 3. เรียก Callable Function (ส่งพารามิเตอร์)
 
 ```dart
-final callable = functions.httpsCallable<Map<String, dynamic>>('notifyFirstMileTaskUpdate');
+final callable = functions.httpsCallable('notifyTaskUpdate');
 final result = await callable.call({
   'taskId': 'FM-20260222-SOCN-001',
   'newDriverId': 'driver_uid_xxx',

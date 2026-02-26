@@ -1,0 +1,36 @@
+﻿
+>    info - Statements in an if should be enclosed 
+in a block - lib\features\loading_phase\presentation\
+pages\loading_phase_page.dart:285:11 - 
+curly_braces_in_flow_control_structures
+>    info - Statements in an if should be enclosed 
+in a block - lib\features\loading_phase\presentation\
+pages\loading_phase_page.dart:288:11 - 
+curly_braces_in_flow_control_structures
+>    info - Statements in an if should be enclosed 
+in a block - lib\features\loading_phase\presentation\
+pages\loading_phase_page.dart:290:11 - 
+curly_braces_in_flow_control_structures
+>    info - Statements in an if should be enclosed 
+in a block - lib\features\loading_phase\presentation\
+pages\loading_phase_page.dart:292:11 - 
+curly_braces_in_flow_control_structures
+>    info - Statements in an if should be enclosed 
+in a block - lib\features\loading_phase\presentation\
+pages\loading_phase_page.dart:294:11 - 
+curly_braces_in_flow_control_structures
+>    info - Statements in an if should be enclosed 
+in a block - lib\features\loading_phase\presentation\
+pages\loading_phase_page.dart:357:11 - 
+curly_braces_in_flow_control_structures
+  warning - The operand can't be 'null', so the 
+condition is always 'true' - lib\features\loading_pha
+se\presentation\pages\loading_phase_page.dart:468:19 
+- unnecessary_null_comparison
+>    info - Statements in an if should be enclosed 
+in a block - lib\features\loading_phase\presentation\
+pages\loading_phase_page.dart:535:9 - 
+curly_braces_in_flow_control_structures
+  
+
+

@@ -6,8 +6,9 @@ import { Upload, X, FileSpreadsheet, Check, AlertCircle, Download } from "lucide
 import { format, parse } from "date-fns";
 import { collection, writeBatch, doc } from "firebase/firestore";
 import { db } from "@/firebase/client";
-import { SOC_KEYS, SOC_DESTINATIONS } from "@/validate/firstMileTaskSchema";
+import { SOC_KEYS, SOC_DESTINATIONS } from "@/validate/taskSchema";
 import { useLanguage } from "@/context/language";
+import { COLLECTIONS } from "@/lib/collections";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -122,7 +123,7 @@ export function FirstMileImportDialog({ onSuccess }: ImportDialogProps) {
                     destination: matchedSOC,
                     time,
                     truckType,
-                    FirstMileTaskId: shipmentId,
+                    taskId: shipmentId,
                     licensePlate,
                     driverName,
                     driverPhone,
@@ -172,18 +173,21 @@ export function FirstMileImportDialog({ onSuccess }: ImportDialogProps) {
                 chunk.forEach(row => {
                     if (!row.isValid) return; // Skip invalid
 
-                    const docRef = doc(collection(db, "first_mile_tasks"));
+                    const docRef = doc(collection(db, COLLECTIONS.TASKS));
+                    const dateStr = row.date ? format(row.date, "ddMMyyyy") : "";
                     batch.set(docRef, {
                         date: row.date,
+                        dateStr,
                         sourceHub: row.sourceHub,
                         destination: row.destination, // Need to ensure it matches Enum if likely
                         time: row.time || "",
                         truckType: row.truckType || "",
-                        FirstMileTaskId: row.FirstMileTaskId || "",
+                        taskId: row.taskId || "",
                         licensePlate: row.licensePlate || "",
                         driverName: row.driverName || "",
                         driverPhone: row.driverPhone || "",
                         status: "Pending",
+                        taskType: "FIRST_MILE",
                         createdAt: new Date(),
                     });
                 });
@@ -304,7 +308,7 @@ export function FirstMileImportDialog({ onSuccess }: ImportDialogProps) {
                                                     </TableCell>
                                                     <TableCell>{row.time}</TableCell>
                                                     <TableCell>{row.truckType}</TableCell>
-                                                    <TableCell className="text-xs">{row.FirstMileTaskId}</TableCell>
+                                                    <TableCell className="text-xs">{row.taskId}</TableCell>
                                                     <TableCell>{row.driverName}</TableCell>
                                                     <TableCell>
                                                         {row.isValid ? (

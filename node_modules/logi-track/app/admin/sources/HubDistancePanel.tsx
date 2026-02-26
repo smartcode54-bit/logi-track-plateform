@@ -5,7 +5,7 @@ import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import { useLanguage } from "@/context/language";
 import { COLLECTIONS } from "@/lib/collections";
-import { SOC_KEYS, socIdMatchesKey } from "@/validate/firstMileTaskSchema";
+import { SOC_KEYS, socIdMatchesKey } from "@/validate/taskSchema";
 import { Label } from "@/components/ui/label";
 
 export interface SourceRowLike {
@@ -60,8 +60,8 @@ export function HubDistancePanel({ selectedRow }: HubDistancePanelProps) {
                         const label = key;
                         const value = d
                             ? t("firstMile.sources.kmMin")
-                                  .replace("{{km}}", String(d.distanceKm.toFixed(2)))
-                                  .replace("{{min}}", String(d.durationMinutes.toFixed(1)))
+                                .replace("{{km}}", String(d.distanceKm.toFixed(2)))
+                                .replace("{{min}}", String(d.durationMinutes.toFixed(1)))
                             : t("firstMile.sources.noDistanceData");
                         return (
                             <div key={key} className="flex flex-col gap-1">

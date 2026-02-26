@@ -66,10 +66,7 @@ Future<List<TripRecord>> getTripHistoryByDriver(String driverId) async {
         .where('driverId', isEqualTo: driverId)
         .get();
     final list = snapshot.docs
-        .map((doc) => TripRecord.fromMap(
-              doc.data(),
-              id: doc.id,
-            ))
+        .map((doc) => TripRecord.fromMap(doc.data(), id: doc.id))
         .toList();
     list.sort((a, b) {
       final at = a.createdAt ?? DateTime(0);
@@ -131,6 +128,7 @@ Future<Map<String, dynamic>?> getPendingInTransitTrip(String? driverId) async {
       'destination': data['destination'] as String?,
       'sealCode': data['sealCode'] as String?,
       'jobType': data['jobType'] as String?,
+      'taskId': data['taskId'] as String?,
     };
   } catch (_) {
     return null;
@@ -147,10 +145,7 @@ Future<String> uploadTripPhoto({
   final ref = FirebaseStorage.instance.ref().child(
     tripRecordPhotoPath(tripId, photoType),
   );
-  await ref.putData(
-    compressed,
-    SettableMetadata(contentType: 'image/jpeg'),
-  );
+  await ref.putData(compressed, SettableMetadata(contentType: 'image/jpeg'));
   return ref.getDownloadURL();
 }
 

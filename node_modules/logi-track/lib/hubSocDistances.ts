@@ -12,7 +12,7 @@ import {
 } from "firebase/firestore";
 import type { Firestore } from "firebase/firestore";
 import { COLLECTIONS } from "@/lib/collections";
-import { SOC_KEYS } from "@/validate/firstMileTaskSchema";
+import { SOC_KEYS, normalizeSocIdToKey } from "@/validate/taskSchema";
 import { hubSocDistanceDocId } from "@/validate/hubSocDistanceSchema";
 import { socHubDistanceDocId } from "@/validate/socHubDistanceSchema";
 
@@ -34,15 +34,7 @@ function normalizeStationType(value: unknown): "HUB" | "SOC" {
     return "HUB";
 }
 
-/** แปลง source_id ของ SOC เป็น key มาตรฐาน SOCE/SOCN/SOCW (รองรับ "SOCE (Bueroi)" → SOCE) */
-function normalizeSocIdToKey(sourceId: string): string {
-    const u = (sourceId ?? "").trim().toUpperCase();
-    for (const key of SOC_KEYS) {
-        const k = key.toUpperCase();
-        if (u === k || u.startsWith(k + " ") || u.startsWith(k + "(")) return key;
-    }
-    return sourceId;
-}
+
 
 /** Read from Firestore: all HUBs and SOCs that have coordinates; SOC เฉพาะที่ตรงกับ SOCE/SOCN/SOCW */
 export async function getHubsAndSocs(

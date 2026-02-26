@@ -13,8 +13,8 @@ Future<void> initFcmAndSaveToken(String? driverId) async {
     badge: true,
     sound: true,
   );
-  if (permission != AuthorizationStatus.authorized &&
-      permission != AuthorizationStatus.provisional) {
+  if (permission.authorizationStatus != AuthorizationStatus.authorized &&
+      permission.authorizationStatus != AuthorizationStatus.provisional) {
     return;
   }
   final token = await messaging.getToken();
@@ -33,20 +33,17 @@ Future<void> saveFcmTokenToUser(String? uid) async {
     badge: true,
     sound: true,
   );
-  if (permission != AuthorizationStatus.authorized &&
-      permission != AuthorizationStatus.provisional) {
+  if (permission.authorizationStatus != AuthorizationStatus.authorized &&
+      permission.authorizationStatus != AuthorizationStatus.provisional) {
     return;
   }
   final token = await messaging.getToken();
   if (token == null) return;
   try {
-    await FirebaseFirestore.instance.collection('users').doc(uid).set(
-      {
-        'fcmTokens': {'app': token},
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    await FirebaseFirestore.instance.collection('users').doc(uid).set({
+      'fcmTokens': {'app': token},
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   } catch (e) {
     // ignore
   }

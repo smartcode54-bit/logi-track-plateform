@@ -33,11 +33,11 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.notifyFirstMileTaskUpdate = exports.updateDriverAccount = exports.createDriverAccount = exports.onUserDeleted = exports.onUserCreated = void 0;
+exports.getNextTaskId = exports.notifyTaskUpdate = exports.updateDriverAccount = exports.createDriverAccount = exports.onUserDeleted = exports.onUserCreated = void 0;
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
 // asia-southeast3 (Firestore region) does not support 1st Gen Cloud Functions.
-// FCM for first_mile_tasks is triggered by the web app via callable notifyFirstMileTaskUpdate.
+// FCM for tasks is triggered by the app via callable notifyTaskUpdate.
 /**
  * Trigger: Sync new Auth user to Firestore
  */
@@ -332,32 +332,62 @@ async function sendFcmToDriver(driverId, title, body, data) {
     });
 }
 /**
- * Callable: send FCM when a first_mile_task is created/updated (assign, cancel, reassign).
- * Called by the web app after Firestore write; avoids Firestore trigger region mismatch (DB in asia-southeast3, 1st Gen not supported there).
+ * Callable: send FCM when a task is created/updated (assign, cancel, reassign).
+ * Avoids Firestore trigger region mismatch (DB in asia-southeast3, 1st Gen not supported there).
  */
-exports.notifyFirstMileTaskUpdate = (0, https_1.onCall)({ region: "asia-southeast1" }, async (request) => {
+exports.notifyTaskUpdate = (0, https_1.onCall)({ region: "asia-southeast1" }, async (request) => {
     const data = request.data;
-    const { taskId, oldDriverId, newDriverId, status, sourceHub, destination, date, time } = data;
+    const { taskId, taskType, oldDriverId, newDriverId, status, sourceHub, destination, date, time } = data;
     if (!taskId) {
         throw new https_1.HttpsError("invalid-argument", "taskId is required");
     }
+    const typePrefix = taskType === "LINE_HAUL" ? "line_haul" : "first_mile";
+    const taskLabel = taskType === "LINE_HAUL" ? "Line Haul" : "First Mile";
     try {
         if (status === "Cancelled" && newDriverId) {
-            await sendFcmToDriver(newDriverId, "Task cancelled", "This first mile task has been cancelled.", { type: "first_mile_task_cancelled", taskId });
+            await sendFcmToDriver(newDriverId, "Task cancelled", `This ${taskLabel.toLowerCase()} task has been cancelled.`, { type: `${typePrefix}_task_cancelled`, taskId });
             return { ok: true };
         }
         if (oldDriverId && oldDriverId !== newDriverId) {
-            await sendFcmToDriver(oldDriverId, "Assignment cancelled", "You have been unassigned from this task.", { type: "first_mile_task_unassigned", taskId });
+            await sendFcmToDriver(oldDriverId, "Assignment cancelled", "You have been unassigned from this task.", { type: `${typePrefix}_task_unassigned`, taskId });
         }
         if (newDriverId && oldDriverId !== newDriverId) {
             const dateStr = date ?? "";
             const timeStr = time ?? "";
-            await sendFcmToDriver(newDriverId, "New task assigned", `${sourceHub ?? ""} → ${destination ?? ""}${dateStr ? ` (${dateStr} ${timeStr})` : ""}`.trim() || "You have a new first mile task.", { type: "first_mile_task_assigned", taskId });
+            await sendFcmToDriver(newDriverId, "New task assigned", `${sourceHub ?? ""} → ${destination ?? ""}${dateStr ? ` (${dateStr} ${timeStr})` : ""}`.trim() || `You have a new ${taskLabel.toLowerCase()} task.`, { type: `${typePrefix}_task_assigned`, taskId });
         }
         return { ok: true };
     }
     catch (err) {
-        console.error("[notifyFirstMileTaskUpdate] FCM error:", err);
+        console.error("[notifyTaskUpdate] FCM error:", err);
+        throw new https_1.HttpsError("internal", err.message);
+    }
+});
+/**
+ * Callable: Get the next sequential shipment ID for a given date and task type.
+ * Format: FM-[Date]-[NUM] or LH-[Date]-[NUM]
+ */
+exports.getNextTaskId = (0, https_1.onCall)({ region: "asia-southeast1" }, async (request) => {
+    const data = request.data;
+    const { date, taskType } = data;
+    if (!date || !taskType) {
+        throw new https_1.HttpsError("invalid-argument", "date and taskType are required");
+    }
+    try {
+        const prefix = taskType === "LINE_HAUL" ? "LH" : "FM";
+        // date format expected: YYYY-MM-DD or DDMMYYYY etc. 
+        // In Next.js we used ddmmyy. Let's stick to what the user requested or what's consistent.
+        // The user requested: LH-[Date]-[NUM]
+        const q = admin.firestore().collection("tasks")
+            .where("taskType", "==", taskType)
+            .where("dateStr", "==", date);
+        const countSnap = await q.count().get();
+        const nextNum = countSnap.data().count + 1;
+        const taskId = `${prefix}-${date}-${nextNum}`;
+        return { taskId };
+    }
+    catch (err) {
+        console.error("[getNextTaskId] Error:", err);
         throw new https_1.HttpsError("internal", err.message);
     }
 });

@@ -5,6 +5,7 @@ import '../../../home/data/repositories/trip_records_repository.dart';
 /// บันทึกส่งงาน (Delivery Phase) อัปโหลดรูปส่งงาน แล้วอัปเดตสถานะเป็น delivered พร้อม DeliveredTimestamp + lat,lng
 Future<void> submitDeliveryPhaseRecord({
   required String tripId,
+  String? taskId,
   required Map<String, StampedPhotoInput> deliveryPhotos,
   required double deliveredLat,
   required double deliveredLng,
@@ -56,4 +57,15 @@ Future<void> submitDeliveryPhaseRecord({
     'updatedAt': Timestamp.fromDate(now),
     'photos': mergedPhotos,
   }, SetOptions(merge: true));
+
+  if (taskId != null && taskId.isNotEmpty) {
+    try {
+      await FirebaseFirestore.instance.collection('tasks').doc(taskId).update({
+        'status': 'Completed',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (_) {
+      // Ignored if document doesn't exist or isn't a first mile task.
+    }
+  }
 }

@@ -31,8 +31,8 @@ if (missingKeys.length > 0) {
   throw new Error(
     `❌ Firebase Client Configuration Error:\n` +
     `Missing required environment variables: ${envVarNames}\n\n` +
-    `Please check your .env.local file and ensure all Firebase client configuration values are set.\n` +
-    `After updating .env.local, restart your Next.js dev server.`
+    `Please check your .env.local (development) or .env.production / .env.prod (production build) and ensure all Firebase client configuration values are set.\n` +
+    `After updating, restart your Next.js dev server or re-run the build.`
   );
 }
 

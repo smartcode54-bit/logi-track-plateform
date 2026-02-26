@@ -33,7 +33,9 @@ Future<OcrScreenshotResult> runOcrOnImageBytes(List<int> imageBytes) async {
     final fullText = await runCloudVisionOcrOnImageBytes(imageBytes);
 
     // Log ผลอ่านไว้ดู
-    debugPrint('=== OCR Full Text (Vision API) ===\n${fullText == null || fullText.isEmpty ? "(ว่าง)" : fullText}\n=====================');
+    debugPrint(
+      '=== OCR Full Text (Vision API) ===\n${fullText == null || fullText.isEmpty ? "(ว่าง)" : fullText}\n=====================',
+    );
 
     if (fullText == null || fullText.isEmpty) return OcrScreenshotResult();
 
@@ -60,13 +62,13 @@ String? _clean(String? v) => (v != null && v.isNotEmpty) ? v : null;
 
 /// Trip ID: "เลขทริป : LT0Q2E2467U61"
 String? _extractTripId(String text) {
-  final match = RegExp(r'LT[A-Za-z0-9\-]+').firstMatch(text);
+  final match = RegExp(r'LT[A-Za-z0-9\-]{8,}').firstMatch(text);
   return match?.group(0);
 }
 
 /// Seal Code: "เลข Seal Code: SPX3784238"
 String? _extractSealCode(String text) {
-  final match = RegExp(r'SPX[A-Za-z0-9\-]+').firstMatch(text);
+  final match = RegExp(r'SPX[A-Za-z0-9\-]{5,}').firstMatch(text);
   return match?.group(0);
 }
 

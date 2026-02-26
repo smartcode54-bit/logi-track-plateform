@@ -5,7 +5,9 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'draft_storage_io.dart' if (dart.library.html) 'draft_storage_io_stub.dart' as io;
+import 'draft_storage_io.dart'
+    if (dart.library.html) 'draft_storage_io_stub.dart'
+    as io;
 
 /// ข้อมูล draft ฟอร์ม Loading (รับงาน) ที่ยังไม่ส่ง
 class LoadingDraft {
@@ -36,18 +38,18 @@ class LoadingDraft {
   });
 
   Map<String, dynamic> toJson() => {
-        'tripId': tripId,
-        'sealCode': sealCode,
-        'origin': origin,
-        'destination': destination,
-        'distance': distance,
-        'parcelCount': parcelCount,
-        'sealTime': sealTime,
-        'totalWeight': totalWeight,
-        'jobType': jobType,
-        'runsheetPath': runsheetPath,
-        'stepPhotoPaths': stepPhotoPaths,
-      };
+    'tripId': tripId,
+    'sealCode': sealCode,
+    'origin': origin,
+    'destination': destination,
+    'distance': distance,
+    'parcelCount': parcelCount,
+    'sealTime': sealTime,
+    'totalWeight': totalWeight,
+    'jobType': jobType,
+    'runsheetPath': runsheetPath,
+    'stepPhotoPaths': stepPhotoPaths,
+  };
 
   static LoadingDraft fromJson(Map<String, dynamic> json) {
     final stepMap = json['stepPhotoPaths'];
@@ -63,7 +65,9 @@ class LoadingDraft {
       jobType: json['jobType'] as String?,
       runsheetPath: json['runsheetPath'] as String?,
       stepPhotoPaths: stepMap is Map
-          ? Map<String, String>.from(stepMap.map((k, v) => MapEntry(k.toString(), v.toString())))
+          ? Map<String, String>.from(
+              stepMap.map((k, v) => MapEntry(k.toString(), v.toString())),
+            )
           : {},
     );
   }
@@ -88,13 +92,13 @@ class DeliveryDraft {
   });
 
   Map<String, dynamic> toJson() => {
-        'tripId': tripId,
-        'origin': origin,
-        'destination': destination,
-        'sealCode': sealCode,
-        'jobType': jobType,
-        'photoPaths': photoPaths,
-      };
+    'tripId': tripId,
+    'origin': origin,
+    'destination': destination,
+    'sealCode': sealCode,
+    'jobType': jobType,
+    'photoPaths': photoPaths,
+  };
 
   static DeliveryDraft fromJson(Map<String, dynamic> json) {
     final photoMap = json['photoPaths'];
@@ -105,7 +109,9 @@ class DeliveryDraft {
       sealCode: json['sealCode'] as String?,
       jobType: json['jobType'] as String?,
       photoPaths: photoMap is Map
-          ? Map<String, String>.from(photoMap.map((k, v) => MapEntry(k.toString(), v.toString())))
+          ? Map<String, String>.from(
+              photoMap.map((k, v) => MapEntry(k.toString(), v.toString())),
+            )
           : {},
     );
   }
@@ -113,6 +119,7 @@ class DeliveryDraft {
 
 const String _prefKeyLoadingDraft = 'logitrack_loading_draft';
 const String _prefKeyDeliveryDraft = 'logitrack_delivery_draft';
+const String _prefKeyActiveCheckInTaskId = 'logitrack_active_checkin_task_id';
 const String _draftDirName = 'logitrack_draft';
 
 /// เก็บ/โหลดงานค้าง (draft) เมื่อแอปถูกปิดหรือหลุด เพื่อให้กลับมาโหลดต่อได้
@@ -188,11 +195,16 @@ class DraftStorageService {
   }) async {
     final prefs = await _preferences;
     final base = await _draftDirectory;
-    if (base == null && (runsheetPhoto != null || (stepPhotos?.isNotEmpty == true))) return;
+    if (base == null &&
+        (runsheetPhoto != null || (stepPhotos?.isNotEmpty == true)))
+      return;
 
     String? runsheetPath;
     if (runsheetPhoto != null && runsheetPhoto.isNotEmpty) {
-      runsheetPath = await _writePhotoBytes('loading_runsheet.jpg', runsheetPhoto);
+      runsheetPath = await _writePhotoBytes(
+        'loading_runsheet.jpg',
+        runsheetPhoto,
+      );
     }
 
     final stepPhotoPaths = <String, String>{};
@@ -244,6 +256,23 @@ class DraftStorageService {
     final prefs = await _preferences;
     await prefs.remove(_prefKeyLoadingDraft);
     await _clearLoadingDraftFiles();
+  }
+
+  // ---------- Active Check In Task Id ----------
+
+  Future<void> saveActiveCheckInTaskId(String taskId) async {
+    final prefs = await _preferences;
+    await prefs.setString(_prefKeyActiveCheckInTaskId, taskId);
+  }
+
+  Future<String?> loadActiveCheckInTaskId() async {
+    final prefs = await _preferences;
+    return prefs.getString(_prefKeyActiveCheckInTaskId);
+  }
+
+  Future<void> clearActiveCheckInTaskId() async {
+    final prefs = await _preferences;
+    await prefs.remove(_prefKeyActiveCheckInTaskId);
   }
 
   // ---------- Delivery draft ----------

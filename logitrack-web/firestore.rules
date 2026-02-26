@@ -62,6 +62,29 @@ service cloud.firestore {
       allow write: if request.auth != null && request.auth.token.admin == true;
     }
 
+    // Unified Tasks (formerly first_mile_tasks): Admins write; Drivers read/update (e.g. checkin status).
+    match /tasks/{taskId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && (
+        request.auth.token.admin == true ||
+        request.resource.data.driverId == request.auth.uid ||
+        resource.data.driverId == request.auth.uid
+      );
+    }
+
+    // Unified Check-in records: Drivers create/read own; Admins read all.
+    match /checkin/{checkinId} {
+      allow read: if request.auth != null && (
+        request.auth.token.admin == true ||
+        resource.data.driverId == request.auth.uid
+      );
+      allow create: if request.auth != null;
+      allow update, delete: if request.auth != null && (
+        request.auth.token.admin == true ||
+        resource.data.driverId == request.auth.uid
+      );
+    }
+
     // Legacy permissive rule (expires); keep other collections working until migrated.
     match /{document=**} {
       allow read, write: if request.time < timestamp.date(2026, 3, 10);

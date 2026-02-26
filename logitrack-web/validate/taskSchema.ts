@@ -1,9 +1,9 @@
 import { z } from "zod";
 
 export const SOC_DESTINATIONS = {
-    "SOCE": "SOCE (Bueroi)",
-    "SOCN": "SOCN (Wang Noi)",
-    "SOCW": "SOCW (Samut Sakhon)"
+    "SOCE": "SOCE (บัวโรย)",
+    "SOCN": "SOCN (วังน้อย)",
+    "SOCW": "SOCW (สมุทรสาคร)"
 } as const;
 
 export const SOC_KEYS = ["SOCE", "SOCN", "SOCW"] as const;
@@ -26,25 +26,26 @@ export function normalizeSocIdToKey(sourceId: string): string {
     return sourceId;
 }
 
-export const FIRST_MILE_STATUS_ENUM = ["Pending", "Assigned", "Checked in", "In-Transit", "Completed", "Cancelled"] as const;
+export const TASK_STATUS_ENUM = ["Pending", "Assigned", "Checked in", "In-Transit", "Completed", "Cancelled"] as const;
+export const TASK_TYPE_ENUM = ["FIRST_MILE", "LINE_HAUL"] as const;
 
-export const firstMileTaskSchema = z.object({
+export const taskSchema = z.object({
     id: z.string().optional(),
 
     // Time & Location
     date: z.coerce.date(),
+    dateStr: z.string().optional(), // YYYYMMDD or DDMMYYYY for sequential ID counting
     time: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "Time must be in HH:MM format (e.g. 15:00)"),
 
     sourceHub: z.string().min(1, "Source Hub is required"), // From SPX_Hub
-    /** Destination SOC: source_id from hubs where station_type starts with "SOC" */
     destination: z.string().min(1, "Destination (SOC) is required"),
 
     // Vehicle Requirements
-    // Vehicle Requirements
-    truckType: z.enum(["4WH", "4WJ", "6WH", "10WH", "18WH", "PICKUP", "VAN"]).optional(),
+    truckType: z.enum(["4WH", "4WJ", "6WH", "10WH", "18WH", "PICKUP", "VAN"]).optional(), // Based on image
 
     // Shipment Info
-    FirstMileTaskId: z.string().optional(),
+    taskId: z.string().optional(),
+    taskType: z.enum(TASK_TYPE_ENUM),
 
     // Assignment
     driverId: z.string().optional(),
@@ -52,7 +53,7 @@ export const firstMileTaskSchema = z.object({
     driverPhone: z.string().optional(),
     licensePlate: z.string().optional(),
 
-    status: z.enum(FIRST_MILE_STATUS_ENUM).default("Pending"),
+    status: z.enum(TASK_STATUS_ENUM).default("Pending"),
 
     /** Check-in at pickup: set by driver on mobile */
     checkInAt: z.any().optional(),
@@ -64,4 +65,5 @@ export const firstMileTaskSchema = z.object({
     updatedAt: z.coerce.date().optional(),
 });
 
-export type FirstMileTask = z.infer<typeof firstMileTaskSchema>;
+export type Task = z.infer<typeof taskSchema>;
+

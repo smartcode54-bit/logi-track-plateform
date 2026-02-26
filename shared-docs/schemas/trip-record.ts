@@ -10,7 +10,7 @@ export const TRIP_STATUS_ENUM = [
 ] as const;
 
 // --- Job Type (auto-detected from origin: Hub = first_mile, SOC = line_haul) ---
-export const TRIP_JOB_TYPE_ENUM = ["first_mile", "line_haul"] as const;
+export const TRIP_JOB_TYPE_ENUM = ["FIRST_MILE", "LINE_HAUL"] as const;
 
 // --- Photo type (Loading: pre-close, closing, seal, runsheet; Delivery: pre_open, opening, empty_container, runsheet_received) ---
 export const TRIP_PHOTO_TYPE_ENUM = [

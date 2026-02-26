@@ -13,6 +13,9 @@ export const COLLECTIONS = {
     /** User accounts and profiles */
     USERS: "users",
 
+    /** Collection for both First Mile and Line Haul tasks */
+    TASKS: "tasks",
+
     /** Truck/vehicle inventory */
     TRUCKS: "trucks",
 

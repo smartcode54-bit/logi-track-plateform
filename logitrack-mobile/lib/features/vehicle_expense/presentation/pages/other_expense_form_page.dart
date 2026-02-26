@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart' as intl;
-import '../../../home/data/repositories/first_mile_checkin_repository.dart';
+import '../../../home/data/repositories/checkin_repository.dart';
 import '../../../home/data/services/image_compression_service.dart';
 import '../../data/models/vehicle_expense.dart';
 import '../../data/repositories/vehicle_expense_repository.dart';
@@ -68,7 +68,13 @@ class _OtherExpenseFormPageState extends State<OtherExpenseFormPage> {
     );
     if (time == null || !mounted) return;
     setState(() {
-      _selectedDateTime = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+      _selectedDateTime = DateTime(
+        date.year,
+        date.month,
+        date.day,
+        time.hour,
+        time.minute,
+      );
       _updateDateTimeDisplay();
     });
   }
@@ -183,12 +189,14 @@ class _OtherExpenseFormPageState extends State<OtherExpenseFormPage> {
       );
       await saveVehicleExpense(
         expense,
-        receiptPhoto: _receiptPhoto != null ? List<int>.from(_receiptPhoto!) : null,
+        receiptPhoto: _receiptPhoto != null
+            ? List<int>.from(_receiptPhoto!)
+            : null,
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('vehicle_expense_saved'.tr())),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('vehicle_expense_saved'.tr())));
         Navigator.of(context).pop(true);
       }
     } on VehicleExpenseOfflineSavedException catch (_) {
@@ -230,29 +238,40 @@ class _OtherExpenseFormPageState extends State<OtherExpenseFormPage> {
                   Text(
                     'vehicle_expense_other_form_hint'.tr(),
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
-                        ),
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withOpacity(0.7),
+                    ),
                   ),
                   const SizedBox(height: 20),
                   // วันที่เวลา — เหมือนหน้าเติมน้ำมัน
                   Text(
                     'refuel_date_time'.tr(),
                     style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.8),
-                        ),
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withOpacity(0.8),
+                    ),
                   ),
                   const SizedBox(height: 6),
                   Material(
-                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(12),
                     child: InkWell(
                       onTap: _saving ? null : _pickDateTime,
                       borderRadius: BorderRadius.circular(12),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 14,
+                        ),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Theme.of(context).dividerColor),
+                          border: Border.all(
+                            color: Theme.of(context).dividerColor,
+                          ),
                         ),
                         child: Row(
                           children: [
@@ -265,9 +284,8 @@ class _OtherExpenseFormPageState extends State<OtherExpenseFormPage> {
                             Expanded(
                               child: Text(
                                 _dateTimeController.text,
-                                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                      fontWeight: FontWeight.w500,
-                                    ),
+                                style: Theme.of(context).textTheme.bodyLarge
+                                    ?.copyWith(fontWeight: FontWeight.w500),
                               ),
                             ),
                           ],
@@ -283,13 +301,34 @@ class _OtherExpenseFormPageState extends State<OtherExpenseFormPage> {
                       labelText: 'vehicle_expense_category'.tr(),
                     ),
                     items: [
-                      DropdownMenuItem(value: OtherExpenseCategory.tireRepair, child: Text('vehicle_expense_category_tire'.tr())),
-                      DropdownMenuItem(value: OtherExpenseCategory.maintenance, child: Text('vehicle_expense_category_maintenance'.tr())),
-                      DropdownMenuItem(value: OtherExpenseCategory.toll, child: Text('vehicle_expense_category_toll'.tr())),
-                      DropdownMenuItem(value: OtherExpenseCategory.parking, child: Text('vehicle_expense_category_parking'.tr())),
-                      DropdownMenuItem(value: OtherExpenseCategory.other, child: Text('vehicle_expense_category_other'.tr())),
+                      DropdownMenuItem(
+                        value: OtherExpenseCategory.tireRepair,
+                        child: Text('vehicle_expense_category_tire'.tr()),
+                      ),
+                      DropdownMenuItem(
+                        value: OtherExpenseCategory.maintenance,
+                        child: Text(
+                          'vehicle_expense_category_maintenance'.tr(),
+                        ),
+                      ),
+                      DropdownMenuItem(
+                        value: OtherExpenseCategory.toll,
+                        child: Text('vehicle_expense_category_toll'.tr()),
+                      ),
+                      DropdownMenuItem(
+                        value: OtherExpenseCategory.parking,
+                        child: Text('vehicle_expense_category_parking'.tr()),
+                      ),
+                      DropdownMenuItem(
+                        value: OtherExpenseCategory.other,
+                        child: Text('vehicle_expense_category_other'.tr()),
+                      ),
                     ],
-                    onChanged: _saving ? null : (v) => setState(() => _category = v ?? OtherExpenseCategory.other),
+                    onChanged: _saving
+                        ? null
+                        : (v) => setState(
+                            () => _category = v ?? OtherExpenseCategory.other,
+                          ),
                   ),
                   const SizedBox(height: 16),
                   // ยอดเงิน
@@ -301,10 +340,13 @@ class _OtherExpenseFormPageState extends State<OtherExpenseFormPage> {
                       hintText: 'vehicle_expense_amount_hint'.tr(),
                       prefixText: '฿ ',
                     ),
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     validator: (v) {
                       final n = double.tryParse(v?.trim() ?? '');
-                      if (n == null || n <= 0) return 'vehicle_expense_amount_required'.tr();
+                      if (n == null || n <= 0)
+                        return 'vehicle_expense_amount_required'.tr();
                       return null;
                     },
                   ),
@@ -312,14 +354,18 @@ class _OtherExpenseFormPageState extends State<OtherExpenseFormPage> {
                   // ถ่ายภาพใบเสร็จ + template overlay
                   Text(
                     'other_expense_receipt_title'.tr(),
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     'other_expense_receipt_subtitle'.tr(),
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                        ),
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withOpacity(0.6),
+                    ),
                   ),
                   const SizedBox(height: 8),
                   if (_receiptPhoto != null) ...[
@@ -338,7 +384,9 @@ class _OtherExpenseFormPageState extends State<OtherExpenseFormPage> {
                     onPressed: _saving ? null : _pickReceiptPhoto,
                     icon: const Icon(Icons.receipt_long, size: 20),
                     label: Text(
-                      _receiptPhoto != null ? 'other_expense_receipt_change'.tr() : 'other_expense_receipt_take'.tr(),
+                      _receiptPhoto != null
+                          ? 'other_expense_receipt_change'.tr()
+                          : 'other_expense_receipt_take'.tr(),
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -346,29 +394,43 @@ class _OtherExpenseFormPageState extends State<OtherExpenseFormPage> {
                   Text(
                     'vehicle_expense_refill_location'.tr(),
                     style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.8),
-                        ),
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withOpacity(0.8),
+                    ),
                   ),
                   const SizedBox(height: 6),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: Theme.of(context).dividerColor),
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.location_on, size: 24, color: Colors.red.shade700),
+                        Icon(
+                          Icons.location_on,
+                          size: 24,
+                          color: Colors.red.shade700,
+                        ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
-                            _refillLocation ?? 'vehicle_expense_refill_location_get'.tr(),
-                            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                            _refillLocation ??
+                                'vehicle_expense_refill_location_get'.tr(),
+                            style: Theme.of(context).textTheme.bodyLarge
+                                ?.copyWith(
                                   fontWeight: FontWeight.w500,
                                   color: _refillLocation != null
                                       ? Theme.of(context).colorScheme.onSurface
-                                      : Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                                      : Theme.of(context).colorScheme.onSurface
+                                            .withOpacity(0.6),
                                 ),
                           ),
                         ),
@@ -380,7 +442,10 @@ class _OtherExpenseFormPageState extends State<OtherExpenseFormPage> {
                           )
                         else
                           IconButton(
-                            icon: Icon(Icons.refresh, color: Theme.of(context).colorScheme.onSurface),
+                            icon: Icon(
+                              Icons.refresh,
+                              color: Theme.of(context).colorScheme.onSurface,
+                            ),
                             onPressed: _saving ? null : _getLocation,
                             tooltip: 'vehicle_expense_refill_location_get'.tr(),
                           ),
@@ -391,14 +456,19 @@ class _OtherExpenseFormPageState extends State<OtherExpenseFormPage> {
                     const SizedBox(height: 4),
                     Text(
                       _locationError!,
-                      style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 12),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                        fontSize: 12,
+                      ),
                     ),
                   ],
                   if (_saveError != null) ...[
                     const SizedBox(height: 16),
                     Text(
                       _saveError!,
-                      style: TextStyle(color: Theme.of(context).colorScheme.error),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
                     ),
                   ],
                   const SizedBox(height: 24),
@@ -421,7 +491,9 @@ class _OtherExpenseFormPageState extends State<OtherExpenseFormPage> {
             Positioned.fill(
               child: AbsorbPointer(
                 child: ColoredBox(
-                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3),
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withOpacity(0.3),
                   child: Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -430,7 +502,8 @@ class _OtherExpenseFormPageState extends State<OtherExpenseFormPage> {
                         const SizedBox(height: 16),
                         Text(
                           'vehicle_expense_saving'.tr(),
-                          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                          style: Theme.of(context).textTheme.bodyLarge
+                              ?.copyWith(
                                 color: Theme.of(context).colorScheme.onSurface,
                                 fontWeight: FontWeight.w500,
                               ),
@@ -503,10 +576,15 @@ class _OtherExpensePreviewSheet extends StatelessWidget {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 4,
+                ),
                 child: Text(
                   'other_expense_preview_title'.tr(),
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
               const Divider(),
@@ -516,9 +594,18 @@ class _OtherExpensePreviewSheet extends StatelessWidget {
                   padding: const EdgeInsets.all(16),
                   children: [
                     _row('refuel_date_time'.tr(), dateTime),
-                    _row('vehicle_expense_category'.tr(), _categoryLabel(category)),
-                    _row('vehicle_expense_amount'.tr(), amount.isEmpty ? '' : '฿ $amount'),
-                    _row('vehicle_expense_refill_location'.tr(), refillLocation ?? ''),
+                    _row(
+                      'vehicle_expense_category'.tr(),
+                      _categoryLabel(category),
+                    ),
+                    _row(
+                      'vehicle_expense_amount'.tr(),
+                      amount.isEmpty ? '' : '฿ $amount',
+                    ),
+                    _row(
+                      'vehicle_expense_refill_location'.tr(),
+                      refillLocation ?? '',
+                    ),
                     const SizedBox(height: 12),
                     if (receiptPhoto != null && receiptPhoto!.isNotEmpty) ...[
                       Text(
@@ -551,7 +638,9 @@ class _OtherExpensePreviewSheet extends StatelessWidget {
                         onPressed: () => Navigator.of(context).pop(false),
                         icon: const Icon(Icons.edit),
                         label: Text('other_expense_preview_edit'.tr()),
-                        style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -560,7 +649,9 @@ class _OtherExpensePreviewSheet extends StatelessWidget {
                         onPressed: () => Navigator.of(context).pop(true),
                         icon: const Icon(Icons.check_circle),
                         label: Text('other_expense_preview_confirm'.tr()),
-                        style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
                       ),
                     ),
                   ],
@@ -584,11 +675,17 @@ class _OtherExpensePreviewSheet extends StatelessWidget {
             width: 120,
             child: Text(
               label,
-              style: const TextStyle(fontWeight: FontWeight.w500, color: Colors.grey),
+              style: const TextStyle(
+                fontWeight: FontWeight.w500,
+                color: Colors.grey,
+              ),
             ),
           ),
           Expanded(
-            child: Text(value, style: const TextStyle(fontWeight: FontWeight.w500)),
+            child: Text(
+              value,
+              style: const TextStyle(fontWeight: FontWeight.w500),
+            ),
           ),
         ],
       ),

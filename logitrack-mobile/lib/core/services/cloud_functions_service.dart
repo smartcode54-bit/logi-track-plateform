@@ -19,12 +19,14 @@ class CloudFunctionsService {
 
   /// Call a callable Cloud Function by name.
   ///
-  /// [name] — exported function name (e.g. 'notifyFirstMileTaskUpdate', 'setAdminClaims').
+  /// [name] — exported function name (e.g. 'notifyTaskUpdate', 'setAdminClaims').
   /// [data] — optional map of arguments (must be JSON-serializable).
   /// Returns the [data] field of the response.
   Future<T?> call<T>(String name, {Map<String, dynamic>? data}) async {
-    final callable = _functions.httpsCallable<T>(name);
-    final result = data != null ? await callable.call(data) : await callable.call();
+    final callable = _functions.httpsCallable(name);
+    final result = await (data != null
+        ? callable.call<T>(data)
+        : callable.call<T>());
     return result.data;
   }
 }
