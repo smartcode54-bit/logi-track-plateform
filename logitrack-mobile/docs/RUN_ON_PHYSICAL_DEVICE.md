@@ -108,3 +108,9 @@ flutter doctor --android-licenses
 ```
 
 Accept the licenses when prompted.
+
+# Build APK for Physical Device
+
+```bash
+flutter build apk --split-per-abi
+```
