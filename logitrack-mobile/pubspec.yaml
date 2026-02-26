@@ -57,6 +57,8 @@ dependencies:
   flutter_compass: ^0.8.1
   flutter_image_compress: ^2.4.0
   http: ^1.2.0
+  url_launcher: ^6.3.2
+  intl: ^0.20.2
 
 dev_dependencies:
   flutter_test:

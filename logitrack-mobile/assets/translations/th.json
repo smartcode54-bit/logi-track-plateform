@@ -314,6 +314,7 @@
     "draft_restore_delivery_message": "พบรูปหลักฐานการส่งที่ยังไม่ส่ง ต้องการโหลดกลับมาหรือไม่?",
     "draft_restore_discard": "ยกเลิก",
     "draft_restore_restore": "โหลดงานค้าง",
+    "please_finish_ongoing_task_first": "กรุณาจบงานปัจจุบันก่อนเช็คอินงานใหม่",
     "pickUp": {
         "title": "จัดการจุดรับ-ส่งงาน",
         "newSource": "เพิ่มจุดรับ-ส่งงานใหม่",

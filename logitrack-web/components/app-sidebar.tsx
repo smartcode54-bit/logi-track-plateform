@@ -130,6 +130,10 @@ export function AppSidebar() {
                     url: "/admin/first-mile",
                 },
                 {
+                    title: "Line Haul Tasks",
+                    url: "/admin/line-haul",
+                },
+                {
                     title: t("nav.sourceManagement"),
                     url: "/admin/sources",
                 },

@@ -314,6 +314,7 @@
     "draft_restore_delivery_message": "You have unsaved delivery photos. Restore them?",
     "draft_restore_discard": "Discard",
     "draft_restore_restore": "Restore draft",
+    "please_finish_ongoing_task_first": "Please finish your ongoing task first.",
     "pickUp": {
         "title": "Pickup Location Management",
         "newSource": "New Pickup-Delivery Point",
