@@ -111,4 +111,20 @@ Future<void> submitLoadingPhaseRecord({
       .collection(tripRecordsCollection)
       .doc(tripId)
       .set(map, SetOptions(merge: true));
+
+  if (taskId != null && taskId.isNotEmpty) {
+    final updateData = <String, dynamic>{};
+    if (origin != null && origin.isNotEmpty) {
+      updateData['sourceHub'] = origin;
+    }
+    if (destination != null && destination.isNotEmpty) {
+      updateData['destination'] = destination;
+    }
+    if (updateData.isNotEmpty) {
+      await FirebaseFirestore.instance
+          .collection('tasks')
+          .doc(taskId)
+          .update(updateData);
+    }
+  }
 }

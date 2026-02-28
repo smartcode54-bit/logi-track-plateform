@@ -4,13 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 enum VehicleExpenseType { fuel, other }
 
 /// ประเภทย่อยสำหรับค่าใช้จ่ายอื่น (ไม่ใช่น้ำมัน)
-enum OtherExpenseCategory {
-  tireRepair,
-  maintenance,
-  toll,
-  parking,
-  other,
-}
+enum OtherExpenseCategory { tireRepair, maintenance, toll, parking, other }
 
 /// โมเดลบันทึกค่าใช้จ่ายรถ (เติมน้ำมัน หรือค่าอื่นๆ)
 /// เก็บใน Firestore collection: vehicle_expenses
@@ -25,14 +19,19 @@ class VehicleExpense {
   final double? volumeLiters;
   final double? pricePerLiter;
   final int? odometer;
+
   /// เลขประจำตัวผู้เสียภาษีสถานี (TAX ID จากบิล / OCR)
   final String? stationTaxId;
+
   /// เลขที่ใบกำกับภาษี (TAX INV NO. จากบิล / OCR)
   final String? taxInvId;
+
   /// สถานที่เติม: "lat,lng" จาก getCurrentLocation (e.g. "13.7563,100.5018")
   final String? refillLocation;
+
   /// URL รูปบิลน้ำมัน (อัปโหลดไป Storage)
   final String? receiptPhotoUrl;
+
   /// URL รูปเลขไมล์ (อัปโหลดไป Storage)
   final String? odometerPhotoUrl;
   final String? note;
@@ -40,6 +39,10 @@ class VehicleExpense {
   // ค่าใช้จ่ายอื่น
   final OtherExpenseCategory? category;
   final String? description;
+
+  // สถานะอนุมัติค่าใช้จ่ายแบบใหม่
+  final String status; // 'PENDING' | 'APPROVED' | 'REJECTED'
+  final String? adminNote;
 
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -61,6 +64,8 @@ class VehicleExpense {
     this.note,
     this.category,
     this.description,
+    this.status = 'PENDING',
+    this.adminNote,
     this.createdAt,
     this.updatedAt,
   });
@@ -110,7 +115,9 @@ class VehicleExpense {
 
   factory VehicleExpense.fromMap(Map<String, dynamic> map, {String? id}) {
     final typeStr = map['type'] as String?;
-    final type = typeStr == 'fuel' ? VehicleExpenseType.fuel : VehicleExpenseType.other;
+    final type = typeStr == 'fuel'
+        ? VehicleExpenseType.fuel
+        : VehicleExpenseType.other;
     final dateValue = map['date'];
     DateTime date = DateTime.now();
     if (dateValue != null) {
@@ -127,7 +134,8 @@ class VehicleExpense {
       volumeLiters: (map['volumeLiters'] as num?)?.toDouble(),
       pricePerLiter: (map['pricePerLiter'] as num?)?.toDouble(),
       odometer: (map['odometer'] as num?)?.toInt(),
-      stationTaxId: map['stationTaxId'] as String? ?? map['gasStation'] as String?,
+      stationTaxId:
+          map['stationTaxId'] as String? ?? map['gasStation'] as String?,
       taxInvId: map['taxInvId'] as String?,
       refillLocation: map['refillLocation'] as String?,
       receiptPhotoUrl: map['receiptPhotoUrl'] as String?,
@@ -135,6 +143,8 @@ class VehicleExpense {
       note: map['note'] as String?,
       category: _parseCategory(map['category'] as String?),
       description: map['description'] as String?,
+      status: map['status'] as String? ?? 'PENDING',
+      adminNote: map['adminNote'] as String?,
       createdAt: _parseDate(map['createdAt']),
       updatedAt: _parseDate(map['updatedAt']),
     );
@@ -147,23 +157,33 @@ class VehicleExpense {
       'type': type == VehicleExpenseType.fuel ? 'fuel' : 'other',
       'date': Timestamp.fromDate(date),
       'amount': amount,
+      'status': status,
       'createdAt': createdAt ?? now,
       'updatedAt': updatedAt ?? now,
     };
+    if (adminNote != null && adminNote!.isNotEmpty)
+      map['adminNote'] = adminNote;
+
     if (type == VehicleExpenseType.fuel) {
       if (volumeLiters != null) map['volumeLiters'] = volumeLiters;
       if (pricePerLiter != null) map['pricePerLiter'] = pricePerLiter;
       if (odometer != null) map['odometer'] = odometer;
-      if (stationTaxId != null && stationTaxId!.isNotEmpty) map['stationTaxId'] = stationTaxId;
+      if (stationTaxId != null && stationTaxId!.isNotEmpty)
+        map['stationTaxId'] = stationTaxId;
       if (taxInvId != null && taxInvId!.isNotEmpty) map['taxInvId'] = taxInvId;
-      if (refillLocation != null && refillLocation!.isNotEmpty) map['refillLocation'] = refillLocation;
-      if (receiptPhotoUrl != null && receiptPhotoUrl!.isNotEmpty) map['receiptPhotoUrl'] = receiptPhotoUrl;
-      if (odometerPhotoUrl != null && odometerPhotoUrl!.isNotEmpty) map['odometerPhotoUrl'] = odometerPhotoUrl;
+      if (refillLocation != null && refillLocation!.isNotEmpty)
+        map['refillLocation'] = refillLocation;
+      if (receiptPhotoUrl != null && receiptPhotoUrl!.isNotEmpty)
+        map['receiptPhotoUrl'] = receiptPhotoUrl;
+      if (odometerPhotoUrl != null && odometerPhotoUrl!.isNotEmpty)
+        map['odometerPhotoUrl'] = odometerPhotoUrl;
       if (note != null && note!.isNotEmpty) map['note'] = note;
     } else {
       if (category != null) map['category'] = categoryToFirestore(category!);
-      if (refillLocation != null && refillLocation!.isNotEmpty) map['refillLocation'] = refillLocation;
-      if (receiptPhotoUrl != null && receiptPhotoUrl!.isNotEmpty) map['receiptPhotoUrl'] = receiptPhotoUrl;
+      if (refillLocation != null && refillLocation!.isNotEmpty)
+        map['refillLocation'] = refillLocation;
+      if (receiptPhotoUrl != null && receiptPhotoUrl!.isNotEmpty)
+        map['receiptPhotoUrl'] = receiptPhotoUrl;
     }
     return map;
   }

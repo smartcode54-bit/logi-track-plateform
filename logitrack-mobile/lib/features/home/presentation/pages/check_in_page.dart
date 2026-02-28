@@ -62,7 +62,7 @@ class _CheckInPageState extends State<CheckInPage> {
             actions: [
               IconButton(
                 icon: const Icon(Icons.add),
-                onPressed: () {
+                onPressed: () async {
                   if (hasOngoingTask) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
@@ -71,12 +71,16 @@ class _CheckInPageState extends State<CheckInPage> {
                     );
                     return;
                   }
-                  showModalBottomSheet(
+                  final result = await showModalBottomSheet<bool>(
                     context: context,
                     isScrollControlled: true,
                     builder: (_) =>
                         _ManualCheckInSheet(driverId: widget.driverId),
                   );
+                  if (result == true && context.mounted) {
+                    // Return true to indicate check-in was successful
+                    Navigator.pop(context, true);
+                  }
                 },
               ),
             ],
@@ -525,6 +529,8 @@ class _CheckInPageState extends State<CheckInPage> {
       );
       await DraftStorageService.instance.saveActiveCheckInTaskId(taskId);
       if (!context.mounted) return;
+      // pop and return true to HomePage
+      Navigator.pop(context, true);
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Check-in saved'.tr())));
@@ -683,7 +689,8 @@ class _ManualCheckInSheetState extends State<_ManualCheckInSheet> {
       await DraftStorageService.instance.saveActiveCheckInTaskId(docRef.id);
 
       if (mounted) {
-        Navigator.pop(context);
+        // Return true to indicate successful checkin
+        Navigator.pop(context, true);
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Check-in saved'.tr())));

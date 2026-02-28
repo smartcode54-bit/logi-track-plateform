@@ -123,11 +123,28 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       if (!taskDoc.exists) return;
       final data = taskDoc.data();
       final taskType = data?['taskType'] as String?;
-      if (taskType != null && mounted) {
+      final sourceHub = data?['sourceHub'] as String?;
+      final destination = data?['destination'] as String?;
+
+      if (mounted) {
         setState(() {
-          _jobType = (taskType == 'LINE_HAUL')
-              ? jobTypeLineHaul
-              : jobTypeFirstMile;
+          if (taskType != null) {
+            _jobType = (taskType == 'LINE_HAUL')
+                ? jobTypeLineHaul
+                : jobTypeFirstMile;
+          }
+
+          // Populate if empty
+          if (sourceHub != null &&
+              sourceHub.isNotEmpty &&
+              _originController.text.isEmpty) {
+            _originController.text = sourceHub;
+          }
+          if (destination != null &&
+              destination.isNotEmpty &&
+              _destinationController.text.isEmpty) {
+            _destinationController.text = destination;
+          }
         });
       }
     } catch (e) {
@@ -301,7 +318,10 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
 
     setState(() => _ocrLoading = true);
     try {
-      final result = await runOcrOnImageBytes(imageBytes);
+      final result = await runOcrOnImageBytes(
+        imageBytes,
+        imagePath: xfile.path,
+      );
       if (!mounted) return;
       final compressed = await compressImageForUpload(imageBytes);
       if (!mounted) return;

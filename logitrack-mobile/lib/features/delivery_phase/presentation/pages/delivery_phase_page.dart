@@ -126,13 +126,14 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
   /// [showDialogOnError] true = แสดง dialog เมื่อไม่ตรง/ไม่พบ (ใช้ตอนอัปโหลด), false = ไม่แสดง dialog (ใช้ตอนกดยืนยันส่ง)
   Future<bool> _validateRunsheetTripId(
     List<int> imageBytes, {
+    String? imagePath,
     bool showDialogOnError = true,
   }) async {
     final expected = _normalizeTripId(widget.savedTripSummary?.tripId);
     if (expected.isEmpty) return true;
     if (kIsWeb) return true;
     try {
-      final result = await runOcrOnImageBytes(imageBytes);
+      final result = await runOcrOnImageBytes(imageBytes, imagePath: imagePath);
       final fromImage = _normalizeTripId(result.tripId);
       if (fromImage.isEmpty) {
         if (mounted && showDialogOnError) {
@@ -199,7 +200,10 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
     List<int> imageBytes = await xfile.readAsBytes();
     if (!mounted) return;
     if (isRunsheetReceived) {
-      final ok = await _validateRunsheetTripId(imageBytes);
+      final ok = await _validateRunsheetTripId(
+        imageBytes,
+        imagePath: xfile.path,
+      );
       if (!mounted) return;
       if (!ok) return;
     }
@@ -272,6 +276,9 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
     }
 
     // เช็ค Trip ID ในภาพรันชีทตรงกับเที่ยวนี้ก่อนยืนยันส่ง (ไม่แสดง dialog แค่ return false)
+    // ตรงจุดนี้ไม่มี xfile.path แล้ว (เพราะถูกเก็บเป็น bytes ใน state แล้ว)
+    // จึงใช้เฉพาะ bytes ในการเช็ค OCR ล้วนๆ (QR อ่านไม่ได้จาก bytes)
+    // แต่มันได้เช็คผ่าน QR ตอนถ่าย/เลือกรูปแล้วใน _takeDeliveryPhoto ถือเป็นการ double check ด้วยข้อความ
     final runsheetBytes = _deliveryPhotos['runsheet_received']!;
     final runsheetOk = await _validateRunsheetTripId(
       runsheetBytes,

@@ -16,7 +16,8 @@ class VehicleExpensePage extends StatefulWidget {
   State<VehicleExpensePage> createState() => _VehicleExpensePageState();
 }
 
-class _VehicleExpensePageState extends State<VehicleExpensePage> with RouteAware {
+class _VehicleExpensePageState extends State<VehicleExpensePage>
+    with RouteAware {
   List<VehicleExpense> _recentList = [];
   bool _loading = true;
   bool _refreshing = false;
@@ -80,25 +81,27 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> with RouteAware
       final merged = <VehicleExpense>[...fromServer, ...pending];
       merged.sort((a, b) => (b.date).compareTo(a.date));
       final list = List<VehicleExpense>.from(merged.take(30));
-      if (mounted) setState(() {
-        _recentList = list;
-        _loading = false;
-        _refreshing = false;
-        _error = null;
-      });
+      if (mounted)
+        setState(() {
+          _recentList = list;
+          _loading = false;
+          _refreshing = false;
+          _error = null;
+        });
     } catch (e) {
-      if (mounted) setState(() {
-        _loading = false;
-        _refreshing = false;
-        _error = e.toString();
-      });
+      if (mounted)
+        setState(() {
+          _loading = false;
+          _refreshing = false;
+          _error = e.toString();
+        });
     }
   }
 
   Future<void> _openRefuelForm() async {
-    final result = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => const RefuelFormPage()),
-    );
+    final result = await Navigator.of(
+      context,
+    ).push<bool>(MaterialPageRoute(builder: (_) => const RefuelFormPage()));
     if (result == true) _loadRecent();
   }
 
@@ -122,46 +125,55 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> with RouteAware
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24.0),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.error_outline, size: 48, color: Theme.of(context).colorScheme.error),
-                        const SizedBox(height: 16),
-                        Text(_error!, textAlign: TextAlign.center),
-                      ],
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.error_outline,
+                      size: 48,
+                      color: Theme.of(context).colorScheme.error,
                     ),
-                  ),
-                )
-              : RefreshIndicator(
-                  onRefresh: _loadRecent,
-                  child: Stack(
-                    children: [
-                      SingleChildScrollView(
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        padding: const EdgeInsets.all(16.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            if (_refreshing)
-                              const Padding(
-                                padding: EdgeInsets.only(bottom: 8.0),
-                                child: Center(
-                                  child: SizedBox(
-                                    height: 24,
-                                    width: 24,
-                                    child: CircularProgressIndicator(strokeWidth: 2),
-                                  ),
+                    const SizedBox(height: 16),
+                    Text(_error!, textAlign: TextAlign.center),
+                  ],
+                ),
+              ),
+            )
+          : RefreshIndicator(
+              onRefresh: _loadRecent,
+              child: Stack(
+                children: [
+                  SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (_refreshing)
+                          const Padding(
+                            padding: EdgeInsets.only(bottom: 8.0),
+                            child: Center(
+                              child: SizedBox(
+                                height: 24,
+                                width: 24,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
                                 ),
                               ),
-                            Text(
-                              'vehicle_expense_subtitle'.tr(),
-                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
-                              ),
                             ),
+                          ),
+                        Text(
+                          'vehicle_expense_subtitle'.tr(),
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurface.withOpacity(0.7),
+                              ),
+                        ),
                         const SizedBox(height: 24),
                         _buildActionCard(
                           context,
@@ -183,22 +195,28 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> with RouteAware
                         const SizedBox(height: 28),
                         Text(
                           'vehicle_expense_recent'.tr(),
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 12),
                         Container(
                           constraints: BoxConstraints(
-                            maxHeight: MediaQuery.of(context).size.height * 0.45,
+                            maxHeight:
+                                MediaQuery.of(context).size.height * 0.45,
                           ),
                           decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.surfaceContainerLowest,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.surfaceContainerLowest,
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Theme.of(context).dividerColor),
+                            border: Border.all(
+                              color: Theme.of(context).dividerColor,
+                            ),
                             boxShadow: [
                               BoxShadow(
-                                color: Theme.of(context).colorScheme.shadow.withOpacity(0.06),
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.shadow.withOpacity(0.06),
                                 blurRadius: 8,
                                 offset: const Offset(0, 2),
                               ),
@@ -212,31 +230,50 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> with RouteAware
                             radius: const Radius.circular(3),
                             child: _recentList.isEmpty
                                 ? Padding(
-                                    padding: const EdgeInsets.symmetric(vertical: 24.0),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 24.0,
+                                    ),
                                     child: Center(
                                       child: Text(
                                         'vehicle_expense_no_records'.tr(),
-                                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium
+                                            ?.copyWith(
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurface
+                                                  .withOpacity(0.6),
                                             ),
                                       ),
                                     ),
                                   )
                                 : ListView.builder(
                                     controller: _historyScrollController,
-                                    padding: const EdgeInsets.fromLTRB(12, 8, 8, 12),
-                                    physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+                                    padding: const EdgeInsets.fromLTRB(
+                                      12,
+                                      8,
+                                      8,
+                                      12,
+                                    ),
+                                    physics: const BouncingScrollPhysics(
+                                      parent: AlwaysScrollableScrollPhysics(),
+                                    ),
                                     itemCount: _recentList.length,
-                                    itemBuilder: (context, index) => _buildRecordTile(context, _recentList[index]),
+                                    itemBuilder: (context, index) =>
+                                        _buildRecordTile(
+                                          context,
+                                          _recentList[index],
+                                        ),
                                   ),
                           ),
                         ),
-                          ],
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
+                ],
+              ),
+            ),
     );
   }
 
@@ -271,20 +308,25 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> with RouteAware
                     Text(
                       title,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       subtitle,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                          ),
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onSurface.withOpacity(0.6),
+                      ),
                     ),
                   ],
                 ),
               ),
-              Icon(Icons.chevron_right, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
+              Icon(
+                Icons.chevron_right,
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+              ),
             ],
           ),
         ),
@@ -292,46 +334,161 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> with RouteAware
     );
   }
 
-  bool _isPending(VehicleExpense e) => e.id != null && e.id!.startsWith('pending_');
+  bool _isPendingLocally(VehicleExpense e) =>
+      e.id != null && e.id!.startsWith('pending_');
+
+  Widget _buildStatusBadge(BuildContext context, String status) {
+    IconData icon;
+    Color color;
+    String label;
+
+    switch (status.toUpperCase()) {
+      case 'APPROVED':
+        icon = Icons.check_circle;
+        color = Colors.green;
+        label = 'approved'.tr();
+        break;
+      case 'REJECTED':
+        icon = Icons.cancel;
+        color = Colors.red;
+        label = 'rejected'.tr();
+        break;
+      case 'PENDING':
+      default:
+        icon = Icons.hourglass_empty;
+        color = Colors.orange;
+        label = 'pending_approval'.tr();
+        break;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.5)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _buildRecordTile(BuildContext context, VehicleExpense e) {
     final dateStr = intl.DateFormat('dd/MM/yyyy HH:mm').format(e.date);
-    final typeLabel = e.isFuel ? 'vehicle_expense_refuel'.tr() : _categoryLabel(e.category);
-    final pending = _isPending(e);
+    final typeLabel = e.isFuel
+        ? 'vehicle_expense_refuel'.tr()
+        : _categoryLabel(e.category);
+    final isLocalPending = _isPendingLocally(e);
+
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: e.isFuel ? Colors.blue.withOpacity(0.15) : Colors.orange.withOpacity(0.15),
-          child: Icon(
-            e.isFuel ? Icons.local_gas_station : Icons.receipt_long,
-            color: e.isFuel ? Colors.blue : Colors.orange,
-            size: 22,
-          ),
-        ),
-        title: Row(
-          children: [
-            Expanded(child: Text(typeLabel)),
-            if (pending)
-              Padding(
-                padding: const EdgeInsets.only(left: 8),
-                child: Text(
-                  'vehicle_expense_pending'.tr(),
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: Theme.of(context).colorScheme.primary,
-                        fontWeight: FontWeight.w600,
-                      ),
+      child: InkWell(
+        onTap: () async {
+          if (e.status == 'REJECTED') {
+            if (e.type == VehicleExpenseType.fuel) {
+              final result = await Navigator.of(context).push<bool>(
+                MaterialPageRoute(
+                  builder: (_) => RefuelFormPage(initialData: e),
+                ),
+              );
+              if (result == true) _loadRecent();
+            } else {
+              // TODO: Implement Edit form for rejected other items (if needed)
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Edit feature coming soon...')),
+              );
+            }
+          }
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: e.isFuel
+                      ? Colors.blue.withOpacity(0.15)
+                      : Colors.orange.withOpacity(0.15),
+                  child: Icon(
+                    e.isFuel ? Icons.local_gas_station : Icons.receipt_long,
+                    color: e.isFuel ? Colors.blue : Colors.orange,
+                    size: 22,
+                  ),
+                ),
+                title: Text(typeLabel),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 4),
+                    isLocalPending
+                        ? Text(
+                            'vehicle_expense_syncing'.tr(),
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(
+                                  color: Colors.grey,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          )
+                        : _buildStatusBadge(context, e.status),
+                    const SizedBox(height: 4),
+                    Text(dateStr),
+                  ],
+                ),
+                trailing: Text(
+                  '฿${e.amount.toStringAsFixed(0)}',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
                 ),
               ),
-          ],
-        ),
-        subtitle: Text(dateStr),
-        trailing: Text(
-          '฿${e.amount.toStringAsFixed(0)}',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: Theme.of(context).colorScheme.primary,
-              ),
+              if (e.status == 'REJECTED' &&
+                  e.adminNote != null &&
+                  e.adminNote!.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(
+                    left: 72,
+                    right: 16,
+                    bottom: 12,
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        Icons.info_outline,
+                        size: 14,
+                        color: Colors.red,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          '${'admin_note'.tr()}: ${e.adminNote}',
+                          style: TextStyle(
+                            color: Colors.red.shade700,
+                            fontSize: 12,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );

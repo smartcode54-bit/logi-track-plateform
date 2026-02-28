@@ -14,9 +14,10 @@ import '../../data/repositories/vehicle_expense_repository.dart';
 /// รูปแบบวันที่เวลา: dd/MM/yyyy HH:mm:ss
 final DateFormat _dateTimeFormat = DateFormat('dd/MM/yyyy HH:mm:ss');
 
-/// หน้าบันทึกเติมน้ำมัน — วันที่เวลา, ถ่ายรูปบิลน้ำมัน (OCR), ตำแหน่ง lat,lng
 class RefuelFormPage extends StatefulWidget {
-  const RefuelFormPage({super.key});
+  final VehicleExpense? initialData;
+
+  const RefuelFormPage({super.key, this.initialData});
 
   @override
   State<RefuelFormPage> createState() => _RefuelFormPageState();
@@ -49,9 +50,28 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
   @override
   void initState() {
     super.initState();
-    _updateDateTimeDisplay();
     _amountController.addListener(_updatePricePerLiter);
     _volumeController.addListener(_updatePricePerLiter);
+
+    if (widget.initialData != null) {
+      final data = widget.initialData!;
+      _selectedDateTime = data.date;
+      _amountController.text = data.amount > 0
+          ? data.amount.toStringAsFixed(2)
+          : '';
+      if (data.volumeLiters != null)
+        _volumeController.text = data.volumeLiters!.toStringAsFixed(2);
+      if (data.odometer != null)
+        _odometerController.text = data.odometer.toString();
+      if (data.stationTaxId != null) _taxIdController.text = data.stationTaxId!;
+      if (data.taxInvId != null) _taxInvIdController.text = data.taxInvId!;
+      _refillLocation = data.refillLocation;
+
+      // We can't easily populate _receiptPhoto / _odometerPhoto from network URL
+      // without downloading bytes, so we force the user to re-take/re-pick for Edit mode.
+    }
+
+    _updateDateTimeDisplay();
     WidgetsBinding.instance.addPostFrameCallback((_) => _getRefillLocation());
   }
 
@@ -159,18 +179,19 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
       setState(() {
         _receiptPhoto = compressed;
         _ocrLoading = false;
-        if (result.amountThb != null)
-          _amountController.text = result.amountThb!.toStringAsFixed(2);
-        if (result.liters != null)
-          _volumeController.text = result.liters!.toStringAsFixed(2);
-        if (result.stationTaxId != null && result.stationTaxId!.isNotEmpty) {
-          _taxIdController.text = result.stationTaxId!;
+        if (result.totalAmount != null)
+          _amountController.text = result.totalAmount!.toStringAsFixed(2);
+        if (result.liter != null)
+          _volumeController.text = result.liter!.toStringAsFixed(2);
+        if (result.taxId != null && result.taxId!.isNotEmpty) {
+          _taxIdController.text = result.taxId!;
         }
-        if (result.taxInvId != null && result.taxInvId!.isNotEmpty) {
-          _taxInvIdController.text = result.taxInvId!;
+        if (result.taxInvNo != null && result.taxInvNo!.isNotEmpty) {
+          _taxInvIdController.text = result.taxInvNo!;
         }
-        if (result.odometerKm != null)
-          _odometerController.text = result.odometerKm.toString();
+        if (result.odometer != null) {
+          _odometerController.text = result.odometer!;
+        }
         _updatePricePerLiter();
       });
       if (mounted) {
@@ -315,6 +336,19 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
         return;
       }
     }
+
+    // บังคับถ่ายรูปบิลน้ำมัน (เพื่อให้มั่นใจว่าผ่านกระบวนการ OCR หรือมีหลักฐาน)
+    if (_receiptPhoto == null) {
+      setState(() => _saveError = 'refuel_receipt_take_photo_required'.tr());
+      return;
+    }
+
+    // บังคับถ่ายรูปหน้าปัดไมล์เสมอ
+    if (_odometerPhoto == null) {
+      setState(() => _saveError = 'refuel_odometer_take_photo_required'.tr());
+      return;
+    }
+
     setState(() => _saveError = null);
 
     FocusScope.of(context).unfocus();
@@ -349,27 +383,30 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
     });
     try {
       final amount = double.tryParse(_amountController.text.trim()) ?? 0;
-      final volume = double.tryParse(_volumeController.text.trim());
-      final pricePerLiter = double.tryParse(
-        _pricePerLiterController.text.trim(),
-      );
-      final odometer = int.tryParse(_odometerController.text.trim());
+      final vol = double.tryParse(_volumeController.text.trim());
+      final odo = int.tryParse(_odometerController.text.trim());
+      final taxId = _taxIdController.text.trim().isEmpty
+          ? null
+          : _taxIdController.text.trim();
+      final taxInv = _taxInvIdController.text.trim().isEmpty
+          ? null
+          : _taxInvIdController.text.trim();
+
       final expense = VehicleExpense(
+        id: widget.initialData?.id, // Use existing ID if editing
         driverId: driverId,
         type: VehicleExpenseType.fuel,
         date: _selectedDateTime,
         amount: amount,
-        volumeLiters: volume,
-        pricePerLiter: pricePerLiter,
-        odometer: odometer,
-        stationTaxId: _taxIdController.text.trim().isEmpty
-            ? null
-            : _taxIdController.text.trim(),
-        taxInvId: _taxInvIdController.text.trim().isEmpty
-            ? null
-            : _taxInvIdController.text.trim(),
+        volumeLiters: vol,
+        pricePerLiter: (vol != null && vol > 0) ? (amount / vol) : null,
+        odometer: odo,
+        stationTaxId: taxId,
+        taxInvId: taxInv,
         refillLocation: _refillLocation,
-        note: null,
+        // Status resets to PENDING for edited rejections
+        status: 'PENDING',
+        adminNote: null,
       );
       await saveVehicleExpense(
         expense,
@@ -747,7 +784,8 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
                     Text(
                       _saveError!,
                       style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
+                        color: Colors.red[600],
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],

@@ -351,11 +351,20 @@ class _HomePageState extends State<HomePage> {
                   QuickActionCard(
                     icon: Icons.local_shipping,
                     label: 'my_tasks'.tr(),
-                    onTap: () => Navigator.pushNamed(
-                      context,
-                      '/check-in',
-                      arguments: _driverId,
-                    ),
+                    onTap: () async {
+                      final result = await Navigator.pushNamed(
+                        context,
+                        '/check-in',
+                        arguments: _driverId,
+                      );
+                      if (result == true && mounted) {
+                        Navigator.pushReplacementNamed(
+                          context,
+                          '/home',
+                          arguments: {'tab': 1},
+                        );
+                      }
+                    },
                   ),
                   QuickActionCard(
                     icon: Icons.history,
@@ -382,8 +391,20 @@ class _HomePageState extends State<HomePage> {
       elevation: 4,
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () =>
-            Navigator.pushNamed(context, '/check-in', arguments: _driverId),
+        onTap: () async {
+          final result = await Navigator.pushNamed(
+            context,
+            '/check-in',
+            arguments: _driverId,
+          );
+          if (result == true && context.mounted) {
+            Navigator.pushReplacementNamed(
+              context,
+              '/home',
+              arguments: {'tab': 1},
+            );
+          }
+        },
         child: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(

@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart' show debugPrint;
 
+import 'package:mobile_scanner/mobile_scanner.dart';
+
 import 'cloud_vision_ocr_service.dart';
 
 /// Result of OCR on a runsheet / Shopee screenshot (Vision API, key เดียวกับแผนที่).
@@ -28,7 +30,41 @@ class OcrScreenshotResult {
 }
 
 /// Runs OCR on raw image bytes (Vision API). อ่านไม่ได้ให้ใส่มือได้
-Future<OcrScreenshotResult> runOcrOnImageBytes(List<int> imageBytes) async {
+Future<OcrScreenshotResult> runOcrOnImageBytes(
+  List<int> imageBytes, {
+  String? imagePath,
+}) async {
+  String? qrTripId;
+  String? qrSealCode;
+
+  try {
+    if (imagePath != null && imagePath.isNotEmpty) {
+      final controller = MobileScannerController();
+      final capture = await controller.analyzeImage(imagePath);
+      final barcodes = capture?.barcodes ?? [];
+      for (final b in barcodes) {
+        final raw = b.rawValue?.trim();
+        if (raw != null && raw.isNotEmpty) {
+          if (RegExp(r'^LT[O0]?[A-Za-z0-9\-]{7,}').hasMatch(raw)) {
+            var val =
+                RegExp(r'LT[O0]?[A-Za-z0-9\-]{7,}').firstMatch(raw)?.group(0) ??
+                raw;
+            if (val.startsWith('LTO')) val = val.replaceFirst('LTO', 'LT0');
+            qrTripId = val;
+          } else if (RegExp(r'SPX[A-Za-z0-9\-]{5,}').hasMatch(raw)) {
+            qrSealCode =
+                RegExp(r'SPX[A-Za-z0-9\-]{5,}').firstMatch(raw)?.group(0) ??
+                raw;
+          }
+        }
+      }
+      controller.dispose();
+      debugPrint('QR Scan from Image -> TripID: $qrTripId, Seal: $qrSealCode');
+    }
+  } catch (e) {
+    debugPrint('QR scan on image error: $e');
+  }
+
   try {
     final fullText = await runCloudVisionOcrOnImageBytes(imageBytes);
 
@@ -37,11 +73,16 @@ Future<OcrScreenshotResult> runOcrOnImageBytes(List<int> imageBytes) async {
       '=== OCR Full Text (Vision API) ===\n${fullText == null || fullText.isEmpty ? "(ว่าง)" : fullText}\n=====================',
     );
 
-    if (fullText == null || fullText.isEmpty) return OcrScreenshotResult();
+    if (fullText == null || fullText.isEmpty) {
+      if (qrTripId != null || qrSealCode != null) {
+        return OcrScreenshotResult(tripId: qrTripId, sealCode: qrSealCode);
+      }
+      return OcrScreenshotResult();
+    }
 
     return OcrScreenshotResult(
-      tripId: _clean(_extractTripId(fullText)),
-      sealCode: _clean(_extractSealCode(fullText)),
+      tripId: qrTripId ?? _clean(_extractTripId(fullText)),
+      sealCode: qrSealCode ?? _clean(_extractSealCode(fullText)),
       routeInfo: _clean(_extractRouteInfo(fullText)),
       origin: _clean(_extractOrigin(fullText)),
       destination: _clean(_extractDestination(fullText)),
@@ -62,8 +103,16 @@ String? _clean(String? v) => (v != null && v.isNotEmpty) ? v : null;
 
 /// Trip ID: "เลขทริป : LT0Q2E2467U61"
 String? _extractTripId(String text) {
-  final match = RegExp(r'LT[A-Za-z0-9\-]{8,}').firstMatch(text);
-  return match?.group(0);
+  // รองรับ LTO ที่ OCR อ่านผิดจาก LT0
+  final match = RegExp(r'LT[O0][A-Za-z0-9\-]{7,}').firstMatch(text);
+  if (match != null) {
+    var raw = match.group(0)!;
+    if (raw.startsWith('LTO')) {
+      raw = raw.replaceFirst('LTO', 'LT0');
+    }
+    return raw;
+  }
+  return null;
 }
 
 /// Seal Code: "เลข Seal Code: SPX3784238"
