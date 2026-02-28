@@ -27,7 +27,9 @@ class DriverProfileRepository {
   }
 
   /// Fetches truck assignment history for a driver (same collection as web).
-  Future<List<Map<String, dynamic>>> getAssignmentHistory(String driverId) async {
+  Future<List<Map<String, dynamic>>> getAssignmentHistory(
+    String driverId,
+  ) async {
     try {
       final querySnapshot = await _firestore
           .collection(_assignmentsCollection)
@@ -39,10 +41,27 @@ class DriverProfileRepository {
         final data = doc.data();
         final createdAt = data['createdAt'];
         final revokedAt = data['revokedAt'];
+
+        // Fetch truck type from trucks collection
+        String truckType = '';
+        final truckId = data['truckId'] as String?;
+        if (truckId != null && truckId.isNotEmpty) {
+          try {
+            final truckDoc = await _firestore
+                .collection('trucks')
+                .doc(truckId)
+                .get();
+            if (truckDoc.exists) {
+              truckType = truckDoc.data()?['type'] as String? ?? '';
+            }
+          } catch (_) {}
+        }
+
         list.add({
           'id': doc.id,
           'truckPlate': data['truckPlate'] ?? '',
           'truckModel': data['truckModel'] ?? '',
+          'truckType': truckType,
           'status': data['status'] ?? 'active',
           'createdAt': createdAt is Timestamp ? createdAt.toDate() : createdAt,
           'revokedAt': revokedAt is Timestamp ? revokedAt.toDate() : revokedAt,

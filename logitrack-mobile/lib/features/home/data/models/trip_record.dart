@@ -23,16 +23,24 @@ class TripRecord {
   final DateTime? deliveredTimestamp;
   final double? deliveredLat;
   final double? deliveredLng;
+
   /// STD = Scheduled Time of Departure (CreateAt / บันทึกเมื่อ)
   final DateTime? std;
+
   /// STA = Scheduled Time of Arrival (เวลา Seal รถ + durationMinutes จาก hub_soc_distances)
   final DateTime? sta;
+
   /// ATA = Actual Time of Arrival (จะอัปเดตเมื่อถึง Hub/SOC ด้วย Geofencing)
   final DateTime? ata;
+
   /// เวลาเดินทาง (นาที) จาก hub_soc_distances
   final double? durationMinutes;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+  final bool needsAdminReview;
+  final String? reviewStatus;
+  final String? reviewReason;
+  final DateTime? resubmittedAt;
 
   static DateTime? _parseDate(dynamic v) {
     if (v == null) return null;
@@ -104,6 +112,10 @@ class TripRecord {
       durationMinutes: (map['durationMinutes'] as num?)?.toDouble(),
       createdAt: _parseDate(map['createdAt']),
       updatedAt: _parseDate(map['updatedAt']),
+      needsAdminReview: map['needsAdminReview'] == true,
+      reviewStatus: map['reviewStatus'] as String?,
+      reviewReason: map['reviewReason'] as String?,
+      resubmittedAt: _parseDate(map['resubmittedAt']),
     );
   }
 
@@ -134,6 +146,10 @@ class TripRecord {
     this.durationMinutes,
     this.createdAt,
     this.updatedAt,
+    this.needsAdminReview = false,
+    this.reviewStatus,
+    this.reviewReason,
+    this.resubmittedAt,
   });
 
   Map<String, dynamic> toFirestore() {
@@ -164,6 +180,10 @@ class TripRecord {
       if (durationMinutes != null) 'durationMinutes': durationMinutes,
       'createdAt': createdAt ?? now,
       'updatedAt': updatedAt ?? now,
+      'needsAdminReview': needsAdminReview,
+      if (reviewStatus != null) 'reviewStatus': reviewStatus,
+      if (reviewReason != null) 'reviewReason': reviewReason,
+      if (resubmittedAt != null) 'resubmittedAt': resubmittedAt,
     };
   }
 }

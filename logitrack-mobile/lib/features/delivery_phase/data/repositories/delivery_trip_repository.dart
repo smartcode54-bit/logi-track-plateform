@@ -49,14 +49,16 @@ Future<void> submitDeliveryPhaseRecord({
   }
   mergedPhotos.addAll(newPhotoMaps);
 
-  await ref.set({
+  final Map<String, dynamic> updateData = {
     'status': 'delivered',
     'deliveredTimestamp': Timestamp.fromDate(now),
     'deliveredLat': deliveredLat,
     'deliveredLng': deliveredLng,
     'updatedAt': Timestamp.fromDate(now),
     'photos': mergedPhotos,
-  }, SetOptions(merge: true));
+  };
+
+  await ref.set(updateData, SetOptions(merge: true));
 
   if (taskId != null && taskId.isNotEmpty) {
     try {
@@ -68,4 +70,47 @@ Future<void> submitDeliveryPhaseRecord({
       // Ignored if document doesn't exist or isn't a first mile task.
     }
   }
+}
+
+/// Re-submit delivery photos after admin rejected
+Future<void> resubmitDeliveryPhotos({
+  required String tripId,
+  required Map<String, StampedPhotoInput> deliveryPhotos,
+  required double deliveredLat,
+  required double deliveredLng,
+}) async {
+  final now = DateTime.now();
+  final photoFutures = deliveryPhotos.entries.map((entry) async {
+    final type = entry.key;
+    final photo = entry.value;
+    final url = await uploadTripPhoto(
+      tripId: tripId,
+      photoType: type,
+      imageBytes: photo.bytes,
+    );
+    return TripPhoto(
+      url: url,
+      type: type,
+      geocoding: TripPhotoGeocoding(
+        lat: photo.lat,
+        lng: photo.lng,
+        timestamp: photo.timestamp,
+      ),
+    );
+  });
+  final newPhotos = await Future.wait(photoFutures);
+  final newPhotoMaps = newPhotos.map((p) => p.toMap()).toList();
+
+  final ref = FirebaseFirestore.instance
+      .collection(tripRecordsCollection)
+      .doc(tripId);
+
+  await ref.update({
+    'photos': newPhotoMaps,
+    'reviewStatus': 'pending_review',
+    'resubmittedAt': Timestamp.fromDate(now),
+    'deliveredLat': deliveredLat,
+    'deliveredLng': deliveredLng,
+    'updatedAt': Timestamp.fromDate(now),
+  });
 }

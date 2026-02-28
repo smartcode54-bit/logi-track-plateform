@@ -466,8 +466,9 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     HubDoc? originHub;
     HubDoc? destHub;
     for (final h in _allHubs) {
-      if (h.sourceNameEn == originName) originHub = h;
-      if (h.sourceNameEn == destName) destHub = h;
+      if (h.sourceNameEn == originName || h.sourceId == originName)
+        originHub = h;
+      if (h.sourceNameEn == destName || h.sourceId == destName) destHub = h;
     }
     final isFm = _jobType == jobTypeFirstMile;
     if (originName.isEmpty || destName.isEmpty) {
@@ -722,8 +723,9 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       HubDoc? originHub;
       HubDoc? destHub;
       for (final h in _allHubs) {
-        if (h.sourceNameEn == originName) originHub = h;
-        if (h.sourceNameEn == destName) destHub = h;
+        if (h.sourceNameEn == originName || h.sourceId == originName)
+          originHub = h;
+        if (h.sourceNameEn == destName || h.sourceId == destName) destHub = h;
       }
       HubSocDistanceResult? hubSocResult;
       if (originName.isNotEmpty &&
@@ -803,6 +805,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
             'destination': destination.isEmpty ? null : destination,
             'sealCode': sealCode.isEmpty ? null : sealCode,
             'jobType': jobType,
+            'taskId': activeTaskId,
           },
         );
       }

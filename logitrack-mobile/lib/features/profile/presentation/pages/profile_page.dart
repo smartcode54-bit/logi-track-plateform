@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import '../../data/repositories/driver_profile_repository.dart';
@@ -33,8 +34,36 @@ class _ProfilePageState extends State<ProfilePage> {
         List<Map<String, dynamic>> assignments = [];
         if (data != null && data['id'] != null) {
           try {
-            assignments = await _profileRepository.getAssignmentHistory(data['id'] as String);
+            assignments = await _profileRepository.getAssignmentHistory(
+              data['id'] as String,
+            );
           } catch (_) {}
+
+          // Fallback: if active assignment has no truckType, fetch from driver's currentAssignment.truckId
+          {
+            final currentTruckId =
+                data['currentAssignment']?['truckId'] as String?;
+            if (currentTruckId != null && currentTruckId.isNotEmpty) {
+              // Find the active assignment and add truckType if missing
+              for (int i = 0; i < assignments.length; i++) {
+                if (assignments[i]['status'] == 'active' &&
+                    assignments[i]['revokedAt'] == null &&
+                    (assignments[i]['truckType'] == null ||
+                        (assignments[i]['truckType'] as String).isEmpty)) {
+                  try {
+                    final truckDoc = await FirebaseFirestore.instance
+                        .collection('trucks')
+                        .doc(currentTruckId)
+                        .get();
+                    if (truckDoc.exists) {
+                      assignments[i]['truckType'] =
+                          truckDoc.data()?['type'] as String? ?? '';
+                    }
+                  } catch (_) {}
+                }
+              }
+            }
+          }
         }
         if (mounted) {
           setState(() {
@@ -86,7 +115,11 @@ class _ProfilePageState extends State<ProfilePage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.error_outline, size: 48, color: Theme.of(context).colorScheme.error),
+              Icon(
+                Icons.error_outline,
+                size: 48,
+                color: Theme.of(context).colorScheme.error,
+              ),
               const SizedBox(height: 16),
               Text('$_error', textAlign: TextAlign.center),
             ],
@@ -102,9 +135,11 @@ class _ProfilePageState extends State<ProfilePage> {
     final lastName = _profile!['lastName'] ?? '';
     final displayName = '$firstName $lastName'.trim();
     final mobile = _profile!['mobile'] ?? _profile!['phone'] ?? '-';
-    final email = _authRepository.currentUser?.email ?? _profile!['email'] ?? '-';
+    final email =
+        _authRepository.currentUser?.email ?? _profile!['email'] ?? '-';
     final idCardNo = _profile!['idCardNo'] ?? _profile!['nationalId'] ?? '-';
-    final licenseNumber = _profile!['truckLicenseId'] ?? _profile!['licenseNumber'] ?? '-';
+    final licenseNumber =
+        _profile!['truckLicenseId'] ?? _profile!['licenseNumber'] ?? '-';
     final licenseType = _profile!['licenseType'] ?? '-';
     final employmentType = _profile!['employmentType'] ?? '-';
 
@@ -120,10 +155,28 @@ class _ProfilePageState extends State<ProfilePage> {
           _buildInfoCard(
             context,
             items: [
-              _InfoRow(icon: Icons.person_outline, label: 'name'.tr(), value: displayName.isNotEmpty ? displayName : 'profile_driver'.tr()),
-              _InfoRow(icon: Icons.phone_outlined, label: 'mobile'.tr(), value: mobile),
-              _InfoRow(icon: Icons.email_outlined, label: 'email'.tr(), value: email),
-              _InfoRow(icon: Icons.badge_outlined, label: 'id_card'.tr(), value: idCardNo),
+              _InfoRow(
+                icon: Icons.person_outline,
+                label: 'name'.tr(),
+                value: displayName.isNotEmpty
+                    ? displayName
+                    : 'profile_driver'.tr(),
+              ),
+              _InfoRow(
+                icon: Icons.phone_outlined,
+                label: 'mobile'.tr(),
+                value: mobile,
+              ),
+              _InfoRow(
+                icon: Icons.email_outlined,
+                label: 'email'.tr(),
+                value: email,
+              ),
+              _InfoRow(
+                icon: Icons.badge_outlined,
+                label: 'id_card'.tr(),
+                value: idCardNo,
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -132,9 +185,21 @@ class _ProfilePageState extends State<ProfilePage> {
           _buildInfoCard(
             context,
             items: [
-              _InfoRow(icon: Icons.work_outline, label: 'employment_type'.tr(), value: employmentType),
-              _InfoRow(icon: Icons.directions_car_outlined, label: 'license_number'.tr(), value: licenseNumber),
-              _InfoRow(icon: Icons.category_outlined, label: 'license_type'.tr(), value: licenseType),
+              _InfoRow(
+                icon: Icons.work_outline,
+                label: 'employment_type'.tr(),
+                value: employmentType,
+              ),
+              _InfoRow(
+                icon: Icons.directions_car_outlined,
+                label: 'license_number'.tr(),
+                value: licenseNumber,
+              ),
+              _InfoRow(
+                icon: Icons.category_outlined,
+                label: 'license_type'.tr(),
+                value: licenseType,
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -145,8 +210,14 @@ class _ProfilePageState extends State<ProfilePage> {
           Card(
             elevation: 2,
             child: ListTile(
-              leading: Icon(Icons.chat_bubble_outline, color: Theme.of(context).colorScheme.primary),
-              title: Text('chat_with_support'.tr(), style: const TextStyle(fontWeight: FontWeight.w600)),
+              leading: Icon(
+                Icons.chat_bubble_outline,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              title: Text(
+                'chat_with_support'.tr(),
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
               subtitle: Text('chat_support_subtitle'.tr()),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => Navigator.of(context).pushNamed('/chat'),
@@ -166,7 +237,20 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   String _monthShort(int month) {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     return months[month - 1];
   }
 
@@ -187,14 +271,20 @@ class _ProfilePageState extends State<ProfilePage> {
           padding: const EdgeInsets.all(24.0),
           child: Row(
             children: [
-              Icon(Icons.local_shipping_outlined, size: 40, color: Theme.of(context).colorScheme.primary.withOpacity(0.6)),
+              Icon(
+                Icons.local_shipping_outlined,
+                size: 40,
+                color: Theme.of(context).colorScheme.primary.withOpacity(0.6),
+              ),
               const SizedBox(width: 16),
               Expanded(
                 child: Text(
                   'truck_assignment_no_history'.tr(),
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
-                      ),
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withOpacity(0.7),
+                  ),
                 ),
               ),
             ],
@@ -213,18 +303,47 @@ class _ProfilePageState extends State<ProfilePage> {
           current['truckPlate']?.toString() ?? '-',
           style: const TextStyle(fontWeight: FontWeight.w600),
         ),
-        subtitle: Text(
-          '${current['truckModel'] ?? ''}\n${'truck_assignment_start'.tr()}: ${_formatDate(current['createdAt'])}',
-          style: Theme.of(context).textTheme.bodySmall,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              current['truckModel']?.toString() ?? '',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            if ((current['truckType'] as String?)?.isNotEmpty == true)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.category_outlined,
+                      size: 14,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${'truck_type'.tr()}: ${current['truckType']}',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            Text(
+              '${'truck_assignment_start'.tr()}: ${_formatDate(current['createdAt'])}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
         ),
         trailing: Chip(
           label: Text(
             'truck_assignment_current'.tr(),
             style: const TextStyle(fontSize: 12),
           ),
-          backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.15),
+          backgroundColor: Theme.of(
+            context,
+          ).colorScheme.primary.withOpacity(0.15),
           padding: EdgeInsets.zero,
           materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
         ),
@@ -242,7 +361,9 @@ class _ProfilePageState extends State<ProfilePage> {
           children: [
             CircleAvatar(
               radius: 40,
-              backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.2),
+              backgroundColor: Theme.of(
+                context,
+              ).colorScheme.primary.withOpacity(0.2),
               child: Text(
                 initial,
                 style: TextStyle(
@@ -258,17 +379,21 @@ class _ProfilePageState extends State<ProfilePage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    displayName.isNotEmpty ? displayName : 'profile_driver'.tr(),
+                    displayName.isNotEmpty
+                        ? displayName
+                        : 'profile_driver'.tr(),
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     _authRepository.currentUser?.email ?? '',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
-                        ),
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withOpacity(0.7),
+                    ),
                   ),
                 ],
               ),
@@ -282,16 +407,13 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget _buildSectionTitle(BuildContext context, String title) {
     return Text(
       title,
-      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
+      style: Theme.of(
+        context,
+      ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
     );
   }
 
-  Widget _buildInfoCard(
-    BuildContext context, {
-    required List<_InfoRow> items,
-  }) {
+  Widget _buildInfoCard(BuildContext context, {required List<_InfoRow> items}) {
     return Card(
       elevation: 2,
       child: Padding(
@@ -300,12 +422,18 @@ class _ProfilePageState extends State<ProfilePage> {
           children: items
               .map(
                 (row) => ListTile(
-                  leading: Icon(row.icon, size: 22, color: Theme.of(context).colorScheme.primary),
+                  leading: Icon(
+                    row.icon,
+                    size: 22,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
                   title: Text(
                     row.label,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
-                        ),
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withOpacity(0.7),
+                    ),
                   ),
                   subtitle: Text(
                     row.value.isEmpty ? '-' : row.value,

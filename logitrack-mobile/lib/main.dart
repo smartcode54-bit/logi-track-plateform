@@ -215,6 +215,7 @@ class MyApp extends StatelessWidget {
                     destination: args['destination'] as String?,
                     sealCode: args['sealCode'] as String?,
                     jobType: args['jobType'] as String?,
+                    taskId: args['taskId'] as String?,
                   );
                 }
               }
@@ -236,9 +237,12 @@ class MyApp extends StatelessWidget {
             '/chat': (context) => const ChatListPage(),
             '/broadcast': (context) => const BroadcastListPage(),
             '/chat-room': (context) {
-              final chatId = ModalRoute.of(context)?.settings.arguments as String?;
+              final chatId =
+                  ModalRoute.of(context)?.settings.arguments as String?;
               if (chatId == null || chatId.isEmpty) {
-                return const Scaffold(body: Center(child: Text('Invalid chat')));
+                return const Scaffold(
+                  body: Center(child: Text('Invalid chat')),
+                );
               }
               return ChatRoomPage(chatId: chatId);
             },

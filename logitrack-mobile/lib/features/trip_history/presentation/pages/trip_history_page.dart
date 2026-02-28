@@ -32,16 +32,20 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
   Future<void> _loadTrips() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null || uid.isEmpty) {
-      if (mounted) setState(() { _loading = false; });
+      if (mounted)
+        setState(() {
+          _loading = false;
+        });
       return;
     }
     setState(() => _loading = true);
     try {
       final list = await getTripHistoryByDriver(uid);
-      if (mounted) setState(() {
-        _allTrips = list;
-        _loading = false;
-      });
+      if (mounted)
+        setState(() {
+          _allTrips = list;
+          _loading = false;
+        });
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
@@ -54,7 +58,20 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
   }
 
   /// เดือน: 1–12 (ใช้กับ DateFormat MMM สำหรับ label)
-  static const List<int> _monthNumbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+  static const List<int> _monthNumbers = [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+  ];
 
   String _monthName(int month) {
     final locale = context.locale.languageCode;
@@ -82,10 +99,7 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
         title: Text('trip_history_title'.tr()),
         actions: [
           if (!_loading)
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              onPressed: _loadTrips,
-            ),
+            IconButton(icon: const Icon(Icons.refresh), onPressed: _loadTrips),
         ],
       ),
       body: _loading
@@ -109,10 +123,12 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
                               border: const OutlineInputBorder(),
                             ),
                             items: _yearOptions
-                                .map((y) => DropdownMenuItem(
-                                      value: y,
-                                      child: Text('$y'),
-                                    ))
+                                .map(
+                                  (y) => DropdownMenuItem(
+                                    value: y,
+                                    child: Text('$y'),
+                                  ),
+                                )
                                 .toList(),
                             onChanged: (v) {
                               if (v != null) setState(() => _selectedYear = v);
@@ -128,10 +144,12 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
                               border: const OutlineInputBorder(),
                             ),
                             items: _monthNumbers
-                                .map((m) => DropdownMenuItem(
-                                      value: m,
-                                      child: Text(_monthName(m)),
-                                    ))
+                                .map(
+                                  (m) => DropdownMenuItem(
+                                    value: m,
+                                    child: Text(_monthName(m)),
+                                  ),
+                                )
                                 .toList(),
                             onChanged: (v) {
                               if (v != null) setState(() => _selectedMonth = v);
@@ -176,7 +194,9 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
                       color: Colors.indigo,
                       trips: firstMile,
                       expanded: _firstMileExpanded,
-                      onTap: () => setState(() => _firstMileExpanded = !_firstMileExpanded),
+                      onTap: () => setState(
+                        () => _firstMileExpanded = !_firstMileExpanded,
+                      ),
                     ),
                     const SizedBox(height: 16),
 
@@ -187,7 +207,9 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
                       color: Colors.orange,
                       trips: lineHaul,
                       expanded: _lineHaulExpanded,
-                      onTap: () => setState(() => _lineHaulExpanded = !_lineHaulExpanded),
+                      onTap: () => setState(
+                        () => _lineHaulExpanded = !_lineHaulExpanded,
+                      ),
                     ),
                   ],
                 ),
@@ -223,16 +245,16 @@ class _StatCard extends StatelessWidget {
               const SizedBox(height: 6),
               Text(
                 value,
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 2),
               Text(
                 label,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Colors.grey[600],
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
                 textAlign: TextAlign.center,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
@@ -294,8 +316,8 @@ class _SectionCard extends StatelessWidget {
                     child: Text(
                       title,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                   Chip(
@@ -334,9 +356,13 @@ class _SectionCard extends StatelessWidget {
                   final date = t.createdAt != null
                       ? DateFormat('dd/MM/yy HH:mm').format(t.createdAt!)
                       : '–';
-                  final route =
-                      '${t.origin ?? '–'} → ${t.destination ?? '–'}';
-                  final tripId = t.spxTripId ?? (t.id != null && t.id!.length > 12 ? t.id!.substring(0, 12) : t.id) ?? '–';
+                  final route = '${t.origin ?? '–'} → ${t.destination ?? '–'}';
+                  final tripId =
+                      t.spxTripId ??
+                      (t.id != null && t.id!.length > 12
+                          ? t.id!.substring(0, 12)
+                          : t.id) ??
+                      '–';
                   return ListTile(
                     title: Text(
                       tripId,
@@ -347,14 +373,11 @@ class _SectionCard extends StatelessWidget {
                     ),
                     subtitle: Text(
                       '$date\n$route',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey[600],
-                      ),
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    trailing: _StatusChip(status: t.status),
+                    trailing: _StatusChip(status: t.status, trip: t),
                   );
                 },
               ),
@@ -366,9 +389,10 @@ class _SectionCard extends StatelessWidget {
 }
 
 class _StatusChip extends StatelessWidget {
-  const _StatusChip({required this.status});
+  const _StatusChip({required this.status, this.trip});
 
   final String status;
+  final TripRecord? trip;
 
   Color get _color {
     switch (status) {
@@ -398,4 +422,3 @@ class _StatusChip extends StatelessWidget {
     );
   }
 }
-

@@ -97,7 +97,7 @@ export function LineHaulTaskDialog({ mode, task, trigger, open, onOpenChange, on
         },
     });
 
-    // Load Hubs and Drivers
+    // Load Hubs, Trucks, Drivers (once on mount)
     useEffect(() => {
         const fetchData = async () => {
             try {
@@ -147,8 +147,18 @@ export function LineHaulTaskDialog({ mode, task, trigger, open, onOpenChange, on
                 const driverSnapshot = await getDocs(collection(db, 'drivers'));
                 const driverList = driverSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Driver));
                 setDrivers(driverList);
+            } catch (err) {
+                console.error("Failed to fetch data", err);
+            }
+        };
+        fetchData();
+    }, []);
 
-                // Fetch active Tasks to filter out busy drivers
+    // Re-fetch active tasks every time the dialog opens to get fresh busy-driver data
+    useEffect(() => {
+        if (!isOpen) return;
+        const fetchActiveDrivers = async () => {
+            try {
                 const activeTasksQuery = query(
                     collection(db, COLLECTIONS.TASKS),
                     where("status", "in", ["Pending", "Assigned", "Checked in", "In-Transit"])
@@ -161,13 +171,35 @@ export function LineHaulTaskDialog({ mode, task, trigger, open, onOpenChange, on
                         busyDrivers.add(data.driverId);
                     }
                 });
+
+                // Cross-check trip_records: if a driver's trip is "delivered", they're actually free
+                if (busyDrivers.size > 0) {
+                    const driverArr = Array.from(busyDrivers);
+                    // Firestore "in" supports max 30 items; batch if needed
+                    for (let i = 0; i < driverArr.length; i += 30) {
+                        const batch = driverArr.slice(i, i + 30);
+                        const tripQuery = query(
+                            collection(db, COLLECTIONS.TRIP_RECORDS),
+                            where("driverId", "in", batch),
+                            where("status", "==", "delivered")
+                        );
+                        const tripSnapshot = await getDocs(tripQuery);
+                        tripSnapshot.forEach((doc) => {
+                            const data = doc.data();
+                            if (data.driverId) {
+                                busyDrivers.delete(data.driverId);
+                            }
+                        });
+                    }
+                }
+
                 setActiveTaskDriverIds(busyDrivers);
             } catch (err) {
-                console.error("Failed to fetch data", err);
+                console.error("Failed to fetch active tasks", err);
             }
         };
-        fetchData();
-    }, []);
+        fetchActiveDrivers();
+    }, [isOpen]);
 
     // Reset/Set values on open or task change
     useEffect(() => {
@@ -644,6 +676,14 @@ export function LineHaulTaskDialog({ mode, task, trigger, open, onOpenChange, on
                                                             return fmType;
                                                         };
                                                         const filtered = drivers.filter(driver => {
+                                                            // Exclude busy drivers first (unless editing the currently assigned driver)
+                                                            if (mode === "edit" && driver.id === task?.driverId) {
+                                                                // Always keep the currently assigned driver visible
+                                                            } else if (driver.id && activeTaskDriverIds.has(driver.id)) {
+                                                                return false;
+                                                            }
+
+                                                            // Then filter by truck type
                                                             if (!watchedTruckType) return true;
                                                             const targetType = getMappedTruckType(watchedTruckType);
                                                             const assignedTruckId = driver.currentAssignment?.truckId;
@@ -653,13 +693,7 @@ export function LineHaulTaskDialog({ mode, task, trigger, open, onOpenChange, on
                                                             if (targetType === "4 Wheels Jumbo") {
                                                                 return truck.type === "4 Wheels" || truck.type === "4 Wheels Jumbo";
                                                             }
-                                                            if (truck.type !== targetType) return false;
-
-                                                            // Exclude busy drivers (unless editing the currently assigned driver)
-                                                            if (mode === "edit" && driver.id === task?.driverId) return true;
-                                                            if (driver.id && activeTaskDriverIds.has(driver.id)) return false;
-
-                                                            return true;
+                                                            return truck.type === targetType;
                                                         });
                                                         // In edit/assign mode: if filter leaves no drivers, show all so assign always works
                                                         const list = mode === "edit" && filtered.length === 0 ? drivers : filtered;

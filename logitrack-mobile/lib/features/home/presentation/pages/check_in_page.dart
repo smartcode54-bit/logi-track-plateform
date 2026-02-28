@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -25,6 +26,33 @@ class CheckInPage extends StatefulWidget {
 
 class _CheckInPageState extends State<CheckInPage> {
   TaskFilter _filter = TaskFilter.all;
+
+  /// Hub name cache: sourceId → display name (Thai preferred)
+  Map<String, String> _hubNameMap = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHubNames();
+  }
+
+  Future<void> _loadHubNames() async {
+    try {
+      final hubs = await fetchAllHubs();
+      final map = <String, String>{};
+      for (final h in hubs) {
+        map[h.sourceId] = h.sourceNameTh.isNotEmpty
+            ? h.sourceNameTh
+            : h.sourceNameEn;
+      }
+      if (mounted) setState(() => _hubNameMap = map);
+    } catch (_) {}
+  }
+
+  String _resolveHubName(String sourceId) {
+    if (sourceId.isEmpty) return '-';
+    return _hubNameMap[sourceId] ?? sourceId;
+  }
 
   static bool _canCheckIn(Map<String, dynamic> t) {
     final taskId = t['id'] as String?;
@@ -71,11 +99,12 @@ class _CheckInPageState extends State<CheckInPage> {
                     );
                     return;
                   }
-                  final result = await showModalBottomSheet<bool>(
-                    context: context,
-                    isScrollControlled: true,
-                    builder: (_) =>
-                        _ManualCheckInSheet(driverId: widget.driverId),
+                  final result = await Navigator.push<bool>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          ManualCheckInPage(driverId: widget.driverId),
+                    ),
                   );
                   if (result == true && context.mounted) {
                     // Return true to indicate check-in was successful
@@ -405,7 +434,7 @@ class _CheckInPageState extends State<CheckInPage> {
               )
             : null,
         title: Text(
-          '${t['taskId'] ?? t['FirstMileTaskId'] ?? 'Task'}: $source → $dest',
+          '${t['taskId'] ?? t['FirstMileTaskId'] ?? 'Task'}: ${_resolveHubName(source)} → ${_resolveHubName(dest)}',
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -450,7 +479,7 @@ class _CheckInPageState extends State<CheckInPage> {
                           ),
                         );
                       }
-                    : () => _doCheckIn(context, taskId!),
+                    : () => _doCheckIn(context, t),
               )
             : null,
       ),
@@ -482,62 +511,199 @@ class _CheckInPageState extends State<CheckInPage> {
     );
   }
 
-  Future<void> _doCheckIn(BuildContext context, String taskId) async {
-    if (!context.mounted) return;
-    if (kIsWeb && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'On web: select an image file. To use camera, run the app on Android or iOS.'
-                .tr(),
-          ),
-          duration: const Duration(seconds: 4),
+  Future<void> _doCheckIn(
+    BuildContext context,
+    Map<String, dynamic> taskData,
+  ) async {
+    final taskId = taskData['id'] as String?;
+    if (taskId == null || !context.mounted) return;
+
+    final result = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TaskCheckInPage(
+          taskId: taskId,
+          taskData: taskData,
+          driverId: widget.driverId,
+          hubNameMap: _hubNameMap,
         ),
-      );
+      ),
+    );
+
+    if (result == true && context.mounted) {
+      Navigator.pop(context, true);
     }
+  }
+}
+
+// ============================================================
+// TaskCheckInPage — Check-in for existing tasks (FM/LH)
+// Flow: Camera → Preview → Edit/Save
+// ============================================================
+
+enum _TaskCheckInStep { camera, preview }
+
+class TaskCheckInPage extends StatefulWidget {
+  final String taskId;
+  final Map<String, dynamic> taskData;
+  final String driverId;
+  final Map<String, String> hubNameMap;
+
+  const TaskCheckInPage({
+    super.key,
+    required this.taskId,
+    required this.taskData,
+    required this.driverId,
+    this.hubNameMap = const {},
+  });
+
+  @override
+  State<TaskCheckInPage> createState() => _TaskCheckInPageState();
+}
+
+class _TaskCheckInPageState extends State<TaskCheckInPage> {
+  _TaskCheckInStep _step = _TaskCheckInStep.camera;
+  Uint8List? _photoBytes;
+  bool _submitting = false;
+  bool _cameraOpened = false;
+
+  // Driver data (fetched once)
+  Map<String, dynamic>? _driverData;
+  Map<String, dynamic>? _assignedTruck;
+  String _truckType = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchDriverData();
+  }
+
+  Future<void> _fetchDriverData() async {
+    try {
+      final drvDoc = await FirebaseFirestore.instance
+          .collection('drivers')
+          .doc(widget.driverId)
+          .get();
+      if (drvDoc.exists) {
+        _driverData = drvDoc.data();
+        final truckId = _driverData?['currentAssignment']?['truckId'];
+        if (truckId != null) {
+          final truckDoc = await FirebaseFirestore.instance
+              .collection('trucks')
+              .doc(truckId)
+              .get();
+          if (truckDoc.exists) _assignedTruck = truckDoc.data();
+          final tt = _assignedTruck?['type'] as String? ?? '';
+          _truckType = _truckTypeMap[tt] ?? tt;
+          if (_truckType.isEmpty) _truckType = '-';
+        }
+      }
+    } catch (_) {}
+
+    // Open camera right away
+    if (mounted && !_cameraOpened) {
+      _cameraOpened = true;
+      _openCamera();
+    }
+  }
+
+  Future<void> _openCamera() async {
+    if (kIsWeb) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Not supported on web')));
+      }
+      return;
+    }
+
     final picker = ImagePicker();
     final xfile = await picker.pickImage(
       source: ImageSource.camera,
       imageQuality: 85,
     );
-    if (xfile == null || !context.mounted) return;
-    final imageBytes = await xfile.readAsBytes();
-    if (!context.mounted) return;
-    final timestamp = DateTime.now();
+    if (xfile == null) {
+      // User cancelled camera → go back
+      if (mounted) Navigator.pop(context);
+      return;
+    }
+    final bytes = await xfile.readAsBytes();
+    if (mounted) {
+      setState(() {
+        _photoBytes = bytes;
+        _step = _TaskCheckInStep.preview;
+      });
+    }
+  }
 
-    bool dialogOpen = false;
+  String get _taskDisplayId =>
+      widget.taskData['taskId'] as String? ??
+      widget.taskData['FirstMileTaskId'] as String? ??
+      'Task';
+
+  String get _taskType {
+    final tt = widget.taskData['taskType'] as String? ?? '';
+    if (tt == 'LINE_HAUL') return 'LH';
+    if (tt == 'FIRST_MILE') return 'FM';
+    final id = _taskDisplayId;
+    return id.startsWith('LH') ? 'LH' : 'FM';
+  }
+
+  String get _source {
+    final id = widget.taskData['sourceHub'] as String? ?? '-';
+    return widget.hubNameMap[id] ?? id;
+  }
+
+  String get _dest {
+    final id = widget.taskData['destination'] as String? ?? '-';
+    return widget.hubNameMap[id] ?? id;
+  }
+
+  String get _driverName {
+    if (_driverData != null) {
+      return '${_driverData?['firstName'] ?? ''} ${_driverData?['lastName'] ?? ''}'
+          .trim();
+    }
+    return widget.taskData['driverName'] as String? ?? '-';
+  }
+
+  String get _licensePlate {
+    return _driverData?['currentAssignment']?['truckPlate'] as String? ??
+        widget.taskData['licensePlate'] as String? ??
+        '-';
+  }
+
+  String get _truckModel {
+    return _driverData?['currentAssignment']?['truckModel'] as String? ??
+        _assignedTruck?['model'] as String? ??
+        '-';
+  }
+
+  Future<void> _submit() async {
+    if (_photoBytes == null) return;
+
+    setState(() => _submitting = true);
     try {
-      if (!context.mounted) return;
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => const Center(child: CircularProgressIndicator()),
-      );
-      dialogOpen = true;
       final position = await getCurrentPosition();
-      if (!context.mounted) return;
-      if (dialogOpen) {
-        Navigator.of(context).pop();
-        dialogOpen = false;
-      }
+      final timestamp = DateTime.now();
+
       await submitCheckIn(
-        taskId: taskId,
-        imageBytes: imageBytes,
+        taskId: widget.taskId,
+        imageBytes: _photoBytes!,
         lat: position.latitude,
         lng: position.longitude,
         timestamp: timestamp,
       );
-      await DraftStorageService.instance.saveActiveCheckInTaskId(taskId);
-      if (!context.mounted) return;
-      // pop and return true to HomePage
-      Navigator.pop(context, true);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Check-in saved'.tr())));
-      // Stream จะอัปเดตจาก Firestore อัตโนมัติ → งานที่เช็คอินจะย้ายไป History (reset สถานะงานวันนี้)
+      await DraftStorageService.instance.saveActiveCheckInTaskId(widget.taskId);
+
+      if (mounted) {
+        Navigator.pop(context, true);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Check-in saved'.tr())));
+      }
     } catch (e) {
-      if (context.mounted) {
-        if (dialogOpen) Navigator.of(context).pop();
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Check-in failed: $e'),
@@ -545,22 +711,208 @@ class _CheckInPageState extends State<CheckInPage> {
           ),
         );
       }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
     }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Check In ($_taskType)'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: _step == _TaskCheckInStep.camera
+          ? const Center(child: CircularProgressIndicator())
+          : _buildPreview(),
+    );
+  }
+
+  Widget _buildPreview() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'checkin_preview_title'.tr(),
+            style: Theme.of(
+              context,
+            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 16),
+
+          // Photo preview
+          if (_photoBytes != null)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.memory(
+                _photoBytes!,
+                width: double.infinity,
+                height: 200,
+                fit: BoxFit.cover,
+              ),
+            ),
+          const SizedBox(height: 16),
+
+          // Task info card
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  _previewRow(Icons.assignment, 'Task ID', _taskDisplayId),
+                  const Divider(height: 20),
+                  _previewRow(
+                    Icons.my_location,
+                    'checkin_origin'.tr(),
+                    _source,
+                  ),
+                  const Divider(height: 20),
+                  _previewRow(Icons.flag, 'checkin_destination'.tr(), _dest),
+                  const Divider(height: 20),
+                  _previewRow(
+                    Icons.local_shipping,
+                    'checkin_truck_type'.tr(),
+                    _truckType.isNotEmpty ? '$_truckType ($_truckModel)' : '-',
+                  ),
+                  const Divider(height: 20),
+                  _previewRow(
+                    Icons.credit_card,
+                    'checkin_license_plate'.tr(),
+                    _licensePlate,
+                  ),
+                  const Divider(height: 20),
+                  _previewRow(Icons.person, 'checkin_driver'.tr(), _driverName),
+                  const Divider(height: 20),
+                  _previewRow(
+                    Icons.access_time,
+                    'loading_phase_timestamp'.tr(),
+                    DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now()),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
+          // Action buttons
+          Row(
+            children: [
+              // Retake photo button
+              Expanded(
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.camera_alt),
+                  label: Text('checkin_retake'.tr()),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, 52),
+                    textStyle: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  onPressed: _submitting ? null : _openCamera,
+                ),
+              ),
+              const SizedBox(width: 12),
+              // Save button
+              Expanded(
+                flex: 2,
+                child: ElevatedButton.icon(
+                  icon: _submitting
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : const Icon(Icons.check),
+                  label: Text(
+                    _submitting ? 'Processing...' : 'checkin_save'.tr(),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: const Size(0, 52),
+                    textStyle: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  onPressed: _submitting ? null : _submit,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _previewRow(IconData icon, String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 15,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 }
 
-class _ManualCheckInSheet extends StatefulWidget {
+/// Truck type mapping: Firestore trucks.type → task abbreviation
+const _truckTypeMap = <String, String>{
+  'Pickup': 'PICKUP',
+  '4 Wheels': '4WJ',
+  '4 Wheels Jumbo': '4WJ',
+  '6 Wheels': '6WH',
+  '10 Wheels': '10WH',
+  '18 Wheels': '18WH',
+  'Van': 'VAN',
+};
+
+enum _CheckInStep { form, preview }
+
+class ManualCheckInPage extends StatefulWidget {
   final String driverId;
-  const _ManualCheckInSheet({required this.driverId});
+  const ManualCheckInPage({super.key, required this.driverId});
 
   @override
-  State<_ManualCheckInSheet> createState() => _ManualCheckInSheetState();
+  State<ManualCheckInPage> createState() => _ManualCheckInPageState();
 }
 
-class _ManualCheckInSheetState extends State<_ManualCheckInSheet> {
+class _ManualCheckInPageState extends State<ManualCheckInPage> {
+  _CheckInStep _step = _CheckInStep.form;
+
   String? _origin;
   String? _dest;
-  String _truckType = 'PICKUP';
+  String _truckType = '';
   bool _loading = true;
   bool _submitting = false;
 
@@ -568,6 +920,9 @@ class _ManualCheckInSheetState extends State<_ManualCheckInSheet> {
   List<HubDoc> _hubs = [];
   Map<String, dynamic>? _driverData;
   Map<String, dynamic>? _assignedTruck;
+
+  // Photo data for preview
+  Uint8List? _photoBytes;
 
   @override
   void initState() {
@@ -590,17 +945,9 @@ class _ManualCheckInSheetState extends State<_ManualCheckInSheet> {
               .doc(truckId)
               .get();
           if (truckDoc.exists) _assignedTruck = truckDoc.data();
-          final tt = _assignedTruck?['type'] as String?;
-          if (tt == '4 Wheels' || tt == '4 Wheels Jumbo')
-            _truckType = '4WJ';
-          else if (tt == '6 Wheels')
-            _truckType = '6WH';
-          else if (tt == '10 Wheels')
-            _truckType = '10WH';
-          else if (tt == '18 Wheels')
-            _truckType = '18WH';
-          else if (tt == 'Van')
-            _truckType = 'VAN';
+          final tt = _assignedTruck?['type'] as String? ?? '';
+          _truckType = _truckTypeMap[tt] ?? tt;
+          if (_truckType.isEmpty) _truckType = 'PICKUP';
         }
       }
 
@@ -617,8 +964,7 @@ class _ManualCheckInSheetState extends State<_ManualCheckInSheet> {
         return st.startsWith('SOC') && !RegExp(r'^\d').hasMatch(code);
       }).toList();
 
-      if (_socs.isNotEmpty) _origin = _socs[0].sourceId;
-      if (_hubs.isNotEmpty) _dest = _hubs[0].sourceId;
+      // Do NOT auto-select — use placeholders
     } catch (e) {
       debugPrint('Error fetching manual check-in data: $e');
     } finally {
@@ -626,8 +972,31 @@ class _ManualCheckInSheetState extends State<_ManualCheckInSheet> {
     }
   }
 
-  Future<void> _submit() async {
-    if (_origin == null || _dest == null) return;
+  String get _driverName {
+    return '${_driverData?['firstName'] ?? ''} ${_driverData?['lastName'] ?? ''}'
+        .trim();
+  }
+
+  String get _licensePlate {
+    return _driverData?['currentAssignment']?['truckPlate'] as String? ?? '-';
+  }
+
+  String get _truckModel {
+    return _driverData?['currentAssignment']?['truckModel'] as String? ??
+        _assignedTruck?['model'] as String? ??
+        '-';
+  }
+
+  Future<void> _takePhotoAndPreview() async {
+    if (_origin == null || _dest == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('checkin_select_origin_dest'.tr()),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
     if (kIsWeb) {
       ScaffoldMessenger.of(
         context,
@@ -643,6 +1012,17 @@ class _ManualCheckInSheetState extends State<_ManualCheckInSheet> {
     if (xfile == null) return;
     final imageBytes = await xfile.readAsBytes();
 
+    if (mounted) {
+      setState(() {
+        _photoBytes = imageBytes;
+        _step = _CheckInStep.preview;
+      });
+    }
+  }
+
+  Future<void> _submit() async {
+    if (_origin == null || _dest == null || _photoBytes == null) return;
+
     setState(() => _submitting = true);
     try {
       final now = DateTime.now();
@@ -655,10 +1035,6 @@ class _ManualCheckInSheetState extends State<_ManualCheckInSheet> {
               .call({'date': dateStr, 'taskType': 'LINE_HAUL'});
 
       final String newTaskId = results.data['taskId'];
-
-      final dName =
-          '${_driverData?['firstName'] ?? ''} ${_driverData?['lastName'] ?? ''}'
-              .trim();
 
       final docRef = await FirebaseFirestore.instance.collection('tasks').add({
         'taskId': newTaskId,
@@ -673,15 +1049,15 @@ class _ManualCheckInSheetState extends State<_ManualCheckInSheet> {
         'status': 'Pending',
         'truckType': _truckType,
         'driverId': widget.driverId,
-        'driverName': dName,
+        'driverName': _driverName,
         'driverPhone': _driverData?['mobile'] ?? '',
-        'licensePlate': _driverData?['currentAssignment']?['truckPlate'] ?? '',
+        'licensePlate': _licensePlate,
       });
 
       final pos = await getCurrentPosition();
       await submitCheckIn(
         taskId: docRef.id,
-        imageBytes: imageBytes,
+        imageBytes: _photoBytes!,
         lat: pos.latitude,
         lng: pos.longitude,
         timestamp: now,
@@ -689,17 +1065,17 @@ class _ManualCheckInSheetState extends State<_ManualCheckInSheet> {
       await DraftStorageService.instance.saveActiveCheckInTaskId(docRef.id);
 
       if (mounted) {
-        // Return true to indicate successful checkin
         Navigator.pop(context, true);
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Check-in saved'.tr())));
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed: $e'), backgroundColor: Colors.red),
         );
+      }
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -707,88 +1083,303 @@ class _ManualCheckInSheetState extends State<_ManualCheckInSheet> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
-      return const SizedBox(
-        height: 300,
-        child: Center(child: CircularProgressIndicator()),
-      );
-    }
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 16,
-        right: 16,
-        top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Manual Check In (LH)'.tr()),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            if (_step == _CheckInStep.preview) {
+              setState(() => _step = _CheckInStep.form);
+            } else {
+              Navigator.pop(context);
+            }
+          },
+        ),
       ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _step == _CheckInStep.form
+          ? _buildFormStep()
+          : _buildPreviewStep(),
+    );
+  }
+
+  Widget _buildFormStep() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Manual Check In (LH)'.tr(),
-                style: Theme.of(context).textTheme.titleLarge,
+          // Driver info card
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: Theme.of(
+                      context,
+                    ).colorScheme.primary.withOpacity(0.15),
+                    child: Icon(
+                      Icons.person,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _driverName.isNotEmpty
+                              ? _driverName
+                              : 'checkin_driver'.tr(),
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${'checkin_license_plate'.tr()}: $_licensePlate',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        if (_truckType.isNotEmpty)
+                          Text(
+                            '${'checkin_truck_type'.tr()}: $_truckType ($_truckModel)',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => Navigator.pop(context),
-              ),
-            ],
+            ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 24),
+
+          // Origin picker
+          Text(
+            'checkin_origin'.tr(),
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
           SearchableHubPicker(
             label: 'Origin (SOC)'.tr(),
-            hintText: 'Select origin SOC'.tr(),
+            hintText: 'checkin_select_soc'.tr(),
             value: _origin ?? '',
             hubs: _socs,
             onSelected: (hub) => setState(() => _origin = hub.sourceId),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 20),
+
+          // Destination picker
+          Text(
+            'checkin_destination'.tr(),
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
           SearchableHubPicker(
             label: 'Destination (Hub)'.tr(),
-            hintText: 'Select destination Hub'.tr(),
+            hintText: 'checkin_select_destination'.tr(),
             value: _dest ?? '',
             hubs: _hubs,
             onSelected: (hub) => setState(() => _dest = hub.sourceId),
           ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            decoration: InputDecoration(labelText: 'Truck Type'.tr()),
-            value: _truckType,
-            items: [
-              'PICKUP',
-              '4WJ',
-              '6WH',
-              '10WH',
-              '18WH',
-              'VAN',
-            ].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-            onChanged: (v) => setState(() => _truckType = v ?? 'PICKUP'),
-          ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 32),
+
+          // Next button
           SizedBox(
             width: double.infinity,
+            height: 52,
             child: ElevatedButton.icon(
-              icon: _submitting
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: 2,
-                      ),
-                    )
-                  : const Icon(Icons.camera_alt),
-              label: Text(
-                _submitting ? 'Processing...' : 'Take Photo & Check-in'.tr(),
+              icon: const Icon(Icons.camera_alt),
+              label: Text('checkin_take_photo'.tr()),
+              style: ElevatedButton.styleFrom(
+                textStyle: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-              onPressed: _submitting ? null : _submit,
+              onPressed: _takePhotoAndPreview,
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildPreviewStep() {
+    final originHub = _socs.where((h) => h.sourceId == _origin).firstOrNull;
+    final destHub = _hubs.where((h) => h.sourceId == _dest).firstOrNull;
+    final originDisplay = originHub != null
+        ? '${originHub.sourceId} - ${originHub.sourceNameEn}'
+        : _origin ?? '-';
+    final destDisplay = destHub != null
+        ? '${destHub.sourceId} - ${destHub.sourceNameEn}'
+        : _dest ?? '-';
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'checkin_preview_title'.tr(),
+            style: Theme.of(
+              context,
+            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 16),
+
+          // Photo preview
+          if (_photoBytes != null)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.memory(
+                _photoBytes!,
+                width: double.infinity,
+                height: 200,
+                fit: BoxFit.cover,
+              ),
+            ),
+          const SizedBox(height: 16),
+
+          // Info card
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  _previewRow(
+                    Icons.my_location,
+                    'checkin_origin'.tr(),
+                    originDisplay,
+                  ),
+                  const Divider(height: 20),
+                  _previewRow(
+                    Icons.flag,
+                    'checkin_destination'.tr(),
+                    destDisplay,
+                  ),
+                  const Divider(height: 20),
+                  _previewRow(
+                    Icons.local_shipping,
+                    'checkin_truck_type'.tr(),
+                    '$_truckType ($_truckModel)',
+                  ),
+                  const Divider(height: 20),
+                  _previewRow(
+                    Icons.credit_card,
+                    'checkin_license_plate'.tr(),
+                    _licensePlate,
+                  ),
+                  const Divider(height: 20),
+                  _previewRow(Icons.person, 'checkin_driver'.tr(), _driverName),
+                  const Divider(height: 20),
+                  _previewRow(
+                    Icons.phone,
+                    'mobile'.tr(),
+                    _driverData?['mobile'] as String? ?? '-',
+                  ),
+                  const Divider(height: 20),
+                  _previewRow(
+                    Icons.access_time,
+                    'loading_phase_timestamp'.tr(),
+                    DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now()),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
+          // Action buttons
+          Row(
+            children: [
+              // Edit button
+              Expanded(
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.edit),
+                  label: Text('checkin_edit'.tr()),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, 52),
+                    textStyle: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  onPressed: _submitting
+                      ? null
+                      : () => setState(() => _step = _CheckInStep.form),
+                ),
+              ),
+              const SizedBox(width: 12),
+              // Save button
+              Expanded(
+                flex: 2,
+                child: ElevatedButton.icon(
+                  icon: _submitting
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : const Icon(Icons.check),
+                  label: Text(
+                    _submitting ? 'Processing...' : 'checkin_save'.tr(),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: const Size(0, 52),
+                    textStyle: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  onPressed: _submitting ? null : _submit,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _previewRow(IconData icon, String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 15,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
