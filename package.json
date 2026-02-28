@@ -1,15 +1,17 @@
 {
-    "name": "logitrack-platform",
-    "private": true,
-    "workspaces": [
-        "logitrack-web"
-    ],
-    "scripts": {
-        "web": "npm run dev -w logitrack-web",
-        "web:install": "npm install -w logitrack-web",
-        "prepare": "husky"
-    },
-    "devDependencies": {
-        "husky": "^9.1.7"
-    }
+  "name": "logitrack-platform",
+  "private": true,
+  "workspaces": [
+    "logitrack-web"
+  ],
+  "scripts": {
+    "web": "npm run dev -w logitrack-web",
+    "web:install": "npm install -w logitrack-web",
+    "deploy:prod": "node -e \"require('fs').copyFileSync('envs/.env.prod.web','logitrack-web/.env.production')\" && npm run deploy:prod -w logitrack-web",
+    "prepare": "husky",
+    "build:mobile:prod": "node -e \"require('fs').copyFileSync('envs/.env.prod.mobile','logitrack-mobile/.env')\" && cd logitrack-mobile && flutter build apk"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7"
+  }
 }

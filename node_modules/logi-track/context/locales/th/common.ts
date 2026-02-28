@@ -39,6 +39,7 @@ export default {
     "nav.supportCenter": "ศูนย์ช่วยเหลือ",
 
     "nav.subcontractors": "ผู้รับเหมาช่วง",
+    "nav.customers": "ลูกค้า",
     "nav.mainMenu": "เมนูหลัก",
     "nav.system": "ระบบ",
 

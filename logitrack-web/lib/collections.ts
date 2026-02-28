@@ -22,6 +22,9 @@ export const COLLECTIONS = {
     /** Subcontractor companies/individuals */
     SUBCONTRACTORS: "subcontractors",
 
+    /** Customers / LSPs (for billing, driver IDs – e.g. SPX) */
+    CUSTOMERS: "customers",
+
     /** Driver-to-truck assignments */
     ASSIGNMENTS: "truckAssignment",
 
@@ -60,6 +63,9 @@ export const COLLECTIONS = {
 
     /** Broadcast history (admin sends; for listing past broadcasts) */
     BROADCASTS: "broadcasts",
+
+    /** System metadata (e.g. distances_last_calculated) */
+    METADATA: "metadata",
 } as const;
 
 /** Type for collection names */

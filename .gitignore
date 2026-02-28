@@ -1,0 +1,8 @@
+# Production env files (keep envs/.env.prod.*.example committed; never commit real values)
+envs/.env.prod.web
+envs/.env.prod.mobile
+
+# Firebase Functions env (API keys; use functions/.env.example as template)
+logitrack-web/functions/.env
+logitrack-web/functions/.env.*
+!logitrack-web/functions/.env.example

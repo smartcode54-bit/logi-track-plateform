@@ -91,6 +91,14 @@ export default {
     "drivers.form.licenseType": "ประเภทใบอนุญาต",
     "drivers.form.licenseType.placeholder": "เลือก...",
 
+    // Customer Driver IDs
+    "drivers.form.customerDriverIds": "รหัสคนขับของลูกค้า",
+    "drivers.form.customerDriverIdsDesc": "รหัสจากระบบภายในของลูกค้า/ขนส่ง สำหรับวางบิล (เช่น SPX app ID, work ID)",
+    "drivers.form.spxAppId": "SPX App ID",
+    "drivers.form.spxAppId.placeholder": "App ID จากระบบ SPX",
+    "drivers.form.spxWorkId": "SPX Work ID",
+    "drivers.form.spxWorkId.placeholder": "Work ID จากระบบ SPX",
+
     // Step 3 - Employment
     "drivers.form.employmentDetails": "รายละเอียดการจ้างงาน",
     "drivers.form.type": "ประเภท",
@@ -156,6 +164,8 @@ export default {
     "drivers.detail.subcontractor": "ผู้รับเหมาช่วง",
     "drivers.detail.contractDuration": "ระยะเวลาสัญญา",
     "drivers.detail.years": "ปี",
+    "drivers.detail.customerDriverIds": "รหัสคนขับของลูกค้า",
+    "drivers.detail.customerDriverIdsDesc": "รหัสจากระบบภายในของลูกค้า สำหรับวางบิลและรายงาน",
     "drivers.detail.truckLicenseId": "เลขใบอนุญาตขับรถ",
     "drivers.detail.licenseType": "ประเภทใบอนุญาต",
     "drivers.detail.documents": "เอกสาร",

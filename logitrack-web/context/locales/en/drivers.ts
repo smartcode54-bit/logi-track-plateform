@@ -91,6 +91,14 @@ export default {
     "drivers.form.licenseType": "License Type",
     "drivers.form.licenseType.placeholder": "Select...",
 
+    // Customer Driver IDs
+    "drivers.form.customerDriverIds": "Customer Driver IDs",
+    "drivers.form.customerDriverIdsDesc": "IDs from customer/LSP internal systems for billing (e.g. SPX app ID, work ID)",
+    "drivers.form.spxAppId": "SPX App ID",
+    "drivers.form.spxAppId.placeholder": "App ID from SPX system",
+    "drivers.form.spxWorkId": "SPX Work ID",
+    "drivers.form.spxWorkId.placeholder": "Work ID from SPX system",
+
     // Step 3 - Employment
     "drivers.form.employmentDetails": "Employment Details",
     "drivers.form.type": "Type",
@@ -156,6 +164,8 @@ export default {
     "drivers.detail.subcontractor": "Subcontractor",
     "drivers.detail.contractDuration": "Contract Duration",
     "drivers.detail.years": "Years",
+    "drivers.detail.customerDriverIds": "Customer Driver IDs",
+    "drivers.detail.customerDriverIdsDesc": "IDs from customer internal systems for billing & reporting",
     "drivers.detail.truckLicenseId": "Truck License ID",
     "drivers.detail.licenseType": "License Type",
     "drivers.detail.documents": "Documents",

@@ -70,6 +70,7 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
     const [drivers, setDrivers] = useState<Driver[]>([]);
     const [loading, setLoading] = useState(false);
     const [hubSearch, setHubSearch] = useState("");
+    const [hubDropdownOpen, setHubDropdownOpen] = useState(false);
     const [activeTaskDriverIds, setActiveTaskDriverIds] = useState<Set<string>>(new Set());
     const { t } = useLanguage();
 
@@ -200,35 +201,37 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
         fetchActiveDrivers();
     }, [isOpen]);
 
-    if (isOpen) {
-        if (mode === "edit" && task) {
-            const d = task.date ? (task.date instanceof Date ? task.date : new Date(task.date)) : new Date();
-            form.reset({
-                ...task,
-                date: d,
-                // Ensure fields are present
-                time: task.time || "",
-                sourceHub: task.sourceHub || "",
-                destination: (task.destination as string) || "",
-                status: (task.status as FirstMileTask["status"]) || "Pending"
-            } as FirstMileTask);
-        } else {
-            form.reset({
-                date: new Date(),
-                time: "15:00",
-                sourceHub: "",
-                destination: "",
-                truckType: "PICKUP",
-                taskId: "",
-                driverName: "",
-                driverPhone: "",
-                licensePlate: "",
-                status: "Pending",
-                taskType: "FIRST_MILE"
-            });
+    // Reset form when dialog opens (edit vs create)
+    useEffect(() => {
+        if (isOpen) {
+            if (mode === "edit" && task) {
+                const d = task.date ? (task.date instanceof Date ? task.date : new Date(task.date)) : new Date();
+                form.reset({
+                    ...task,
+                    date: d,
+                    // Ensure fields are present
+                    time: task.time || "",
+                    sourceHub: task.sourceHub || "",
+                    destination: (task.destination as string) || "",
+                    status: (task.status as FirstMileTask["status"]) || "Pending"
+                } as FirstMileTask);
+            } else {
+                form.reset({
+                    date: new Date(),
+                    time: "15:00",
+                    sourceHub: "",
+                    destination: "",
+                    truckType: "PICKUP",
+                    taskId: "",
+                    driverName: "",
+                    driverPhone: "",
+                    licensePlate: "",
+                    status: "Pending",
+                    taskType: "FIRST_MILE"
+                });
+            }
         }
-    }
-}, [isOpen, mode, task, form]);
+    }, [isOpen, mode, task, form]);
 
 // Auto-select first SOC destination once options load for create mode
 useEffect(() => {

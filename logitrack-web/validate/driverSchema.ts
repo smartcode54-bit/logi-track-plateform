@@ -53,6 +53,9 @@ export const driverSchema = z.object({
     status: z.enum(DRIVER_STATUS_ENUM).default("Active"),
     assignToProject: z.string().optional(),
 
+    /** Customer/LSP driver IDs – each customer may have different ID types (e.g. SPX: appId, workId) for billing & internal systems */
+    customerDriverIds: z.record(z.string(), z.record(z.string(), z.string())).optional(),
+
     // Audit Log
     statusHistory: z.array(z.object({
         status: z.string(),

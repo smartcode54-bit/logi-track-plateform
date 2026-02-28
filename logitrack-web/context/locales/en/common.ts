@@ -39,6 +39,7 @@ export default {
     "nav.supportCenter": "Support Center",
 
     "nav.subcontractors": "Subcontractors",
+    "nav.customers": "Customers",
     "nav.mainMenu": "MAIN MENU",
     "nav.system": "SYSTEM",
 

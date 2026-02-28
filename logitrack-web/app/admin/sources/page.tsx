@@ -22,11 +22,13 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HubDialog } from "../first-mile/hub-dialog";
 import { PickupLocationImportDialog } from "./pickup-import-dialog";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, doc, getDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "@/firebase/client";
+import { useAuth } from "@/context/auth";
 import { useLanguage } from "@/context/language";
 import { COLLECTIONS } from "@/lib/collections";
 import type { Hub, StationType } from "@/validate/hubSchema";
@@ -67,6 +69,8 @@ function mapDocToSourceRow(doc: { id: string; data: Record<string, unknown> }): 
 
 export default function SourcesPage() {
     const { t } = useLanguage();
+    const auth = useAuth();
+    const isAdmin = auth?.customClaims?.admin === true;
     const [sources, setSources] = useState<SourceRow[]>([]);
     const [search, setSearch] = useState("");
     const [loading, setLoading] = useState(true);
@@ -77,6 +81,9 @@ export default function SourcesPage() {
     const [currentPage, setCurrentPage] = useState(1);
     const [calculatingDistances, setCalculatingDistances] = useState(false);
     const [distancesMessage, setDistancesMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+    const [lastCalculatedAt, setLastCalculatedAt] = useState<Date | null>(null);
+    /** Hub→SOC: เลือก Hub เห็นระยะไป SOC | SOC→Hub: เลือก SOC เห็นระยะไป Hub */
+    const [distanceViewMode, setDistanceViewMode] = useState<"HUB_SOC" | "SOC_HUB">("HUB_SOC");
 
     /** จำนวนแถวต่อหน้า fix ที่ 10 */
     const itemsPerPage = 10;
@@ -100,6 +107,19 @@ export default function SourcesPage() {
         fetchHubs();
     }, []);
 
+    const fetchLastCalculated = async () => {
+        try {
+            const snap = await getDoc(doc(db, COLLECTIONS.METADATA, "distances_last_calculated"));
+            const ts = snap.data()?.timestamp;
+            if (ts?.toDate) setLastCalculatedAt(ts.toDate());
+        } catch {
+            // ignore
+        }
+    };
+    useEffect(() => {
+        fetchLastCalculated();
+    }, []);
+
     const filteredSources = useMemo(
         () =>
             sources.filter(
@@ -110,20 +130,27 @@ export default function SourcesPage() {
         [sources, search]
     );
 
-    const totalPages = Math.max(1, Math.ceil(filteredSources.length / itemsPerPage));
+    /** รายการแสดง Hub เสมอ — โหมดเปลี่ยนแค่ต้นทาง (Hub→SOC หรือ SOC→Hub) สำหรับ popup */
+    const sourcesForMode = useMemo(
+        () => filteredSources.filter((row) => row.station_type === "HUB"),
+        [filteredSources]
+    );
+
+    const totalPages = Math.max(1, Math.ceil(sourcesForMode.length / itemsPerPage));
     const paginatedSources = useMemo(
         () =>
-            filteredSources.slice(
+            sourcesForMode.slice(
                 (currentPage - 1) * itemsPerPage,
                 currentPage * itemsPerPage
             ),
-        [filteredSources, currentPage, itemsPerPage]
+        [sourcesForMode, currentPage, itemsPerPage]
     );
 
     useEffect(() => {
         setCurrentPage(1);
         setSelectedSourceId(null);
     }, [search]);
+
 
     useEffect(() => {
         if (currentPage > totalPages) setCurrentPage(1);
@@ -137,7 +164,7 @@ export default function SourcesPage() {
             "Longitude",
             t("firstMile.sources.table.stationType"),
         ];
-        const rows = filteredSources.map((row) => [
+        const rows = sourcesForMode.map((row) => [
             row.source_id ?? "",
             row.source_name_en ?? "",
             row.latitude ?? "",
@@ -151,25 +178,47 @@ export default function SourcesPage() {
     };
 
     const handleCalculateDistances = async () => {
+        if (!isAdmin) {
+            setDistancesMessage({
+                type: "error",
+                text: "Admin only. Sign in with an admin account (or ensure your account has the admin claim).",
+            });
+            return;
+        }
         setCalculatingDistances(true);
         setDistancesMessage(null);
         try {
             const computeHubSocDistances = httpsCallable<
                 void,
-                { ok: boolean; written: number; hubsCount: number; socsCount: number; error?: string }
+                { ok: boolean; written: number; hubsCount: number; socsCount: number; calculatedAt?: string; error?: string }
             >(functions, "computeHubSocDistances");
             const { data } = await computeHubSocDistances();
             if (!data.ok && data.error) {
                 setDistancesMessage({ type: "error", text: data.error || t("firstMile.sources.distancesError") });
                 return;
             }
+            if (data.calculatedAt) setLastCalculatedAt(new Date(data.calculatedAt));
             const msg = t("firstMile.sources.distancesSuccess")
                 .replace("{{written}}", String(data.written ?? 0))
                 .replace("{{hubsCount}}", String(data.hubsCount ?? 0))
                 .replace("{{socsCount}}", String(data.socsCount ?? 0));
             setDistancesMessage({ type: "success", text: msg });
-        } catch {
-            setDistancesMessage({ type: "error", text: t("firstMile.sources.distancesError") });
+        } catch (err: unknown) {
+            const code = err && typeof err === "object" && "code" in err ? (err as { code?: string }).code : undefined;
+            const message = err && typeof err === "object" && "message" in err ? (err as { message?: string }).message : undefined;
+            if (code === "functions/permission-denied" || (typeof message === "string" && message.toLowerCase().includes("admin"))) {
+                setDistancesMessage({
+                    type: "error",
+                    text: "Admin only. Sign in with an account that has admin privileges.",
+                });
+            } else if (typeof message === "string" && message) {
+                setDistancesMessage({ type: "error", text: message });
+            } else {
+                setDistancesMessage({ type: "error", text: t("firstMile.sources.distancesError") });
+            }
+            if (process.env.NODE_ENV === "development") {
+                console.error("[computeHubSocDistances]", err);
+            }
         } finally {
             setCalculatingDistances(false);
         }
@@ -180,17 +229,25 @@ export default function SourcesPage() {
             <div className="flex items-center justify-between space-y-2">
                 <h2 className="text-3xl font-bold tracking-tight">{t("firstMile.sources.title")}</h2>
                 <div className="flex flex-col items-end gap-2">
-                    {distancesMessage && (
-                        <p className={distancesMessage.type === "success" ? "text-sm text-green-600" : "text-sm text-destructive"}>
-                            {distancesMessage.text}
-                        </p>
-                    )}
+                    <div className="flex flex-col items-end gap-1">
+                        {lastCalculatedAt && (
+                            <p className="text-sm text-muted-foreground">
+                                {t("firstMile.sources.lastCalculated")}: {lastCalculatedAt.toLocaleString()}
+                            </p>
+                        )}
+                        {distancesMessage && (
+                            <p className={distancesMessage.type === "success" ? "text-sm text-green-600" : "text-sm text-destructive"}>
+                                {distancesMessage.text}
+                            </p>
+                        )}
+                    </div>
                     <div className="flex items-center gap-2">
                     <Button
                         variant="outline"
                         onClick={handleCalculateDistances}
-                        disabled={calculatingDistances}
+                        disabled={calculatingDistances || !isAdmin}
                         className="gap-2"
+                        title={!isAdmin ? "Admin only" : undefined}
                     >
                         {calculatingDistances ? (
                             <span className="animate-pulse">{t("firstMile.sources.calculatingDistances")}</span>
@@ -238,9 +295,17 @@ export default function SourcesPage() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch min-h-0">
                 {/* Left: จุดรับ-ส่ง (Table) — ความสูงเท่ากับแผนที่ */}
                 <Card className="flex flex-col min-h-[520px] lg:min-h-0">
-                    <CardHeader className="shrink-0">
-                        <div className="flex items-center justify-between gap-2">
-                            <CardTitle className="text-lg">{t("firstMile.sources.dbSources")}</CardTitle>
+                    <CardHeader className="shrink-0 space-y-3">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div className="flex items-center gap-3 flex-wrap">
+                                <CardTitle className="text-lg">{t("firstMile.sources.dbSources")}</CardTitle>
+                                <Tabs value={distanceViewMode} onValueChange={(v) => v === "HUB_SOC" || v === "SOC_HUB" ? setDistanceViewMode(v) : undefined}>
+                                    <TabsList className="h-8">
+                                        <TabsTrigger value="HUB_SOC" className="text-xs px-3">{t("firstMile.sources.modeHubToSoc")}</TabsTrigger>
+                                        <TabsTrigger value="SOC_HUB" className="text-xs px-3">{t("firstMile.sources.modeSocToHub")}</TabsTrigger>
+                                    </TabsList>
+                                </Tabs>
+                            </div>
                             <div className="flex items-center space-x-2">
                                 <Button
                                     variant="outline"
@@ -257,7 +322,7 @@ export default function SourcesPage() {
                                     size="sm"
                                     className="h-8 shrink-0 gap-1"
                                     onClick={handleDownloadSources}
-                                    disabled={loading || filteredSources.length === 0}
+                                    disabled={loading || sourcesForMode.length === 0}
                                     aria-label={t("firstMile.sources.download")}
                                 >
                                     <Download className="h-4 w-4" />
@@ -293,10 +358,10 @@ export default function SourcesPage() {
                                             {t("firstMile.sources.loading")}
                                         </TableCell>
                                     </TableRow>
-                                ) : filteredSources.length === 0 ? (
+                                ) : sourcesForMode.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={5} className="text-center h-24">
-                                            {t("firstMile.sources.noData")}
+                                        <TableCell colSpan={5} className="text-center h-24 text-muted-foreground">
+                                            {t("firstMile.sources.noHubsInFilter")}
                                         </TableCell>
                                     </TableRow>
                                 ) : (
@@ -371,14 +436,14 @@ export default function SourcesPage() {
                                 )}
                             </TableBody>
                         </Table>
-                        {filteredSources.length > 0 && (
+                        {sourcesForMode.length > 0 && (
                             <div className="flex items-center justify-between px-4 py-3 border-t bg-muted/20">
                                 <p className="text-sm text-muted-foreground">
                                     {t("firstMile.sources.pagination.showing")}{" "}
                                     {(currentPage - 1) * itemsPerPage + 1}{" "}
                                     {t("firstMile.sources.pagination.to")}{" "}
-                                    {Math.min(currentPage * itemsPerPage, filteredSources.length)}{" "}
-                                    {t("firstMile.sources.pagination.of")} {filteredSources.length}{" "}
+                                    {Math.min(currentPage * itemsPerPage, sourcesForMode.length)}{" "}
+                                    {t("firstMile.sources.pagination.of")} {sourcesForMode.length}{" "}
                                     {t("firstMile.sources.pagination.entries")}
                                 </p>
                                 <div className="flex gap-1">
@@ -413,7 +478,7 @@ export default function SourcesPage() {
                                 {t("firstMile.sources.mapTitle")}
                             </CardTitle>
                             <p className="text-xs text-muted-foreground">
-                                {filteredSources.filter((s) => s.latitude != null && s.longitude != null).length}{" "}
+                                {sourcesForMode.filter((s) => s.latitude != null && s.longitude != null).length}{" "}
                                 {t("firstMile.sources.mapPoints")}
                             </p>
                         </div>
@@ -430,9 +495,10 @@ export default function SourcesPage() {
                     </CardHeader>
                     <CardContent className="flex-1 min-h-0 pt-0 overflow-hidden flex flex-col">
                         <SourcesMap
-                            sources={filteredSources}
+                            sources={sourcesForMode}
                             selectedSourceId={selectedSourceId}
                             onClearSelection={() => setSelectedSourceId(null)}
+                            distanceViewMode={distanceViewMode}
                             className="flex-1 min-h-[320px]"
                         />
                     </CardContent>

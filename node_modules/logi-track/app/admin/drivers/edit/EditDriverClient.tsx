@@ -26,7 +26,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import {
     Loader2, ArrowLeft, CheckCircle2, Upload, User,
-    FileText, Truck, Save, X
+    FileText, Truck, Save, X, Building2
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -72,6 +72,7 @@ export default function EditDriverClient() {
             contractYears: "" as any,
             status: "Active",
             employmentType: "FULL_TIME",
+            customerDriverIds: { SPX: { appId: "", workId: "" } },
         },
         mode: "onChange",
     });
@@ -97,6 +98,15 @@ export default function EditDriverClient() {
                         birthDate: driver.birthDate || undefined,
                         idCardExpiredDate: driver.idCardExpiredDate || undefined,
                         truckLicenseExpiredDate: driver.truckLicenseExpiredDate || undefined,
+                        // Ensure customerDriverIds.SPX structure for form
+                        customerDriverIds: {
+                            ...(driver.customerDriverIds || {}),
+                            SPX: {
+                                appId: (driver.customerDriverIds as any)?.SPX?.appId ?? "",
+                                workId: (driver.customerDriverIds as any)?.SPX?.workId ?? "",
+                                ...((driver.customerDriverIds as any)?.SPX || {}),
+                            },
+                        },
                     };
                     form.reset(formData);
 
@@ -161,6 +171,24 @@ export default function EditDriverClient() {
         try {
             setIsSubmitting(true);
 
+            // Clean customerDriverIds: remove empty values
+            let cleaned = data;
+            if (data.customerDriverIds && typeof data.customerDriverIds === "object") {
+                const cleanedIds: Record<string, Record<string, string>> = {};
+                for (const [customer, idMap] of Object.entries(data.customerDriverIds)) {
+                    if (idMap && typeof idMap === "object") {
+                        const nonEmpty = Object.fromEntries(
+                            Object.entries(idMap).filter(([, v]) => v != null && String(v).trim() !== "")
+                        );
+                        if (Object.keys(nonEmpty).length > 0) cleanedIds[customer] = nonEmpty;
+                    }
+                }
+                cleaned = {
+                    ...data,
+                    customerDriverIds: Object.keys(cleanedIds).length > 0 ? cleanedIds : undefined,
+                };
+            }
+
             // Prepare files map for the action
             // Only include files if they are new/changed
             const files: any = {};
@@ -168,7 +196,7 @@ export default function EditDriverClient() {
             if (idCardFile) files.idCard = idCardFile;
             if (truckLicenseFile) files.license = truckLicenseFile;
 
-            await updateDriver(driverId, data, Object.keys(files).length > 0 ? files : undefined);
+            await updateDriver(driverId, cleaned, Object.keys(files).length > 0 ? files : undefined);
 
             toast.success(t("drivers.toast.updateSuccess"));
             router.push(`/admin/drivers/view?id=${driverId}`);
@@ -437,6 +465,52 @@ export default function EditDriverClient() {
                                         <FormMessage />
                                     </FormItem>
                                 )} />
+                            </CardContent>
+                        </Card>
+
+                        {/* Customer Driver IDs */}
+                        <Card>
+                            <CardHeader>
+                                <CardTitle className="flex items-center gap-2">
+                                    <Building2 className="h-5 w-5 text-primary" />
+                                    {t("drivers.form.customerDriverIds")}
+                                </CardTitle>
+                                <CardDescription>
+                                    {t("drivers.form.customerDriverIdsDesc")}
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-6">
+                                <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-lg space-y-4">
+                                    <h3 className="font-semibold flex items-center gap-2">SPX</h3>
+                                    <div className="grid md:grid-cols-2 gap-4">
+                                        <FormField
+                                            control={form.control}
+                                            name="customerDriverIds.SPX.appId"
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>{t("drivers.form.spxAppId")}</FormLabel>
+                                                    <FormControl>
+                                                        <Input placeholder={t("drivers.form.spxAppId.placeholder")} {...field} value={field.value ?? ""} />
+                                                    </FormControl>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                        <FormField
+                                            control={form.control}
+                                            name="customerDriverIds.SPX.workId"
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>{t("drivers.form.spxWorkId")}</FormLabel>
+                                                    <FormControl>
+                                                        <Input placeholder={t("drivers.form.spxWorkId.placeholder")} {...field} value={field.value ?? ""} />
+                                                    </FormControl>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                    </div>
+                                </div>
                             </CardContent>
                         </Card>
 

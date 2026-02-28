@@ -6,7 +6,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import {
     ArrowLeft, Edit, Truck, Calendar, User, FileText, Info, Loader2, Camera,
     MapPin, Phone, Shield, MoreHorizontal, Download, Plus,
-    Wrench, Mail, CreditCard, Briefcase
+    Wrench, Mail, CreditCard, Briefcase, Building2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -271,6 +271,42 @@ export default function DriverPreviewClient() {
                             </div>
                         </CardContent>
                     </Card>
+
+                    {/* Customer Driver IDs */}
+                    {(() => {
+                        const ids = driver.customerDriverIds;
+                        if (!ids || typeof ids !== "object") return null;
+                        const entries = Object.entries(ids).flatMap(([customer, idMap]) =>
+                            (typeof idMap === "object" && idMap
+                                ? Object.entries(idMap).filter(([, v]) => v && String(v).trim())
+                                : []
+                            ).map(([idType, value]) => ({ customer, idType, value } as const))
+                        );
+                        if (entries.length === 0) return null;
+                        return (
+                            <Card>
+                                <CardHeader className="pb-3">
+                                    <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                                        <Building2 className="h-5 w-5 text-blue-600" />
+                                        {t("drivers.detail.customerDriverIds")}
+                                    </CardTitle>
+                                    <p className="text-sm text-muted-foreground">{t("drivers.detail.customerDriverIdsDesc")}</p>
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-y-4 gap-x-12">
+                                        {entries.map(({ customer, idType, value }) => (
+                                            <div key={`${customer}-${idType}`} className="flex justify-between py-2 border-b">
+                                                <span className="text-sm text-muted-foreground capitalize">
+                                                    {customer} – {idType}
+                                                </span>
+                                                <span className="text-sm font-medium font-mono">{value}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        );
+                    })()}
 
                     {/* Documents */}
                     <Card>

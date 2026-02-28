@@ -80,6 +80,10 @@ export function AppSidebar() {
                     title: t("nav.manageSubcontractors"),
                     url: "/admin/subcontractors",
                 },
+                {
+                    title: t("nav.customers"),
+                    url: "/admin/customers",
+                },
             ],
         },
         {

@@ -81,12 +81,14 @@ function SelectedSourcePopup({
     getStationTypeLabel,
     t,
     onClearSelection,
+    distanceViewMode,
 }: {
     selectedSourceId: string | null;
     sources: (SourcePoint & { latitude: number; longitude: number })[];
     getStationTypeLabel: (type: string) => string;
     t: (key: string) => string;
     onClearSelection?: () => void;
+    distanceViewMode?: "HUB_SOC" | "SOC_HUB";
 }) {
     const map = useMap();
     const popupRef = useRef<L.Popup | null>(null);
@@ -112,12 +114,16 @@ function SelectedSourcePopup({
         const s = t("firstMile.sources.distanceToHub");
         return s && !s.includes("distanceToHub") ? s : "Distance to Hub";
     })();
+    const distanceFromSocLabel = (() => {
+        const s = t("firstMile.sources.distanceFromSoc");
+        return s && !s.includes("distanceFromSoc") ? s : "Distance from SOC";
+    })();
 
     const buildContent = useCallback(
-        (distances: DistanceRow[], stationType: string) => {
+        (distances: DistanceRow[], effectiveMode: "HUB_SOC" | "SOC_HUB") => {
             let rowsHtml = "";
-            const sectionLabel = stationType === "HUB" ? distanceToSocLabel : distanceToHubLabel;
-            if (stationType === "HUB") {
+            const sectionLabel = effectiveMode === "HUB_SOC" ? distanceToSocLabel : distanceFromSocLabel;
+            if (effectiveMode === "HUB_SOC") {
                 rowsHtml = SOC_KEYS.map((key) => {
                     const d = distances.find((r) => socIdMatchesKey(r.socId, key));
                     const value = d
@@ -126,14 +132,13 @@ function SelectedSourcePopup({
                     return `<p class="text-xs mt-0"><span class="font-medium">${escapeHtml(key)}</span> : ${escapeHtml(value)}</p>`;
                 }).join("");
             } else {
-                rowsHtml = distances
-                    .map((d) => {
-                        const value = kmMinTpl
-                            .replace("{{km}}", d.distanceKm.toFixed(2))
-                            .replace("{{min}}", d.durationMinutes.toFixed(1));
-                        return `<p class="text-xs mt-0"><span class="font-medium">${escapeHtml(d.destId)}</span> : ${escapeHtml(value)}</p>`;
-                    })
-                    .join("");
+                rowsHtml = SOC_KEYS.map((key) => {
+                    const d = distances.find((r) => socIdMatchesKey(r.socId, key));
+                    const value = d
+                        ? kmMinTpl.replace("{{km}}", d.distanceKm.toFixed(2)).replace("{{min}}", d.durationMinutes.toFixed(1))
+                        : noDataLabel;
+                    return `<p class="text-xs mt-0"><span class="font-medium">${escapeHtml(key)}</span> : ${escapeHtml(value)}</p>`;
+                }).join("");
             }
             const name = selected ? selected.source_name_en : "";
             return `
@@ -143,7 +148,7 @@ function SelectedSourcePopup({
             </div>
         `;
         },
-        [selected, kmMinTpl, noDataLabel, distanceToSocLabel, distanceToHubLabel]
+        [selected, kmMinTpl, noDataLabel, distanceToSocLabel, distanceFromSocLabel]
     );
 
     // Open/close popup when selection changes; stable deps so we don't tear down when only sources ref changes
@@ -161,24 +166,26 @@ function SelectedSourcePopup({
         const latlng: L.LatLngExpression = [selected.latitude, selected.longitude];
         map.flyTo(latlng, 16, { duration: 0.5 });
 
-        const content = buildContent([], selected.station_type ?? "HUB");
+        const mode = distanceViewMode ?? "HUB_SOC";
+        const content = buildContent([], mode);
         const popup = L.popup({ className: "sources-map-selected-popup" })
             .setLatLng(latlng)
             .setContent(content)
             .openOn(map);
         popupRef.current = popup;
 
-        const isSoc = selected.station_type === "SOC";
-        const queryId = isSoc ? normalizeSocIdToKey(selected.source_id) : selected.source_id;
-        const coll = isSoc ? COLLECTIONS.SOC_HUB_DISTANCES : COLLECTIONS.HUB_SOC_DISTANCES;
-        const queryField = isSoc ? "socId" : "hubId";
+        const isSocHubMode = mode === "SOC_HUB";
+        const coll = isSocHubMode ? COLLECTIONS.SOC_HUB_DISTANCES : COLLECTIONS.HUB_SOC_DISTANCES;
+        const queryField = "hubId";
+        const queryId = selected.source_id;
         getDocs(query(collection(db, coll), where(queryField, "==", queryId)))
             .then((snap) => {
                 const list: DistanceRow[] = snap.docs.map((d) => {
                     const data = d.data();
-                    const destId = (isSoc ? data.hubId : data.socId) ?? "";
+                    const socId = (data.socId ?? "") as string;
+                    const destId = (data.hubId ?? "") as string;
                     return {
-                        socId: (data.socId ?? data.hubId ?? "") as string,
+                        socId,
                         destId,
                         distanceKm: Number(data.distanceKm ?? 0),
                         durationMinutes: Number(data.durationMinutes ?? 0),
@@ -192,14 +199,15 @@ function SelectedSourcePopup({
             map.removeLayer(popup);
             popupRef.current = null;
         };
-    }, [map, selectedSourceId, selected?.source_id, selected?.latitude, selected?.longitude, selected?.station_type, selected?.source_name_en]);
+    }, [map, selectedSourceId, selected?.source_id, selected?.latitude, selected?.longitude, selected?.source_name_en, distanceViewMode]);
 
     // Update popup content when distance data loads (or selection name changes)
     useEffect(() => {
         if (!selected || !popupRef.current) return;
-        const content = buildContent(distanceRows, selected.station_type ?? "HUB");
+        const mode = distanceViewMode ?? "HUB_SOC";
+        const content = buildContent(distanceRows, mode);
         popupRef.current.setContent(content);
-    }, [distanceRows, selected, buildContent]);
+    }, [distanceRows, selected, buildContent, distanceViewMode]);
 
     return null;
 }
@@ -215,10 +223,11 @@ interface SourcesMapProps {
     selectedSourceId?: string | null;
     onSourceSelect?: (sourceId: string) => void;
     onClearSelection?: () => void;
+    distanceViewMode?: "HUB_SOC" | "SOC_HUB";
     className?: string;
 }
 
-export default function SourcesMap({ sources, selectedSourceId = null, onSourceSelect, onClearSelection, className = "" }: SourcesMapProps) {
+export default function SourcesMap({ sources, selectedSourceId = null, onSourceSelect, onClearSelection, distanceViewMode, className = "" }: SourcesMapProps) {
     const { t } = useLanguage();
     const [mapId] = useState(() => `sources-map-${Math.random().toString(36).slice(2, 9)}`);
 
@@ -283,6 +292,7 @@ export default function SourcesMap({ sources, selectedSourceId = null, onSourceS
                     getStationTypeLabel={getStationTypeLabel}
                     t={t}
                     onClearSelection={onClearSelection}
+                    distanceViewMode={distanceViewMode}
                 />
                 {pointsWithCoords.map((src, idx) => {
                     const sourceKey = src.id ?? src.source_id;

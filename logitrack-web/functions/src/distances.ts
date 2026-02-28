@@ -1,16 +1,22 @@
 /**
  * Cloud Function: compute Hub–SOC and SOC–Hub distances via Google Distance Matrix API,
  * write to hub_soc_distances and soc_hub_distances. Admin only.
- * Set GOOGLE_MAPS_API_KEY in Firebase config or Cloud Console env.
+ * Set GOOGLE_MAPS_API_KEY in functions/.env or when prompted on first deploy.
  */
 
 import * as admin from "firebase-admin";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { defineString } from "firebase-functions/params";
+
+const googleMapsApiKey = defineString("GOOGLE_MAPS_API_KEY", {
+    description: "Google Maps API key for Distance Matrix API (used by computeHubSocDistances)",
+});
 
 const COLLECTIONS = {
     HUBS: "hubs",
     HUB_SOC_DISTANCES: "hub_soc_distances",
     SOC_HUB_DISTANCES: "soc_hub_distances",
+    METADATA: "metadata",
 } as const;
 
 const SOC_KEYS = ["SOCE", "SOCN", "SOCW"] as const;
@@ -115,13 +121,15 @@ function parseElement(
 
 export const computeHubSocDistances = onCall(
     { region: "asia-southeast1" },
-    async (request): Promise<{ ok: boolean; written: number; hubsCount: number; socsCount: number; error?: string }> => {
+    async (
+        request
+    ): Promise<{ ok: boolean; written: number; hubsCount: number; socsCount: number; calculatedAt?: string; error?: string }> => {
         if (request.auth?.token?.admin !== true) {
             throw new HttpsError("permission-denied", "Admin only");
         }
-        const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+        const apiKey = googleMapsApiKey.value();
         if (!apiKey) {
-            throw new HttpsError("failed-precondition", "GOOGLE_MAPS_API_KEY is not set. Configure it in Cloud Console or Firebase config.");
+            throw new HttpsError("failed-precondition", "GOOGLE_MAPS_API_KEY is not set. Add it to functions/.env or set it when deploying (firebase deploy --only functions).");
         }
         const userId = request.auth?.uid ?? null;
         const db = admin.firestore();
@@ -274,6 +282,20 @@ export const computeHubSocDistances = onCall(
         }
 
         const totalWritten = hubToSocRows.length + socToHubRows.length;
-        return { ok: true, written: totalWritten, hubsCount: hubs.length, socsCount: socs.length };
+
+        // Save last calculated timestamp for UI display
+        await db
+            .collection(COLLECTIONS.METADATA)
+            .doc("distances_last_calculated")
+            .set({ timestamp: now });
+
+        const calculatedAtIso = now.toDate().toISOString();
+        return {
+            ok: true,
+            written: totalWritten,
+            hubsCount: hubs.length,
+            socsCount: socs.length,
+            calculatedAt: calculatedAtIso,
+        };
     }
 );

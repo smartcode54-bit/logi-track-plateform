@@ -2,7 +2,7 @@
 /**
  * Cloud Function: compute Hub–SOC and SOC–Hub distances via Google Distance Matrix API,
  * write to hub_soc_distances and soc_hub_distances. Admin only.
- * Set GOOGLE_MAPS_API_KEY in Firebase config or Cloud Console env.
+ * Set GOOGLE_MAPS_API_KEY in functions/.env or when prompted on first deploy.
  */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -41,10 +41,15 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.computeHubSocDistances = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
+const params_1 = require("firebase-functions/params");
+const googleMapsApiKey = (0, params_1.defineString)("GOOGLE_MAPS_API_KEY", {
+    description: "Google Maps API key for Distance Matrix API (used by computeHubSocDistances)",
+});
 const COLLECTIONS = {
     HUBS: "hubs",
     HUB_SOC_DISTANCES: "hub_soc_distances",
     SOC_HUB_DISTANCES: "soc_hub_distances",
+    METADATA: "metadata",
 };
 const SOC_KEYS = ["SOCE", "SOCN", "SOCW"];
 function hubSocDistanceDocId(originId, destinationId) {
@@ -133,9 +138,9 @@ exports.computeHubSocDistances = (0, https_1.onCall)({ region: "asia-southeast1"
     if (request.auth?.token?.admin !== true) {
         throw new https_1.HttpsError("permission-denied", "Admin only");
     }
-    const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+    const apiKey = googleMapsApiKey.value();
     if (!apiKey) {
-        throw new https_1.HttpsError("failed-precondition", "GOOGLE_MAPS_API_KEY is not set. Configure it in Cloud Console or Firebase config.");
+        throw new https_1.HttpsError("failed-precondition", "GOOGLE_MAPS_API_KEY is not set. Add it to functions/.env or set it when deploying (firebase deploy --only functions).");
     }
     const userId = request.auth?.uid ?? null;
     const db = admin.firestore();
@@ -291,6 +296,18 @@ exports.computeHubSocDistances = (0, https_1.onCall)({ region: "asia-southeast1"
         await batch.commit();
     }
     const totalWritten = hubToSocRows.length + socToHubRows.length;
-    return { ok: true, written: totalWritten, hubsCount: hubs.length, socsCount: socs.length };
+    // Save last calculated timestamp for UI display
+    await db
+        .collection(COLLECTIONS.METADATA)
+        .doc("distances_last_calculated")
+        .set({ timestamp: now });
+    const calculatedAtIso = now.toDate().toISOString();
+    return {
+        ok: true,
+        written: totalWritten,
+        hubsCount: hubs.length,
+        socsCount: socs.length,
+        calculatedAt: calculatedAtIso,
+    };
 });
 //# sourceMappingURL=distances.js.map

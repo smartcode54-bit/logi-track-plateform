@@ -1,0 +1,40 @@
+# Deploy web to Firebase production (runs on Linux to avoid Windows paths[1] bug)
+name: Deploy Production
+
+on:
+  workflow_dispatch:  # Manual trigger from GitHub Actions tab
+  # push:
+  #   branches: [main]  # Uncomment to deploy on push to main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Create .env.production
+        run: printf '%s\n' "$ENV_PROD_WEB" > logitrack-web/.env.production
+        env:
+          ENV_PROD_WEB: ${{ secrets.ENV_PROD_WEB }}
+
+      - name: Build
+        run: npm run build
+        working-directory: logitrack-web
+
+      - name: Deploy to Firebase
+        uses: w9jds/firebase-action@master
+        with:
+          args: deploy --config firebase.prod.json --project logitrack-prod --non-interactive
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        working-directory: logitrack-web
