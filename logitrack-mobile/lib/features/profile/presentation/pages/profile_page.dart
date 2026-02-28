@@ -321,10 +321,14 @@ class _ProfilePageState extends State<ProfilePage> {
                       color: Theme.of(context).colorScheme.primary,
                     ),
                     const SizedBox(width: 4),
-                    Text(
-                      '${'truck_type'.tr()}: ${current['truckType']}',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w500,
+                    Expanded(
+                      child: Text(
+                        '${'truck_type'.tr()}: ${current['truckType']}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.w500,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
                       ),
                     ),
                   ],

@@ -861,6 +861,7 @@ export default function DriverMonitorPage() {
             {/* Image preview dialog */}
             <Dialog open={!!previewPhoto} onOpenChange={(open) => !open && setPreviewPhoto(null)}>
                 <DialogContent className="max-w-[95vw] max-h-[95vh] w-auto p-2">
+                    <DialogTitle className="sr-only">{t("driverMonitor.detail.imagePreview")}</DialogTitle>
                     {previewPhoto && (
                         <div className="flex flex-col gap-2">
                             <div className="relative flex items-center justify-center bg-muted/30 rounded-lg overflow-hidden min-h-[200px]">

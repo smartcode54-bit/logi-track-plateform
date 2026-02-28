@@ -349,24 +349,6 @@ class _HomePageState extends State<HomePage> {
                 childAspectRatio: 1.2,
                 children: [
                   QuickActionCard(
-                    icon: Icons.local_shipping,
-                    label: 'my_tasks'.tr(),
-                    onTap: () async {
-                      final result = await Navigator.pushNamed(
-                        context,
-                        '/check-in',
-                        arguments: _driverId,
-                      );
-                      if (result == true && mounted) {
-                        Navigator.pushReplacementNamed(
-                          context,
-                          '/home',
-                          arguments: {'tab': 1},
-                        );
-                      }
-                    },
-                  ),
-                  QuickActionCard(
                     icon: Icons.history,
                     label: 'history'.tr(),
                     onTap: () => Navigator.pushNamed(context, '/trip-history'),
@@ -428,6 +410,13 @@ class _HomePageState extends State<HomePage> {
                           color: hasTasks
                               ? Theme.of(context).colorScheme.primary
                               : Colors.grey,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'todays_status_subtitle'.tr(),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.8),
                         ),
                       ),
                     ],

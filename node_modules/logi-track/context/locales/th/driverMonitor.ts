@@ -71,6 +71,7 @@ export default {
     "driverMonitor.detail.updatedAt": "อัปเดตเมื่อ",
     "driverMonitor.detail.close": "ปิด",
     "driverMonitor.detail.openInNewTab": "เปิดในแท็บใหม่",
+    "driverMonitor.detail.imagePreview": "ตัวอย่างรูปภาพ",
     "driverMonitor.detail.noPhotos": "ไม่มีรูปภาพ",
     "driverMonitor.detail.distance": "ระยะทาง",
     "driverMonitor.detail.parcelCount": "จำนวนพัสดุ",

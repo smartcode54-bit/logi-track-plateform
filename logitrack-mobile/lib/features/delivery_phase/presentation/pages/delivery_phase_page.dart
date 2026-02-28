@@ -226,11 +226,10 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
     List<int> imageBytes = await xfile.readAsBytes();
     if (!mounted) return;
     if (isRunsheetReceived) {
-      // Don't block here. We'll show the confirmation dialog in _submitDelivery
-      // We still run the validation to show the info dialog if needed (or we can just skip it here and only do it at submit)
-      // Actually, let's keep the immediate feedback, but don't block.
-      await _validateRunsheetTripId(imageBytes, imagePath: xfile.path);
+      // บันทึกรันชีทเฉพาะเมื่อ Trip ID ตรง — ถ้าใส่ผิดแล้วเปลี่ยนเป็นใบที่ถูก แอปจะรับใบที่ถูก
+      final ok = await _validateRunsheetTripId(imageBytes, imagePath: xfile.path);
       if (!mounted) return;
+      if (!ok) return; // ไม่ตรงหรือ OCR ไม่พบ → ไม่เก็บรูปผิด ให้ผู้ใช้เลือกรันชีทที่ถูกใหม่
     }
     Uint8List compressed;
     if (isRunsheetReceived) {
@@ -310,25 +309,15 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
       showDialogOnError: false,
     );
     if (!runsheetOk) {
-      final confirm = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text('delivery_trip_id_mismatch_title'.tr()),
-          content: Text('delivery_trip_id_mismatch_admin_review'.tr()),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: Text(MaterialLocalizations.of(ctx).cancelButtonLabel),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
-              child: Text('delivery_confirm_admin_review'.tr()),
-            ),
-          ],
-        ),
-      );
-      if (confirm != true) return; // User cancelled
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('delivery_trip_id_mismatch_message'.tr()),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
     }
 
     setState(() => _saving = true);
@@ -584,8 +573,7 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
                           const SizedBox(height: 32),
 
                           // Submit Button
-                          if (!_isReviewPendingOrApproved)
-                            ElevatedButton(
+                          ElevatedButton(
                               onPressed: (_canSubmit && !_saving)
                                   ? _submitDelivery
                                   : null,
