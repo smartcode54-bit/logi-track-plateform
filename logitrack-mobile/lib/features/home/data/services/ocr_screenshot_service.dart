@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import 'cloud_vision_ocr_service.dart';
+import 'ocr_digit_normalizer.dart';
 
 /// Result of OCR on a runsheet / Shopee screenshot (Vision API, key เดียวกับแผนที่).
 class OcrScreenshotResult {
@@ -150,16 +151,16 @@ String? _extractDestination(String text) {
 /// Distance: "ระยะทางจากสถานีเริ่มต้นถึงสถานีปลายทาง 53.000 KM"
 String? _extractDistance(String text) {
   var match = RegExp(
-    r'(?:ระยะทาง[^\n]*?|[Dd]istance[:\s]*)([\d]+(?:\.[\d]+)?)\s*(?:ระ[ท]าง\s*)?(?:km|KM|กม\.?)',
+    '(?:ระยะทาง[^\\n]*?|[Dd]istance[:\\s]*)($kDigitOrConfusable+(?:\\.$kDigitOrConfusable+)?)\\s*(?:ระ[ท]าง\\s*)?(?:km|KM|กม\\.?)',
     caseSensitive: false,
   ).firstMatch(text);
-  if (match != null) return '${match.group(1)} km';
+  if (match != null) return '${normalizeOcrDigits(match.group(1))} km';
 
   match = RegExp(
-    r'([\d]+(?:\.[\d]+)?)\s*KM',
+    '($kDigitOrConfusable+(?:\\.$kDigitOrConfusable+)?)\\s*KM',
     caseSensitive: false,
   ).firstMatch(text);
-  if (match != null) return '${match.group(1)} km';
+  if (match != null) return '${normalizeOcrDigits(match.group(1))} km';
 
   return null;
 }
@@ -167,10 +168,11 @@ String? _extractDistance(String text) {
 /// Parcel count: "Q'ty of Parcel 547"
 String? _extractParcelCount(String text) {
   final match = RegExp(
-    r'''(?:Q['']?(?:ty|uantity)\s*(?:of\s*)?[Pp]arcel[s]?|จำนวน(?:พัสดุ)?|[Pp]arcel\s*[Cc]ount|[Pp]cs|ชิ้น)\s*[:\s]*([\d]+)''',
+    '''(?:Q['']?(?:ty|uantity)\\s*(?:of\\s*)?[Pp]arcel[s]?|จำนวน(?:พัสดุ)?|[Pp]arcel\\s*[Cc]ount|[Pp]cs|ชิ้น)\\s*[:\\s]*($kDigitOrConfusable+)''',
     caseSensitive: false,
   ).firstMatch(text);
-  return match?.group(1);
+  final raw = match?.group(1);
+  return raw != null ? normalizeOcrDigits(raw) : null;
 }
 
 /// Seal time: "เวลา Seal รถ : 2026/02/14 19:03:59" → "19:03"
@@ -193,10 +195,10 @@ String? _extractSealTime(String text) {
 /// Total weight: "Total weight(kg) 608.985"
 String? _extractTotalWeight(String text) {
   final match = RegExp(
-    r'(?:[Tt]otal\s*[Ww]eight\s*(?:\(kg\))?|น้ำหนัก(?:รวม)?)\s*[:\s]*([\d]+(?:\.[\d]+)?)',
+    '(?:[Tt]otal\\s*[Ww]eight\\s*(?:\\(kg\\))?|น้ำหนัก(?:รวม)?)\\s*[:\\s]*($kDigitOrConfusable+(?:\\.$kDigitOrConfusable+)?)',
     caseSensitive: false,
   ).firstMatch(text);
-  if (match != null) return '${match.group(1)} kg';
+  if (match != null) return '${normalizeOcrDigits(match.group(1))} kg';
   return null;
 }
 

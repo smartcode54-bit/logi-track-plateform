@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart' show debugPrint;
+
 import 'cloud_vision_ocr_service.dart';
+import 'ocr_digit_normalizer.dart';
 
 class FuelReceiptOcrResult {
   final String? tid;
@@ -69,9 +71,9 @@ Future<FuelReceiptOcrResult> runFuelReceiptOcrOnImageBytes(
     final priceRaw = _extractPricePerLiter(fullText);
     final totalRaw = _extractTotalAmount(fullText);
 
-    double? liter = _parseDouble(literRaw);
-    double? pricePerLiter = _parseDouble(priceRaw);
-    double? totalAmount = _parseDouble(totalRaw);
+    double? liter = _parseDouble(normalizeOcrDigits(literRaw));
+    double? pricePerLiter = _parseDouble(normalizeOcrDigits(priceRaw));
+    double? totalAmount = _parseDouble(normalizeOcrDigits(totalRaw));
 
     // Advanced Fallback: If OCR returns values separated from labels by newlines
     if (totalAmount == null || liter == null || pricePerLiter == null) {
@@ -195,11 +197,12 @@ double? _parseDouble(String? v) {
 // Extract all valid floats on the document to run advanced Math-Matching check
 List<double> _extractAllFloats(String text) {
   final matches = RegExp(
-    r'\b(\d{1,3}(?:[.,]\d{3})*[.,]\d{2}|\d+[.,]\d{2})\b',
+    '\\b($kDigitOrConfusable{1,3}(?:[.,]$kDigitOrConfusable{3})*[.,]$kDigitOrConfusable{2}|$kDigitOrConfusable+[.,]$kDigitOrConfusable{2})\\b',
   ).allMatches(text);
   final floats = <double>[];
   for (final m in matches) {
-    final parsed = _parseDouble(m.group(1));
+    final normalized = normalizeOcrDigits(m.group(1));
+    final parsed = _parseDouble(normalized);
     if (parsed != null) floats.add(parsed);
   }
   return floats;
@@ -213,41 +216,42 @@ String? _extractTime(String text) {
 }
 
 String? _extractTid(String text) {
-  final match = RegExp(r'(?:TID|tid)[:\s\-]*(\d{5,12})').firstMatch(text);
-  return match?.group(1);
+  final match = RegExp(
+    '(?:TID|tid)[:\\s\\-]*($kDigitOrConfusable{5,12})',
+  ).firstMatch(text);
+  final raw = match?.group(1);
+  return raw != null ? normalizeOcrDigits(raw) : null;
 }
 
 String? _extractTaxId(String text) {
-  // Pattern: \d{13} (ตรวจสอบตัวเลข 13 หลักถ้วน)
-  // OCR columns might cause the value to be on a completely different line than the label.
+  // Pattern: 13 หลัก (อนุญาตตัวสับสนกับตัวเลข เช่น O,l)
   final labelMatch = RegExp(
     r'(?:TAX\s*ID|เลขประจำตัว(?:ผู้เสียภาษี)?อากร)',
     caseSensitive: false,
   ).firstMatch(text);
 
   if (labelMatch != null) {
-    // If we found the label, get the rest of the text after the label
     final textAfterLabel = text.substring(labelMatch.end);
-    // Find the FIRST 13 digit number that appears after the label.
-    // This allows it to skip over interleaved TID values like "28233316" (8 digits).
-    final valueMatch = RegExp(r'\b(\d{13})\b').firstMatch(textAfterLabel);
+    final valueMatch = RegExp(
+      '\\b($kDigitOrConfusable{13})\\b',
+    ).firstMatch(textAfterLabel);
     if (valueMatch != null) {
-      return valueMatch.group(1);
+      return normalizeOcrDigits(valueMatch.group(1));
     }
   }
 
-  // Fallback: just look for any 13-digit number completely ignoring labels
-  final fallback = RegExp(r'\b(\d{13})\b').firstMatch(text);
-  return fallback?.group(1);
+  final fallback = RegExp('\\b($kDigitOrConfusable{13})\\b').firstMatch(text);
+  final raw = fallback?.group(1);
+  return raw != null ? normalizeOcrDigits(raw) : null;
 }
 
 String? _extractTaxInvNo(String text) {
-  // Pattern: \d{12} (ตรวจสอบตัวเลข 12 หลัก)
   final match = RegExp(
-    r'(?:TAX\s*IN[VU]\s*NO\.?|เลขที่ใบกำกับภาษี?|ใบกำกับภาษี)[:\s\-]*(\d{12})\b',
+    '(?:TAX\\s*IN[VU]\\s*NO\\.?|เลขที่ใบกำกับภาษี?|ใบกำกับภาษี)[:\\s\\-]*($kDigitOrConfusable{12})\\b',
     caseSensitive: false,
   ).firstMatch(text);
-  return match?.group(1);
+  final raw = match?.group(1);
+  return raw != null ? normalizeOcrDigits(raw) : null;
 }
 
 String? _extractDate(String text) {
@@ -277,31 +281,32 @@ String? _extractDate(String text) {
 }
 
 String? _extractLiter(String text) {
-  // Pattern: \d+\.\d{2} (ตรวจสอบตัวเลขทศนิยม 2 ตำแหน่ง)
   final match = RegExp(
-    r'(?:LITER|ปริมาณ|ลิตร)[:\s]*(\d+\.\d{2})\b',
+    '(?:LITER|ปริมาณ|ลิตร)[:\\s]*($kDigitOrConfusable+\\.$kDigitOrConfusable{2})\\b',
     caseSensitive: false,
   ).firstMatch(text);
-  return match?.group(1);
+  final raw = match?.group(1);
+  return raw != null ? normalizeOcrDigits(raw) : null;
 }
 
 String? _extractPricePerLiter(String text) {
   final match = RegExp(
-    r'(?:BHT/LTR\.?|ราคา/ลิตร|PRICE/L)[:\s]*([\d,]+\.\d+)',
+    '(?:BHT/LTR\\.?|ราคา/ลิตร|PRICE/L)[:\\s]*([$kDigitOrConfusable,]+\\.$kDigitOrConfusable+)',
     caseSensitive: false,
   ).firstMatch(text);
-  return match?.group(1);
+  final raw = match?.group(1);
+  return raw != null ? normalizeOcrDigits(raw) : null;
 }
 
 String? _extractTotalAmount(String text) {
-  // Priority: เช็คบรรทัดที่มีคำว่า "TOTAL THB", "TOTAL" หรือ "ยอดรวม" เป็นหลัก
   final match = RegExp(
-    r'(?:TOTAL\s*THB|TOTAL|จำนวนเงินรวม|ยอดรวม(?:ทั้งสิ้น)?|รวมเงิน)[:\s]*([\d,]+(?:\.\d+)?)',
+    '(?:TOTAL\\s*THB|TOTAL|จำนวนเงินรวม|ยอดรวม(?:ทั้งสิ้น)?|รวมเงิน)[:\\s]*([$kDigitOrConfusable,]+(?:\\.$kDigitOrConfusable+)?)',
     caseSensitive: false,
   ).firstMatch(text);
 
   if (match != null) {
-    return match.group(1)?.replaceAll(',', '');
+    final raw = match.group(1)?.replaceAll(',', '');
+    return raw != null ? normalizeOcrDigits(raw) : null;
   }
 
   return null;
@@ -326,25 +331,22 @@ String? _extractOdometer(String text) {
     return raw;
   }
 
-  // Strategy: Strict Keyword matching
-  // Looks for Odometer keywords and grabs the 4-9 digit number associated with it
   final odoMatch = RegExp(
-    r'(?:ระยะทาง|เลขไมล์|ODOMETER|MILEAGE|สะสมระยะทาง).*(?:KM|กม\.?)?\s*[:\s]*(\d{4,9})',
+    '(?:ระยะทาง|เลขไมล์|ODOMETER|MILEAGE|สะสมระยะทาง).*(?:KM|กม\\.?)?\\s*[:\\s]*($kDigitOrConfusable{4,9})',
     caseSensitive: false,
   ).firstMatch(text);
 
   if (odoMatch != null) {
-    return _fixOdometerPadding(odoMatch.group(1));
+    return _fixOdometerPadding(normalizeOcrDigits(odoMatch.group(1)));
   }
 
-  // Fallback: Sometimes "KM" stands alone on the same line as the distance
   final fallbackKMMatch = RegExp(
-    r'\b(?:KM|กม\.?)\s*[:\s]*(\d{4,9})\b',
+    '\\b(?:KM|กม\\.?)\\s*[:\\s]*($kDigitOrConfusable{4,9})\\b',
     caseSensitive: false,
   ).firstMatch(text);
 
   if (fallbackKMMatch != null) {
-    return _fixOdometerPadding(fallbackKMMatch.group(1));
+    return _fixOdometerPadding(normalizeOcrDigits(fallbackKMMatch.group(1)));
   }
 
   return null;

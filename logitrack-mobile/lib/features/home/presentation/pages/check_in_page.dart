@@ -835,7 +835,7 @@ class _TaskCheckInPageState extends State<TaskCheckInPage> {
                         )
                       : const Icon(Icons.check),
                   label: Text(
-                    _submitting ? 'Processing...' : 'checkin_save'.tr(),
+                    _submitting ? 'checkin_processing'.tr() : 'checkin_save'.tr(),
                   ),
                   style: ElevatedButton.styleFrom(
                     minimumSize: const Size(0, 52),
@@ -1165,7 +1165,7 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
           ),
           const SizedBox(height: 8),
           SearchableHubPicker(
-            label: 'Origin (SOC)'.tr(),
+            label: 'checkin_origin_soc'.tr(),
             hintText: 'checkin_select_soc'.tr(),
             value: _origin ?? '',
             hubs: _socs,
@@ -1182,7 +1182,7 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
           ),
           const SizedBox(height: 8),
           SearchableHubPicker(
-            label: 'Destination (Hub)'.tr(),
+            label: 'checkin_destination_hub'.tr(),
             hintText: 'checkin_select_destination'.tr(),
             value: _dest ?? '',
             hubs: _hubs,
@@ -1333,7 +1333,7 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
                         )
                       : const Icon(Icons.check),
                   label: Text(
-                    _submitting ? 'Processing...' : 'checkin_save'.tr(),
+                    _submitting ? 'checkin_processing'.tr() : 'checkin_save'.tr(),
                   ),
                   style: ElevatedButton.styleFrom(
                     minimumSize: const Size(0, 52),

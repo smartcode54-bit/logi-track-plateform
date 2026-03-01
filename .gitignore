@@ -6,3 +6,9 @@ envs/.env.prod.mobile
 logitrack-web/functions/.env
 logitrack-web/functions/.env.*
 !logitrack-web/functions/.env.example
+
+# Markdown and docs
+README.md
+*.md
+**/doc/
+**/docs/

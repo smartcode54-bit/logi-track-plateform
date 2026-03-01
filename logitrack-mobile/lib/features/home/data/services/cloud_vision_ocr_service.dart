@@ -6,11 +6,13 @@ import 'package:http/http.dart' as http;
 
 const _visionBase = 'https://vision.googleapis.com/v1/images:annotate';
 
-/// เรียก Google Cloud Vision API ด้วยรูป base64 คืน full text หรือ null (ใช้ key เดียวกับแผนที่/ direction map)
+/// เรียก Google Cloud Vision API ด้วยรูป base64 คืน full text หรือ null
+/// ใช้ GOOGLE_CLOUD_VISION_API_KEY ก่อน ไม่มีค่อยใช้ GOOGLE_MAPS_API_KEY
 Future<String?> runCloudVisionOcrOnImageBytes(List<int> imageBytes) async {
-  final apiKey = dotenv.env['GOOGLE_MAPS_API_KEY']?.trim();
+  final apiKey = dotenv.env['GOOGLE_CLOUD_VISION_API_KEY']?.trim() ??
+      dotenv.env['GOOGLE_MAPS_API_KEY']?.trim();
   if (apiKey == null || apiKey.isEmpty) {
-    debugPrint('Cloud Vision OCR: GOOGLE_MAPS_API_KEY not set');
+    debugPrint('Cloud Vision OCR: GOOGLE_CLOUD_VISION_API_KEY / GOOGLE_MAPS_API_KEY not set');
     return null;
   }
 

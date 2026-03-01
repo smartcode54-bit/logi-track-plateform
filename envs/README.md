@@ -47,6 +47,21 @@ cd logitrack-mobile && flutter build apk
 
 ใน CI: copy `envs/.env.prod.mobile` → `logitrack-mobile/.env` (จาก secret/store) แล้วรัน `flutter build ...`
 
+### 4. Deploy Firebase Storage (และ Firestore) ไป Production
+
+แอปมือถือ Prod ใช้โปรเจกต์ **logitrack-prod** ถ้าแก้ `storage.rules` หรือ `firestore.rules` ใน `logitrack-web/` แล้ว ต้อง deploy ไปที่โปรเจกต์ prod ด้วย ถึงจะแก้ error แบบ `firebase_storage/unauthorized` ใน Prod ได้:
+
+```bash
+# จาก root
+cd logitrack-web
+firebase use prod
+firebase deploy --only storage
+# ถ้าแก้ Firestore rules ด้วย
+# firebase deploy --only firestore
+```
+
+เมื่อ deploy เสร็จแล้ว กลับไปใช้ default (dev) ได้: `firebase use default`
+
 ## โครงสร้าง monorepo (สรุป)
 
 ```

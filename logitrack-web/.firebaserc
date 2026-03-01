@@ -1,5 +1,6 @@
 {
   "projects": {
-    "default": "logi-track-wrt-dev"
+    "default": "logi-track-wrt-dev",
+    "prod": "logitrack-prod"
   }
 }
