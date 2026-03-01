@@ -113,6 +113,7 @@ export default {
     "firstMile.hub.stationType.SOC": "ศูนย์คัดแยกและกระจาย(SOC)",
     "firstMile.hub.cancel": "ยกเลิก",
     "firstMile.hub.save": "บันทึกจุดรับงาน",
+    "firstMile.hub.duplicateCode": "รหัสนี้มีอยู่แล้ว กรุณาใช้รหัสอื่น",
 
     // ========================
     // Sources Page
@@ -157,6 +158,12 @@ export default {
     "firstMile.sources.pagination.entries": "รายการ",
     "firstMile.sources.pagination.previous": "ก่อนหน้า",
     "firstMile.sources.pagination.next": "ถัดไป",
+    "firstMile.sources.driverAddedAlert": "Driver เพิ่ม Hub/SOC จาก Mobile แล้ว จำนวน",
+    "firstMile.sources.driverAddedAlertSuffix": "รายการ รอ Admin กรอกพิกัดและข้อมูลให้ครบ",
+    "firstMile.sources.filterNewClick": "คลิกเพื่อกรอง",
+    "firstMile.sources.filterNew": "ใหม่",
+    "firstMile.sources.noNewItems": "ไม่มีรายการใหม่ที่รอกรอกข้อมูล",
+    "firstMile.sources.needsCompletion": "รอกรอกข้อมูล",
 
     // ========================
     // Pickup-Delivery Point Import

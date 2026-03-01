@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import dynamic from "next/dynamic";
-import { Plus, MapPin, Search, Pencil, ChevronLeft, ChevronRight, RefreshCw, Download, Route, MoreHorizontal, Link } from "lucide-react";
+import { Plus, MapPin, Search, Pencil, ChevronLeft, ChevronRight, RefreshCw, Download, Route, MoreHorizontal, Link, AlertTriangle } from "lucide-react";
 import * as XLSX from "xlsx";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,6 +46,8 @@ const SourcesMap = dynamic(() => import("@/components/map/SourcesMap"), {
 /** Display row: supports both new schema and legacy Firestore fields */
 interface SourceRow extends Pick<Hub, "source_id" | "source_name_en" | "latitude" | "longitude" | "station_type"> {
     id?: string;
+    /** Driver เพิ่มจาก Mobile — Admin ควรกรอกพิกัดและข้อมูลให้ครบ */
+    createdByDriver?: boolean;
 }
 
 /** Normalize to HUB or SOC; map legacy FM_HUB/LH_HUB → HUB, RETURN_CENTER → SOC */
@@ -64,6 +66,7 @@ function mapDocToSourceRow(doc: { id: string; data: Record<string, unknown> }): 
         latitude: (data.latitude ?? data.lat ?? undefined) as number | undefined,
         longitude: (data.longitude ?? data.lng ?? undefined) as number | undefined,
         station_type: normalizeStationType(data.station_type),
+        createdByDriver: data.createdByDriver === true,
     };
 }
 
@@ -84,6 +87,8 @@ export default function SourcesPage() {
     const [lastCalculatedAt, setLastCalculatedAt] = useState<Date | null>(null);
     /** Hub→SOC: เลือก Hub เห็นระยะไป SOC | SOC→Hub: เลือก SOC เห็นระยะไป Hub */
     const [distanceViewMode, setDistanceViewMode] = useState<"HUB_SOC" | "SOC_HUB">("HUB_SOC");
+    /** true = แสดงเฉพาะ Driver เพิ่มจาก Mobile ที่รอ Admin กรอกพิกัด */
+    const [showOnlyNew, setShowOnlyNew] = useState(false);
 
     /** จำนวนแถวต่อหน้า fix ที่ 10 */
     const itemsPerPage = 10;
@@ -136,20 +141,31 @@ export default function SourcesPage() {
         [filteredSources]
     );
 
-    const totalPages = Math.max(1, Math.ceil(sourcesForMode.length / itemsPerPage));
+    /** Driver เพิ่มจาก Mobile ที่ยังไม่มีพิกัด — แจ้ง Admin กรอกข้อมูลให้ครบ */
+    const driverAddedNeedsCompletion = useMemo(
+        () => filteredSources.filter(
+            (row) => row.createdByDriver === true && (row.latitude == null || row.longitude == null)
+        ),
+        [filteredSources]
+    );
+
+    /** เมื่อ showOnlyNew = แสดงเฉพาะของใหม่ที่รอกรอก | ไม่ใช่ = แสดง Hub ตามเดิม */
+    const tableSources = showOnlyNew ? driverAddedNeedsCompletion : sourcesForMode;
+
+    const totalPages = Math.max(1, Math.ceil(tableSources.length / itemsPerPage));
     const paginatedSources = useMemo(
         () =>
-            sourcesForMode.slice(
+            tableSources.slice(
                 (currentPage - 1) * itemsPerPage,
                 currentPage * itemsPerPage
             ),
-        [sourcesForMode, currentPage, itemsPerPage]
+        [tableSources, currentPage, itemsPerPage]
     );
 
     useEffect(() => {
         setCurrentPage(1);
         setSelectedSourceId(null);
-    }, [search]);
+    }, [search, showOnlyNew]);
 
 
     useEffect(() => {
@@ -164,7 +180,7 @@ export default function SourcesPage() {
             "Longitude",
             t("firstMile.sources.table.stationType"),
         ];
-        const rows = sourcesForMode.map((row) => [
+        const rows = tableSources.map((row) => [
             row.source_id ?? "",
             row.source_name_en ?? "",
             row.latitude ?? "",
@@ -292,6 +308,22 @@ export default function SourcesPage() {
                 </div>
             </div>
 
+            {driverAddedNeedsCompletion.length > 0 && (
+                <button
+                    type="button"
+                    onClick={() => setShowOnlyNew(true)}
+                    className="flex w-full items-center gap-3 rounded-lg border border-amber-500/50 bg-amber-500/10 px-4 py-3 text-left text-amber-800 transition-colors hover:bg-amber-500/20 dark:text-amber-200 dark:hover:bg-amber-500/15"
+                >
+                    <AlertTriangle className="h-5 w-5 shrink-0" />
+                    <p className="text-sm font-medium">
+                        {t("firstMile.sources.driverAddedAlert")}
+                        <span className="font-semibold ml-1">{driverAddedNeedsCompletion.length}</span>
+                        {t("firstMile.sources.driverAddedAlertSuffix")}
+                    </p>
+                    <span className="ml-auto text-xs underline">{t("firstMile.sources.filterNewClick")}</span>
+                </button>
+            )}
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch min-h-0">
                 {/* Left: จุดรับ-ส่ง (Table) — ความสูงเท่ากับแผนที่ */}
                 <Card className="flex flex-col min-h-[520px] lg:min-h-0">
@@ -299,6 +331,19 @@ export default function SourcesPage() {
                         <div className="flex items-center justify-between gap-2 flex-wrap">
                             <div className="flex items-center gap-3 flex-wrap">
                                 <CardTitle className="text-lg">{t("firstMile.sources.dbSources")}</CardTitle>
+                                <Button
+                                    variant={showOnlyNew ? "default" : "outline"}
+                                    size="sm"
+                                    className="h-8 gap-1"
+                                    onClick={() => setShowOnlyNew(!showOnlyNew)}
+                                >
+                                    {t("firstMile.sources.filterNew")}
+                                    {driverAddedNeedsCompletion.length > 0 && (
+                                        <span className="ml-1 rounded-full bg-amber-500/30 px-1.5 py-0.5 text-xs font-medium">
+                                            {driverAddedNeedsCompletion.length}
+                                        </span>
+                                    )}
+                                </Button>
                                 <Tabs value={distanceViewMode} onValueChange={(v) => v === "HUB_SOC" || v === "SOC_HUB" ? setDistanceViewMode(v) : undefined}>
                                     <TabsList className="h-8">
                                         <TabsTrigger value="HUB_SOC" className="text-xs px-3">{t("firstMile.sources.modeHubToSoc")}</TabsTrigger>
@@ -322,7 +367,7 @@ export default function SourcesPage() {
                                     size="sm"
                                     className="h-8 shrink-0 gap-1"
                                     onClick={handleDownloadSources}
-                                    disabled={loading || sourcesForMode.length === 0}
+                                    disabled={loading || tableSources.length === 0}
                                     aria-label={t("firstMile.sources.download")}
                                 >
                                     <Download className="h-4 w-4" />
@@ -358,10 +403,10 @@ export default function SourcesPage() {
                                             {t("firstMile.sources.loading")}
                                         </TableCell>
                                     </TableRow>
-                                ) : sourcesForMode.length === 0 ? (
+                                ) : tableSources.length === 0 ? (
                                     <TableRow>
                                         <TableCell colSpan={5} className="text-center h-24 text-muted-foreground">
-                                            {t("firstMile.sources.noHubsInFilter")}
+                                            {showOnlyNew ? t("firstMile.sources.noNewItems") : t("firstMile.sources.noHubsInFilter")}
                                         </TableCell>
                                     </TableRow>
                                 ) : (
@@ -369,15 +414,25 @@ export default function SourcesPage() {
                                         const rowKey = row.id ?? row.source_id;
                                         const isSelected = selectedSourceId !== null && (row.id === selectedSourceId || row.source_id === selectedSourceId);
                                         const hasCoords = row.latitude != null && row.longitude != null;
+                                        const needsAdminCompletion = row.createdByDriver === true && !hasCoords;
                                         return (
                                             <TableRow
                                                 key={row.id || index}
-                                                className={`cursor-pointer ${isSelected ? "bg-primary/10 border-primary/30" : "hover:bg-muted/50"}`}
+                                                className={`cursor-pointer ${needsAdminCompletion ? "bg-amber-500/5" : ""} ${isSelected ? "bg-primary/10 border-primary/30" : "hover:bg-muted/50"}`}
                                                 onClick={() => {
                                                     if (hasCoords) setSelectedSourceId(rowKey);
                                                 }}
                                             >
-                                                <TableCell className="font-medium">{row.source_id}</TableCell>
+                                                <TableCell className="font-medium">
+                                                    <span className="flex items-center gap-2">
+                                                        {row.source_id}
+                                                        {needsAdminCompletion && (
+                                                            <span className="inline-flex items-center rounded-full bg-amber-500/20 px-2 py-0.5 text-xs font-medium text-amber-800 dark:text-amber-200">
+                                                                {t("firstMile.sources.needsCompletion")}
+                                                            </span>
+                                                        )}
+                                                    </span>
+                                                </TableCell>
                                                 <TableCell>{row.source_name_en}</TableCell>
                                                 <TableCell>
                                                     {hasCoords ? (
@@ -436,14 +491,14 @@ export default function SourcesPage() {
                                 )}
                             </TableBody>
                         </Table>
-                        {sourcesForMode.length > 0 && (
+                        {tableSources.length > 0 && (
                             <div className="flex items-center justify-between px-4 py-3 border-t bg-muted/20">
                                 <p className="text-sm text-muted-foreground">
                                     {t("firstMile.sources.pagination.showing")}{" "}
                                     {(currentPage - 1) * itemsPerPage + 1}{" "}
                                     {t("firstMile.sources.pagination.to")}{" "}
-                                    {Math.min(currentPage * itemsPerPage, sourcesForMode.length)}{" "}
-                                    {t("firstMile.sources.pagination.of")} {sourcesForMode.length}{" "}
+                                    {Math.min(currentPage * itemsPerPage, tableSources.length)}{" "}
+                                    {t("firstMile.sources.pagination.of")} {tableSources.length}{" "}
                                     {t("firstMile.sources.pagination.entries")}
                                 </p>
                                 <div className="flex gap-1">

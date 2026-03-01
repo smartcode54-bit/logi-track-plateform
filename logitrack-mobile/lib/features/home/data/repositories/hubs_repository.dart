@@ -88,6 +88,48 @@ Future<List<HubDoc>> fetchAllHubs() async {
   return list;
 }
 
+/// Driver สร้าง Hub/SOC ใหม่ด้วย รหัส + ชื่อ (ไม่ต้องมีพิกัด) เพื่อใช้ใน Manual Check In / Loading Phase ได้ทันที
+/// ตรวจสอบรหัสซ้ำก่อนบันทึก
+Future<HubDoc> addHubByDriver({
+  required String sourceId,
+  required String sourceName,
+  required String stationType,
+}) async {
+  final id = sourceId.trim();
+  final name = sourceName.trim();
+  if (id.isEmpty) throw ArgumentError('รหัสต้องไม่ว่าง');
+  if (name.isEmpty) throw ArgumentError('ชื่อต้องไม่ว่าง');
+
+  // เช็ครหัสซ้ำ
+  final existing = await FirebaseFirestore.instance
+      .collection(hubsCollection)
+      .where('source_id', isEqualTo: id)
+      .limit(1)
+      .get();
+  if (existing.docs.isNotEmpty) {
+    throw StateError('HUB_DUPLICATE_CODE');
+  }
+
+  final st = stationType.toUpperCase() == stationTypeSoc ? stationTypeSoc : stationTypeHub;
+  final data = {
+    'source_id': id,
+    'source_name_en': name,
+    'source_name_th': name,
+    'station_type': st,
+    'createdByDriver': true,
+    'createdAt': FieldValue.serverTimestamp(),
+  };
+
+  final docRef = await FirebaseFirestore.instance.collection(hubsCollection).add(data);
+  return HubDoc(
+    id: docRef.id,
+    sourceId: id,
+    sourceNameEn: name,
+    sourceNameTh: name,
+    stationType: st,
+  );
+}
+
 /// Detects job type from current GPS: if nearest station within [radiusMeters] is a HUB → first_mile, if SOC → line_haul.
 /// Returns null if no station within radius.
 Future<String?> detectJobTypeFromPosition({

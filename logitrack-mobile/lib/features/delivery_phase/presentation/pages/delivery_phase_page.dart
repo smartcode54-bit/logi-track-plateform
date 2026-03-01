@@ -213,13 +213,35 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
     }
   }
 
-  /// ถ่ายภาพหรืออัปโหลดรูป: 3 ขั้นแรกเปิดกล้อง (ใช้ฟังก์ชันร่วม stamp overlay), ขั้นรันชีทอัปโหลดจากแกลเลอรี
+  /// ถ่ายภาพหรืออัปโหลดรูป: ทุกขั้นให้เลือกระหว่าง camera และ gallery ได้
   Future<void> _takeDeliveryPhoto(String stepKey) async {
     if (kIsWeb) return;
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: Text('refuel_receipt_take_photo'.tr()),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: Text('refuel_receipt_from_gallery'.tr()),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null || !mounted) return;
+
     final picker = ImagePicker();
     final isRunsheetReceived = stepKey == 'runsheet_received';
     final xfile = await picker.pickImage(
-      source: isRunsheetReceived ? ImageSource.gallery : ImageSource.camera,
+      source: source,
       imageQuality: 85,
     );
     if (xfile == null || !mounted) return;

@@ -31,10 +31,11 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { hubSchema, Hub, STATION_TYPE_ENUM } from "@/validate/hubSchema";
-import { collection, addDoc, doc, updateDoc } from "firebase/firestore";
+import { collection, addDoc, doc, updateDoc, query, where, getDocs } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import SimpleMap from "@/components/map/SimpleMap";
 import { useLanguage } from "@/context/language";
+import { toast } from "sonner";
 
 interface HubDialogProps {
     trigger?: React.ReactNode;
@@ -94,6 +95,22 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
     const onSubmit = async (values: Hub) => {
         setLoading(true);
         try {
+            const sourceId = String(values.source_id ?? "").trim();
+            if (!sourceId) return;
+
+            // เช็ครหัสซ้ำ (ยกเว้นเอกสารที่กำลังแก้ไข)
+            const q = query(
+                collection(db, "hubs"),
+                where("source_id", "==", sourceId)
+            );
+            const snap = await getDocs(q);
+            const existing = snap.docs.filter((d) => d.id !== documentId);
+            if (existing.length > 0) {
+                toast.error(t("firstMile.hub.duplicateCode"));
+                setLoading(false);
+                return;
+            }
+
             const payload = {
                 ...values,
                 updatedAt: new Date(),

@@ -305,11 +305,33 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     }
   }
 
-  /// แนบรันชีทจาก gallery แล้วรัน OCR สกัด Trip ID/Seal/ต้นทาง-ปลายทาง เติมฟอร์ม
+  /// แนบรันชีทจาก camera หรือ gallery แล้วรัน OCR สกัด Trip ID/Seal/ต้นทาง-ปลายทาง เติมฟอร์ม
   Future<void> _pickRunsheetAndOcr() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: Text('refuel_receipt_take_photo'.tr()),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: Text('refuel_receipt_from_gallery'.tr()),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null || !mounted) return;
+
     final picker = ImagePicker();
     final xfile = await picker.pickImage(
-      source: ImageSource.gallery,
+      source: source,
       imageQuality: 85,
     );
     if (xfile == null || !mounted) return;
@@ -390,9 +412,31 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
   /// ถ่ายภาพขั้นตอน: stamp overlay (วันเวลา สถานที่ พิกัด เข็มทิศ) + compress — รูป 2, 3 reuse cache
   Future<void> _takeStepPhoto(String stepKey) async {
     if (kIsWeb) return;
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: Text('refuel_receipt_take_photo'.tr()),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: Text('refuel_receipt_from_gallery'.tr()),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null || !mounted) return;
+
     final picker = ImagePicker();
     final xfile = await picker.pickImage(
-      source: ImageSource.camera,
+      source: source,
       imageQuality: 85,
     );
     if (xfile == null || !mounted) return;
@@ -1051,6 +1095,9 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                             () => _originController.text = hub.sourceNameEn,
                           );
                         },
+                        allowAddNew: true,
+                        stationTypeForNew: _jobType == jobTypeFirstMile ? stationTypeHub : stationTypeSoc,
+                        onHubAdded: (hub) => setState(() => _allHubs = [..._allHubs, hub]),
                       ),
                       const SizedBox(height: 12),
                       SearchableHubPicker(
@@ -1066,6 +1113,9 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                                 _destinationController.text = hub.sourceNameEn,
                           );
                         },
+                        allowAddNew: true,
+                        stationTypeForNew: _jobType == jobTypeFirstMile ? stationTypeSoc : stationTypeHub,
+                        onHubAdded: (hub) => setState(() => _allHubs = [..._allHubs, hub]),
                       ),
                       const SizedBox(height: 12),
 

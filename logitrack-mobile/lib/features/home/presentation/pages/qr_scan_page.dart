@@ -49,8 +49,30 @@ class _QrScanPageState extends State<QrScanPage> {
       }
       return;
     }
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: Text('refuel_receipt_take_photo'.tr()),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: Text('refuel_receipt_from_gallery'.tr()),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null || !mounted) return;
+
     final picker = ImagePicker();
-    final xfile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 90);
+    final xfile = await picker.pickImage(source: source, imageQuality: 90);
     if (xfile == null || !mounted) return;
 
     final path = await path_utils.getImagePathForDecode(xfile);

@@ -70,6 +70,46 @@ class _CheckInPageState extends State<CheckInPage> {
         status == 'Cancelled';
   }
 
+  /// เลือกประเภทงานที่ต้องการเพิ่ม: FM (เรียกเสริม/วน) หรือ LH
+  Future<String?> _showAddTaskTypePicker(BuildContext context) async {
+    return showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'manual_checkin_add_task'.tr(),
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.local_shipping),
+                title: Text('manual_checkin_add_fm'.tr()),
+                subtitle: Text('manual_checkin_add_fm_subtitle'.tr()),
+                onTap: () => Navigator.pop(ctx, 'FIRST_MILE'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.swap_horiz),
+                title: Text('manual_checkin_add_lh'.tr()),
+                subtitle: Text('manual_checkin_add_lh_subtitle'.tr()),
+                onTap: () => Navigator.pop(ctx, 'LINE_HAUL'),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text('manual_checkin_cancel'.tr()),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<Map<String, dynamic>>>(
@@ -99,15 +139,19 @@ class _CheckInPageState extends State<CheckInPage> {
                     );
                     return;
                   }
+                  // เลือกประเภทงาน: FM (เรียกเสริม/วน) หรือ LH
+                  final taskType = await _showAddTaskTypePicker(context);
+                  if (taskType == null || !context.mounted) return;
                   final result = await Navigator.push<bool>(
                     context,
                     MaterialPageRoute(
-                      builder: (_) =>
-                          ManualCheckInPage(driverId: widget.driverId),
+                      builder: (_) => ManualCheckInPage(
+                        driverId: widget.driverId,
+                        taskType: taskType,
+                      ),
                     ),
                   );
                   if (result == true && context.mounted) {
-                    // Return true to indicate check-in was successful
                     Navigator.pop(context, true);
                   }
                 },
@@ -617,9 +661,34 @@ class _TaskCheckInPageState extends State<TaskCheckInPage> {
       return;
     }
 
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: Text('refuel_receipt_take_photo'.tr()),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: Text('refuel_receipt_from_gallery'.tr()),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null || !mounted) {
+      if (mounted) Navigator.pop(context);
+      return;
+    }
+
     final picker = ImagePicker();
     final xfile = await picker.pickImage(
-      source: ImageSource.camera,
+      source: source,
       imageQuality: 85,
     );
     if (xfile == null) {
@@ -901,7 +970,14 @@ enum _CheckInStep { form, preview }
 
 class ManualCheckInPage extends StatefulWidget {
   final String driverId;
-  const ManualCheckInPage({super.key, required this.driverId});
+  /// FIRST_MILE = เรียกเสริม/วน (ต้นทาง Hub → ปลายทาง SOC) | LINE_HAUL = ต้นทาง SOC → ปลายทาง Hub
+  final String taskType;
+
+  const ManualCheckInPage({
+    super.key,
+    required this.driverId,
+    this.taskType = 'LINE_HAUL',
+  });
 
   @override
   State<ManualCheckInPage> createState() => _ManualCheckInPageState();
@@ -1004,9 +1080,31 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
       return;
     }
 
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: Text('refuel_receipt_take_photo'.tr()),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: Text('refuel_receipt_from_gallery'.tr()),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null || !mounted) return;
+
     final picker = ImagePicker();
     final xfile = await picker.pickImage(
-      source: ImageSource.camera,
+      source: source,
       imageQuality: 85,
     );
     if (xfile == null) return;
@@ -1032,13 +1130,13 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
       final results =
           await FirebaseFunctions.instanceFor(region: 'asia-southeast1')
               .httpsCallable('getNextTaskId')
-              .call({'date': dateStr, 'taskType': 'LINE_HAUL'});
+              .call({'date': dateStr, 'taskType': widget.taskType});
 
       final String newTaskId = results.data['taskId'];
 
       final docRef = await FirebaseFirestore.instance.collection('tasks').add({
         'taskId': newTaskId,
-        'taskType': 'LINE_HAUL',
+        'taskType': widget.taskType,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
         'date': Timestamp.fromDate(now),
@@ -1085,7 +1183,11 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Manual Check In (LH)'.tr()),
+        title: Text(
+          widget.taskType == 'FIRST_MILE'
+              ? 'Manual Check In (FM)'.tr()
+              : 'Manual Check In (LH)'.tr(),
+        ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
@@ -1156,7 +1258,7 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
           ),
           const SizedBox(height: 24),
 
-          // Origin picker
+          // Origin picker — FM: Hub | LH: SOC
           Text(
             'checkin_origin'.tr(),
             style: Theme.of(
@@ -1165,15 +1267,24 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
           ),
           const SizedBox(height: 8),
           SearchableHubPicker(
-            label: 'checkin_origin_soc'.tr(),
-            hintText: 'checkin_select_soc'.tr(),
+            label: widget.taskType == 'FIRST_MILE'
+                ? 'checkin_origin_hub'.tr()
+                : 'checkin_origin_soc'.tr(),
+            hintText: widget.taskType == 'FIRST_MILE'
+                ? 'checkin_select_hub'.tr()
+                : 'checkin_select_soc'.tr(),
             value: _origin ?? '',
-            hubs: _socs,
+            hubs: widget.taskType == 'FIRST_MILE' ? _hubs : _socs,
             onSelected: (hub) => setState(() => _origin = hub.sourceId),
+            allowAddNew: true,
+            stationTypeForNew: widget.taskType == 'FIRST_MILE' ? stationTypeHub : stationTypeSoc,
+            onHubAdded: (hub) => setState(() {
+              if (widget.taskType == 'FIRST_MILE') _hubs.add(hub); else _socs.add(hub);
+            }),
           ),
           const SizedBox(height: 20),
 
-          // Destination picker
+          // Destination picker — FM: SOC | LH: Hub
           Text(
             'checkin_destination'.tr(),
             style: Theme.of(
@@ -1182,11 +1293,20 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
           ),
           const SizedBox(height: 8),
           SearchableHubPicker(
-            label: 'checkin_destination_hub'.tr(),
-            hintText: 'checkin_select_destination'.tr(),
+            label: widget.taskType == 'FIRST_MILE'
+                ? 'checkin_destination_soc'.tr()
+                : 'checkin_destination_hub'.tr(),
+            hintText: widget.taskType == 'FIRST_MILE'
+                ? 'checkin_select_soc'.tr()
+                : 'checkin_select_destination'.tr(),
             value: _dest ?? '',
-            hubs: _hubs,
+            hubs: widget.taskType == 'FIRST_MILE' ? _socs : _hubs,
             onSelected: (hub) => setState(() => _dest = hub.sourceId),
+            allowAddNew: true,
+            stationTypeForNew: widget.taskType == 'FIRST_MILE' ? stationTypeSoc : stationTypeHub,
+            onHubAdded: (hub) => setState(() {
+              if (widget.taskType == 'FIRST_MILE') _socs.add(hub); else _hubs.add(hub);
+            }),
           ),
           const SizedBox(height: 32),
 

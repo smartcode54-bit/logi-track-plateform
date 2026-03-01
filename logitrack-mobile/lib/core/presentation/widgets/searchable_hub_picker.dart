@@ -8,6 +8,12 @@ class SearchableHubPicker extends StatelessWidget {
   final String value;
   final List<HubDoc> hubs;
   final ValueChanged<HubDoc> onSelected;
+  /// ถ้า true แสดงปุ่ม "เพิ่มจุดรับส่งใหม่" — driver กรอกรหัส+ชื่อแล้วบันทึก Firestore ได้
+  final bool allowAddNew;
+  /// HUB หรือ SOC — ใช้เมื่อ allowAddNew ในการสร้างจุดใหม่
+  final String stationTypeForNew;
+  /// เรียกเมื่อเพิ่ม Hub/SOC ใหม่สำเร็จ — ใช้ใส่ hub เข้า list (เช่น _allHubs) เพื่อให้ save ได้
+  final ValueChanged<HubDoc>? onHubAdded;
 
   const SearchableHubPicker({
     super.key,
@@ -16,6 +22,9 @@ class SearchableHubPicker extends StatelessWidget {
     required this.value,
     required this.hubs,
     required this.onSelected,
+    this.allowAddNew = false,
+    this.stationTypeForNew = stationTypeHub,
+    this.onHubAdded,
   });
 
   static bool _matchHub(HubDoc hub, String query) {
@@ -38,6 +47,9 @@ class SearchableHubPicker extends StatelessWidget {
         hubs: hubs,
         initialValue: value,
         onSelected: (hub) => Navigator.of(ctx).pop(hub),
+        allowAddNew: allowAddNew,
+        stationTypeForNew: stationTypeForNew,
+        onHubAdded: onHubAdded,
       ),
     );
     if (selected != null) onSelected(selected);
@@ -72,16 +84,140 @@ class SearchableHubSheet extends StatefulWidget {
   final List<HubDoc> hubs;
   final String initialValue;
   final ValueChanged<HubDoc> onSelected;
+  final bool allowAddNew;
+  final String stationTypeForNew;
+  final ValueChanged<HubDoc>? onHubAdded;
 
   const SearchableHubSheet({
     super.key,
     required this.hubs,
     required this.initialValue,
     required this.onSelected,
+    this.allowAddNew = false,
+    this.stationTypeForNew = stationTypeHub,
+    this.onHubAdded,
   });
 
   @override
   State<SearchableHubSheet> createState() => _SearchableHubSheetState();
+}
+
+class AddHubBottomSheet extends StatefulWidget {
+  final String stationType;
+
+  const AddHubBottomSheet({super.key, required this.stationType});
+
+  @override
+  State<AddHubBottomSheet> createState() => _AddHubBottomSheetState();
+}
+
+class _AddHubBottomSheetState extends State<AddHubBottomSheet> {
+  final _formKey = GlobalKey<FormState>();
+  final _codeController = TextEditingController();
+  final _nameController = TextEditingController();
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _codeController.dispose();
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _saving = true);
+    try {
+      final hub = await addHubByDriver(
+        sourceId: _codeController.text.trim(),
+        sourceName: _nameController.text.trim(),
+        stationType: widget.stationType,
+      );
+      if (mounted) Navigator.of(context).pop(hub);
+    } catch (e) {
+      if (mounted) {
+        final msg = e.toString().contains('HUB_DUPLICATE_CODE')
+            ? 'hub_add_duplicate_code'.tr()
+            : 'hub_add_failed'.tr(args: [e.toString()]);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isHub = widget.stationType == stationTypeHub;
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  isHub ? 'hub_add_new_hub'.tr() : 'hub_add_new_soc'.tr(),
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _codeController,
+                  decoration: InputDecoration(
+                    labelText: 'hub_add_code'.tr(),
+                    hintText: 'hub_add_code_hint'.tr(),
+                    border: const OutlineInputBorder(),
+                  ),
+                  textCapitalization: TextCapitalization.characters,
+                  validator: (v) => (v ?? '').trim().isEmpty ? 'hub_add_code_required'.tr() : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _nameController,
+                  decoration: InputDecoration(
+                    labelText: 'hub_add_name'.tr(),
+                    hintText: 'hub_add_name_hint'.tr(),
+                    border: const OutlineInputBorder(),
+                  ),
+                  validator: (v) => (v ?? '').trim().isEmpty ? 'hub_add_name_required'.tr() : null,
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: _saving ? null : () => Navigator.of(context).pop(),
+                        child: Text('manual_checkin_cancel'.tr()),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: _saving ? null : _save,
+                        child: _saving
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              )
+                            : Text('checkin_save'.tr()),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _SearchableHubSheetState extends State<SearchableHubSheet> {
@@ -101,6 +237,26 @@ class _SearchableHubSheetState extends State<SearchableHubSheet> {
     _searchController.dispose();
     _searchFocus.dispose();
     super.dispose();
+  }
+
+  Future<void> _openAddHub(BuildContext context) async {
+    final hub = await showModalBottomSheet<HubDoc>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => AddHubBottomSheet(stationType: widget.stationTypeForNew),
+    );
+    if (hub != null && mounted) {
+      widget.onHubAdded?.call(hub);
+      // Defer pop เพื่อหลีกเลี่ยง _debugLocked (Navigator ไม่ให้เรียก pop ระหว่าง build/setState)
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.of(context).pop(hub);
+      });
+    }
   }
 
   @override
@@ -138,7 +294,10 @@ class _SearchableHubSheetState extends State<SearchableHubSheet> {
                   final filtered = widget.hubs
                       .where((h) => SearchableHubPicker._matchHub(h, query))
                       .toList();
-                  if (filtered.isEmpty) {
+                  final showAddNew = widget.allowAddNew;
+                  final itemCount = filtered.length + (showAddNew ? 1 : 0);
+
+                  if (filtered.isEmpty && !showAddNew) {
                     return Center(
                       child: Text(
                         query.isEmpty
@@ -148,17 +307,24 @@ class _SearchableHubSheetState extends State<SearchableHubSheet> {
                       ),
                     );
                   }
+
                   return ListView.builder(
                     controller: scrollController,
-                    itemCount: filtered.length,
+                    itemCount: itemCount,
                     itemBuilder: (context, index) {
+                      if (showAddNew && index == filtered.length) {
+                        return ListTile(
+                          leading: Icon(Icons.add_circle_outline, color: Theme.of(context).colorScheme.primary),
+                          title: Text('hub_add_new'.tr()),
+                          subtitle: Text('hub_add_new_subtitle'.tr()),
+                          onTap: () => _openAddHub(context),
+                        );
+                      }
                       final hub = filtered[index];
-                      // Format: pickupID - hub name (TH)
-                      final label =
-                          '${hub.sourceId} - ${hub.sourceNameTh} (TH)';
-                      final isSelected =
+                      final label = '${hub.sourceId} - ${hub.sourceNameTh.isNotEmpty ? hub.sourceNameTh : hub.sourceNameEn}';
+                      final isSelected = hub.sourceId == widget.initialValue ||
                           hub.sourceNameEn == widget.initialValue ||
-                          hub.sourceId == widget.initialValue;
+                          hub.sourceNameTh == widget.initialValue;
                       return ListTile(
                         title: Text(label),
                         trailing: isSelected

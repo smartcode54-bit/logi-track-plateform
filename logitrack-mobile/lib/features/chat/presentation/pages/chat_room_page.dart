@@ -78,8 +78,30 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 
   Future<void> _pickAndSendImage() async {
     if (_sendingImage) return;
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: Text('refuel_receipt_take_photo'.tr()),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: Text('refuel_receipt_from_gallery'.tr()),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null || !mounted) return;
+
     final picker = ImagePicker();
-    final xFile = await picker.pickImage(source: ImageSource.gallery);
+    final xFile = await picker.pickImage(source: source);
     if (xFile == null || !mounted) return;
     setState(() => _sendingImage = true);
     try {

@@ -113,6 +113,7 @@ export default {
     "firstMile.hub.stationType.SOC": "SOC",
     "firstMile.hub.cancel": "Cancel",
     "firstMile.hub.save": "Save Source",
+    "firstMile.hub.duplicateCode": "This code already exists. Please use a different code.",
 
     // ========================
     // Sources Page
@@ -157,6 +158,12 @@ export default {
     "firstMile.sources.pagination.entries": "entries",
     "firstMile.sources.pagination.previous": "Previous",
     "firstMile.sources.pagination.next": "Next",
+    "firstMile.sources.driverAddedAlert": "Driver added Hub/SOC from Mobile. Count:",
+    "firstMile.sources.driverAddedAlertSuffix": "item(s) need Admin to complete coordinates and details",
+    "firstMile.sources.filterNewClick": "Click to filter",
+    "firstMile.sources.filterNew": "New",
+    "firstMile.sources.noNewItems": "No new items waiting for completion",
+    "firstMile.sources.needsCompletion": "Needs completion",
 
     // ========================
     // Pickup Location Import
