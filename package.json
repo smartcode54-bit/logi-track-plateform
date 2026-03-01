@@ -9,7 +9,7 @@
     "web:install": "npm install -w logitrack-web",
     "deploy:prod": "node -e \"require('fs').copyFileSync('envs/.env.prod.web','logitrack-web/.env.production')\" && npm run deploy:prod -w logitrack-web",
     "prepare": "husky",
-    "build:mobile:prod": "node -e \"require('fs').copyFileSync('envs/.env.prod.mobile','logitrack-mobile/.env')\" && cd logitrack-mobile && flutter build apk"
+    "build:mobile:prod": "node -e \"require('fs').copyFileSync('envs/.env.prod.mobile','logitrack-mobile/.env')\" && cd logitrack-mobile && flutter build apk --split-per-abi"
   },
   "devDependencies": {
     "husky": "^9.1.7"

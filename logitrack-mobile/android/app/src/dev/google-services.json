@@ -1,0 +1,47 @@
+{
+    "project_info": {
+        "project_number": "841355267296",
+        "project_id": "logi-track-wrt-dev",
+        "storage_bucket": "logi-track-wrt-dev.firebasestorage.app"
+    },
+    "client": [
+        {
+            "client_info": {
+                "mobilesdk_app_id": "1:841355267296:android:54dbe3a92838f5c1f25485",
+                "android_client_info": {
+                    "package_name": "com.example.logi_track_driver_app"
+                }
+            },
+            "oauth_client": [
+                {
+                    "client_id": "841355267296-3rh4t22gff5mqqi4rbm94qomhmd28upq.apps.googleusercontent.com",
+                    "client_type": 1,
+                    "android_info": {
+                        "package_name": "com.example.logi_track_driver_app",
+                        "certificate_hash": "c7a7a4ed850ba3846696f54a0a32d0e6101afc3d"
+                    }
+                },
+                {
+                    "client_id": "841355267296-fvnurfp15saosv06nbh6bd9hjc9u4u7v.apps.googleusercontent.com",
+                    "client_type": 3
+                }
+            ],
+            "api_key": [
+                {
+                    "current_key": "AIzaSyDySZMvWfa_lhbsmoTmy9xonShD86h6E7s"
+                }
+            ],
+            "services": {
+                "appinvite_service": {
+                    "other_platform_oauth_client": [
+                        {
+                            "client_id": "841355267296-fvnurfp15saosv06nbh6bd9hjc9u4u7v.apps.googleusercontent.com",
+                            "client_type": 3
+                        }
+                    ]
+                }
+            }
+        }
+    ],
+    "configuration_version": "1"
+}

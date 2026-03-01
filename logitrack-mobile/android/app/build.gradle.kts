@@ -33,6 +33,21 @@ android {
         versionName = flutter.versionName
     }
 
+    flavorDimensions += "environment"
+
+    productFlavors {
+        create("dev") {
+            dimension = "environment"
+            applicationIdSuffix = ".dev"
+            resValue("string", "app_name", "LogiTrack DEV")
+        }
+        create("prod") {
+            dimension = "environment"
+            applicationId = "com.wrt.logitrack"
+            resValue("string", "app_name", "LogiTrack")
+        }
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.

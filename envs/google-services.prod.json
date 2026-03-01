@@ -1,0 +1,47 @@
+{
+    "project_info": {
+        "project_number": "74981457562",
+        "project_id": "logitrack-prod",
+        "storage_bucket": "logitrack-prod.firebasestorage.app"
+    },
+    "client": [
+        {
+            "client_info": {
+                "mobilesdk_app_id": "1:74981457562:android:ad34925f0addb3f4626923",
+                "android_client_info": {
+                    "package_name": "com.wrt.logitrack"
+                }
+            },
+            "oauth_client": [
+                {
+                    "client_id": "74981457562-eldeh8igmlg61rjvf3lajj381qp4ur9s.apps.googleusercontent.com",
+                    "client_type": 1,
+                    "android_info": {
+                        "package_name": "com.wrt.logitrack",
+                        "certificate_hash": "c7a7a4ed850ba3846696f54a0a32d0e6101afc3d"
+                    }
+                },
+                {
+                    "client_id": "74981457562-0fo3c4vf2mp0hq41cjqufatt9q38ie2e.apps.googleusercontent.com",
+                    "client_type": 3
+                }
+            ],
+            "api_key": [
+                {
+                    "current_key": "AIzaSyBsEBP7aUHG0z-XdqLJXOLVArsS8KLW69E"
+                }
+            ],
+            "services": {
+                "appinvite_service": {
+                    "other_platform_oauth_client": [
+                        {
+                            "client_id": "74981457562-0fo3c4vf2mp0hq41cjqufatt9q38ie2e.apps.googleusercontent.com",
+                            "client_type": 3
+                        }
+                    ]
+                }
+            }
+        }
+    ],
+    "configuration_version": "1"
+}

@@ -12,7 +12,7 @@
     "lint": "eslint",
     "clean": "rimraf .next out .turbo",
     "deploy": "npm run build && firebase deploy",
-    "deploy:prod": "npm run build && firebase deploy --config firebase.prod.json --project logitrack-prod",
+    "deploy:prod": "node -e \"const fs=require('fs');if(fs.existsSync('.env.local')){fs.renameSync('.env.local','.env.local.bak')}\" && node -e \"const fs=require('fs');['.firebase','.next','out'].forEach(d=>{if(fs.existsSync(d))fs.rmSync(d,{recursive:true,force:true})})\" && npm run build && node -e \"const fs=require('fs');if(fs.existsSync('.env.local.bak')){fs.renameSync('.env.local.bak','.env.local')}\" && firebase deploy --config firebase.prod.json --project logitrack-prod",
     "deploy:clean": "npm run clean && npm run build && firebase deploy",
     "prepare": "husky",
     "test:e2e": "playwright test"
