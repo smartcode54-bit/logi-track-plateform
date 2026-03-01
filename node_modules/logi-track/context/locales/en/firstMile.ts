@@ -92,6 +92,8 @@ export default {
     "firstMile.task.cancel": "Cancel",
     "firstMile.task.create": "Create Assignment",
     "firstMile.task.save": "Save Changes",
+    "firstMile.task.checkInPhoto": "Check-in Photo",
+    "firstMile.task.replacePhoto": "Replace photo (when work was recorded incorrectly)",
 
     // ========================
     // Hub Dialog (Add Source)

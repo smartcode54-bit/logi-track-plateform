@@ -1,6 +1,8 @@
-import 'package:flutter/foundation.dart' show debugPrint;
-
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:mobile_scanner/mobile_scanner.dart';
+
+import '../utils/ocr_temp_file_io.dart'
+    if (dart.library.html) '../utils/ocr_temp_file_stub.dart' as ocr_temp_file;
 
 import 'cloud_vision_ocr_service.dart';
 import 'ocr_digit_normalizer.dart';
@@ -39,9 +41,15 @@ Future<OcrScreenshotResult> runOcrOnImageBytes(
   String? qrSealCode;
 
   try {
-    if (imagePath != null && imagePath.isNotEmpty) {
+    String? pathToScan = imagePath;
+    if ((pathToScan == null || pathToScan.isEmpty) &&
+        imageBytes.isNotEmpty &&
+        !kIsWeb) {
+      pathToScan = await ocr_temp_file.createTempFileFromBytes(imageBytes);
+    }
+    if (pathToScan != null && pathToScan.isNotEmpty) {
       final controller = MobileScannerController();
-      final capture = await controller.analyzeImage(imagePath);
+      final capture = await controller.analyzeImage(pathToScan);
       final barcodes = capture?.barcodes ?? [];
       for (final b in barcodes) {
         final raw = b.rawValue?.trim();
@@ -60,6 +68,9 @@ Future<OcrScreenshotResult> runOcrOnImageBytes(
         }
       }
       controller.dispose();
+      if (imagePath == null && pathToScan.isNotEmpty) {
+        await ocr_temp_file.deleteTempFile(pathToScan);
+      }
       debugPrint('QR Scan from Image -> TripID: $qrTripId, Seal: $qrSealCode');
     }
   } catch (e) {
@@ -102,10 +113,10 @@ String? _clean(String? v) => (v != null && v.isNotEmpty) ? v : null;
 
 // ===== Field Extraction (based on actual SPX Express runsheet format) =====
 
-/// Trip ID: "เลขทริป : LT0Q2E2467U61"
+/// Trip ID: "เลขทริป : LT0Q2E2467U61" or "LT102P24DZIX1" etc.
 String? _extractTripId(String text) {
-  // รองรับ LTO ที่ OCR อ่านผิดจาก LT0
-  final match = RegExp(r'LT[O0][A-Za-z0-9\-]{7,}').firstMatch(text);
+  // รองรับ LT0, LT1, LTO, LTQ... ฯลฯ (สอดคล้องกับ QR regex)
+  final match = RegExp(r'LT[O0]?[A-Za-z0-9\-]{7,}').firstMatch(text);
   if (match != null) {
     var raw = match.group(0)!;
     if (raw.startsWith('LTO')) {

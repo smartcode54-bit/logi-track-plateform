@@ -92,6 +92,8 @@ export default {
     "firstMile.task.cancel": "ยกเลิก",
     "firstMile.task.create": "สร้างงาน",
     "firstMile.task.save": "บันทึกการเปลี่ยนแปลง",
+    "firstMile.task.checkInPhoto": "รูป Check-in",
+    "firstMile.task.replacePhoto": "เปลี่ยนรูป (กรณีบันทึกผิดพลาด)",
 
     // ========================
     // Hub Dialog (Add Source)

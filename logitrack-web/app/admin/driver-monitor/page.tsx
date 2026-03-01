@@ -16,6 +16,7 @@ import {
     Camera,
     ExternalLink,
     ClipboardCheck,
+    Pencil,
 } from "lucide-react";
 import { collection, query, orderBy, onSnapshot, limit } from "firebase/firestore";
 import { db } from "@/firebase/client";
@@ -65,6 +66,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { EditTripDetailsDialog } from "@/app/admin/driver-monitor/EditTripDetailsDialog";
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -124,6 +126,9 @@ export default function DriverMonitorPage() {
     // Detail Dialog
     const [detailTrip, setDetailTrip] = useState<TripRecord | null>(null);
     const [previewPhoto, setPreviewPhoto] = useState<{ url: string; type: string; address?: string } | null>(null);
+
+    // Edit Trip Details Dialog (trip_record photos & metadata)
+    const [editTripDialogOpen, setEditTripDialogOpen] = useState(false);
 
     // Pagination
     const [currentPage, setCurrentPage] = useState(1);
@@ -851,12 +856,30 @@ export default function DriverMonitorPage() {
                         </div>
                     )}
                     <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => setEditTripDialogOpen(true)}
+                            className="mr-auto"
+                        >
+                            <Pencil className="mr-2 h-4 w-4" />
+                            {t("driverMonitor.detail.edit", "Edit Task")}
+                        </Button>
                         <Button variant="outline" onClick={() => setDetailTrip(null)}>
                             {t("driverMonitor.detail.close")}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {/* Edit Trip Details Dialog */}
+            {detailTrip && (
+                <EditTripDetailsDialog
+                    open={editTripDialogOpen}
+                    onOpenChange={setEditTripDialogOpen}
+                    trip={detailTrip}
+                    onSuccess={() => setEditTripDialogOpen(false)}
+                />
+            )}
 
             {/* Image preview dialog */}
             <Dialog open={!!previewPhoto} onOpenChange={(open) => !open && setPreviewPhoto(null)}>

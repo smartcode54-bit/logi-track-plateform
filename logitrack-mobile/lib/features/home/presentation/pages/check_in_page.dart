@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../data/repositories/task_repository.dart';
 import '../../data/repositories/checkin_repository.dart';
+import '../../data/repositories/trip_records_repository.dart';
 import '../../data/services/draft_storage_service.dart';
 import '../../data/repositories/hubs_repository.dart';
 import '../../../../core/presentation/widgets/searchable_hub_picker.dart';
@@ -30,10 +31,24 @@ class _CheckInPageState extends State<CheckInPage> {
   /// Hub name cache: sourceId → display name (Thai preferred)
   Map<String, String> _hubNameMap = {};
 
+  /// Task IDs ที่เที่ยวส่งแล้ว (จาก trip_records status=delivered) — ใช้ไม่ให้บล็อกการเพิ่มงานใหม่
+  Set<String> _deliveredTaskIds = {};
+  /// เก็บ tasks ล่าสุดจาก stream สำหรับใช้ตอนกด + หลัง refresh delivered
+  List<Map<String, dynamic>> _latestTasks = [];
+
   @override
   void initState() {
     super.initState();
     _loadHubNames();
+    _loadDeliveredTaskIds();
+  }
+
+  Future<void> _loadDeliveredTaskIds() async {
+    if (widget.driverId.isEmpty) return;
+    try {
+      final ids = await getDeliveredTaskIdsForDriver(widget.driverId);
+      if (mounted) setState(() => _deliveredTaskIds = ids);
+    } catch (_) {}
   }
 
   Future<void> _loadHubNames() async {
@@ -60,14 +75,16 @@ class _CheckInPageState extends State<CheckInPage> {
     return taskId != null &&
         status != 'Checked in' &&
         status != 'Completed' &&
-        status != 'Cancelled';
+        status != 'Cancelled' &&
+        status != 'Delivered';
   }
 
   static bool _isHistory(Map<String, dynamic> t) {
     final status = t['status'] ?? '';
     return status == 'Checked in' ||
         status == 'Completed' ||
-        status == 'Cancelled';
+        status == 'Cancelled' ||
+        status == 'Delivered';
   }
 
   /// เลือกประเภทงานที่ต้องการเพิ่ม: FM (เรียกเสริม/วน) หรือ LH
@@ -116,12 +133,23 @@ class _CheckInPageState extends State<CheckInPage> {
       stream: streamTasksForDriver(widget.driverId),
       builder: (context, snap) {
         final tasks = snap.data ?? [];
+        if (tasks.isNotEmpty) _latestTasks = tasks;
         final hasOngoingTask = tasks.any((t) {
           final st = t['status'] as String? ?? '';
-          return st != 'Pending' &&
-              st != 'Assigned' &&
-              st != 'Completed' &&
-              st != 'Cancelled';
+          final taskDocId = t['id'] as String? ?? '';
+          final altTaskId = t['taskId'] as String? ??
+              t['LineHaulTaskId'] as String? ??
+              t['FirstMileTaskId'] as String? ??
+              '';
+          final isDeliveredByTrip = _deliveredTaskIds.contains(taskDocId) ||
+              (altTaskId.isNotEmpty && _deliveredTaskIds.contains(altTaskId));
+          if (st == 'Pending' ||
+              st == 'Assigned' ||
+              st == 'Completed' ||
+              st == 'Cancelled' ||
+              st == 'Delivered') return false;
+          if (st == 'Checked in' && isDeliveredByTrip) return false;
+          return true;
         });
 
         return Scaffold(
@@ -131,7 +159,26 @@ class _CheckInPageState extends State<CheckInPage> {
               IconButton(
                 icon: const Icon(Icons.add),
                 onPressed: () async {
-                  if (hasOngoingTask) {
+                  await _loadDeliveredTaskIds();
+                  if (!mounted) return;
+                  final stillOngoing = _latestTasks.any((t) {
+                    final st = t['status'] as String? ?? '';
+                    final taskDocId = t['id'] as String? ?? '';
+                    final altTaskId = t['taskId'] as String? ??
+                        t['LineHaulTaskId'] as String? ??
+                        t['FirstMileTaskId'] as String? ??
+                        '';
+                    final isDeliveredByTrip = _deliveredTaskIds.contains(taskDocId) ||
+                        (altTaskId.isNotEmpty && _deliveredTaskIds.contains(altTaskId));
+                    if (st == 'Pending' ||
+                        st == 'Assigned' ||
+                        st == 'Completed' ||
+                        st == 'Cancelled' ||
+                        st == 'Delivered') return false;
+                    if (st == 'Checked in' && isDeliveredByTrip) return false;
+                    return true;
+                  });
+                  if (stillOngoing) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text('please_finish_ongoing_task_first'.tr()),
@@ -443,7 +490,8 @@ class _CheckInPageState extends State<CheckInPage> {
         taskId != null &&
         status != 'Checked in' &&
         status != 'Completed' &&
-        status != 'Cancelled';
+        status != 'Cancelled' &&
+        status != 'Delivered';
     String dateStr = '';
     if (date != null && date is DateTime) {
       dateStr = '${date.day}/${date.month}/${date.year}';

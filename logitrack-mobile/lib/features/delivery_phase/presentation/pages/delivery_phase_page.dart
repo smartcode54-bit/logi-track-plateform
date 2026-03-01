@@ -48,6 +48,9 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
   bool get _canSubmit =>
       _deliveryPhotos.length == _deliveryPhotoStepKeys.length;
 
+  /// เก็บผลการตรวจ Trip ID เมื่อไม่ตรง เพื่อแสดง debug UI ให้ผู้ใช้เห็นว่าอะไรไม่ตรง
+  Map<String, String>? _lastTripIdValidationDebug;
+
   TripRecord? _currentTrip;
   bool _loadingTrip = false;
 
@@ -155,53 +158,87 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
     String? imagePath,
     bool showDialogOnError = true,
   }) async {
-    final expected = _normalizeTripId(widget.savedTripSummary?.tripId);
+    final rawExpected = widget.savedTripSummary?.tripId ?? '';
+    final expected = _normalizeTripId(rawExpected);
     if (expected.isEmpty) return true;
     if (kIsWeb) return true;
     try {
       final result = await runOcrOnImageBytes(imageBytes, imagePath: imagePath);
-      final fromImage = _normalizeTripId(result.tripId);
+      final rawFromImage = result.tripId ?? '';
+      final fromImage = _normalizeTripId(rawFromImage);
       if (fromImage.isEmpty) {
-        if (mounted && showDialogOnError) {
-          await showDialog(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              title: Text('delivery_trip_id_mismatch_title'.tr()),
-              content: Text('delivery_trip_id_not_found_in_image'.tr()),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: Text(MaterialLocalizations.of(ctx).okButtonLabel),
-                ),
-              ],
-            ),
-          );
+        if (mounted) {
+          setState(() {
+            _lastTripIdValidationDebug = {
+              'errorType': 'not_found',
+              'expected': rawExpected,
+              'normalizedExpected': expected,
+              'fromImage': rawFromImage.isEmpty ? '-' : rawFromImage,
+              'normalizedFromImage': '-',
+            };
+          });
+          if (showDialogOnError) {
+            await showDialog(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: Text('delivery_trip_id_mismatch_title'.tr()),
+                content: Text('delivery_trip_id_not_found_in_image'.tr()),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: Text(MaterialLocalizations.of(ctx).okButtonLabel),
+                  ),
+                ],
+              ),
+            );
+          }
         }
         return false;
       }
       if (fromImage != expected) {
-        if (mounted && showDialogOnError) {
-          await showDialog(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              title: Text('delivery_trip_id_mismatch_title'.tr()),
-              content: Text(
-                '${'delivery_trip_id_mismatch_message'.tr()}\n${'delivery_trip_id_expected'.tr()}: ${widget.savedTripSummary!.tripId}\n${'delivery_trip_id_in_image'.tr()}: ${result.tripId}',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: Text(MaterialLocalizations.of(ctx).okButtonLabel),
+        if (mounted) {
+          setState(() {
+            _lastTripIdValidationDebug = {
+              'errorType': 'mismatch',
+              'expected': rawExpected,
+              'normalizedExpected': expected,
+              'fromImage': rawFromImage,
+              'normalizedFromImage': fromImage,
+            };
+          });
+          if (showDialogOnError) {
+            await showDialog(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: Text('delivery_trip_id_mismatch_title'.tr()),
+                content: Text(
+                  '${'delivery_trip_id_mismatch_message'.tr()}\n${'delivery_trip_id_expected'.tr()}: $rawExpected\n${'delivery_trip_id_in_image'.tr()}: $rawFromImage',
                 ),
-              ],
-            ),
-          );
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: Text(MaterialLocalizations.of(ctx).okButtonLabel),
+                  ),
+                ],
+              ),
+            );
+          }
         }
         return false;
       }
+      if (mounted) setState(() => _lastTripIdValidationDebug = null);
       return true;
     } catch (_) {
       if (mounted) {
+        setState(() {
+          _lastTripIdValidationDebug = {
+            'errorType': 'ocr_failed',
+            'expected': rawExpected,
+            'normalizedExpected': expected,
+            'fromImage': '-',
+            'normalizedFromImage': '-',
+          };
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('delivery_trip_id_ocr_failed'.tr()),
@@ -292,6 +329,7 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
   }
 
   Future<void> _submitDelivery() async {
+    FocusScope.of(context).unfocus();
     final tripId = widget.savedTripSummary?.tripId.trim();
     if (tripId == null || tripId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -627,6 +665,8 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
                                       ),
                                     ),
                             ),
+                          if (_lastTripIdValidationDebug != null)
+                            _buildTripIdValidationDebugCard(),
                           const SizedBox(height: 24),
                         ],
                       ),
@@ -661,6 +701,128 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
                     ),
                 ],
               ),
+      ),
+    );
+  }
+
+  String _tripIdErrorTypeLabel(String errorType) {
+    switch (errorType) {
+      case 'not_found':
+        return 'delivery_trip_id_debug_error_not_found'.tr();
+      case 'mismatch':
+        return 'delivery_trip_id_debug_error_mismatch'.tr();
+      case 'ocr_failed':
+        return 'delivery_trip_id_debug_error_ocr_failed'.tr();
+      default:
+        return errorType;
+    }
+  }
+
+  /// การ์ดแสดงจุดที่ตรวจสอบ Trip ID เมื่อไม่ตรง (เพื่อ debug ว่าอะไรไม่ตรง)
+  Widget _buildTripIdValidationDebugCard() {
+    final d = _lastTripIdValidationDebug!;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark
+        ? Colors.orange.shade900.withOpacity(0.25)
+        : Colors.orange.shade50;
+    final fg = isDark ? Colors.orange.shade200 : Colors.orange.shade900;
+    final mono = isDark ? Colors.orange.shade100 : Colors.black87;
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Card(
+        color: bg,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.info_outline, color: fg, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'delivery_trip_id_check_debug'.tr(),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: fg,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.close, color: fg, size: 18),
+                    onPressed: () =>
+                        setState(() => _lastTripIdValidationDebug = null),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              _tripIdDebugRow(
+                'delivery_trip_id_debug_expected'.tr(),
+                d['expected'] ?? '-',
+                mono,
+              ),
+              _tripIdDebugRow(
+                'delivery_trip_id_debug_normalized_expected'.tr(),
+                d['normalizedExpected'] ?? '-',
+                mono,
+              ),
+              _tripIdDebugRow(
+                'delivery_trip_id_debug_from_image'.tr(),
+                d['fromImage'] ?? '-',
+                mono,
+              ),
+              _tripIdDebugRow(
+                'delivery_trip_id_debug_normalized_from_image'.tr(),
+                d['normalizedFromImage'] ?? '-',
+                mono,
+              ),
+              if (d['errorType'] != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  _tripIdErrorTypeLabel(d['errorType']!),
+                  style: TextStyle(fontSize: 11, color: fg, fontStyle: FontStyle.italic),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _tripIdDebugRow(String label, String value, Color valueColor) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 160,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).brightness == Brightness.dark
+                    ? Colors.orange.shade300
+                    : Colors.black87,
+              ),
+            ),
+          ),
+          Expanded(
+            child: SelectableText(
+              value,
+              style: TextStyle(
+                fontSize: 12,
+                fontFamily: 'monospace',
+                color: valueColor,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

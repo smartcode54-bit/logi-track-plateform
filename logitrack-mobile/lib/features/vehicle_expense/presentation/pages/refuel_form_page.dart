@@ -317,6 +317,7 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
 
   /// กด Save → validate แล้วแสดง preview ให้ driver ยืนยันหรือแก้ไข
   Future<void> _submit() async {
+    FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) return;
     final driverId = FirebaseAuth.instance.currentUser?.uid;
     if (driverId == null || driverId.isEmpty) {

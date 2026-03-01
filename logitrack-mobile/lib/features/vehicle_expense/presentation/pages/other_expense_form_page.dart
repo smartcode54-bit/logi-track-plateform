@@ -139,6 +139,7 @@ class _OtherExpenseFormPageState extends State<OtherExpenseFormPage> {
   }
 
   Future<void> _submit() async {
+    FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) return;
     final driverId = FirebaseAuth.instance.currentUser?.uid;
     if (driverId == null || driverId.isEmpty) {

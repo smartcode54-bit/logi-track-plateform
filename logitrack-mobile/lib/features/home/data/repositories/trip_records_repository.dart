@@ -15,25 +15,51 @@ class DuplicateCheckResult {
   final bool tripIdExists;
   final bool sealCodeExists;
 
+  /// For UI debug: ว่าเอกสาร Trip ID มีอยู่จริงไหม (ก่อนเช็ค same-driver)
+  final bool docExists;
+  /// For UI debug: driverId ในเอกสารเดิม (ถ้ามี)
+  final String? existingDriverId;
+  /// For UI debug: คนขับปัจจุบันที่ส่งเข้ามา
+  final String? currentDriverId;
+  /// For UI debug: ว่าผ่านเพราะ same-driver ไหม
+  final bool sameDriverAllowed;
+
   const DuplicateCheckResult({
     required this.tripIdExists,
     required this.sealCodeExists,
+    this.docExists = false,
+    this.existingDriverId,
+    this.currentDriverId,
+    this.sameDriverAllowed = false,
   });
 
   bool get hasDuplicate => tripIdExists || sealCodeExists;
 }
 
 /// Check if [tripId] or [sealCode] already exists in trip_records.
-/// - tripId: document with id [tripId] exists.
+/// - tripId: document with id [tripId] exists. If [currentDriverId] is passed and the existing
+///   document has the same driverId, treat as same driver updating (e.g. same runsheet, fix photo)
+///   and do NOT consider tripId duplicate so save can proceed (merge/update).
 /// - sealCode: another trip (different document) has the same sealCode; only checked if [sealCode] is not null/empty.
 Future<DuplicateCheckResult> checkDuplicateTripIdAndSeal({
   required String tripId,
   String? sealCode,
+  String? currentDriverId,
 }) async {
   final col = FirebaseFirestore.instance.collection(tripRecordsCollection);
 
   final tripDoc = await col.doc(tripId).get();
-  final tripIdExists = tripDoc.exists;
+  final docExists = tripDoc.exists;
+  final existingDriverId = tripDoc.data()?['driverId'] as String?;
+  bool tripIdExists = docExists;
+  bool sameDriverAllowed = false;
+  if (tripIdExists &&
+      currentDriverId != null &&
+      currentDriverId.isNotEmpty &&
+      existingDriverId == currentDriverId) {
+    sameDriverAllowed = true;
+    tripIdExists = false;
+  }
 
   bool sealCodeExists = false;
   final seal = sealCode?.trim();
@@ -53,6 +79,10 @@ Future<DuplicateCheckResult> checkDuplicateTripIdAndSeal({
   return DuplicateCheckResult(
     tripIdExists: tripIdExists,
     sealCodeExists: sealCodeExists,
+    docExists: docExists,
+    existingDriverId: existingDriverId,
+    currentDriverId: currentDriverId,
+    sameDriverAllowed: sameDriverAllowed,
   );
 }
 
@@ -97,6 +127,29 @@ Future<String?> getTripStatus(String tripId) async {
     return doc.data()?['status'] as String?;
   } catch (_) {
     return null;
+  }
+}
+
+/// คืน set ของ taskId ที่เที่ยวถูกส่งแล้ว (status = delivered) ของคนขับนี้
+/// ใช้ในหน้า Check-in เพื่อไม่บล็อกการเพิ่มงานใหม่เมื่อ task ยังเป็น "Checked in" แต่เที่ยวส่งแล้ว
+/// Query แค่ driverId แล้วกรอง status ใน memory เพื่อไม่ต้องใช้ composite index
+Future<Set<String>> getDeliveredTaskIdsForDriver(String driverId) async {
+  if (driverId.isEmpty) return {};
+  try {
+    final snapshot = await FirebaseFirestore.instance
+        .collection(tripRecordsCollection)
+        .where('driverId', isEqualTo: driverId)
+        .get();
+    final ids = <String>{};
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      if (data['status'] != 'delivered') continue;
+      final taskId = data['taskId'] as String?;
+      if (taskId != null && taskId.isNotEmpty) ids.add(taskId);
+    }
+    return ids;
+  } catch (_) {
+    return {};
   }
 }
 

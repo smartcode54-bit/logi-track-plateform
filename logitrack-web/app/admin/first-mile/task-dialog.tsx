@@ -29,6 +29,7 @@ import { Input } from "@/components/ui/input";
 import {
     Select,
     SelectContent,
+    SelectGroup,
     SelectItem,
     SelectLabel,
     SelectTrigger,
@@ -49,6 +50,7 @@ import { httpsCallable } from "firebase/functions";
 import { db, functions } from "@/firebase/client";
 import { useLanguage } from "@/context/language";
 import { COLLECTIONS } from "@/lib/collections";
+import { uploadCheckInPhoto } from "@/lib/uploadCheckInPhoto";
 
 interface ItemDialogProps {
     mode: "create" | "edit";
@@ -72,6 +74,7 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
     const [hubSearch, setHubSearch] = useState("");
     const [hubDropdownOpen, setHubDropdownOpen] = useState(false);
     const [activeTaskDriverIds, setActiveTaskDriverIds] = useState<Set<string>>(new Set());
+    const [newCheckInPhotoFile, setNewCheckInPhotoFile] = useState<File | null>(null);
     const { t } = useLanguage();
 
     // Controlled open state
@@ -201,9 +204,10 @@ export function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, o
         fetchActiveDrivers();
     }, [isOpen]);
 
-    // Reset form when dialog opens (edit vs create)
+    // Reset form and photo state when dialog opens (edit vs create)
     useEffect(() => {
         if (isOpen) {
+            setNewCheckInPhotoFile(null);
             if (mode === "edit" && task) {
                 const d = task.date ? (task.date instanceof Date ? task.date : new Date(task.date)) : new Date();
                 form.reset({
@@ -273,6 +277,10 @@ const onSubmit = async (values: FirstMileTask) => {
             };
             if (task.status === "Cancelled" && values.driverId) {
                 payload.status = "Assigned";
+            }
+            if (newCheckInPhotoFile) {
+                const photoUrl = await uploadCheckInPhoto(task.id, newCheckInPhotoFile);
+                payload.checkInPhotoUrl = photoUrl;
             }
             const clean = Object.fromEntries(
                 Object.entries(payload).filter(([, v]) => v !== undefined)
@@ -563,9 +571,11 @@ return (
                                         </FormControl>
                                         <SelectContent className="z-[1005]" position="popper">
                                             {socOptions.length === 0 ? (
-                                                <SelectLabel className="text-muted-foreground">
-                                                    {t("firstMile.task.noSOC", "No SOC locations. Add pickup points with station type SOC.")}
-                                                </SelectLabel>
+                                                <SelectGroup>
+                                                    <SelectLabel className="text-muted-foreground">
+                                                        {t("firstMile.task.noSOC", "No SOC locations. Add pickup points with station type SOC.")}
+                                                    </SelectLabel>
+                                                </SelectGroup>
                                             ) : (
                                                 socOptions.map((soc) => (
                                                     <SelectItem key={soc.source_id} value={soc.source_id}>
@@ -738,6 +748,32 @@ return (
                             />
                         </div>
                     </div>
+
+                    {mode === "edit" && task && (
+                        <div className="border-t pt-4 space-y-3">
+                            <h3 className="text-sm font-medium">{t("firstMile.task.checkInPhoto", "Check-in Photo")}</h3>
+                            <div className="flex flex-wrap items-start gap-4">
+                                {task.checkInPhotoUrl && (
+                                    <div className="space-y-1">
+                                        <a href={task.checkInPhotoUrl} target="_blank" rel="noopener noreferrer" className="text-primary text-sm underline block">View current photo</a>
+                                        <img src={task.checkInPhotoUrl} alt="Check-in" className="max-h-32 rounded border object-cover" />
+                                    </div>
+                                )}
+                                <div className="flex flex-col gap-2">
+                                    <label className="text-sm text-muted-foreground">{t("firstMile.task.replacePhoto", "Replace photo (when work was recorded incorrectly)")}</label>
+                                    <input
+                                        type="file"
+                                        accept="image/*"
+                                        className="text-sm"
+                                        onChange={(e) => setNewCheckInPhotoFile(e.target.files?.[0] ?? null)}
+                                    />
+                                    {newCheckInPhotoFile && (
+                                        <span className="text-xs text-muted-foreground">{newCheckInPhotoFile.name}</span>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     <DialogFooter>
                         <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>{t("firstMile.task.cancel")}</Button>

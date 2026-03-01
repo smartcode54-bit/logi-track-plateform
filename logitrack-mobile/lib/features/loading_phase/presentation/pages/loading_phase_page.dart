@@ -54,6 +54,9 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
   String? _tripIdDuplicateError;
   String? _sealCodeDuplicateError;
 
+  /// สำหรับแสดงจุดที่ตรวจสอบเมื่อพบ duplicate (UI debug)
+  DuplicateCheckResult? _lastDuplicateDebug;
+
   final GlobalKey _runsheetSectionKey = GlobalKey();
 
   List<HubDoc> _allHubs = [];
@@ -231,13 +234,19 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
 
   void _clearTripIdDuplicateError() {
     if (_tripIdDuplicateError != null && mounted) {
-      setState(() => _tripIdDuplicateError = null);
+      setState(() {
+        _tripIdDuplicateError = null;
+        if (_sealCodeDuplicateError == null) _lastDuplicateDebug = null;
+      });
     }
   }
 
   void _clearSealCodeDuplicateError() {
     if (_sealCodeDuplicateError != null && mounted) {
-      setState(() => _sealCodeDuplicateError = null);
+      setState(() {
+        _sealCodeDuplicateError = null;
+        if (_tripIdDuplicateError == null) _lastDuplicateDebug = null;
+      });
     }
   }
 
@@ -374,6 +383,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         final duplicate = await checkDuplicateTripIdAndSeal(
           tripId: ocrTripId,
           sealCode: (ocrSeal != null && ocrSeal.isNotEmpty) ? ocrSeal : null,
+          currentDriverId: FirebaseAuth.instance.currentUser?.uid,
         );
         if (duplicate.hasDuplicate && mounted) {
           setState(() {
@@ -383,6 +393,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
             _sealCodeDuplicateError = duplicate.sealCodeExists
                 ? 'loading_phase_duplicate_seal_code'.tr()
                 : null;
+            _lastDuplicateDebug = duplicate;
           });
           final msg = duplicate.tripIdExists && duplicate.sealCodeExists
               ? 'loading_phase_duplicate_trip_and_seal'.tr()
@@ -472,6 +483,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       _tripIdDuplicateError != null || _sealCodeDuplicateError != null;
 
   Future<void> _showPreviewAndSubmit() async {
+    FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) return;
     final tripId = _tripIdController.text.trim();
     if (tripId.isEmpty) {
@@ -635,6 +647,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     final duplicate = await checkDuplicateTripIdAndSeal(
       tripId: tripId,
       sealCode: sealCode.isEmpty ? null : sealCode,
+      currentDriverId: FirebaseAuth.instance.currentUser?.uid,
     );
     if (!mounted) return;
     setState(() {
@@ -644,8 +657,78 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       _sealCodeDuplicateError = duplicate.sealCodeExists
           ? 'loading_phase_duplicate_seal_code'.tr()
           : null;
+      _lastDuplicateDebug = duplicate.hasDuplicate ? duplicate : null;
     });
     _scrollToRunsheetSection();
+  }
+
+  /// การ์ดแสดงจุดที่ตรวจสอบ duplicate (เพื่อ debug ว่าไม่ตรงตรงไหน)
+  Widget _buildDuplicateCheckDebugCard(DuplicateCheckResult d) {
+    return Card(
+      color: Colors.orange.shade50,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.info_outline, color: Colors.orange.shade800, size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  'loading_phase_duplicate_check_debug'.tr(),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: Colors.orange.shade900,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            _debugRow('loading_phase_debug_doc_exists'.tr(), d.docExists),
+            _debugRow('loading_phase_debug_trip_id_blocks'.tr(), d.tripIdExists),
+            _debugRow('loading_phase_debug_same_driver_ok'.tr(), d.sameDriverAllowed),
+            if (d.existingDriverId != null || d.currentDriverId != null) ...[
+              _debugRow('loading_phase_debug_existing_driver'.tr(), d.existingDriverId ?? '-'),
+              _debugRow('loading_phase_debug_your_driver'.tr(), d.currentDriverId ?? '-'),
+              _debugRow('loading_phase_debug_match'.tr(), d.existingDriverId == d.currentDriverId ? 'loading_phase_debug_yes'.tr() : 'loading_phase_debug_no'.tr()),
+            ],
+            _debugRow('loading_phase_debug_seal_blocks'.tr(), d.sealCodeExists),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _debugRow(String label, dynamic value) {
+    final v = value is bool ? (value ? '✓' : '✗') : value.toString();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 180,
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 12, color: Colors.black87),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              v,
+              style: TextStyle(
+                fontSize: 12,
+                fontFamily: 'monospace',
+                color: Colors.black87,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   /// เลื่อนหน้าจอไปที่ส่วนรันชีท (เมื่อตรวจพบซ้ำ)
@@ -704,12 +787,14 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       _stepPhotos.clear();
       _tripIdDuplicateError = null;
       _sealCodeDuplicateError = null;
+      _lastDuplicateDebug = null;
     });
     DraftStorageService.instance.clearLoadingDraft();
   }
 
   /// Save ช้าเพราะ: (1) getCurrentPosition (2) fetchOverlayContext (3) วน overlay 3 รูป (4) อัปโหลด 4 รูป + บันทึก Firestore
   Future<void> _doSubmit() async {
+    if (mounted) FocusScope.of(context).unfocus();
     setState(() => _saving = true);
     try {
       final tripId = _tripIdController.text.trim();
@@ -718,9 +803,19 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       final duplicate = await checkDuplicateTripIdAndSeal(
         tripId: tripId,
         sealCode: sealCode.isEmpty ? null : sealCode,
+        currentDriverId: FirebaseAuth.instance.currentUser?.uid,
       );
       if (duplicate.hasDuplicate && mounted) {
-        setState(() => _saving = false);
+        setState(() {
+          _saving = false;
+          _tripIdDuplicateError = duplicate.tripIdExists
+              ? 'loading_phase_duplicate_trip_id'.tr()
+              : null;
+          _sealCodeDuplicateError = duplicate.sealCodeExists
+              ? 'loading_phase_duplicate_seal_code'.tr()
+              : null;
+          _lastDuplicateDebug = duplicate;
+        });
         String msg;
         if (duplicate.tripIdExists && duplicate.sealCodeExists) {
           msg = 'loading_phase_duplicate_trip_and_seal'.tr();
@@ -732,6 +827,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(msg), backgroundColor: Colors.red),
         );
+        _scrollToRunsheetSection();
         return;
       }
 
@@ -1080,6 +1176,10 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                         ),
                         onTap: _validateDuplicateOnBlur,
                       ),
+                      if (_lastDuplicateDebug != null) ...[
+                        const SizedBox(height: 12),
+                        _buildDuplicateCheckDebugCard(_lastDuplicateDebug!),
+                      ],
                       const SizedBox(height: 12),
 
                       // Origin / Destination — FM: ต้นทาง=HUB ปลายทาง=SOC | LH: ต้นทาง=SOC ปลายทาง=HUB
