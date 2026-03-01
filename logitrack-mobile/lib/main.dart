@@ -36,7 +36,9 @@ void Function()? onChatRoomExited;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await dotenv.load(fileName: ".env");
+  const flavor = String.fromEnvironment('FLAVOR', defaultValue: 'dev');
+  final envFile = flavor == 'prod' ? '.env.prod' : '.env.dev';
+  await dotenv.load(fileName: envFile);
   await EasyLocalization.ensureInitialized();
   try {
     await Firebase.initializeApp(

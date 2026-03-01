@@ -1,9 +1,13 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../../../../core/theme/theme_controller.dart';
 import '../../../../core/services/fcm_service.dart';
 import '../../../home/data/services/draft_storage_service.dart';
 import '../../data/repositories/auth_repository.dart';
+
+// Read flavor from --dart-define=FLAVOR=dev|prod
+const String _appFlavor = String.fromEnvironment('FLAVOR', defaultValue: 'dev');
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -19,6 +23,22 @@ class _LoginPageState extends State<LoginPage> {
   bool _isPasswordVisible = false;
   final _authRepository = AuthRepository();
   bool _isLoading = false;
+  String _versionDisplay = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVersion();
+  }
+
+  Future<void> _loadVersion() async {
+    final info = await PackageInfo.fromPlatform();
+    final envLabel = _appFlavor == 'prod' ? 'Release' : 'Dev';
+    setState(() {
+      _versionDisplay =
+          'LOGI-TRACK $envLabel v${info.version} (DRIVER EDITION)';
+    });
+  }
 
   @override
   void dispose() {
@@ -317,7 +337,7 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                       const SizedBox(height: 16),
                       Text(
-                        'version_info'.tr(),
+                        _versionDisplay,
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           color: Theme.of(

@@ -109,8 +109,23 @@ flutter doctor --android-licenses
 
 Accept the licenses when prompted.
 
-# Build APK for Physical Device
+# build apk for physical device
 
-```bash
-flutter build apk --split-per-abi
+```bash - prod
+flutter build apk --flavor prod --split-per-abi
+flutter build apk --flavor prod
 ```
+
+```bash - dev
+flutter build apk --flavor dev --split-per-abi
+flutter build apk --flavor dev
+```
+debug
+```bash
+# Dev → ใช้ Firebase Dev + Web Client ID ของ Dev
+flutter run --flavor dev --dart-define=FLAVOR=dev
+```
+```bash
+# Prod → ใช้ Firebase Prod + Web Client ID ของ Prod
+flutter run --flavor prod --dart-define=FLAVOR=prod
+
