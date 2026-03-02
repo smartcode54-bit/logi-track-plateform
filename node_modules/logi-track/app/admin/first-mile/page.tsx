@@ -54,7 +54,17 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-import { MoreHorizontal } from "lucide-react";
+import { MoreHorizontal, Pencil } from "lucide-react";
+import { EditTripDetailsDialog } from "@/app/admin/driver-monitor/EditTripDetailsDialog";
+import type { TripRecord } from "@/validate/tripRecordSchema";
+
+function toDate(val: unknown): Date | null {
+    if (!val) return null;
+    if (val instanceof Date) return val;
+    if (typeof (val as { toDate?: () => Date })?.toDate === "function") return (val as { toDate: () => Date }).toDate();
+    if (typeof val === "string") return new Date(val);
+    return null;
+}
 
 export default function FirstMilePage() {
     const { t } = useLanguage();
@@ -70,6 +80,8 @@ export default function FirstMilePage() {
     const [selectedTask, setSelectedTask] = useState<Partial<FirstMileTask> | undefined>(undefined);
     const [cancelTask, setCancelTask] = useState<FirstMileTask | null>(null);
     const [detailTask, setDetailTask] = useState<FirstMileTask | null>(null);
+    const [detailTrip, setDetailTrip] = useState<TripRecord | null>(null);
+    const [editTripDialogOpen, setEditTripDialogOpen] = useState(false);
 
     // Fetch Hubs directly from Firestore
     const fetchHubs = async () => {
@@ -95,6 +107,39 @@ export default function FirstMilePage() {
     useEffect(() => {
         fetchHubs();
     }, []);
+
+    // When task detail opens, fetch linked trip_record (by taskId)
+    useEffect(() => {
+        if (!detailTask) {
+            setDetailTrip(null);
+            return;
+        }
+        const taskIds = [detailTask.id, detailTask.taskId].filter(Boolean) as string[];
+        if (taskIds.length === 0) {
+            setDetailTrip(null);
+            return;
+        }
+        const q = query(
+            collection(db, COLLECTIONS.TRIP_RECORDS),
+            where("taskId", "in", taskIds),
+            limit(1)
+        );
+        getDocs(q).then((snap) => {
+            const doc = snap.docs[0];
+            if (!doc) {
+                setDetailTrip(null);
+                return;
+            }
+            const data = doc.data();
+            setDetailTrip({
+                id: doc.id,
+                ...data,
+                createdAt: toDate(data.createdAt) ?? undefined,
+                updatedAt: toDate(data.updatedAt) ?? undefined,
+                deliveredTimestamp: toDate(data.deliveredTimestamp) ?? undefined,
+            } as TripRecord);
+        }).catch(() => setDetailTrip(null));
+    }, [detailTask?.id, detailTask?.taskId]);
 
     // Listen to Tasks
     useEffect(() => {
@@ -460,6 +505,16 @@ export default function FirstMilePage() {
                         </div>
                     )}
                     <DialogFooter>
+                        {detailTrip && (
+                            <Button
+                                variant="outline"
+                                onClick={() => setEditTripDialogOpen(true)}
+                                className="mr-auto"
+                            >
+                                <Pencil className="mr-2 h-4 w-4" />
+                                {t("firstMile.task.editTrip", "Edit trip")}
+                            </Button>
+                        )}
                         <Button variant="outline" onClick={() => setDetailTask(null)}>{t("firstMile.task.cancel")}</Button>
                         <Button onClick={() => { if (detailTask) { setDetailTask(null); handleEdit(detailTask); } }}>
                             {detailTask?.status === "Cancelled" ? t("firstMile.table.assign", "Re-assign") : t("firstMile.table.edit")}
@@ -467,6 +522,15 @@ export default function FirstMilePage() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {detailTrip && (
+                <EditTripDetailsDialog
+                    open={editTripDialogOpen}
+                    onOpenChange={setEditTripDialogOpen}
+                    trip={detailTrip}
+                    onSuccess={() => setEditTripDialogOpen(false)}
+                />
+            )}
         </div>
     );
 }

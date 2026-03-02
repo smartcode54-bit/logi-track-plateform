@@ -64,13 +64,18 @@ The app is a **Next.js static export**. All `NEXT_PUBLIC_*` variables are baked 
 
 ### Deploy
 
-From `logitrack-web/`:
+**Production deploy (แนะนำ):** รันจาก **root ของ repo** (`logitrack-platform/`) เพื่อให้คัดลอก env ถูกต้อง:
 
 ```bash
-npm run deploy
+cd /path/to/logitrack-platform
+npm run deploy:prod
 ```
 
-This runs `next build` then `firebase deploy` (Hosting + Functions). Ensure production env vars are set (or `.env.production` is present) when you run it.
+(เปลี่ยนเป็น path จริงของโปรเจกต์ — โฟลเดอร์ root ที่มี `envs/` และ `logitrack-web/`)
+
+คำสั่งนี้จะ copy `envs/.env.prod.web` → `logitrack-web/.env.production` แล้ว build และ deploy
+
+**หมายเหตุ:** ห้ามรัน `npm run deploy:prod` จากภายในโฟลเดอร์ `logitrack-web/` โดยตรง — จะทำให้ path ของ env ผิดพลาด ต้องรันจาก root (`logitrack-platform/`)
 
 ---
 
@@ -115,6 +120,7 @@ firebase deploy --only functions
 - [ ] **Functions:** `GOOGLE_MAPS_API_KEY` set in Cloud Console or via Firebase params.
 - [ ] **Secrets:** No real keys in repo; `.env.production`, `.env.prod`, and `.env` in `functions/` are gitignored (only example files like `.env.prod.example` are committed).
 - [ ] **Firebase project:** Deploy target in `.firebaserc` is the correct production project.
+- [ ] **Auth – Authorized domains:** After the first deploy, add your Hosting domain to Firebase Auth so sign-in works. If you see `auth/unauthorized-domain` in the browser console, add the domain (e.g. `logitrack-prod.web.app`) in **Firebase Console → Authentication → Settings → Authorized domains**.
 
 ---
 

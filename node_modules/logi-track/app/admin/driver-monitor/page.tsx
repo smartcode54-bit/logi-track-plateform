@@ -293,6 +293,21 @@ export default function DriverMonitorPage() {
         return `${driver.firstName} - ${plate}`;
     };
 
+    /** Driver name only (for table) */
+    const getDriverName = (driverId?: string) => {
+        if (!driverId) return t("driverMonitor.table.unknown");
+        const driver = getDriver(driverId);
+        if (!driver) return driverId.slice(0, 8) + "...";
+        return `${driver.firstName} ${driver.lastName}`.trim() || "-";
+    };
+
+    /** License plate only (for table) */
+    const getLicensePlate = (driverId?: string) => {
+        if (!driverId) return "-";
+        const driver = getDriver(driverId);
+        return driver?.currentAssignment?.truckPlate ?? "-";
+    };
+
     /** Trip Details: "FirstName LastName - LicensePlate" */
     const getDriverDisplayFull = (driverId?: string) => {
         if (!driverId) return t("driverMonitor.table.unknown");
@@ -323,8 +338,8 @@ export default function DriverMonitorPage() {
                 </div>
             </div>
 
-            {/* Stats Cards — Order: Total, Loading|CheckIn (split), In Transit, Delivered */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Stats Cards — 5 equal cards: Total, Loading, Check in, In Transit, Delivered */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                 {/* 1. Total Trips */}
                 <Card className="bg-card">
                     <CardContent className="p-6 flex items-center justify-between">
@@ -340,40 +355,40 @@ export default function DriverMonitorPage() {
                     </CardContent>
                 </Card>
 
-                {/* 2. Loading | Check in (split half-half) */}
+                {/* 2. Loading */}
                 <Card className="bg-card">
-                    <CardContent className="p-0 flex h-full">
-                        {/* Loading half */}
-                        <div className="flex-1 p-4 flex items-center justify-between border-r border-border/30">
-                            <div>
-                                <p className="text-xs font-medium text-muted-foreground">
-                                    {t("driverMonitor.stats.loading")}
-                                </p>
-                                <h2 className="text-2xl font-bold mt-1">{stats.loading}</h2>
-                            </div>
-                            <div className="h-9 w-9 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500">
-                                <Loader2 className="h-4 w-4" />
-                            </div>
+                    <CardContent className="p-6 flex items-center justify-between">
+                        <div>
+                            <p className="text-sm font-medium text-muted-foreground">
+                                {t("driverMonitor.stats.loading")}
+                            </p>
+                            <h2 className="text-3xl font-bold mt-1">{stats.loading}</h2>
                         </div>
-                        {/* Check in half */}
-                        <div className="flex-1 p-4 flex items-center justify-between">
-                            <div>
-                                <p className="text-xs font-medium text-muted-foreground">
-                                    {t("driverMonitor.stats.checkIn")}
-                                </p>
-                                <h2 className="text-2xl font-bold mt-1">
-                                    <span className="text-emerald-500">{stats.checkInActual}</span>
-                                    <span className="text-muted-foreground text-base font-normal"> / {stats.checkInTotal}</span>
-                                </h2>
-                            </div>
-                            <div className="h-9 w-9 rounded-full bg-teal-100 dark:bg-teal-900/30 flex items-center justify-center text-teal-500">
-                                <ClipboardCheck className="h-4 w-4" />
-                            </div>
+                        <div className="h-12 w-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500">
+                            <Loader2 className="h-5 w-5" />
                         </div>
                     </CardContent>
                 </Card>
 
-                {/* 3. In Transit */}
+                {/* 3. Check in */}
+                <Card className="bg-card">
+                    <CardContent className="p-6 flex items-center justify-between">
+                        <div>
+                            <p className="text-sm font-medium text-muted-foreground">
+                                {t("driverMonitor.stats.checkIn")}
+                            </p>
+                            <h2 className="text-3xl font-bold mt-1">
+                                <span className="text-emerald-600 dark:text-emerald-400">{stats.checkInActual}</span>
+                                <span className="text-muted-foreground text-base font-normal ml-1">/ {stats.checkInTotal}</span>
+                            </h2>
+                        </div>
+                        <div className="h-12 w-12 rounded-full bg-teal-100 dark:bg-teal-900/30 flex items-center justify-center text-teal-500">
+                            <ClipboardCheck className="h-5 w-5" />
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {/* 4. In Transit */}
                 <Card className="bg-card">
                     <CardContent className="p-6 flex items-center justify-between">
                         <div>
@@ -383,12 +398,12 @@ export default function DriverMonitorPage() {
                             <h2 className="text-3xl font-bold mt-1">{stats.inTransit}</h2>
                         </div>
                         <div className="h-12 w-12 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center text-amber-500">
-                            <Truck className="h-6 w-6" />
+                            <Truck className="h-5 w-5" />
                         </div>
                     </CardContent>
                 </Card>
 
-                {/* 4. Delivered */}
+                {/* 5. Delivered */}
                 <Card className="bg-card">
                     <CardContent className="p-6 flex items-center justify-between">
                         <div>
@@ -398,7 +413,7 @@ export default function DriverMonitorPage() {
                             <h2 className="text-3xl font-bold mt-1">{stats.delivered}</h2>
                         </div>
                         <div className="h-12 w-12 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-500">
-                            <PackageCheck className="h-6 w-6" />
+                            <PackageCheck className="h-5 w-5" />
                         </div>
                     </CardContent>
                 </Card>
@@ -406,9 +421,9 @@ export default function DriverMonitorPage() {
 
             {/* Job Type Tabs + Filters */}
             <div className="space-y-4">
-                <div className="flex flex-col sm:flex-row gap-4 bg-card/50 p-4 rounded-lg border border-border/50">
+                <div className="flex flex-col sm:flex-row flex-wrap gap-4 bg-card/50 p-4 rounded-lg border border-border/50">
                     {/* Job Type Tabs */}
-                    <div className="flex gap-2 border-r border-border/50 pr-4">
+                    <div className="flex gap-2 border-b sm:border-b-0 sm:border-r border-border/50 pb-4 sm:pb-0 sm:pr-4">
                         <Button
                             variant={jobTypeFilter === "all" ? "secondary" : "ghost"}
                             onClick={() => setJobTypeFilter("all")}
@@ -503,17 +518,21 @@ export default function DriverMonitorPage() {
 
                 {/* Data Table */}
                 <div className="border rounded-lg bg-card overflow-hidden">
-                    <Table>
+                    <div className="overflow-x-auto">
+                    <Table className="min-w-[900px]">
                         <TableHeader className="bg-muted/50">
                             <TableRow className="border-b border-border/50">
                                 <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
                                     {t("driverMonitor.table.tripId")}
                                 </TableHead>
                                 <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
-                                    {t("driverMonitor.table.date")}
+                                    {t("driverMonitor.table.createdAt")}
                                 </TableHead>
                                 <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
                                     {t("driverMonitor.table.driver")}
+                                </TableHead>
+                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
+                                    {t("driverMonitor.table.licensePlate")}
                                 </TableHead>
                                 <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
                                     {t("driverMonitor.table.jobType")}
@@ -528,14 +547,14 @@ export default function DriverMonitorPage() {
                                     {t("driverMonitor.table.status")}
                                 </TableHead>
                                 <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
-                                    {t("driverMonitor.table.time")}
+                                    {t("driverMonitor.table.deliveredTime")}
                                 </TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {loading ? (
                                 <TableRow>
-                                    <TableCell colSpan={8} className="h-32 text-center">
+                                    <TableCell colSpan={9} className="h-32 text-center">
                                         <div className="flex flex-col items-center justify-center gap-2">
                                             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                                             <p className="text-sm text-muted-foreground">
@@ -546,7 +565,7 @@ export default function DriverMonitorPage() {
                                 </TableRow>
                             ) : paginatedTrips.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={8} className="h-32 text-center">
+                                    <TableCell colSpan={9} className="h-32 text-center">
                                         <p className="text-sm text-muted-foreground">
                                             {t("driverMonitor.table.noTrips")}
                                         </p>
@@ -571,10 +590,17 @@ export default function DriverMonitorPage() {
                                             {formatTimestamp(trip.createdAt)}
                                         </TableCell>
 
-                                        {/* Driver: First - LicensePlate */}
+                                        {/* Driver */}
                                         <TableCell>
                                             <span className="font-medium text-sm">
-                                                {getDriverDisplayShort(trip.driverId)}
+                                                {getDriverName(trip.driverId)}
+                                            </span>
+                                        </TableCell>
+
+                                        {/* License Plate */}
+                                        <TableCell>
+                                            <span className="font-mono text-sm text-muted-foreground">
+                                                {getLicensePlate(trip.driverId)}
                                             </span>
                                         </TableCell>
 
@@ -621,15 +647,18 @@ export default function DriverMonitorPage() {
                                             </Badge>
                                         </TableCell>
 
-                                        {/* Time */}
+                                        {/* Delivered / Updated time */}
                                         <TableCell className="text-sm text-muted-foreground">
-                                            {formatTimestamp(trip.updatedAt)}
+                                            {formatTimestamp(trip.status === "delivered" && trip.deliveredTimestamp
+                                                ? trip.deliveredTimestamp
+                                                : trip.updatedAt)}
                                         </TableCell>
                                     </TableRow>
                                 ))
                             )}
                         </TableBody>
                     </Table>
+                    </div>
 
                     {/* Pagination Footer */}
                     <div className="flex items-center justify-between px-4 py-4 border-t border-border/50 bg-muted/20">

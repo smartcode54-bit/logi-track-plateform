@@ -96,6 +96,128 @@ flutter run --release
 | "No devices found" | Install/update USB driver for your phone (Windows) |
 | Build fails (Android) | Run `flutter doctor` and fix any Android toolchain / license issues |
 | App installs but crashes | Check log with `flutter run` and read the stack trace in the terminal |
+| **Google Sign-In: "Developer console is not set up" (28444)** | See [Google Sign-In setup](#google-sign-in-setup) below |
+
+---
+
+### Google Sign-In setup
+
+ถ้าลงแอปแล้วกด "Sign in with Google" แล้วขึ้นข้อความ **"Developer console is not set up"** หรือ error 28444 ให้ทำตามขั้นตอนนี้ (ต้องทำครั้งเดียวใน Firebase/Google Cloud):
+
+#### 1. เปิด Google Sign-In ใน Firebase
+
+1. ไปที่ [Firebase Console](https://console.firebase.google.com/) → เลือกโปรเจกต์ (prod หรือ dev ตาม flavor ที่ใช้)
+2. ไปที่ **Authentication** → **Sign-in method**
+3. เลือก **Google** → เปิด **Enable** → ตั้ง Support email → **Save**
+
+#### 2. เพิ่ม SHA-1 และ SHA-256 ให้แอป Android
+
+แอปที่ลงบนเครื่องจริงต้องใช้ SHA ของ keystore ที่ใช้เซ็น APK นั้น:
+
+- **ถ้าลงจาก `flutter run` (debug)** ใช้ **debug keystore**
+- **ถ้าลงจาก APK ที่ build เอง (release)** ใช้ **release keystore** ที่ใช้เซ็น
+
+**ดูค่า SHA-1 / SHA-256 จาก Gradle (แนะนำ):**
+
+รันจากโฟลเดอร์ **logitrack-mobile** (ไม่ต้อง cd ซ้ำเข้า logitrack-mobile อีก):
+
+```bash
+cd android
+.\gradlew signingReport
+```
+
+หรือถ้าอยู่ที่ root ของ repo:
+
+```bash
+cd logitrack-mobile\android
+.\gradlew signingReport
+```
+
+จากผลลัพธ์ให้ copy ค่า **SHA-1** และ **SHA-256** ของ variant ที่ใช้ (เช่น `prodRelease` หรือ `prodDebug`)
+
+**หรือใช้ keytool (debug):**
+
+```bash
+keytool -list -v -alias androiddebugkey -keystore %USERPROFILE%\.android\debug.keystore -storepass android
+```
+
+(Windows: ใช้ `%USERPROFILE%` ได้ใน CMD)
+
+**นำ SHA ไปใส่ใน Firebase:**
+
+1. Firebase Console → โปรเจกต์ → **Project settings** (ไอคอนเฟือง)
+2. ลงมาที่ **Your apps** → เลือกแอป Android (package name `com.wrt.logitrack` สำหรับ prod)
+3. กด **Add fingerprint** → วาง **SHA-1** แล้ว Save
+4. กด **Add fingerprint** อีกครั้ง → วาง **SHA-256** แล้ว Save
+
+ถ้ามีแอป Android หลายตัว (เช่น dev/prod) ให้เพิ่ม SHA ในแอปที่ตรงกับ flavor ที่ใช้ล็อกอิน
+
+#### 3. ตรวจสอบ Web Client ID ใน .env
+
+แอปใช้ **Web client ID** จาก env สำหรับ Google Sign-In (ตัวที่ Firebase สร้างให้เมื่อเปิด Google provider):
+
+1. ใน Firebase → **Project settings** → **Your apps** → แอป Android
+2. หรือไปที่ [Google Cloud Console](https://console.cloud.google.com/) → โปรเจกต์เดียวกัน → **APIs & Services** → **Credentials**
+3. หา OAuth 2.0 **Web client** (ไม่ใช่ Android client) → copy **Client ID**
+
+ในโปรเจกต์ต้องมีในไฟล์ env ตาม flavor ที่รัน:
+
+- รัน **prod** → ใช้ `.env.prod` และต้องมี `FIREBASE_WEB_CLIENT_ID=...` (ค่า Web client ID ของโปรเจกต์ prod)
+- รัน **dev** → ใช้ `.env.dev` และต้องมี `FIREBASE_WEB_CLIENT_ID=...` (ค่า Web client ID ของโปรเจกต์ dev)
+
+ถ้าไม่มีหรือผิด แก้แล้ว build/รันแอปใหม่
+
+#### 4. สรุปสั้น ๆ
+
+| สาเหตุที่มักเจอ | วิธีแก้ |
+|------------------|--------|
+| ยังไม่ได้เปิด Google ใน Firebase Authentication | เปิดที่ Sign-in method → Google → Enable |
+| ยังไม่ได้เพิ่ม SHA-1/SHA-256 ของ keystore ที่ใช้เซ็นแอป | เพิ่มใน Firebase → Project settings → Your apps → Android app → Add fingerprint |
+| ใช้แอปที่เซ็นด้วย debug แต่เพิ่มแต่ SHA ของ release (หรือตรงกันข้าม) | ใช้ SHA ของ variant เดียวกับที่ลงอยู่ (ดูจาก `signingReport`) |
+| ไม่มีหรือใส่ `FIREBASE_WEB_CLIENT_ID` ผิดใน .env | ใส่ Web client ID จาก Firebase/Google Cloud ใน `.env.prod` หรือ `.env.dev` แล้ว build ใหม่ |
+
+หลังแก้แล้วลองล็อกอาออกแล้วกด "Sign in with Google" ใหม่ (ถ้าจำเป็นถอนแอปแล้วลงใหม่)
+
+#### 5. ถ้ายังติด 28444 หลังเพิ่ม SHA แล้ว
+
+ทำตามทีละข้อ:
+
+**ก. ตรวจ OAuth consent screen (Google Cloud)**
+
+1. ไปที่ [Google Cloud Console](https://console.cloud.google.com/) → เลือก**โปรเจกต์เดียวกับ Firebase**
+2. **APIs & Services** → **OAuth consent screen**
+3. ต้องมี App name, User support email, Developer contact ครบ
+4. ถ้าเป็น "Testing" ต้องเพิ่มอีเมลที่ใช้ทดสอบใน **Test users**
+
+**ข. สร้าง/ตรวจ Android OAuth 2.0 Client**
+
+Firebase อาจสร้างให้อัตโนมัติ แต่ถ้าไม่มี แอปจะขึ้น 28444:
+
+1. Google Cloud Console → โปรเจกต์เดียวกับ Firebase → **APIs & Services** → **Credentials**
+2. ดูรายการ **OAuth 2.0 Client IDs** ว่ามีประเภท **Android** ที่ package name = `com.wrt.logitrack` หรือไม่
+3. **ถ้าไม่มี** → กด **+ CREATE CREDENTIALS** → **OAuth client ID** → Application type เลือก **Android**
+   - Name: เช่น `LogiTrack Android`
+   - Package name: `com.wrt.logitrack`
+   - SHA-1: ใส่ค่า SHA-1 ที่เพิ่มใน Firebase (เช่น `C7:A7:A4:ED:85:0B:A3:84:66:96:F5:4A:0A:32:D0:E6:10:1A:FC:3D`)
+   - กด **Create**
+4. รอสัก 1–2 นาที แล้วลอง Sign in with Google อีกครั้ง
+
+**ค. ตรวจว่าแอปได้ Web Client ID จริง (ต้อง build จาก .env ที่ถูก)**
+
+- แอปอ่าน `FIREBASE_WEB_CLIENT_ID` จากไฟล์ `.env.prod` (prod) หรือ `.env.dev` (dev) ตอน** build** เท่านั้น
+- ถ้าเคย build ตอนที่ยังไม่มีหรือใส่ผิด แอปที่ลงอยู่จะไม่มีค่าใช้ → ต้อง** build ใหม่** แล้วลงแอปใหม่
+- ตรวจใน `.env.prod` ว่ามีบรรทัด `FIREBASE_WEB_CLIENT_ID=...` และค่าตรงกับ Web client ID จาก Firebase/Google Cloud (Credentials → OAuth 2.0 Client IDs → ประเภท **Web application**)
+
+**ง. ใช้แอปที่ build หลังแก้ .env**
+
+ถ้าแก้ `.env.prod` หรือ `.env.dev` ต้อง build แล้วลงใหม่:
+
+```bash
+cd logitrack-mobile
+flutter build apk --flavor prod --dart-define=FLAVOR=prod
+```
+
+แล้วลง APK จาก `build/app/outputs/flutter-apk/` แล้วลอง Sign in with Google อีกครั้ง
 
 ---
 
@@ -111,14 +233,18 @@ Accept the licenses when prompted.
 
 # build apk for physical device
 
+ต้องใส่ `--dart-define=FLAVOR=...` ด้วย เพื่อให้แอปโหลด `.env.prod` หรือ `.env.dev` ถูกต้อง (รวมถึง FIREBASE_WEB_CLIENT_ID สำหรับ Google Sign-In)
+
 ```bash - prod
-flutter build apk --flavor prod --split-per-abi
-flutter build apk --flavor prod
+flutter build apk --flavor prod --dart-define=FLAVOR=prod
+# หรือ split ตาม ABI:
+flutter build apk --flavor prod --dart-define=FLAVOR=prod --split-per-abi
 ```
 
 ```bash - dev
-flutter build apk --flavor dev --split-per-abi
-flutter build apk --flavor dev
+flutter build apk --flavor dev --dart-define=FLAVOR=dev
+# หรือ split ตาม ABI:
+flutter build apk --flavor dev --dart-define=FLAVOR=dev --split-per-abi
 ```
 debug
 ```bash
@@ -129,3 +255,5 @@ flutter run --flavor dev --dart-define=FLAVOR=dev
 # Prod → ใช้ Firebase Prod + Web Client ID ของ Prod
 flutter run --flavor prod --dart-define=FLAVOR=prod
 
+
+flutter build apk --flavor prod --release

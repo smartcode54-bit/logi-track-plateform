@@ -25,7 +25,10 @@ export default {
     // Table Headers
     "driverMonitor.table.tripId": "รหัสเที่ยว",
     "driverMonitor.table.date": "วันที่",
+    "driverMonitor.table.createdAt": "สร้างเมื่อ",
+    "driverMonitor.table.deliveredTime": "ส่งเมื่อ",
     "driverMonitor.table.driver": "คนขับ",
+    "driverMonitor.table.licensePlate": "ทะเบียนรถ",
     "driverMonitor.table.jobType": "ประเภทงาน",
     "driverMonitor.table.route": "เส้นทาง",
     "driverMonitor.table.sealCode": "รหัสซีล",

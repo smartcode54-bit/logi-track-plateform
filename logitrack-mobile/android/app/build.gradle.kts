@@ -57,11 +57,31 @@ android {
 
     applicationVariants.all {
         val variant = this
+        val versionName = variant.versionName
+        val flavor = variant.name
         variant.outputs.all {
             val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
-            val flavor = variant.name
-            val versionName = variant.versionName
             output.outputFileName = "logitrack-${flavor}-v${versionName}.apk"
+        }
+        // Copy versioned APK to flutter-apk: default name (so Flutter CLI finds it) + versioned name for distribution
+        val variantName = variant.name
+        val versionedName = "logitrack-${variantName}-v${versionName}.apk"
+        // Flutter CLI looks for app-<flavor>-<buildType>.apk e.g. app-prod-release.apk
+        val defaultName = "app-${variantName.replace(Regex("([a-z])([A-Z])"), "$1-$2").lowercase()}.apk"
+        // Flutter puts APK in <project_root>/build/app/outputs/flutter-apk (project_root is parent of android/)
+        val flutterApkDir = rootProject.layout.projectDirectory.dir("../build/app/outputs/flutter-apk")
+        if (variant.buildType.name == "release") {
+            val copyTaskName = "copyVersionedApkToFlutterApk${variantName.replaceFirstChar { it.uppercase() }}"
+            tasks.register(copyTaskName) {
+                doLast {
+                    val apkFile = (variant.outputs.first() as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFile
+                    val outDir = flutterApkDir.asFile
+                    outDir.mkdirs()
+                    apkFile.copyTo(outDir.resolve(defaultName), overwrite = true)
+                    apkFile.copyTo(outDir.resolve(versionedName), overwrite = true)
+                }
+            }
+            variant.assembleProvider.get().finalizedBy(tasks.named(copyTaskName))
         }
     }
 }

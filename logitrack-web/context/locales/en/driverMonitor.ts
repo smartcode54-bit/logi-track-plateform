@@ -25,7 +25,10 @@ export default {
     // Table Headers
     "driverMonitor.table.tripId": "Trip ID",
     "driverMonitor.table.date": "Date",
+    "driverMonitor.table.createdAt": "Created",
+    "driverMonitor.table.deliveredTime": "Delivered",
     "driverMonitor.table.driver": "Driver",
+    "driverMonitor.table.licensePlate": "License Plate",
     "driverMonitor.table.jobType": "Job Type",
     "driverMonitor.table.route": "Route",
     "driverMonitor.table.sealCode": "Seal Code",
