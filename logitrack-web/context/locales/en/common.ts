@@ -9,6 +9,7 @@ export default {
     "nav.packages": "Packages",
     "nav.analytics": "Analytics",
     "nav.settings": "Settings",
+    "nav.securityCenter": "SECURITY CENTER",
     "nav.login": "Login",
     "nav.register": "Join Waitlist",
     "nav.logout": "Logout",
@@ -28,6 +29,7 @@ export default {
     "nav.chat": "Chat",
     "nav.activeShipments": "Active Shipments",
     "nav.userRoles": "User Roles",
+    "nav.security": "Security",
     "nav.reporting": "Reporting",
     "nav.accounting": "Accounting",
     "nav.fuel": "Fuel",
@@ -36,6 +38,7 @@ export default {
     "nav.firstMileTasks": "First Mile Tasks",
     "nav.sourceManagement": "Pickup Location Management",
     "nav.driverMonitor": "Driver Job Monitor",
+    "nav.rolePermission": "Role & Permission",
     "nav.supportCenter": "Support Center",
 
     "nav.subcontractors": "Subcontractors",

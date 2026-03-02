@@ -31,6 +31,8 @@ import {
 import { Driver } from "@/validate/driverSchema";
 import { Task } from "@/validate/taskSchema";
 import { useLanguage } from "@/context/language";
+import { useAuth } from "@/context/auth";
+import { canEditTripDetails } from "@/lib/permissions";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -110,6 +112,8 @@ const TASK_STATUS_LABEL: Record<string, string> = {
 
 export default function DriverMonitorPage() {
     const { t } = useLanguage();
+    const auth = useAuth();
+    const canEdit = canEditTripDetails(auth?.customClaims ?? null);
 
     // Data
     const [trips, setTrips] = useState<TripRecord[]>([]);
@@ -203,10 +207,14 @@ export default function DriverMonitorPage() {
             limit(200)
         );
         const unsub = onSnapshot(q, (snap) => {
-            const list = snap.docs.map((d) => ({
-                id: d.id,
-                ...d.data(),
-            })) as Task[];
+            const list = snap.docs.map((d) => {
+                const data = d.data();
+                return {
+                    id: d.id,
+                    ...data,
+                    checkInAt: toDate(data.checkInAt),
+                } as Task & { checkInAt?: Date | null };
+            });
             setTasks(list);
         });
         return () => unsub();
@@ -281,6 +289,16 @@ export default function DriverMonitorPage() {
     useEffect(() => {
         setCurrentPage(1);
     }, [date, statusFilter, jobTypeFilter, searchQuery]);
+
+    // Map taskId -> checkInAt for trip_record lookup
+    const checkInAtByTaskId = useMemo(() => {
+        const map: Record<string, Date | null> = {};
+        tasks.forEach((t) => {
+            const at = (t as Task & { checkInAt?: Date | null }).checkInAt;
+            if (t.id && at) map[t.id] = at;
+        });
+        return map;
+    }, [tasks]);
 
     // ─── Helpers ────────────────────────────────────────────
 
@@ -538,7 +556,10 @@ export default function DriverMonitorPage() {
                                     {t("driverMonitor.table.jobType")}
                                 </TableHead>
                                 <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
-                                    {t("driverMonitor.table.route")}
+                                    {t("driverMonitor.table.origin")}
+                                </TableHead>
+                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
+                                    {t("driverMonitor.table.destination")}
                                 </TableHead>
                                 <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
                                     {t("driverMonitor.table.sealCode")}
@@ -554,7 +575,7 @@ export default function DriverMonitorPage() {
                         <TableBody>
                             {loading ? (
                                 <TableRow>
-                                    <TableCell colSpan={9} className="h-32 text-center">
+                                    <TableCell colSpan={10} className="h-32 text-center">
                                         <div className="flex flex-col items-center justify-center gap-2">
                                             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                                             <p className="text-sm text-muted-foreground">
@@ -565,7 +586,7 @@ export default function DriverMonitorPage() {
                                 </TableRow>
                             ) : paginatedTrips.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={9} className="h-32 text-center">
+                                    <TableCell colSpan={10} className="h-32 text-center">
                                         <p className="text-sm text-muted-foreground">
                                             {t("driverMonitor.table.noTrips")}
                                         </p>
@@ -585,9 +606,11 @@ export default function DriverMonitorPage() {
                                             </span>
                                         </TableCell>
 
-                                        {/* Date */}
+                                        {/* Created / Check-in: prefer checkInAt from linked task */}
                                         <TableCell className="text-sm text-muted-foreground">
-                                            {formatTimestamp(trip.createdAt)}
+                                            {formatTimestamp(
+                                                (trip.taskId && checkInAtByTaskId[trip.taskId]) || trip.createdAt
+                                            )}
                                         </TableCell>
 
                                         {/* Driver */}
@@ -617,13 +640,14 @@ export default function DriverMonitorPage() {
                                             </Badge>
                                         </TableCell>
 
-                                        {/* Route */}
-                                        <TableCell>
-                                            <div className="flex items-center gap-1.5 text-sm">
-                                                <span className="font-medium">{trip.origin || "-"}</span>
-                                                <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
-                                                <span className="font-medium">{trip.destination || "-"}</span>
-                                            </div>
+                                        {/* Origin */}
+                                        <TableCell className="text-sm">
+                                            <span className="font-medium">{trip.origin || "-"}</span>
+                                        </TableCell>
+
+                                        {/* Destination */}
+                                        <TableCell className="text-sm">
+                                            <span className="font-medium">{trip.destination || "-"}</span>
                                         </TableCell>
 
                                         {/* Seal Code */}
@@ -885,14 +909,16 @@ export default function DriverMonitorPage() {
                         </div>
                     )}
                     <DialogFooter>
-                        <Button
-                            variant="outline"
-                            onClick={() => setEditTripDialogOpen(true)}
-                            className="mr-auto"
-                        >
-                            <Pencil className="mr-2 h-4 w-4" />
-                            {t("driverMonitor.detail.edit", "Edit Task")}
-                        </Button>
+                        {canEdit && (
+                            <Button
+                                variant="outline"
+                                onClick={() => setEditTripDialogOpen(true)}
+                                className="mr-auto"
+                            >
+                                <Pencil className="mr-2 h-4 w-4" />
+                                {t("driverMonitor.detail.edit", "Edit Task")}
+                            </Button>
+                        )}
                         <Button variant="outline" onClick={() => setDetailTrip(null)}>
                             {t("driverMonitor.detail.close")}
                         </Button>

@@ -9,6 +9,7 @@ export default {
     "nav.packages": "พัสดุ",
     "nav.analytics": "วิเคราะห์ข้อมูล",
     "nav.settings": "ตั้งค่า",
+    "nav.securityCenter": "SECURITY CENTER",
     "nav.login": "เข้าสู่ระบบ",
     "nav.register": "เข้าร่วมรายการรอ",
     "nav.logout": "ออกจากระบบ",
@@ -28,6 +29,7 @@ export default {
     "nav.chat": "แชท",
     "nav.activeShipments": "การจัดส่งที่ดำเนินการอยู่",
     "nav.userRoles": "บทบาทผู้ใช้งาน",
+    "nav.security": "ความปลอดภัย",
     "nav.reporting": "รายงานผล",
     "nav.accounting": "บัญชี/การเงิน",
     "nav.fuel": "น้ำมัน",
@@ -36,6 +38,7 @@ export default {
     "nav.firstMileTasks": "งาน First Mile",
     "nav.sourceManagement": "จัดการจุดรับงาน",
     "nav.driverMonitor": "ติดตามงานคนขับ",
+    "nav.rolePermission": "บทบาทและสิทธิ์",
     "nav.supportCenter": "ศูนย์ช่วยเหลือ",
 
     "nav.subcontractors": "ผู้รับเหมาช่วง",

@@ -3,6 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+import '../../../../core/services/cloud_functions_service.dart';
+
 class AuthRepository {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -21,10 +23,21 @@ class AuthRepository {
         final role = idTokenResult.claims?['role'];
 
         if (role != 'driver') {
-          await _auth.signOut();
-          throw Exception(
-            'Access Denied: You must be a registered driver to use this app.',
-          );
+          // Fallback: check if user is in drivers collection (claims may not have propagated)
+          final driverQuery = await _firestore
+              .collection('drivers')
+              .where('authId', isEqualTo: user.uid)
+              .limit(1)
+              .get();
+
+          if (driverQuery.docs.isEmpty) {
+            await _auth.signOut();
+            throw Exception(
+              'Access Denied: You must be a registered driver to use this app.',
+            );
+          }
+          // Set driver claims for users in drivers collection (mobile app = drivers)
+          await CloudFunctionsService.instance.call('setDriverClaims');
         }
 
         return user;
@@ -92,6 +105,8 @@ class AuthRepository {
               'Access Denied: You must be a registered driver to use this app.',
             );
           }
+          // Set driver claims for users in drivers collection (mobile app = drivers)
+          await CloudFunctionsService.instance.call('setDriverClaims');
         }
 
         return user;

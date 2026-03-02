@@ -2,10 +2,12 @@
 
 import { useAuth } from "@/context/auth";
 import { useRouter, usePathname } from "next/navigation";
+import { canAccessRoute } from "@/lib/permissions";
 import { useEffect, useState } from "react";
 import Navigation from "@/components/navigation";
 import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
+import { SecurityCenterSidebar } from "@/components/security-center-sidebar";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -93,6 +95,8 @@ export default function AdminLayout({
     const { language, setLanguage } = useLanguage();
 
     const isDashboard = pathname === "/admin/dashboard";
+    const isSecurityCenter = pathname?.startsWith("/admin/security-center");
+    const isSecurityOverview = pathname === "/admin/security-center";
 
     const [isDark, setIsDark] = useState(false);
 
@@ -112,6 +116,16 @@ export default function AdminLayout({
             router.push("/login");
         }
     }, [currentUser, authContext?.loading, router]);
+
+    // Route permission guard — redirect to dashboard if no access
+    useEffect(() => {
+        if (!authContext?.loading && currentUser && pathname) {
+            const allowed = canAccessRoute(authContext.customClaims ?? null, pathname);
+            if (!allowed) {
+                router.replace("/admin/dashboard");
+            }
+        }
+    }, [currentUser, authContext?.loading, authContext?.customClaims, pathname, router]);
 
     const toggleTheme = () => {
         const newIsDark = !isDark;
@@ -144,7 +158,7 @@ export default function AdminLayout({
     return (
         <BreadcrumbProvider>
             <SidebarProvider defaultOpen={false}>
-                <AppSidebar />
+                {isSecurityCenter ? <SecurityCenterSidebar /> : <AppSidebar />}
                 <SidebarInset>
                     <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center justify-between gap-2 border-b border-b-zinc-700/50 dark:border-b-zinc-800 bg-background px-4 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12 shadow-sm">
                         <div className="flex items-center gap-4 flex-1">
@@ -172,6 +186,28 @@ export default function AdminLayout({
                                         <input
                                             type="text"
                                             placeholder="Search data..."
+                                            className="h-9 w-full rounded-md border border-input bg-muted/50 px-9 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                                        />
+                                    </div>
+                                ) : isSecurityOverview ? (
+                                    <div className="relative w-full hidden md:block">
+                                        <svg
+                                            className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground"
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            stroke="currentColor"
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                strokeWidth={2}
+                                                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                                            />
+                                        </svg>
+                                        <input
+                                            type="text"
+                                            placeholder="Search security logs..."
                                             className="h-9 w-full rounded-md border border-input bg-muted/50 px-9 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                                         />
                                     </div>

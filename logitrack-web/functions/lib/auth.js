@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.checkAdminStatus = exports.setAdminClaims = void 0;
+exports.checkAdminStatus = exports.setDriverClaims = exports.setAdminClaims = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 // Admin emails - hardcoded for now
@@ -83,6 +83,62 @@ exports.setAdminClaims = (0, https_1.onCall)(async (request) => {
             admin: false,
             message: "User is not an admin",
         };
+    }
+});
+/**
+ * Cloud Function to set driver claims for users who login from mobile app.
+ * If the user exists in the drivers collection, set role=driver and sync to users.
+ */
+exports.setDriverClaims = (0, https_1.onCall)(async (request) => {
+    if (!request.auth) {
+        throw new https_1.HttpsError("unauthenticated", "User must be authenticated");
+    }
+    const uid = request.auth.uid;
+    const email = request.auth.token.email;
+    console.log(`[setDriverClaims] Processing request for user: ${email} (${uid})`);
+    try {
+        const user = await admin.auth().getUser(uid);
+        const currentClaims = user.customClaims || {};
+        if (currentClaims.role === "driver") {
+            return {
+                success: true,
+                role: "driver",
+                message: "User already has driver privileges",
+            };
+        }
+        const driversSnap = await admin.firestore()
+            .collection("drivers")
+            .where("authId", "==", uid)
+            .limit(1)
+            .get();
+        if (driversSnap.empty) {
+            return {
+                success: true,
+                role: null,
+                message: "User is not a driver",
+            };
+        }
+        const driverDoc = driversSnap.docs[0];
+        const driverId = driverDoc.id;
+        await admin.auth().setCustomUserClaims(uid, {
+            ...currentClaims,
+            role: "driver",
+            driverId,
+        });
+        await admin.firestore().collection("users").doc(uid).set({
+            role: "driver",
+        }, { merge: true });
+        console.log(`[setDriverClaims] Set driver claims for ${uid} -> driverId ${driverId}`);
+        return {
+            success: true,
+            role: "driver",
+            driverId,
+            message: "Driver privileges granted",
+        };
+    }
+    catch (error) {
+        console.error(`[setDriverClaims] Error:`, error);
+        throw new https_1.HttpsError("internal", "Failed to set driver claim");
     }
 });
 /**

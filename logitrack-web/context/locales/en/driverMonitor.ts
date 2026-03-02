@@ -31,6 +31,8 @@ export default {
     "driverMonitor.table.licensePlate": "License Plate",
     "driverMonitor.table.jobType": "Job Type",
     "driverMonitor.table.route": "Route",
+    "driverMonitor.table.origin": "Origin",
+    "driverMonitor.table.destination": "Destination",
     "driverMonitor.table.sealCode": "Seal Code",
     "driverMonitor.table.status": "Status",
     "driverMonitor.table.time": "Time",

@@ -90,6 +90,11 @@ service cloud.firestore {
       );
     }
 
+    // Role-permission config: admin only
+    match /permissions_config/{roleId} {
+      allow read, write: if request.auth != null && request.auth.token.admin == true;
+    }
+
     // Legacy permissive rule (expires); keep other collections working until migrated.
     match /{document=**} {
       allow read, write: if request.time < timestamp.date(2026, 3, 10);

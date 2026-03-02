@@ -31,6 +31,8 @@ export default {
     "driverMonitor.table.licensePlate": "ทะเบียนรถ",
     "driverMonitor.table.jobType": "ประเภทงาน",
     "driverMonitor.table.route": "เส้นทาง",
+    "driverMonitor.table.origin": "ต้นทาง",
+    "driverMonitor.table.destination": "ปลายทาง",
     "driverMonitor.table.sealCode": "รหัสซีล",
     "driverMonitor.table.status": "สถานะ",
     "driverMonitor.table.time": "เวลา",

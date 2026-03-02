@@ -66,6 +66,9 @@ export const COLLECTIONS = {
 
     /** System metadata (e.g. distances_last_calculated) */
     METADATA: "metadata",
+
+    /** Role-permission overrides (doc ID = roleId) */
+    PERMISSIONS_CONFIG: "permissions_config",
 } as const;
 
 /** Type for collection names */
