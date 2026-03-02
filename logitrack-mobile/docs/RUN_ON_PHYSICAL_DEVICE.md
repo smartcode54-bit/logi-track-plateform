@@ -221,6 +221,18 @@ flutter build apk --flavor prod --dart-define=FLAVOR=prod
 
 ---
 
+## Geocoding บนรูปถ่าย (Prod ไม่แสดงที่อยู่/รหัสไปรษณีย์)
+
+ถ้าตอนถ่ายรูป overlay แสดง Lat/Lng ได้แต่**ไม่มีที่อยู่หรือรหัสไปรษณีย์** (dev แสดงครบ prod ไม่แสดง):
+
+1. **แอปใช้ fallback Google Geocoding API** เมื่อ native geocoder ไม่ทำงาน — ต้องมี `GOOGLE_MAPS_API_KEY` ใน `.env.prod`
+2. **เปิด Geocoding API** ใน Google Cloud Console:
+   - โปรเจกต์เดียวกับ Firebase Prod → **APIs & Services** → **Library**
+   - ค้นหา **Geocoding API** → **Enable**
+3. ตรวจว่า API key ใน `.env.prod` ไม่ถูก restrict เฉพาะ API อื่น (หรือเพิ่ม Geocoding API ใน restriction)
+
+---
+
 ## First-time Android licenses (if needed)
 
 If `flutter doctor` reports missing Android licenses:

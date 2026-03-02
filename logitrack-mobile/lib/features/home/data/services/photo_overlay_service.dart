@@ -1,7 +1,10 @@
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show compute, debugPrint;
-import 'package:geocoding/geocoding.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_compass/flutter_compass.dart';
+import 'package:geocoding/geocoding.dart';
+import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
 
 /// Compass direction (short) from bearing degrees
@@ -22,12 +25,61 @@ const _weekdayShort = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const Duration _kGeocodeTimeout = Duration(seconds: 3);
 const Duration _kCompassTimeout = Duration(seconds: 2);
 
+/// Fallback: Google Geocoding API เมื่อ placemarkFromCoordinates ไม่ทำงาน (เช่น prod release)
+Future<String> _reverseGeocodeViaGoogleApi(double lat, double lng) async {
+  final apiKey = dotenv.env['GOOGLE_MAPS_API_KEY']?.trim();
+  if (apiKey == null || apiKey.isEmpty) return '';
+
+  final uri = Uri.parse(
+    'https://maps.googleapis.com/maps/api/geocode/json'
+    '?latlng=$lat,$lng'
+    '&key=$apiKey'
+    '&language=th',
+  );
+  try {
+    final resp = await http.get(uri).timeout(_kGeocodeTimeout);
+    if (resp.statusCode != 200) return '';
+
+    final data = jsonDecode(resp.body) as Map<String, dynamic>?;
+    final results = data?['results'] as List<dynamic>?;
+    if (results == null || results.isEmpty) return '';
+
+    final first = results.first as Map<String, dynamic>;
+    final formatted = first['formatted_address'] as String?;
+    if (formatted == null || formatted.isEmpty) return '';
+
+    // สร้างที่อยู่สั้น ๆ จาก address_components (รหัสไปรษณีย์ + จังหวัด + ตำบล) เพื่อให้ใกล้เคียง overlay เดิม
+    final components = first['address_components'] as List<dynamic>? ?? [];
+    final parts = <String>[];
+    for (final c in components) {
+      final comp = c as Map<String, dynamic>;
+      final types = comp['types'] as List<dynamic>? ?? [];
+      final long = comp['long_name'] as String?;
+      if (long == null || long.isEmpty) continue;
+      if (types.contains('postal_code')) {
+        parts.insert(0, long);
+      } else if (types.contains('administrative_area_level_1') ||
+          types.contains('administrative_area_level_2')) {
+        parts.add(long);
+      } else if (types.contains('sublocality') ||
+          types.contains('locality') ||
+          types.contains('administrative_area_level_3')) {
+        if (!parts.contains(long)) parts.add(long);
+      }
+    }
+    return parts.isNotEmpty ? parts.join(' ') : formatted;
+  } catch (e) {
+    debugPrint('Google Geocoding API fallback failed: $e');
+    return '';
+  }
+}
+
 /// Pre-fetch address and compass once (call before stamping multiple photos)
 Future<OverlayContext> fetchOverlayContext(double lat, double lng) async {
   String address = '';
   double? heading;
 
-  // Reverse geocode (จุดช้า: network call)
+  // Reverse geocode (จุดช้า: network call) — ใช้ native ก่อน, fallback Google API เมื่อ prod ไม่แสดง
   try {
     final placemarks = await placemarkFromCoordinates(
       lat,
@@ -55,7 +107,12 @@ Future<OverlayContext> fetchOverlayContext(double lat, double lng) async {
       address = parts.join(' ');
     }
   } catch (e) {
-    debugPrint('Reverse geocode failed: $e');
+    debugPrint('Reverse geocode (native) failed: $e');
+  }
+
+  // Fallback: Google Geocoding API เมื่อ native ไม่ได้ที่อยู่ (prod บางเครื่อง Geocoder.isPresent=false)
+  if (address.isEmpty) {
+    address = await _reverseGeocodeViaGoogleApi(lat, lng);
   }
 
   // Compass (จุดช้า: sensor; timeout สั้นเพื่อไม่หน่วง)
