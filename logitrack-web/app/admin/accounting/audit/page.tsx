@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { ClipboardCheck, Loader2, RefreshCw, Check, X, Fuel, Receipt, ChevronLeft, ChevronRight } from "lucide-react";
+import { ClipboardCheck, Loader2, RefreshCw, Check, X, Fuel, Receipt, ChevronLeft, ChevronRight, Save } from "lucide-react";
 import { format } from "date-fns";
 import {
     Dialog,
@@ -129,11 +129,14 @@ export default function AccountingAuditPage() {
         if (!detailRow || !editForm) return;
         setSubmitting(true);
         try {
+            const pricePerLiterRounded = editForm.pricePerLiter != null && !isNaN(Number(editForm.pricePerLiter))
+            ? Math.round(Number(editForm.pricePerLiter) * 100) / 100
+            : editForm.pricePerLiter;
             await updateVehicleExpense(detailRow.id, {
                 date: editForm.date,
                 amount: editForm.amount,
                 volumeLiters: editForm.volumeLiters,
-                pricePerLiter: editForm.pricePerLiter,
+                pricePerLiter: pricePerLiterRounded,
                 odometer: editForm.odometer,
                 stationTaxId: editForm.stationTaxId ?? "",
                 taxInvId: editForm.taxInvId ?? "",
@@ -160,7 +163,11 @@ export default function AccountingAuditPage() {
 
     useEffect(() => {
         if (detailRow) {
-            setEditForm({ ...detailRow });
+            const row = { ...detailRow };
+            if (row.pricePerLiter != null && typeof row.pricePerLiter === "number" && !isNaN(row.pricePerLiter)) {
+                row.pricePerLiter = Math.round(row.pricePerLiter * 100) / 100;
+            }
+            setEditForm(row);
             setImageIndex(0);
             setDetailMapKey((k) => k + 1);
         } else {
@@ -383,8 +390,13 @@ export default function AccountingAuditPage() {
                                                 <Input
                                                     type="date"
                                                     value={editForm.date ? format(editForm.date, "yyyy-MM-dd") : ""}
-                                                    readOnly
-                                                    className="h-9 bg-muted/50 cursor-not-allowed"
+                                                    onChange={(e) => {
+                                                        const v = e.target.value;
+                                                        setEditForm((prev) =>
+                                                            prev ? { ...prev, date: v ? new Date(v) : prev.date } : null
+                                                        );
+                                                    }}
+                                                    className="h-9"
                                                 />
                                                 <Label className="text-muted-foreground">{t("accounting.detail.driver")}</Label>
                                                 <Input value={editForm.driverName ?? editForm.driverId ?? "—"} readOnly className="h-9 bg-muted/50 cursor-not-allowed" />
@@ -404,25 +416,34 @@ export default function AccountingAuditPage() {
                                                     )}
                                                 </div>
                                                 <Label className="text-muted-foreground">{t("accounting.audit.tableStatus")}</Label>
-                                                <div className="flex items-center">
-                                                    <Badge
-                                                        variant={
-                                                            editForm.status === "APPROVED"
-                                                                ? "default"
-                                                                : editForm.status === "REJECTED"
-                                                                  ? "destructive"
-                                                                  : "secondary"
-                                                        }
-                                                    >
-                                                        {t(statusLabelKey[editForm.status as VehicleExpenseStatus])}
-                                                    </Badge>
-                                                </div>
+                                                <Select
+                                                    value={editForm.status}
+                                                    onValueChange={(v) =>
+                                                        setEditForm((prev) =>
+                                                            prev ? { ...prev, status: v as VehicleExpenseStatus } : null
+                                                        )
+                                                    }
+                                                >
+                                                    <SelectTrigger className="h-9">
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="PENDING">{t("accounting.audit.statusPending")}</SelectItem>
+                                                        <SelectItem value="APPROVED">{t("accounting.audit.statusApproved")}</SelectItem>
+                                                        <SelectItem value="REJECTED">{t("accounting.audit.statusRejected")}</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
                                                 <Label className="text-muted-foreground">{t("accounting.detail.amount")}</Label>
                                                 <Input
                                                     type="number"
                                                     value={editForm.amount ?? ""}
-                                                    readOnly
-                                                    className="h-9 bg-muted/50 cursor-not-allowed"
+                                                    onChange={(e) => {
+                                                        const v = e.target.value;
+                                                        setEditForm((prev) =>
+                                                            prev ? { ...prev, amount: v === "" ? prev.amount : Number(v) } : null
+                                                        );
+                                                    }}
+                                                    className="h-9"
                                                 />
                                             </div>
                                             {detailRow.type === "fuel" && (
@@ -430,70 +451,132 @@ export default function AccountingAuditPage() {
                                                     <Label className="text-muted-foreground">{t("accounting.detail.volume")}</Label>
                                                     <Input
                                                         type="number"
+                                                        step="0.01"
                                                         value={editForm.volumeLiters ?? ""}
-                                                        readOnly
-                                                        className="h-9 bg-muted/50 cursor-not-allowed"
+                                                        onChange={(e) => {
+                                                            const v = e.target.value;
+                                                            setEditForm((prev) =>
+                                                                prev ? { ...prev, volumeLiters: v === "" ? undefined : Number(v) } : null
+                                                            );
+                                                        }}
+                                                        className="h-9"
                                                     />
                                                     <Label className="text-muted-foreground">{t("accounting.detail.pricePerLiter")}</Label>
                                                     <Input
                                                         type="number"
-                                                        value={editForm.pricePerLiter ?? ""}
-                                                        readOnly
-                                                        className="h-9 bg-muted/50 cursor-not-allowed"
+                                                        step="0.01"
+                                                        value={
+                                                            editForm.pricePerLiter != null && typeof editForm.pricePerLiter === "number" && !isNaN(editForm.pricePerLiter)
+                                                                ? editForm.pricePerLiter.toFixed(2)
+                                                                : ""
+                                                        }
+                                                        onChange={(e) => {
+                                                            const v = e.target.value;
+                                                            const n = v === "" ? undefined : parseFloat(v);
+                                                            setEditForm((prev) =>
+                                                                prev ? { ...prev, pricePerLiter: n } : null
+                                                            );
+                                                        }}
+                                                        className="h-9"
                                                     />
                                                     <Label className="text-muted-foreground">{t("accounting.detail.odometer")}</Label>
                                                     <Input
                                                         type="number"
                                                         value={editForm.odometer ?? ""}
-                                                        readOnly
-                                                        className="h-9 bg-muted/50 cursor-not-allowed"
+                                                        onChange={(e) => {
+                                                            const v = e.target.value;
+                                                            setEditForm((prev) =>
+                                                                prev ? { ...prev, odometer: v === "" ? undefined : Number(v) } : null
+                                                            );
+                                                        }}
+                                                        className="h-9"
                                                     />
                                                     <Label className="text-muted-foreground">{t("accounting.detail.stationTaxId")}</Label>
                                                     <Input
                                                         value={editForm.stationTaxId ?? ""}
-                                                        readOnly
-                                                        className="h-9 bg-muted/50 cursor-not-allowed"
+                                                        onChange={(e) =>
+                                                            setEditForm((prev) =>
+                                                                prev ? { ...prev, stationTaxId: e.target.value } : null
+                                                            )
+                                                        }
+                                                        className="h-9"
                                                     />
                                                     <Label className="text-muted-foreground">{t("accounting.detail.taxInvId")}</Label>
                                                     <Input
                                                         value={editForm.taxInvId ?? ""}
-                                                        readOnly
-                                                        className="h-9 bg-muted/50 cursor-not-allowed"
+                                                        onChange={(e) =>
+                                                            setEditForm((prev) =>
+                                                                prev ? { ...prev, taxInvId: e.target.value } : null
+                                                            )
+                                                        }
+                                                        className="h-9"
                                                     />
                                                 </div>
                                             )}
                                             {detailRow.type === "other" && (
                                                 <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm pt-2 border-t border-border">
                                                     <Label className="text-muted-foreground">{t("accounting.detail.category")}</Label>
-                                                    <span className="h-9 flex items-center text-sm">
-                                                        {editForm.category ? t(categoryKeys[editForm.category] ?? editForm.category) : "—"}
-                                                    </span>
+                                                    <Select
+                                                        value={editForm.category ?? ""}
+                                                        onValueChange={(v) =>
+                                                            setEditForm((prev) =>
+                                                                prev ? { ...prev, category: v || undefined } : null
+                                                            )
+                                                        }
+                                                    >
+                                                        <SelectTrigger className="h-9">
+                                                            <SelectValue placeholder={t("accounting.audit.typeOther")} />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {Object.entries(categoryKeys).map(([key, labelKey]) => (
+                                                                <SelectItem key={key} value={key}>
+                                                                    {t(labelKey)}
+                                                                </SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                    </Select>
                                                     <Label className="text-muted-foreground col-span-2">{t("accounting.detail.description")}</Label>
                                                     <Input
-                                                        className="col-span-2 h-9 bg-muted/50 cursor-not-allowed"
+                                                        className="col-span-2 h-9"
                                                         value={editForm.description ?? ""}
-                                                        readOnly
+                                                        onChange={(e) =>
+                                                            setEditForm((prev) =>
+                                                                prev ? { ...prev, description: e.target.value } : null
+                                                            )
+                                                        }
                                                     />
                                                 </div>
                                             )}
                                             <div className="space-y-2 pt-2 border-t border-border">
                                                 <Label className="text-muted-foreground">{t("accounting.detail.note")}</Label>
                                                 <Input
-                                                    className="h-9 bg-muted/50 cursor-not-allowed"
+                                                    className="h-9"
                                                     value={editForm.note ?? ""}
-                                                    readOnly
+                                                    onChange={(e) =>
+                                                        setEditForm((prev) =>
+                                                            prev ? { ...prev, note: e.target.value } : null
+                                                        )
+                                                    }
                                                 />
                                                 <Label className="text-muted-foreground">{t("accounting.audit.adminNote")}</Label>
                                                 <Input
-                                                    className="min-h-[60px] bg-muted/50 cursor-not-allowed"
+                                                    className="min-h-[60px]"
                                                     value={editForm.adminNote ?? ""}
-                                                    readOnly
+                                                    onChange={(e) =>
+                                                        setEditForm((prev) =>
+                                                            prev ? { ...prev, adminNote: e.target.value } : null
+                                                        )
+                                                    }
                                                 />
                                                 <Label className="text-muted-foreground">{t("accounting.detail.latLng")}</Label>
                                                 <Input
-                                                    className="h-9 font-mono bg-muted/50 cursor-not-allowed"
+                                                    className="h-9 font-mono"
                                                     value={editForm.refillLocation ?? ""}
-                                                    readOnly
+                                                    onChange={(e) =>
+                                                        setEditForm((prev) =>
+                                                            prev ? { ...prev, refillLocation: e.target.value } : null
+                                                        )
+                                                    }
                                                 />
                                             </div>
                                             {(detailRow.createdAt || detailRow.updatedAt) && (
@@ -516,6 +599,16 @@ export default function AccountingAuditPage() {
                                     )}
                                 </div>
                                 <DialogFooter className="px-6 py-4 border-t border-border shrink-0 flex-wrap gap-2">
+                                    <Button
+                                        variant="secondary"
+                                        className="gap-1"
+                                        onClick={handleSaveEdit}
+                                        disabled={submitting || !editForm}
+                                    >
+                                        {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                                        <Save className="h-3.5 w-3.5" />
+                                        {t("accounting.audit.save")}
+                                    </Button>
                                     {detailRow?.status === "PENDING" && (
                                         <>
                                             <Button
