@@ -5,6 +5,8 @@ import { ActivityChart } from "./components/ActivityChart";
 import { RecentUpdates } from "./components/RecentUpdates";
 import { ChatStatusWidget } from "./components/ChatStatusWidget";
 import { ComplianceSummary } from "./components/ComplianceSummary";
+import { CurrentVehiclePosition } from "./components/CurrentVehiclePosition";
+import { DashboardVehicleMap } from "./components/DashboardVehicleMap";
 
 export default function AdminDashboardPage() {
   return (
@@ -31,13 +33,15 @@ export default function AdminDashboardPage() {
 
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
-        {/* Chart Section - Takes up 2 columns */}
-        <div className="lg:col-span-2 h-full">
+        {/* Chart + Map - Takes up 2 columns */}
+        <div className="lg:col-span-2 h-full space-y-6">
           <ActivityChart />
+          <DashboardVehicleMap />
         </div>
 
         {/* Recent Updates Section - Takes up 1 column */}
         <div className="lg:col-span-1 h-full space-y-6">
+          <CurrentVehiclePosition />
           <ChatStatusWidget />
           <RecentUpdates />
           <ComplianceSummary />

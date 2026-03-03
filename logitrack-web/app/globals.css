@@ -146,3 +146,9 @@
 .leaflet-popup.sources-map-selected-popup .leaflet-popup-content {
   margin: 4px 8px;
 }
+
+/* Dashboard vehicle map: custom truck marker (no default Leaflet icon) */
+.leaflet-marker-icon.dashboard-vehicle-marker {
+  background: none !important;
+  border: none !important;
+}

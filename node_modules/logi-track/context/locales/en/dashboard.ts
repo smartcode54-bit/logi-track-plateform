@@ -15,4 +15,18 @@ export default {
     "dashboard.manageTrucksDesc": "View and manage truck fleet",
     "dashboard.analytics": "Analytics",
     "dashboard.analyticsDesc": "View delivery statistics and reports",
+
+    // Current vehicle position (dashboard widget)
+    "dashboard.vehiclePosition.title": "Current vehicle position",
+    "dashboard.vehiclePosition.viewAll": "View all",
+    "dashboard.vehiclePosition.noVehicles": "No vehicles with position data.",
+    "dashboard.vehiclePosition.loadError": "Unable to load vehicle positions.",
+    "dashboard.vehiclePosition.retry": "Retry",
+    "dashboard.vehiclePosition.openMap": "Map",
+    "dashboard.vehiclePosition.statusDeparture": "Departure",
+    "dashboard.vehiclePosition.statusInTransit": "In transit",
+
+    // Vehicle map (lat/long map with truck icons)
+    "dashboard.vehicleMap.title": "Vehicle position on map",
+    "dashboard.vehicleMap.loading": "Loading...",
 };
