@@ -63,6 +63,7 @@ export const DEFAULT_ROLE_CAPABILITIES: Record<
     CAPABILITIES.operations_edit_trip_details,
     CAPABILITIES.accounting_view_fuel,
     CAPABILITIES.accounting_view_other,
+    CAPABILITIES.accounting_audit_expense,
     CAPABILITIES.reporting_view_analytics,
     CAPABILITIES.packages_view,
     CAPABILITIES.waitlist_view,
@@ -82,6 +83,7 @@ export const DEFAULT_ROLE_CAPABILITIES: Record<
     CAPABILITIES.operations_edit_trip_details,
     CAPABILITIES.accounting_view_fuel,
     CAPABILITIES.accounting_view_other,
+    CAPABILITIES.accounting_audit_expense,
     CAPABILITIES.packages_view,
   ],
   operator: [

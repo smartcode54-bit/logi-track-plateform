@@ -34,6 +34,7 @@ export default {
     "nav.accounting": "บัญชี/การเงิน",
     "nav.fuel": "น้ำมัน",
     "nav.other": "อื่นๆ",
+    "nav.auditExpense": "ตรวจสอบค่าใช้จ่าย",
     "nav.operations": "ปฏิบัติการ",
     "nav.firstMileTasks": "งาน First Mile",
     "nav.sourceManagement": "จัดการจุดรับงาน",

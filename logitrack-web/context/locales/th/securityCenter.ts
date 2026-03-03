@@ -215,6 +215,8 @@ export default {
     "securityCenter.capabilities.accounting_edit_fuel.description": "แก้ไขบัญชีน้ำมัน",
     "securityCenter.capabilities.accounting_view_other.title": "ดูรายจ่ายอื่น",
     "securityCenter.capabilities.accounting_view_other.description": "ดูบันทึกรายจ่ายอื่นๆ",
+    "securityCenter.capabilities.accounting_audit_expense.title": "ตรวจสอบค่าใช้จ่ายรถ",
+    "securityCenter.capabilities.accounting_audit_expense.description": "ตรวจสอบ อนุมัติ หรือปฏิเสธรายการที่คนขับส่ง",
     "securityCenter.capabilities.accounting_edit_other.title": "แก้ไขรายจ่ายอื่น",
     "securityCenter.capabilities.accounting_edit_other.description": "แก้ไขบัญชีอื่น",
 };

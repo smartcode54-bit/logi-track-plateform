@@ -10,6 +10,8 @@ import '../../../../main.dart' show pendingChatIdFromNotification, pendingBroadc
 import '../../../../core/route_observer.dart';
 import '../../../../core/services/notification_service.dart';
 import '../../../chat/data/repositories/chat_repository.dart';
+import '../../data/repositories/driver_repository.dart';
+import '../../data/repositories/task_repository.dart';
 import '../../data/repositories/trip_records_repository.dart';
 import 'home_page.dart';
 import '../../../loading_phase/presentation/pages/loading_phase_page.dart';
@@ -36,6 +38,11 @@ class _MainLayoutState extends State<MainLayout> with RouteAware {
   /// สรุปเที่ยวที่เพิ่ง save จาก Loading (แสดงบน Delivery)
   SavedTripSummary? _savedTripSummary;
 
+  /// driverId สำหรับเช็คสถานะเช็คอิน (Check in → Loading → Deliver)
+  String? _driverId;
+  /// มีงานที่เช็คอินแล้วหรือไม่ — ต้องเช็คอินก่อนถึงจะเข้า Loading ได้
+  bool _hasCheckedIn = false;
+
   /// จำนวนแชทที่ข้อความล่าสุดมาจาก Admin (lastMessageBy != ฉัน) — reset ทุกครั้งจาก snapshot
   int _chatUnreadCount = 0;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _chatUnreadSubscription;
@@ -53,6 +60,7 @@ class _MainLayoutState extends State<MainLayout> with RouteAware {
     if (_savedTripSummary == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _loadPendingDeliverySummary());
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadDriverAndCheckInStatus());
     _setupChatFcm();
     _setupChatUnreadBadge();
     onChatRoomExited = _refreshChatUnreadFromServer;
@@ -222,6 +230,25 @@ class _MainLayoutState extends State<MainLayout> with RouteAware {
     } catch (_) {}
   }
 
+  /// โหลด driverId และสถานะว่ามีงานเช็คอินแล้วหรือไม่ (ขั้นตอน: เช็คอิน → Loading → ส่งของ)
+  Future<void> _loadDriverAndCheckInStatus() async {
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null || !mounted) return;
+      final driver = await DriverRepository().getCurrentDriver(uid);
+      if (!mounted) return;
+      final driverId = driver?['id'] as String?;
+      if (driverId == null || driverId.isEmpty) {
+        setState(() => _driverId = null);
+        setState(() => _hasCheckedIn = false);
+        return;
+      }
+      setState(() => _driverId = driverId);
+      final hasCheckedIn = await hasCheckedInTask(driverId);
+      if (mounted) setState(() => _hasCheckedIn = hasCheckedIn);
+    } catch (_) {}
+  }
+
   @override
   void didUpdateWidget(MainLayout oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -244,8 +271,8 @@ class _MainLayoutState extends State<MainLayout> with RouteAware {
   /// งานที่รับยังไม่ส่ง → ต้องส่งก่อน จึงจะกด Pick up รับงานใหม่ได้
   bool get _hasActiveDelivery => _savedTripSummary != null;
 
-  /// Disable Pick up เมื่อมีงานที่รับแล้วยังไม่ส่ง
-  bool get _isPickupDisabled => _hasActiveDelivery;
+  /// Disable Pick up (Loading) เมื่อ: มีงานที่รับแล้วยังไม่ส่ง หรือ ยังไม่เช็คอิน (ขั้นตอน: เช็คอิน → Loading → ส่งของ)
+  bool get _isPickupDisabled => _hasActiveDelivery || !_hasCheckedIn;
 
   /// Disable Delivery เมื่อยังไม่มีการรับงาน
   bool get _isDeliveryDisabled => !_hasActiveDelivery;
@@ -264,7 +291,7 @@ class _MainLayoutState extends State<MainLayout> with RouteAware {
     DeliveryPhasePage(savedTripSummary: _savedTripSummary),
   ];
 
-  void _onItemTapped(int index) {
+  Future<void> _onItemTapped(int index) async {
     if (index == 3) {
       Navigator.of(context).pushNamed('/vehicle-expense');
       return;
@@ -273,11 +300,24 @@ class _MainLayoutState extends State<MainLayout> with RouteAware {
       Navigator.of(context).pushNamed('/chat');
       return;
     }
-    if (index == 1 && _isPickupDisabled) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('nav_pickup_disabled_hint'.tr())),
-      );
-      return;
+    if (index == 0) {
+      _loadDriverAndCheckInStatus(); // รีเฟรชสถานะเช็คอินเมื่อกลับมาแท็บหน้าแรก
+    }
+    if (index == 1) {
+      await _loadDriverAndCheckInStatus(); // ดึงสถานะเช็คอินล่าสุดก่อนเช็ค
+      if (!mounted) return;
+      if (_isPickupDisabled) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _hasActiveDelivery
+                  ? 'nav_pickup_disabled_hint'.tr()
+                  : 'nav_loading_require_checkin'.tr(),
+            ),
+          ),
+        );
+        return;
+      }
     }
     if (index == 2 && _isDeliveryDisabled) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -285,7 +325,7 @@ class _MainLayoutState extends State<MainLayout> with RouteAware {
       );
       return;
     }
-    setState(() => _currentIndex = index);
+    if (mounted) setState(() => _currentIndex = index);
     if (index == 2 && _savedTripSummary != null) {
       _validatePendingDeliveryAndClearIfDelivered();
     }

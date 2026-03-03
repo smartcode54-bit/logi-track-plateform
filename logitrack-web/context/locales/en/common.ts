@@ -34,6 +34,7 @@ export default {
     "nav.accounting": "Accounting",
     "nav.fuel": "Fuel",
     "nav.other": "Other",
+    "nav.auditExpense": "Audit expense",
     "nav.operations": "Operations",
     "nav.firstMileTasks": "First Mile Tasks",
     "nav.sourceManagement": "Pickup Location Management",

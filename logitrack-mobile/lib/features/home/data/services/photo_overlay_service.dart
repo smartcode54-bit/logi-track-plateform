@@ -25,10 +25,16 @@ const _weekdayShort = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const Duration _kGeocodeTimeout = Duration(seconds: 3);
 const Duration _kCompassTimeout = Duration(seconds: 2);
 
-/// Fallback: Google Geocoding API เมื่อ placemarkFromCoordinates ไม่ทำงาน (เช่น prod release)
+/// Fallback: Google Geocoding API เมื่อ placemarkFromCoordinates ไม่ทำงาน (เช่น prod release).
+/// โปรดใส่ GOOGLE_MAPS_API_KEY ใน .env.prod ด้วย เพื่อให้ overlay แสดงที่อ่านได้ (ไม่ใช่แค่ Lat/Lng).
 Future<String> _reverseGeocodeViaGoogleApi(double lat, double lng) async {
   final apiKey = dotenv.env['GOOGLE_MAPS_API_KEY']?.trim();
-  if (apiKey == null || apiKey.isEmpty) return '';
+  if (apiKey == null || apiKey.isEmpty) {
+    debugPrint(
+      'Photo overlay: GOOGLE_MAPS_API_KEY ไม่มีใน .env — ใส่ใน .env.prod เพื่อให้ prod แสดงที่อยู่บนรูป',
+    );
+    return '';
+  }
 
   final uri = Uri.parse(
     'https://maps.googleapis.com/maps/api/geocode/json'
@@ -110,9 +116,19 @@ Future<OverlayContext> fetchOverlayContext(double lat, double lng) async {
     debugPrint('Reverse geocode (native) failed: $e');
   }
 
-  // Fallback: Google Geocoding API เมื่อ native ไม่ได้ที่อยู่ (prod บางเครื่อง Geocoder.isPresent=false)
-  if (address.isEmpty) {
-    address = await _reverseGeocodeViaGoogleApi(lat, lng);
+  // Fallback: Google Geocoding API เมื่อ native ไม่ได้ที่อยู่ "จริง ๆ"
+  // - address ว่างเลย
+  // - หรือได้แค่เลขรหัสไปรษณีย์ล้วน ๆ (เช่น "13170") ซึ่งอ่านยากเกินไป
+  final compact = address.trim().replaceAll(RegExp(r'\s+'), '');
+  final looksLikeJustPostal = RegExp(r'^\d{4,6}$').hasMatch(compact);
+  if (address.isEmpty || looksLikeJustPostal) {
+    final googleAddress = await _reverseGeocodeViaGoogleApi(lat, lng);
+    if (googleAddress.isNotEmpty) {
+      // ถ้า native ให้แค่รหัสไปรษณีย์ ให้แสดง "13170 จังหวัด/อำเภอ/ฯลฯ"
+      address = looksLikeJustPostal
+          ? '${address.trim()} $googleAddress'.trim()
+          : googleAddress;
+    }
   }
 
   // Compass (จุดช้า: sensor; timeout สั้นเพื่อไม่หน่วง)

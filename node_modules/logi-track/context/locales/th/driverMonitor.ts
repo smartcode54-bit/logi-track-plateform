@@ -2,6 +2,7 @@ export default {
     // Page Header
     "driverMonitor.title": "ติดตามงานคนขับ",
     "driverMonitor.subtitle": "ติดตามสถานะเที่ยวงานและความคืบหน้าของคนขับแบบเรียลไทม์",
+    "driverMonitor.refresh": "รีเฟรช",
 
     // Stats Cards
     "driverMonitor.stats.totalTrips": "เที่ยวงานทั้งหมด",

@@ -44,6 +44,7 @@ export const CAPABILITIES = {
   // Accounting
   accounting_view_fuel: "accounting:view_fuel",
   accounting_view_other: "accounting:view_other",
+  accounting_audit_expense: "accounting:audit_expense",
 
   // Reporting
   reporting_view_analytics: "reporting:view_analytics",
@@ -195,6 +196,11 @@ export const CAPABILITY_META: Record<
     description: "Other expenses",
     module: "Accounting",
   },
+  [CAPABILITIES.accounting_audit_expense]: {
+    title: "Audit Vehicle Expense",
+    description: "Review and approve/reject vehicle expenses",
+    module: "Accounting",
+  },
   [CAPABILITIES.reporting_view_analytics]: {
     title: "View Analytics",
     description: "Analytics",
@@ -242,6 +248,7 @@ export const ROUTE_CAPABILITIES: Record<string, CapabilityId> = {
   "/admin/security-center/status": CAPABILITIES.security_view_status,
   "/admin/accounting/fuel": CAPABILITIES.accounting_view_fuel,
   "/admin/accounting/other": CAPABILITIES.accounting_view_other,
+  "/admin/accounting/audit": CAPABILITIES.accounting_audit_expense,
   "/admin/analytics": CAPABILITIES.reporting_view_analytics,
   "/admin/waitlist": CAPABILITIES.waitlist_view,
   "/admin/packages": CAPABILITIES.packages_view,

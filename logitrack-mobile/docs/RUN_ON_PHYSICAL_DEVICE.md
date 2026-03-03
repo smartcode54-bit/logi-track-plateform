@@ -97,6 +97,7 @@ flutter run --release
 | Build fails (Android) | Run `flutter doctor` and fix any Android toolchain / license issues |
 | App installs but crashes | Check log with `flutter run` and read the stack trace in the terminal |
 | **Google Sign-In: "Developer console is not set up" (28444)** | See [Google Sign-In setup](#google-sign-in-setup) below |
+| **Overlay บนรูปมีแค่ Lat/Lng ไม่มีที่อยู่ (prod)** | ใส่ `GOOGLE_MAPS_API_KEY` ใน `.env.prod` และเปิด Geocoding API — ดู [Geocoding บนรูปถ่าย](#geocoding-บนรูปถ่าย-prod-ไม่แสดงที่อยู่รหัสไปรษณีย์) ด้านล่าง |
 
 ---
 

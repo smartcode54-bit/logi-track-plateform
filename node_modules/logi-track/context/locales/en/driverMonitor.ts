@@ -2,6 +2,7 @@ export default {
     // Page Header
     "driverMonitor.title": "Driver Job Monitor",
     "driverMonitor.subtitle": "Real-time monitoring of driver trips and task progress",
+    "driverMonitor.refresh": "Refresh",
 
     // Stats Cards
     "driverMonitor.stats.totalTrips": "Total Trips",

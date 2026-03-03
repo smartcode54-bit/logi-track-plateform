@@ -54,7 +54,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-import { MoreHorizontal, Pencil } from "lucide-react";
+import { MoreHorizontal, Pencil, RefreshCw } from "lucide-react";
 import { EditTripDetailsDialog } from "@/app/admin/driver-monitor/EditTripDetailsDialog";
 import type { TripRecord } from "@/validate/tripRecordSchema";
 
@@ -236,6 +236,9 @@ export default function FirstMilePage() {
                     </p>
                 </div>
                 <div className="flex gap-3">
+                    <Button variant="outline" size="icon" onClick={() => fetchHubs()} aria-label={t("firstMile.sources.refresh")}>
+                        <RefreshCw className="h-4 w-4" />
+                    </Button>
                     <div className="flex gap-3">
                         <FirstMileImportDialog onSuccess={() => { }} />
                         <Button onClick={handleCreate}>

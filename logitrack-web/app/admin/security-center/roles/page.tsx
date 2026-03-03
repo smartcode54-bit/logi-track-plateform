@@ -174,6 +174,7 @@ const FINANCIALS_CAPABILITIES: { id: string; title: string; description: string;
     { id: "accounting_edit_fuel", title: "Edit Fuel Records", description: "Edit fuel accounting", defaultPermissions: { ADMIN: true, MANAGER: true, OPERATION_STAFF: false, OPERATOR: false, DRIVER: false, PARTNER: false, CUSTOMER: false } },
     { id: "accounting_view_other", title: "View Other Expenses", description: "View other expense records", defaultPermissions: { ADMIN: true, MANAGER: true, OPERATION_STAFF: true, OPERATOR: false, DRIVER: false, PARTNER: false, CUSTOMER: false } },
     { id: "accounting_edit_other", title: "Edit Other Expenses", description: "Edit other accounting", defaultPermissions: { ADMIN: true, MANAGER: true, OPERATION_STAFF: false, OPERATOR: false, DRIVER: false, PARTNER: false, CUSTOMER: false } },
+    { id: "accounting_audit_expense", title: "Audit Vehicle Expense", description: "Review and approve/reject vehicle expenses", defaultPermissions: { ADMIN: true, MANAGER: true, OPERATION_STAFF: true, OPERATOR: false, DRIVER: false, PARTNER: false, CUSTOMER: false } },
 ];
 
 function getDefaultPermissions(): Record<string, CapabilityPermission> {

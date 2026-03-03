@@ -1,10 +1,12 @@
 "use client";
 
 import { db } from "@/firebase/client";
-import { collection, getDocs, query, orderBy } from "firebase/firestore";
+import { collection, getDocs, query, orderBy, doc, updateDoc, serverTimestamp, Timestamp } from "firebase/firestore";
 import { COLLECTIONS } from "@/lib/collections";
 
 export type VehicleExpenseType = "fuel" | "other";
+
+export type VehicleExpenseStatus = "PENDING" | "APPROVED" | "REJECTED";
 
 export interface VehicleExpenseRow {
     id: string;
@@ -18,10 +20,16 @@ export interface VehicleExpenseRow {
     volumeLiters?: number;
     pricePerLiter?: number;
     odometer?: number;
+    stationTaxId?: string;
+    taxInvId?: string;
+    refillLocation?: string;
     note?: string;
     category?: string;
     description?: string;
+    status: VehicleExpenseStatus;
+    adminNote?: string;
     createdAt?: Date;
+    updatedAt?: Date;
     receiptPhotoUrl?: string;
     odometerPhotoUrl?: string;
 }
@@ -97,10 +105,16 @@ export async function getVehicleExpensesByType(type: VehicleExpenseType): Promis
                 volumeLiters: d.volumeLiters != null ? Number(d.volumeLiters) : undefined,
                 pricePerLiter: d.pricePerLiter != null ? Number(d.pricePerLiter) : undefined,
                 odometer: d.odometer != null ? Number(d.odometer) : undefined,
+                stationTaxId: (d.stationTaxId as string) ?? undefined,
+                taxInvId: (d.taxInvId as string) ?? undefined,
+                refillLocation: (d.refillLocation as string) ?? undefined,
                 note: d.note ?? undefined,
                 category: d.category ?? undefined,
                 description: d.description ?? undefined,
+                status: ((d.status as string) ?? "PENDING") as VehicleExpenseStatus,
+                adminNote: (d.adminNote as string) ?? undefined,
                 createdAt: parseDate(d.createdAt),
+                updatedAt: parseDate(d.updatedAt),
                 receiptPhotoUrl: (d.receiptPhotoUrl as string) ?? undefined,
                 odometerPhotoUrl: (d.odometerPhotoUrl as string) ?? undefined,
             };
@@ -140,4 +154,71 @@ export async function getTrucksForFilter(): Promise<TruckOption[]> {
         console.error("Error fetching trucks:", err);
         return [];
     }
+}
+
+/** ดึงรายการ vehicle expenses ทั้ง fuel และ other สำหรับหน้าตรวจสอบ (filter ตาม status ได้) */
+export async function getVehicleExpensesForAudit(statusFilter?: VehicleExpenseStatus | "all"): Promise<VehicleExpenseRow[]> {
+    try {
+        const fuelRows = await getVehicleExpensesByType("fuel");
+        const otherRows = await getVehicleExpensesByType("other");
+        const all = [...fuelRows, ...otherRows].sort((a, b) => (b.date.getTime()) - (a.date.getTime()));
+        if (statusFilter && statusFilter !== "all") {
+            return all.filter((r) => r.status === statusFilter);
+        }
+        return all;
+    } catch (err) {
+        console.error("Error fetching vehicle expenses for audit:", err);
+        return [];
+    }
+}
+
+/** อัปเดตสถานะรายการค่าใช้จ่าย (อนุมัติ/ปฏิเสธ) */
+export async function updateVehicleExpenseStatus(
+    id: string,
+    status: VehicleExpenseStatus,
+    adminNote?: string
+): Promise<void> {
+    const ref = doc(db, COLLECTIONS.VEHICLE_EXPENSES, id);
+    await updateDoc(ref, {
+        status,
+        ...(adminNote != null && adminNote.trim() !== "" ? { adminNote: adminNote.trim() } : {}),
+        updatedAt: serverTimestamp(),
+    });
+}
+
+/** อัปเดตรายการค่าใช้จ่าย (ทุก field ที่แก้ได้) */
+export async function updateVehicleExpense(
+    id: string,
+    data: Partial<{
+        date: Date;
+        amount: number;
+        volumeLiters: number;
+        pricePerLiter: number;
+        odometer: number;
+        stationTaxId: string;
+        taxInvId: string;
+        refillLocation: string;
+        note: string;
+        category: string;
+        description: string;
+        status: VehicleExpenseStatus;
+        adminNote: string;
+    }>
+): Promise<void> {
+    const ref = doc(db, COLLECTIONS.VEHICLE_EXPENSES, id);
+    const payload: Record<string, unknown> = { updatedAt: serverTimestamp() };
+    if (data.date != null) payload.date = Timestamp.fromDate(data.date instanceof Date ? data.date : new Date(data.date));
+    if (data.amount != null) payload.amount = Number(data.amount);
+    if (data.volumeLiters != null) payload.volumeLiters = Number(data.volumeLiters);
+    if (data.pricePerLiter != null) payload.pricePerLiter = Number(data.pricePerLiter);
+    if (data.odometer != null) payload.odometer = Number(data.odometer);
+    if (data.stationTaxId !== undefined) payload.stationTaxId = data.stationTaxId;
+    if (data.taxInvId !== undefined) payload.taxInvId = data.taxInvId;
+    if (data.refillLocation !== undefined) payload.refillLocation = data.refillLocation;
+    if (data.note !== undefined) payload.note = data.note;
+    if (data.category !== undefined) payload.category = data.category;
+    if (data.description !== undefined) payload.description = data.description;
+    if (data.status != null) payload.status = data.status;
+    if (data.adminNote !== undefined) payload.adminNote = data.adminNote;
+    await updateDoc(ref, payload);
 }

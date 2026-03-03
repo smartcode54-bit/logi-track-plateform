@@ -380,8 +380,10 @@ class _SectionCard extends StatelessWidget {
                   final date = t.createdAt != null
                       ? DateFormat('dd/MM/yy HH:mm').format(t.createdAt!)
                       : '–';
-                  final route =
-                      '${getSourceDisplayName(t.origin)} → ${getSourceDisplayName(t.destination)}';
+                  final originLabel = 'checkin_origin'.tr();
+                  final destLabel = 'trip_history_dest'.tr();
+                  final originName = getSourceDisplayName(t.origin);
+                  final destName = getSourceDisplayName(t.destination);
                   final tripId =
                       t.spxTripId ??
                       (t.id != null && t.id!.length > 12
@@ -397,9 +399,9 @@ class _SectionCard extends StatelessWidget {
                       ),
                     ),
                     subtitle: Text(
-                      '$date\n$route',
+                      '$date\n$originLabel : $originName\n$destLabel : $destName',
                       style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                      maxLines: 2,
+                      maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                     ),
                     trailing: _StatusChip(status: t.status, trip: t),

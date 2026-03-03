@@ -17,6 +17,7 @@ import {
     ExternalLink,
     ClipboardCheck,
     Pencil,
+    RefreshCw,
 } from "lucide-react";
 import { collection, query, orderBy, onSnapshot, limit, getDocs } from "firebase/firestore";
 import { db } from "@/firebase/client";
@@ -187,17 +188,20 @@ export default function DriverMonitorPage() {
     }, []);
 
     // ─── Fetch hubs for origin/destination code → name ─────
-    useEffect(() => {
-        getDocs(collection(db, COLLECTIONS.HUBS)).then((snap) => {
-            const list = snap.docs.map((d) => {
-                const data = d.data();
-                return {
-                    source_id: (data.source_id ?? data.hubId ?? data.hubCode ?? "").toString(),
-                    source_name_en: (data.source_name_en ?? data.hubName ?? "").toString() || undefined,
-                };
-            });
-            setHubs(list);
+    const fetchHubs = async () => {
+        const snap = await getDocs(collection(db, COLLECTIONS.HUBS));
+        const list = snap.docs.map((d) => {
+            const data = d.data();
+            return {
+                source_id: (data.source_id ?? data.hubId ?? data.hubCode ?? "").toString(),
+                source_name_en: (data.source_name_en ?? data.hubName ?? "").toString() || undefined,
+            };
         });
+        setHubs(list);
+    };
+
+    useEffect(() => {
+        fetchHubs();
     }, []);
 
     // Lookup driver by authId (trip.driverId) or by document id
@@ -385,6 +389,9 @@ export default function DriverMonitorPage() {
                         {t("driverMonitor.subtitle")}
                     </p>
                 </div>
+                <Button variant="outline" size="icon" onClick={() => fetchHubs()} aria-label={t("driverMonitor.refresh")}>
+                    <RefreshCw className="h-4 w-4" />
+                </Button>
             </div>
 
             {/* Stats Cards — 5 equal cards: Total, Loading, Check in, In Transit, Delivered */}

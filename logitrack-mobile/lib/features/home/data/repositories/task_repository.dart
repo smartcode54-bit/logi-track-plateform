@@ -32,6 +32,23 @@ Stream<List<Map<String, dynamic>>> streamTasksForDriver(String driverId) {
       });
 }
 
+/// Returns true if the driver has at least one task with status "Checked in".
+/// Used to enforce step order: Check in → Loading → Deliver + incident.
+Future<bool> hasCheckedInTask(String driverId) async {
+  if (driverId.isEmpty) return false;
+  try {
+    final snapshot = await FirebaseFirestore.instance
+        .collection('tasks')
+        .where('driverId', isEqualTo: driverId)
+        .where('status', isEqualTo: 'Checked in')
+        .limit(1)
+        .get();
+    return snapshot.docs.isNotEmpty;
+  } catch (_) {
+    return false;
+  }
+}
+
 void _convertTimestamp(Map<String, dynamic> data, String key) {
   final v = data[key];
   if (v is Timestamp) data[key] = v.toDate();

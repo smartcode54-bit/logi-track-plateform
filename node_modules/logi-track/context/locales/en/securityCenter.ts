@@ -204,6 +204,8 @@ export default {
     "securityCenter.capabilities.accounting_edit_fuel.description": "Edit fuel accounting",
     "securityCenter.capabilities.accounting_view_other.title": "View Other Expenses",
     "securityCenter.capabilities.accounting_view_other.description": "View other expense records",
+    "securityCenter.capabilities.accounting_audit_expense.title": "Audit Vehicle Expense",
+    "securityCenter.capabilities.accounting_audit_expense.description": "Review and approve/reject vehicle expenses",
     "securityCenter.capabilities.accounting_edit_other.title": "Edit Other Expenses",
     "securityCenter.capabilities.accounting_edit_other.description": "Edit other accounting",
 };
