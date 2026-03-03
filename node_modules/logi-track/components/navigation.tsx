@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/auth";
-import { Sun, Moon, Flame, User, LayoutDashboard, LogOut } from "lucide-react";
+import { Sun, Moon, Package, User, LayoutDashboard, LogOut } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -16,9 +16,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { LanguageSwitcher } from "./language-switcher";
 import { useLanguage } from "@/context/language";
-
-
-
 
 export default function Navigation() {
   const authContext = useAuth();
@@ -78,26 +75,56 @@ export default function Navigation() {
   };
 
   return (
-    <nav className="bg-green-800 text-white p-4 sticky top-0 z-50 shadow-md">
-      <div className="w-full flex items-center justify-between px-4">
-        <div className="text-2xl font-semibold flex items-center gap-2 font-poppins">
-          <Flame className="w-5 h-5" />
-          Logi Track
-        </div>
+    <nav className="sticky top-0 z-50 border-b border-border/60 bg-[#020817] text-white">
+      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6 lg:px-8">
+        {/* Brand */}
+        <Link href="/" className="flex items-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 shadow-sm">
+            <Package className="h-4 w-4 text-white" />
+          </div>
+          <span className="font-semibold tracking-tight text-lg">Logi-Track</span>
+        </Link>
 
         <div className="flex items-center gap-4">
+          {/* Marketing links when not logged in */}
+          {!currentUser && (
+            <ul className="hidden md:flex items-center gap-6 text-sm text-muted-foreground">
+              <li>
+                <Link href="/#solutions" className="hover:text-white transition-colors">
+                  Solutions
+                </Link>
+              </li>
+              <li>
+                <Link href="/#pricing" className="hover:text-white transition-colors">
+                  Pricing
+                </Link>
+              </li>
+              <li>
+                <Link href="/#about" className="hover:text-white transition-colors">
+                  About Us
+                </Link>
+              </li>
+              <li>
+                <Link href="/join-network" className="hover:text-white transition-colors">
+                  Join Network
+                </Link>
+              </li>
+            </ul>
+          )}
+
+          {/* Language switcher */}
           <LanguageSwitcher />
 
           {/* Dark/Light Mode Toggle */}
           <button
             onClick={toggleTheme}
-            className="flex items-center justify-center w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 transition-colors cursor-pointer"
+            className="flex items-center justify-center w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 transition-colors cursor-pointer"
             title={isDark ? "Switch to light mode" : "Switch to dark mode"}
           >
             {isDark ? (
-              <Sun className="w-5 h-5 text-white" />
+              <Sun className="w-4 h-4 text-white" />
             ) : (
-              <Moon className="w-5 h-5 text-white" />
+              <Moon className="w-4 h-4 text-white" />
             )}
           </button>
 
@@ -161,8 +188,12 @@ export default function Navigation() {
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <ul className="flex items-center gap-4">
-            </ul>
+            <Link
+              href="/login"
+              className="hidden sm:inline-flex items-center rounded-full bg-blue-600 px-4 py-1.5 text-sm font-semibold text-white shadow hover:bg-blue-500 transition-colors"
+            >
+              {t("auth.signIn") || "เข้าสู่ระบบ"}
+            </Link>
           )}
         </div>
       </div>

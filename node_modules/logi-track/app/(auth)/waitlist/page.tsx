@@ -19,9 +19,26 @@ import { Loader2, Mail } from "lucide-react";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
+import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
+
+const COUNTRY_OPTIONS: ComboboxOption[] = [
+  { value: "+66", label: "🇹🇭 Thailand (+66)" },
+  { value: "+1", label: "🇺🇸 United States (+1)" },
+  { value: "+65", label: "🇸🇬 Singapore (+65)" },
+  { value: "+60", label: "🇲🇾 Malaysia (+60)" },
+  { value: "+84", label: "🇻🇳 Vietnam (+84)" },
+  { value: "+62", label: "🇮🇩 Indonesia (+62)" },
+  { value: "+63", label: "🇵🇭 Philippines (+63)" },
+  { value: "+856", label: "🇱🇦 Laos (+856)" },
+  { value: "+855", label: "🇰🇭 Cambodia (+855)" },
+  { value: "+95", label: "🇲🇲 Myanmar (+95)" },
+];
 
 export default function WaitlistPage() {
   const [email, setEmail] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [countryCode, setCountryCode] = useState("+66");
+  const [phone, setPhone] = useState("");
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const { t } = useLanguage();
@@ -37,8 +54,23 @@ export default function WaitlistPage() {
         return;
       }
 
+      if (!fullName.trim()) {
+        toast.error("Please enter your name");
+        setLoading(false);
+        return;
+      }
+
+      if (!phone.trim()) {
+        toast.error("Please enter your phone number");
+        setLoading(false);
+        return;
+      }
+
       await addDoc(collection(db, COLLECTIONS.WAITLIST), {
         email,
+        name: fullName.trim(),
+        countryCode: countryCode || "+66",
+        phone: phone.trim(),
         createdAt: serverTimestamp(),
       });
 
@@ -84,6 +116,19 @@ export default function WaitlistPage() {
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
+            <Label htmlFor="fullName">Full name</Label>
+            <Input
+              id="fullName"
+              type="text"
+              placeholder="สมชาย ขนส่งดี / John Doe"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              required
+              className="bg-muted/5 border-muted-foreground/20 focus-visible:ring-primary"
+            />
+          </div>
+
+          <div className="space-y-2">
             <Label htmlFor="email">{t("auth.email") || "Email"}</Label>
             <Input
               id="email"
@@ -94,6 +139,29 @@ export default function WaitlistPage() {
               required
               className="bg-muted/5 border-muted-foreground/20 focus-visible:ring-primary"
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="phone">Phone number</Label>
+            <div className="flex gap-2">
+              <Combobox
+                options={COUNTRY_OPTIONS}
+                value={countryCode}
+                onSelect={setCountryCode}
+                placeholder="🇹🇭 Thailand (+66)"
+                searchPlaceholder="Search country..."
+                className="w-[180px] bg-muted/5 border-muted-foreground/20"
+              />
+              <Input
+                id="phone"
+                type="tel"
+                placeholder="812345678"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                required
+                className="flex-1 bg-muted/5 border-muted-foreground/20 focus-visible:ring-primary"
+              />
+            </div>
           </div>
 
           <Button type="submit" className="w-full bg-foreground text-background hover:bg-foreground/90 font-semibold" disabled={loading}>

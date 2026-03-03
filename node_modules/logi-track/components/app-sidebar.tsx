@@ -1,5 +1,9 @@
 "use client"
 
+import { useEffect, useState } from "react"
+import { collection, onSnapshot } from "firebase/firestore"
+import { db } from "@/firebase/client"
+import { COLLECTIONS } from "@/lib/collections"
 import {
     LayoutDashboard,
     Truck,
@@ -11,11 +15,11 @@ import {
     LogOut,
     User,
     HelpCircle,
-    GitBranch,
     Shield,
     MapPin,
     Calculator,
     MessageCircle,
+    Mail,
 } from "lucide-react"
 
 import {
@@ -50,6 +54,15 @@ export function AppSidebar() {
     const auth = useAuth()
     const logout = auth?.logout
     const claims = auth?.customClaims ?? null
+    const [waitlistCount, setWaitlistCount] = useState(0)
+
+    useEffect(() => {
+        if (!can(claims, CAPABILITIES.waitlist_view)) return
+        const unsub = onSnapshot(collection(db, COLLECTIONS.WAITLIST), (snap) => {
+            setWaitlistCount(snap.size)
+        })
+        return () => unsub()
+    }, [claims])
 
     // Menu items structure based on "Logistics Pro" design (with capability for filtering)
     const allItems = [
@@ -84,10 +97,10 @@ export function AppSidebar() {
             capability: CAPABILITIES.chat_view,
         },
         {
-            title: t("nav.activeShipments"),
-            url: "/admin/packages",
-            icon: GitBranch,
-            capability: CAPABILITIES.packages_view,
+            title: t("nav.waitlist"),
+            url: "/admin/waitlist",
+            icon: Mail,
+            capability: CAPABILITIES.waitlist_view,
         },
         {
             title: t("nav.security") || "Security",
@@ -189,10 +202,10 @@ export function AppSidebar() {
                                             </CollapsibleContent>
                                         </Collapsible>
                                     ) : (
-                                        <SidebarMenuButton asChild tooltip={item.title} isActive={pathname === item.url}>
+                                        <SidebarMenuButton asChild tooltip={item.url === "/admin/waitlist" && waitlistCount > 0 ? `${item.title} (${waitlistCount})` : item.title} isActive={pathname === item.url}>
                                             <Link href={item.url}>
                                                 {item.icon && <item.icon />}
-                                                <span>{item.title}</span>
+                                                <span>{item.title}{item.url === "/admin/waitlist" && waitlistCount > 0 ? ` (${waitlistCount})` : ""}</span>
                                             </Link>
                                         </SidebarMenuButton>
                                     )}

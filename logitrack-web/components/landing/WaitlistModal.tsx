@@ -18,6 +18,20 @@ import { Loader2, Mail } from "lucide-react";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
+import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
+
+const COUNTRY_OPTIONS: ComboboxOption[] = [
+    { value: "+66", label: "🇹🇭 Thailand (+66)" },
+    { value: "+1", label: "🇺🇸 United States (+1)" },
+    { value: "+65", label: "🇸🇬 Singapore (+65)" },
+    { value: "+60", label: "🇲🇾 Malaysia (+60)" },
+    { value: "+84", label: "🇻🇳 Vietnam (+84)" },
+    { value: "+62", label: "🇮🇩 Indonesia (+62)" },
+    { value: "+63", label: "🇵🇭 Philippines (+63)" },
+    { value: "+856", label: "🇱🇦 Laos (+856)" },
+    { value: "+855", label: "🇰🇭 Cambodia (+855)" },
+    { value: "+95", label: "🇲🇲 Myanmar (+95)" },
+];
 
 interface WaitlistModalProps {
     children?: React.ReactNode;
@@ -28,6 +42,9 @@ interface WaitlistModalProps {
 
 export function WaitlistModal({ children, open, onOpenChange, onSwitchToLogin }: WaitlistModalProps) {
     const [email, setEmail] = useState("");
+    const [fullName, setFullName] = useState("");
+    const [countryCode, setCountryCode] = useState("+66");
+    const [phone, setPhone] = useState("");
     const [loading, setLoading] = useState(false);
     const [submitted, setSubmitted] = useState(false);
     const { t } = useLanguage();
@@ -43,8 +60,23 @@ export function WaitlistModal({ children, open, onOpenChange, onSwitchToLogin }:
                 return;
             }
 
+            if (!fullName.trim()) {
+                toast.error("Please enter your name");
+                setLoading(false);
+                return;
+            }
+
+            if (!phone.trim()) {
+                toast.error("Please enter your phone number");
+                setLoading(false);
+                return;
+            }
+
             await addDoc(collection(db, COLLECTIONS.WAITLIST), {
                 email,
+                name: fullName.trim(),
+                countryCode: countryCode || "+66",
+                phone: phone.trim(),
                 createdAt: serverTimestamp(),
             });
 
@@ -61,6 +93,9 @@ export function WaitlistModal({ children, open, onOpenChange, onSwitchToLogin }:
     const resetForm = () => {
         setSubmitted(false);
         setEmail("");
+        setFullName("");
+        setCountryCode("+66");
+        setPhone("");
         if (onOpenChange) onOpenChange(false);
     }
 
@@ -80,7 +115,7 @@ export function WaitlistModal({ children, open, onOpenChange, onSwitchToLogin }:
             <DialogTrigger asChild>
                 {children}
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px]">
+            <DialogContent className="sm:max-w-[480px]">
                 {submitted ? (
                     <div className="text-center py-6">
                         <div className="mx-auto w-12 h-12 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center mb-4">
@@ -105,6 +140,19 @@ export function WaitlistModal({ children, open, onOpenChange, onSwitchToLogin }:
                         <div className="grid gap-4 py-4">
                             <form onSubmit={handleSubmit} className="space-y-4">
                                 <div className="space-y-2">
+                                    <Label htmlFor="waitlist-name">Full name</Label>
+                                    <Input
+                                        id="waitlist-name"
+                                        type="text"
+                                        placeholder="สมชาย ขนส่งดี / John Doe"
+                                        value={fullName}
+                                        onChange={(e) => setFullName(e.target.value)}
+                                        required
+                                        className="bg-muted/5 border-muted-foreground/20 focus-visible:ring-primary"
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
                                     <Label htmlFor="waitlist-email">{t("auth.email") || "Email"}</Label>
                                     <Input
                                         id="waitlist-email"
@@ -115,6 +163,29 @@ export function WaitlistModal({ children, open, onOpenChange, onSwitchToLogin }:
                                         required
                                         className="bg-muted/5 border-muted-foreground/20 focus-visible:ring-primary"
                                     />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label htmlFor="waitlist-phone">Phone number</Label>
+                                    <div className="flex gap-2">
+                                        <Combobox
+                                            options={COUNTRY_OPTIONS}
+                                            value={countryCode}
+                                            onSelect={setCountryCode}
+                                            placeholder="🇹🇭 Thailand (+66)"
+                                            searchPlaceholder="Search country..."
+                                            className="w-[180px] bg-muted/5 border-muted-foreground/20"
+                                        />
+                                        <Input
+                                            id="waitlist-phone"
+                                            type="tel"
+                                            placeholder="812345678"
+                                            value={phone}
+                                            onChange={(e) => setPhone(e.target.value)}
+                                            required
+                                            className="flex-1 bg-muted/5 border-muted-foreground/20 focus-visible:ring-primary"
+                                        />
+                                    </div>
                                 </div>
 
                                 <Button type="submit" className="w-full" disabled={loading}>

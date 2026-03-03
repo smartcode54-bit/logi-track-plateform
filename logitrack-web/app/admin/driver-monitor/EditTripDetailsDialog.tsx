@@ -23,6 +23,7 @@ interface EditTripDetailsDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     trip: TripRecord;
+    getSourceDisplayName?: (code: string | null | undefined) => string;
     onSuccess?: () => void;
 }
 
@@ -41,6 +42,7 @@ export function EditTripDetailsDialog({
     open,
     onOpenChange,
     trip,
+    getSourceDisplayName,
     onSuccess,
 }: EditTripDetailsDialogProps) {
     const { t } = useLanguage();
@@ -169,9 +171,9 @@ export function EditTripDetailsDialog({
                         </div>
                         <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm bg-muted/30 rounded-lg p-4">
                             <span className="text-muted-foreground">{t("driverMonitor.detail.origin")}</span>
-                            <span>{trip.origin || "-"}</span>
+                            <span>{getSourceDisplayName ? getSourceDisplayName(trip.origin) : (trip.origin || "-")}</span>
                             <span className="text-muted-foreground">{t("driverMonitor.detail.destination")}</span>
-                            <span>{trip.destination || "-"}</span>
+                            <span>{getSourceDisplayName ? getSourceDisplayName(trip.destination) : (trip.destination || "-")}</span>
                         </div>
                     </div>
 

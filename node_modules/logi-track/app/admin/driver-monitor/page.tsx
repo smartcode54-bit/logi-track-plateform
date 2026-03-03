@@ -18,7 +18,7 @@ import {
     ClipboardCheck,
     Pencil,
 } from "lucide-react";
-import { collection, query, orderBy, onSnapshot, limit } from "firebase/firestore";
+import { collection, query, orderBy, onSnapshot, limit, getDocs } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import {
@@ -119,6 +119,7 @@ export default function DriverMonitorPage() {
     const [trips, setTrips] = useState<TripRecord[]>([]);
     const [drivers, setDrivers] = useState<Record<string, Driver>>({});
     const [tasks, setTasks] = useState<Task[]>([]);
+    const [hubs, setHubs] = useState<{ source_id: string; source_name_en?: string }[]>([]);
     const [loading, setLoading] = useState(true);
 
     // Filters
@@ -185,6 +186,20 @@ export default function DriverMonitorPage() {
         return () => unsub();
     }, []);
 
+    // ─── Fetch hubs for origin/destination code → name ─────
+    useEffect(() => {
+        getDocs(collection(db, COLLECTIONS.HUBS)).then((snap) => {
+            const list = snap.docs.map((d) => {
+                const data = d.data();
+                return {
+                    source_id: (data.source_id ?? data.hubId ?? data.hubCode ?? "").toString(),
+                    source_name_en: (data.source_name_en ?? data.hubName ?? "").toString() || undefined,
+                };
+            });
+            setHubs(list);
+        });
+    }, []);
+
     // Lookup driver by authId (trip.driverId) or by document id
     const driversByAuthId = useMemo(() => {
         const byAuth: Record<string, Driver> = {};
@@ -197,6 +212,22 @@ export default function DriverMonitorPage() {
     const getDriver = (driverId?: string): Driver | null => {
         if (!driverId) return null;
         return driversByAuthId[driverId] ?? drivers[driverId] ?? null;
+    };
+
+    // Map source_id (code) → display name for origin/destination
+    const sourceIdToName = useMemo(() => {
+        const map: Record<string, string> = {};
+        hubs.forEach((h) => {
+            const id = (h.source_id ?? "").trim();
+            if (id) map[id] = (h.source_name_en ?? id).trim() || id;
+        });
+        return map;
+    }, [hubs]);
+
+    const getSourceDisplayName = (code?: string | null): string => {
+        if (code == null || String(code).trim() === "") return "-";
+        const key = String(code).trim();
+        return sourceIdToName[key] ?? key;
     };
 
     // ─── Fetch first_mile_tasks for check-in stats ──────────
@@ -642,12 +673,12 @@ export default function DriverMonitorPage() {
 
                                         {/* Origin */}
                                         <TableCell className="text-sm">
-                                            <span className="font-medium">{trip.origin || "-"}</span>
+                                            <span className="font-medium">{getSourceDisplayName(trip.origin)}</span>
                                         </TableCell>
 
                                         {/* Destination */}
                                         <TableCell className="text-sm">
-                                            <span className="font-medium">{trip.destination || "-"}</span>
+                                            <span className="font-medium">{getSourceDisplayName(trip.destination)}</span>
                                         </TableCell>
 
                                         {/* Seal Code */}
@@ -801,12 +832,12 @@ export default function DriverMonitorPage() {
                                 <div className="flex items-center gap-4 bg-muted/30 rounded-lg p-4">
                                     <div className="flex-1 text-center">
                                         <p className="text-xs text-muted-foreground mb-1">{t("driverMonitor.detail.origin")}</p>
-                                        <p className="font-semibold">{detailTrip.origin || "-"}</p>
+                                        <p className="font-semibold">{getSourceDisplayName(detailTrip.origin)}</p>
                                     </div>
                                     <ArrowRight className="h-5 w-5 text-muted-foreground shrink-0" />
                                     <div className="flex-1 text-center">
                                         <p className="text-xs text-muted-foreground mb-1">{t("driverMonitor.detail.destination")}</p>
-                                        <p className="font-semibold">{detailTrip.destination || "-"}</p>
+                                        <p className="font-semibold">{getSourceDisplayName(detailTrip.destination)}</p>
                                     </div>
                                 </div>
                             </div>
@@ -932,6 +963,7 @@ export default function DriverMonitorPage() {
                     open={editTripDialogOpen}
                     onOpenChange={setEditTripDialogOpen}
                     trip={detailTrip}
+                    getSourceDisplayName={getSourceDisplayName}
                     onSuccess={() => setEditTripDialogOpen(false)}
                 />
             )}

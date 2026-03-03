@@ -4,6 +4,7 @@ import { DashboardStats } from "./components/DashboardStats";
 import { ActivityChart } from "./components/ActivityChart";
 import { RecentUpdates } from "./components/RecentUpdates";
 import { ChatStatusWidget } from "./components/ChatStatusWidget";
+import { ComplianceSummary } from "./components/ComplianceSummary";
 
 export default function AdminDashboardPage() {
   return (
@@ -39,6 +40,7 @@ export default function AdminDashboardPage() {
         <div className="lg:col-span-1 h-full space-y-6">
           <ChatStatusWidget />
           <RecentUpdates />
+          <ComplianceSummary />
         </div>
       </div>
     </div>

@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../home/data/models/trip_record.dart';
+import '../../../home/data/repositories/hubs_repository.dart';
 import '../../../home/data/repositories/trip_records_repository.dart';
 
 class TripHistoryPage extends StatefulWidget {
@@ -14,6 +15,7 @@ class TripHistoryPage extends StatefulWidget {
 
 class _TripHistoryPageState extends State<TripHistoryPage> {
   List<TripRecord> _allTrips = [];
+  Map<String, String> _sourceIdToName = {};
   bool _loading = true;
   late int _selectedYear;
   late int _selectedMonth; // 1–12
@@ -40,15 +42,33 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
     }
     setState(() => _loading = true);
     try {
-      final list = await getTripHistoryByDriver(uid);
+      final results = await Future.wait([
+        getTripHistoryByDriver(uid),
+        fetchAllHubs(),
+      ]);
+      final list = results[0] as List<TripRecord>;
+      final hubs = results[1] as List<HubDoc>;
+      final map = <String, String>{};
+      for (final h in hubs) {
+        final id = h.sourceId.trim();
+        if (id.isEmpty) continue;
+        final name = h.sourceNameTh.isNotEmpty ? h.sourceNameTh : h.sourceNameEn;
+        map[id] = name.isNotEmpty ? name : id;
+      }
       if (mounted)
         setState(() {
           _allTrips = list;
+          _sourceIdToName = map;
           _loading = false;
         });
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  String _getSourceDisplayName(String? code) {
+    if (code == null || code.trim().isEmpty) return '–';
+    return _sourceIdToName[code.trim()] ?? code;
   }
 
   /// ปี: ปัจจุบันย้อนหลัง 5 ปี
@@ -194,6 +214,7 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
                       color: Colors.indigo,
                       trips: firstMile,
                       expanded: _firstMileExpanded,
+                      getSourceDisplayName: _getSourceDisplayName,
                       onTap: () => setState(
                         () => _firstMileExpanded = !_firstMileExpanded,
                       ),
@@ -207,6 +228,7 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
                       color: Colors.orange,
                       trips: lineHaul,
                       expanded: _lineHaulExpanded,
+                      getSourceDisplayName: _getSourceDisplayName,
                       onTap: () => setState(
                         () => _lineHaulExpanded = !_lineHaulExpanded,
                       ),
@@ -274,6 +296,7 @@ class _SectionCard extends StatelessWidget {
     required this.color,
     required this.trips,
     required this.expanded,
+    required this.getSourceDisplayName,
     required this.onTap,
   });
 
@@ -282,6 +305,7 @@ class _SectionCard extends StatelessWidget {
   final Color color;
   final List<TripRecord> trips;
   final bool expanded;
+  final String Function(String?) getSourceDisplayName;
   final VoidCallback onTap;
 
   @override
@@ -356,7 +380,8 @@ class _SectionCard extends StatelessWidget {
                   final date = t.createdAt != null
                       ? DateFormat('dd/MM/yy HH:mm').format(t.createdAt!)
                       : '–';
-                  final route = '${t.origin ?? '–'} → ${t.destination ?? '–'}';
+                  final route =
+                      '${getSourceDisplayName(t.origin)} → ${getSourceDisplayName(t.destination)}';
                   final tripId =
                       t.spxTripId ??
                       (t.id != null && t.id!.length > 12
