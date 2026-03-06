@@ -12,6 +12,7 @@ export interface TruckData {
     province: string;
     vin: string;
     engineNumber: string;
+    GPSVehicleId?: string;
     truckStatus: string;
     brand: string;
     model: string;
@@ -139,6 +140,7 @@ export async function getTrucksClient(): Promise<TruckData[]> {
                 province: data.province || "",
                 vin: data.vin || "",
                 engineNumber: data.engineNumber || "",
+                GPSVehicleId: data.GPSVehicleId || "",
                 truckStatus: data.truckStatus || "",
                 brand: data.brand || "",
                 model: data.model || "",
@@ -239,6 +241,7 @@ export async function getTruckByIdClient(id: string): Promise<TruckData | null> 
             province: data.province || "",
             vin: data.vin || "",
             engineNumber: data.engineNumber || "",
+            GPSVehicleId: data.GPSVehicleId || "",
             truckStatus: data.truckStatus || "",
             brand: data.brand || "",
             model: data.model || "",

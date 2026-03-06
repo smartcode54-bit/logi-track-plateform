@@ -107,6 +107,7 @@ export default function EditTruckClient() {
             registrationDate: undefined,
             buyingDate: undefined,
             engineNumber: "",
+            GPSVehicleId: "",
             // chassisNumber: "", // Removed as it is not in schema
             imageFrontRight: "",
             imageFrontLeft: "",

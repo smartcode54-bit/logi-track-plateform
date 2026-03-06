@@ -69,6 +69,9 @@ export const COLLECTIONS = {
 
     /** Role-permission overrides (doc ID = roleId) */
     PERMISSIONS_CONFIG: "permissions_config",
+
+    /** GPS vehicle locations synced from Cartrack */
+    VEHICLE_LOCATIONS: "vehicle_locations",
 } as const;
 
 /** Type for collection names */

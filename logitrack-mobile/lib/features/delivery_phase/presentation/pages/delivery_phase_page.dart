@@ -94,6 +94,7 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
       destination: s.destination,
       sealCode: s.sealCode,
       jobType: s.jobType,
+      taskId: s.taskId,
       photos: Map.from(_deliveryPhotos),
     );
   }
@@ -277,18 +278,20 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
 
     final picker = ImagePicker();
     final isRunsheetReceived = stepKey == 'runsheet_received';
-    final xfile = await picker.pickImage(
-      source: source,
-      imageQuality: 85,
-    );
+    final xfile = await picker.pickImage(source: source, imageQuality: 85);
     if (xfile == null || !mounted) return;
     List<int> imageBytes = await xfile.readAsBytes();
     if (!mounted) return;
     if (isRunsheetReceived) {
       // บันทึกรันชีทเฉพาะเมื่อ Trip ID ตรง — ถ้าใส่ผิดแล้วเปลี่ยนเป็นใบที่ถูก แอปจะรับใบที่ถูก
-      final ok = await _validateRunsheetTripId(imageBytes, imagePath: xfile.path);
+      final ok = await _validateRunsheetTripId(
+        imageBytes,
+        imagePath: xfile.path,
+      );
       if (!mounted) return;
-      if (!ok) return; // ไม่ตรงหรือ OCR ไม่พบ → ไม่เก็บรูปผิด ให้ผู้ใช้เลือกรันชีทที่ถูกใหม่
+      if (!ok) {
+        return; // ไม่ตรงหรือ OCR ไม่พบ → ไม่เก็บรูปผิด ให้ผู้ใช้เลือกรันชีทที่ถูกใหม่
+      }
     }
     Uint8List compressed;
     if (isRunsheetReceived) {
@@ -298,11 +301,12 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
         try {
           final pos = await getCurrentPosition();
           final ctx = await fetchOverlayContext(pos.latitude, pos.longitude);
-          if (mounted)
+          if (mounted) {
             setState(() {
               _cachedOverlayPosition = pos;
               _cachedOverlayContext = ctx;
             });
+          }
         } catch (_) {}
       }
       if (!mounted) return;
@@ -395,9 +399,24 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
         );
       }
 
+      // Resolve taskId: from SavedTripSummary, or fallback from Firestore trip record
+      String? resolvedTaskId = widget.savedTripSummary?.taskId;
+      if ((resolvedTaskId == null || resolvedTaskId.isEmpty) &&
+          tripId.isNotEmpty) {
+        try {
+          final tripDoc = await FirebaseFirestore.instance
+              .collection(tripRecordsCollection)
+              .doc(tripId)
+              .get();
+          if (tripDoc.exists) {
+            resolvedTaskId = tripDoc.data()?['taskId'] as String?;
+          }
+        } catch (_) {}
+      }
+
       await submitDeliveryPhaseRecord(
         tripId: tripId,
-        taskId: widget.savedTripSummary?.taskId,
+        taskId: resolvedTaskId,
         deliveryPhotos: deliveryPhotos,
         deliveredLat: position.latitude,
         deliveredLng: position.longitude,
@@ -634,37 +653,35 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
 
                           // Submit Button
                           ElevatedButton(
-                              onPressed: (_canSubmit && !_saving)
-                                  ? _submitDelivery
-                                  : null,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.blueAccent,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 16,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                disabledBackgroundColor: Colors.grey.shade400,
+                            onPressed: (_canSubmit && !_saving)
+                                ? _submitDelivery
+                                : null,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blueAccent,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
                               ),
-                              child: _saving
-                                  ? const SizedBox(
-                                      height: 24,
-                                      width: 24,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
-                                      ),
-                                    )
-                                  : Text(
-                                      'submit_delivery'.tr(),
-                                      style: const TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.white,
-                                      ),
-                                    ),
+                              disabledBackgroundColor: Colors.grey.shade400,
                             ),
+                            child: _saving
+                                ? const SizedBox(
+                                    height: 24,
+                                    width: 24,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : Text(
+                                    'submit_delivery'.tr(),
+                                    style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                          ),
                           if (_lastTripIdValidationDebug != null)
                             _buildTripIdValidationDebugCard(),
                           const SizedBox(height: 24),
@@ -755,7 +772,10 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
                     onPressed: () =>
                         setState(() => _lastTripIdValidationDebug = null),
                     padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    constraints: const BoxConstraints(
+                      minWidth: 32,
+                      minHeight: 32,
+                    ),
                   ),
                 ],
               ),
@@ -784,7 +804,11 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
                 const SizedBox(height: 4),
                 Text(
                   _tripIdErrorTypeLabel(d['errorType']!),
-                  style: TextStyle(fontSize: 11, color: fg, fontStyle: FontStyle.italic),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: fg,
+                    fontStyle: FontStyle.italic,
+                  ),
                 ),
               ],
             ],
@@ -904,5 +928,4 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
       ),
     );
   }
-
 }

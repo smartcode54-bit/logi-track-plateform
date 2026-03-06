@@ -81,20 +81,22 @@ class _VehicleExpensePageState extends State<VehicleExpensePage>
       final merged = <VehicleExpense>[...fromServer, ...pending];
       merged.sort((a, b) => (b.date).compareTo(a.date));
       final list = List<VehicleExpense>.from(merged.take(30));
-      if (mounted)
+      if (mounted) {
         setState(() {
           _recentList = list;
           _loading = false;
           _refreshing = false;
           _error = null;
         });
+      }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _loading = false;
           _refreshing = false;
           _error = e.toString();
         });
+      }
     }
   }
 

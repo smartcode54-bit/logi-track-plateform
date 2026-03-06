@@ -19,10 +19,7 @@ Future<String> uploadIncidentPhoto({
   final ref = FirebaseStorage.instance.ref().child(
     incidentReportPhotoPath(reportId, photoType),
   );
-  await ref.putData(
-    compressed,
-    SettableMetadata(contentType: 'image/jpeg'),
-  );
+  await ref.putData(compressed, SettableMetadata(contentType: 'image/jpeg'));
   return ref.getDownloadURL();
 }
 
@@ -81,8 +78,10 @@ Future<void> submitIncidentReport({
 
   await reportRef.set({
     'driverId': driverId,
-    'tripId': tripId ?? null,
-    'delayCause': delayCause?.trim().isEmpty == true ? null : delayCause?.trim(),
+    'tripId': tripId,
+    'delayCause': delayCause?.trim().isEmpty == true
+        ? null
+        : delayCause?.trim(),
     'mapPhotoUrl': mapUrl,
     'situation1PhotoUrl': situation1Url,
     'situation2PhotoUrl': situation2Url,

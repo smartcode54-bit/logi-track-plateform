@@ -1,7 +1,6 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import '../../../../core/theme/theme_controller.dart';
 import '../../../../core/services/fcm_service.dart';
 import '../../../../features/auth/data/repositories/auth_repository.dart';
@@ -416,7 +415,9 @@ class _HomePageState extends State<HomePage> {
                       Text(
                         'todays_status_subtitle'.tr(),
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.8),
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onSurfaceVariant.withOpacity(0.8),
                         ),
                       ),
                     ],

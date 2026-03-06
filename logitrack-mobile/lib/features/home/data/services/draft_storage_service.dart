@@ -80,6 +80,7 @@ class DeliveryDraft {
   final String? destination;
   final String? sealCode;
   final String? jobType;
+  final String? taskId;
   final Map<String, String> photoPaths; // stepKey -> path
 
   const DeliveryDraft({
@@ -88,6 +89,7 @@ class DeliveryDraft {
     this.destination,
     this.sealCode,
     this.jobType,
+    this.taskId,
     this.photoPaths = const {},
   });
 
@@ -97,6 +99,7 @@ class DeliveryDraft {
     'destination': destination,
     'sealCode': sealCode,
     'jobType': jobType,
+    'taskId': taskId,
     'photoPaths': photoPaths,
   };
 
@@ -108,6 +111,7 @@ class DeliveryDraft {
       destination: json['destination'] as String?,
       sealCode: json['sealCode'] as String?,
       jobType: json['jobType'] as String?,
+      taskId: json['taskId'] as String?,
       photoPaths: photoMap is Map
           ? Map<String, String>.from(
               photoMap.map((k, v) => MapEntry(k.toString(), v.toString())),
@@ -196,8 +200,9 @@ class DraftStorageService {
     final prefs = await _preferences;
     final base = await _draftDirectory;
     if (base == null &&
-        (runsheetPhoto != null || (stepPhotos?.isNotEmpty == true)))
+        (runsheetPhoto != null || (stepPhotos?.isNotEmpty == true))) {
       return;
+    }
 
     String? runsheetPath;
     if (runsheetPhoto != null && runsheetPhoto.isNotEmpty) {
@@ -283,6 +288,7 @@ class DraftStorageService {
     String? destination,
     String? sealCode,
     String? jobType,
+    String? taskId,
     required Map<String, Uint8List> photos,
   }) async {
     final prefs = await _preferences;
@@ -305,6 +311,7 @@ class DraftStorageService {
       destination: destination,
       sealCode: sealCode,
       jobType: jobType,
+      taskId: taskId,
       photoPaths: photoPaths,
     );
     await prefs.setString(_prefKeyDeliveryDraft, jsonEncode(draft.toJson()));

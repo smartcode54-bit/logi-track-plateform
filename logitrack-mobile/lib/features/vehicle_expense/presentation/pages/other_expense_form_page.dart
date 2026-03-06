@@ -297,7 +297,7 @@ class _OtherExpenseFormPageState extends State<OtherExpenseFormPage> {
                   const SizedBox(height: 20),
                   // ประเภทค่าใช้จ่าย
                   DropdownButtonFormField<OtherExpenseCategory>(
-                    value: _category,
+                    initialValue: _category,
                     decoration: InputDecoration(
                       labelText: 'vehicle_expense_category'.tr(),
                     ),
@@ -346,8 +346,9 @@ class _OtherExpenseFormPageState extends State<OtherExpenseFormPage> {
                     ),
                     validator: (v) {
                       final n = double.tryParse(v?.trim() ?? '');
-                      if (n == null || n <= 0)
+                      if (n == null || n <= 0) {
                         return 'vehicle_expense_amount_required'.tr();
+                      }
                       return null;
                     },
                   ),

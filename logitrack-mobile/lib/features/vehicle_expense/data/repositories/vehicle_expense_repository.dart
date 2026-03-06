@@ -26,14 +26,13 @@ Future<String> uploadVehicleExpensePhoto({
   if (imageBytes.isEmpty) {
     throw ArgumentError('uploadVehicleExpensePhoto: imageBytes.isEmpty');
   }
-  debugPrint('VehicleExpense: uploading $photoType (${imageBytes.length} bytes) to Storage...');
+  debugPrint(
+    'VehicleExpense: uploading $photoType (${imageBytes.length} bytes) to Storage...',
+  );
   final compressed = await compressImageForUpload(imageBytes);
   final path = '$_storageFolder/$docId/$photoType.jpg';
   final ref = FirebaseStorage.instance.ref().child(path);
-  await ref.putData(
-    compressed,
-    SettableMetadata(contentType: 'image/jpeg'),
-  );
+  await ref.putData(compressed, SettableMetadata(contentType: 'image/jpeg'));
   final url = await ref.getDownloadURL();
   debugPrint('VehicleExpense: $photoType uploaded -> $url');
   return url;
@@ -52,7 +51,9 @@ Future<String?> saveVehicleExpense(
   String? docId;
 
   try {
-    if (expense.id != null && expense.id!.isNotEmpty && !expense.id!.startsWith('pending_')) {
+    if (expense.id != null &&
+        expense.id!.isNotEmpty &&
+        !expense.id!.startsWith('pending_')) {
       docId = expense.id;
       await col.doc(docId).set(data, SetOptions(merge: true));
     } else {
@@ -72,13 +73,27 @@ Future<String?> saveVehicleExpense(
     try {
       if (expense.type == VehicleExpenseType.fuel) {
         if (receiptPhoto != null && receiptPhoto.isNotEmpty) {
-          receiptUrl = await uploadVehicleExpensePhoto(docId: docId!, photoType: 'receipt', imageBytes: receiptPhoto);
+          receiptUrl = await uploadVehicleExpensePhoto(
+            docId: docId,
+            photoType: 'receipt',
+            imageBytes: receiptPhoto,
+          );
         }
         if (odometerPhoto != null && odometerPhoto.isNotEmpty) {
-          odometerUrl = await uploadVehicleExpensePhoto(docId: docId!, photoType: 'odometer', imageBytes: odometerPhoto);
+          odometerUrl = await uploadVehicleExpensePhoto(
+            docId: docId,
+            photoType: 'odometer',
+            imageBytes: odometerPhoto,
+          );
         }
-      } else if (expense.type == VehicleExpenseType.other && receiptPhoto != null && receiptPhoto.isNotEmpty) {
-        receiptUrl = await uploadVehicleExpensePhoto(docId: docId!, photoType: 'receipt', imageBytes: receiptPhoto);
+      } else if (expense.type == VehicleExpenseType.other &&
+          receiptPhoto != null &&
+          receiptPhoto.isNotEmpty) {
+        receiptUrl = await uploadVehicleExpensePhoto(
+          docId: docId,
+          photoType: 'receipt',
+          imageBytes: receiptPhoto,
+        );
       }
       if (receiptUrl != null || odometerUrl != null) {
         final update = <String, dynamic>{};
@@ -205,9 +220,15 @@ Future<List<VehicleExpense>> getVehicleExpensesByDriver(
       .collection(vehicleExpensesCollection)
       .where('driverId', isEqualTo: driverId);
   if (type != null) {
-    query = query.where('type', isEqualTo: type == VehicleExpenseType.fuel ? 'fuel' : 'other');
+    query = query.where(
+      'type',
+      isEqualTo: type == VehicleExpenseType.fuel ? 'fuel' : 'other',
+    );
   }
-  final snapshot = await query.orderBy('date', descending: true).limit(limit).get();
+  final snapshot = await query
+      .orderBy('date', descending: true)
+      .limit(limit)
+      .get();
   return snapshot.docs
       .map((doc) => VehicleExpense.fromMap(doc.data(), id: doc.id))
       .toList();

@@ -1,7 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import 'hubs_repository.dart';
-
 /// Collection Hub→SOC: ระยะทาง/เวลาเดินทาง (Google Distance Matrix). Doc ID = hubId_socId.
 const String hubSocDistancesCollection = 'hub_soc_distances';
 
@@ -23,8 +21,14 @@ String normalizeSocIdToKey(String sourceId) {
 
 /// Document ID = ต้นทาง_ปลายทาง (origin_destination).
 /// Hub→SOC: hubId_socId ใน hub_soc_distances | SOC→Hub: socId_hubId ใน soc_hub_distances (socId ต้องเป็น key เช่น SOCE).
-String hubSocDistanceDocId(String originSourceId, String destinationSourceId, {bool originIsSoc = false}) {
-  final origin = originIsSoc ? normalizeSocIdToKey(originSourceId) : originSourceId;
+String hubSocDistanceDocId(
+  String originSourceId,
+  String destinationSourceId, {
+  bool originIsSoc = false,
+}) {
+  final origin = originIsSoc
+      ? normalizeSocIdToKey(originSourceId)
+      : originSourceId;
   return '${origin}_$destinationSourceId';
 }
 
@@ -50,13 +54,17 @@ Future<HubSocDistanceResult?> fetchHubSocDistance({
   required String destinationStationType,
 }) async {
   if (originSourceId == destinationSourceId) return null;
-  final isSocToHub = originStationType.toUpperCase() == 'SOC' && destinationStationType.toUpperCase() == 'HUB';
+  final isSocToHub =
+      originStationType.toUpperCase() == 'SOC' &&
+      destinationStationType.toUpperCase() == 'HUB';
   final docId = hubSocDistanceDocId(
     originSourceId,
     destinationSourceId,
     originIsSoc: isSocToHub,
   );
-  final collectionName = isSocToHub ? socHubDistancesCollection : hubSocDistancesCollection;
+  final collectionName = isSocToHub
+      ? socHubDistancesCollection
+      : hubSocDistancesCollection;
   final ref = FirebaseFirestore.instance.collection(collectionName).doc(docId);
   final snap = await ref.get();
   if (!snap.exists) return null;

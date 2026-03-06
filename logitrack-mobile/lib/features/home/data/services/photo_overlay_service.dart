@@ -16,8 +16,18 @@ String _compassDirection(double heading) {
 
 /// Month abbreviations (Latin for bitmap font)
 const _monthAbbr = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
 ];
 const _weekdayShort = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -133,9 +143,7 @@ Future<OverlayContext> fetchOverlayContext(double lat, double lng) async {
 
   // Compass (จุดช้า: sensor; timeout สั้นเพื่อไม่หน่วง)
   try {
-    final event = await FlutterCompass.events?.first.timeout(
-      _kCompassTimeout,
-    );
+    final event = await FlutterCompass.events?.first.timeout(_kCompassTimeout);
     heading = event?.heading;
   } catch (e) {
     debugPrint('Compass failed: $e');
@@ -236,15 +244,13 @@ List<int> _processOverlay(_OverlayParams p) {
       ? '${p.temperature!.toStringAsFixed(2)}°'
       : null;
   // อุณหภูมิ + เข็มทิศ บรรทัดเดียวกัน (เหมือนในรูปอ้างอิง)
-  final tempCompassLine = [
-    if (tempPart != null) tempPart,
-    if (compassPart != null) compassPart,
-  ].join('   ');
+  final tempCompassLine = [?tempPart, ?compassPart].join('   ');
 
   // ─── ปรับขนาดตัวอักษร (package image มี arial14, arial24, arial48)
   final fontSmall = img.arial24;
   final fontLarge = img.arial48;
-  final fontRight = img.arial24; // ที่อยู่ + ทิศ (ลดขนาด; package มีแค่ 14/24/48)
+  final fontRight =
+      img.arial24; // ที่อยู่ + ทิศ (ลดขนาด; package มีแค่ 14/24/48)
 
   // ─── ปรับขนาด overlay (แก้ค่าตรงนี้แล้วรันใหม่จะเห็นผล)
   // • leftPanelWidth = ความกว้างแผงซ้าย (วัน/เวลา). ลด 10% จาก 1/3 → 0.3 * width
@@ -264,7 +270,8 @@ List<int> _processOverlay(_OverlayParams p) {
     14, // charWidth สำหรับ arial24 (ที่อยู่ + ทิศ ลดขนาด)
   );
   var rightLineCount = addrLines.length + 1; // ที่อยู่ + พิกัด
-  if (tempCompassLine.isNotEmpty) rightLineCount += 1; // อุณหภูมิ+เข็มทิศบรรทัดเดียว
+  if (tempCompassLine.isNotEmpty)
+    rightLineCount += 1; // อุณหภูมิ+เข็มทิศบรรทัดเดียว
 
   final leftHeight = lineHeightBig + lineHeightSmall * 3 + paddingV * 2;
   final rightHeight = lineHeightRight * rightLineCount + paddingV * 2;

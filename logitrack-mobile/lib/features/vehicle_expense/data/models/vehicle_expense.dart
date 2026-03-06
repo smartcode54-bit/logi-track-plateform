@@ -161,29 +161,36 @@ class VehicleExpense {
       'createdAt': createdAt ?? now,
       'updatedAt': updatedAt ?? now,
     };
-    if (adminNote != null && adminNote!.isNotEmpty)
+    if (adminNote != null && adminNote!.isNotEmpty) {
       map['adminNote'] = adminNote;
+    }
 
     if (type == VehicleExpenseType.fuel) {
       if (volumeLiters != null) map['volumeLiters'] = volumeLiters;
       if (pricePerLiter != null) map['pricePerLiter'] = pricePerLiter;
       if (odometer != null) map['odometer'] = odometer;
-      if (stationTaxId != null && stationTaxId!.isNotEmpty)
+      if (stationTaxId != null && stationTaxId!.isNotEmpty) {
         map['stationTaxId'] = stationTaxId;
+      }
       if (taxInvId != null && taxInvId!.isNotEmpty) map['taxInvId'] = taxInvId;
-      if (refillLocation != null && refillLocation!.isNotEmpty)
+      if (refillLocation != null && refillLocation!.isNotEmpty) {
         map['refillLocation'] = refillLocation;
-      if (receiptPhotoUrl != null && receiptPhotoUrl!.isNotEmpty)
+      }
+      if (receiptPhotoUrl != null && receiptPhotoUrl!.isNotEmpty) {
         map['receiptPhotoUrl'] = receiptPhotoUrl;
-      if (odometerPhotoUrl != null && odometerPhotoUrl!.isNotEmpty)
+      }
+      if (odometerPhotoUrl != null && odometerPhotoUrl!.isNotEmpty) {
         map['odometerPhotoUrl'] = odometerPhotoUrl;
+      }
       if (note != null && note!.isNotEmpty) map['note'] = note;
     } else {
       if (category != null) map['category'] = categoryToFirestore(category!);
-      if (refillLocation != null && refillLocation!.isNotEmpty)
+      if (refillLocation != null && refillLocation!.isNotEmpty) {
         map['refillLocation'] = refillLocation;
-      if (receiptPhotoUrl != null && receiptPhotoUrl!.isNotEmpty)
+      }
+      if (receiptPhotoUrl != null && receiptPhotoUrl!.isNotEmpty) {
         map['receiptPhotoUrl'] = receiptPhotoUrl;
+      }
     }
     return map;
   }

@@ -33,6 +33,7 @@ class _CheckInPageState extends State<CheckInPage> {
 
   /// Task IDs ที่เที่ยวส่งแล้ว (จาก trip_records status=delivered) — ใช้ไม่ให้บล็อกการเพิ่มงานใหม่
   Set<String> _deliveredTaskIds = {};
+
   /// เก็บ tasks ล่าสุดจาก stream สำหรับใช้ตอนกด + หลัง refresh delivered
   List<Map<String, dynamic>> _latestTasks = [];
 
@@ -137,17 +138,21 @@ class _CheckInPageState extends State<CheckInPage> {
         final hasOngoingTask = tasks.any((t) {
           final st = t['status'] as String? ?? '';
           final taskDocId = t['id'] as String? ?? '';
-          final altTaskId = t['taskId'] as String? ??
+          final altTaskId =
+              t['taskId'] as String? ??
               t['LineHaulTaskId'] as String? ??
               t['FirstMileTaskId'] as String? ??
               '';
-          final isDeliveredByTrip = _deliveredTaskIds.contains(taskDocId) ||
+          final isDeliveredByTrip =
+              _deliveredTaskIds.contains(taskDocId) ||
               (altTaskId.isNotEmpty && _deliveredTaskIds.contains(altTaskId));
           if (st == 'Pending' ||
               st == 'Assigned' ||
               st == 'Completed' ||
               st == 'Cancelled' ||
-              st == 'Delivered') return false;
+              st == 'Delivered') {
+            return false;
+          }
           if (st == 'Checked in' && isDeliveredByTrip) return false;
           return true;
         });
@@ -164,17 +169,22 @@ class _CheckInPageState extends State<CheckInPage> {
                   final stillOngoing = _latestTasks.any((t) {
                     final st = t['status'] as String? ?? '';
                     final taskDocId = t['id'] as String? ?? '';
-                    final altTaskId = t['taskId'] as String? ??
+                    final altTaskId =
+                        t['taskId'] as String? ??
                         t['LineHaulTaskId'] as String? ??
                         t['FirstMileTaskId'] as String? ??
                         '';
-                    final isDeliveredByTrip = _deliveredTaskIds.contains(taskDocId) ||
-                        (altTaskId.isNotEmpty && _deliveredTaskIds.contains(altTaskId));
+                    final isDeliveredByTrip =
+                        _deliveredTaskIds.contains(taskDocId) ||
+                        (altTaskId.isNotEmpty &&
+                            _deliveredTaskIds.contains(altTaskId));
                     if (st == 'Pending' ||
                         st == 'Assigned' ||
                         st == 'Completed' ||
                         st == 'Cancelled' ||
-                        st == 'Delivered') return false;
+                        st == 'Delivered') {
+                      return false;
+                    }
                     if (st == 'Checked in' && isDeliveredByTrip) return false;
                     return true;
                   });
@@ -735,10 +745,7 @@ class _TaskCheckInPageState extends State<TaskCheckInPage> {
     }
 
     final picker = ImagePicker();
-    final xfile = await picker.pickImage(
-      source: source,
-      imageQuality: 85,
-    );
+    final xfile = await picker.pickImage(source: source, imageQuality: 85);
     if (xfile == null) {
       // User cancelled camera → go back
       if (mounted) Navigator.pop(context);
@@ -952,7 +959,9 @@ class _TaskCheckInPageState extends State<TaskCheckInPage> {
                         )
                       : const Icon(Icons.check),
                   label: Text(
-                    _submitting ? 'checkin_processing'.tr() : 'checkin_save'.tr(),
+                    _submitting
+                        ? 'checkin_processing'.tr()
+                        : 'checkin_save'.tr(),
                   ),
                   style: ElevatedButton.styleFrom(
                     minimumSize: const Size(0, 52),
@@ -1018,6 +1027,7 @@ enum _CheckInStep { form, preview }
 
 class ManualCheckInPage extends StatefulWidget {
   final String driverId;
+
   /// FIRST_MILE = เรียกเสริม/วน (ต้นทาง Hub → ปลายทาง SOC) | LINE_HAUL = ต้นทาง SOC → ปลายทาง Hub
   final String taskType;
 
@@ -1151,10 +1161,7 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
     if (source == null || !mounted) return;
 
     final picker = ImagePicker();
-    final xfile = await picker.pickImage(
-      source: source,
-      imageQuality: 85,
-    );
+    final xfile = await picker.pickImage(source: source, imageQuality: 85);
     if (xfile == null) return;
     final imageBytes = await xfile.readAsBytes();
 
@@ -1325,9 +1332,15 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
             hubs: widget.taskType == 'FIRST_MILE' ? _hubs : _socs,
             onSelected: (hub) => setState(() => _origin = hub.sourceId),
             allowAddNew: true,
-            stationTypeForNew: widget.taskType == 'FIRST_MILE' ? stationTypeHub : stationTypeSoc,
+            stationTypeForNew: widget.taskType == 'FIRST_MILE'
+                ? stationTypeHub
+                : stationTypeSoc,
             onHubAdded: (hub) => setState(() {
-              if (widget.taskType == 'FIRST_MILE') _hubs.add(hub); else _socs.add(hub);
+              if (widget.taskType == 'FIRST_MILE') {
+                _hubs.add(hub);
+              } else {
+                _socs.add(hub);
+              }
             }),
           ),
           const SizedBox(height: 20),
@@ -1351,9 +1364,15 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
             hubs: widget.taskType == 'FIRST_MILE' ? _socs : _hubs,
             onSelected: (hub) => setState(() => _dest = hub.sourceId),
             allowAddNew: true,
-            stationTypeForNew: widget.taskType == 'FIRST_MILE' ? stationTypeSoc : stationTypeHub,
+            stationTypeForNew: widget.taskType == 'FIRST_MILE'
+                ? stationTypeSoc
+                : stationTypeHub,
             onHubAdded: (hub) => setState(() {
-              if (widget.taskType == 'FIRST_MILE') _socs.add(hub); else _hubs.add(hub);
+              if (widget.taskType == 'FIRST_MILE') {
+                _socs.add(hub);
+              } else {
+                _hubs.add(hub);
+              }
             }),
           ),
           const SizedBox(height: 32),
@@ -1501,7 +1520,9 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
                         )
                       : const Icon(Icons.check),
                   label: Text(
-                    _submitting ? 'checkin_processing'.tr() : 'checkin_save'.tr(),
+                    _submitting
+                        ? 'checkin_processing'.tr()
+                        : 'checkin_save'.tr(),
                   ),
                   style: ElevatedButton.styleFrom(
                     minimumSize: const Size(0, 52),

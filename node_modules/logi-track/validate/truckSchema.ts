@@ -37,6 +37,7 @@ export const truckSchema = z.object({
 
     vin: z.string().length(17, "VIN must be exactly 17 characters").optional().or(z.literal("")),
     engineNumber: z.string().length(10, "Engine number is required").optional().or(z.literal("")),
+    GPSVehicleId: z.string().optional(),
     truckStatus: z.union([
         z.enum(["active", "inactive", "maintenance", "insurance-claim", "sold"]),
         z.literal(""),
@@ -158,6 +159,7 @@ export const truckDefaultValues: TruckFormValues = {
 
     vin: "",
     engineNumber: "",
+    GPSVehicleId: "",
     truckStatus: "",
     brand: "",
     model: "",

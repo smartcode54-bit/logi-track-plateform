@@ -123,6 +123,22 @@ export function IdentificationSection() {
                     />
                     <FormField
                         control={control}
+                        name="GPSVehicleId"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>GPS Vehicle ID</FormLabel>
+                                <FormControl>
+                                    <Input
+                                        placeholder="Enter Vehicle ID (Optional)"
+                                        {...field}
+                                    />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={control}
                         name="truckStatus"
                         render={({ field }) => (
                             <FormItem>

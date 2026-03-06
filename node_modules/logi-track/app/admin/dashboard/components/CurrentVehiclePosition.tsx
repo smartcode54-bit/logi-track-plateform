@@ -2,35 +2,27 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { collection, query, where, getDocs, limit } from "firebase/firestore";
+import { collection, getDocs, limit, query } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { MapPin, ExternalLink, Loader2, Truck, RefreshCw } from "lucide-react";
 import { useLanguage } from "@/context/language";
 
-interface TripWithPosition {
+interface VehicleLocation {
   id: string;
-  driverId?: string;
-  status: string;
+  licensePlate: string;
+  positionDescription: string;
   lat: number;
   lng: number;
+  engineOn: boolean;
+  speed: number;
   updatedAt?: unknown;
-  origin?: string;
-  destination?: string;
-}
-
-interface DriverInfo {
-  id: string;
-  firstName?: string;
-  lastName?: string;
-  currentAssignment?: { truckPlate?: string };
 }
 
 export function CurrentVehiclePosition() {
   const { t } = useLanguage();
-  const [trips, setTrips] = useState<TripWithPosition[]>([]);
-  const [drivers, setDrivers] = useState<Record<string, DriverInfo>>({});
+  const [vehicles, setVehicles] = useState<VehicleLocation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,49 +30,29 @@ export function CurrentVehiclePosition() {
     setLoading(true);
     setError(null);
     try {
-      const [tripsSnap, driversSnap] = await Promise.all([
-        getDocs(
-          query(
-            collection(db, COLLECTIONS.TRIP_RECORDS),
-            where("status", "in", ["departure", "in_transit"]),
-            limit(50)
-          )
-        ),
-        getDocs(query(collection(db, COLLECTIONS.DRIVERS), limit(300))),
-      ]);
+      const locSnap = await getDocs(
+        query(collection(db, COLLECTIONS.VEHICLE_LOCATIONS), limit(50))
+      );
 
-      const driversMap: Record<string, DriverInfo> = {};
-      driversSnap.docs.forEach((d) => {
-        const data = d.data();
-        driversMap[d.id] = {
-          id: d.id,
-          firstName: data.firstName,
-          lastName: data.lastName,
-          currentAssignment: data.currentAssignment,
-        };
-        if (data.authId) driversMap[data.authId] = driversMap[d.id];
-      });
-      setDrivers(driversMap);
-
-      const list: TripWithPosition[] = [];
-      tripsSnap.docs.forEach((doc) => {
+      const list: VehicleLocation[] = [];
+      locSnap.docs.forEach((doc) => {
         const d = doc.data();
-        const lat = d.lat ?? d.latitude;
-        const lng = d.lng ?? d.longitude;
+        const lat = d.lat;
+        const lng = d.lng;
         if (typeof lat === "number" && typeof lng === "number" && Number.isFinite(lat) && Number.isFinite(lng)) {
           list.push({
             id: doc.id,
-            driverId: d.driverId,
-            status: d.status ?? "",
+            licensePlate: d.licensePlate ?? "—",
+            positionDescription: d.positionDescription ?? "",
             lat,
             lng,
+            engineOn: d.engineOn ?? false,
+            speed: d.speed ?? 0,
             updatedAt: d.updatedAt,
-            origin: d.origin,
-            destination: d.destination,
           });
         }
       });
-      setTrips(list);
+      setVehicles(list);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch");
     } finally {
@@ -92,33 +64,19 @@ export function CurrentVehiclePosition() {
     fetchData();
   }, []);
 
-  const getDriverLabel = (driverId?: string) => {
-    if (!driverId) return "—";
-    const driver = drivers[driverId];
-    if (!driver) return driverId.slice(0, 8);
-    const name = [driver.firstName, driver.lastName].filter(Boolean).join(" ").trim() || "—";
-    const plate = driver.currentAssignment?.truckPlate;
-    return plate ? `${name} (${plate})` : name;
-  };
-
-  const statusLabel: Record<string, string> = {
-    departure: t("dashboard.vehiclePosition.statusDeparture", "Departure"),
-    in_transit: t("dashboard.vehiclePosition.statusInTransit", "In transit"),
-  };
-
   return (
     <Card className="bg-card border border-border">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
             <Truck className="h-4 w-4 text-muted-foreground" />
-            {t("dashboard.vehiclePosition.title", "Current vehicle position")}
+            {t("dashboard.vehiclePosition.title", "ตำแหน่งรถปัจจุบัน")}
           </h3>
           <Link
             href="/admin/driver-monitor"
             className="text-xs font-medium text-primary hover:underline"
           >
-            {t("dashboard.vehiclePosition.viewAll", "View all")}
+            {t("dashboard.vehiclePosition.viewAll", "ดูทั้งหมด")}
           </Link>
         </div>
       </CardHeader>
@@ -141,31 +99,34 @@ export function CurrentVehiclePosition() {
               {t("dashboard.vehiclePosition.retry", "Retry")}
             </button>
           </div>
-        ) : trips.length === 0 ? (
+        ) : vehicles.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center">
-            {t("dashboard.vehiclePosition.noVehicles", "No vehicles with position data.")}
+            {t("dashboard.vehiclePosition.noVehicles", "ไม่มีรถที่มีข้อมูลตำแหน่ง")}
           </p>
         ) : (
           <ul className="space-y-2 max-h-[280px] overflow-y-auto">
-            {trips.map((trip) => (
+            {vehicles.map((v) => (
               <li
-                key={trip.id}
+                key={v.id}
                 className="flex items-center justify-between gap-2 p-2 rounded-lg bg-muted/40 hover:bg-muted/60 transition-colors"
               >
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-foreground truncate">
-                    {getDriverLabel(trip.driverId)}
+                  <p className="text-sm font-medium text-foreground truncate flex items-center gap-1.5">
+                    {v.engineOn ? "🟢" : "⚪"}
+                    {v.licensePlate}
                   </p>
-                  <p className="text-xs text-muted-foreground">
-                    {statusLabel[trip.status] ?? trip.status}
-                  </p>
+                  {v.positionDescription && (
+                    <p className="text-xs text-muted-foreground truncate mt-0.5">
+                      {v.positionDescription}
+                    </p>
+                  )}
                 </div>
                 <a
-                  href={`https://www.google.com/maps?q=${trip.lat},${trip.lng}`}
+                  href={`https://www.google.com/maps?q=${v.lat},${v.lng}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="shrink-0 inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                  title={`${trip.lat.toFixed(5)}, ${trip.lng.toFixed(5)}`}
+                  title={`${v.lat.toFixed(5)}, ${v.lng.toFixed(5)}`}
                 >
                   <MapPin className="h-3.5 w-3.5" />
                   {t("dashboard.vehiclePosition.openMap", "Map")}

@@ -30,7 +30,6 @@ Future<Uint8List> compressImageForUpload(List<int> imageBytes) async {
       quality: quality,
       format: CompressFormat.jpeg,
     );
-    if (result == null) return input;
 
     // If still over 500KB, reduce quality stepwise
     const qualitySteps = [65, 55, 45, 35];
@@ -44,10 +43,9 @@ Future<Uint8List> compressImageForUpload(List<int> imageBytes) async {
         quality: quality,
         format: CompressFormat.jpeg,
       );
-      if (result == null) return input;
     }
 
-    if (result != null && result!.length > kMaxUploadBytes) {
+    if (result != null && result.length > kMaxUploadBytes) {
       debugPrint(
         'Image compression: still ${(result.length / 1024).toStringAsFixed(1)}KB after lowest quality',
       );

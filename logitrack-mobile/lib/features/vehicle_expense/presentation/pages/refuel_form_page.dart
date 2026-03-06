@@ -59,10 +59,12 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
       _amountController.text = data.amount > 0
           ? data.amount.toStringAsFixed(2)
           : '';
-      if (data.volumeLiters != null)
+      if (data.volumeLiters != null) {
         _volumeController.text = data.volumeLiters!.toStringAsFixed(2);
-      if (data.odometer != null)
+      }
+      if (data.odometer != null) {
         _odometerController.text = data.odometer.toString();
+      }
       if (data.stationTaxId != null) _taxIdController.text = data.stationTaxId!;
       if (data.taxInvId != null) _taxInvIdController.text = data.taxInvId!;
       _refillLocation = data.refillLocation;
@@ -179,10 +181,12 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
       setState(() {
         _receiptPhoto = compressed;
         _ocrLoading = false;
-        if (result.totalAmount != null)
+        if (result.totalAmount != null) {
           _amountController.text = result.totalAmount!.toStringAsFixed(2);
-        if (result.liter != null)
+        }
+        if (result.liter != null) {
           _volumeController.text = result.liter!.toStringAsFixed(2);
+        }
         if (result.taxId != null && result.taxId!.isNotEmpty) {
           _taxIdController.text = result.taxId!;
         }
@@ -432,11 +436,12 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
         Navigator.of(context).pop(true);
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _saving = false;
           _saveError = e.toString();
         });
+      }
     }
   }
 
@@ -631,8 +636,9 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
                     ),
                     validator: (v) {
                       final n = double.tryParse(v?.trim() ?? '');
-                      if (n == null || n <= 0)
+                      if (n == null || n <= 0) {
                         return 'vehicle_expense_amount_required'.tr();
+                      }
                       return null;
                     },
                   ),
@@ -997,10 +1003,12 @@ class _RefuelPreviewSheet extends StatelessWidget {
 
   List<Uint8List> _allImages() {
     final list = <Uint8List>[];
-    if (receiptPhoto != null && receiptPhoto!.isNotEmpty)
+    if (receiptPhoto != null && receiptPhoto!.isNotEmpty) {
       list.add(receiptPhoto!);
-    if (odometerPhoto != null && odometerPhoto!.isNotEmpty)
+    }
+    if (odometerPhoto != null && odometerPhoto!.isNotEmpty) {
       list.add(odometerPhoto!);
+    }
     return list;
   }
 

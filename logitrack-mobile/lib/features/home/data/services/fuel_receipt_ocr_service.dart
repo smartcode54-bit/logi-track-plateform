@@ -266,10 +266,11 @@ String? _extractDate(String text) {
 
     // ปรับปรุง: รองรับปี พ.ศ. (Thai Buddhist Era)
     if (y < 100) {
-      if (y > 20 && y < 40)
+      if (y > 20 && y < 40) {
         y += 2500; // สมมติช่วงปี พ.ศ. ปัจจุบัน
-      else
+      } else {
         y += 2000;
+      }
     }
     if (y > 2500) y -= 543; // แปลง พ.ศ. เป็น ค.ศ.
 
@@ -313,7 +314,7 @@ String? _extractTotalAmount(String text) {
 }
 
 String? _extractOdometer(String text) {
-  String? _fixOdometerPadding(String? raw) {
+  String? fixOdometerPadding(String? raw) {
     if (raw == null || raw.isEmpty) return null;
 
     // OCR often misreads padding '0's as '8's (e.g., '88898898' instead of '00098898').
@@ -337,7 +338,7 @@ String? _extractOdometer(String text) {
   ).firstMatch(text);
 
   if (odoMatch != null) {
-    return _fixOdometerPadding(normalizeOcrDigits(odoMatch.group(1)));
+    return fixOdometerPadding(normalizeOcrDigits(odoMatch.group(1)));
   }
 
   final fallbackKMMatch = RegExp(
@@ -346,7 +347,7 @@ String? _extractOdometer(String text) {
   ).firstMatch(text);
 
   if (fallbackKMMatch != null) {
-    return _fixOdometerPadding(normalizeOcrDigits(fallbackKMMatch.group(1)));
+    return fixOdometerPadding(normalizeOcrDigits(fallbackKMMatch.group(1)));
   }
 
   return null;

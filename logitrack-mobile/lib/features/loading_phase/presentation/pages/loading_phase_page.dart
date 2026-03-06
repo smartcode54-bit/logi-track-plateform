@@ -114,9 +114,32 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
   }
 
   Future<void> _lockJobTypeByActiveTask() async {
-    final activeTaskId = await DraftStorageService.instance
+    String? activeTaskId = await DraftStorageService.instance
         .loadActiveCheckInTaskId();
-    if (activeTaskId == null) return;
+
+    if (activeTaskId == null || activeTaskId.isEmpty) {
+      // Fallback: fetch from Firestore if SharedPreferences lost it
+      final driverId = FirebaseAuth.instance.currentUser?.uid;
+      if (driverId != null && driverId.isNotEmpty) {
+        try {
+          final snapshot = await FirebaseFirestore.instance
+              .collection('tasks')
+              .where('driverId', isEqualTo: driverId)
+              .where('status', isEqualTo: 'Checked in')
+              .limit(1)
+              .get();
+          if (snapshot.docs.isNotEmpty) {
+            activeTaskId = snapshot.docs.first.id;
+            // Optionally, save it back to SharedPreferences
+            await DraftStorageService.instance.saveActiveCheckInTaskId(
+              activeTaskId,
+            );
+          }
+        } catch (_) {}
+      }
+    }
+
+    if (activeTaskId == null || activeTaskId.isEmpty) return;
 
     try {
       final taskDoc = await FirebaseFirestore.instance
@@ -339,10 +362,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     if (source == null || !mounted) return;
 
     final picker = ImagePicker();
-    final xfile = await picker.pickImage(
-      source: source,
-      imageQuality: 85,
-    );
+    final xfile = await picker.pickImage(source: source, imageQuality: 85);
     if (xfile == null || !mounted) return;
     final imageBytes = await xfile.readAsBytes();
     if (!mounted) return;
@@ -446,10 +466,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     if (source == null || !mounted) return;
 
     final picker = ImagePicker();
-    final xfile = await picker.pickImage(
-      source: source,
-      imageQuality: 85,
-    );
+    final xfile = await picker.pickImage(source: source, imageQuality: 85);
     if (xfile == null || !mounted) return;
     final imageBytes = await xfile.readAsBytes();
     if (!mounted) return;
@@ -522,8 +539,9 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     HubDoc? originHub;
     HubDoc? destHub;
     for (final h in _allHubs) {
-      if (h.sourceNameEn == originName || h.sourceId == originName)
+      if (h.sourceNameEn == originName || h.sourceId == originName) {
         originHub = h;
+      }
       if (h.sourceNameEn == destName || h.sourceId == destName) destHub = h;
     }
     final isFm = _jobType == jobTypeFirstMile;
@@ -673,7 +691,11 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
           children: [
             Row(
               children: [
-                Icon(Icons.info_outline, color: Colors.orange.shade800, size: 20),
+                Icon(
+                  Icons.info_outline,
+                  color: Colors.orange.shade800,
+                  size: 20,
+                ),
                 const SizedBox(width: 8),
                 Text(
                   'loading_phase_duplicate_check_debug'.tr(),
@@ -687,12 +709,29 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
             ),
             const SizedBox(height: 8),
             _debugRow('loading_phase_debug_doc_exists'.tr(), d.docExists),
-            _debugRow('loading_phase_debug_trip_id_blocks'.tr(), d.tripIdExists),
-            _debugRow('loading_phase_debug_same_driver_ok'.tr(), d.sameDriverAllowed),
+            _debugRow(
+              'loading_phase_debug_trip_id_blocks'.tr(),
+              d.tripIdExists,
+            ),
+            _debugRow(
+              'loading_phase_debug_same_driver_ok'.tr(),
+              d.sameDriverAllowed,
+            ),
             if (d.existingDriverId != null || d.currentDriverId != null) ...[
-              _debugRow('loading_phase_debug_existing_driver'.tr(), d.existingDriverId ?? '-'),
-              _debugRow('loading_phase_debug_your_driver'.tr(), d.currentDriverId ?? '-'),
-              _debugRow('loading_phase_debug_match'.tr(), d.existingDriverId == d.currentDriverId ? 'loading_phase_debug_yes'.tr() : 'loading_phase_debug_no'.tr()),
+              _debugRow(
+                'loading_phase_debug_existing_driver'.tr(),
+                d.existingDriverId ?? '-',
+              ),
+              _debugRow(
+                'loading_phase_debug_your_driver'.tr(),
+                d.currentDriverId ?? '-',
+              ),
+              _debugRow(
+                'loading_phase_debug_match'.tr(),
+                d.existingDriverId == d.currentDriverId
+                    ? 'loading_phase_debug_yes'.tr()
+                    : 'loading_phase_debug_no'.tr(),
+              ),
             ],
             _debugRow('loading_phase_debug_seal_blocks'.tr(), d.sealCodeExists),
           ],
@@ -863,8 +902,9 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       HubDoc? originHub;
       HubDoc? destHub;
       for (final h in _allHubs) {
-        if (h.sourceNameEn == originName || h.sourceId == originName)
+        if (h.sourceNameEn == originName || h.sourceId == originName) {
           originHub = h;
+        }
         if (h.sourceNameEn == destName || h.sourceId == destName) destHub = h;
       }
       HubSocDistanceResult? hubSocResult;
@@ -880,8 +920,26 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         );
       }
 
-      final activeTaskId = await DraftStorageService.instance
+      String? activeTaskId = await DraftStorageService.instance
           .loadActiveCheckInTaskId();
+
+      // Fallback: fetch from Firestore if SharedPreferences lost it
+      if (activeTaskId == null || activeTaskId.isEmpty) {
+        final uid = FirebaseAuth.instance.currentUser?.uid;
+        if (uid != null && uid.isNotEmpty) {
+          try {
+            final taskSnap = await FirebaseFirestore.instance
+                .collection('tasks')
+                .where('driverId', isEqualTo: uid)
+                .where('status', isEqualTo: 'Checked in')
+                .limit(1)
+                .get();
+            if (taskSnap.docs.isNotEmpty) {
+              activeTaskId = taskSnap.docs.first.id;
+            }
+          } catch (_) {}
+        }
+      }
 
       await submitLoadingPhaseRecord(
         tripId: tripId,
@@ -1196,8 +1254,11 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                           );
                         },
                         allowAddNew: true,
-                        stationTypeForNew: _jobType == jobTypeFirstMile ? stationTypeHub : stationTypeSoc,
-                        onHubAdded: (hub) => setState(() => _allHubs = [..._allHubs, hub]),
+                        stationTypeForNew: _jobType == jobTypeFirstMile
+                            ? stationTypeHub
+                            : stationTypeSoc,
+                        onHubAdded: (hub) =>
+                            setState(() => _allHubs = [..._allHubs, hub]),
                       ),
                       const SizedBox(height: 12),
                       SearchableHubPicker(
@@ -1214,8 +1275,11 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                           );
                         },
                         allowAddNew: true,
-                        stationTypeForNew: _jobType == jobTypeFirstMile ? stationTypeSoc : stationTypeHub,
-                        onHubAdded: (hub) => setState(() => _allHubs = [..._allHubs, hub]),
+                        stationTypeForNew: _jobType == jobTypeFirstMile
+                            ? stationTypeSoc
+                            : stationTypeHub,
+                        onHubAdded: (hub) =>
+                            setState(() => _allHubs = [..._allHubs, hub]),
                       ),
                       const SizedBox(height: 12),
 

@@ -34,10 +34,11 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
   Future<void> _loadTrips() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null || uid.isEmpty) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _loading = false;
         });
+      }
       return;
     }
     setState(() => _loading = true);
@@ -52,15 +53,18 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
       for (final h in hubs) {
         final id = h.sourceId.trim();
         if (id.isEmpty) continue;
-        final name = h.sourceNameTh.isNotEmpty ? h.sourceNameTh : h.sourceNameEn;
+        final name = h.sourceNameTh.isNotEmpty
+            ? h.sourceNameTh
+            : h.sourceNameEn;
         map[id] = name.isNotEmpty ? name : id;
       }
-      if (mounted)
+      if (mounted) {
         setState(() {
           _allTrips = list;
           _sourceIdToName = map;
           _loading = false;
         });
+      }
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
@@ -137,7 +141,7 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
                       children: [
                         Expanded(
                           child: DropdownButtonFormField<int>(
-                            value: _selectedYear,
+                            initialValue: _selectedYear,
                             decoration: InputDecoration(
                               labelText: 'trip_history_filter_year'.tr(),
                               border: const OutlineInputBorder(),
@@ -158,7 +162,7 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: DropdownButtonFormField<int>(
-                            value: _selectedMonth,
+                            initialValue: _selectedMonth,
                             decoration: InputDecoration(
                               labelText: 'trip_history_filter_month'.tr(),
                               border: const OutlineInputBorder(),
