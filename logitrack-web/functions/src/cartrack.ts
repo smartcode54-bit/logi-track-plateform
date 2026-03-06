@@ -21,6 +21,10 @@ const cartrackUsername = defineString("CARTRACK_API_USERNAME", {
 const cartrackPassword = defineString("CARTRACK_API_PASSWORD", {
     description: "Cartrack API password (hashed or plain) for Basic Auth",
 });
+const cartrackSyncEnabled = defineString("CARTRACK_SYNC_ENABLED", {
+    description: "Enable or disable Cartrack vehicle location sync ('true'/'false')",
+    default: "true",
+});
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const CARTRACK_API_URL = "https://fleetapi-th.cartrack.com/rest/vehicles/status";
@@ -83,6 +87,12 @@ export const syncVehicleLocations = onSchedule(
         const db = admin.firestore();
         const username = cartrackUsername.value();
         const password = cartrackPassword.value();
+        const syncEnabled = cartrackSyncEnabled.value() === "true";
+
+        if (!syncEnabled) {
+            logger.info("[syncVehicleLocations] Sync is disabled via CARTRACK_SYNC_ENABLED. Skipping.");
+            return;
+        }
 
         if (!username || !password) {
             logger.error(

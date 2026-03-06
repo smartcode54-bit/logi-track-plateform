@@ -28,6 +28,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Card, CardContent } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -400,67 +401,69 @@ export default function IncidentReportsPage() {
                         </DialogDescription>
                     </DialogHeader>
 
-                    {detailReport && (
-                        <div className="grid gap-4 py-2">
-                            <div className="space-y-3">
-                                <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900 rounded-lg p-4">
-                                    <p className="text-sm font-medium text-red-900 dark:text-red-100">
-                                        {detailReport.description}
-                                    </p>
-                                    {detailReport.delayCause && (
-                                        <p className="text-xs font-semibold text-red-700 dark:text-red-400 mt-2">
-                                            Cause: {detailReport.delayCause.replace("incident_cause_", "").toUpperCase()}
+                    <ScrollArea className="max-h-[80vh] px-1">
+                        {detailReport && (
+                            <div className="grid gap-4 py-2 pr-4">
+                                <div className="space-y-3">
+                                    <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900 rounded-lg p-4">
+                                        <p className="text-sm font-medium text-red-900 dark:text-red-100">
+                                            {detailReport.description}
                                         </p>
+                                        {detailReport.delayCause && (
+                                            <p className="text-xs font-semibold text-red-700 dark:text-red-400 mt-2">
+                                                Cause: {detailReport.delayCause.replace("incident_cause_", "").toUpperCase()}
+                                            </p>
+                                        )}
+                                        <p className="text-[11px] text-red-600/70 dark:text-red-400/70 mt-3 flex items-center gap-1.5">
+                                            <Clock className="w-3.5 h-3.5" />
+                                            Reported: {formatTimestamp(detailReport.createdAt)}
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4 text-sm mt-4 bg-muted/30 p-4 rounded-lg">
+                                    <div>
+                                        <p className="text-muted-foreground text-xs uppercase tracking-wider mb-1">Driver</p>
+                                        <p className="font-medium">{getDriverName(detailReport.driverId)}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-muted-foreground text-xs uppercase tracking-wider mb-1">License Plate</p>
+                                        <p className="font-mono">{detailReport.truckPlate || "-"}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-muted-foreground text-xs uppercase tracking-wider mb-1">Trip ID</p>
+                                        <p className="font-mono">{detailReport.tripId || "-"}</p>
+                                    </div>
+                                    {(detailReport.lat != null && detailReport.lng != null) && (
+                                        <div className="col-span-2 mt-2">
+                                            <p className="text-muted-foreground text-xs uppercase tracking-wider mb-2">Location Map</p>
+                                            <div className="h-[200px] w-full rounded-md border border-border/50 overflow-hidden relative z-0">
+                                                <IncidentLocationMap lat={detailReport.lat} lng={detailReport.lng} />
+                                            </div>
+                                            <div className="mt-2 text-right">
+                                                <a href={`https://www.google.com/maps?q=${detailReport.lat},${detailReport.lng}`} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline text-xs font-mono">
+                                                    {detailReport.lat.toFixed(5)}, {detailReport.lng.toFixed(5)} (Open in Google Maps)
+                                                </a>
+                                            </div>
+                                        </div>
                                     )}
-                                    <p className="text-[11px] text-red-600/70 dark:text-red-400/70 mt-3 flex items-center gap-1.5">
-                                        <Clock className="w-3.5 h-3.5" />
-                                        Reported: {formatTimestamp(detailReport.createdAt)}
-                                    </p>
+
+                                    {(detailReport.mapPhotoUrl || detailReport.situation1PhotoUrl || detailReport.situation2PhotoUrl) && (
+                                        <div className="col-span-2 mt-4">
+                                            <ImagePreviewGallery
+                                                compact
+                                                items={[
+                                                    detailReport.mapPhotoUrl ? { url: detailReport.mapPhotoUrl, label: "Location Snapshot" } : null,
+                                                    detailReport.situation1PhotoUrl ? { url: detailReport.situation1PhotoUrl, label: "Situation 1" } : null,
+                                                    detailReport.situation2PhotoUrl ? { url: detailReport.situation2PhotoUrl, label: "Situation 2" } : null,
+                                                ].filter((item): item is { url: string; label: string } => item !== null)}
+                                            />
+                                        </div>
+                                    )}
                                 </div>
                             </div>
-
-                            <div className="grid grid-cols-2 gap-4 text-sm mt-4 bg-muted/30 p-4 rounded-lg">
-                                <div>
-                                    <p className="text-muted-foreground text-xs uppercase tracking-wider mb-1">Driver</p>
-                                    <p className="font-medium">{getDriverName(detailReport.driverId)}</p>
-                                </div>
-                                <div>
-                                    <p className="text-muted-foreground text-xs uppercase tracking-wider mb-1">License Plate</p>
-                                    <p className="font-mono">{detailReport.truckPlate || "-"}</p>
-                                </div>
-                                <div>
-                                    <p className="text-muted-foreground text-xs uppercase tracking-wider mb-1">Trip ID</p>
-                                    <p className="font-mono">{detailReport.tripId || "-"}</p>
-                                </div>
-                                {(detailReport.lat != null && detailReport.lng != null) && (
-                                    <div className="col-span-2 mt-2">
-                                        <p className="text-muted-foreground text-xs uppercase tracking-wider mb-2">Location Map</p>
-                                        <div className="h-[200px] w-full rounded-md border border-border/50 overflow-hidden relative z-0">
-                                            <IncidentLocationMap lat={detailReport.lat} lng={detailReport.lng} />
-                                        </div>
-                                        <div className="mt-2 text-right">
-                                            <a href={`https://www.google.com/maps?q=${detailReport.lat},${detailReport.lng}`} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline text-xs font-mono">
-                                                {detailReport.lat.toFixed(5)}, {detailReport.lng.toFixed(5)} (Open in Google Maps)
-                                            </a>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {(detailReport.mapPhotoUrl || detailReport.situation1PhotoUrl || detailReport.situation2PhotoUrl) && (
-                                    <div className="col-span-2 mt-4">
-                                        <ImagePreviewGallery
-                                            compact
-                                            items={[
-                                                detailReport.mapPhotoUrl ? { url: detailReport.mapPhotoUrl, label: "Location Snapshot" } : null,
-                                                detailReport.situation1PhotoUrl ? { url: detailReport.situation1PhotoUrl, label: "Situation 1" } : null,
-                                                detailReport.situation2PhotoUrl ? { url: detailReport.situation2PhotoUrl, label: "Situation 2" } : null,
-                                            ].filter((item): item is { url: string; label: string } => item !== null)}
-                                        />
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    )}
+                        )}
+                    </ScrollArea>
                 </DialogContent>
             </Dialog>
         </div>
