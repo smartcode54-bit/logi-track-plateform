@@ -112,7 +112,7 @@ exports.syncVehicleLocations = (0, scheduler_1.onSchedule)({
             });
         }
     }
-    firebase_functions_1.logger.info(`[syncVehicleLocations] Found ${truckMap.size} truck(s) with GPSVehicleId.`, { lookingFor: Array.from(truckMap.keys()) });
+    firebase_functions_1.logger.info(`[syncVehicleLocations] Found ${truckMap.size} truck(s) with GPSVehicleId.`);
     // 2. Fetch vehicle positions from Cartrack
     let vehicles;
     try {
@@ -122,11 +122,7 @@ exports.syncVehicleLocations = (0, scheduler_1.onSchedule)({
         firebase_functions_1.logger.error("[syncVehicleLocations] Cartrack API error:", error.message);
         return;
     }
-    firebase_functions_1.logger.info(`[syncVehicleLocations] Cartrack API returned ${vehicles.length} vehicle(s).`, { apiVehicleIds: vehicles.slice(0, 10).map(v => ({ id: v.vehicle_id, reg: v.registration })) });
-    // DEBUG: Log first raw vehicle to see actual field names
-    if (vehicles.length > 0) {
-        firebase_functions_1.logger.info("[syncVehicleLocations] Raw first vehicle:", JSON.stringify(vehicles[0]));
-    }
+    firebase_functions_1.logger.info(`[syncVehicleLocations] Cartrack API returned ${vehicles.length} vehicle(s).`);
     // 3. Match & write to vehicle_locations
     const now = admin.firestore.Timestamp.now();
     const BATCH_LIMIT = 500;
