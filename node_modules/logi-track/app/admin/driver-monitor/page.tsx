@@ -122,6 +122,7 @@ export default function DriverMonitorPage() {
     const [tasks, setTasks] = useState<Task[]>([]);
     const [hubs, setHubs] = useState<{ source_id: string; source_name_en?: string }[]>([]);
     const [loading, setLoading] = useState(true);
+    const [incidentReportsByTripId, setIncidentReportsByTripId] = useState<Record<string, { description: string; delayCause: string | null; createdAt: Date | null }>>({});
 
     // Filters
     const [date, setDate] = useState<Date | undefined>(undefined);
@@ -183,6 +184,30 @@ export default function DriverMonitorPage() {
                 map[d.id] = { id: d.id, ...data } as Driver;
             });
             setDrivers(map);
+        });
+        return () => unsub();
+    }, []);
+
+    // ─── Fetch incident reports ───────────────────────────────
+    useEffect(() => {
+        const q = query(
+            collection(db, COLLECTIONS.INCIDENT_REPORTS),
+            orderBy("createdAt", "desc"),
+            limit(500)
+        );
+        const unsub = onSnapshot(q, (snap) => {
+            const map: Record<string, any> = {};
+            snap.docs.forEach((d) => {
+                const data = d.data();
+                if (data.tripId && !map[data.tripId]) {
+                    map[data.tripId] = {
+                        description: data.description,
+                        delayCause: data.delayCause,
+                        createdAt: toDate(data.createdAt),
+                    };
+                }
+            });
+            setIncidentReportsByTripId(map);
         });
         return () => unsub();
     }, []);
@@ -287,7 +312,13 @@ export default function DriverMonitorPage() {
             }
 
             // Status
-            if (statusFilter !== "all" && trip.status !== statusFilter) return false;
+            if (statusFilter !== "all") {
+                if (statusFilter === "incident") {
+                    if ((!trip.id || !incidentReportsByTripId[trip.id]) && trip.status !== "incident") return false;
+                } else if (trip.status !== statusFilter) {
+                    return false;
+                }
+            }
 
             // Job type
             if (jobTypeFilter !== "all" && trip.jobType !== jobTypeFilter) return false;
@@ -311,7 +342,7 @@ export default function DriverMonitorPage() {
 
             return true;
         });
-    }, [trips, date, statusFilter, jobTypeFilter, searchQuery, drivers, driversByAuthId]);
+    }, [trips, date, statusFilter, jobTypeFilter, searchQuery, drivers, driversByAuthId, incidentReportsByTripId]);
 
     // ─── Pagination ─────────────────────────────────────────
     const paginatedTrips = filteredTrips.slice(
@@ -575,151 +606,156 @@ export default function DriverMonitorPage() {
                 {/* Data Table */}
                 <div className="border rounded-lg bg-card overflow-hidden">
                     <div className="overflow-x-auto">
-                    <Table className="min-w-[900px]">
-                        <TableHeader className="bg-muted/50">
-                            <TableRow className="border-b border-border/50">
-                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
-                                    {t("driverMonitor.table.tripId")}
-                                </TableHead>
-                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
-                                    {t("driverMonitor.table.createdAt")}
-                                </TableHead>
-                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
-                                    {t("driverMonitor.table.driver")}
-                                </TableHead>
-                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
-                                    {t("driverMonitor.table.licensePlate")}
-                                </TableHead>
-                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
-                                    {t("driverMonitor.table.jobType")}
-                                </TableHead>
-                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
-                                    {t("driverMonitor.table.origin")}
-                                </TableHead>
-                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
-                                    {t("driverMonitor.table.destination")}
-                                </TableHead>
-                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
-                                    {t("driverMonitor.table.sealCode")}
-                                </TableHead>
-                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
-                                    {t("driverMonitor.table.status")}
-                                </TableHead>
-                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
-                                    {t("driverMonitor.table.deliveredTime")}
-                                </TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {loading ? (
-                                <TableRow>
-                                    <TableCell colSpan={10} className="h-32 text-center">
-                                        <div className="flex flex-col items-center justify-center gap-2">
-                                            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                                            <p className="text-sm text-muted-foreground">
-                                                {t("driverMonitor.table.loadingData")}
-                                            </p>
-                                        </div>
-                                    </TableCell>
+                        <Table className="min-w-[900px]">
+                            <TableHeader className="bg-muted/50">
+                                <TableRow className="border-b border-border/50">
+                                    <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
+                                        {t("driverMonitor.table.tripId")}
+                                    </TableHead>
+                                    <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
+                                        {t("driverMonitor.table.createdAt")}
+                                    </TableHead>
+                                    <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
+                                        {t("driverMonitor.table.driver")}
+                                    </TableHead>
+                                    <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
+                                        {t("driverMonitor.table.licensePlate")}
+                                    </TableHead>
+                                    <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
+                                        {t("driverMonitor.table.jobType")}
+                                    </TableHead>
+                                    <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
+                                        {t("driverMonitor.table.origin")}
+                                    </TableHead>
+                                    <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
+                                        {t("driverMonitor.table.destination")}
+                                    </TableHead>
+                                    <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
+                                        {t("driverMonitor.table.sealCode")}
+                                    </TableHead>
+                                    <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
+                                        {t("driverMonitor.table.status")}
+                                    </TableHead>
+                                    <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
+                                        {t("driverMonitor.table.deliveredTime")}
+                                    </TableHead>
                                 </TableRow>
-                            ) : paginatedTrips.length === 0 ? (
-                                <TableRow>
-                                    <TableCell colSpan={10} className="h-32 text-center">
-                                        <p className="text-sm text-muted-foreground">
-                                            {t("driverMonitor.table.noTrips")}
-                                        </p>
-                                    </TableCell>
-                                </TableRow>
-                            ) : (
-                                paginatedTrips.map((trip) => (
-                                    <TableRow
-                                        key={trip.id}
-                                        className="cursor-pointer hover:bg-muted/50 transition-colors border-b border-border/50"
-                                        onClick={() => setDetailTrip(trip)}
-                                    >
-                                        {/* Trip ID */}
-                                        <TableCell>
-                                            <span className="font-mono text-xs">
-                                                {trip.spxTripId || trip.id?.slice(0, 10) || "-"}
-                                            </span>
-                                        </TableCell>
-
-                                        {/* Created / Check-in: prefer checkInAt from linked task */}
-                                        <TableCell className="text-sm text-muted-foreground">
-                                            {formatTimestamp(
-                                                (trip.taskId && checkInAtByTaskId[trip.taskId]) || trip.createdAt
-                                            )}
-                                        </TableCell>
-
-                                        {/* Driver */}
-                                        <TableCell>
-                                            <span className="font-medium text-sm">
-                                                {getDriverName(trip.driverId)}
-                                            </span>
-                                        </TableCell>
-
-                                        {/* License Plate */}
-                                        <TableCell>
-                                            <span className="font-mono text-sm text-muted-foreground">
-                                                {getLicensePlate(trip.driverId)}
-                                            </span>
-                                        </TableCell>
-
-                                        {/* Job Type */}
-                                        <TableCell>
-                                            <Badge
-                                                variant="secondary"
-                                                className={cn(
-                                                    "font-medium border",
-                                                    JOB_TYPE_COLOR[trip.jobType] || "bg-gray-500/10 text-gray-500"
-                                                )}
-                                            >
-                                                {JOB_TYPE_LABEL[trip.jobType] || trip.jobType}
-                                            </Badge>
-                                        </TableCell>
-
-                                        {/* Origin */}
-                                        <TableCell className="text-sm">
-                                            <span className="font-medium">{getSourceDisplayName(trip.origin)}</span>
-                                        </TableCell>
-
-                                        {/* Destination */}
-                                        <TableCell className="text-sm">
-                                            <span className="font-medium">{getSourceDisplayName(trip.destination)}</span>
-                                        </TableCell>
-
-                                        {/* Seal Code */}
-                                        <TableCell>
-                                            <span className="font-mono text-xs">
-                                                {trip.sealCode || "-"}
-                                            </span>
-                                        </TableCell>
-
-                                        {/* Status */}
-                                        <TableCell>
-                                            <Badge
-                                                variant="secondary"
-                                                className={cn(
-                                                    "font-medium border",
-                                                    STATUS_COLOR[trip.status] || "bg-gray-500/10 text-gray-500"
-                                                )}
-                                            >
-                                                <span className="w-1.5 h-1.5 rounded-full bg-current mr-1.5" />
-                                                {t(`driverMonitor.status.${trip.status}` as any)}
-                                            </Badge>
-                                        </TableCell>
-
-                                        {/* Delivered / Updated time */}
-                                        <TableCell className="text-sm text-muted-foreground">
-                                            {formatTimestamp(trip.status === "delivered" && trip.deliveredTimestamp
-                                                ? trip.deliveredTimestamp
-                                                : trip.updatedAt)}
+                            </TableHeader>
+                            <TableBody>
+                                {loading ? (
+                                    <TableRow>
+                                        <TableCell colSpan={10} className="h-32 text-center">
+                                            <div className="flex flex-col items-center justify-center gap-2">
+                                                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                                                <p className="text-sm text-muted-foreground">
+                                                    {t("driverMonitor.table.loadingData")}
+                                                </p>
+                                            </div>
                                         </TableCell>
                                     </TableRow>
-                                ))
-                            )}
-                        </TableBody>
-                    </Table>
+                                ) : paginatedTrips.length === 0 ? (
+                                    <TableRow>
+                                        <TableCell colSpan={10} className="h-32 text-center">
+                                            <p className="text-sm text-muted-foreground">
+                                                {t("driverMonitor.table.noTrips")}
+                                            </p>
+                                        </TableCell>
+                                    </TableRow>
+                                ) : (
+                                    paginatedTrips.map((trip) => (
+                                        <TableRow
+                                            key={trip.id}
+                                            className="cursor-pointer hover:bg-muted/50 transition-colors border-b border-border/50"
+                                            onClick={() => setDetailTrip(trip)}
+                                        >
+                                            {/* Trip ID */}
+                                            <TableCell>
+                                                <span className="font-mono text-xs">
+                                                    {trip.spxTripId || trip.id?.slice(0, 10) || "-"}
+                                                </span>
+                                            </TableCell>
+
+                                            {/* Created / Check-in: prefer checkInAt from linked task */}
+                                            <TableCell className="text-sm text-muted-foreground">
+                                                {formatTimestamp(
+                                                    (trip.taskId && checkInAtByTaskId[trip.taskId]) || trip.createdAt
+                                                )}
+                                            </TableCell>
+
+                                            {/* Driver */}
+                                            <TableCell>
+                                                <span className="font-medium text-sm">
+                                                    {getDriverName(trip.driverId)}
+                                                </span>
+                                            </TableCell>
+
+                                            {/* License Plate */}
+                                            <TableCell>
+                                                <span className="font-mono text-sm text-muted-foreground">
+                                                    {getLicensePlate(trip.driverId)}
+                                                </span>
+                                            </TableCell>
+
+                                            {/* Job Type */}
+                                            <TableCell>
+                                                <Badge
+                                                    variant="secondary"
+                                                    className={cn(
+                                                        "font-medium border",
+                                                        JOB_TYPE_COLOR[trip.jobType] || "bg-gray-500/10 text-gray-500"
+                                                    )}
+                                                >
+                                                    {JOB_TYPE_LABEL[trip.jobType] || trip.jobType}
+                                                </Badge>
+                                            </TableCell>
+
+                                            {/* Origin */}
+                                            <TableCell className="text-sm">
+                                                <span className="font-medium">{getSourceDisplayName(trip.origin)}</span>
+                                            </TableCell>
+
+                                            {/* Destination */}
+                                            <TableCell className="text-sm">
+                                                <span className="font-medium">{getSourceDisplayName(trip.destination)}</span>
+                                            </TableCell>
+
+                                            {/* Seal Code */}
+                                            <TableCell>
+                                                <span className="font-mono text-xs">
+                                                    {trip.sealCode || "-"}
+                                                </span>
+                                            </TableCell>
+
+                                            {/* Status */}
+                                            <TableCell>
+                                                <div className="flex items-center gap-2">
+                                                    <Badge
+                                                        variant="secondary"
+                                                        className={cn(
+                                                            "font-medium border",
+                                                            STATUS_COLOR[trip.status] || "bg-gray-500/10 text-gray-500"
+                                                        )}
+                                                    >
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-current mr-1.5" />
+                                                        {t(`driverMonitor.status.${trip.status}` as any)}
+                                                    </Badge>
+                                                    {trip.id && incidentReportsByTripId[trip.id] && (
+                                                        <img src="/exclamation_8848378.png" alt="incident" className="w-4 h-4 object-contain" title="Incident Reported" />
+                                                    )}
+                                                </div>
+                                            </TableCell>
+
+                                            {/* Delivered / Updated time */}
+                                            <TableCell className="text-sm text-muted-foreground">
+                                                {formatTimestamp(trip.status === "delivered" && trip.deliveredTimestamp
+                                                    ? trip.deliveredTimestamp
+                                                    : trip.updatedAt)}
+                                            </TableCell>
+                                        </TableRow>
+                                    ))
+                                )}
+                            </TableBody>
+                        </Table>
                     </div>
 
                     {/* Pagination Footer */}
@@ -779,6 +815,30 @@ export default function DriverMonitorPage() {
 
                     {detailTrip && (
                         <div className="grid gap-6 py-2">
+                            {/* Incident Report (if any) */}
+                            {detailTrip.id && incidentReportsByTripId[detailTrip.id] && (
+                                <div className="space-y-3">
+                                    <h4 className="text-sm font-semibold text-red-800 dark:text-red-400 flex items-center gap-2">
+                                        <img src="/exclamation_8848378.png" alt="incident" className="w-4 h-4 object-contain" />
+                                        {t("driverMonitor.detail.incidentReport", "Incident Report")}
+                                    </h4>
+                                    <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900 rounded-lg p-4">
+                                        <p className="text-sm text-red-700 dark:text-red-300">
+                                            {incidentReportsByTripId[detailTrip.id].description}
+                                        </p>
+                                        {incidentReportsByTripId[detailTrip.id].delayCause && (
+                                            <p className="text-xs font-medium text-red-800 dark:text-red-400 mt-2">
+                                                Cause: {incidentReportsByTripId[detailTrip.id].delayCause!.replace("incident_cause_", "").toUpperCase()}
+                                            </p>
+                                        )}
+                                        <p className="text-[10px] text-red-600/70 dark:text-red-400/70 mt-3 flex items-center gap-1.5">
+                                            <Clock className="w-3 h-3" />
+                                            {formatTimestamp(incidentReportsByTripId[detailTrip.id].createdAt)}
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Trip Info */}
                             <div className="space-y-3">
                                 <h4 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">

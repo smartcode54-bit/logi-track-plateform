@@ -58,6 +58,8 @@ export default {
     "accounting.detail.odometerPhoto": "รูปเลขไมล์",
     "accounting.detail.noImages": "ไม่มีรูปใบเสร็จหรือเลขไมล์",
     "accounting.detail.otherTitle": "รายละเอียดค่าใช้จ่ายอื่น",
+    "accounting.detail.save": "บันทึกการแก้ไข",
+    "accounting.detail.editing": "กำลังแก้ไข",
     "accounting.detail.category": "ประเภท",
     "accounting.detail.description": "รายละเอียด",
 

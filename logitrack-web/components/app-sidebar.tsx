@@ -103,18 +103,6 @@ export function AppSidebar() {
             capability: CAPABILITIES.waitlist_view,
         },
         {
-            title: t("nav.security") || "Security",
-            url: "/admin/security-center",
-            icon: Shield,
-            capability: CAPABILITIES.security_view_overview,
-        },
-        {
-            title: t("nav.reporting"),
-            url: "/admin/analytics",
-            icon: BarChart3,
-            capability: CAPABILITIES.reporting_view_analytics,
-        },
-        {
             title: t("nav.accounting"),
             icon: Calculator,
             items: [
@@ -131,6 +119,7 @@ export function AppSidebar() {
                 { title: "Line Haul Tasks", url: "/admin/line-haul", capability: CAPABILITIES.operations_view_line_haul },
                 { title: t("nav.sourceManagement"), url: "/admin/sources", capability: CAPABILITIES.operations_manage_sources },
                 { title: t("nav.driverMonitor"), url: "/admin/driver-monitor", capability: CAPABILITIES.operations_view_driver_monitor },
+                { title: t("nav.incidentReports", "รายงานปัญหาการจัดส่ง"), url: "/admin/incident-reports", capability: CAPABILITIES.operations_view_incidents },
             ],
         },
     ]
@@ -217,21 +206,21 @@ export function AppSidebar() {
                 </SidebarGroup>
 
                 {showSecurityCenter && (
-                <SidebarGroup className="mt-auto">
-                    <SidebarGroupLabel>{t("nav.system")}</SidebarGroupLabel>
-                    <SidebarGroupContent>
-                        <SidebarMenu>
-                            <SidebarMenuItem>
-                                <SidebarMenuButton asChild tooltip={t("nav.securityCenter")} isActive={pathname?.startsWith("/admin/security-center")}>
-                                    <Link href="/admin/security-center">
-                                        <Shield />
-                                        <span>{t("nav.securityCenter")}</span>
-                                    </Link>
-                                </SidebarMenuButton>
-                            </SidebarMenuItem>
-                        </SidebarMenu>
-                    </SidebarGroupContent>
-                </SidebarGroup>
+                    <SidebarGroup className="mt-auto">
+                        <SidebarGroupLabel>{t("nav.system")}</SidebarGroupLabel>
+                        <SidebarGroupContent>
+                            <SidebarMenu>
+                                <SidebarMenuItem>
+                                    <SidebarMenuButton asChild tooltip={t("nav.securityCenter")} isActive={pathname?.startsWith("/admin/security-center")}>
+                                        <Link href="/admin/security-center">
+                                            <Shield />
+                                            <span>{t("nav.securityCenter")}</span>
+                                        </Link>
+                                    </SidebarMenuButton>
+                                </SidebarMenuItem>
+                            </SidebarMenu>
+                        </SidebarGroupContent>
+                    </SidebarGroup>
                 )}
             </SidebarContent>
             <SidebarFooter>

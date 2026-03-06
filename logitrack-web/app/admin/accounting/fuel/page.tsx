@@ -12,11 +12,17 @@ import {
 } from "../actions.client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Fuel, DollarSign, Hash, TrendingUp, Loader2, Gauge, Search, RefreshCw } from "lucide-react";
-import { ImagePreviewGallery } from "@/components/accounting/ImagePreviewGallery";
+import { Fuel, DollarSign, Hash, TrendingUp, Loader2, Gauge, Search, RefreshCw, Save, ChevronLeft, ChevronRight } from "lucide-react";
+import dynamic from "next/dynamic";
+
+const RefillLocationMap = dynamic(
+    () => import("@/components/accounting/RefillLocationMap").then((m) => m.RefillLocationMap),
+    { ssr: false }
+);
 import { format } from "date-fns";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -26,6 +32,9 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
+import { usePermission } from "@/hooks/usePermission";
+import { CAPABILITIES } from "@/lib/capabilities";
+import { updateVehicleExpense } from "../actions.client";
 
 export interface FuelRow extends VehicleExpenseRow {
     kmPerLiter?: number;
@@ -80,6 +89,27 @@ export default function AccountingFuelPage() {
     const [filterKmMin, setFilterKmMin] = useState<string>("");
     const [filterKmMax, setFilterKmMax] = useState<string>("");
     const [detailRow, setDetailRow] = useState<FuelRow | null>(null);
+    const [editForm, setEditForm] = useState<FuelRow | null>(null);
+    const [submitting, setSubmitting] = useState(false);
+
+    const { hasPermission: canEdit } = usePermission(CAPABILITIES.accounting_edit_fuel);
+
+    const [imageIndex, setImageIndex] = useState(0);
+    const [detailMapKey, setDetailMapKey] = useState(0);
+
+    const imageItems = useMemo(() => {
+        if (!detailRow) return [];
+        const items = [];
+        if (detailRow.receiptPhotoUrl) items.push({ url: detailRow.receiptPhotoUrl, label: t("accounting.detail.receiptPhoto") });
+        if (detailRow.odometerPhotoUrl) items.push({ url: detailRow.odometerPhotoUrl, label: t("accounting.detail.odometerPhoto") });
+        return items;
+    }, [detailRow, t]);
+    const currentImage = imageItems[imageIndex] ?? null;
+
+    useEffect(() => {
+        setImageIndex(0);
+        setDetailMapKey((k) => k + 1);
+    }, [detailRow]);
 
     const loadData = () => {
         setLoading(true);
@@ -93,6 +123,45 @@ export default function AccountingFuelPage() {
             setTrucks(truckList);
         }).finally(() => setLoading(false));
     };
+
+    const handleSaveEdit = async () => {
+        if (!detailRow || !editForm) return;
+        setSubmitting(true);
+        try {
+            const pricePerLiterRounded = editForm.pricePerLiter != null && !isNaN(Number(editForm.pricePerLiter))
+                ? Math.round(Number(editForm.pricePerLiter) * 100) / 100
+                : editForm.pricePerLiter;
+
+            await updateVehicleExpense(detailRow.id, {
+                amount: editForm.amount,
+                volumeLiters: editForm.volumeLiters,
+                pricePerLiter: pricePerLiterRounded,
+                odometer: editForm.odometer,
+                stationTaxId: editForm.stationTaxId ?? "",
+                taxInvId: editForm.taxInvId ?? "",
+                distanceKm: editForm.distanceKm,
+            } as any);
+
+            await loadData(); // Reload list to get updated data
+            setDetailRow(null); // Close dialog
+        } catch (err) {
+            console.error("Failed to update fuel expense:", err);
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    useEffect(() => {
+        if (detailRow) {
+            const row = { ...detailRow };
+            if (row.pricePerLiter != null && typeof row.pricePerLiter === "number" && !isNaN(row.pricePerLiter)) {
+                row.pricePerLiter = Math.round(row.pricePerLiter * 100) / 100;
+            }
+            setEditForm(row);
+        } else {
+            setEditForm(null);
+        }
+    }, [detailRow]);
 
     useEffect(() => {
         loadData();
@@ -417,57 +486,228 @@ export default function AccountingFuelPage() {
 
             {/* Detail Dialog */}
             <Dialog open={!!detailRow} onOpenChange={(open) => !open && setDetailRow(null)}>
-                <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col p-4">
-                    <DialogHeader className="shrink-0">
+                <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden flex flex-col p-0">
+                    <DialogHeader className="px-6 pt-6 pb-2 shrink-0">
                         <DialogTitle>{t("accounting.detail.title")}</DialogTitle>
                         <DialogDescription>
-                            {detailRow && format(detailRow.date, "dd MMM yyyy")}
+                            {detailRow && format(detailRow.date, "dd MMM yyyy")} · {detailRow?.driverName ?? detailRow?.driverId}
                         </DialogDescription>
                     </DialogHeader>
-                    {detailRow && (
-                        <div className="flex flex-col gap-4 min-h-0 flex-1 overflow-hidden py-2">
-                            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm bg-muted/30 rounded-lg p-3 shrink-0">
-                                <span className="text-muted-foreground">{t("accounting.table.date")}</span>
-                                <span className="font-medium">{format(detailRow.date, "dd MMM yyyy")}</span>
-                                <span className="text-muted-foreground">{t("accounting.detail.driver")}</span>
-                                <span className="font-medium">{detailRow.driverName ?? (detailRow.driverId || "—")}</span>
-                                <span className="text-muted-foreground">{t("accounting.detail.vehicle")}</span>
-                                <span className="font-mono">{detailRow.licensePlate ?? "—"}</span>
-                                <span className="text-muted-foreground">{t("accounting.detail.amount")}</span>
-                                <span className="font-semibold">฿{detailRow.amount.toLocaleString()}</span>
-                                <span className="text-muted-foreground">{t("accounting.detail.volume")}</span>
-                                <span>{detailRow.volumeLiters != null ? detailRow.volumeLiters.toLocaleString() : "—"}</span>
-                                <span className="text-muted-foreground">{t("accounting.detail.pricePerLiter")}</span>
-                                <span>{detailRow.pricePerLiter != null ? `฿${detailRow.pricePerLiter.toLocaleString()}` : "—"}</span>
-                                <span className="text-muted-foreground">{t("accounting.detail.odometer")}</span>
-                                <span>{detailRow.odometer != null ? detailRow.odometer.toLocaleString() : "—"}</span>
-                                <span className="text-muted-foreground">{t("accounting.detail.distanceKm")}</span>
-                                <span>{detailRow.distanceKm != null ? detailRow.distanceKm.toLocaleString() : "—"}</span>
-                                <span className="text-muted-foreground">{t("accounting.detail.kmPerLiter")}</span>
-                                <span className="font-medium">
-                                    {detailRow.kmPerLiter != null ? `${detailRow.kmPerLiter} km/L` : "—"}
-                                </span>
+                    {detailRow && editForm && (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-0 flex-1 min-h-0 overflow-hidden">
+                            {/* Left: Images */}
+                            <div className="bg-muted/30 border-t md:border-t-0 md:border-r border-border p-4 flex flex-col min-h-0">
+                                {imageItems.length > 0 ? (
+                                    <>
+                                        <div className="flex-1 min-h-[280px] flex items-center justify-center overflow-hidden rounded-lg border border-border bg-black/5">
+                                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                                            <img
+                                                src={currentImage?.url}
+                                                alt={currentImage?.label ?? ""}
+                                                className="max-w-full max-h-[60vh] md:max-h-[70vh] w-auto h-auto object-contain select-none"
+                                                draggable={false}
+                                            />
+                                        </div>
+                                        <div className="flex items-center justify-between gap-2 pt-2 shrink-0">
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="icon"
+                                                disabled={imageItems.length <= 1}
+                                                onClick={() => setImageIndex((i) => (i <= 0 ? imageItems.length - 1 : i - 1))}
+                                            >
+                                                <ChevronLeft className="h-4 w-4" />
+                                            </Button>
+                                            <span className="text-sm text-muted-foreground">
+                                                {currentImage?.label ?? ""} ({imageIndex + 1} / {imageItems.length})
+                                            </span>
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="icon"
+                                                disabled={imageItems.length <= 1}
+                                                onClick={() => setImageIndex((i) => (i >= imageItems.length - 1 ? 0 : i + 1))}
+                                            >
+                                                <ChevronRight className="h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="flex items-center justify-center flex-1 min-h-[200px] rounded-lg border border-dashed border-muted-foreground/30 text-muted-foreground text-sm">
+                                        {t("accounting.detail.noImages")}
+                                    </div>
+                                )}
                             </div>
-                            {(detailRow.receiptPhotoUrl || detailRow.odometerPhotoUrl) && (
-                                <div className="min-h-0 flex-1 flex flex-col max-h-[42vh]">
-                                    <ImagePreviewGallery
-                                        items={[
-                                            ...(detailRow.receiptPhotoUrl
-                                                ? [{ url: detailRow.receiptPhotoUrl!, label: t("accounting.detail.receiptPhoto") }]
-                                                : []),
-                                            ...(detailRow.odometerPhotoUrl
-                                                ? [{ url: detailRow.odometerPhotoUrl!, label: t("accounting.detail.odometerPhoto") }]
-                                                : []),
-                                        ]}
-                                        compact
+
+                            {/* Middle: Editable Details */}
+                            <div className="flex flex-col min-h-0 border-t md:border-t-0 md:border-r border-border">
+                                <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                                    <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                                        <Label className="text-muted-foreground">{t("accounting.table.date")}</Label>
+                                        <span className="font-medium h-9 flex items-center">{format(editForm.date, "dd MMM yyyy")}</span>
+                                        <Label className="text-muted-foreground">{t("accounting.detail.driver")}</Label>
+                                        <Input value={editForm.driverName ?? editForm.driverId ?? "—"} readOnly className="h-9 bg-muted/50 cursor-not-allowed" />
+                                        <Label className="text-muted-foreground">{t("accounting.detail.vehicle")}</Label>
+                                        <Input value={editForm.licensePlate ?? "—"} readOnly className="h-9 font-mono bg-muted/50 cursor-not-allowed" />
+
+                                        <Label className="text-muted-foreground">{t("accounting.detail.amount")}</Label>
+                                        {canEdit ? (
+                                            <Input
+                                                type="number"
+                                                value={editForm.amount ?? ""}
+                                                onChange={(e) => setEditForm({ ...editForm, amount: e.target.value === "" ? editForm.amount : Number(e.target.value) })}
+                                                className="h-9 font-semibold"
+                                            />
+                                        ) : (
+                                            <Input value={`฿${editForm.amount.toLocaleString()}`} readOnly className="h-9 font-semibold bg-muted/50 cursor-not-allowed" />
+                                        )}
+
+                                        <Label className="text-muted-foreground">{t("accounting.detail.volume")}</Label>
+                                        {canEdit ? (
+                                            <Input
+                                                type="number"
+                                                step="0.01"
+                                                value={editForm.volumeLiters ?? ""}
+                                                onChange={(e) => setEditForm({ ...editForm, volumeLiters: e.target.value === "" ? undefined : Number(e.target.value) })}
+                                                className="h-9"
+                                            />
+                                        ) : (
+                                            <Input value={editForm.volumeLiters != null ? editForm.volumeLiters.toLocaleString() : "—"} readOnly className="h-9 bg-muted/50 cursor-not-allowed" />
+                                        )}
+
+                                        <Label className="text-muted-foreground">{t("accounting.detail.pricePerLiter")}</Label>
+                                        {canEdit ? (
+                                            <Input
+                                                type="number"
+                                                step="0.01"
+                                                value={editForm.pricePerLiter != null && typeof editForm.pricePerLiter === "number" && !isNaN(editForm.pricePerLiter) ? editForm.pricePerLiter.toFixed(2) : ""}
+                                                onChange={(e) => {
+                                                    const val = e.target.value === "" ? undefined : parseFloat(e.target.value);
+                                                    setEditForm({ ...editForm, pricePerLiter: val });
+                                                }}
+                                                className="h-9"
+                                            />
+                                        ) : (
+                                            <Input value={editForm.pricePerLiter != null ? `฿${editForm.pricePerLiter.toLocaleString()}` : "—"} readOnly className="h-9 bg-muted/50 cursor-not-allowed" />
+                                        )}
+
+                                        <Label className="text-muted-foreground">{t("accounting.detail.odometer")}</Label>
+                                        {canEdit ? (
+                                            <Input
+                                                type="number"
+                                                value={editForm.odometer ?? ""}
+                                                onChange={(e) => setEditForm({ ...editForm, odometer: e.target.value === "" ? undefined : Number(e.target.value) })}
+                                                className="h-9"
+                                            />
+                                        ) : (
+                                            <Input value={editForm.odometer != null ? editForm.odometer.toLocaleString() : "—"} readOnly className="h-9 bg-muted/50 cursor-not-allowed" />
+                                        )}
+
+                                        <Label className="text-muted-foreground">{t("accounting.detail.stationTaxId")}</Label>
+                                        {canEdit ? (
+                                            <Input
+                                                value={editForm.stationTaxId ?? ""}
+                                                onChange={(e) => setEditForm({ ...editForm, stationTaxId: e.target.value })}
+                                                className="h-9"
+                                            />
+                                        ) : (
+                                            <Input value={editForm.stationTaxId || "—"} readOnly className="h-9 bg-muted/50 cursor-not-allowed" />
+                                        )}
+
+                                        <Label className="text-muted-foreground">{t("accounting.detail.taxInvId")}</Label>
+                                        {canEdit ? (
+                                            <Input
+                                                value={editForm.taxInvId ?? ""}
+                                                onChange={(e) => setEditForm({ ...editForm, taxInvId: e.target.value })}
+                                                className="h-9"
+                                            />
+                                        ) : (
+                                            <Input value={editForm.taxInvId || "—"} readOnly className="h-9 bg-muted/50 cursor-not-allowed" />
+                                        )}
+
+                                        <Label className="text-muted-foreground">{t("accounting.detail.distanceKm")}</Label>
+                                        <Input value={editForm.distanceKm != null ? editForm.distanceKm.toLocaleString() : "—"} readOnly className="h-9 bg-muted/50 cursor-not-allowed" />
+                                        <Label className="text-muted-foreground">{t("accounting.detail.kmPerLiter")}</Label>
+                                        <Input value={editForm.kmPerLiter != null ? `${editForm.kmPerLiter} km/L` : "—"} readOnly className="h-9 font-medium bg-muted/50 cursor-not-allowed" />
+                                    </div>
+
+                                    {editForm.adminNote && (
+                                        <div className="space-y-2 pt-2 border-t border-border mt-2">
+                                            <Label className="text-muted-foreground">{t("accounting.audit.adminNote")}</Label>
+                                            <span className="text-muted-foreground text-sm break-words flex min-h-9 items-center p-2 rounded-md bg-orange-500/10 border border-orange-500/20 text-orange-700 dark:text-orange-400">
+                                                {editForm.adminNote}
+                                            </span>
+                                        </div>
+                                    )}
+
+                                    {canEdit && (
+                                        <div className="space-y-2 pt-2 border-t border-border mt-2">
+                                            <Label className="text-muted-foreground">{t("accounting.detail.note")}</Label>
+                                            <Input
+                                                className="h-9"
+                                                value={editForm.note ?? ""}
+                                                onChange={(e) => setEditForm({ ...editForm, note: e.target.value })}
+                                            />
+                                        </div>
+                                    )}
+
+                                    {(detailRow.createdAt || detailRow.updatedAt) && (
+                                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground pt-2 border-t border-border">
+                                            {detailRow.createdAt && (
+                                                <>
+                                                    <span>{t("accounting.audit.created")}</span>
+                                                    <span>{format(detailRow.createdAt, "dd MMM yyyy HH:mm")}</span>
+                                                </>
+                                            )}
+                                            {detailRow.updatedAt && (
+                                                <>
+                                                    <span>{t("accounting.audit.updated")}</span>
+                                                    <span>{format(detailRow.updatedAt, "dd MMM yyyy HH:mm")}</span>
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <DialogFooter className="px-6 py-4 border-t border-border shrink-0 flex-wrap gap-2 justify-end">
+                                    {canEdit && (
+                                        <Button variant="secondary" className="gap-1" onClick={handleSaveEdit} disabled={submitting}>
+                                            {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                            <Save className="mr-2 h-4 w-4" />
+                                            {t("accounting.audit.save")}
+                                        </Button>
+                                    )}
+                                    <Button variant="outline" onClick={() => setDetailRow(null)}>
+                                        {t("accounting.detail.close")}
+                                    </Button>
+                                </DialogFooter>
+                            </div>
+
+                            {/* Right: Map */}
+                            <div className="flex flex-col min-h-0 border-t md:border-t-0 bg-muted/20 p-4 overflow-hidden gap-2">
+                                <Label className="text-muted-foreground font-medium shrink-0">
+                                    {t("accounting.detail.refillLocation")}
+                                </Label>
+                                <div className="flex-1 min-h-[280px] flex flex-col min-w-0">
+                                    <RefillLocationMap
+                                        key={`refill-${detailRow?.id ?? ""}-${detailMapKey}`}
+                                        refillLocation={editForm?.refillLocation}
+                                        height="100%"
+                                        className="flex-1 min-h-[260px] w-full"
+                                        noCoordsLabel={t("accounting.detail.refillLocationNoCoords")}
                                     />
                                 </div>
-                            )}
-                            <DialogFooter className="shrink-0">
-                                <Button variant="outline" onClick={() => setDetailRow(null)}>
-                                    {t("accounting.detail.close")}
-                                </Button>
-                            </DialogFooter>
+                                {canEdit && (
+                                    <div className="pt-2">
+                                        <Label className="text-muted-foreground mb-1 block">{t("accounting.detail.latLng")}</Label>
+                                        <Input
+                                            className="h-9 font-mono"
+                                            value={editForm.refillLocation ?? ""}
+                                            onChange={(e) => setEditForm(prev => prev ? { ...prev, refillLocation: e.target.value } : null)}
+                                        />
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     )}
                 </DialogContent>

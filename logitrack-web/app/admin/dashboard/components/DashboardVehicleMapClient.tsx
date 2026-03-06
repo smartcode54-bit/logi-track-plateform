@@ -17,6 +17,7 @@ interface VehiclePoint {
   speed: number;
   engineOn: boolean;
   updatedAt: any;
+  hasIncident?: boolean;
 }
 
 const DEFAULT_CENTER: L.LatLngExpression = [13.7563, 100.5018];
@@ -31,20 +32,19 @@ function escapeHtml(text: string): string {
     .replace(/'/g, "&#39;");
 }
 
-function createTruckIcon(licensePlate: string, engineOn: boolean) {
+function createTruckIcon(licensePlate: string, engineOn: boolean, hasIncident?: boolean) {
   const plate = licensePlate || "—";
-  const borderColor = engineOn ? "#22c55e" : "#94a3b8";
+  const borderColor = hasIncident ? "#ef4444" : (engineOn ? "#22c55e" : "#94a3b8");
   const dotBg = engineOn ? "#22c55e" : "#94a3b8";
+
+  const iconSrc = hasIncident ? "/exclamation_8848378.png" : "/truck_2555001.png";
+
   return L.divIcon({
     className: "dashboard-vehicle-marker",
     html: `
       <div style="display:flex;flex-direction:column;align-items:center;">
-        <div style="background:#0f172a;color:#f8fafc;border-radius:6px;padding:4px;box-shadow:0 1px 3px rgba(0,0,0,0.2);border:2px solid ${borderColor};">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/>
-            <path d="M15 18h2"/>
-            <path d="M19 18h2v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 9H14"/>
-          </svg>
+        <div style="background:#ffffff;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 4px rgba(0,0,0,0.2);border:2px solid ${borderColor};overflow:hidden;">
+          <img src="${iconSrc}" alt="icon" style="width:20px;height:20px;object-fit:contain;" />
         </div>
         <span style="margin-top:2px;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;background:#f8fafc;color:#0f172a;border:1px solid #e2e8f0;box-shadow:0 1px 2px rgba(0,0,0,0.05);white-space:nowrap;">
           <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${dotBg};margin-right:3px;"></span>${escapeHtml(plate)}
@@ -73,10 +73,19 @@ export function DashboardVehicleMapClient() {
       setLoading(true);
       setError(null);
       try {
-        const locSnap = await getDocs(
-          query(collection(db, COLLECTIONS.VEHICLE_LOCATIONS), limit(100))
-        );
+        const [locSnap, incidentsSnap] = await Promise.all([
+          getDocs(query(collection(db, COLLECTIONS.VEHICLE_LOCATIONS), limit(100))),
+          getDocs(query(collection(db, COLLECTIONS.INCIDENT_REPORTS), limit(2000))) // Same as DashboardStats
+        ]);
         if (cancelled) return;
+
+        const incidentTruckIds = new Set<string>();
+        const incidentPlates = new Set<string>();
+        incidentsSnap.forEach((doc) => {
+          const d = doc.data();
+          if (d.truckId) incidentTruckIds.add(String(d.truckId));
+          if (d.truckPlate) incidentPlates.add(String(d.truckPlate));
+        });
 
         const list: VehiclePoint[] = [];
         locSnap.docs.forEach((doc) => {
@@ -84,15 +93,18 @@ export function DashboardVehicleMapClient() {
           const lat = d.lat;
           const lng = d.lng;
           if (typeof lat === "number" && typeof lng === "number" && Number.isFinite(lat) && Number.isFinite(lng)) {
+            const tId = d.truckId ?? "";
+            const plate = d.licensePlate ?? "—";
             list.push({
               id: doc.id,
-              truckId: d.truckId ?? "",
-              licensePlate: d.licensePlate ?? "—",
+              truckId: tId,
+              licensePlate: plate,
               lat,
               lng,
               speed: d.speed ?? 0,
               engineOn: d.engineOn ?? false,
               updatedAt: d.updatedAt,
+              hasIncident: incidentTruckIds.has(tId) || incidentPlates.has(plate),
             });
           }
         });
@@ -149,16 +161,17 @@ export function DashboardVehicleMapClient() {
     // Add new markers
     vehicles.forEach((v) => {
       const marker = L.marker([v.lat, v.lng], {
-        icon: createTruckIcon(v.licensePlate, v.engineOn),
+        icon: createTruckIcon(v.licensePlate, v.engineOn, v.hasIncident),
       }).addTo(map);
 
       marker.bindPopup(`
         <div style="font-size:13px;min-width:140px;">
-          <p style="font-weight:600;margin:0 0 4px;">${escapeHtml(v.licensePlate)}</p>
+          <p style="font-weight:600;margin:0 0 4px;">${escapeHtml(v.licensePlate)} ${v.hasIncident ? '⚠️' : ''}</p>
           <p style="margin:0 0 2px;color:#6b7280;">
             ${v.engineOn ? `🟢 ${engineOnLabel}` : `⚪ ${engineOffLabel}`}
           </p>
           <p style="margin:0;font-size:11px;">${speedLabel}: ${v.speed} km/h</p>
+          ${v.hasIncident ? `<p style="margin:4px 0 0;font-size:11px;color:#ef4444;font-weight:600;">Incident Reported</p>` : ''}
         </div>
       `);
 

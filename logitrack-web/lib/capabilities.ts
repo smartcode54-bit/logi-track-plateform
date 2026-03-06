@@ -32,6 +32,7 @@ export const CAPABILITIES = {
   operations_calculate_distances: "operations:calculate_distances",
   operations_view_driver_monitor: "operations:view_driver_monitor",
   operations_edit_trip_details: "operations:edit_trip_details",
+  operations_view_incidents: "operations:view_incidents",
 
   // Security
   security_view_overview: "security:view_overview",
@@ -43,7 +44,9 @@ export const CAPABILITIES = {
 
   // Accounting
   accounting_view_fuel: "accounting:view_fuel",
+  accounting_edit_fuel: "accounting:edit_fuel",
   accounting_view_other: "accounting:view_other",
+  accounting_edit_other: "accounting:edit_other",
   accounting_audit_expense: "accounting:audit_expense",
 
   // Reporting
@@ -156,6 +159,11 @@ export const CAPABILITY_META: Record<
     description: "Edit trip in Driver Monitor",
     module: "Operations",
   },
+  [CAPABILITIES.operations_view_incidents]: {
+    title: "View Incident Reports",
+    description: "View and manage incident reports",
+    module: "Operations",
+  },
   [CAPABILITIES.security_view_overview]: {
     title: "Security Overview",
     description: "Security overview",
@@ -191,9 +199,19 @@ export const CAPABILITY_META: Record<
     description: "Fuel accounting",
     module: "Accounting",
   },
+  [CAPABILITIES.accounting_edit_fuel]: {
+    title: "Edit Fuel",
+    description: "Edit fuel records",
+    module: "Accounting",
+  },
   [CAPABILITIES.accounting_view_other]: {
     title: "View Other",
     description: "Other expenses",
+    module: "Accounting",
+  },
+  [CAPABILITIES.accounting_edit_other]: {
+    title: "Edit Other",
+    description: "Edit other records",
     module: "Accounting",
   },
   [CAPABILITIES.accounting_audit_expense]: {
@@ -240,6 +258,7 @@ export const ROUTE_CAPABILITIES: Record<string, CapabilityId> = {
   "/admin/line-haul": CAPABILITIES.operations_view_line_haul,
   "/admin/sources": CAPABILITIES.operations_manage_sources,
   "/admin/driver-monitor": CAPABILITIES.operations_view_driver_monitor,
+  "/admin/incident-reports": CAPABILITIES.operations_view_incidents,
   "/admin/security-center": CAPABILITIES.security_view_overview,
   "/admin/security-center/users": CAPABILITIES.security_manage_users,
   "/admin/security-center/roles": CAPABILITIES.security_manage_roles,

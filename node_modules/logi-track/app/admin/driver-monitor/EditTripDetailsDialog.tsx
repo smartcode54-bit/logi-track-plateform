@@ -12,12 +12,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Camera, Loader2, ExternalLink } from "lucide-react";
-import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { doc, updateDoc, serverTimestamp, getDocs, collection, query, where, limit } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { uploadTripPhoto } from "@/lib/uploadTripPhoto";
 import type { TripRecord, TripPhoto } from "@/validate/tripRecordSchema";
 import { useLanguage } from "@/context/language";
+import { ReportIncidentModal } from "../chat/components/ReportIncidentModal";
+import { ImagePreviewGallery } from "@/components/accounting/ImagePreviewGallery";
 
 interface EditTripDetailsDialogProps {
     open: boolean;
@@ -50,15 +52,51 @@ export function EditTripDetailsDialog({
     const [replaceByType, setReplaceByType] = useState<Record<string, File>>({});
     const [spxTripId, setSpxTripId] = useState(trip.spxTripId ?? "");
     const [sealCode, setSealCode] = useState(trip.sealCode ?? "");
+    const [incidentReport, setIncidentReport] = useState<{
+        description: string;
+        delayCause: string | null;
+        createdAt: any;
+        mapPhotoUrl?: string | null;
+        situation1PhotoUrl?: string | null;
+        situation2PhotoUrl?: string | null;
+    } | null>(null);
+    const [isReportModalOpen, setIsReportModalOpen] = useState(false);
     const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
     const photos = trip.photos ?? [];
+
+    const fetchIncidentReport = async (tripId: string) => {
+        try {
+            const snap = await getDocs(query(collection(db, COLLECTIONS.INCIDENT_REPORTS), where("tripId", "==", tripId), limit(1)));
+            if (!snap.empty) {
+                const data = snap.docs[0].data();
+                setIncidentReport({
+                    description: data.description,
+                    delayCause: data.delayCause,
+                    createdAt: data.createdAt,
+                    mapPhotoUrl: data.mapPhotoUrl,
+                    situation1PhotoUrl: data.situation1PhotoUrl,
+                    situation2PhotoUrl: data.situation2PhotoUrl,
+                });
+            } else {
+                setIncidentReport(null);
+            }
+        } catch (err) {
+            console.error("Failed to fetch incident report:", err);
+            setIncidentReport(null);
+        }
+    };
 
     useEffect(() => {
         if (open) {
             setSpxTripId(trip.spxTripId ?? "");
             setSealCode(trip.sealCode ?? "");
             setReplaceByType({});
+            if (trip.id) {
+                fetchIncidentReport(trip.id);
+            } else {
+                setIncidentReport(null);
+            }
         }
     }, [open, trip.id, trip.spxTripId, trip.sealCode]);
 
@@ -177,6 +215,74 @@ export function EditTripDetailsDialog({
                         </div>
                     </div>
 
+                    {/* Incident Report Section */}
+                    {incidentReport ? (
+                        <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900 rounded-lg p-4 flex gap-4 mt-4">
+                            <div className="shrink-0 flex items-start pt-1">
+                                <img src="/exclamation_8848378.png" alt="incident" className="w-6 h-6 object-contain" />
+                            </div>
+                            <div className="flex-1 space-y-1">
+                                <h4 className="text-sm font-semibold text-red-800 dark:text-red-400">
+                                    {t("driverMonitor.detail.incidentReport", "Incident Report")}
+                                </h4>
+                                <p className="text-xs text-red-700 dark:text-red-300">
+                                    {incidentReport.description}
+                                </p>
+                                {incidentReport.delayCause && (
+                                    <p className="text-xs font-medium text-red-800 dark:text-red-400 mt-1">
+                                        Cause: {incidentReport.delayCause.replace("incident_cause_", "").toUpperCase()}
+                                    </p>
+                                )}
+                                {(incidentReport.mapPhotoUrl || incidentReport.situation1PhotoUrl || incidentReport.situation2PhotoUrl) && (
+                                    <div className="mt-2 text-red-950 dark:text-red-50">
+                                        <ImagePreviewGallery
+                                            compact
+                                            items={[
+                                                incidentReport.mapPhotoUrl ? { url: incidentReport.mapPhotoUrl, label: "Location" } : null,
+                                                incidentReport.situation1PhotoUrl ? { url: incidentReport.situation1PhotoUrl, label: "Situation 1" } : null,
+                                                incidentReport.situation2PhotoUrl ? { url: incidentReport.situation2PhotoUrl, label: "Situation 2" } : null,
+                                            ].filter((item): item is { url: string; label: string } => item !== null)}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="bg-muted/30 border border-border/50 border-dashed rounded-lg p-4 flex items-center justify-between mt-4">
+                            <div>
+                                <h4 className="text-sm font-medium">No Incident Reported</h4>
+                                <p className="text-xs text-muted-foreground mt-1">If there was a problem with this trip, you can file a report.</p>
+                            </div>
+                            <Button variant="outline" size="sm" onClick={() => setIsReportModalOpen(true)}>
+                                File Report
+                            </Button>
+                        </div>
+                    )}
+
+                    {isReportModalOpen && (
+                        <ReportIncidentModal
+                            open={isReportModalOpen}
+                            onOpenChange={(isOpen) => {
+                                setIsReportModalOpen(isOpen);
+                                if (!isOpen && trip.id) {
+                                    // Refresh incident report after modal closes
+                                    fetchIncidentReport(trip.id);
+                                }
+                            }}
+                            context={
+                                trip.id && trip.driverId ? {
+                                    driverId: trip.driverId,
+                                    driverDocId: trip.driverId, // Pass the same ID as driverDocId
+                                    tripId: trip.id,
+                                    truckPlate: "",
+                                    truckId: undefined,
+                                    lat: undefined,
+                                    lng: undefined
+                                } : null
+                            }
+                        />
+                    )}
+
                     {/* Photos - view & replace */}
                     <div className="space-y-3">
                         <h4 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
@@ -194,51 +300,51 @@ export function EditTripDetailsDialog({
                                 </p>
                                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                                     {photos.map((photo, idx) => {
-                                const file = replaceByType[photo.type];
-                                const label = PHOTO_TYPE_LABELS[photo.type] ?? photo.type.replace(/_/g, " ");
-                                return (
-                                    <div key={idx} className="space-y-2">
-                                        <p className="text-xs font-medium text-muted-foreground">{label}</p>
-                                        <div className="relative aspect-square rounded-lg overflow-hidden border border-border/50 bg-muted/50">
-                                            <img
-                                                src={file ? URL.createObjectURL(file) : photo.url}
-                                                alt={photo.type}
-                                                className="object-cover w-full h-full"
-                                            />
-                                            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2">
-                                                <a
-                                                    href={photo.url}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="text-white text-xs underline flex items-center gap-1"
-                                                    onClick={(e) => e.stopPropagation()}
-                                                >
-                                                    <ExternalLink className="h-3 w-3" />
-                                                    {t("driverMonitor.detail.openInNewTab")}
-                                                </a>
+                                        const file = replaceByType[photo.type];
+                                        const label = PHOTO_TYPE_LABELS[photo.type] ?? photo.type.replace(/_/g, " ");
+                                        return (
+                                            <div key={idx} className="space-y-2">
+                                                <p className="text-xs font-medium text-muted-foreground">{label}</p>
+                                                <div className="relative aspect-square rounded-lg overflow-hidden border border-border/50 bg-muted/50">
+                                                    <img
+                                                        src={file ? URL.createObjectURL(file) : photo.url}
+                                                        alt={photo.type}
+                                                        className="object-cover w-full h-full"
+                                                    />
+                                                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2">
+                                                        <a
+                                                            href={photo.url}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="text-white text-xs underline flex items-center gap-1"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                        >
+                                                            <ExternalLink className="h-3 w-3" />
+                                                            {t("driverMonitor.detail.openInNewTab")}
+                                                        </a>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <input
+                                                        ref={(el) => { fileInputRefs.current[photo.type] = el; }}
+                                                        type="file"
+                                                        accept="image/*"
+                                                        className="hidden"
+                                                        onChange={(e) => handleFileSelect(photo.type, e)}
+                                                    />
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="flex-1 text-xs"
+                                                        onClick={() => fileInputRefs.current[photo.type]?.click()}
+                                                    >
+                                                        {file ? file.name : t("driverMonitor.editTrip.replace", "Replace")}
+                                                    </Button>
+                                                </div>
                                             </div>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <input
-                                                ref={(el) => { fileInputRefs.current[photo.type] = el; }}
-                                                type="file"
-                                                accept="image/*"
-                                                className="hidden"
-                                                onChange={(e) => handleFileSelect(photo.type, e)}
-                                            />
-                                            <Button
-                                                type="button"
-                                                variant="outline"
-                                                size="sm"
-                                                className="flex-1 text-xs"
-                                                onClick={() => fileInputRefs.current[photo.type]?.click()}
-                                            >
-                                                {file ? file.name : t("driverMonitor.editTrip.replace", "Replace")}
-                                            </Button>
-                                        </div>
-                                    </div>
-                                );
-                            })}
+                                        );
+                                    })}
                                 </div>
                             </>
                         )}

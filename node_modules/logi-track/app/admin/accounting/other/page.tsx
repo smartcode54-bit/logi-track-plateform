@@ -5,10 +5,10 @@ import { useLanguage } from "@/context/language";
 import { getVehicleExpensesByType, VehicleExpenseRow } from "../actions.client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Receipt, DollarSign, Hash, TrendingUp, Loader2, RefreshCw } from "lucide-react";
+import { Receipt, DollarSign, Hash, TrendingUp, Loader2, RefreshCw, Save, ChevronLeft, ChevronRight } from "lucide-react";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
-import { ImagePreviewGallery } from "@/components/accounting/ImagePreviewGallery";
+import { useMemo } from "react";
 import {
     Dialog,
     DialogContent,
@@ -17,6 +17,12 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { usePermission } from "@/hooks/usePermission";
+import { CAPABILITIES } from "@/lib/capabilities";
+import { updateVehicleExpense } from "../actions.client";
 
 const categoryKeys: Record<string, string> = {
     tire_repair: "accounting.category.tireRepair",
@@ -31,6 +37,25 @@ export default function AccountingOtherPage() {
     const [records, setRecords] = useState<VehicleExpenseRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [detailRow, setDetailRow] = useState<VehicleExpenseRow | null>(null);
+    const [editForm, setEditForm] = useState<VehicleExpenseRow | null>(null);
+    const [submitting, setSubmitting] = useState(false);
+
+    const { hasPermission: canEdit } = usePermission(CAPABILITIES.accounting_edit_other);
+
+    const [imageIndex, setImageIndex] = useState(0);
+
+    const imageItems = useMemo(() => {
+        if (!detailRow) return [];
+        const items = [];
+        if (detailRow.receiptPhotoUrl) items.push({ url: detailRow.receiptPhotoUrl, label: t("accounting.detail.receiptPhoto") });
+        if (detailRow.odometerPhotoUrl) items.push({ url: detailRow.odometerPhotoUrl, label: t("accounting.detail.odometerPhoto") });
+        return items;
+    }, [detailRow, t]);
+    const currentImage = imageItems[imageIndex] ?? null;
+
+    useEffect(() => {
+        setImageIndex(0);
+    }, [detailRow]);
 
     const loadData = () => {
         setLoading(true);
@@ -40,6 +65,33 @@ export default function AccountingOtherPage() {
     useEffect(() => {
         loadData();
     }, []);
+
+    const handleSaveEdit = async () => {
+        if (!detailRow || !editForm) return;
+        setSubmitting(true);
+        try {
+            await updateVehicleExpense(detailRow.id, {
+                amount: editForm.amount,
+                category: editForm.category ?? "",
+                description: editForm.description ?? "",
+            });
+
+            await loadData();
+            setDetailRow(null);
+        } catch (err) {
+            console.error("Failed to update other expense:", err);
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    useEffect(() => {
+        if (detailRow) {
+            setEditForm({ ...detailRow });
+        } else {
+            setEditForm(null);
+        }
+    }, [detailRow]);
 
     const totalAmount = records.reduce((s, r) => s + r.amount, 0);
     const count = records.length;
@@ -163,41 +215,158 @@ export default function AccountingOtherPage() {
 
             {/* Detail Dialog */}
             <Dialog open={!!detailRow} onOpenChange={(open) => !open && setDetailRow(null)}>
-                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                    <DialogHeader>
+                <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col p-0">
+                    <DialogHeader className="px-6 pt-6 pb-2 shrink-0">
                         <DialogTitle>{t("accounting.detail.otherTitle")}</DialogTitle>
                         <DialogDescription>
-                            {detailRow && format(detailRow.date, "dd MMM yyyy")}
+                            {detailRow && format(detailRow.date, "dd MMM yyyy")} · {detailRow?.driverName ?? detailRow?.driverId}
                         </DialogDescription>
                     </DialogHeader>
-                    {detailRow && (
-                        <div className="grid gap-6 py-2">
-                            <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm bg-muted/30 rounded-lg p-4">
-                                <span className="text-muted-foreground">{t("accounting.table.date")}</span>
-                                <span className="font-medium">{format(detailRow.date, "dd MMM yyyy")}</span>
-                                <span className="text-muted-foreground">{t("accounting.detail.driver")}</span>
-                                <span className="font-medium">{detailRow.driverName ?? (detailRow.driverId || "—")}</span>
-                                <span className="text-muted-foreground">{t("accounting.detail.vehicle")}</span>
-                                <span className="font-mono">{detailRow.licensePlate ?? "—"}</span>
-                                <span className="text-muted-foreground">{t("accounting.detail.category")}</span>
-                                <span className="font-medium">
-                                    {detailRow.category ? t(categoryKeys[detailRow.category] ?? detailRow.category) : "—"}
-                                </span>
-                                <span className="text-muted-foreground">{t("accounting.detail.amount")}</span>
-                                <span className="font-semibold">฿{detailRow.amount.toLocaleString()}</span>
-                                <span className="text-muted-foreground">{t("accounting.detail.description")}</span>
-                                <span className="text-muted-foreground col-span-1">{detailRow.description ?? detailRow.note ?? "—"}</span>
+                    {detailRow && editForm && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-0 flex-1 min-h-0 overflow-hidden">
+                            {/* Left: Huge image + prev/next */}
+                            <div className="bg-muted/30 border-t md:border-t-0 md:border-r border-border p-4 flex flex-col min-h-0">
+                                {imageItems.length > 0 ? (
+                                    <>
+                                        <div className="flex-1 min-h-[280px] flex items-center justify-center overflow-hidden rounded-lg border border-border bg-black/5">
+                                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                                            <img
+                                                src={currentImage?.url}
+                                                alt={currentImage?.label ?? ""}
+                                                className="max-w-full max-h-[60vh] md:max-h-[70vh] w-auto h-auto object-contain select-none"
+                                                draggable={false}
+                                            />
+                                        </div>
+                                        <div className="flex items-center justify-between gap-2 pt-2 shrink-0">
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="icon"
+                                                disabled={imageItems.length <= 1}
+                                                onClick={() => setImageIndex((i) => (i <= 0 ? imageItems.length - 1 : i - 1))}
+                                            >
+                                                <ChevronLeft className="h-4 w-4" />
+                                            </Button>
+                                            <span className="text-sm text-muted-foreground">
+                                                {currentImage?.label ?? ""} ({imageIndex + 1} / {imageItems.length})
+                                            </span>
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="icon"
+                                                disabled={imageItems.length <= 1}
+                                                onClick={() => setImageIndex((i) => (i >= imageItems.length - 1 ? 0 : i + 1))}
+                                            >
+                                                <ChevronRight className="h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="flex items-center justify-center flex-1 min-h-[200px] rounded-lg border border-dashed border-muted-foreground/30 text-muted-foreground text-sm">
+                                        {t("accounting.detail.noImages")}
+                                    </div>
+                                )}
                             </div>
-                            {detailRow.receiptPhotoUrl && (
-                                <ImagePreviewGallery
-                                    items={[{ url: detailRow.receiptPhotoUrl, label: t("accounting.detail.receiptPhoto") }]}
-                                />
-                            )}
-                            <DialogFooter>
-                                <Button variant="outline" onClick={() => setDetailRow(null)}>
-                                    {t("accounting.detail.close")}
-                                </Button>
-                            </DialogFooter>
+                            {/* Right: Editable expense details */}
+                            <div className="flex flex-col min-h-0 border-t md:border-t-0 border-border">
+                                <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                                    <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                                        <Label className="text-muted-foreground">{t("accounting.table.date")}</Label>
+                                        <span className="font-medium h-9 flex items-center">{format(editForm.date, "dd MMM yyyy")}</span>
+                                        <Label className="text-muted-foreground">{t("accounting.detail.driver")}</Label>
+                                        <Input value={editForm.driverName ?? editForm.driverId ?? "—"} readOnly className="h-9 bg-muted/50 cursor-not-allowed" />
+                                        <Label className="text-muted-foreground">{t("accounting.detail.vehicle")}</Label>
+                                        <Input value={editForm.licensePlate ?? "—"} readOnly className="h-9 font-mono bg-muted/50 cursor-not-allowed" />
+
+                                        <Label className="text-muted-foreground">{t("accounting.detail.category")}</Label>
+                                        {canEdit ? (
+                                            <Select
+                                                value={editForm.category ?? ""}
+                                                onValueChange={(v) => setEditForm(prev => prev ? { ...prev, category: v || undefined } : null)}
+                                            >
+                                                <SelectTrigger className="h-9">
+                                                    <SelectValue placeholder={t("accounting.audit.typeOther")} />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {Object.entries(categoryKeys).map(([key, labelKey]) => (
+                                                        <SelectItem key={key} value={key}>
+                                                            {t(labelKey)}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        ) : (
+                                            <Input value={editForm.category ? t(categoryKeys[editForm.category] ?? editForm.category) : "—"} readOnly className="h-9 bg-muted/50 cursor-not-allowed" />
+                                        )}
+
+                                        <Label className="text-muted-foreground">{t("accounting.detail.amount")}</Label>
+                                        {canEdit ? (
+                                            <Input
+                                                type="number"
+                                                value={editForm.amount ?? ""}
+                                                onChange={(e) => setEditForm({ ...editForm, amount: e.target.value === "" ? editForm.amount : Number(e.target.value) })}
+                                                className="h-9 font-semibold"
+                                            />
+                                        ) : (
+                                            <span className="font-semibold h-9 flex items-center">฿{editForm.amount.toLocaleString()}</span>
+                                        )}
+
+                                        <div className="col-span-2 pt-2 border-t border-border mt-2 space-y-2">
+                                            <Label className="text-muted-foreground">{t("accounting.detail.description")}</Label>
+                                            {canEdit ? (
+                                                <Input
+                                                    className="h-9"
+                                                    value={editForm.description ?? editForm.note ?? ""}
+                                                    onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                                                />
+                                            ) : (
+                                                <span className="text-muted-foreground text-sm break-words flex min-h-9 items-center p-2 rounded-md bg-muted/20">
+                                                    {editForm.description ?? editForm.note ?? "—"}
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        {editForm.adminNote && (
+                                            <div className="col-span-2 space-y-2">
+                                                <Label className="text-muted-foreground">{t("accounting.audit.adminNote")}</Label>
+                                                <span className="text-muted-foreground text-sm break-words flex min-h-9 items-center p-2 rounded-md bg-orange-500/10 border border-orange-500/20 text-orange-700 dark:text-orange-400">
+                                                    {editForm.adminNote}
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {(detailRow.createdAt || detailRow.updatedAt) && (
+                                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground pt-2 border-t border-border">
+                                            {detailRow.createdAt && (
+                                                <>
+                                                    <span>{t("accounting.audit.created")}</span>
+                                                    <span>{format(detailRow.createdAt, "dd MMM yyyy HH:mm")}</span>
+                                                </>
+                                            )}
+                                            {detailRow.updatedAt && (
+                                                <>
+                                                    <span>{t("accounting.audit.updated")}</span>
+                                                    <span>{format(detailRow.updatedAt, "dd MMM yyyy HH:mm")}</span>
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <DialogFooter className="px-6 py-4 border-t border-border shrink-0 flex-wrap gap-2 justify-end">
+                                    {canEdit && (
+                                        <Button variant="secondary" className="gap-1" onClick={handleSaveEdit} disabled={submitting}>
+                                            {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                            <Save className="mr-2 h-4 w-4" />
+                                            {t("accounting.audit.save")}
+                                        </Button>
+                                    )}
+                                    <Button variant="outline" onClick={() => setDetailRow(null)}>
+                                        {t("accounting.detail.close")}
+                                    </Button>
+                                </DialogFooter>
+                            </div>
                         </div>
                     )}
                 </DialogContent>

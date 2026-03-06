@@ -58,6 +58,8 @@ export default {
     "accounting.detail.odometerPhoto": "Odometer",
     "accounting.detail.noImages": "No receipt or odometer photos",
     "accounting.detail.otherTitle": "Other Expense Detail",
+    "accounting.detail.save": "Save Changes",
+    "accounting.detail.editing": "Editing",
     "accounting.detail.category": "Category",
     "accounting.detail.description": "Description",
 
