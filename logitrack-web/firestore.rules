@@ -2,20 +2,23 @@ rules_version='2'
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Hub→SOC distances (Google Distance Matrix cache). Read by web map & mobile; write via Admin API only.
+    // Hub→SOC distances (Google Distance Matrix cache). Read by web map & admin; write by admin/API.
     match /hub_soc_distances/{docId} {
-      allow read: if request.time < timestamp.date(2026, 3, 10);
-      allow write: if request.time < timestamp.date(2026, 3, 10);
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.token.admin == true;
     }
-    // SOC→Hub distances (Google Distance Matrix cache). Read by web map & mobile; write via Admin API only.
+    // SOC→Hub distances (Google Distance Matrix cache). Read by web map & admin; write by admin/API.
     match /soc_hub_distances/{docId} {
-      allow read: if request.time < timestamp.date(2026, 3, 10);
-      allow write: if request.time < timestamp.date(2026, 3, 10);
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.token.admin == true;
     }
 
-    // Users: drivers can read/write their own doc (e.g. fcmTokens). Admins need full access via token.
+    // Users: own doc read/write for profile/fcmTokens; admins can read/write all (e.g. Security Center User Management).
     match /users/{uid} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read, write: if request.auth != null && (
+        request.auth.uid == uid ||
+        request.auth.token.admin == true
+      );
     }
 
     // Chats: Admins read all chats; drivers only their own (driverId == authId).
@@ -43,16 +46,18 @@ service cloud.firestore {
       }
     }
 
-    // Incident reports: drivers create/read own; admins can create (e.g. Report Incident from Command Center) and read.
+    // Incident reports: drivers create/read own (driverId may be auth UID or driver doc id); admins full.
     match /incidentReport/{reportId} {
       allow read: if request.auth != null && (
         request.auth.token.admin == true ||
-        resource.data.driverId == request.auth.uid
+        resource.data.driverId == request.auth.uid ||
+        (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
       allow create: if request.auth != null;
       allow update, delete: if request.auth != null && (
         request.auth.token.admin == true ||
-        resource.data.driverId == request.auth.uid
+        resource.data.driverId == request.auth.uid ||
+        (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
     }
 
@@ -67,13 +72,14 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.token.admin == true;
     }
 
-    // Unified Tasks (formerly first_mile_tasks): Admins write; Drivers read/update (e.g. checkin status).
+    // Unified Tasks: Admin full; Drivers read (by driverId = driver doc id) and update (e.g. status Completed from Driver app).
     match /tasks/{taskId} {
       allow read: if request.auth != null;
-      allow write: if request.auth != null && (
+      allow create: if request.auth != null && request.auth.token.admin == true;
+      allow update, delete: if request.auth != null && (
         request.auth.token.admin == true ||
-        request.resource.data.driverId == request.auth.uid ||
-        resource.data.driverId == request.auth.uid
+        resource.data.driverId == request.auth.uid ||
+        (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
     }
 
@@ -95,9 +101,98 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.token.admin == true;
     }
 
-    // Legacy permissive rule (expires); keep other collections working until migrated.
+    // Drivers: any authenticated read (dashboard counts); admin or own doc for write.
+    match /drivers/{driverId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.auth.token.admin == true;
+      allow update, delete: if request.auth != null && (
+        request.auth.token.admin == true ||
+        resource.data.authId == request.auth.uid
+      );
+    }
+
+    // Trip records: Admin full; Drivers read/create/update own (driverId may be auth UID or driver doc id).
+    match /trip_records/{tripId} {
+      allow read, create: if request.auth != null;
+      allow update, delete: if request.auth != null && (
+        request.auth.token.admin == true ||
+        resource.data.driverId == request.auth.uid ||
+        (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
+      );
+    }
+
+    // Vehicle locations (Cartrack sync): admin read for dashboard map; write by Cloud Function only.
+    match /vehicle_locations/{locId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.token.admin == true;
+    }
+
+    // Trucks: any authenticated read (Driver app reads truck for assignment history); admin write.
+    match /trucks/{truckId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.token.admin == true;
+    }
+
+    // Truck assignments: Admin write; Drivers read own (driverId in doc = driver doc id).
+    match /truckAssignment/{assignmentId} {
+      allow read: if request.auth != null && (
+        request.auth.token.admin == true ||
+        (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
+      );
+      allow write: if request.auth != null && request.auth.token.admin == true;
+    }
+
+    // Waitlist: anyone can create (signup); admin read/delete.
+    match /waitlist/{docId} {
+      allow create: if true;
+      allow read, delete: if request.auth != null && request.auth.token.admin == true;
+      allow update: if request.auth != null && request.auth.token.admin == true;
+    }
+
+    // Subcontractors: admin only.
+    match /subcontractors/{docId} {
+      allow read, write: if request.auth != null && request.auth.token.admin == true;
+    }
+
+    // Hubs / sources (pickup/delivery points): authenticated read; admin write.
+    match /hubs/{hubId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.token.admin == true;
+    }
+
+    // System metadata: admin read/write.
+    match /metadata/{docId} {
+      allow read, write: if request.auth != null && request.auth.token.admin == true;
+    }
+
+    // Vehicle expenses: admin full; drivers create/read/update own (driverId may be auth UID or driver doc id).
+    match /vehicle_expenses/{docId} {
+      allow read: if request.auth != null && (
+        request.auth.token.admin == true ||
+        resource.data.driverId == request.auth.uid ||
+        (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
+      );
+      allow create: if request.auth != null;
+      allow update, delete: if request.auth != null && (
+        request.auth.token.admin == true ||
+        resource.data.driverId == request.auth.uid ||
+        (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
+      );
+    }
+
+    // Maintenance: admin read/write.
+    match /maintenance/{docId} {
+      allow read, write: if request.auth != null && request.auth.token.admin == true;
+    }
+
+    // Transactions (tax, insurance, etc.): admin only.
+    match /transactions/{docId} {
+      allow read, write: if request.auth != null && request.auth.token.admin == true;
+    }
+
+    // Fallback for any collection not yet explicitly listed (deny after migration).
     match /{document=**} {
-      allow read, write: if request.time < timestamp.date(2026, 3, 10);
+      allow read, write: if false;
     }
   }
 }

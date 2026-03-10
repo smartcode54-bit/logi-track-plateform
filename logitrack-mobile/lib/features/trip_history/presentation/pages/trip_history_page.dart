@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../home/data/models/trip_record.dart';
+import '../../../home/data/repositories/driver_repository.dart';
 import '../../../home/data/repositories/hubs_repository.dart';
 import '../../../home/data/repositories/trip_records_repository.dart';
 
@@ -43,12 +44,21 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
     }
     setState(() => _loading = true);
     try {
-      final results = await Future.wait([
-        getTripHistoryByDriver(uid),
-        fetchAllHubs(),
-      ]);
-      final list = results[0] as List<TripRecord>;
-      final hubs = results[1] as List<HubDoc>;
+      // Trip records may store driverId as auth UID or as driver document ID — query both and merge.
+      List<TripRecord> list = [];
+      try {
+        list = await getTripHistoryByDriver(uid);
+      } catch (_) {}
+      if (list.isEmpty) {
+        final driver = await DriverRepository().getCurrentDriver(uid);
+        final driverDocId = driver?['id'] as String?;
+        if (driverDocId != null && driverDocId.isNotEmpty) {
+          try {
+            list = await getTripHistoryByDriver(driverDocId);
+          } catch (_) {}
+        }
+      }
+      final hubs = await fetchAllHubs();
       final map = <String, String>{};
       for (final h in hubs) {
         final id = h.sourceId.trim();
