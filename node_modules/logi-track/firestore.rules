@@ -46,14 +46,17 @@ service cloud.firestore {
       }
     }
 
-    // Incident reports: drivers create/read own (driverId may be auth UID or driver doc id); admins full.
+    // Incident reports: drivers create/read own only (driverId = auth UID or driver doc id); admins full.
     match /incidentReport/{reportId} {
       allow read: if request.auth != null && (
         request.auth.token.admin == true ||
         resource.data.driverId == request.auth.uid ||
         (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
-      allow create: if request.auth != null;
+      allow create: if request.auth != null && (
+        request.resource.data.driverId == request.auth.uid ||
+        (request.resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(request.resource.data.driverId)).data.get('authId', '') == request.auth.uid)
+      );
       allow update, delete: if request.auth != null && (
         request.auth.token.admin == true ||
         resource.data.driverId == request.auth.uid ||
@@ -72,10 +75,13 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.token.admin == true;
     }
 
-    // Unified Tasks: Admin full; Drivers read (by driverId = driver doc id) and update (e.g. status Completed from Driver app).
+    // Unified Tasks: Admin full; Drivers read, create (manual check-in), update (check-in, Completed) own tasks.
     match /tasks/{taskId} {
       allow read: if request.auth != null;
-      allow create: if request.auth != null && request.auth.token.admin == true;
+      allow create: if request.auth != null && (
+        request.auth.token.admin == true ||
+        (request.resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(request.resource.data.driverId)).data.get('authId', '') == request.auth.uid)
+      );
       allow update, delete: if request.auth != null && (
         request.auth.token.admin == true ||
         resource.data.driverId == request.auth.uid ||
@@ -111,9 +117,13 @@ service cloud.firestore {
       );
     }
 
-    // Trip records: Admin full; Drivers read/create/update own (driverId may be auth UID or driver doc id).
+    // Trip records: Admin full; Drivers read/create/update own only (driverId = auth UID or driver doc id).
     match /trip_records/{tripId} {
-      allow read, create: if request.auth != null;
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && (
+        request.resource.data.driverId == request.auth.uid ||
+        (request.resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(request.resource.data.driverId)).data.get('authId', '') == request.auth.uid)
+      );
       allow update, delete: if request.auth != null && (
         request.auth.token.admin == true ||
         resource.data.driverId == request.auth.uid ||
@@ -154,10 +164,11 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.token.admin == true;
     }
 
-    // Hubs / sources (pickup/delivery points): authenticated read; admin write.
+    // Hubs: authenticated read; drivers can create (add new Hub/SOC from Manual Check-in); admin update/delete.
     match /hubs/{hubId} {
       allow read: if request.auth != null;
-      allow write: if request.auth != null && request.auth.token.admin == true;
+      allow create: if request.auth != null;
+      allow update, delete: if request.auth != null && request.auth.token.admin == true;
     }
 
     // System metadata: admin read/write.
@@ -165,14 +176,17 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.token.admin == true;
     }
 
-    // Vehicle expenses: admin full; drivers create/read/update own (driverId may be auth UID or driver doc id).
+    // Vehicle expenses: admin full; drivers create/read/update own only (driverId = auth UID or driver doc id).
     match /vehicle_expenses/{docId} {
       allow read: if request.auth != null && (
         request.auth.token.admin == true ||
         resource.data.driverId == request.auth.uid ||
         (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
-      allow create: if request.auth != null;
+      allow create: if request.auth != null && (
+        request.resource.data.driverId == request.auth.uid ||
+        (request.resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(request.resource.data.driverId)).data.get('authId', '') == request.auth.uid)
+      );
       allow update, delete: if request.auth != null && (
         request.auth.token.admin == true ||
         resource.data.driverId == request.auth.uid ||
