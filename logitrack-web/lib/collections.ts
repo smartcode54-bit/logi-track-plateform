@@ -72,6 +72,15 @@ export const COLLECTIONS = {
 
     /** GPS vehicle locations synced from Cartrack */
     VEHICLE_LOCATIONS: "vehicle_locations",
+
+    /** Holiday calendar (admin-defined) */
+    HOLIDAYS: "holidays",
+
+    /** Driver leave requests (sick, annual, etc.) */
+    LEAVE_REQUESTS: "leave_requests",
+
+    /** Payroll records (net pay, earnings, deductions) */
+    PAYROLL: "payroll",
 } as const;
 
 /** Type for collection names */

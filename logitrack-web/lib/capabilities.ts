@@ -52,6 +52,13 @@ export const CAPABILITIES = {
   // Reporting
   reporting_view_analytics: "reporting:view_analytics",
 
+  // HR & Payroll
+  hr_view_payroll: "hr:view_payroll",
+  hr_manage_payroll: "hr:manage_payroll",
+  hr_view_leave: "hr:view_leave",
+  hr_manage_leave: "hr:manage_leave",
+  hr_manage_holidays: "hr:manage_holidays",
+
   // Other
   waitlist_view: "waitlist:view",
   packages_view: "packages:view",
@@ -224,6 +231,31 @@ export const CAPABILITY_META: Record<
     description: "Analytics",
     module: "Reporting",
   },
+  [CAPABILITIES.hr_view_payroll]: {
+    title: "View Payroll",
+    description: "View payroll records",
+    module: "HR",
+  },
+  [CAPABILITIES.hr_manage_payroll]: {
+    title: "Manage Payroll",
+    description: "Generate and approve payroll",
+    module: "HR",
+  },
+  [CAPABILITIES.hr_view_leave]: {
+    title: "View Leave Requests",
+    description: "View driver leave requests",
+    module: "HR",
+  },
+  [CAPABILITIES.hr_manage_leave]: {
+    title: "Manage Leave Requests",
+    description: "Approve or reject leave requests",
+    module: "HR",
+  },
+  [CAPABILITIES.hr_manage_holidays]: {
+    title: "Manage Holidays",
+    description: "Manage holiday calendar",
+    module: "HR",
+  },
   [CAPABILITIES.waitlist_view]: {
     title: "View Waitlist",
     description: "View waitlist",
@@ -269,6 +301,9 @@ export const ROUTE_CAPABILITIES: Record<string, CapabilityId> = {
   "/admin/accounting/other": CAPABILITIES.accounting_view_other,
   "/admin/accounting/audit": CAPABILITIES.accounting_audit_expense,
   "/admin/analytics": CAPABILITIES.reporting_view_analytics,
+  "/admin/payroll": CAPABILITIES.hr_view_payroll,
+  "/admin/leave-requests": CAPABILITIES.hr_view_leave,
+  "/admin/holidays": CAPABILITIES.hr_manage_holidays,
   "/admin/waitlist": CAPABILITIES.waitlist_view,
   "/admin/packages": CAPABILITIES.packages_view,
 };

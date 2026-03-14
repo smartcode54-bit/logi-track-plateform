@@ -38,9 +38,14 @@ export default {
     "nav.operations": "ปฏิบัติการ",
     "nav.firstMileTasks": "งาน First Mile",
     "nav.sourceManagement": "จัดการจุดรับงาน",
-    "nav.driverMonitor": "ติดตามงานคนขับ",
+    "nav.driverMonitor": "มอนิเตอร์งานคนขับ",
     "nav.rolePermission": "บทบาทและสิทธิ์",
     "nav.supportCenter": "ศูนย์ช่วยเหลือ",
+
+    "nav.hr": "ระบบเงินเดือนและบุคคล",
+    "nav.payroll": "เงินเดือน",
+    "nav.leaveRequests": "รายการลา",
+    "nav.holidays": "วันหยุด",
 
     "nav.subcontractors": "ผู้รับเหมาช่วง",
     "nav.customers": "ลูกค้า",

@@ -204,6 +204,38 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.token.admin == true;
     }
 
+    // Holidays: authenticated read; admin write.
+    match /holidays/{holidayId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.token.admin == true;
+    }
+
+    // Leave Requests: Drivers read/create/update own; Admin read/update all.
+    match /leave_requests/{requestId} {
+      allow read: if request.auth != null && (
+        request.auth.token.admin == true ||
+        resource.data.driverId == request.auth.uid ||
+        (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
+      );
+      allow create: if request.auth != null;
+      allow update: if request.auth != null && (
+        request.auth.token.admin == true ||
+        resource.data.driverId == request.auth.uid ||
+        (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
+      );
+      allow delete: if request.auth != null && request.auth.token.admin == true;
+    }
+
+    // Payroll: Drivers read own; Admin full access.
+    match /payroll/{payrollId} {
+      allow read: if request.auth != null && (
+        request.auth.token.admin == true ||
+        resource.data.driverId == request.auth.uid ||
+        (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
+      );
+      allow write: if request.auth != null && request.auth.token.admin == true;
+    }
+
     // Fallback for any collection not yet explicitly listed (deny after migration).
     match /{document=**} {
       allow read, write: if false;

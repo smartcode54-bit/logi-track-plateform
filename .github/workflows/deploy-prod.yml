@@ -13,14 +13,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: "npm"
+          node-version: "22"
+          cache: "pnpm"
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Create .env.production
         run: printf '%s\n' "$ENV_PROD_WEB" > logitrack-web/.env.production
@@ -28,7 +33,7 @@ jobs:
           ENV_PROD_WEB: ${{ secrets.ENV_PROD_WEB }}
 
       - name: Build
-        run: npm run build
+        run: pnpm run build
         working-directory: logitrack-web
 
       - name: Deploy to Firebase

@@ -42,6 +42,11 @@ export default {
     "nav.rolePermission": "Role & Permission",
     "nav.supportCenter": "Support Center",
 
+    "nav.hr": "Payroll & HR",
+    "nav.payroll": "Payroll",
+    "nav.leaveRequests": "Leave Requests",
+    "nav.holidays": "Holidays",
+
     "nav.subcontractors": "Subcontractors",
     "nav.customers": "Customers",
     "nav.mainMenu": "MAIN MENU",

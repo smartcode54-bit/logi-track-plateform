@@ -1,0 +1,12 @@
+# pnpm workspace: single store, hard links — no duplicate deps across web, functions, shared-docs
+packages:
+  - "logitrack-web"
+  - "shared-docs"
+  - "logitrack-web/functions"
+allowBuilds:
+  '@firebase/util': true
+  core-js: true
+  esbuild: true
+  protobufjs: true
+  sharp: true
+  unrs-resolver: true

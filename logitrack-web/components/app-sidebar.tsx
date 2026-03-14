@@ -20,6 +20,7 @@ import {
     Calculator,
     MessageCircle,
     Mail,
+    Calendar,
 } from "lucide-react"
 
 import {
@@ -120,6 +121,15 @@ export function AppSidebar() {
                 { title: t("nav.sourceManagement"), url: "/admin/sources", capability: CAPABILITIES.operations_manage_sources },
                 { title: t("nav.driverMonitor"), url: "/admin/driver-monitor", capability: CAPABILITIES.operations_view_driver_monitor },
                 { title: t("nav.incidentReports", "รายงานปัญหาการจัดส่ง"), url: "/admin/incident-reports", capability: CAPABILITIES.operations_view_incidents },
+            ],
+        },
+        {
+            title: t("nav.hr"),
+            icon: Users,
+            items: [
+                { title: t("nav.payroll"), url: "/admin/payroll", capability: CAPABILITIES.hr_view_payroll },
+                { title: t("nav.leaveRequests"), url: "/admin/leave-requests", capability: CAPABILITIES.hr_view_leave },
+                { title: t("nav.holidays"), url: "/admin/holidays", capability: CAPABILITIES.hr_manage_holidays },
             ],
         },
     ]
