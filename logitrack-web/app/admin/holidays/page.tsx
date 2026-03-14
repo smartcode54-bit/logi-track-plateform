@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { collection, query, orderBy, onSnapshot, deleteDoc, doc, Timestamp } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
@@ -38,7 +38,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { useLanguage } from "@/context/language";
-import { format } from "date-fns";
+import { format, isSameMonth, isSameYear } from "date-fns";
 import { toast } from "sonner";
 import { AddHolidayDialog } from "./AddHolidayDialog";
 
@@ -57,6 +57,8 @@ export default function HolidaysPage() {
     const [view, setView] = useState<"year" | "month" | "list">("month");
     const [selectedHoliday, setSelectedHoliday] = useState<Holiday | null>(null);
     const [initialDate, setInitialDate] = useState<string | undefined>(undefined);
+    const [listFilter, setListFilter] = useState<"month" | "year" | "all">("month");
+    const calendarRef = useRef<FullCalendar>(null);
 
     // Fetch holidays
     useEffect(() => {
@@ -86,11 +88,21 @@ export default function HolidaysPage() {
     }, []);
 
     const filteredHolidays = useMemo(() => {
-        return holidays.filter(h => 
-            h.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            h.type.toLowerCase().includes(searchQuery.toLowerCase())
-        );
-    }, [holidays, searchQuery]);
+        const now = new Date();
+        return holidays.filter(h => {
+            const matchesSearch = h.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                                 h.type.toLowerCase().includes(searchQuery.toLowerCase());
+            
+            if (!matchesSearch) return false;
+
+            if (view === "list") {
+                if (listFilter === "month") return isSameMonth(h.date, now);
+                if (listFilter === "year") return isSameYear(h.date, now);
+            }
+            
+            return true;
+        });
+    }, [holidays, searchQuery, view, listFilter]);
 
     const stats = useMemo(() => {
         const now = new Date();
@@ -162,6 +174,19 @@ export default function HolidaysPage() {
         setIsAddDialogOpen(true);
     };
 
+    const handleViewChange = (newView: "year" | "month" | "list") => {
+        setView(newView);
+        if (newView !== "list") {
+            setTimeout(() => {
+                const calendarApi = calendarRef.current?.getApi();
+                if (calendarApi) {
+                    calendarApi.today();
+                    calendarApi.changeView(newView === "year" ? "multiMonthYear" : "dayGridMonth");
+                }
+            }, 0);
+        }
+    };
+
     return (
         <div className="container mx-auto p-6 space-y-6 max-w-[1200px]">
             {/* Header */}
@@ -177,7 +202,7 @@ export default function HolidaysPage() {
                         <Button 
                             variant={view === "year" ? "secondary" : "ghost"} 
                             size="sm" 
-                            onClick={() => setView("year")}
+                            onClick={() => handleViewChange("year")}
                             className="px-3"
                         >
                             <LayoutGrid className="h-4 w-4 mr-2" />
@@ -186,7 +211,7 @@ export default function HolidaysPage() {
                         <Button 
                             variant={view === "month" ? "secondary" : "ghost"} 
                             size="sm" 
-                            onClick={() => setView("month")}
+                            onClick={() => handleViewChange("month")}
                             className="px-3"
                         >
                             <CalendarViewIcon className="h-4 w-4 mr-2" />
@@ -195,7 +220,7 @@ export default function HolidaysPage() {
                         <Button 
                             variant={view === "list" ? "secondary" : "ghost"} 
                             size="sm" 
-                            onClick={() => setView("list")}
+                            onClick={() => handleViewChange("list")}
                             className="px-3"
                         >
                             <ListViewIcon className="h-4 w-4 mr-2" />
@@ -251,8 +276,8 @@ export default function HolidaysPage() {
             <div className="space-y-4">
                 {view === "list" ? (
                     <>
-                        <div className="flex items-center gap-4 bg-card/50 p-4 rounded-lg border border-border/50">
-                            <div className="relative flex-1 max-w-sm">
+                        <div className="flex flex-col md:flex-row items-center gap-4 bg-card/50 p-4 rounded-lg border border-border/50">
+                            <div className="relative flex-1 w-full max-w-sm">
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                 <Input
                                     placeholder="Search holidays..."
@@ -260,6 +285,32 @@ export default function HolidaysPage() {
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
                                 />
+                            </div>
+                            <div className="flex items-center gap-2 bg-muted rounded-lg p-1 w-full md:w-auto">
+                                <Button 
+                                    variant={listFilter === "month" ? "secondary" : "ghost"} 
+                                    size="sm" 
+                                    onClick={() => setListFilter("month")}
+                                    className="flex-1 md:flex-none px-3 h-8 text-xs"
+                                >
+                                    Current Month
+                                </Button>
+                                <Button 
+                                    variant={listFilter === "year" ? "secondary" : "ghost"} 
+                                    size="sm" 
+                                    onClick={() => setListFilter("year")}
+                                    className="flex-1 md:flex-none px-3 h-8 text-xs"
+                                >
+                                    Current Year
+                                </Button>
+                                <Button 
+                                    variant={listFilter === "all" ? "secondary" : "ghost"} 
+                                    size="sm" 
+                                    onClick={() => setListFilter("all")}
+                                    className="flex-1 md:flex-none px-3 h-8 text-xs"
+                                >
+                                    Show All
+                                </Button>
                             </div>
                         </div>
 
@@ -287,7 +338,7 @@ export default function HolidaysPage() {
                                     ) : filteredHolidays.length === 0 ? (
                                         <TableRow>
                                             <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
-                                                No holidays found.
+                                                No holidays found for this period.
                                             </TableCell>
                                         </TableRow>
                                     ) : (
@@ -336,15 +387,16 @@ export default function HolidaysPage() {
                         </div>
                     </>
                 ) : (
-                    <Card className="p-4 bg-black border-slate-800">
-                        <div className="calendar-container dark">
+                    <Card className="p-4 bg-card border-border">
+                        <div className="calendar-container">
                             <FullCalendar
+                                ref={calendarRef}
                                 plugins={[dayGridPlugin, multiMonthPlugin, interactionPlugin, listPlugin]}
                                 initialView={view === "year" ? "multiMonthYear" : "dayGridMonth"}
                                 headerToolbar={{
                                     left: "prev,next today",
                                     center: "title",
-                                    right: "" // We have our own view switcher
+                                    right: "" 
                                 }}
                                 events={events}
                                 dateClick={handleDateClick}
@@ -354,56 +406,62 @@ export default function HolidaysPage() {
                                 multiMonthMaxColumns={view === "year" ? 3 : 1}
                                 eventClassNames="cursor-pointer hover:opacity-80 transition-opacity"
                                 dayMaxEvents={true}
+                                fixedWeekCount={false}
+                                showNonCurrentDates={view === "month" ? false : true}
                             />
                         </div>
                         <style jsx global>{`
                             .fc {
-                                --fc-border-color: #1e293b;
-                                --fc-daygrid-dot-event-hover-bg-color: #1e293b;
+                                --fc-border-color: var(--border);
+                                --fc-daygrid-dot-event-hover-bg-color: var(--accent);
                                 --fc-page-bg-color: transparent;
                                 --fc-neutral-bg-color: transparent;
-                                --fc-list-event-hover-bg-color: #1e293b;
-                                --fc-today-bg-color: rgba(59, 130, 246, 0.1);
-                                color: #f8fafc;
+                                --fc-list-event-hover-bg-color: var(--accent);
+                                --fc-today-bg-color: color-mix(in srgb, var(--primary) 10%, transparent);
+                                color: var(--foreground);
                             }
                             .fc .fc-toolbar-title {
                                 font-size: 1.25rem;
                                 font-weight: 600;
                             }
                             .fc .fc-button-primary {
-                                background-color: #0f172a;
-                                border-color: #1e293b;
-                                color: #f8fafc;
+                                background-color: var(--secondary);
+                                border-color: var(--border);
+                                color: var(--secondary-foreground);
                             }
                             .fc .fc-button-primary:hover {
-                                background-color: #1e293b;
-                                border-color: #334155;
+                                background-color: var(--accent);
+                                border-color: var(--border);
+                                color: var(--accent-foreground);
                             }
                             .fc .fc-button-primary:disabled {
-                                background-color: #020617;
-                                border-color: #0f172a;
                                 opacity: 0.5;
                             }
                             .fc .fc-button-active {
-                                background-color: #3b82f6 !important;
-                                border-color: #3b82f6 !important;
+                                background-color: var(--primary) !important;
+                                border-color: var(--primary) !important;
+                                color: var(--primary-foreground) !important;
                             }
                             .fc-theme-standard td, .fc-theme-standard th {
-                                border-color: #1e293b;
+                                border-color: var(--border);
                             }
                             .fc .fc-multimonth-month {
-                                border: 1px solid #1e293b;
+                                border: 1px solid var(--border);
                                 border-radius: 0.5rem;
                                 overflow: hidden;
                                 margin-bottom: 1rem;
                             }
                             .fc-multimonth-title {
-                                background: #0f172a;
+                                background: var(--muted);
                                 padding: 0.5rem !important;
-                                border-bottom: 1px solid #1e293b;
+                                border-bottom: 1px solid var(--border);
+                                color: var(--muted-foreground);
                             }
                             .fc-day-other {
                                 opacity: 0.3;
+                            }
+                            .dark .fc .fc-list-day-cushion {
+                                background-color: var(--muted);
                             }
                         `}</style>
                     </Card>
