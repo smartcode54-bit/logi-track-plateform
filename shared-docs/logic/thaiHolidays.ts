@@ -55,10 +55,10 @@ function calculateThaiBuddhistHolidays(year: number) {
     khaoPhansa.setUTCDate(khaoPhansa.getUTCDate() + 1);
 
     return [
-        { name: "Makha Bucha Day (วันมาฆบูชา)", date: makhaBucha },
-        { name: "Visakha Bucha Day (วันวิสาขบูชา)", date: visakhaBucha },
-        { name: "Asalha Bucha Day (วันอาสาฬหบูชา)", date: asalhaBucha },
-        { name: "Buddhist Lent Day (วันเข้าพรรษา)", date: khaoPhansa },
+        { holidayNameEN: "Makha Bucha Day", holidayNameTH: "วันมาฆบูชา", date: makhaBucha },
+        { holidayNameEN: "Visakha Bucha Day", holidayNameTH: "วันวิสาขบูชา", date: visakhaBucha },
+        { holidayNameEN: "Asalha Bucha Day", holidayNameTH: "วันอาสาฬหบูชา", date: asalhaBucha },
+        { holidayNameEN: "Buddhist Lent Day", holidayNameTH: "วันเข้าพรรษา", date: khaoPhansa },
     ];
 }
 
@@ -70,39 +70,35 @@ export function generateThaiPublicHolidays(year: number): Partial<Holiday>[] {
     const holidays: Partial<Holiday>[] = [];
 
     // Helper to add holiday with substitution logic
-    const addHoliday = (name: string, date: Date, type: "PUBLIC" | "RELIGIOUS" = "PUBLIC", isRecurring: boolean = true) => {
+    const addHoliday = (holidayNameEN: string, holidayNameTH: string, date: Date, type: "PUBLIC" | "RELIGIOUS" = "PUBLIC", isRecurring: boolean = true) => {
         // Ensure date is at start of day in local time for consistent comparison
         const holidayDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
         
         holidays.push({
-            name,
+            name: `${holidayNameEN} (${holidayNameTH})`,
+            holidayNameEN,
+            holidayNameTH,
             date: holidayDate,
-            type: type === "RELIGIOUS" ? "PUBLIC" : type, // Keep schema compatibility, or map as needed
+            type: type === "RELIGIOUS" ? "PUBLIC" : type, 
             status: "DRAFT",
             isRecurring,
         });
 
-        // Substitution Logic: If falls on Sat/Sun, add substitution on Monday
-        // Note: Buddhist Lent (Khao Phansa) is a holiday but usually doesn't have a substitution 
-        // if it falls on a weekend because Asalha Bucha (the day before) already has one.
-        // However, standard Thai practice is to have substitution for major public holidays.
-        if (name !== "Buddhist Lent Day (วันเข้าพรรษา)") {
+        // Substitution Logic
+        if (holidayNameEN !== "Buddhist Lent Day") {
             const dayOfWeek = holidayDate.getDay(); // 0 = Sunday, 6 = Saturday
             if (dayOfWeek === 0 || dayOfWeek === 6) {
                 const subDate = new Date(holidayDate);
                 subDate.setDate(holidayDate.getDate() + (dayOfWeek === 0 ? 1 : 2));
                 
-                // Special case: If Asalha Bucha is Sunday, Substitution is Tuesday (since Mon is Buddhist Lent)
-                if (name.includes("Asalha Bucha") && dayOfWeek === 0) {
+                if (holidayNameEN === "Asalha Bucha Day" && dayOfWeek === 0) {
                     subDate.setDate(holidayDate.getDate() + 2);
                 }
-                // Special case: If Asalha Bucha is Saturday, Substitution is Monday
-                // If Asalha Bucha is Saturday (0), Buddhist Lent is Sunday (1). 
-                // Many times the government adds an extra day on Tuesday.
-                // For simplicity, we'll follow standard +1/+2 rule unless it overlaps.
 
                 holidays.push({
-                    name: `Substitution for ${name.split(' (')[0]} (วันหยุดชดเชย)`,
+                    name: `Substitution for ${holidayNameEN} (วันหยุดชดเชย${holidayNameTH})`,
+                    holidayNameEN: `Substitution for ${holidayNameEN}`,
+                    holidayNameTH: `วันหยุดชดเชย${holidayNameTH}`,
                     date: subDate,
                     type: "PUBLIC",
                     status: "DRAFT",
@@ -114,30 +110,30 @@ export function generateThaiPublicHolidays(year: number): Partial<Holiday>[] {
 
     // Fixed Date Holidays
     const fixedHolidays = [
-        { name: "New Year's Day (วันขึ้นปีใหม่)", month: 0, day: 1 },
-        { name: "Chakri Day (วันจักรี)", month: 3, day: 6 },
-        { name: "Songkran Festival (วันสงกรานต์)", month: 3, day: 13 },
-        { name: "Songkran Festival (วันสงกรานต์)", month: 3, day: 14 },
-        { name: "Songkran Festival (วันสงกรานต์)", month: 3, day: 15 },
-        { name: "Labor Day (วันแรงงานแห่งชาติ)", month: 4, day: 1 },
-        { name: "Coronation Day (วันฉัตรมงคล)", month: 4, day: 4 },
-        { name: "HM Queen Suthida's Birthday (วันเฉลิมพระชนมพรรษาสมเด็จพระนางเจ้าฯ พระบรมราชินี)", month: 5, day: 3 },
-        { name: "King Rama X's Birthday (วันเฉลิมพระชนมพรรษาพระบาทสมเด็จพระเจ้าอยู่หัว)", month: 6, day: 28 },
-        { name: "HM Queen Sirikit The Queen Mother's Birthday (วันเฉลิมพระชนมพรรษาสมเด็จพระบรมราชชนนีพันปีหลวง / วันแม่แห่งชาติ)", month: 7, day: 12 },
-        { name: "King Rama IX Memorial Day (วันคล้ายวันสวรรคตพระบาทสมเด็จพระบรมชนกาธิเบศร มหาภูมิพลอดุลยเดชมหาราช บรมนาถบพิตร)", month: 9, day: 13 },
-        { name: "Chulalongkorn Day (วันปิยมหาราช)", month: 9, day: 23 },
-        { name: "King Rama IX's Birthday / Father's Day (วันคล้ายวันพระบรมราชสมภพ พระบาทสมเด็จพระบรมชนกาธิเบศร มหาภูมิพลอดุลยเดชมหาราช บรมนาถบพิตร / วันพ่อแห่งชาติ)", month: 11, day: 5 },
-        { name: "Constitution Day (วันรัฐธรรมนูญ)", month: 11, day: 10 },
+        { holidayNameEN: "New Year's Day", holidayNameTH: "วันขึ้นปีใหม่", month: 0, day: 1 },
+        { holidayNameEN: "Chakri Day", holidayNameTH: "วันจักรี", month: 3, day: 6 },
+        { holidayNameEN: "Songkran Festival", holidayNameTH: "วันสงกรานต์", month: 3, day: 13 },
+        { holidayNameEN: "Songkran Festival", holidayNameTH: "วันสงกรานต์", month: 3, day: 14 },
+        { holidayNameEN: "Songkran Festival", holidayNameTH: "วันสงกรานต์", month: 3, day: 15 },
+        { holidayNameEN: "Labor Day", holidayNameTH: "วันแรงงานแห่งชาติ", month: 4, day: 1 },
+        { holidayNameEN: "Coronation Day", holidayNameTH: "วันฉัตรมงคล", month: 4, day: 4 },
+        { holidayNameEN: "HM Queen Suthida's Birthday", holidayNameTH: "วันเฉลิมพระชนมพรรษาสมเด็จพระนางเจ้าฯ พระบรมราชินี", month: 5, day: 3 },
+        { holidayNameEN: "King Rama X's Birthday", holidayNameTH: "วันเฉลิมพระชนมพรรษาพระบาทสมเด็จพระเจ้าอยู่หัว", month: 6, day: 28 },
+        { holidayNameEN: "HM Queen Sirikit The Queen Mother's Birthday", holidayNameTH: "วันเฉลิมพระชนมพรรษาสมเด็จพระบรมราชชนนีพันปีหลวง / วันแม่แห่งชาติ", month: 7, day: 12 },
+        { holidayNameEN: "King Rama IX Memorial Day", holidayNameTH: "วันคล้ายวันสวรรคตพระบาทสมเด็จพระบรมชนกาธิเบศร มหาภูมิพลอดุลยเดชมหาราช บรมนาถบพิตร", month: 9, day: 13 },
+        { holidayNameEN: "Chulalongkorn Day", holidayNameTH: "วันปิยมหาราช", month: 9, day: 23 },
+        { holidayNameEN: "King Rama IX's Birthday / Father's Day", holidayNameTH: "วันคล้ายวันพระบรมราชสมภพ พระบาทสมเด็จพระบรมชนกาธิเบศร มหาภูมิพลอดุลยเดชมหาราช บรมนาถบพิตร / วันพ่อแห่งชาติ", month: 11, day: 5 },
+        { holidayNameEN: "Constitution Day", holidayNameTH: "วันรัฐธรรมนูญ", month: 11, day: 10 },
     ];
 
     fixedHolidays.forEach(h => {
-        addHoliday(h.name, new Date(year, h.month, h.day));
+        addHoliday(h.holidayNameEN, h.holidayNameTH, new Date(year, h.month, h.day));
     });
 
     // Variable Buddhist Holidays
     const buddhistHolidays = calculateThaiBuddhistHolidays(year);
     buddhistHolidays.forEach(bh => {
-        addHoliday(bh.name, bh.date, "PUBLIC", false);
+        addHoliday(bh.holidayNameEN as string, bh.holidayNameTH as string, bh.date as Date, "PUBLIC", false);
     });
 
     // Sort by date

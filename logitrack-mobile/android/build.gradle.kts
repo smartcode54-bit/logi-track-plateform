@@ -16,8 +16,12 @@ val newBuildDir: Directory =
 rootProject.layout.buildDirectory.value(newBuildDir)
 
 subprojects {
-    val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
-    project.layout.buildDirectory.value(newSubprojectBuildDir)
+    // Only apply the custom build directory to subprojects that are within the main project folder.
+    // This avoids cross-drive issues with Flutter plugins stored in the Pub cache (usually on C: drive).
+    if (project.projectDir.absolutePath.startsWith(rootProject.projectDir.parentFile.absolutePath)) {
+        val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
+        project.layout.buildDirectory.value(newSubprojectBuildDir)
+    }
 }
 subprojects {
     project.evaluationDependsOn(":app")

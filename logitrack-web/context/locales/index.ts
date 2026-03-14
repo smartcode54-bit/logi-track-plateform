@@ -15,6 +15,7 @@ import driverMonitorEn from './en/driverMonitor';
 import accountingEn from './en/accounting';
 import customersEn from './en/customers';
 import securityCenterEn from './en/securityCenter';
+import holidaysEn from './en/holidays';
 
 import commonTh from './th/common';
 import authTh from './th/auth';
@@ -33,6 +34,7 @@ import driverMonitorTh from './th/driverMonitor';
 import accountingTh from './th/accounting';
 import customersTh from './th/customers';
 import securityCenterTh from './th/securityCenter';
+import holidaysTh from './th/holidays';
 
 export const translations = {
     en: {
@@ -53,6 +55,7 @@ export const translations = {
         ...accountingEn,
         ...customersEn,
         ...securityCenterEn,
+        ...holidaysEn,
     },
     th: {
         ...commonTh,
@@ -72,5 +75,6 @@ export const translations = {
         ...accountingTh,
         ...customersTh,
         ...securityCenterTh,
+        ...holidaysTh,
     },
 };

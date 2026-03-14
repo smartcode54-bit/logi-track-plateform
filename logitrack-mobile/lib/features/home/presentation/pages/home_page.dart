@@ -168,6 +168,14 @@ class _HomePageState extends State<HomePage> {
                 _showLanguageSheet(context);
               },
             ),
+            ListTile(
+              leading: const Icon(Icons.calendar_month_outlined),
+              title: Text('menu_working_holiday_calendar'.tr()),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.pushNamed(context, '/working-holiday-calendar');
+              },
+            ),
             const Divider(),
             ListTile(
               leading: const Icon(Icons.logout),

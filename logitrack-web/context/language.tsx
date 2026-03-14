@@ -5,10 +5,12 @@ import { translations } from "./locales";
 
 type Language = "en" | "th";
 
+type TParams = Record<string, string | number>;
+
 type LanguageContextType = {
     language: Language;
     setLanguage: (lang: Language) => void;
-    t: (key: string, fallback?: string) => string;
+    t: (key: string, fallbackOrParams?: string | TParams) => string;
 };
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
@@ -28,10 +30,17 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem("language", lang);
     };
 
-    const t = (key: string, fallback?: string): string => {
+    const t = (key: string, fallbackOrParams?: string | TParams): string => {
         // @ts-ignore
-        const value = translations[language][key];
-        return value !== undefined && value !== "" ? value : (fallback !== undefined ? fallback : key);
+        let value: string = translations[language][key];
+        const str = value !== undefined && value !== "" ? value : (typeof fallbackOrParams === "string" ? fallbackOrParams : key);
+        if (typeof fallbackOrParams === "object" && fallbackOrParams !== null) {
+            return Object.entries(fallbackOrParams).reduce(
+                (acc, [k, v]) => acc.replace(new RegExp(`\\{${k}\\}`, "g"), String(v)),
+                str
+            );
+        }
+        return str;
     };
 
     return (

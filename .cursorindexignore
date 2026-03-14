@@ -37,8 +37,17 @@
 # === Cloud Functions compiled output ===
 logitrack-web/functions/lib/
 
-# === Lock files ===
+# === Dist / cache (ลดการ index) ===
+**/dist/
+**/.cache/
+**/.parcel-cache/
+**/.eslintcache
+**/*.map
+
+# === Lock files (ใหญ่ โหลดช้า) ===
 package-lock.json
+**/pnpm-lock.yaml
+**/yarn.lock
 **/pubspec.lock
 
 # === Platform-specific (Desktop - not actively developed) ===
@@ -72,3 +81,8 @@ logitrack-mobile/macos/
 **/.env
 **/.env.*
 **/*.pem
+
+# === Cursor / Agent (ไม่ต้อง index) ===
+.cursor/
+agent-transcripts/
+mcps/

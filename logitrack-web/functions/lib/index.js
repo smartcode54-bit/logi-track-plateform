@@ -52,4 +52,5 @@ __exportStar(require("./triggers"), exports);
 __exportStar(require("./distances"), exports);
 __exportStar(require("./chat"), exports);
 __exportStar(require("./cartrack"), exports);
+__exportStar(require("./holidays"), exports);
 //# sourceMappingURL=index.js.map

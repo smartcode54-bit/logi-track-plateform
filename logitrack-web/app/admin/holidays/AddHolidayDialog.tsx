@@ -2,11 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { useLanguage } from "@/context/language";
-import { useAuth } from "@/context/auth";
-import { db } from "@/firebase/client";
-import { COLLECTIONS } from "@/lib/collections";
+import { functions } from "@/firebase/client";
 import { Holiday, holidaySchema, HOLIDAY_TYPE_ENUM, HOLIDAY_STATUS_ENUM } from "@/validate/holidaySchema";
-import { collection, addDoc, updateDoc, doc, Timestamp } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
 import {
     Dialog,
     DialogContent,
@@ -40,16 +38,18 @@ interface AddHolidayDialogProps {
 
 export function AddHolidayDialog({ open, onOpenChange, initialDate, editData }: AddHolidayDialogProps) {
     const { t } = useLanguage();
-    const auth = useAuth();
-    const user = auth?.currentUser ?? null;
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const [formData, setFormData] = useState({
         name: "",
+        holidayNameEN: "",
+        holidayNameTH: "",
         date: "",
         type: "PUBLIC" as typeof HOLIDAY_TYPE_ENUM[number],
         status: "DRAFT" as typeof HOLIDAY_STATUS_ENUM[number],
         description: "",
+        descriptionEn: "",
+        descriptionTh: "",
         isRecurring: false,
     });
 
@@ -57,10 +57,14 @@ export function AddHolidayDialog({ open, onOpenChange, initialDate, editData }: 
         if (open) {
             setFormData({
                 name: editData?.name ?? "",
+                holidayNameEN: editData?.holidayNameEN ?? "",
+                holidayNameTH: editData?.holidayNameTH ?? "",
                 date: editData?.date ? format(editData.date, "yyyy-MM-dd") : initialDate ?? "",
                 type: editData?.type ?? "PUBLIC",
                 status: editData?.status ?? "DRAFT",
                 description: editData?.description ?? "",
+                descriptionEn: editData?.descriptionEn ?? "",
+                descriptionTh: editData?.descriptionTh ?? "",
                 isRecurring: editData?.isRecurring ?? false,
             });
         }
@@ -68,38 +72,30 @@ export function AddHolidayDialog({ open, onOpenChange, initialDate, editData }: 
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!formData.name || !formData.date) {
-            toast.error("Please fill in all required fields");
+        if (!formData.holidayNameEN && !formData.holidayNameTH) {
+            toast.error(t("holidays.toast.fillRequired"));
             return;
         }
 
         setIsSubmitting(true);
         try {
-            const holidaysRef = collection(db, COLLECTIONS.HOLIDAYS);
-            const holidayData = {
+            const name = formData.holidayNameEN && formData.holidayNameTH
+                ? `${formData.holidayNameEN} (${formData.holidayNameTH})`
+                : (formData.holidayNameEN || formData.holidayNameTH);
+            const payload = {
                 ...formData,
-                date: Timestamp.fromDate(new Date(formData.date)),
-                updatedAt: Timestamp.now(),
+                name,
+                date: formData.date,
+                ...(editData?.id && { id: editData.id }),
             };
-
-            if (editData?.id) {
-                await updateDoc(doc(db, COLLECTIONS.HOLIDAYS, editData.id), holidayData);
-                toast.success("Holiday updated successfully");
-            } else {
-                const newHoliday = {
-                    ...holidayData,
-                    createdAt: Timestamp.now(),
-                    createdBy: user?.uid || "system",
-                };
-                // Validate with Zod
-                holidaySchema.parse(newHoliday);
-                await addDoc(holidaysRef, newHoliday);
-                toast.success("Holiday added successfully");
-            }
+            holidaySchema.parse({ ...payload, date: new Date(payload.date) });
+            const saveHolidayFn = httpsCallable<typeof payload, { id: string }>(functions, "saveHoliday");
+            await saveHolidayFn(payload);
+            toast.success(editData?.id ? t("holidays.toast.updated") : t("holidays.toast.added"));
             onOpenChange(false);
         } catch (error: any) {
             console.error("Error saving holiday:", error);
-            toast.error(error.message || "Failed to save holiday");
+            toast.error(error.message || t("holidays.toast.failedSave"));
         } finally {
             setIsSubmitting(false);
         }
@@ -109,24 +105,51 @@ export function AddHolidayDialog({ open, onOpenChange, initialDate, editData }: 
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-[425px]">
                 <DialogHeader>
-                    <DialogTitle>{editData ? "Edit Holiday" : "Add New Holiday"}</DialogTitle>
+                    <DialogTitle>{editData ? t("holidays.dialog.editTitle") : t("holidays.dialog.addTitle")}</DialogTitle>
                     <DialogDescription>
-                        {editData ? "Update the existing holiday details." : "Create a new holiday entry for the company calendar."}
+                        {editData ? t("holidays.dialog.editDesc") : t("holidays.dialog.addDesc")}
                     </DialogDescription>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="space-y-4 py-4">
-                    <div className="space-y-2">
-                        <Label htmlFor="name">Holiday Name *</Label>
-                        <Input
-                            id="name"
-                            placeholder="e.g. Songkran Festival"
-                            value={formData.name}
-                            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                            required
-                        />
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="holidayNameEN">{t("holidays.dialog.nameEnLabel")} *</Label>
+                            <Input
+                                id="holidayNameEN"
+                                placeholder={t("holidays.dialog.nameEnPlaceholder")}
+                                value={formData.holidayNameEN}
+                                onChange={(e) => setFormData({ ...formData, holidayNameEN: e.target.value })}
+                                required
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="holidayNameTH">{t("holidays.dialog.nameThLabel")} *</Label>
+                            <Input
+                                id="holidayNameTH"
+                                placeholder={t("holidays.dialog.nameThPlaceholder")}
+                                value={formData.holidayNameTH}
+                                onChange={(e) => setFormData({ ...formData, holidayNameTH: e.target.value })}
+                                required
+                            />
+                        </div>
                     </div>
                     <div className="space-y-2">
-                        <Label htmlFor="date">Date *</Label>
+                        <Label htmlFor="name">{t("holidays.dialog.nameLabel")}</Label>
+                        <Input
+                            id="name"
+                            placeholder={t("holidays.dialog.namePlaceholder")}
+                            value={formData.holidayNameEN && formData.holidayNameTH 
+                                ? `${formData.holidayNameEN} (${formData.holidayNameTH})` 
+                                : (formData.holidayNameEN || formData.holidayNameTH || formData.name)}
+                            disabled
+                            className="bg-muted"
+                        />
+                        <p className="text-[10px] text-muted-foreground italic">
+                            * Auto-generated from English and Thai names
+                        </p>
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="date">{t("holidays.dialog.dateLabel")} *</Label>
                         <Input
                             id="date"
                             type="date"
@@ -137,36 +160,36 @@ export function AddHolidayDialog({ open, onOpenChange, initialDate, editData }: 
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
-                            <Label htmlFor="type">Type</Label>
+                            <Label htmlFor="type">{t("holidays.dialog.typeLabel")}</Label>
                             <Select
                                 value={formData.type}
                                 onValueChange={(value: any) => setFormData({ ...formData, type: value })}
                             >
                                 <SelectTrigger>
-                                    <SelectValue placeholder="Select type" />
+                                    <SelectValue placeholder={t("holidays.dialog.typeLabel")} />
                                 </SelectTrigger>
                                 <SelectContent>
                                     {HOLIDAY_TYPE_ENUM.map((type) => (
                                         <SelectItem key={type} value={type}>
-                                            {type}
+                                            {t(`holidays.type.${type.toLowerCase()}`)}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="status">Status</Label>
+                            <Label htmlFor="status">{t("holidays.dialog.statusLabel")}</Label>
                             <Select
                                 value={formData.status}
                                 onValueChange={(value: any) => setFormData({ ...formData, status: value })}
                             >
                                 <SelectTrigger>
-                                    <SelectValue placeholder="Select status" />
+                                    <SelectValue placeholder={t("holidays.dialog.statusLabel")} />
                                 </SelectTrigger>
                                 <SelectContent>
                                     {HOLIDAY_STATUS_ENUM.map((status) => (
                                         <SelectItem key={status} value={status}>
-                                            {status}
+                                            {t(`holidays.status.${status.toLowerCase()}`)}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>
@@ -182,25 +205,50 @@ export function AddHolidayDialog({ open, onOpenChange, initialDate, editData }: 
                             }
                         />
                         <Label htmlFor="recurring" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                            Is Recurring (Annual)
+                            {t("holidays.dialog.recurringLabel")}
                         </Label>
                     </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="descriptionEn">Description (English)</Label>
+                            <Textarea
+                                id="descriptionEn"
+                                placeholder="Details in English"
+                                value={formData.descriptionEn}
+                                onChange={(e) => setFormData({ ...formData, descriptionEn: e.target.value })}
+                                className="h-20 text-xs"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="descriptionTh">รายละเอียด (ภาษาไทย)</Label>
+                            <Textarea
+                                id="descriptionTh"
+                                placeholder="รายละเอียดภาษาไทย"
+                                value={formData.descriptionTh}
+                                onChange={(e) => setFormData({ ...formData, descriptionTh: e.target.value })}
+                                className="h-20 text-xs"
+                            />
+                        </div>
+                    </div>
                     <div className="space-y-2">
-                        <Label htmlFor="description">Description (Optional)</Label>
+                        <Label htmlFor="description">{t("holidays.dialog.descriptionLabel")}</Label>
                         <Textarea
                             id="description"
-                            placeholder="Additional details..."
-                            value={formData.description}
-                            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                            placeholder={t("holidays.dialog.descriptionPlaceholder")}
+                            value={formData.descriptionEn && formData.descriptionTh 
+                                ? `${formData.descriptionEn} (${formData.descriptionTh})` 
+                                : (formData.descriptionEn || formData.descriptionTh || formData.description)}
+                            disabled
+                            className="bg-muted h-20 text-xs"
                         />
                     </div>
                     <DialogFooter>
                         <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                            Cancel
+                            {t("holidays.dialog.cancel")}
                         </Button>
-                        <Button type="submit" disabled={isSubmitting}>
+                        <Button type="submit" disabled={isSubmitting} className="bg-blue-600 hover:bg-blue-700">
                             {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                            {editData ? "Update Holiday" : "Save Holiday"}
+                            {editData ? t("holidays.dialog.updateButton") : t("holidays.dialog.saveButton")}
                         </Button>
                     </DialogFooter>
                 </form>

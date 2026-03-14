@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
-import { collection, query, orderBy, onSnapshot, deleteDoc, doc, Timestamp, writeBatch } from "firebase/firestore";
-import { db } from "@/firebase/client";
+import { collection, query, orderBy, onSnapshot, doc, Timestamp } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
+import { db, functions } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { Holiday, HOLIDAY_TYPE_ENUM } from "@/validate/holidaySchema";
 import {
@@ -49,12 +50,12 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { useLanguage } from "@/context/language";
 import { format, isSameMonth, isSameYear } from "date-fns";
+import { th } from "date-fns/locale";
 import { toast } from "sonner";
 import { AddHolidayDialog } from "./AddHolidayDialog";
 import { YearSelectDialog } from "./YearSelectDialog";
 import { ReviewGeneratedDialog } from "./ReviewGeneratedDialog";
 import { generateThaiPublicHolidays } from "shared-docs/logic/thaiHolidays";
-import { useAuth } from "@/context/auth";
 import {
     Tooltip,
     TooltipContent,
@@ -70,8 +71,33 @@ import interactionPlugin from "@fullcalendar/interaction";
 import listPlugin from "@fullcalendar/list";
 
 export default function HolidaysPage() {
-    const { t } = useLanguage();
-    const { currentUser } = useAuth();
+    const { t, language } = useLanguage();
+
+    // Helper to get language-specific name with fallback for legacy data
+    const getHolidayName = (h: Holiday) => {
+        if (language === "th") {
+            if (h.holidayNameTH) return h.holidayNameTH;
+            const match = h.name.match(/\(([^)]+)\)/);
+            return match ? match[1] : h.name;
+        } else {
+            if (h.holidayNameEN) return h.holidayNameEN;
+            return h.name.split(" (")[0];
+        }
+    };
+
+    const formatHolidayDate = (date: Date) =>
+        format(date, "PPP", { locale: language === "th" ? th : undefined });
+
+    const getHolidayDescription = (h: Holiday) => {
+        if (language === "th") {
+            if (h.descriptionTh) return h.descriptionTh;
+            const match = h.description?.match(/\(([^)]+)\)/);
+            return match ? match[1] : h.description;
+        } else {
+            if (h.descriptionEn) return h.descriptionEn;
+            return h.description?.split(" (")[0];
+        }
+    };
     const [holidays, setHolidays] = useState<Holiday[]>([]);
     const [loading, setLoading] = useState(true);
     const [isGenerating, setIsGenerating] = useState(false);
@@ -110,20 +136,25 @@ export default function HolidaysPage() {
             setLoading(false);
         }, (err) => {
             console.error("Error fetching holidays:", err);
-            toast.error("Failed to load holiday calendar");
+            toast.error(t("holidays.toast.failedLoad"));
             setLoading(false);
         });
 
         return () => unsubscribe();
-    }, []);
+    }, [t]);
 
     const filteredHolidays = useMemo(() => {
         const now = new Date();
+        const searchLower = searchQuery.toLowerCase();
         return holidays.filter(h => {
-            const matchesSearch = h.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                                 h.type.toLowerCase().includes(searchQuery.toLowerCase());
-            
+            const matchesSearch = 
+                h.name.toLowerCase().includes(searchLower) ||
+                (h.holidayNameEN && h.holidayNameEN.toLowerCase().includes(searchLower)) ||
+                (h.holidayNameTH && h.holidayNameTH.toLowerCase().includes(searchLower)) ||
+                h.type.toLowerCase().includes(searchLower);
+
             if (!matchesSearch) return false;
+
 
             if (view === "list") {
                 if (listFilter === "month") return isSameMonth(h.date, now);
@@ -158,13 +189,14 @@ export default function HolidaysPage() {
     };
 
     const handleDelete = async (id: string) => {
-        if (!confirm("Are you sure you want to delete this holiday?")) return;
+        if (!confirm(t("holidays.deleteConfirm"))) return;
         try {
-            await deleteDoc(doc(db, COLLECTIONS.HOLIDAYS, id));
-            toast.success("Holiday deleted");
+            const deleteHolidayFn = httpsCallable<{ id: string }, { ok: boolean }>(functions, "deleteHoliday");
+            await deleteHolidayFn({ id });
+            toast.success(t("holidays.toast.deleted"));
         } catch (error) {
             console.error("Error deleting holiday:", error);
-            toast.error("Failed to delete holiday");
+            toast.error(t("holidays.toast.failedDelete"));
         }
     };
 
@@ -177,38 +209,35 @@ export default function HolidaysPage() {
                 setIsReviewOpen(true);
             } catch (error) {
                 console.error("Error generating holidays:", error);
-                toast.error("Failed to generate holidays");
+                toast.error(t("holidays.toast.failedGenerate"));
             } finally {
                 setIsGenerating(false);
             }
         }, 500);
     };
 
-    const handleSaveGenerated = async (finalHolidays: Partial<Holiday>[]) => {
+    /** Calls the saveGeneratedHolidays Cloud Function (onCall + httpsCallable). See docs/CALLABLE_FUNCTIONS.md. */
+    const handleSaveGenerated = async (finalHolidays: Partial<Holiday>[], initialHolidays: Partial<Holiday>[]) => {
         setIsSaving(true);
         try {
-            const batch = writeBatch(db);
-            const holidaysRef = collection(db, COLLECTIONS.HOLIDAYS);
-
-            finalHolidays.forEach((h) => {
-                const newDocRef = doc(holidaysRef);
-                batch.set(newDocRef, {
-                    ...h,
-                    date: Timestamp.fromDate(h.date as Date),
-                    status: "PUBLISHED",
-                    createdAt: Timestamp.now(),
-                    updatedAt: Timestamp.now(),
-                    createdBy: currentUser?.uid || "system",
-                });
+            const serialize = (h: Partial<Holiday>) => ({
+                ...h,
+                date: h.date ? format(h.date as Date, "yyyy-MM-dd") : "",
             });
-
-            await batch.commit();
-            toast.success(`Successfully saved ${finalHolidays.length} holidays`);
+            const saveGeneratedHolidays = httpsCallable<
+                { finalHolidays: Record<string, unknown>[]; initialHolidays: Record<string, unknown>[] },
+                { saved: number; deleted: number }
+            >(functions, "saveGeneratedHolidays");
+            await saveGeneratedHolidays({
+                finalHolidays: finalHolidays.map(serialize),
+                initialHolidays: initialHolidays.map(serialize),
+            });
+            toast.success(t("holidays.toast.saved", { count: finalHolidays.length }));
             setIsReviewOpen(false);
             setGeneratedHolidays([]);
         } catch (error) {
             console.error("Error saving holidays:", error);
-            toast.error("Failed to save holidays");
+            toast.error(t("holidays.toast.failedSave"));
             throw error;
         } finally {
             setIsSaving(false);
@@ -222,17 +251,19 @@ export default function HolidaysPage() {
     }, [holidays]);
 
     const events = useMemo(() => {
-        return holidays.map(h => ({
-            id: h.id,
-            title: h.name,
-            start: h.date,
-            allDay: true,
-            backgroundColor: getTypeCalendarColor(h.type),
-            borderColor: "transparent",
-            extendedProps: { ...h },
-            display: 'block'
-        }));
-    }, [holidays]);
+        return holidays.map(h => {
+            return {
+                id: h.id,
+                title: getHolidayName(h),
+                start: h.date,
+                allDay: true,
+                backgroundColor: getTypeCalendarColor(h.type),
+                borderColor: "transparent",
+                extendedProps: { ...h },
+                display: 'block'
+            };
+        });
+    }, [holidays, language]);
 
     const handleDateClick = (arg: any) => {
         setInitialDate(arg.dateStr);
@@ -279,7 +310,7 @@ export default function HolidaysPage() {
                     <div>
                         <h1 className="text-3xl font-bold tracking-tight">{t("nav.holidays")}</h1>
                         <p className="text-muted-foreground mt-1">
-                            Manage company and public holidays for driver scheduling.
+                            {t("holidays.manageHolidays")}
                         </p>
                     </div>
                     <div className="flex flex-wrap gap-3">
@@ -294,7 +325,7 @@ export default function HolidaysPage() {
                             ) : (
                                 <Sparkles className="mr-2 h-4 w-4" />
                             )}
-                            Generate Holidays
+                            {t("holidays.generateHolidays")}
                         </Button>
                         
                         <div className="flex items-center bg-muted/50 rounded-xl p-1 gap-1 border border-border/50">
@@ -310,7 +341,7 @@ export default function HolidaysPage() {
                                 )}
                             >
                                 <LayoutGrid className="h-3.5 w-3.5 mr-2" />
-                                Year
+                                {t("holidays.viewYear")}
                             </Button>
                             <Button 
                                 variant="ghost" 
@@ -324,7 +355,7 @@ export default function HolidaysPage() {
                                 )}
                             >
                                 <CalendarViewIcon className="h-3.5 w-3.5 mr-2" />
-                                Month
+                                {t("holidays.viewMonth")}
                             </Button>
                             <Button 
                                 variant="ghost" 
@@ -338,12 +369,12 @@ export default function HolidaysPage() {
                                 )}
                             >
                                 <ListViewIcon className="h-3.5 w-3.5 mr-2" />
-                                List
+                                {t("holidays.viewList")}
                             </Button>
                         </div>
                         <Button onClick={handleAddClick} className="bg-blue-600 hover:bg-blue-700 text-white px-6 shadow-sm">
                             <Plus className="mr-2 h-4 w-4" />
-                            Add Holiday
+                            {t("holidays.addHoliday")}
                         </Button>
                     </div>
                 </div>
@@ -373,7 +404,7 @@ export default function HolidaysPage() {
                     <Card className="shadow-sm border-border/60">
                         <CardContent className="p-6 flex items-center justify-between">
                             <div>
-                                <p className="text-sm font-medium text-muted-foreground">Total Holidays</p>
+                                <p className="text-sm font-medium text-muted-foreground">{t("holidays.totalHolidays")}</p>
                                 <h2 className="text-3xl font-bold">{stats.total}</h2>
                             </div>
                             <CalendarIcon className="h-8 w-8 text-blue-500/80" />
@@ -382,7 +413,7 @@ export default function HolidaysPage() {
                     <Card className="shadow-sm border-border/60">
                         <CardContent className="p-6 flex items-center justify-between">
                             <div>
-                                <p className="text-sm font-medium text-muted-foreground">Upcoming</p>
+                                <p className="text-sm font-medium text-muted-foreground">{t("holidays.upcoming")}</p>
                                 <h2 className="text-3xl font-bold">{stats.upcoming}</h2>
                             </div>
                             <ChevronRight className="h-8 w-8 text-green-500/80" />
@@ -391,7 +422,7 @@ export default function HolidaysPage() {
                     <Card className="shadow-sm border-border/60">
                         <CardContent className="p-6 flex items-center justify-between">
                             <div>
-                                <p className="text-sm font-medium text-muted-foreground">Recurring</p>
+                                <p className="text-sm font-medium text-muted-foreground">{t("holidays.recurring")}</p>
                                 <h2 className="text-3xl font-bold">{stats.recurring}</h2>
                             </div>
                             <CalendarIcon className="h-8 w-8 text-purple-500/40" />
@@ -407,7 +438,7 @@ export default function HolidaysPage() {
                                 <div className="relative flex-1 w-full max-w-sm">
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                     <Input
-                                        placeholder="Search holidays..."
+                                        placeholder={t("holidays.searchPlaceholder")}
                                         className="pl-10 h-10 rounded-lg"
                                         value={searchQuery}
                                         onChange={(e) => setSearchQuery(e.target.value)}
@@ -420,7 +451,7 @@ export default function HolidaysPage() {
                                         onClick={() => setListFilter("month")}
                                         className={cn("flex-1 md:flex-none px-3 h-8 text-[11px] font-bold uppercase tracking-wider", listFilter === "month" && "bg-background shadow-sm")}
                                     >
-                                        This Month
+                                        {t("holidays.thisMonth")}
                                     </Button>
                                     <Button 
                                         variant={listFilter === "year" ? "secondary" : "ghost"} 
@@ -428,7 +459,7 @@ export default function HolidaysPage() {
                                         onClick={() => setListFilter("year")}
                                         className={cn("flex-1 md:flex-none px-3 h-8 text-[11px] font-bold uppercase tracking-wider", listFilter === "year" && "bg-background shadow-sm")}
                                     >
-                                        This Year
+                                        {t("holidays.thisYear")}
                                     </Button>
                                     <Button 
                                         variant={listFilter === "all" ? "secondary" : "ghost"} 
@@ -436,71 +467,77 @@ export default function HolidaysPage() {
                                         onClick={() => setListFilter("all")}
                                         className={cn("flex-1 md:flex-none px-3 h-8 text-[11px] font-bold uppercase tracking-wider", listFilter === "all" && "bg-background shadow-sm")}
                                     >
-                                        Show All
+                                        {t("holidays.showAll")}
                                     </Button>
                                 </div>
                             </div>
 
                             <div className="border rounded-xl bg-card overflow-hidden shadow-sm">
-                                <Table>
+                                <Table className="table-fixed w-full">
                                     <TableHeader className="bg-muted/30">
                                         <TableRow>
-                                            <TableHead className="font-bold">Holiday Name</TableHead>
-                                            <TableHead className="font-bold">Date</TableHead>
-                                            <TableHead className="font-bold">Type</TableHead>
-                                            <TableHead className="text-right font-bold">Actions</TableHead>
+                                            <TableHead className="font-bold w-12 text-center">{t("holidays.table.no")}</TableHead>
+                                            <TableHead className="font-bold w-2/5 min-w-0">{t("holidays.table.name")}</TableHead>
+                                            <TableHead className="font-bold w-1/4">{t("holidays.table.date")}</TableHead>
+                                            <TableHead className="font-bold w-1/5">{t("holidays.table.type")}</TableHead>
+                                            <TableHead className="font-bold w-20 text-right">{t("holidays.table.actions")}</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
                                         {/* Firebase Rows */}
                                         {loading ? (
                                             <TableRow>
-                                                <TableCell colSpan={4} className="h-32 text-center">
+                                                <TableCell colSpan={5} className="h-32 text-center">
                                                     <div className="flex flex-col items-center justify-center gap-2">
                                                         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                                                        <p className="text-sm text-muted-foreground">Loading holidays...</p>
+                                                        <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
                                                     </div>
                                                 </TableCell>
                                             </TableRow>
                                         ) : filteredHolidays.length === 0 ? (
                                             <TableRow>
-                                                <TableCell colSpan={4} className="h-32 text-center text-muted-foreground">
-                                                    No holidays found for this period.
+                                                <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
+                                                    {t("holidays.noHolidays")}
                                                 </TableCell>
                                             </TableRow>
                                         ) : (
-                                            filteredHolidays.map((holiday) => (
-                                                <TableRow key={holiday.id} className="hover:bg-muted/20">
-                                                    <TableCell className="font-semibold">{holiday.name}</TableCell>
-                                                    <TableCell>{format(holiday.date, "PPP")}</TableCell>
-                                                    <TableCell>
-                                                        <Badge variant="outline" className={getTypeColor(holiday.type)}>
-                                                            {holiday.type}
-                                                        </Badge>
-                                                    </TableCell>
-                                                    <TableCell className="text-right">
-                                                        <DropdownMenu>
-                                                            <DropdownMenuTrigger asChild>
-                                                                <Button variant="ghost" size="icon" className="h-8 w-8">
-                                                                    <MoreHorizontal className="h-4 w-4" />
-                                                                </Button>
-                                                            </DropdownMenuTrigger>
-                                                            <DropdownMenuContent align="end" className="w-32">
-                                                                <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                                                                <DropdownMenuItem onClick={() => handleEditClick(holiday)}>
-                                                                    <Pencil className="mr-2 h-3.5 w-3.5" /> Edit
-                                                                </DropdownMenuItem>
-                                                                <DropdownMenuItem 
-                                                                    className="text-red-600 focus:text-red-600"
-                                                                    onClick={() => holiday.id && handleDelete(holiday.id)}
-                                                                >
-                                                                    <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete
-                                                                </DropdownMenuItem>
-                                                            </DropdownMenuContent>
-                                                        </DropdownMenu>
-                                                    </TableCell>
-                                                </TableRow>
-                                            ))
+                                            filteredHolidays.map((holiday, index) => (
+                                                    <TableRow key={holiday.id} className="hover:bg-muted/20">
+                                                        <TableCell className="w-12 text-center align-middle text-muted-foreground tabular-nums">
+                                                            {index + 1}
+                                                        </TableCell>
+                                                        <TableCell className="font-semibold w-2/5 min-w-0 break-words whitespace-normal align-middle">
+                                                            {getHolidayName(holiday)}
+                                                        </TableCell>
+                                                        <TableCell className="w-1/4 align-middle">{formatHolidayDate(holiday.date)}</TableCell>
+                                                        <TableCell className="w-1/5 align-middle">
+                                                            <Badge variant="outline" className={getTypeColor(holiday.type)}>
+                                                                {t(`holidays.type.${holiday.type.toLowerCase()}`)}
+                                                            </Badge>
+                                                        </TableCell>
+                                                        <TableCell className="w-20 text-right align-middle">
+                                                            <DropdownMenu>
+                                                                <DropdownMenuTrigger asChild>
+                                                                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                                                                        <MoreHorizontal className="h-4 w-4" />
+                                                                    </Button>
+                                                                </DropdownMenuTrigger>
+                                                                <DropdownMenuContent align="end" className="w-32">
+                                                                    <DropdownMenuLabel>{t("common.actions")}</DropdownMenuLabel>
+                                                                    <DropdownMenuItem onClick={() => handleEditClick(holiday)}>
+                                                                        <Pencil className="mr-2 h-3.5 w-3.5" /> {t("holidays.editHoliday")}
+                                                                    </DropdownMenuItem>
+                                                                    <DropdownMenuItem 
+                                                                        className="text-red-600 focus:text-red-600"
+                                                                        onClick={() => holiday.id && handleDelete(holiday.id)}
+                                                                    >
+                                                                        <Trash2 className="mr-2 h-3.5 w-3.5" /> {t("holidays.deleteHoliday")}
+                                                                    </DropdownMenuItem>
+                                                                </DropdownMenuContent>
+                                                            </DropdownMenu>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ))
                                         )}
                                     </TableBody>
                                 </Table>
@@ -567,12 +604,16 @@ export default function HolidaysPage() {
                                                     <TooltipContent side="top" className="p-0 overflow-hidden border-none shadow-2xl">
                                                         <div className="w-64 bg-card text-card-foreground">
                                                             <div className="bg-red-600 px-3 py-1.5">
-                                                                <p className="text-white text-xs font-bold uppercase tracking-wider">Holiday</p>
+                                                                <p className="text-white text-xs font-bold uppercase tracking-wider">
+                                                                    {t("holidays.table.type")}: {t(`holidays.type.${holiday.type.toLowerCase()}`)}
+                                                                </p>
                                                             </div>
                                                             <div className="p-3 space-y-2">
-                                                                <p className="font-bold text-base leading-tight">{holiday.name}</p>
+                                                                <p className="font-bold text-base leading-tight">
+                                                                    {language === "th" ? (holiday.holidayNameTH || holiday.name) : (holiday.holidayNameEN || holiday.name)}
+                                                                </p>
                                                                 <Badge variant="secondary" className="bg-red-100 text-red-700 hover:bg-red-100 border-none">
-                                                                    {holiday.type}
+                                                                    {t(`holidays.type.${holiday.type.toLowerCase()}`)}
                                                                 </Badge>
                                                                 {holiday.description && (
                                                                     <p className="text-xs text-muted-foreground italic leading-relaxed pt-1 border-t border-border">
@@ -604,6 +645,32 @@ export default function HolidaysPage() {
                                     color: var(--foreground);
                                 }
                                 
+                                /* Today Styling */
+                                .fc .fc-day-today {
+                                    background-color: #e0f2fe !important; /* sky-100 */
+                                    position: relative;
+                                }
+                                .fc .fc-day-today::after {
+                                    content: '';
+                                    position: absolute;
+                                    top: 0;
+                                    left: 0;
+                                    right: 0;
+                                    bottom: 0;
+                                    border: 2px solid #38bdf8; /* sky-400 */
+                                    pointer-events: none;
+                                    z-index: 3;
+                                }
+                                .fc .fc-day-today .fc-daygrid-day-number {
+                                    background-color: #38bdf8; /* sky-400 */
+                                    color: white !important;
+                                    border-radius: 4px;
+                                    padding: 0 4px;
+                                    margin: 2px;
+                                    z-index: 4;
+                                    position: relative;
+                                }
+
                                 /* Hide "+n more" link */
                                 .fc-daygrid-more-link {
                                     display: none !important;

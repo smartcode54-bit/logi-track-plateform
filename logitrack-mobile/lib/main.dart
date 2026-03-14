@@ -22,6 +22,7 @@ import 'features/vehicle_expense/presentation/pages/vehicle_expense_page.dart';
 import 'features/chat/presentation/pages/chat_list_page.dart';
 import 'features/chat/presentation/pages/chat_room_page.dart';
 import 'features/broadcast/presentation/pages/broadcast_list_page.dart';
+import 'features/working_holiday_calendar/presentation/pages/working_holiday_calendar_page.dart';
 import 'firebase_options.dart';
 
 /// When app is opened from a chat notification (terminated), MainLayout will navigate to this chat.
@@ -237,6 +238,8 @@ class MyApp extends StatelessWidget {
             '/vehicle-expense': (context) => const VehicleExpensePage(),
             '/chat': (context) => const ChatListPage(),
             '/broadcast': (context) => const BroadcastListPage(),
+            '/working-holiday-calendar': (context) =>
+                const WorkingHolidayCalendarPage(),
             '/chat-room': (context) {
               final chatId =
                   ModalRoute.of(context)?.settings.arguments as String?;

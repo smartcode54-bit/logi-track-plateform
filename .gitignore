@@ -16,3 +16,11 @@ README.md
 **/docs/
 node_modules
 node_modules
+
+# Flutter/Android build outputs (do not commit)
+logitrack-mobile/build/
+logitrack-mobile/android/app/build/
+logitrack-mobile/android/build/
+logitrack-mobile/.dart_tool/
+logitrack-mobile/android/.gradle/
+logitrack-mobile/android/.cxx/

@@ -9,12 +9,18 @@ You are a primary collaborator in a "standalone switching" workflow. Work indepe
 ## Architecture Compliance
 Follow **Flutter Clean Architecture** strictly. Do not alter folder structures or design patterns unless explicitly instructed.
 
+## Client → Server Logic (Web)
+When the web client needs to trigger server-side logic (e.g. mutations, admin actions), **always** use the **onCall + httpsCallable** pattern: define the handler with `onCall` in `logitrack-web/functions/src/`, call it with `httpsCallable(functions, "functionName")` from the app. Do not rely on direct client writes to Firestore for validated or restricted operations. See `shared-docs/.vibe-rules.md` (Server Logic & Cloud Functions) and `logitrack-web/docs/CALLABLE_FUNCTIONS.md`.
+
 ## Quota Management
 - For routine tasks or simple UI tweaks, suggest using smaller models (e.g., cursor-small) to preserve Fast Request quota.
 - Aim for high-precision edits to minimize unnecessary "Auto" or "Composer" iterations.
 
 ## Handover Duty
 At the end of a significant task, provide a brief summary of modified files to facilitate the next tool switch.
+
+## Documentation & teaching
+When creating or modifying code that introduces new libraries, patterns, or stack decisions, update `shared-docs/.vibe-rules.md` (Tech Stack section, Confirmed Patterns, or Change Log) and, if relevant, this file. This keeps the project a learning reference and ensures rules stay in sync with the codebase.
 
 # Planning & Review Protocol
 

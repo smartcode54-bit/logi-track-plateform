@@ -18,6 +18,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Calendar } from "lucide-react";
+import { useLanguage } from "@/context/language";
 
 interface YearSelectDialogProps {
     open: boolean;
@@ -26,6 +27,7 @@ interface YearSelectDialogProps {
 }
 
 export function YearSelectDialog({ open, onOpenChange, onSelect }: YearSelectDialogProps) {
+    const { t } = useLanguage();
     const currentYear = new Date().getFullYear();
     const [selectedYear, setSelectedYear] = useState<string>(currentYear.toString());
 
@@ -43,10 +45,10 @@ export function YearSelectDialog({ open, onOpenChange, onSelect }: YearSelectDia
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <Calendar className="h-5 w-5 text-blue-500" />
-                        Select Year
+                        {t("holidays.dialog.selectYear")}
                     </DialogTitle>
                     <DialogDescription>
-                        Choose the year you want to generate public holidays for.
+                        {t("holidays.dialog.selectYearDesc")}
                     </DialogDescription>
                 </DialogHeader>
                 <div className="py-6">
@@ -55,7 +57,7 @@ export function YearSelectDialog({ open, onOpenChange, onSelect }: YearSelectDia
                         onValueChange={setSelectedYear}
                     >
                         <SelectTrigger className="w-full h-12 text-lg">
-                            <SelectValue placeholder="Select Year" />
+                            <SelectValue placeholder={t("holidays.dialog.selectYear")} />
                         </SelectTrigger>
                         <SelectContent>
                             {years.map((year) => (
@@ -68,10 +70,10 @@ export function YearSelectDialog({ open, onOpenChange, onSelect }: YearSelectDia
                 </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)}>
-                        Cancel
+                        {t("holidays.dialog.cancel")}
                     </Button>
                     <Button onClick={handleConfirm} className="bg-blue-600 hover:bg-blue-700 text-white px-8">
-                        OK
+                        {t("holidays.dialog.ok")}
                     </Button>
                 </DialogFooter>
             </DialogContent>
