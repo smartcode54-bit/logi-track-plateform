@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Payroll } from "@/validate/payrollSchema";
+import { useLanguage } from "@/context/language";
 import {
     Dialog,
     DialogContent,
@@ -38,6 +39,7 @@ export function PayrollReviewDialog({
     onOpenChange, 
     onUpdateStatus 
 }: PayrollReviewDialogProps) {
+    const { t } = useLanguage();
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     if (!payroll) return null;
@@ -75,14 +77,14 @@ export function PayrollReviewDialog({
                         <div>
                             <DialogTitle className="flex items-center gap-2 text-xl">
                                 <Banknote className="h-6 w-6 text-green-600" />
-                                Payslip Overview
+                                {t("payroll.dialog.title")}
                             </DialogTitle>
                             <DialogDescription className="mt-1">
-                                Generated on {format(payroll.createdAt || new Date(), "PPP")}
+                                {t("payroll.dialog.generatedOn")} {format(payroll.createdAt || new Date(), "PPP")}
                             </DialogDescription>
                         </div>
                         <Badge variant="outline" className={`${getStatusColor(payroll.status)} text-sm px-3 py-1`}>
-                            {payroll.status.replace("_", " ")}
+                            {t(`payroll.status.${payroll.status.toLowerCase()}`)}
                         </Badge>
                     </div>
                 </DialogHeader>
@@ -91,7 +93,7 @@ export function PayrollReviewDialog({
                     {/* Driver & Period Info */}
                     <div className="grid grid-cols-2 gap-4 bg-muted/30 p-4 rounded-lg border">
                         <div className="space-y-1">
-                            <span className="text-xs text-muted-foreground uppercase font-semibold">Driver</span>
+                            <span className="text-xs text-muted-foreground uppercase font-semibold">{t("payroll.dialog.driver")}</span>
                             <div className="flex items-center gap-2">
                                 <User className="h-4 w-4 text-muted-foreground" />
                                 <span className="font-medium">{payroll.driverName}</span>
@@ -101,7 +103,7 @@ export function PayrollReviewDialog({
                             </span>
                         </div>
                         <div className="space-y-1">
-                            <span className="text-xs text-muted-foreground uppercase font-semibold">Pay Period</span>
+                            <span className="text-xs text-muted-foreground uppercase font-semibold">{t("payroll.dialog.payPeriod")}</span>
                             <div className="flex items-center gap-2">
                                 <Calendar className="h-4 w-4 text-muted-foreground" />
                                 <span className="font-medium text-sm">
@@ -116,7 +118,7 @@ export function PayrollReviewDialog({
                         {/* Earnings */}
                         <div>
                             <h4 className="flex items-center gap-2 font-semibold text-green-700 mb-2 border-b pb-1">
-                                <ArrowUpCircle className="h-4 w-4" /> Earnings
+                                <ArrowUpCircle className="h-4 w-4" /> {t("payroll.dialog.earnings")}
                             </h4>
                             {earnings.length > 0 ? (
                                 <div className="space-y-2">
@@ -131,14 +133,14 @@ export function PayrollReviewDialog({
                                     ))}
                                 </div>
                             ) : (
-                                <p className="text-sm text-muted-foreground italic">No earnings recorded.</p>
+                                <p className="text-sm text-muted-foreground italic">{t("payroll.dialog.noEarnings")}</p>
                             )}
                         </div>
 
                         {/* Deductions */}
                         <div>
                             <h4 className="flex items-center gap-2 font-semibold text-red-700 mb-2 border-b pb-1 mt-6">
-                                <ArrowDownCircle className="h-4 w-4" /> Deductions
+                                <ArrowDownCircle className="h-4 w-4" /> {t("payroll.dialog.deductions")}
                             </h4>
                             {deductions.length > 0 ? (
                                 <div className="space-y-2">
@@ -153,7 +155,7 @@ export function PayrollReviewDialog({
                                     ))}
                                 </div>
                             ) : (
-                                <p className="text-sm text-muted-foreground italic">No deductions recorded.</p>
+                                <p className="text-sm text-muted-foreground italic">{t("payroll.dialog.noDeductions")}</p>
                             )}
                         </div>
                     </div>
@@ -161,15 +163,15 @@ export function PayrollReviewDialog({
                     {/* Totals */}
                     <div className="bg-muted p-4 rounded-lg border space-y-2 mt-4">
                         <div className="flex justify-between text-sm font-medium text-muted-foreground">
-                            <span>Total Earnings:</span>
+                            <span>{t("payroll.dialog.totalEarnings")}</span>
                             <span>{payroll.totalEarnings?.toLocaleString()} {payroll.currency}</span>
                         </div>
                         <div className="flex justify-between text-sm font-medium text-muted-foreground pb-2 border-b border-border/50">
-                            <span>Total Deductions:</span>
+                            <span>{t("payroll.dialog.totalDeductions")}</span>
                             <span>-{payroll.totalDeductions?.toLocaleString()} {payroll.currency}</span>
                         </div>
                         <div className="flex justify-between text-lg font-bold pt-1">
-                            <span>Net Pay:</span>
+                            <span>{t("payroll.dialog.netPay")}</span>
                             <span className="text-primary">{payroll.netPay?.toLocaleString()} {payroll.currency}</span>
                         </div>
                     </div>
@@ -177,8 +179,8 @@ export function PayrollReviewDialog({
                     {/* Payment Details */}
                     {(payroll.paymentDate || payroll.paymentMethod) && (
                         <div className="text-sm text-muted-foreground bg-green-50/50 dark:bg-green-950/20 p-3 rounded border border-green-100 dark:border-green-900">
-                            {payroll.paymentDate && <p>Paid on: <span className="font-medium text-foreground">{format(payroll.paymentDate, "PPP")}</span></p>}
-                            {payroll.paymentMethod && <p>Method: <span className="font-medium text-foreground">{payroll.paymentMethod}</span></p>}
+                            {payroll.paymentDate && <p>{t("payroll.dialog.paidOn")} <span className="font-medium text-foreground">{format(payroll.paymentDate, "PPP")}</span></p>}
+                            {payroll.paymentMethod && <p>{t("payroll.dialog.method")} <span className="font-medium text-foreground">{payroll.paymentMethod}</span></p>}
                         </div>
                     )}
                 </div>
@@ -186,11 +188,11 @@ export function PayrollReviewDialog({
                 <DialogFooter className="gap-2 sm:gap-0 mt-4 border-t pt-4">
                     <div className="flex w-full justify-between items-center">
                         <Button variant="outline" className="gap-2">
-                            <Download className="h-4 w-4" /> Download PDF
+                            <Download className="h-4 w-4" /> {t("payroll.dialog.downloadPdf")}
                         </Button>
                         
                         <div className="flex gap-2">
-                            <Button variant="ghost" onClick={() => onOpenChange(false)}>Close</Button>
+                            <Button variant="ghost" onClick={() => onOpenChange(false)}>{t("payroll.dialog.close")}</Button>
                             
                             {payroll.status === "PENDING_APPROVAL" && (
                                 <Button 
@@ -199,7 +201,7 @@ export function PayrollReviewDialog({
                                     disabled={isSubmitting}
                                 >
                                     {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                                    Approve Payroll
+                                    {t("payroll.dialog.approvePayroll")}
                                 </Button>
                             )}
 
@@ -210,7 +212,7 @@ export function PayrollReviewDialog({
                                     disabled={isSubmitting}
                                 >
                                     {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Banknote className="h-4 w-4" />}
-                                    Mark as Paid
+                                    {t("payroll.markAsPaid")}
                                 </Button>
                             )}
                         </div>

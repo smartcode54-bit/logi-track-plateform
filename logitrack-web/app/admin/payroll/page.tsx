@@ -80,7 +80,7 @@ export default function PayrollPage() {
             setLoading(false);
         }, (err) => {
             console.error("Error fetching payroll:", err);
-            toast.error("Failed to load payroll records");
+            toast.error(t("payroll.toast.failedLoad"));
             setLoading(false);
         });
 
@@ -135,7 +135,7 @@ export default function PayrollPage() {
             toast.success(`Payroll marked as ${status.toLowerCase().replace("_", " ")}`);
         } catch (error) {
             console.error("Error updating payroll:", error);
-            toast.error("Failed to update status");
+            toast.error(t("payroll.toast.failedUpdate"));
         }
     };
 
@@ -146,16 +146,16 @@ export default function PayrollPage() {
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">{t("nav.payroll")}</h1>
                     <p className="text-muted-foreground mt-1">
-                        Manage driver earnings, deductions, and payment cycles.
+                        {t("payroll.subtitle")}
                     </p>
                 </div>
                 <div className="flex gap-3">
                     <Button variant="outline" onClick={() => toast.info("Export CSV coming soon")}>
                         <Download className="mr-2 h-4 w-4" />
-                        Export
+                        {t("payroll.export")}
                     </Button>
                     <Button onClick={() => toast.info("Batch Generation coming soon")}>
-                        Generate Payroll
+                        {t("payroll.generatePayroll")}
                     </Button>
                 </div>
             </div>
@@ -165,7 +165,7 @@ export default function PayrollPage() {
                 <Card>
                     <CardContent className="p-6 flex items-center justify-between">
                         <div>
-                            <p className="text-sm font-medium text-muted-foreground">Total Net Pay (Period)</p>
+                            <p className="text-sm font-medium text-muted-foreground">{t("payroll.stats.totalNetPay")}</p>
                             <h2 className="text-3xl font-bold">{stats.totalNetPay.toLocaleString()} THB</h2>
                         </div>
                         <Banknote className="h-8 w-8 text-green-500" />
@@ -183,7 +183,7 @@ export default function PayrollPage() {
                 <Card>
                     <CardContent className="p-6 flex items-center justify-between">
                         <div>
-                            <p className="text-sm font-medium text-blue-600">Successfully Paid</p>
+                            <p className="text-sm font-medium text-blue-600">{t("payroll.stats.successfullyPaid")}</p>
                             <h2 className="text-3xl font-bold text-blue-600">{stats.totalPaid}</h2>
                         </div>
                         <CheckCircle2 className="h-8 w-8 text-blue-500" />
@@ -203,7 +203,7 @@ export default function PayrollPage() {
                 <div className="relative flex-1 max-w-sm">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                        placeholder="Search driver..."
+                        placeholder={t("payroll.searchPlaceholder")}
                         className="pl-10"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
@@ -216,9 +216,9 @@ export default function PayrollPage() {
                             variant={statusFilter === status ? "secondary" : "ghost"}
                             size="sm"
                             onClick={() => setStatusFilter(status)}
-                            className="capitalize whitespace-nowrap"
+                            className="whitespace-nowrap"
                         >
-                            {status.toLowerCase().replace("_", " ")}
+                            {status === "all" ? t("payroll.filter.all") : t(`payroll.status.${status.toLowerCase()}`)}
                         </Button>
                     ))}
                 </div>
@@ -229,13 +229,13 @@ export default function PayrollPage() {
                 <Table>
                     <TableHeader className="bg-muted/50">
                         <TableRow>
-                            <TableHead>Driver</TableHead>
-                            <TableHead>Period</TableHead>
-                            <TableHead>Earnings</TableHead>
-                            <TableHead>Deductions</TableHead>
-                            <TableHead>Net Pay</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead className="text-right">Actions</TableHead>
+                            <TableHead>{t("payroll.table.driver")}</TableHead>
+                            <TableHead>{t("payroll.table.period")}</TableHead>
+                            <TableHead>{t("payroll.table.earnings")}</TableHead>
+                            <TableHead>{t("payroll.table.deductions")}</TableHead>
+                            <TableHead>{t("payroll.table.netPay")}</TableHead>
+                            <TableHead>{t("leaveRequests.table.status")}</TableHead>
+                            <TableHead className="text-right">{t("common.actions")}</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -244,14 +244,14 @@ export default function PayrollPage() {
                                 <TableCell colSpan={7} className="h-32 text-center">
                                     <div className="flex flex-col items-center justify-center gap-2">
                                         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                                        <p className="text-sm text-muted-foreground">Loading payroll records...</p>
+                                        <p className="text-sm text-muted-foreground">{t("payroll.loading")}</p>
                                     </div>
                                 </TableCell>
                             </TableRow>
                         ) : filteredRecords.length === 0 ? (
                             <TableRow>
                                 <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
-                                    No payroll records found.
+                                    {t("payroll.noRecords")}
                                 </TableCell>
                             </TableRow>
                         ) : (
@@ -270,7 +270,7 @@ export default function PayrollPage() {
                                                 <User className="h-4 w-4 text-muted-foreground" />
                                             </div>
                                             <div>
-                                                <p className="font-medium text-sm">{payroll.driverName || "Unknown"}</p>
+                                                <p className="font-medium text-sm">{payroll.driverName || t("payroll.unknownDriver")}</p>
                                                 <p className="text-[10px] text-muted-foreground font-mono">ID: {payroll.driverId.slice(-6)}</p>
                                             </div>
                                         </div>
@@ -300,7 +300,7 @@ export default function PayrollPage() {
                                     </TableCell>
                                     <TableCell>
                                         <Badge variant="outline" className={getStatusColor(payroll.status)}>
-                                            {payroll.status.replace("_", " ")}
+                                            {t(`payroll.status.${payroll.status.toLowerCase()}`)}
                                         </Badge>
                                     </TableCell>
                                     <TableCell className="text-right">
@@ -311,12 +311,12 @@ export default function PayrollPage() {
                                                 </Button>
                                             </DropdownMenuTrigger>
                                             <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                                                <DropdownMenuLabel>Manage Payroll</DropdownMenuLabel>
+                                                <DropdownMenuLabel>{t("payroll.managePayroll")}</DropdownMenuLabel>
                                                 <DropdownMenuItem onClick={() => {
                                                     setSelectedPayroll(payroll);
                                                     setIsReviewOpen(true);
                                                 }}>
-                                                    <Eye className="mr-2 h-4 w-4" /> View Details
+                                                    <Eye className="mr-2 h-4 w-4" /> {t("payroll.viewDetails")}
                                                 </DropdownMenuItem>
                                                 
                                                 {payroll.status === "PENDING_APPROVAL" && (
@@ -324,7 +324,7 @@ export default function PayrollPage() {
                                                         className="text-blue-600"
                                                         onClick={() => payroll.id && handleUpdateStatus(payroll.id, "APPROVED")}
                                                     >
-                                                        <CheckCircle2 className="mr-2 h-4 w-4" /> Approve
+                                                        <CheckCircle2 className="mr-2 h-4 w-4" /> {t("payroll.approve")}
                                                     </DropdownMenuItem>
                                                 )}
 
@@ -333,12 +333,12 @@ export default function PayrollPage() {
                                                         className="text-green-600"
                                                         onClick={() => payroll.id && handleUpdateStatus(payroll.id, "PAID")}
                                                     >
-                                                        <Banknote className="mr-2 h-4 w-4" /> Mark as Paid
+                                                        <Banknote className="mr-2 h-4 w-4" /> {t("payroll.markAsPaid")}
                                                     </DropdownMenuItem>
                                                 )}
 
                                                 <DropdownMenuItem className="text-red-600" onClick={() => toast.info("Cancellation coming soon")}>
-                                                    <XCircle className="mr-2 h-4 w-4" /> Cancel
+                                                    <XCircle className="mr-2 h-4 w-4" /> {t("payroll.cancel")}
                                                 </DropdownMenuItem>
                                             </DropdownMenuContent>
                                         </DropdownMenu>

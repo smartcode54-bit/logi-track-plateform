@@ -200,10 +200,10 @@ export default function IncidentReportsPage() {
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">
-                        {t("incidentReports.title", "รายงานปัญหาการจัดส่ง")}
+                        {t("incidentReports.title")}
                     </h1>
                     <p className="text-muted-foreground mt-1">
-                        {t("incidentReports.subtitle", "Log and track delivery incidents")}
+                        {t("incidentReports.subtitle")}
                     </p>
                 </div>
                 <Button variant="outline" size="icon" onClick={() => fetchIncidentReports()}>
@@ -217,7 +217,7 @@ export default function IncidentReportsPage() {
                     <CardContent className="p-6 flex items-center justify-between">
                         <div>
                             <p className="text-sm font-medium text-muted-foreground">
-                                {t("incidentReports.stats.total", "Total Incidents")}
+                                {t("incidentReports.stats.total")}
                             </p>
                             <h2 className="text-3xl font-bold mt-1">{reports.length}</h2>
                         </div>
@@ -241,7 +241,7 @@ export default function IncidentReportsPage() {
                             )}
                         >
                             <CalendarIcon className="mr-2 h-4 w-4" />
-                            {date ? format(date, "dd/MM/yyyy") : t("incidentReports.filter.pickDate", "Pick a date")}
+                            {date ? format(date, "dd/MM/yyyy") : t("incidentReports.filter.pickDate")}
                         </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0" align="start">
@@ -257,7 +257,7 @@ export default function IncidentReportsPage() {
                 <div className="relative flex-1 max-w-sm">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                        placeholder={t("incidentReports.filter.search", "Search description, driver, trip, plate...")}
+                        placeholder={t("incidentReports.filter.search")}
                         className="pl-10 bg-background/50 border-border/50 h-9"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
@@ -286,19 +286,19 @@ export default function IncidentReportsPage() {
                                     {t("incidentReports.table.tripId", "Trip ID")}
                                 </TableHead>
                                 <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
-                                    {t("incidentReports.table.createdAt", "Reported At")}
+                                    {t("incidentReports.table.createdAt")}
                                 </TableHead>
                                 <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
                                     {t("incidentReports.table.driver", "Driver")}
                                 </TableHead>
                                 <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
-                                    {t("incidentReports.table.plate", "License Plate")}
+                                    {t("incidentReports.table.plate")}
                                 </TableHead>
                                 <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider max-w-[300px]">
                                     {t("incidentReports.table.description", "Description")}
                                 </TableHead>
                                 <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
-                                    {t("incidentReports.table.cause", "Cause")}
+                                    {t("incidentReports.table.cause")}
                                 </TableHead>
                             </TableRow>
                         </TableHeader>
@@ -309,7 +309,7 @@ export default function IncidentReportsPage() {
                                         <div className="flex flex-col items-center justify-center gap-2">
                                             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                                             <p className="text-sm text-muted-foreground">
-                                                {t("incidentReports.table.loading", "Loading...")}
+                                                {t("incidentReports.table.loading")}
                                             </p>
                                         </div>
                                     </TableCell>
@@ -318,7 +318,7 @@ export default function IncidentReportsPage() {
                                 <TableRow>
                                     <TableCell colSpan={6} className="h-32 text-center">
                                         <p className="text-sm text-muted-foreground">
-                                            {t("incidentReports.table.noReports", "No incident reports found.")}
+                                            {t("incidentReports.table.noReports")}
                                         </p>
                                     </TableCell>
                                 </TableRow>
@@ -394,7 +394,7 @@ export default function IncidentReportsPage() {
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                             <img src="/exclamation_8848378.png" alt="incident" className="w-5 h-5 object-contain" />
-                            {t("incidentReports.detail.title", "Incident Report Details")}
+                            {t("incidentReports.detail.title")}
                         </DialogTitle>
                         <DialogDescription>
                             ID: {detailReport?.id}
@@ -411,38 +411,38 @@ export default function IncidentReportsPage() {
                                         </p>
                                         {detailReport.delayCause && (
                                             <p className="text-xs font-semibold text-red-700 dark:text-red-400 mt-2">
-                                                Cause: {detailReport.delayCause.replace("incident_cause_", "").toUpperCase()}
+                                                {t("incidentReports.detail.cause")}: {detailReport.delayCause.replace("incident_cause_", "").toUpperCase()}
                                             </p>
                                         )}
                                         <p className="text-[11px] text-red-600/70 dark:text-red-400/70 mt-3 flex items-center gap-1.5">
                                             <Clock className="w-3.5 h-3.5" />
-                                            Reported: {formatTimestamp(detailReport.createdAt)}
+                                            {t("incidentReports.detail.reported")}: {formatTimestamp(detailReport.createdAt)}
                                         </p>
                                     </div>
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-4 text-sm mt-4 bg-muted/30 p-4 rounded-lg">
                                     <div>
-                                        <p className="text-muted-foreground text-xs uppercase tracking-wider mb-1">Driver</p>
+                                        <p className="text-muted-foreground text-xs uppercase tracking-wider mb-1">{t("incidentReports.table.driver")}</p>
                                         <p className="font-medium">{getDriverName(detailReport.driverId)}</p>
                                     </div>
                                     <div>
-                                        <p className="text-muted-foreground text-xs uppercase tracking-wider mb-1">License Plate</p>
+                                        <p className="text-muted-foreground text-xs uppercase tracking-wider mb-1">{t("incidentReports.detail.licensePlate")}</p>
                                         <p className="font-mono">{detailReport.truckPlate || "-"}</p>
                                     </div>
                                     <div>
-                                        <p className="text-muted-foreground text-xs uppercase tracking-wider mb-1">Trip ID</p>
+                                        <p className="text-muted-foreground text-xs uppercase tracking-wider mb-1">{t("incidentReports.table.tripId")}</p>
                                         <p className="font-mono">{detailReport.tripId || "-"}</p>
                                     </div>
                                     {(detailReport.lat != null && detailReport.lng != null) && (
                                         <div className="col-span-2 mt-2">
-                                            <p className="text-muted-foreground text-xs uppercase tracking-wider mb-2">Location Map</p>
+                                            <p className="text-muted-foreground text-xs uppercase tracking-wider mb-2">{t("incidentReports.detail.locationMap")}</p>
                                             <div className="h-[200px] w-full rounded-md border border-border/50 overflow-hidden relative z-0">
                                                 <IncidentLocationMap lat={detailReport.lat} lng={detailReport.lng} />
                                             </div>
                                             <div className="mt-2 text-right">
                                                 <a href={`https://www.google.com/maps?q=${detailReport.lat},${detailReport.lng}`} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline text-xs font-mono">
-                                                    {detailReport.lat.toFixed(5)}, {detailReport.lng.toFixed(5)} (Open in Google Maps)
+                                                    {detailReport.lat.toFixed(5)}, {detailReport.lng.toFixed(5)} ({t("incidentReports.detail.openInMaps")})
                                                 </a>
                                             </div>
                                         </div>
@@ -453,9 +453,9 @@ export default function IncidentReportsPage() {
                                             <ImagePreviewGallery
                                                 compact
                                                 items={[
-                                                    detailReport.mapPhotoUrl ? { url: detailReport.mapPhotoUrl, label: "Location Snapshot" } : null,
-                                                    detailReport.situation1PhotoUrl ? { url: detailReport.situation1PhotoUrl, label: "Situation 1" } : null,
-                                                    detailReport.situation2PhotoUrl ? { url: detailReport.situation2PhotoUrl, label: "Situation 2" } : null,
+                                                    detailReport.mapPhotoUrl ? { url: detailReport.mapPhotoUrl, label: t("incidentReports.detail.locationSnapshot") } : null,
+                                                    detailReport.situation1PhotoUrl ? { url: detailReport.situation1PhotoUrl, label: t("incidentReports.detail.situation1") } : null,
+                                                    detailReport.situation2PhotoUrl ? { url: detailReport.situation2PhotoUrl, label: t("incidentReports.detail.situation2") } : null,
                                                 ].filter((item): item is { url: string; label: string } => item !== null)}
                                             />
                                         </div>

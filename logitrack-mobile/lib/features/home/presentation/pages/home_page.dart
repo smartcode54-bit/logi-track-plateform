@@ -156,6 +156,26 @@ class _HomePageState extends State<HomePage> {
               },
             ),
             ListTile(
+              leading: const Icon(Icons.calendar_month_outlined),
+              title: Text('menu_working_holiday_calendar'.tr()),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.pushNamed(context, '/working-holiday-calendar');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.event_busy_outlined),
+              title: Text('menu_leave_request'.tr()),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.pushNamed(
+                  context,
+                  '/leave-request',
+                  arguments: {'driverId': _driverId, 'driverName': displayName},
+                );
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.language),
               title: Text('language'.tr()),
               subtitle: Text(
@@ -166,14 +186,6 @@ class _HomePageState extends State<HomePage> {
               onTap: () {
                 Navigator.pop(context);
                 _showLanguageSheet(context);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.calendar_month_outlined),
-              title: Text('menu_working_holiday_calendar'.tr()),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.pushNamed(context, '/working-holiday-calendar');
               },
             ),
             const Divider(),

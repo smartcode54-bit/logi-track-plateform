@@ -77,7 +77,7 @@ export default function LeaveRequestsPage() {
             setLoading(false);
         }, (err) => {
             console.error("Error fetching leave requests:", err);
-            toast.error("Failed to load leave requests");
+            toast.error(t("leaveRequests.toast.failedLoad"));
             setLoading(false);
         });
 
@@ -107,29 +107,28 @@ export default function LeaveRequestsPage() {
             case "PENDING": return "bg-yellow-500/10 text-yellow-600 border-yellow-500/20";
             case "APPROVED": return "bg-green-500/10 text-green-600 border-green-500/20";
             case "REJECTED": return "bg-red-500/10 text-red-600 border-red-500/20";
+            case "CANCELLED": return "bg-amber-500/10 text-amber-600 border-amber-500/20";
             default: return "bg-gray-500/10 text-gray-500 border-gray-500/20";
         }
     };
 
-    const handleUpdateStatus = async (id: string, status: "APPROVED" | "REJECTED", rejectionReason?: string) => {
+    const handleUpdateStatus = async (id: string, status: "APPROVED" | "REJECTED" | "CANCELLED", rejectionReason?: string) => {
         try {
             const ref = doc(db, COLLECTIONS.LEAVE_REQUESTS, id);
-            const updates: any = {
+            const updates: { status: string; updatedAt: ReturnType<typeof Timestamp.now>; approverId?: string; approvedAt?: ReturnType<typeof Timestamp.now>; rejectionReason?: string } = {
                 status,
-                approverId: user?.uid,
-                approvedAt: Timestamp.now(),
                 updatedAt: Timestamp.now(),
             };
-            
-            if (rejectionReason) {
-                updates.rejectionReason = rejectionReason;
+            if (status !== "CANCELLED") {
+                updates.approverId = user?.uid;
+                updates.approvedAt = Timestamp.now();
+                if (rejectionReason) updates.rejectionReason = rejectionReason;
             }
-
             await updateDoc(ref, updates);
-            toast.success(`Request ${status.toLowerCase()}`);
+            toast.success(status === "CANCELLED" ? t("leaveRequests.toast.requestCancelled") : `Request ${status.toLowerCase()}`);
         } catch (error) {
             console.error("Error updating status:", error);
-            toast.error("Failed to update status");
+            toast.error(t("leaveRequests.toast.failedUpdate"));
         }
     };
 
@@ -140,7 +139,7 @@ export default function LeaveRequestsPage() {
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">{t("nav.leaveRequests")}</h1>
                     <p className="text-muted-foreground mt-1">
-                        Review and manage driver leave applications.
+                        {t("leaveRequests.subtitle")}
                     </p>
                 </div>
             </div>
@@ -150,7 +149,7 @@ export default function LeaveRequestsPage() {
                 <Card>
                     <CardContent className="p-6 flex items-center justify-between">
                         <div>
-                            <p className="text-sm font-medium text-muted-foreground">Total Requests</p>
+                            <p className="text-sm font-medium text-muted-foreground">{t("leaveRequests.stats.totalRequests")}</p>
                             <h2 className="text-3xl font-bold">{stats.total}</h2>
                         </div>
                         <FileText className="h-8 w-8 text-blue-500" />
@@ -159,7 +158,7 @@ export default function LeaveRequestsPage() {
                 <Card className="border-yellow-500/20 bg-yellow-50/30 dark:bg-yellow-950/10">
                     <CardContent className="p-6 flex items-center justify-between">
                         <div>
-                            <p className="text-sm font-medium text-yellow-600">Pending Review</p>
+                            <p className="text-sm font-medium text-yellow-600">{t("leaveRequests.stats.pendingReview")}</p>
                             <h2 className="text-3xl font-bold text-yellow-600">{stats.pending}</h2>
                         </div>
                         <Clock className="h-8 w-8 text-yellow-500" />
@@ -168,7 +167,7 @@ export default function LeaveRequestsPage() {
                 <Card className="border-green-500/20 bg-green-50/30 dark:bg-green-950/10">
                     <CardContent className="p-6 flex items-center justify-between">
                         <div>
-                            <p className="text-sm font-medium text-green-600">Approved This Month</p>
+                            <p className="text-sm font-medium text-green-600">{t("leaveRequests.stats.approvedThisMonth")}</p>
                             <h2 className="text-3xl font-bold text-green-600">{stats.approved}</h2>
                         </div>
                         <CheckCircle2 className="h-8 w-8 text-green-500" />
@@ -188,7 +187,7 @@ export default function LeaveRequestsPage() {
                 <div className="relative flex-1 max-w-sm">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                        placeholder="Search driver name or reason..."
+                        placeholder={t("leaveRequests.searchPlaceholder")}
                         className="pl-10"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
@@ -201,9 +200,8 @@ export default function LeaveRequestsPage() {
                             variant={statusFilter === status ? "secondary" : "ghost"}
                             size="sm"
                             onClick={() => setStatusFilter(status)}
-                            className="capitalize"
                         >
-                            {status.toLowerCase()}
+                            {status === "all" ? t("leaveRequests.filter.all") : t(`leaveRequests.status.${status.toLowerCase()}`)}
                         </Button>
                     ))}
                 </div>
@@ -214,12 +212,12 @@ export default function LeaveRequestsPage() {
                 <Table>
                     <TableHeader className="bg-muted/50">
                         <TableRow>
-                            <TableHead>Driver</TableHead>
-                            <TableHead>Type</TableHead>
-                            <TableHead>Duration</TableHead>
-                            <TableHead>Reason</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead className="text-right">Actions</TableHead>
+                            <TableHead>{t("leaveRequests.table.driver")}</TableHead>
+                            <TableHead>{t("leaveRequests.table.type")}</TableHead>
+                            <TableHead>{t("leaveRequests.table.duration")}</TableHead>
+                            <TableHead>{t("leaveRequests.table.reason")}</TableHead>
+                            <TableHead>{t("leaveRequests.table.status")}</TableHead>
+                            <TableHead className="text-right">{t("common.actions")}</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -228,14 +226,14 @@ export default function LeaveRequestsPage() {
                                 <TableCell colSpan={6} className="h-32 text-center">
                                     <div className="flex flex-col items-center justify-center gap-2">
                                         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                                        <p className="text-sm text-muted-foreground">Loading requests...</p>
+                                        <p className="text-sm text-muted-foreground">{t("leaveRequests.loading")}</p>
                                     </div>
                                 </TableCell>
                             </TableRow>
                         ) : filteredRequests.length === 0 ? (
                             <TableRow>
                                 <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
-                                    No leave requests found.
+                                    {t("leaveRequests.noRequests")}
                                 </TableCell>
                             </TableRow>
                         ) : (
@@ -254,7 +252,7 @@ export default function LeaveRequestsPage() {
                                                 <User className="h-4 w-4 text-muted-foreground" />
                                             </div>
                                             <div>
-                                                <p className="font-medium text-sm">{req.driverName || "Unknown Driver"}</p>
+                                                <p className="font-medium text-sm">{req.driverName || t("leaveRequests.unknownDriver")}</p>
                                                 <p className="text-xs text-muted-foreground">ID: {req.driverId.slice(-6)}</p>
                                             </div>
                                         </div>
@@ -286,14 +284,14 @@ export default function LeaveRequestsPage() {
                                                 </Button>
                                             </DropdownMenuTrigger>
                                             <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                                                <DropdownMenuLabel>Manage Request</DropdownMenuLabel>
+                                                <DropdownMenuLabel>{t("leaveRequests.manageRequest")}</DropdownMenuLabel>
                                                 {req.status === "PENDING" && (
                                                     <>
                                                         <DropdownMenuItem 
                                                             className="text-green-600"
                                                             onClick={() => req.id && handleUpdateStatus(req.id, "APPROVED")}
                                                         >
-                                                            <CheckCircle2 className="mr-2 h-4 w-4" /> Approve
+                                                            <CheckCircle2 className="mr-2 h-4 w-4" /> {t("leaveRequests.approve")}
                                                         </DropdownMenuItem>
                                                         <DropdownMenuItem 
                                                             className="text-red-600"
@@ -302,15 +300,23 @@ export default function LeaveRequestsPage() {
                                                                 setIsReviewOpen(true);
                                                             }}
                                                         >
-                                                            <XCircle className="mr-2 h-4 w-4" /> Reject
+                                                            <XCircle className="mr-2 h-4 w-4" /> {t("leaveRequests.reject")}
                                                         </DropdownMenuItem>
                                                     </>
+                                                )}
+                                                {req.status === "APPROVED" && (
+                                                    <DropdownMenuItem 
+                                                        className="text-amber-600"
+                                                        onClick={() => req.id && handleUpdateStatus(req.id, "CANCELLED")}
+                                                    >
+                                                        <XCircle className="mr-2 h-4 w-4" /> {t("leaveRequests.cancelRequest")}
+                                                    </DropdownMenuItem>
                                                 )}
                                                 <DropdownMenuItem onClick={() => {
                                                     setSelectedRequest(req);
                                                     setIsReviewOpen(true);
                                                 }}>
-                                                    <FileText className="mr-2 h-4 w-4" /> View Details
+                                                    <FileText className="mr-2 h-4 w-4" /> {t("leaveRequests.viewDetails")}
                                                 </DropdownMenuItem>
                                             </DropdownMenuContent>
                                         </DropdownMenu>

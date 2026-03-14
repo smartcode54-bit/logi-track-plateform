@@ -117,10 +117,10 @@ export function AppSidebar() {
             icon: MapPin,
             items: [
                 { title: t("nav.firstMileTasks"), url: "/admin/first-mile", capability: CAPABILITIES.operations_view_first_mile },
-                { title: "Line Haul Tasks", url: "/admin/line-haul", capability: CAPABILITIES.operations_view_line_haul },
+                { title: t("nav.lineHaulTasks"), url: "/admin/line-haul", capability: CAPABILITIES.operations_view_line_haul },
                 { title: t("nav.sourceManagement"), url: "/admin/sources", capability: CAPABILITIES.operations_manage_sources },
                 { title: t("nav.driverMonitor"), url: "/admin/driver-monitor", capability: CAPABILITIES.operations_view_driver_monitor },
-                { title: t("nav.incidentReports", "รายงานปัญหาการจัดส่ง"), url: "/admin/incident-reports", capability: CAPABILITIES.operations_view_incidents },
+                { title: t("nav.incidentReports"), url: "/admin/incident-reports", capability: CAPABILITIES.operations_view_incidents },
             ],
         },
         {

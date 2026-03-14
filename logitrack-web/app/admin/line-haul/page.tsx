@@ -230,9 +230,9 @@ export default function LineHaulPage() {
         <div className="flex-1 space-y-4 p-8 pt-6">
             <div className="flex items-center justify-between space-y-2">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight">Line Haul Tasks</h2>
+                    <h2 className="text-3xl font-bold tracking-tight">{t("lineHaul.title")}</h2>
                     <p className="text-muted-foreground">
-                        Manage all line haul tasks and check-ins
+                        {t("lineHaul.subtitle")}
                     </p>
                 </div>
                 <div className="flex gap-3">
@@ -243,7 +243,7 @@ export default function LineHaulPage() {
                     <div className="flex gap-3">
                         <Button onClick={handleCreate}>
                             <Plus className="mr-2 h-4 w-4" />
-                            New Assignment
+                            {t("lineHaul.newAssignment")}
                         </Button>
                     </div>
                 </div>
@@ -252,11 +252,11 @@ export default function LineHaulPage() {
             {/* Filters */}
             <Card>
                 <CardHeader className="pb-3">
-                    <CardTitle className="text-lg">Filters</CardTitle>
+                    <CardTitle className="text-lg">{t("lineHaul.filters.title")}</CardTitle>
                 </CardHeader>
                 <CardContent className="flex flex-wrap gap-4">
                     <div className="flex flex-col gap-2">
-                        <label className="text-sm font-medium">Date</label>
+                        <label className="text-sm font-medium">{t("lineHaul.filters.date")}</label>
                         <Popover>
                             <PopoverTrigger asChild>
                                 <Button
@@ -267,7 +267,7 @@ export default function LineHaulPage() {
                                     )}
                                 >
                                     <CalendarIcon className="mr-2 h-4 w-4" />
-                                    {date ? format(date, "dd/MM/yyyy") : <span>Pick a date</span>}
+                                    {date ? format(date, "dd/MM/yyyy") : t("lineHaul.filters.pickDate")}
                                 </Button>
                             </PopoverTrigger>
                             <PopoverContent className="w-auto p-0" align="start">
@@ -282,13 +282,13 @@ export default function LineHaulPage() {
                     </div>
 
                     <div className="flex flex-col gap-2 min-w-[200px]">
-                        <label className="text-sm font-medium">Destination (Hub)</label>
+                        <label className="text-sm font-medium">{t("lineHaul.filters.destinationHub")}</label>
                         <Select value={selectedSOC} onValueChange={setSelectedSOC}>
                             <SelectTrigger>
-                                <SelectValue placeholder="All Destinations" />
+                                <SelectValue placeholder={t("lineHaul.filters.allDestinations")} />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="all">All Destinations</SelectItem>
+                                <SelectItem value="all">{t("lineHaul.filters.allDestinations")}</SelectItem>
                                 {SOC_KEYS.map(key => (
                                     <SelectItem key={key} value={key}>{SOC_DESTINATIONS[key]}</SelectItem>
                                 ))}
@@ -297,13 +297,13 @@ export default function LineHaulPage() {
                     </div>
 
                     <div className="flex flex-col gap-2 min-w-[200px] flex-1">
-                        <label className="text-sm font-medium">Source (SOC)</label>
+                        <label className="text-sm font-medium">{t("lineHaul.filters.sourceSOC")}</label>
                         <Select value={selectedHub} onValueChange={setSelectedHub}>
                             <SelectTrigger>
-                                <SelectValue placeholder="Select Source" />
+                                <SelectValue placeholder={t("lineHaul.filters.selectSource")} />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="all">All Sources</SelectItem>
+                                <SelectItem value="all">{t("lineHaul.filters.allSources")}</SelectItem>
                                 {/* Limit mapped hubs for performance if list is huge */}
                                 {hubs.slice(0, 50).map((hub, idx) => (
                                     <SelectItem key={idx} value={hub['Hub Code'] || hub['Code'] || `hub-${idx}`}>
@@ -321,25 +321,25 @@ export default function LineHaulPage() {
                 <Table>
                     <TableHeader className="bg-muted/50">
                         <TableRow>
-                            <TableHead>Date</TableHead>
-                            <TableHead>Source (SOC)</TableHead>
-                            <TableHead>Destination (Hub)</TableHead>
-                            <TableHead>Time</TableHead>
-                            <TableHead>Type</TableHead>
-                            <TableHead>Task ID</TableHead>
-                            <TableHead>License Plate</TableHead>
-                            <TableHead>Driver</TableHead>
-                            <TableHead>Phone</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead>Check-in</TableHead>
-                            <TableHead className="text-right">Actions</TableHead>
+                            <TableHead>{t("lineHaul.table.date")}</TableHead>
+                            <TableHead>{t("lineHaul.table.source")}</TableHead>
+                            <TableHead>{t("lineHaul.table.destination")}</TableHead>
+                            <TableHead>{t("lineHaul.table.time")}</TableHead>
+                            <TableHead>{t("lineHaul.table.type")}</TableHead>
+                            <TableHead>{t("lineHaul.table.taskId")}</TableHead>
+                            <TableHead>{t("lineHaul.table.licensePlate")}</TableHead>
+                            <TableHead>{t("lineHaul.table.driver")}</TableHead>
+                            <TableHead>{t("lineHaul.table.phone")}</TableHead>
+                            <TableHead>{t("lineHaul.table.status")}</TableHead>
+                            <TableHead>{t("lineHaul.table.checkIn")}</TableHead>
+                            <TableHead className="text-right">{t("common.actions")}</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {filteredTasks.length === 0 ? (
                             <TableRow>
                                 <TableCell colSpan={12} className="h-24 text-center">
-                                    No Line Haul Tasks Found
+                                    {t("lineHaul.noTasks")}
                                 </TableCell>
                             </TableRow>
                         ) : (
@@ -385,7 +385,7 @@ export default function LineHaulPage() {
                                             <span className="flex flex-col gap-0.5">
                                                 <span>{task.checkInAt instanceof Date ? format(task.checkInAt, "dd/MM/yy HH:mm") : "-"}</span>
                                                 {task.checkInPhotoUrl && (
-                                                    <a href={task.checkInPhotoUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline text-xs" onClick={(e) => e.stopPropagation()}>View photo</a>
+                                                    <a href={task.checkInPhotoUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline text-xs" onClick={(e) => e.stopPropagation()}>{t("lineHaul.viewPhoto")}</a>
                                                 )}
                                                 {task.checkInLat != null && task.checkInLng != null && (
                                                     <span className="text-muted-foreground text-xs">{task.checkInLat.toFixed(4)}, {task.checkInLng.toFixed(4)}</span>
@@ -404,17 +404,17 @@ export default function LineHaulPage() {
                                             </DropdownMenuTrigger>
                                             <DropdownMenuContent align="end">
                                                 <DropdownMenuItem onClick={() => handleEdit(task)}>
-                                                    Edit
+                                                    {t("lineHaul.actions.edit")}
                                                 </DropdownMenuItem>
                                                 <DropdownMenuItem onClick={() => handleEdit(task)}>
-                                                    Assign
+                                                    {t("lineHaul.actions.assign")}
                                                 </DropdownMenuItem>
                                                 {task.status !== "Cancelled" && (
                                                     <DropdownMenuItem
                                                         className="text-destructive focus:text-destructive"
                                                         onClick={() => setCancelTask(task)}
                                                     >
-                                                        Cancel
+                                                        {t("lineHaul.actions.cancel")}
                                                     </DropdownMenuItem>
                                                 )}
                                             </DropdownMenuContent>
@@ -438,12 +438,12 @@ export default function LineHaulPage() {
             <Dialog open={!!cancelTask} onOpenChange={(open) => !open && setCancelTask(null)}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>Cancel Task</DialogTitle>
-                        <DialogDescription>Are you sure you want to cancel this task?</DialogDescription>
+                        <DialogTitle>{t("lineHaul.cancelTask.title")}</DialogTitle>
+                        <DialogDescription>{t("lineHaul.cancelTask.confirm")}</DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setCancelTask(null)}>No</Button>
-                        <Button variant="destructive" onClick={() => cancelTask && handleCancelTask(cancelTask)}>Yes, Cancel</Button>
+                        <Button variant="outline" onClick={() => setCancelTask(null)}>{t("lineHaul.cancelTask.no")}</Button>
+                        <Button variant="destructive" onClick={() => cancelTask && handleCancelTask(cancelTask)}>{t("lineHaul.cancelTask.yesCancel")}</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
@@ -452,31 +452,31 @@ export default function LineHaulPage() {
             <Dialog open={!!detailTask} onOpenChange={(open) => !open && setDetailTask(null)}>
                 <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
-                        <DialogTitle>View Details – {detailTask?.taskId ?? detailTask?.id}</DialogTitle>
-                        <DialogDescription>Manage Line Haul details</DialogDescription>
+                        <DialogTitle>{t("lineHaul.detail.title")} – {detailTask?.taskId ?? detailTask?.id}</DialogTitle>
+                        <DialogDescription>{t("lineHaul.detail.manageDetails")}</DialogDescription>
                     </DialogHeader>
                     {detailTask && (
                         <div className="grid gap-4 py-2">
                             <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-                                <span className="text-muted-foreground">Date</span>
+                                <span className="text-muted-foreground">{t("lineHaul.table.date")}</span>
                                 <span>{detailTask.date ? format(detailTask.date, "dd/MM/yyyy") : "-"}</span>
-                                <span className="text-muted-foreground">Time</span>
+                                <span className="text-muted-foreground">{t("lineHaul.table.time")}</span>
                                 <span>{detailTask.time ?? "-"}</span>
-                                <span className="text-muted-foreground">Source Hub</span>
+                                <span className="text-muted-foreground">{t("lineHaul.detail.sourceHub")}</span>
                                 <span className="font-medium">{detailTask.sourceHub ?? "-"}</span>
-                                <span className="text-muted-foreground">Destination</span>
+                                <span className="text-muted-foreground">{t("lineHaul.detail.destination")}</span>
                                 <span>{getDestinationLabel(detailTask.destination)}</span>
-                                <span className="text-muted-foreground">Type</span>
+                                <span className="text-muted-foreground">{t("lineHaul.table.type")}</span>
                                 <span>{detailTask.truckType ?? "-"}</span>
-                                <span className="text-muted-foreground">Task ID</span>
+                                <span className="text-muted-foreground">{t("lineHaul.table.taskId")}</span>
                                 <span className="font-mono text-xs">{detailTask.taskId ?? "-"}</span>
-                                <span className="text-muted-foreground">License Plate</span>
+                                <span className="text-muted-foreground">{t("lineHaul.table.licensePlate")}</span>
                                 <span className="font-mono">{detailTask.licensePlate ?? "-"}</span>
-                                <span className="text-muted-foreground">Driver</span>
+                                <span className="text-muted-foreground">{t("lineHaul.table.driver")}</span>
                                 <span>{detailTask.driverName ?? "-"}</span>
-                                <span className="text-muted-foreground">Phone</span>
+                                <span className="text-muted-foreground">{t("lineHaul.table.phone")}</span>
                                 <span>{detailTask.driverPhone ?? "-"}</span>
-                                <span className="text-muted-foreground">Status</span>
+                                <span className="text-muted-foreground">{t("lineHaul.table.status")}</span>
                                 <span>
                                     <Badge variant={detailTask.status === "Cancelled" ? "secondary" : "outline"}>
                                         {detailTask.status}
@@ -485,23 +485,23 @@ export default function LineHaulPage() {
                             </div>
                             {(detailTask.checkInAt || detailTask.checkInPhotoUrl) && (
                                 <div className="border-t pt-3 space-y-2">
-                                    <h4 className="text-sm font-medium text-muted-foreground">Check-in</h4>
+                                    <h4 className="text-sm font-medium text-muted-foreground">{t("lineHaul.detail.checkIn")}</h4>
                                     <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
                                         {detailTask.checkInAt && (
                                             <>
-                                                <span className="text-muted-foreground">Time</span>
+                                                <span className="text-muted-foreground">{t("lineHaul.table.time")}</span>
                                                 <span>{detailTask.checkInAt instanceof Date ? format(detailTask.checkInAt, "dd/MM/yyyy HH:mm") : String(detailTask.checkInAt)}</span>
                                             </>
                                         )}
                                         {detailTask.checkInLat != null && (
                                             <>
-                                                <span className="text-muted-foreground">Location</span>
+                                                <span className="text-muted-foreground">{t("lineHaul.detail.location")}</span>
                                                 <span>{detailTask.checkInLat.toFixed(5)}, {detailTask.checkInLng?.toFixed(5)}</span>
                                             </>
                                         )}
                                     </div>
                                     {detailTask.checkInPhotoUrl && (
-                                        <a href={detailTask.checkInPhotoUrl} target="_blank" rel="noopener noreferrer" className="text-primary text-sm underline">View photo</a>
+                                        <a href={detailTask.checkInPhotoUrl} target="_blank" rel="noopener noreferrer" className="text-primary text-sm underline">{t("lineHaul.viewPhoto")}</a>
                                     )}
                                 </div>
                             )}
@@ -515,12 +515,12 @@ export default function LineHaulPage() {
                                 className="mr-auto"
                             >
                                 <Pencil className="mr-2 h-4 w-4" />
-                                Edit trip
+                                {t("lineHaul.detail.editTrip")}
                             </Button>
                         )}
-                        <Button variant="outline" onClick={() => setDetailTask(null)}>Cancel</Button>
+                        <Button variant="outline" onClick={() => setDetailTask(null)}>{t("leaveRequests.dialog.cancelButton")}</Button>
                         <Button onClick={() => { if (detailTask) { setDetailTask(null); handleEdit(detailTask); } }}>
-                            {detailTask?.status === "Cancelled" ? "Re-assign" : "Edit"}
+                            {detailTask?.status === "Cancelled" ? t("lineHaul.detail.reassign") : t("lineHaul.actions.edit")}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

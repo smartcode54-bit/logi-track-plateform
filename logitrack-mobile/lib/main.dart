@@ -23,6 +23,7 @@ import 'features/chat/presentation/pages/chat_list_page.dart';
 import 'features/chat/presentation/pages/chat_room_page.dart';
 import 'features/broadcast/presentation/pages/broadcast_list_page.dart';
 import 'features/working_holiday_calendar/presentation/pages/working_holiday_calendar_page.dart';
+import 'features/leave_request/presentation/pages/leave_request_page.dart';
 import 'firebase_options.dart';
 
 /// When app is opened from a chat notification (terminated), MainLayout will navigate to this chat.
@@ -240,6 +241,16 @@ class MyApp extends StatelessWidget {
             '/broadcast': (context) => const BroadcastListPage(),
             '/working-holiday-calendar': (context) =>
                 const WorkingHolidayCalendarPage(),
+            '/leave-request': (context) {
+              final args =
+                  ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+              final driverId = args?['driverId'] as String? ?? '';
+              final driverName = args?['driverName'] as String?;
+              return LeaveRequestPage(
+                driverId: driverId,
+                driverName: driverName,
+              );
+            },
             '/chat-room': (context) {
               final chatId =
                   ModalRoute.of(context)?.settings.arguments as String?;

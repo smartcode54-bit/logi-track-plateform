@@ -1,17 +1,17 @@
 import { z } from "zod";
 
-export const LEAVE_TYPE_ENUM = ["SICK", "ANNUAL", "PERSONAL", "BUSINESS", "OTHER"] as const;
+export const LEAVE_TYPE_ENUM = ["SICK", "BUSINESS"] as const;
 export const LEAVE_STATUS_ENUM = ["PENDING", "APPROVED", "REJECTED", "CANCELLED"] as const;
 
 export const leaveRequestSchema = z.object({
     id: z.string().optional(),
     driverId: z.string().min(1, "Driver ID is required"),
     driverName: z.string().optional(),
-    type: z.enum(LEAVE_TYPE_ENUM).default("PERSONAL"),
+    type: z.enum(LEAVE_TYPE_ENUM).default("SICK"),
     status: z.enum(LEAVE_STATUS_ENUM).default("PENDING"),
     startDate: z.coerce.date(),
     endDate: z.coerce.date(),
-    reason: z.string().min(1, "Reason is required"),
+    reason: z.string().optional().default(""),
     approverId: z.string().optional(),
     approvedAt: z.coerce.date().optional(),
     rejectionReason: z.string().optional(),
