@@ -1,37 +1,68 @@
-# Logitrack Platform
+# LogiTrack Platform
 
-Logitrack-platform is a comprehensive, dual-application logistics ecosystem designed to bridge the gap between field operations (drivers) and central management (admins).
+A dual-application logistics ecosystem: **LogiTrack Mobile** for drivers in the field and **LogiTrack Web** for central admin control. Built on **Firebase** (Auth, Firestore, Storage, Functions) with **Flutter** (mobile) and **Next.js** (web).
 
-## 📱 Logitrack Mobile: The Driver’s Command Center
-The mobile application (built with Flutter) focuses on high-integrity data collection and task execution.
+---
 
-- **Intelligent Task Management**:
-  - **Real-time Synchronization**: Drivers receive instant updates for "First Mile" (FM) and "Line Haul" (LH) tasks via Firestore streams.
-  - **Workflow Guardrails**: Features logic to prevent "Check-in" to new tasks if an ongoing task remains unfinished, ensuring a strictly sequential operational flow.
-  - **Manual Task Initiation**: Allows drivers to manually "Check-in" for Line Haul tasks by selecting predefined SOCs (Origins) and Hubs (Destinations).
-- **Proof of Action (Evidence Collection)**:
-  - **Geo-Tagged Evidence**: Every check-in requires a photo captured in real-time. The system automatically attaches GPS coordinates, timestamps, and address data to the image.
-  - **Interactive History**: Drivers can view their trip history, including high-resolution images they previously uploaded and map links to the exact check-in locations.
-- **Vehicle & Fleet Tracking**: Tracks specific truck types (e.g., PICKUP, 4WJ, 6WH, 10WH, Van) and current truck assignments linked to the driver's profile.
-- **Modern UX**: Fully bilingual support (English/Thai) and an adaptive Dark/Light mode for optimized visibility during night or day driving.
+## 📱 LogiTrack Mobile — Driver app (Flutter)
 
-## 🌐 Logitrack Web: The Admin Control Panel
-The web application (built with Next.js) serves as the "brain," providing centralized oversight and configuration.
+- **Tasks & check-in**: First Mile (FM) and Line Haul (LH) tasks via Firestore; sequential check-in guardrails; manual check-in with SOC/Hub selection.
+- **Proof of action**: Geo-tagged photos at check-in (GPS, timestamp, address); trip history with images and map links.
+- **Loading (Pick up)**: Run-sheet OCR (trip ID, seal, etc.), multi-step photo capture and run-sheet upload.
+- **Delivery**: Run-sheet OCR validation, multi-step delivery photos, incident/accident reporting.
+- **Vehicle & fleet**: Truck types (e.g. PICKUP, 4WJ, 6WH, 10WH, Van) and assignments tied to driver profile.
+- **Expenses**: Refuel and other expenses with receipt upload and OCR.
+- **Chat**: Per-trip chat with admin.
+- **Broadcasts**: Read admin announcements (read/unread).
+- **Working holiday calendar**: View working days and holidays (month/list).
+- **Leave requests**: Create and track leave (sick/business, dates, optional evidence upload).
+- **Trip & job history**: Past trips and job records.
+- **UX**: Bilingual (EN/TH), dark/light mode.
 
-- **Real-Time Dashboard**:
-  - **Job Monitor**: A dedicated interface to monitor all trip records, categorized by job type (First Mile vs. Line Haul).
-  - **System Statistics**: Overview of total users, active drivers, and package statuses at a glance.
-- **Advanced Security & Administration**:
-  - **Secure Auth Architecture**: Uses Google Authentication with a sophisticated cookie-based session management system and Next.js Middleware for route protection.
-  - **Role-Based Access (RBAC)**: Automatically recognizes administrators based on an email whitelist and grants access to the restricted Admin Dashboard.
-- **Fleet & Logistics Configuration**:
-  - **Asset Management**: Tools to add, update, and track the fleet of trucks and reserve vehicles.
-  - **Geographical Data**: Management of station types (SOC vs. Hub) and localized province lists in Thailand.
-- **Premium Visual Standards**: Implements a consistent design system using the Poppins font and a "premium logistics" aesthetic, ensuring the interface feels professional and efficient.
+---
 
-## 🛠 Technical Pillar
-- **Backend**: Unified Firebase architecture (Firestore, Auth, Storage, and Functions) providing a single source of truth for both Web and Mobile.
-- **Shared Intelligence**: A centralized document/schema repository ensures that both applications speak the same language when handling trips, drivers, and hubs.
+## 🌐 LogiTrack Web — Admin dashboard (Next.js)
 
-## 🏁 Summary Conclusion
-Together, these features create a loop where **Web Admins** assign and monitor tasks, while **Mobile Drivers** execute them with verifiable proof, resulting in a transparent, real-time logistics operation that minimizes errors and maximizes accountability.
+- **Dashboard**: Overview, job monitor (First Mile / Line Haul), stats (users, drivers, packages).
+- **Fleet**: Trucks, assignments, renewals, maintenance costs, subcontractors, customers.
+- **Drivers**: Driver management.
+- **Chat & waitlist**: Driver chat, join-network waitlist.
+- **Accounting**: Fuel, other expenses, expense audit.
+- **Operations**: First Mile tasks, Line Haul tasks, source (SOC/Hub) management, driver monitor, incident reports.
+- **HR**: Payroll, leave requests, holiday calendar (generate and manage).
+- **Auth & security**: Google sign-in, cookie-based sessions, Next.js middleware, RBAC (admin whitelist, capability-based sidebar).
+- **Design**: Tailwind, shadcn/ui, Lucide icons, Poppins, EN/TH i18n.
+
+---
+
+## 🛠 Tech stack
+
+| Layer      | Choice |
+|-----------|--------|
+| **Mobile** | Flutter (Dart), Clean Architecture, Provider/BLoC, Firebase (Auth, Firestore, FCM), easy_localization |
+| **Web**    | Next.js (App Router), TypeScript, React, Tailwind, shadcn/ui, Firebase (Auth, Firestore), server logic via **Firebase Callables** |
+| **Backend**| Firebase (Auth, Firestore, Storage, Functions in `logitrack-web/functions/`, region `asia-southeast1`) |
+| **SSOT**   | `shared-docs/schemas/` (Zod); web imports directly; mobile Dart models kept in sync |
+
+Client → server actions use **onCall + httpsCallable**; sensitive or validated writes go through Cloud Functions, not direct client Firestore writes.
+
+---
+
+## 📁 Repository structure
+
+```
+logitrack-platform/
+├── logitrack-web/       # Next.js admin app (app/, components/, context/, firebase/, lib/)
+├── logitrack-mobile/    # Flutter driver app (lib/features/*, Clean Architecture)
+├── shared-docs/         # Schemas (Zod), .vibe-rules.md (project rules, tech stack, patterns)
+└── envs/                # Env templates; real .env files are gitignored
+```
+
+- **Docs & rules**: See `shared-docs/.vibe-rules.md` for structure, patterns, callable functions, and SSOT.
+- **Environment**: Copy `envs/*.example` (or repo docs) into the appropriate `.env` files for web and mobile; never commit real secrets.
+
+---
+
+## 🏁 Summary
+
+**Web admins** configure fleet, tasks, and HR (including holidays and leave); **mobile drivers** execute FM/LH tasks with check-in, photos, OCR, expenses, chat, and leave requests. One Firebase backend keeps both apps in sync for transparent, accountable operations.
