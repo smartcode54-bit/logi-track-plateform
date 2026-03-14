@@ -5,7 +5,7 @@ import { useLanguage } from "@/context/language";
 import { useAuth } from "@/context/auth";
 import { db } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
-import { Holiday, holidaySchema, HOLIDAY_TYPE_ENUM } from "@/validate/holidaySchema";
+import { Holiday, holidaySchema, HOLIDAY_TYPE_ENUM, HOLIDAY_STATUS_ENUM } from "@/validate/holidaySchema";
 import { collection, addDoc, updateDoc, doc, Timestamp } from "firebase/firestore";
 import {
     Dialog,
@@ -45,11 +45,12 @@ export function AddHolidayDialog({ open, onOpenChange, initialDate, editData }: 
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const [formData, setFormData] = useState({
-        name: editData?.name ?? "",
-        date: editData?.date ? format(editData.date, "yyyy-MM-dd") : initialDate ?? "",
-        type: editData?.type ?? "PUBLIC" as typeof HOLIDAY_TYPE_ENUM[number],
-        description: editData?.description ?? "",
-        isRecurring: editData?.isRecurring ?? false,
+        name: "",
+        date: "",
+        type: "PUBLIC" as typeof HOLIDAY_TYPE_ENUM[number],
+        status: "DRAFT" as typeof HOLIDAY_STATUS_ENUM[number],
+        description: "",
+        isRecurring: false,
     });
 
     useEffect(() => {
@@ -57,7 +58,8 @@ export function AddHolidayDialog({ open, onOpenChange, initialDate, editData }: 
             setFormData({
                 name: editData?.name ?? "",
                 date: editData?.date ? format(editData.date, "yyyy-MM-dd") : initialDate ?? "",
-                type: editData?.type ?? "PUBLIC" as typeof HOLIDAY_TYPE_ENUM[number],
+                type: editData?.type ?? "PUBLIC",
+                status: editData?.status ?? "DRAFT",
                 description: editData?.description ?? "",
                 isRecurring: editData?.isRecurring ?? false,
             });
@@ -95,13 +97,6 @@ export function AddHolidayDialog({ open, onOpenChange, initialDate, editData }: 
                 toast.success("Holiday added successfully");
             }
             onOpenChange(false);
-            setFormData({
-                name: "",
-                date: "",
-                type: "PUBLIC",
-                description: "",
-                isRecurring: false,
-            });
         } catch (error: any) {
             console.error("Error saving holiday:", error);
             toast.error(error.message || "Failed to save holiday");
@@ -114,9 +109,9 @@ export function AddHolidayDialog({ open, onOpenChange, initialDate, editData }: 
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-[425px]">
                 <DialogHeader>
-                    <DialogTitle>Add New Holiday</DialogTitle>
+                    <DialogTitle>{editData ? "Edit Holiday" : "Add New Holiday"}</DialogTitle>
                     <DialogDescription>
-                        Create a new holiday entry for the company calendar.
+                        {editData ? "Update the existing holiday details." : "Create a new holiday entry for the company calendar."}
                     </DialogDescription>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="space-y-4 py-4">
@@ -140,23 +135,43 @@ export function AddHolidayDialog({ open, onOpenChange, initialDate, editData }: 
                             required
                         />
                     </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="type">Holiday Type</Label>
-                        <Select
-                            value={formData.type}
-                            onValueChange={(value: any) => setFormData({ ...formData, type: value })}
-                        >
-                            <SelectTrigger>
-                                <SelectValue placeholder="Select type" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {HOLIDAY_TYPE_ENUM.map((type) => (
-                                    <SelectItem key={type} value={type}>
-                                        {type}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="type">Type</Label>
+                            <Select
+                                value={formData.type}
+                                onValueChange={(value: any) => setFormData({ ...formData, type: value })}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select type" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {HOLIDAY_TYPE_ENUM.map((type) => (
+                                        <SelectItem key={type} value={type}>
+                                            {type}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="status">Status</Label>
+                            <Select
+                                value={formData.status}
+                                onValueChange={(value: any) => setFormData({ ...formData, status: value })}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select status" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {HOLIDAY_STATUS_ENUM.map((status) => (
+                                        <SelectItem key={status} value={status}>
+                                            {status}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
                     </div>
                     <div className="flex items-center space-x-2 pt-2">
                         <Checkbox
@@ -185,7 +200,7 @@ export function AddHolidayDialog({ open, onOpenChange, initialDate, editData }: 
                         </Button>
                         <Button type="submit" disabled={isSubmitting}>
                             {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                            Save Holiday
+                            {editData ? "Update Holiday" : "Save Holiday"}
                         </Button>
                     </DialogFooter>
                 </form>
