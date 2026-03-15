@@ -3,7 +3,7 @@
 import { useAuth } from "@/context/auth";
 import { useRouter, usePathname } from "next/navigation";
 import { canAccessRoute } from "@/lib/permissions";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Navigation from "@/components/navigation";
 import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -110,11 +110,23 @@ export default function AdminLayout({
         else document.documentElement.classList.remove('dark');
     }, []);
 
-    // Auth Redirect Logic
+    // Auth redirect: หน่วงก่อนส่งไป /login เพื่อให้ Firebase persistence โหลด (กัน login loop)
+    const redirectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     useEffect(() => {
-        if (!authContext?.loading && !currentUser) {
-            router.push("/login");
+        if (authContext?.loading || currentUser) {
+            if (redirectTimeoutRef.current) {
+                clearTimeout(redirectTimeoutRef.current);
+                redirectTimeoutRef.current = null;
+            }
+            return;
         }
+        redirectTimeoutRef.current = setTimeout(() => {
+            redirectTimeoutRef.current = null;
+            router.replace("/login");
+        }, 500);
+        return () => {
+            if (redirectTimeoutRef.current) clearTimeout(redirectTimeoutRef.current);
+        };
     }, [currentUser, authContext?.loading, router]);
 
     // Route permission guard — redirect to dashboard if no access

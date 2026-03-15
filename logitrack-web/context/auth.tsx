@@ -41,16 +41,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setCurrentUser(user ? user : null);
       if (user) {
         try {
-          // Get initial token
           const tokenResult = await getIdTokenResult(user);
           setCustomClaims(tokenResult.claims ?? null);
-
-          // Call Cloud Function to set admin claims if needed
+          setLoading(false); // ให้ redirect ทำงานได้ทันที (ไม่รอ setAdminClaims)
+          // อัปเดต claims ในพื้นหลังถ้า setAdminClaims ส่งคืน admin
           try {
             const setAdminClaimsFunction = httpsCallable(functions, "setAdminClaims");
             const result = await setAdminClaimsFunction();
-
-            // If admin claim was set, force refresh token to get updated claims
             const resultData = result.data as { admin?: boolean };
             if (resultData.admin === true) {
               await getIdToken(user, true);
@@ -59,15 +56,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             }
           } catch (funcError) {
             console.error("[Auth] Error calling setAdminClaims:", funcError);
-            // Continue without admin claims - user can still use the app
           }
         } catch (error) {
           console.error("[Auth] Error getting token:", error);
+          setLoading(false);
         }
       } else {
         setCustomClaims(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
     return () => unsubscribe();
   }, []);

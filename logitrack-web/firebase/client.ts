@@ -1,4 +1,9 @@
 import { initializeApp, getApps } from "firebase/app";
+import {
+  initializeAppCheck,
+  ReCaptchaV3Provider,
+  ReCaptchaEnterpriseProvider,
+} from "firebase/app-check";
 import { getAuth, Auth } from "firebase/auth";
 import { getStorage, FirebaseStorage } from "firebase/storage";
 import { getFirestore, Firestore } from "firebase/firestore";
@@ -58,6 +63,31 @@ let db: Firestore;
 if (!currentApps.length) {
   try {
     const app = initializeApp(firebaseConfig);
+    // App Check (reCAPTCHA) runs only in the browser; skip during SSR to avoid crash.
+    if (typeof window !== "undefined") {
+      const siteKey = process.env.NEXT_PUBLIC_APP_CHECK_RECAPTCHA_SITE_KEY;
+      const useEnterprise =
+        process.env.NEXT_PUBLIC_APP_CHECK_USE_ENTERPRISE === "true";
+      if (siteKey) {
+        // Use App Check debug provider on localhost to avoid reCAPTCHA 400/throttle and auth/internal-error.
+        // 1) Set to true → open app, copy "AppCheck debug token: ..." from console, register in Firebase Console > App Check > Manage debug tokens.
+        // 2) Or set NEXT_PUBLIC_APP_CHECK_DEBUG_TOKEN to a pre-registered token string.
+        const isLocalhost =
+          window.location.hostname === "localhost" ||
+          window.location.hostname === "127.0.0.1";
+        const debugEnv = process.env.NEXT_PUBLIC_APP_CHECK_DEBUG_TOKEN;
+        if (isLocalhost || debugEnv) {
+          (self as unknown as { FIREBASE_APPCHECK_DEBUG_TOKEN?: boolean | string })
+            .FIREBASE_APPCHECK_DEBUG_TOKEN = debugEnv || true;
+        }
+        initializeAppCheck(app, {
+          provider: useEnterprise
+            ? new ReCaptchaEnterpriseProvider(siteKey)
+            : new ReCaptchaV3Provider(siteKey),
+          isTokenAutoRefreshEnabled: true,
+        });
+      }
+    }
     auth = getAuth(app);
     storage = getStorage(app);
     db = getFirestore(app);

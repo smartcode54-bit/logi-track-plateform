@@ -55,13 +55,14 @@ void main() async {
     }
   }
 
-  // App Check: ใช้ Debug provider ตอนพัฒนา เพื่อไม่ให้เกิด "No AppCheckProvider installed"
-  if (kDebugMode) {
+  // App Check: Android = Play Integrity in release, debug in debug; iOS = DeviceCheck in release, debug in debug.
+  if (defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.android) {
     await FirebaseAppCheck.instance.activate(
-      androidProvider: AndroidProvider.debug,
-      appleProvider: AppleProvider.debug,
+      androidProvider: kDebugMode ? AndroidProvider.debug : AndroidProvider.playIntegrity,
+      appleProvider: kDebugMode ? AppleProvider.debug : AppleProvider.deviceCheck,
     );
   }
+  // Web / other: no App Check activation (driver app is mobile-only in production).
 
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 

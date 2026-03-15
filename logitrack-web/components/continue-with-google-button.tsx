@@ -16,33 +16,20 @@ export default function ContinueWithGoogleButton() {
     try {
       setLoading(true);
       const provider = new GoogleAuthProvider();
-
-      // Use popup instead of redirect for better UX
       const result = await signInWithPopup(auth, provider);
 
-      // First get initial token
       let tokenResult = await result.user.getIdTokenResult();
-
-      // If this is a new user or claims aren't set yet, we need to wait for server to set them
-      // Force refresh token to get updated claims from server
       await result.user.getIdToken(true);
       tokenResult = await result.user.getIdTokenResult();
-
       const claims = tokenResult.claims;
-      console.log("User claims:", claims); // Debug log
 
-      // Redirect based on role in custom claims
       if (claims?.admin === true) {
-        console.log("Admin detected, redirecting to dashboard");
         router.replace("/admin/dashboard");
       } else {
-        console.log("Not admin, redirecting to home");
         router.replace("/");
       }
     } catch (error: any) {
       console.error("Error signing in:", error);
-
-      // Handle specific errors
       if (error.code === "auth/popup-closed-by-user") {
         alert("Sign in was cancelled. Please try again.");
       } else if (error.code === "auth/popup-blocked") {
@@ -50,11 +37,11 @@ export default function ContinueWithGoogleButton() {
       } else if (error.code === "auth/configuration-not-found") {
         alert(
           "Firebase Authentication is not configured properly.\n\n" +
-          "Please check:\n" +
-          "1. Firebase Authentication is enabled in Firebase Console\n" +
-          "2. Google Sign-In provider is enabled\n" +
-          "3. API key and project ID are correct in .env.local\n" +
-          "4. Restart Next.js dev server after updating .env.local"
+            "Please check:\n" +
+            "1. Firebase Authentication is enabled in Firebase Console\n" +
+            "2. Google Sign-In provider is enabled\n" +
+            "3. API key and project ID are correct in .env.local\n" +
+            "4. Restart Next.js dev server after updating .env.local"
         );
       } else {
         alert(`An error occurred: ${error.message || "Please try again."}`);
@@ -94,5 +81,3 @@ export default function ContinueWithGoogleButton() {
     </Button>
   );
 }
-
-

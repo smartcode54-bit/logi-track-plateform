@@ -1,12 +1,9 @@
-
-
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import ContinueWithGoogleButton from "@/components/continue-with-google-button";
 import {
   Card,
-  CardAction,
   CardContent,
   CardDescription,
   CardFooter,
@@ -31,6 +28,13 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    if (!auth?.loading && auth?.currentUser) {
+      const isAdmin = auth.customClaims?.admin === true;
+      router.replace(isAdmin ? "/admin/dashboard" : "/");
+    }
+  }, [auth?.loading, auth?.currentUser, auth?.customClaims, router]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -39,10 +43,7 @@ export default function LoginPage() {
       if (!auth) {
         throw new Error("Auth context not initialized");
       }
-      if (auth) {
-        await auth.login(email, password);
-      }
-      // Redirect handled by AuthContext or separate logic, but usually we push to dashboard
+      await auth.login(email, password);
       router.push("/admin/dashboard");
       toast.success("Logged in successfully");
     } catch (error: any) {
@@ -55,13 +56,11 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen w-full relative flex items-center justify-center bg-background overflow-hidden">
-      {/* Background image with 60% transparency */}
       <div className="absolute inset-0 -z-10">
         <div className="h-full w-full bg-[url('/driver-app-bg.png')] bg-cover bg-center opacity-60" />
         <div className="absolute inset-0 bg-background/40" />
       </div>
 
-      {/* Centered login card */}
       <div className="relative z-10 w-full flex justify-center px-4">
         <Card className="w-full max-w-md shadow-xl border-border/60 bg-background/95 backdrop-blur-sm">
           <CardHeader className="space-y-1">

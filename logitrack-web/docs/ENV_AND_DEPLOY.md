@@ -22,6 +22,16 @@ Use the same set of values in CI as environment variables or secrets (e.g. GitHu
 
 The app is a **Next.js static export**. All `NEXT_PUBLIC_*` variables are baked in at **build time**.
 
+### Env files in use (where to set variables)
+
+| Use | File (in `logitrack-web/`) | When loaded |
+|-----|----------------------------|-------------|
+| **Local development** | `.env.local` | Next.js when running `pnpm run dev` |
+| **Production build** | `.env.production` | Next.js when `NODE_ENV=production` (e.g. `pnpm run build`). Deploy from repo root may copy `envs/.env.prod.web` → this file. |
+| **Template (optional)** | `.env.prod.example` | Not loaded; copy to `.env.production` and fill in values. |
+
+Add `NEXT_PUBLIC_APP_CHECK_RECAPTCHA_SITE_KEY` to the same file you use for other `NEXT_PUBLIC_*` vars: **`.env.local`** for dev, **`.env.production`** (or source used before build) for production.
+
 ### Required variables (from `.env.prod.example`)
 
 | Variable | Where to get it |
@@ -33,6 +43,9 @@ The app is a **Next.js static export**. All `NEXT_PUBLIC_*` variables are baked 
 | `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` | Project settings → General |
 | `NEXT_PUBLIC_FIREBASE_APP_ID` | Project settings → General |
 | `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID` | Optional; Analytics |
+| `NEXT_PUBLIC_APP_CHECK_RECAPTCHA_SITE_KEY` | Optional; [App Check](https://firebase.google.com/docs/app-check). reCAPTCHA v3 or reCAPTCHA **Enterprise site key**. If set, the web app sends App Check tokens to Firebase. For Enterprise, see [docs/APP_CHECK_RECAPTCHA_ENTERPRISE.md](APP_CHECK_RECAPTCHA_ENTERPRISE.md). |
+| `NEXT_PUBLIC_APP_CHECK_USE_ENTERPRISE` | Optional; set to `true` to use **reCAPTCHA Enterprise** instead of reCAPTCHA v3. Requires Enterprise key and registration in Firebase App Check. |
+| `NEXT_PUBLIC_APP_CHECK_DEBUG_TOKEN` | Optional; for **localhost**: the app auto-enables App Check debug mode so reCAPTCHA is not used (avoids 400/throttle and `auth/internal-error`). Open DevTools console, copy the printed **AppCheck debug token**, then register it in Firebase Console → App Check → your app → Manage debug tokens. You can also set this env to a pre-registered token string (e.g. in CI). Never commit real tokens. |
 
 ### How to run a production build
 
