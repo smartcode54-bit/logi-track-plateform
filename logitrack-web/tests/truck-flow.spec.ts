@@ -1,33 +1,5 @@
-import { test, expect, Page } from '@playwright/test';
-
-// Helper function to perform login
-async function login(page: Page) {
-    const email = process.env.PLAYWRIGHT_TEST_USER_EMAIL;
-    const password = process.env.PLAYWRIGHT_TEST_USER_PASSWORD;
-
-    // Validate credentials are set
-    if (!email || !password) {
-        throw new Error(
-            `Missing test credentials! Please set PLAYWRIGHT_TEST_USER_EMAIL and PLAYWRIGHT_TEST_USER_PASSWORD in .env.local\n` +
-            `Current values: email=${email}, password=${password ? '[SET]' : 'undefined'}`
-        );
-    }
-
-    await page.goto('/login');
-    await page.getByLabel('Email').fill(email);
-    await page.getByLabel('Password').fill(password);
-    await page.getByRole('button', { name: 'Login' }).click();
-
-    // Wait for successful login - the toast message appears on success 
-    // OR wait for URL change to admin area
-    await Promise.race([
-        page.waitForURL('**/admin/**', { timeout: 60000 }),
-        expect(page.getByText(/Logged in successfully/i)).toBeVisible({ timeout: 60000 }),
-    ]);
-
-    // Extra wait for auth state to propagate
-    await page.waitForTimeout(2000);
-}
+import { test, expect } from '@playwright/test';
+import { login } from './helpers/auth';
 
 test.describe('Truck Management', () => {
 
