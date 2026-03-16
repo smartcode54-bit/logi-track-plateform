@@ -16,6 +16,7 @@ import accountingEn from './en/accounting';
 import customersEn from './en/customers';
 import securityCenterEn from './en/securityCenter';
 import holidaysEn from './en/holidays';
+import aboutEn from './en/about';
 
 import commonTh from './th/common';
 import authTh from './th/auth';
@@ -35,6 +36,7 @@ import accountingTh from './th/accounting';
 import customersTh from './th/customers';
 import securityCenterTh from './th/securityCenter';
 import holidaysTh from './th/holidays';
+import aboutTh from './th/about';
 
 export const translations = {
     en: {
@@ -56,6 +58,7 @@ export const translations = {
         ...customersEn,
         ...securityCenterEn,
         ...holidaysEn,
+        ...aboutEn,
     },
     th: {
         ...commonTh,
@@ -76,5 +79,6 @@ export const translations = {
         ...customersTh,
         ...securityCenterTh,
         ...holidaysTh,
+        ...aboutTh,
     },
 };

@@ -17,8 +17,8 @@ export function LanguageSwitcher() {
             >
                 <div className="flex items-center gap-2">
                     <Image
-                        src="/england_round_icon_64.png"
-                        alt="English"
+                        src="https://flagcdn.com/w40/us.png"
+                        alt="English (US)"
                         width={20}
                         height={20}
                         className="w-5 h-5 rounded-full object-cover"

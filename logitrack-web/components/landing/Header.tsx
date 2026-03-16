@@ -86,7 +86,7 @@ export function Header() {
                     </Link>
                     <Link
                         className="text-slate-600 dark:text-slate-300 hover:text-primary dark:hover:text-primary text-sm font-medium transition-colors"
-                        href="#"
+                        href="/about"
                     >
                         About Us
                     </Link>

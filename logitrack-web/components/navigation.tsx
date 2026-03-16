@@ -100,7 +100,7 @@ export default function Navigation() {
                 </Link>
               </li>
               <li>
-                <Link href="/#about" className="hover:text-white transition-colors">
+                <Link href="/about" className="hover:text-white transition-colors" prefetch={false}>
                   About Us
                 </Link>
               </li>
