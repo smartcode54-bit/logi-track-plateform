@@ -115,7 +115,7 @@ export default function SubcontractorEditClient() {
         <div className="container mx-auto px-4 py-8">
             <div className="max-w-3xl mx-auto">
                 <Button variant="ghost" asChild className="mb-4 pl-0">
-                    <Link href={`/admin/subcontractors/${id}`}>
+                    <Link href={`/admin/subcontractors/${id}`} prefetch={false}>
                         <ArrowLeft className="mr-2 h-4 w-4" />
                         {t("subcontractors.edit.backToDetails")}
                     </Link>

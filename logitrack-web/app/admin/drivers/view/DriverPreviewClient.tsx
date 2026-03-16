@@ -129,7 +129,7 @@ export default function DriverPreviewClient() {
                         {error || t("drivers.detail.notFound")}
                     </h2>
                     <Button asChild>
-                        <Link href="/admin/drivers">{t("drivers.detail.backToDrivers")}</Link>
+                        <Link href="/admin/drivers" prefetch={false}>{t("drivers.detail.backToDrivers")}</Link>
                     </Button>
                 </div>
             </div>
@@ -163,7 +163,7 @@ export default function DriverPreviewClient() {
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div className="flex items-center gap-4">
                     <Button variant="ghost" size="icon" asChild className="-ml-2">
-                        <Link href="/admin/drivers">
+                        <Link href="/admin/drivers" prefetch={false}>
                             <ArrowLeft className="h-5 w-5" />
                         </Link>
                     </Button>
@@ -184,7 +184,7 @@ export default function DriverPreviewClient() {
                 </div>
                 <div className="flex items-center gap-3">
                     <Button asChild className="gap-2 bg-blue-600 hover:bg-blue-700 text-white">
-                        <Link href={`/admin/drivers/edit?id=${driver?.id}`}>
+                        <Link href={`/admin/drivers/edit?id=${driver?.id}`} prefetch={false}>
                             <Edit className="h-4 w-4" />
                             {t("drivers.detail.editProfile")}
                         </Link>
@@ -419,7 +419,7 @@ export default function DriverPreviewClient() {
                             </CardTitle>
                             {!driver.currentAssignment && (
                                 <Button size="sm" className="h-8 gap-2" variant="outline" asChild>
-                                    <Link href="/admin/truck-assignment">
+                                    <Link href="/admin/truck-assignment" prefetch={false}>
                                         <Plus className="h-3.5 w-3.5" />
                                         {t("drivers.detail.assign")}
                                     </Link>

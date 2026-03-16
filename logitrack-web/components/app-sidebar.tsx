@@ -158,7 +158,7 @@ export function AppSidebar() {
                 <SidebarMenu>
                     <SidebarMenuItem>
                         <SidebarMenuButton size="lg" asChild>
-                            <Link href="/admin/dashboard">
+                            <Link href="/admin/dashboard" prefetch={false}>
                                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-blue-600 text-primary-foreground">
                                     <Truck className="size-4 text-white" />
                                 </div>
@@ -192,7 +192,7 @@ export function AppSidebar() {
                                                     {item.items.map((subItem: { title: string; url: string }) => (
                                                         <SidebarMenuSubItem key={subItem.title}>
                                                             <SidebarMenuSubButton asChild isActive={pathname === subItem.url}>
-                                                                <Link href={subItem.url}>
+                                                                <Link href={subItem.url} prefetch={false}>
                                                                     <span>{subItem.title}</span>
                                                                 </Link>
                                                             </SidebarMenuSubButton>
@@ -203,7 +203,7 @@ export function AppSidebar() {
                                         </Collapsible>
                                     ) : (
                                         <SidebarMenuButton asChild tooltip={item.url === "/admin/waitlist" && waitlistCount > 0 ? `${item.title} (${waitlistCount})` : item.title} isActive={pathname === item.url}>
-                                            <Link href={item.url}>
+                                            <Link href={item.url} prefetch={false}>
                                                 {item.icon && <item.icon />}
                                                 <span>{item.title}{item.url === "/admin/waitlist" && waitlistCount > 0 ? ` (${waitlistCount})` : ""}</span>
                                             </Link>
@@ -222,7 +222,7 @@ export function AppSidebar() {
                             <SidebarMenu>
                                 <SidebarMenuItem>
                                     <SidebarMenuButton asChild tooltip={t("nav.securityCenter")} isActive={pathname?.startsWith("/admin/security-center")}>
-                                        <Link href="/admin/security-center">
+                                        <Link href="/admin/security-center" prefetch={false}>
                                             <Shield />
                                             <span>{t("nav.securityCenter")}</span>
                                         </Link>
@@ -237,7 +237,7 @@ export function AppSidebar() {
                 <SidebarMenu>
                     <SidebarMenuItem>
                         <SidebarMenuButton asChild tooltip="Support Center">
-                            <Link href="/support">
+                            <Link href="/support" prefetch={false}>
                                 <HelpCircle />
                                 <span className="text-muted-foreground">{t("nav.supportCenter")}</span>
                             </Link>

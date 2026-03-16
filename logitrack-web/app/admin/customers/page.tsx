@@ -66,7 +66,7 @@ export default function CustomersPage() {
                     </p>
                 </div>
                 <Button asChild className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
-                    <Link href="/admin/customers/new">
+                    <Link href="/admin/customers/new" prefetch={false}>
                         <Plus className="h-4 w-4" />
                         {t("customers.add")}
                     </Link>
@@ -124,12 +124,12 @@ export default function CustomersPage() {
                                                 </DropdownMenuTrigger>
                                                 <DropdownMenuContent align="end">
                                                     <DropdownMenuItem asChild>
-                                                        <Link href={`/admin/customers/${c.id}`}>
+                                                        <Link href={`/admin/customers/${c.id}`} prefetch={false}>
                                                             {t("customers.action.view")}
                                                         </Link>
                                                     </DropdownMenuItem>
                                                     <DropdownMenuItem asChild>
-                                                        <Link href={`/admin/customers/${c.id}/edit`}>
+                                                        <Link href={`/admin/customers/${c.id}/edit`} prefetch={false}>
                                                             {t("customers.action.edit")}
                                                         </Link>
                                                     </DropdownMenuItem>

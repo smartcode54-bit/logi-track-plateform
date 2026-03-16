@@ -291,7 +291,7 @@ export default function EditTruckClient() {
                         </p>
                     </div>
                     <Button variant="outline" asChild>
-                        <Link href={`/admin/trucks/view?id=${truckId}`} className="flex items-center gap-2">
+                        <Link href={`/admin/trucks/view?id=${truckId}`} prefetch={false} className="flex items-center gap-2">
                             <ArrowLeft className="h-4 w-4" />
                             {t("trucks.edit.backToDetails")}
                         </Link>
@@ -373,7 +373,7 @@ export default function EditTruckClient() {
 
                         <div className="flex justify-end gap-4">
                             <Button type="button" variant="outline" asChild>
-                                <Link href={`/admin/trucks/view?id=${truckId}`}>{t("trucks.edit.cancel")}</Link>
+                                <Link href={`/admin/trucks/view?id=${truckId}`} prefetch={false}>{t("trucks.edit.cancel")}</Link>
                             </Button>
                             <Button
                                 type="submit"

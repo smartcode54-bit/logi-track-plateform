@@ -8,10 +8,6 @@ const nextConfig: NextConfig = {
     root: path.resolve(__dirname),
   },
   output: process.env.NODE_ENV === "production" ? "export" : undefined,
-  experimental:
-    process.env.NODE_ENV === "production"
-      ? { adapterPath: path.join(__dirname, "build", "adapter.js") }
-      : undefined,
   images: {
     unoptimized: true,
     remotePatterns: [

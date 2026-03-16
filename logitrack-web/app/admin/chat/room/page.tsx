@@ -248,7 +248,7 @@ function AdminChatRoomContent() {
     <div className="flex flex-col h-full min-h-0">
       <div className="flex items-center gap-4 p-4 border-b shrink-0">
         <Button variant="ghost" size="icon" asChild>
-          <Link href="/admin/chat">
+          <Link href="/admin/chat" prefetch={false}>
             <ArrowLeft className="h-4 w-4" />
           </Link>
         </Button>

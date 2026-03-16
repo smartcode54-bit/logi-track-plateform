@@ -40,6 +40,7 @@ const https_1 = require("firebase-functions/v2/https");
 const ADMIN_EMAILS = [
     "radchada67@gmail.com",
     "smartcode54@gmail.com",
+    "admin-test@example.com",
 ];
 /**
  * Cloud Function to set admin claims for authorized users

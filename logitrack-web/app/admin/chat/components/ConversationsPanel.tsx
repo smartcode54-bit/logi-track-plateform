@@ -282,7 +282,7 @@ export function ConversationsPanel() {
           )}
         </div>
         <Button variant="default" size="sm" className="w-full gap-2" asChild>
-          <Link href="/admin/chat?view=broadcast">
+          <Link href="/admin/chat?view=broadcast" prefetch={false}>
             <Megaphone className="h-4 w-4" />
             New Broadcast
           </Link>

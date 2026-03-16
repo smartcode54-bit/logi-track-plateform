@@ -293,7 +293,7 @@ export default function TrucksListPage() {
                     </Button>
                     <TruckImportDialog />
                     <Button asChild className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
-                        <Link href="/admin/trucks/new">
+                        <Link href="/admin/trucks/new" prefetch={false}>
                             <Plus className="h-4 w-4" />
                             {t('trucks.addTruck')}
                         </Link>
@@ -489,7 +489,7 @@ export default function TrucksListPage() {
                                                         <TooltipProvider>
                                                             <Tooltip>
                                                                 <TooltipTrigger asChild>
-                                                                    <Link href={`/admin/trucks/maintenance?id=${truck.id}`} onClick={(e) => e.stopPropagation()} className="hover:opacity-80 transition-opacity w-fit">
+                                                                    <Link href={`/admin/trucks/maintenance?id=${truck.id}`} prefetch={false} onClick={(e) => e.stopPropagation()} className="hover:opacity-80 transition-opacity w-fit">
                                                                         {pmBadge}
                                                                     </Link>
                                                                 </TooltipTrigger>
@@ -526,13 +526,13 @@ export default function TrucksListPage() {
                                             <DropdownMenuContent align="end">
                                                 <DropdownMenuLabel>Actions</DropdownMenuLabel>
                                                 <DropdownMenuItem asChild>
-                                                    <Link href={`/admin/trucks/view?id=${truck.id}`} className="flex items-center cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                                                    <Link href={`/admin/trucks/view?id=${truck.id}`} prefetch={false} className="flex items-center cursor-pointer" onClick={(e) => e.stopPropagation()}>
                                                         <Eye className="mr-2 h-4 w-4" />
                                                         {t('trucks.action.view')}
                                                     </Link>
                                                 </DropdownMenuItem>
                                                 <DropdownMenuItem asChild>
-                                                    <Link href={`/admin/trucks/edit?id=${truck.id}`} className="flex items-center cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                                                    <Link href={`/admin/trucks/edit?id=${truck.id}`} prefetch={false} className="flex items-center cursor-pointer" onClick={(e) => e.stopPropagation()}>
                                                         <Edit className="mr-2 h-4 w-4" />
                                                         {t('trucks.action.edit')}
                                                     </Link>

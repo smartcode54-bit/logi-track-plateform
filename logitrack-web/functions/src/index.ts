@@ -8,6 +8,7 @@ admin.initializeApp();
 setGlobalOptions({
   region: "asia-southeast1", // Singapore region (closest to Thailand)
   maxInstances: 10,
+  enforceAppCheck: true, // Reject requests without a valid App Check token
 });
 
 // Export functions from separate files

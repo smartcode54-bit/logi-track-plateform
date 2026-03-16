@@ -149,7 +149,7 @@ export default function DriversListPage() {
                         {t("drivers.export")}
                     </Button>
                     <Button asChild>
-                        <Link href="/admin/drivers/new">
+                        <Link href="/admin/drivers/new" prefetch={false}>
                             <Plus className="mr-2 h-4 w-4" />
                             {t("drivers.add")}
                         </Link>

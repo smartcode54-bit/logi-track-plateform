@@ -125,7 +125,7 @@ export default function SecurityCenterOverviewPage() {
                         <CardHeader className="flex flex-row items-center justify-between pb-2">
                             <CardTitle className="text-base">{t("securityCenter.overview.recentEvents")}</CardTitle>
                             <Button variant="ghost" size="sm" asChild>
-                                <Link href="/admin/security-center/audit">{t("securityCenter.overview.viewAll")}</Link>
+                                <Link href="/admin/security-center/audit" prefetch={false}>{t("securityCenter.overview.viewAll")}</Link>
                             </Button>
                         </CardHeader>
                         <CardContent>

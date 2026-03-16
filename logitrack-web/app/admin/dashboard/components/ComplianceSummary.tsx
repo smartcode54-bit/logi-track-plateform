@@ -170,7 +170,7 @@ export function ComplianceSummary() {
             <CardContent className="p-0">
                 <div className="divide-y divide-red-50 max-h-[400px] overflow-y-auto">
                     {items.map((item, idx) => (
-                        <Link href={`/admin/trucks/${item.id}/edit`} key={`${item.id}-${item.type}-${idx}`} className="flex items-center justify-between p-4 hover:bg-muted/50 transition-colors">
+                        <Link href={`/admin/trucks/${item.id}/edit`} prefetch={false} key={`${item.id}-${item.type}-${idx}`} className="flex items-center justify-between p-4 hover:bg-muted/50 transition-colors">
                             <div className="flex items-start gap-3">
                                 <div className={`mt-0.5 p-1.5 rounded-full ${getItemColor(item.type)}`}>
                                     {getItemIcon(item.type)}

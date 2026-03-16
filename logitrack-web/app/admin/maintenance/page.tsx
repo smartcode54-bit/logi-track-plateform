@@ -230,7 +230,7 @@ export default function MaintenanceDashboardPage() {
                                             <DropdownMenuContent align="end">
                                                 <DropdownMenuLabel>{t("maintenance.table.actions")}</DropdownMenuLabel>
                                                 <DropdownMenuItem asChild>
-                                                    <Link href={`/admin/trucks/maintenance?id=${record.truckId}`} className="flex items-center cursor-pointer">
+                                                    <Link href={`/admin/trucks/maintenance?id=${record.truckId}`} prefetch={false} className="flex items-center cursor-pointer">
                                                         <Wrench className="mr-2 h-4 w-4" />
                                                         {t("maintenance.manageUpdate")}
                                                     </Link>

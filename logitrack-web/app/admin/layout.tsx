@@ -43,7 +43,7 @@ function DynamicBreadcrumb({ pathname }: { pathname: string }) {
             <BreadcrumbList>
                 <BreadcrumbItem>
                     <BreadcrumbLink asChild>
-                        <Link href="/admin/dashboard" className="flex items-center gap-1">
+                        <Link href="/admin/dashboard" className="flex items-center gap-1" prefetch={false}>
                             <House className="h-4 w-4" />
                             Home
                         </Link>
@@ -70,7 +70,7 @@ function DynamicBreadcrumb({ pathname }: { pathname: string }) {
                                     </BreadcrumbPage>
                                 ) : (
                                     <BreadcrumbLink asChild>
-                                        <Link href={href}>{displayName}</Link>
+                                        <Link href={href} prefetch={false}>{displayName}</Link>
                                     </BreadcrumbLink>
                                 )}
                             </BreadcrumbItem>

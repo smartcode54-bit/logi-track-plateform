@@ -64,7 +64,7 @@ export default function NewCustomerPage() {
         <div className="container max-w-2xl py-8">
             <div className="flex items-center gap-4 mb-6">
                 <Button variant="ghost" size="icon" asChild>
-                    <Link href="/admin/customers">
+                    <Link href="/admin/customers" prefetch={false}>
                         <ArrowLeft className="h-5 w-5" />
                     </Link>
                 </Button>
@@ -182,7 +182,7 @@ export default function NewCustomerPage() {
 
                     <div className="flex gap-4">
                         <Button type="button" variant="outline" asChild>
-                            <Link href="/admin/customers">{t("customers.form.cancel")}</Link>
+                            <Link href="/admin/customers" prefetch={false}>{t("customers.form.cancel")}</Link>
                         </Button>
                         <Button type="submit" disabled={isSubmitting}>
                             {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}

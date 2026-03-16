@@ -3,11 +3,13 @@
   "private": true,
   "packageManager": "pnpm@10.32.1",
   "scripts": {
+    "dev": "node -e \"var fs=require('fs'); if(fs.existsSync('envs/.env.dev.web')) fs.copyFileSync('envs/.env.dev.web','logitrack-web/.env.local');\" && pnpm --filter logi-track run dev",
     "web": "pnpm --filter logi-track run dev",
     "web:install": "pnpm install --filter logi-track",
     "deploy:dev": "node -e \"require('fs').copyFileSync('envs/.env.dev.web','logitrack-web/.env.production')\" && pnpm --filter logi-track run deploy:dev",
     "deploy:prod": "node -e \"require('fs').copyFileSync('envs/.env.prod.web','logitrack-web/.env.production')\" && pnpm --filter logi-track run deploy:prod",
     "prepare": "husky",
+    "mobile:dev": "node -e \"var fs=require('fs'); if(fs.existsSync('envs/.env.dev.mobile')) fs.copyFileSync('envs/.env.dev.mobile','logitrack-mobile/.env.dev');\"",
     "build:mobile:prod": "node -e \"require('fs').copyFileSync('envs/.env.prod.mobile','logitrack-mobile/.env')\" && cd logitrack-mobile && flutter build apk --split-per-abi"
   },
   "devDependencies": {

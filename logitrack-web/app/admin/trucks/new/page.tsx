@@ -151,7 +151,7 @@ export default function CreateTruckPage() {
                 {/* Header */}
                 <div className="flex items-center px-8 py-6 border-b bg-background sticky top-0 z-10">
                     <Button variant="ghost" size="icon" asChild className="mr-4">
-                        <Link href="/admin/trucks">
+                        <Link href="/admin/trucks" prefetch={false}>
                             <ArrowLeft className="h-5 w-5" />
                         </Link>
                     </Button>

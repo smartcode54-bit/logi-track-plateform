@@ -231,7 +231,7 @@ export default function EditDriverClient() {
                         </p>
                     </div>
                     <Button variant="outline" asChild>
-                        <Link href={`/admin/drivers/view?id=${driverId}`} className="flex items-center gap-2">
+                        <Link href={`/admin/drivers/view?id=${driverId}`} prefetch={false} className="flex items-center gap-2">
                             <ArrowLeft className="h-4 w-4" />
                             {t("drivers.edit.backToDetails")}
                         </Link>
@@ -517,7 +517,7 @@ export default function EditDriverClient() {
                         {/* Actions */}
                         <div className="flex justify-end gap-4">
                             <Button type="button" variant="outline" asChild>
-                                <Link href={`/admin/drivers/view?id=${driverId}`}>{t("drivers.form.cancel")}</Link>
+                                <Link href={`/admin/drivers/view?id=${driverId}`} prefetch={false}>{t("drivers.form.cancel")}</Link>
                             </Button>
                             <Button
                                 type="submit"

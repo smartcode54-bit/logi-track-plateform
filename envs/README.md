@@ -41,8 +41,23 @@ cp envs/.env.prod.mobile.example envs/.env.prod.mobile
 
 Next.js อ่าน `.env.production` ตอน build — สคริปต์ `deploy:dev` / `deploy:prod` จะ copy จาก `envs/.env.dev.web` หรือ `envs/.env.prod.web` ให้ก่อน build แล้วค่อย deploy
 
-### 3. Build production — Mobile (Flutter)
+### 3. Run / Build — Mobile (Flutter)
 
+**Dev (รันแอปคนขับบนเครื่อง/emulator):**  
+Flutter โหลด `logitrack-mobile/.env.dev` เมื่อรัน flavor dev. จาก root รันครั้งเดียวเพื่อ sync env จาก envs:
+
+```bash
+pnpm run mobile:dev
+```
+
+แล้วไปที่ `logitrack-mobile` รัน `flutter run` (หรือเปิด Android Studio แล้ว Run). ถ้ายังไม่มี `envs/.env.dev.mobile` ให้ copy จากเทมเพลตแล้วใส่ค่า:
+
+```bash
+copy envs\.env.dev.mobile.example envs\.env.dev.mobile
+# แก้ envs/.env.dev.mobile ให้ตรงกับ Firebase project logi-track-wrt-dev
+```
+
+**Build production (APK/iOS):**  
 Flutter โหลด `.env` ในโฟลเดอร์แอป (`logitrack-mobile/.env`) ดังนั้นให้ copy ก่อน build:
 
 ```bash

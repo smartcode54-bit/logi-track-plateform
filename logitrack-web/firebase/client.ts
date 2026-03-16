@@ -24,14 +24,17 @@ const missingKeys = Object.entries(requiredConfig)
   .filter(([_, value]) => !value)
   .map(([key]) => key);
 
+const keyToEnvVar: Record<string, string> = {
+  apiKey: "NEXT_PUBLIC_FIREBASE_API_KEY",
+  authDomain: "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN",
+  projectId: "NEXT_PUBLIC_FIREBASE_PROJECT_ID",
+  storageBucket: "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET",
+  messagingSenderId: "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID",
+  appId: "NEXT_PUBLIC_FIREBASE_APP_ID",
+};
+
 if (missingKeys.length > 0) {
-  const envVarNames = missingKeys.map(key => {
-    const envKey = key
-      .replace(/([A-Z])/g, '_$1')
-      .toUpperCase()
-      .replace(/^_/, '');
-    return `NEXT_PUBLIC_${envKey}`;
-  }).join(', ');
+  const envVarNames = missingKeys.map(key => keyToEnvVar[key] ?? `NEXT_PUBLIC_FIREBASE_${key.toUpperCase()}`).join(", ");
 
   throw new Error(
     `❌ Firebase Client Configuration Error:\n` +
@@ -65,25 +68,32 @@ if (!currentApps.length) {
     const app = initializeApp(firebaseConfig);
     // App Check (reCAPTCHA) runs only in the browser; skip during SSR to avoid crash.
     if (typeof window !== "undefined") {
-      const siteKey = process.env.NEXT_PUBLIC_APP_CHECK_RECAPTCHA_SITE_KEY;
+      const rawKey = process.env.NEXT_PUBLIC_APP_CHECK_RECAPTCHA_SITE_KEY?.trim() ?? "";
+      // Sanitize: reCAPTCHA site keys only use A-Za-z0-9_-; strip any stray chars (spaces, │, etc.)
+      const siteKey = rawKey.replace(/[^A-Za-z0-9_-]/g, "") || undefined;
       const useEnterprise =
         process.env.NEXT_PUBLIC_APP_CHECK_USE_ENTERPRISE === "true";
-      if (siteKey) {
-        // Use App Check debug provider on localhost to avoid reCAPTCHA 400/throttle and auth/internal-error.
-        // 1) Set to true → open app, copy "AppCheck debug token: ..." from console, register in Firebase Console > App Check > Manage debug tokens.
-        // 2) Or set NEXT_PUBLIC_APP_CHECK_DEBUG_TOKEN to a pre-registered token string.
-        const isLocalhost =
-          window.location.hostname === "localhost" ||
-          window.location.hostname === "127.0.0.1";
-        const debugEnv = process.env.NEXT_PUBLIC_APP_CHECK_DEBUG_TOKEN;
+      
+      const isLocalhost =
+        window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1";
+      const debugEnv = process.env.NEXT_PUBLIC_APP_CHECK_DEBUG_TOKEN;
+
+      // Initialize App Check if we have a siteKey OR if we are in a debug environment (localhost/debug token)
+      if (siteKey || isLocalhost || debugEnv) {
         if (isLocalhost || debugEnv) {
           (self as unknown as { FIREBASE_APPCHECK_DEBUG_TOKEN?: boolean | string })
             .FIREBASE_APPCHECK_DEBUG_TOKEN = debugEnv || true;
         }
+
+        // ReCaptcha providers require a string siteKey. 
+        // If we're in debug mode but siteKey is missing, we use a placeholder.
+        const effectiveSiteKey = siteKey || "debug-placeholder-key";
+
         initializeAppCheck(app, {
           provider: useEnterprise
-            ? new ReCaptchaEnterpriseProvider(siteKey)
-            : new ReCaptchaV3Provider(siteKey),
+            ? new ReCaptchaEnterpriseProvider(effectiveSiteKey)
+            : new ReCaptchaV3Provider(effectiveSiteKey),
           isTokenAutoRefreshEnabled: true,
         });
       }

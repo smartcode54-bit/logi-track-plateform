@@ -57,7 +57,7 @@ export function SecurityCenterSidebar() {
                 <SidebarMenu>
                     <SidebarMenuItem>
                         <SidebarMenuButton size="lg" asChild>
-                            <Link href="/admin/security-center">
+                            <Link href="/admin/security-center" prefetch={false}>
                                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-indigo-600 text-primary-foreground">
                                     <ShieldCheck className="size-4 text-white" />
                                 </div>
@@ -82,7 +82,7 @@ export function SecurityCenterSidebar() {
                                         tooltip={t(item.titleKey)}
                                         isActive={pathname === item.url}
                                     >
-                                        <Link href={item.url}>
+                                        <Link href={item.url} prefetch={false}>
                                             <item.icon />
                                             <span>{t(item.titleKey)}</span>
                                         </Link>
@@ -97,7 +97,7 @@ export function SecurityCenterSidebar() {
                 <SidebarMenu>
                     <SidebarMenuItem>
                         <SidebarMenuButton asChild tooltip={t("securityCenter.backToAdmin")}>
-                            <Link href="/admin/dashboard">
+                            <Link href="/admin/dashboard" prefetch={false}>
                                 <LayoutDashboard />
                                 <span>{t("securityCenter.backToAdmin")}</span>
                             </Link>

@@ -231,18 +231,18 @@ export default function RenewalsPage() {
                                             <DropdownMenuContent align="end">
                                                 <DropdownMenuLabel>{t("renewals.table.actions")}</DropdownMenuLabel>
                                                 <DropdownMenuItem asChild>
-                                                    <Link href={`/admin/trucks/renew?id=${truck.id}&type=tax`}>
+                                                    <Link href={`/admin/trucks/renew?id=${truck.id}&type=tax`} prefetch={false}>
                                                         {t("renewals.action.renewTax")}
                                                     </Link>
                                                 </DropdownMenuItem>
                                                 <DropdownMenuItem asChild>
-                                                    <Link href={`/admin/trucks/renew?id=${truck.id}&type=insurance`}>
+                                                    <Link href={`/admin/trucks/renew?id=${truck.id}&type=insurance`} prefetch={false}>
                                                         {t("renewals.action.renewInsurance")}
                                                     </Link>
                                                 </DropdownMenuItem>
                                                 <DropdownMenuSeparator />
                                                 <DropdownMenuItem asChild>
-                                                    <Link href={`/admin/trucks/view?id=${truck.id}`}>
+                                                    <Link href={`/admin/trucks/view?id=${truck.id}`} prefetch={false}>
                                                         {t("renewals.action.viewDetails")}
                                                     </Link>
                                                 </DropdownMenuItem>

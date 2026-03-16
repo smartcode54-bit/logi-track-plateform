@@ -166,7 +166,7 @@ export function DriverProfileSidebar({ activeDriverId, onReportIncident }: Drive
 
         <div className="flex flex-col gap-2 pt-2">
           <Button variant="outline" size="sm" className="w-full gap-2" asChild>
-            <Link href={`/admin/drivers/view?id=${driver.id}`}>
+            <Link href={`/admin/drivers/view?id=${driver.id}`} prefetch={false}>
               <FileText className="h-4 w-4" />
               View Full Fleet Log
             </Link>
