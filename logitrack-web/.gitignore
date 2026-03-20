@@ -64,3 +64,6 @@ playwright-mcp.json
 #cursor
 .cursorindexignore
 .cursorrules
+
+# Firebase
+.firebase/
