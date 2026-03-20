@@ -48,6 +48,11 @@ interface CartrackVehicle {
         first_name?: string;
         last_name?: string;
     };
+    odometer?: number;
+    fuel?: {
+        level?: number;
+        precentage_left?: number;
+    };
     [key: string]: unknown;
 }
 
@@ -177,6 +182,9 @@ export const syncVehicleLocations = onSchedule(
                     ? admin.firestore.Timestamp.fromDate(new Date(v.event_ts))
                     : now,
                 updatedAt: now,
+                odometerKm: typeof v.odometer === "number" ? v.odometer / 1000 : null,
+                fuelLevel: v.fuel?.level ?? null,
+                fuelPercentage: v.fuel?.precentage_left ?? null,
             });
 
             matchCount++;

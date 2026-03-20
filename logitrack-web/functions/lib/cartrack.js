@@ -165,6 +165,9 @@ exports.syncVehicleLocations = (0, scheduler_1.onSchedule)({
                 ? admin.firestore.Timestamp.fromDate(new Date(v.event_ts))
                 : now,
             updatedAt: now,
+            odometerKm: typeof v.odometer === "number" ? v.odometer / 1000 : null,
+            fuelLevel: v.fuel?.level ?? null,
+            fuelPercentage: v.fuel?.precentage_left ?? null,
         });
         matchCount++;
         batchCount++;

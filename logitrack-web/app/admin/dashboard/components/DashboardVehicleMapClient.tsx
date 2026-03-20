@@ -18,6 +18,9 @@ interface VehiclePoint {
   engineOn: boolean;
   updatedAt: any;
   hasIncident?: boolean;
+  odometerKm?: number | null;
+  fuelLevel?: number | null;
+  fuelPercentage?: number | null;
 }
 
 const DEFAULT_CENTER: L.LatLngExpression = [13.7563, 100.5018];
@@ -105,6 +108,9 @@ export function DashboardVehicleMapClient() {
               engineOn: d.engineOn ?? false,
               updatedAt: d.updatedAt,
               hasIncident: incidentTruckIds.has(tId) || incidentPlates.has(plate),
+              odometerKm: d.odometerKm ?? null,
+              fuelLevel: d.fuelLevel ?? null,
+              fuelPercentage: d.fuelPercentage ?? null,
             });
           }
         });
@@ -171,6 +177,8 @@ export function DashboardVehicleMapClient() {
             ${v.engineOn ? `🟢 ${engineOnLabel}` : `⚪ ${engineOffLabel}`}
           </p>
           <p style="margin:0;font-size:11px;">${speedLabel}: ${v.speed} km/h</p>
+          ${v.odometerKm !== null && v.odometerKm !== undefined ? `<p style="margin:2px 0 0;font-size:11px;">Odometer: ${Number(v.odometerKm).toLocaleString(undefined, {maximumFractionDigits:1})} km</p>` : ''}
+          ${v.fuelLevel !== null && v.fuelLevel !== undefined ? `<p style="margin:2px 0 0;font-size:11px;">Fuel: ${v.fuelLevel} L (${v.fuelPercentage}%)</p>` : ''}
           ${v.hasIncident ? `<p style="margin:4px 0 0;font-size:11px;color:#ef4444;font-weight:600;">Incident Reported</p>` : ''}
         </div>
       `);

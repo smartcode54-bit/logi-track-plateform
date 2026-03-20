@@ -64,26 +64,9 @@ Future<String> _reverseGeocodeViaGoogleApi(double lat, double lng) async {
     final formatted = first['formatted_address'] as String?;
     if (formatted == null || formatted.isEmpty) return '';
 
-    // สร้างที่อยู่สั้น ๆ จาก address_components (รหัสไปรษณีย์ + จังหวัด + ตำบล) เพื่อให้ใกล้เคียง overlay เดิม
-    final components = first['address_components'] as List<dynamic>? ?? [];
-    final parts = <String>[];
-    for (final c in components) {
-      final comp = c as Map<String, dynamic>;
-      final types = comp['types'] as List<dynamic>? ?? [];
-      final long = comp['long_name'] as String?;
-      if (long == null || long.isEmpty) continue;
-      if (types.contains('postal_code')) {
-        parts.insert(0, long);
-      } else if (types.contains('administrative_area_level_1') ||
-          types.contains('administrative_area_level_2')) {
-        parts.add(long);
-      } else if (types.contains('sublocality') ||
-          types.contains('locality') ||
-          types.contains('administrative_area_level_3')) {
-        if (!parts.contains(long)) parts.add(long);
-      }
-    }
-    return parts.isNotEmpty ? parts.join(' ') : formatted;
+    // คืนค่าที่อยู่เต็มจาก formatted_address Directy เพื่อให้แสดงผลแบบเต็ม (เหมือนเครื่อง test หรือตามที่ google คืนมา)
+    return formatted;
+
   } catch (e) {
     debugPrint('Google Geocoding API fallback failed: $e');
     return '';
@@ -104,6 +87,13 @@ Future<OverlayContext> fetchOverlayContext(double lat, double lng) async {
     if (placemarks.isNotEmpty) {
       final p = placemarks.first;
       final parts = <String>[];
+      if (p.subThoroughfare != null && p.subThoroughfare!.isNotEmpty) {
+        parts.add(p.subThoroughfare!);
+      }
+      if (p.thoroughfare != null && p.thoroughfare!.isNotEmpty) {
+        parts.add(p.thoroughfare!);
+      }
+
       if (p.subLocality != null && p.subLocality!.isNotEmpty) {
         parts.add(p.subLocality!);
       }
