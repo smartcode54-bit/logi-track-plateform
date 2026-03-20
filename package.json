@@ -10,7 +10,7 @@
     "deploy:prod": "node -e \"require('fs').copyFileSync('envs/.env.prod.web','logitrack-web/.env.production')\" && pnpm --filter logi-track run deploy:prod",
     "prepare": "husky",
     "mobile:dev": "node -e \"var fs=require('fs'); if(fs.existsSync('envs/.env.dev.mobile')) fs.copyFileSync('envs/.env.dev.mobile','logitrack-mobile/.env.dev');\"",
-    "build:mobile:prod": "node -e \"require('fs').copyFileSync('envs/.env.prod.mobile','logitrack-mobile/.env')\" && cd logitrack-mobile && flutter build apk --split-per-abi"
+    "build:mobile:prod": "node -e \"require('fs').copyFileSync('envs/.env.prod.mobile','logitrack-mobile/.env.prod')\" && cd logitrack-mobile && flutter build apk --split-per-abi"
   },
   "devDependencies": {
     "husky": "^9.1.7"

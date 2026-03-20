@@ -9,6 +9,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart' as intl;
 import 'package:geolocator/geolocator.dart';
 import '../../../home/data/repositories/checkin_repository.dart';
+import '../../../home/data/repositories/driver_repository.dart';
+import '../../../home/data/services/cloud_vision_ocr_service.dart';
 import '../../../home/data/repositories/hubs_repository.dart';
 import '../../../home/data/services/photo_overlay_service.dart';
 import '../../../home/data/models/trip_record.dart';
@@ -119,21 +121,25 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
 
     if (activeTaskId == null || activeTaskId.isEmpty) {
       // Fallback: fetch from Firestore if SharedPreferences lost it
-      final driverId = FirebaseAuth.instance.currentUser?.uid;
-      if (driverId != null && driverId.isNotEmpty) {
+      // tasks.driverId = Firestore drivers/{docId}, not Auth UID
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null && uid.isNotEmpty) {
         try {
-          final snapshot = await FirebaseFirestore.instance
-              .collection('tasks')
-              .where('driverId', isEqualTo: driverId)
-              .where('status', isEqualTo: 'Checked in')
-              .limit(1)
-              .get();
-          if (snapshot.docs.isNotEmpty) {
-            activeTaskId = snapshot.docs.first.id;
-            // Optionally, save it back to SharedPreferences
-            await DraftStorageService.instance.saveActiveCheckInTaskId(
-              activeTaskId,
-            );
+          final driver = await DriverRepository().getCurrentDriver(uid);
+          final firestoreDriverId = driver?['id'] as String?;
+          if (firestoreDriverId != null && firestoreDriverId.isNotEmpty) {
+            final snapshot = await FirebaseFirestore.instance
+                .collection('tasks')
+                .where('driverId', isEqualTo: firestoreDriverId)
+                .where('status', isEqualTo: 'Checked in')
+                .limit(1)
+                .get();
+            if (snapshot.docs.isNotEmpty) {
+              activeTaskId = snapshot.docs.first.id;
+              await DraftStorageService.instance.saveActiveCheckInTaskId(
+                activeTaskId,
+              );
+            }
           }
         } catch (_) {}
       }
@@ -329,8 +335,12 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         final match = RegExp(r'LT[A-Za-z0-9\-]{8,}').firstMatch(value);
         controller.text = match?.group(0) ?? value;
       } else if (controller == _sealCodeController) {
-        final match = RegExp(r'SPX[A-Za-z0-9\-]{5,}').firstMatch(value);
-        controller.text = match?.group(0) ?? value;
+        final match = RegExp(r'SPX\s*[A-Za-z0-9\-]{5,}', caseSensitive: false)
+            .firstMatch(value.trim());
+        final compact = match != null
+            ? match.group(0)!.toUpperCase().replaceAll(RegExp(r'\s+'), '')
+            : value.trim();
+        controller.text = compact;
       } else {
         controller.text = value;
       }
@@ -394,9 +404,18 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         }
       });
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('loading_phase_ocr_done'.tr())));
+      if (!isCloudVisionApiKeyConfigured()) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('ocr_missing_api_key_hint'.tr()),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('loading_phase_ocr_done'.tr())));
+      }
       final ocrTripId = result.tripId?.trim();
       if (ocrTripId != null && ocrTripId.isNotEmpty) {
         final ocrSeal = result.sealCode?.trim();
@@ -928,14 +947,18 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         final uid = FirebaseAuth.instance.currentUser?.uid;
         if (uid != null && uid.isNotEmpty) {
           try {
-            final taskSnap = await FirebaseFirestore.instance
-                .collection('tasks')
-                .where('driverId', isEqualTo: uid)
-                .where('status', isEqualTo: 'Checked in')
-                .limit(1)
-                .get();
-            if (taskSnap.docs.isNotEmpty) {
-              activeTaskId = taskSnap.docs.first.id;
+            final driver = await DriverRepository().getCurrentDriver(uid);
+            final firestoreDriverId = driver?['id'] as String?;
+            if (firestoreDriverId != null && firestoreDriverId.isNotEmpty) {
+              final taskSnap = await FirebaseFirestore.instance
+                  .collection('tasks')
+                  .where('driverId', isEqualTo: firestoreDriverId)
+                  .where('status', isEqualTo: 'Checked in')
+                  .limit(1)
+                  .get();
+              if (taskSnap.docs.isNotEmpty) {
+                activeTaskId = taskSnap.docs.first.id;
+              }
             }
           } catch (_) {}
         }

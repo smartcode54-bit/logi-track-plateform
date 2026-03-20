@@ -61,7 +61,10 @@ export const COLLECTIONS = {
     /** Incident reports (delivery delay / problem reports from driver or admin) */
     INCIDENT_REPORTS: "incidentReport",
 
-    /** Broadcast history (admin sends; for listing past broadcasts) */
+    /**
+     * Broadcast history (admin sends; drivers read).
+     * Field list: `lib/broadcastFirestore.ts` (`BroadcastFirestoreDoc`).
+     */
     BROADCASTS: "broadcasts",
 
     /** System metadata (e.g. distances_last_calculated) */

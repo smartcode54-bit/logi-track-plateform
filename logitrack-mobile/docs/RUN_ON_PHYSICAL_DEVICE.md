@@ -259,7 +259,9 @@ flutter build apk --flavor dev --dart-define=FLAVOR=dev
 # หรือ split ตาม ABI:
 flutter build apk --flavor dev --dart-define=FLAVOR=dev --split-per-abi
 ```
-debug
+
+### `flutter run` (debug)
+
 ```bash
 # Dev → ใช้ Firebase Dev + Web Client ID ของ Dev
 flutter run --flavor dev --dart-define=FLAVOR=dev
@@ -270,3 +272,11 @@ flutter run --flavor prod --dart-define=FLAVOR=prod
 
 
 flutter build apk --flavor prod --release
+
+---
+
+## App Check และ Cloud Functions
+
+ถ้าเรียกฟังก์ชันผ่าน `httpsCallable` แล้วได้ **`firebase_functions/unauthenticated`** ให้ตั้งค่า App Check ตาม [APP_CHECK.md](./APP_CHECK.md) (สำคัญมากเมื่อรัน `flutter run` แบบ debug กับ flavor **prod** — ต้องลงทะเบียน debug token ใน **Firebase project ของ prod**)
+
+รายการ flow ทั้งหมดของแอปคนขับกับ Firebase อยู่ที่ [DRIVER_APP_FIREBASE_AUDIT.md](./DRIVER_APP_FIREBASE_AUDIT.md)

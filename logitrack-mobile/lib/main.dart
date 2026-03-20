@@ -22,6 +22,7 @@ import 'features/vehicle_expense/presentation/pages/vehicle_expense_page.dart';
 import 'features/chat/presentation/pages/chat_list_page.dart';
 import 'features/chat/presentation/pages/chat_room_page.dart';
 import 'features/broadcast/presentation/pages/broadcast_list_page.dart';
+import 'features/broadcast/presentation/pages/broadcast_detail_page.dart';
 import 'features/working_holiday_calendar/presentation/pages/working_holiday_calendar_page.dart';
 import 'features/leave_request/presentation/pages/leave_request_page.dart';
 import 'firebase_options.dart';
@@ -240,6 +241,17 @@ class MyApp extends StatelessWidget {
             '/vehicle-expense': (context) => const VehicleExpensePage(),
             '/chat': (context) => const ChatListPage(),
             '/broadcast': (context) => const BroadcastListPage(),
+            '/broadcast-detail': (context) {
+              final args = ModalRoute.of(context)?.settings.arguments
+                  as Map<String, dynamic>?;
+              return BroadcastDetailPage(
+                broadcastId: args?['broadcastId'] as String?,
+                headline: args?['headline'] as String?,
+                messageText: args?['messageText'] as String? ?? '',
+                senderName: args?['senderName'] as String?,
+                dateStr: args?['dateStr'] as String?,
+              );
+            },
             '/working-holiday-calendar': (context) =>
                 const WorkingHolidayCalendarPage(),
             '/leave-request': (context) {

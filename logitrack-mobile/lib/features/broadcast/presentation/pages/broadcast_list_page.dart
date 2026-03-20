@@ -11,8 +11,35 @@ class BroadcastListPage extends StatefulWidget {
   State<BroadcastListPage> createState() => _BroadcastListPageState();
 }
 
+String _displayBroadcastSubject(String storedTitle) {
+  final t = storedTitle.trim();
+  if (t.isNotEmpty) return t;
+  return 'broadcast_no_subject'.tr();
+}
+
 class _BroadcastListPageState extends State<BroadcastListPage> {
   bool _markedAsRead = false;
+
+  void _openDetail(
+    BuildContext context, {
+    required String broadcastId,
+    required String headline,
+    required String messageText,
+    required String senderName,
+    required String dateStr,
+  }) {
+    Navigator.pushNamed(
+      context,
+      '/broadcast-detail',
+      arguments: <String, dynamic>{
+        'broadcastId': broadcastId,
+        if (headline.isNotEmpty) 'headline': headline,
+        'messageText': messageText,
+        if (senderName.isNotEmpty) 'senderName': senderName,
+        if (dateStr.isNotEmpty) 'dateStr': dateStr,
+      },
+    );
+  }
 
   void _markAsReadIfNeeded(QuerySnapshot<Map<String, dynamic>>? snap) {
     if (_markedAsRead || snap == null || snap.docs.isEmpty) return;
@@ -89,65 +116,90 @@ class _BroadcastListPageState extends State<BroadcastListPage> {
             itemBuilder: (context, index) {
               final doc = docs[index];
               final d = doc.data();
+              final headline = (d['title'] as String?)?.trim() ?? '';
               final messageText = d['messageText'] as String? ?? d['body'] as String? ?? d['text'] as String? ?? '';
               final sentAt = d['sentAt'] as Timestamp? ?? d['createdAt'] as Timestamp?;
               final dateStr = sentAt != null
                   ? DateFormat('dd/MM/yyyy HH:mm').format(sentAt.toDate())
                   : '';
               final senderName = d['createdByName'] as String? ?? '';
+              final subjectLine = _displayBroadcastSubject(headline);
               return Card(
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: Theme.of(context).colorScheme.primary,
-                    child: const Icon(Icons.campaign, color: Colors.white),
-                  ),
-                  title: Text(
-                    messageText.isNotEmpty
-                        ? (messageText.length > 60 ? '${messageText.substring(0, 60)}…' : messageText)
-                        : 'broadcast_title'.tr(),
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      if (messageText.length > 60)
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          CircleAvatar(
+                            backgroundColor:
+                                Theme.of(context).colorScheme.primary,
+                            child: const Icon(Icons.campaign, color: Colors.white),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              subjectLine,
+                              maxLines: 4,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (senderName.isNotEmpty || dateStr.isNotEmpty)
                         Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Text(
-                            messageText,
-                            maxLines: 3,
-                            overflow: TextOverflow.ellipsis,
+                          padding: const EdgeInsets.only(left: 52, top: 8),
+                          child: Row(
+                            children: [
+                              if (senderName.isNotEmpty)
+                                Flexible(
+                                  child: Text(
+                                    senderName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color:
+                                          Theme.of(context).colorScheme.primary,
+                                    ),
+                                  ),
+                                ),
+                              if (senderName.isNotEmpty && dateStr.isNotEmpty)
+                                const SizedBox(width: 8),
+                              if (dateStr.isNotEmpty)
+                                Text(
+                                  dateStr,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Row(
-                          children: [
-                            if (senderName.isNotEmpty)
-                              Text(
-                                senderName,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Theme.of(context).colorScheme.primary,
-                                ),
-                              ),
-                            if (senderName.isNotEmpty && dateStr.isNotEmpty) const SizedBox(width: 8),
-                            if (dateStr.isNotEmpty)
-                              Text(
-                                dateStr,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                          ],
+                      const SizedBox(height: 10),
+                      OutlinedButton(
+                        onPressed: () => _openDetail(
+                          context,
+                          broadcastId: doc.id,
+                          headline: headline,
+                          messageText: messageText,
+                          senderName: senderName,
+                          dateStr: dateStr,
                         ),
+                        child: Text('broadcast_read_button'.tr()),
                       ),
                     ],
                   ),
-                  isThreeLine: true,
                 ),
               );
             },

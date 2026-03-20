@@ -12,8 +12,7 @@
 | `.env.dev.mobile` | Flutter | ค่าจริง dev mobile (gitignored) |
 | `.env.prod.web.example` | Next.js | เทมเพลต prod web (logitrack-prod) |
 | `.env.prod.web` | Next.js | ค่าจริง prod web (gitignored) |
-| `.env.prod.mobile.example` | Flutter | เทมเพลต prod mobile |
-| `.env.prod.mobile` | Flutter | ค่าจริง prod mobile (gitignored) |
+| `.env.prod.mobile` | Flutter | ค่าจริง prod mobile (gitignored; สร้างจาก `.env.dev.mobile.example` แล้วแก้เป็น prod) |
 
 ไฟล์ `.env.*` ที่ไม่มี `.example` ถูก ignore ใน `.gitignore` — ใส่ค่าจริงในไฟล์นั้นแล้วอย่า commit
 
@@ -24,11 +23,14 @@
 ```bash
 # จาก root ของ repo
 cp envs/.env.prod.web.example   envs/.env.prod.web
-cp envs/.env.prod.mobile.example envs/.env.prod.mobile
-# แก้ไข envs/.env.prod.web และ envs/.env.prod.mobile ให้ใส่ค่าจริง (Firebase, API keys ฯลฯ)
+cp envs/.env.dev.mobile.example envs/.env.prod.mobile
+# แก้ envs/.env.prod.mobile ให้เป็นโปรเจกต์ prod (logitrack-prod) แล้วใส่ค่าจริง
+# แก้ envs/.env.prod.web ให้ใส่ค่าจริง (Firebase, API keys ฯลฯ)
 ```
 
 ### 2. Deploy — Web (Next.js): Dev vs Prod
+
+คำสั่ง **`pnpm run deploy:dev` / `deploy:prod` ที่ root ดูแลเฉพาะเว็บ** (Next.js static export + Firebase Hosting + ชุด env `*.web`) — **ไม่รวม** build/deploy แอป Flutter
 
 | สิ่งที่ทำ | คำสั่ง (จาก root) |
 |-----------|--------------------|
@@ -40,6 +42,8 @@ cp envs/.env.prod.mobile.example envs/.env.prod.mobile
 - Prod: ใช้ `envs/.env.prod.web` (มีอยู่แล้ว / จาก secret ใน CI)
 
 Next.js อ่าน `.env.production` ตอน build — สคริปต์ `deploy:dev` / `deploy:prod` จะ copy จาก `envs/.env.dev.web` หรือ `envs/.env.prod.web` ให้ก่อน build แล้วค่อย deploy
+
+ถ้ารันจากโฟลเดอร์ `logitrack-web` โดยตรง (`pnpm run deploy:dev` / `deploy:prod`) สคริปต์จะ copy จาก `../envs/.env.*.web` ให้เหมือนกัน **เมื่อมีไฟล์นั้นอยู่** — ถ้า clone แยกไม่มีโฟลเดอร์ `envs` ต้องจัดการ `.env.production` เอง
 
 ### 3. Run / Build — Mobile (Flutter)
 
@@ -58,16 +62,16 @@ copy envs\.env.dev.mobile.example envs\.env.dev.mobile
 ```
 
 **Build production (APK/iOS):**  
-Flutter โหลด `.env` ในโฟลเดอร์แอป (`logitrack-mobile/.env`) ดังนั้นให้ copy ก่อน build:
+แอปโหลด **`logitrack-mobile/.env.prod`** เมื่อรัน flavor prod (`FLAVOR=prod`) — copy ก่อน build:
 
 ```bash
-# จาก root
-cp envs/.env.prod.mobile logitrack-mobile/.env
-cd logitrack-mobile && flutter build apk
-# หรือ flutter build ios
+# จาก root (หรือใช้ `pnpm run build:mobile:prod` ที่ copy ให้แล้ว)
+cp envs/.env.prod.mobile logitrack-mobile/.env.prod
+cd logitrack-mobile && flutter build apk --flavor prod --dart-define=FLAVOR=prod
+# หรือ flutter build ios ...
 ```
 
-ใน CI: copy `envs/.env.prod.mobile` → `logitrack-mobile/.env` (จาก secret/store) แล้วรัน `flutter build ...`
+ใน CI: copy `envs/.env.prod.mobile` → `logitrack-mobile/.env.prod` แล้วรัน `flutter build ...` พร้อม flavor prod
 
 ### 4. Deploy Firebase Storage / Firestore
 
@@ -96,7 +100,6 @@ logitrack-platform/
 │   ├── .env.dev.mobile          # ค่าจริง dev mobile (gitignored)
 │   ├── .env.prod.web.example    # เทมเพลต Next.js Prod
 │   ├── .env.prod.web            # ค่าจริง prod web (gitignored)
-│   ├── .env.prod.mobile.example # เทมเพลต Flutter Prod
 │   └── .env.prod.mobile         # ค่าจริง prod mobile (gitignored)
 ├── logitrack-web/
 └── logitrack-mobile/

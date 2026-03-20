@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart' as intl;
 import '../../../home/data/repositories/checkin_repository.dart';
+import '../../../home/data/services/cloud_vision_ocr_service.dart';
 import '../../../home/data/services/fuel_receipt_ocr_service.dart';
 import '../../../home/data/services/image_compression_service.dart';
 import '../../data/models/vehicle_expense.dart';
@@ -171,12 +172,27 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
       _ocrError = null;
     });
     try {
-      final result = await runFuelReceiptOcrOnImageBytes(imageBytes);
-      if (!mounted) return;
       // ถ่ายจากกล้อง → ใส่ overlay (วันเวลา สถานที่ พิกัด เข็มทิศ) เหมือนจุดอื่น; จากแกลเลอรี → compress อย่างเดียว
       final compressed = source == ImageSource.camera
           ? await stampOverlayAndCompressForEvidence(imageBytes)
           : await compressImageForUpload(imageBytes);
+      if (!mounted) return;
+
+      if (!isCloudVisionApiKeyConfigured()) {
+        setState(() {
+          _receiptPhoto = compressed;
+          _ocrLoading = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('ocr_missing_api_key_hint'.tr()),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+
+      final result = await runFuelReceiptOcrOnImageBytes(imageBytes);
       if (!mounted) return;
       setState(() {
         _receiptPhoto = compressed;

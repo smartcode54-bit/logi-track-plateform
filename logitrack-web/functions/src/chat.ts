@@ -143,14 +143,24 @@ export const sendBroadcast = onCall(
     }
     const data = request.data as {
       recipientDriverIds?: string[];
+      title?: string;
       messageText?: string;
       recipientGroup?: string;
     };
     const recipientDriverIds = data.recipientDriverIds;
+    const broadcastTitle = (data.title as string)?.trim();
     const messageText = (data.messageText as string)?.trim();
     const recipientGroup = (data.recipientGroup as string) || "all_driver";
-    if (!Array.isArray(recipientDriverIds) || recipientDriverIds.length === 0 || !messageText) {
-      throw new HttpsError("invalid-argument", "recipientDriverIds (non-empty array) and messageText are required");
+    if (
+      !Array.isArray(recipientDriverIds) ||
+      recipientDriverIds.length === 0 ||
+      !broadcastTitle ||
+      !messageText
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "recipientDriverIds (non-empty array), title, and messageText are required"
+      );
     }
     const adminUid = request.auth.uid as string;
 
@@ -166,19 +176,62 @@ export const sendBroadcast = onCall(
     await db.collection(BROADCASTS_COLL).add({
       createdBy: adminUid,
       createdByName,
+      title: broadcastTitle,
       messageText,
       recipientCount: recipientDriverIds.length,
       recipientGroup,
+      readCount: 0,
+      readDriverAuthIds: [],
       sentAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     // 2. Send FCM to each driver (opens broadcast list; no chatId)
-    const title = "📢 New Announcement";
+    const fcmTitle =
+      broadcastTitle.length > 90 ? `${broadcastTitle.slice(0, 87)}…` : broadcastTitle;
     const body = messageText.slice(0, 80) + (messageText.length > 80 ? "…" : "");
     for (const driverId of recipientDriverIds) {
-      await sendFcmToUser(driverId, title, body, { type: "broadcast" });
+      await sendFcmToUser(driverId, fcmTitle, body, { type: "broadcast" });
     }
 
     return { ok: true, recipientCount: recipientDriverIds.length };
+  }
+);
+
+/**
+ * Callable: driver opened broadcast detail (tapped read on mobile). Counts each auth user once.
+ */
+export const markBroadcastRead = onCall(
+  {
+    region: "asia-southeast1",
+    cors: true,
+  },
+  async (request): Promise<{ ok: boolean; alreadyRead?: boolean }> => {
+    if (!request.auth?.uid) {
+      throw new HttpsError("unauthenticated", "Sign in required");
+    }
+    const broadcastId = (request.data as { broadcastId?: string })?.broadcastId?.trim();
+    if (!broadcastId) {
+      throw new HttpsError("invalid-argument", "broadcastId is required");
+    }
+    const uid = request.auth.uid;
+    const ref = db.collection(BROADCASTS_COLL).doc(broadcastId);
+    let alreadyRead = false;
+    await db.runTransaction(async (t) => {
+      const snap = await t.get(ref);
+      if (!snap.exists) {
+        throw new HttpsError("not-found", "Broadcast not found");
+      }
+      const data = snap.data() as { readDriverAuthIds?: string[] };
+      const ids = data.readDriverAuthIds ?? [];
+      if (ids.includes(uid)) {
+        alreadyRead = true;
+        return;
+      }
+      t.update(ref, {
+        readDriverAuthIds: admin.firestore.FieldValue.arrayUnion(uid),
+        readCount: admin.firestore.FieldValue.increment(1),
+      });
+    });
+    return { ok: true, alreadyRead };
   }
 );

@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import {
   collection,
+  doc,
+  deleteDoc,
   getDocs,
   query,
   orderBy,
@@ -13,6 +15,7 @@ import { db, functions } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { httpsCallable } from "firebase/functions";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
@@ -22,8 +25,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Megaphone, Send, Loader2, Check } from "lucide-react";
+import { Megaphone, Send, Loader2, Check, Ban } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { displayBroadcastTitle } from "@/lib/broadcastDisplay";
+import { BroadcastDeleteConfirmDialog } from "./BroadcastDeleteConfirmDialog";
 
 const GROUP_LABELS: Record<string, string> = {
   all_driver: "All Driver",
@@ -72,6 +78,7 @@ export function BroadcastComposer() {
   const [counts, setCounts] = useState<RecipientCounts | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<RecipientGroup>("all_driver");
   const [loadingCount, setLoadingCount] = useState(true);
+  const [broadcastTitle, setBroadcastTitle] = useState("");
   const [messageText, setMessageText] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,13 +86,19 @@ export function BroadcastComposer() {
   const [historyList, setHistoryList] = useState<{
     id: string;
     createdByName: string;
+    title: string;
     messageText: string;
     recipientCount: number;
+    readCount: number;
     recipientGroup: string;
     sentAt: Timestamp | null;
   }[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [removingHistoryId, setRemovingHistoryId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  /** True after user clicked Send with missing title/body (show field errors). */
+  const [showSendValidation, setShowSendValidation] = useState(false);
 
   const recipientIds =
     counts === null
@@ -95,6 +108,11 @@ export function BroadcastComposer() {
         : selectedGroup === "own_fleet"
           ? counts.ownFleet
           : counts.subcontractor;
+
+  const titleTrimmed = broadcastTitle.trim();
+  const bodyTrimmed = messageText.trim();
+  const titleFilled = titleTrimmed.length > 0;
+  const bodyFilled = bodyTrimmed.length > 0;
 
   useEffect(() => {
     let cancelled = false;
@@ -131,8 +149,10 @@ export function BroadcastComposer() {
           items.push({
             id: doc.id,
             createdByName: (d.createdByName as string) ?? (d.createdBy as string) ?? "",
+            title: (d.title as string) ?? "",
             messageText: (d.messageText as string) ?? "",
             recipientCount: (d.recipientCount as number) ?? 0,
+            readCount: (d.readCount as number) ?? 0,
             recipientGroup: (d.recipientGroup as string) ?? "all_driver",
             sentAt: (d.sentAt as Timestamp) ?? null,
           });
@@ -150,24 +170,57 @@ export function BroadcastComposer() {
     fetchHistory();
   }, [sent]);
 
+  const executeDeleteBroadcast = async () => {
+    const id = confirmDeleteId;
+    if (!id) return;
+    setRemovingHistoryId(id);
+    try {
+      await deleteDoc(doc(db, COLLECTIONS.BROADCASTS, id));
+      setHistoryList((prev) => prev.filter((row) => row.id !== id));
+      setConfirmDeleteId(null);
+      toast.success("ลบรายการจากประวัติแล้ว");
+    } catch (e) {
+      console.error("delete broadcast:", e);
+      toast.error(e instanceof Error ? e.message : "ลบรายการไม่สำเร็จ");
+    } finally {
+      setRemovingHistoryId(null);
+    }
+  };
+
   const handleSend = async () => {
-    const text = messageText.trim();
-    if (!text || recipientIds.length === 0 || sending) return;
+    if (sending || recipientIds.length === 0) return;
+
+    const title = titleTrimmed;
+    const text = bodyTrimmed;
+    if (!title || !text) {
+      setShowSendValidation(true);
+      setError(null);
+      return;
+    }
+
+    setShowSendValidation(false);
     setError(null);
     setSending(true);
     try {
       const sendBroadcast = httpsCallable<
-        { recipientDriverIds: string[]; messageText: string; recipientGroup?: string },
+        {
+          recipientDriverIds: string[];
+          title: string;
+          messageText: string;
+          recipientGroup?: string;
+        },
         { ok: boolean; recipientCount: number }
       >(functions, "sendBroadcast");
       const res = await sendBroadcast({
         recipientDriverIds: recipientIds,
+        title,
         messageText: text,
         recipientGroup: selectedGroup,
       });
       const data = res.data as { ok?: boolean; recipientCount?: number };
       if (data?.ok) {
         setSent(true);
+        setBroadcastTitle("");
         setMessageText("");
       } else {
         setError("Broadcast did not complete.");
@@ -204,7 +257,14 @@ export function BroadcastComposer() {
         </div>
       </div>
 
-      <div className="space-y-4">
+      <form
+        className="space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void handleSend();
+        }}
+        noValidate
+      >
         <div>
           <p className="text-sm font-medium text-muted-foreground mb-2">
             Recipients
@@ -265,18 +325,70 @@ export function BroadcastComposer() {
               )}
             </button>
           </div>
+          {recipientIds.length === 0 && (
+            <p className="text-sm text-amber-600 dark:text-amber-500 mt-2">
+              ไม่มีผู้รับในกลุ่มนี้ — ส่ง Broadcast ไม่ได้จนกว่าจะมีคนขับในระบบ
+            </p>
+          )}
         </div>
 
         <div>
-          <label className="text-sm font-medium mb-2 block">Message</label>
+          <label htmlFor="broadcast-title" className="text-sm font-medium mb-2 block">
+            Subject / title <span className="text-destructive">*</span>
+          </label>
+          <Input
+            id="broadcast-title"
+            placeholder="e.g. Route change — Bangkok hub"
+            value={broadcastTitle}
+            onChange={(e) => setBroadcastTitle(e.target.value)}
+            disabled={sending}
+            maxLength={200}
+            required
+            aria-invalid={showSendValidation && !titleFilled}
+            aria-describedby={
+              showSendValidation && !titleFilled ? "broadcast-title-error" : undefined
+            }
+            className={cn(
+              showSendValidation &&
+                !titleFilled &&
+                "border-destructive focus-visible:ring-destructive/40"
+            )}
+          />
+          {showSendValidation && !titleFilled && (
+            <p id="broadcast-title-error" className="text-sm text-destructive mt-1.5">
+              กรุณากรอกชื่อเรื่องก่อนส่ง
+            </p>
+          )}
+        </div>
+
+        <div>
+          <label htmlFor="broadcast-message" className="text-sm font-medium mb-2 block">
+            Message body <span className="text-destructive">*</span>
+          </label>
           <Textarea
-            placeholder="Attention all drivers: Important updates..."
+            id="broadcast-message"
+            placeholder="Full details for drivers..."
             value={messageText}
             onChange={(e) => setMessageText(e.target.value)}
             disabled={sending}
             rows={5}
-            className="resize-none"
+            className={cn(
+              "resize-none",
+              showSendValidation &&
+                !bodyFilled &&
+                "border-destructive focus-visible:ring-destructive/40"
+            )}
+            required
+            aria-invalid={showSendValidation && !bodyFilled}
+            aria-describedby={
+              showSendValidation && !bodyFilled ? "broadcast-message-error" : undefined
+            }
           />
+          {showSendValidation && !bodyFilled && (
+            <p id="broadcast-message-error" className="text-sm text-destructive mt-1.5">
+              กรุณากรอกข้อความก่อนส่ง
+            </p>
+          )}
         </div>
 
         {error && (
@@ -294,8 +406,8 @@ export function BroadcastComposer() {
             Total recipients: {recipientIds.length}
           </span>
           <Button
-            onClick={handleSend}
-            disabled={sending || !messageText.trim() || recipientIds.length === 0}
+            type="submit"
+            disabled={sending || recipientIds.length === 0}
             className="gap-2"
           >
             {sending ? (
@@ -306,7 +418,7 @@ export function BroadcastComposer() {
             Send Broadcast Now
           </Button>
         </div>
-      </div>
+      </form>
 
       <div className="mt-10 border-t pt-8">
         <h3 className="text-base font-semibold mb-4">ประวัติ Broadcast</h3>
@@ -328,15 +440,25 @@ export function BroadcastComposer() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="min-w-[160px] max-w-[220px]">หัวข้อ</TableHead>
                   <TableHead className="min-w-[200px]">ข้อความ</TableHead>
                   <TableHead className="w-[140px]">ผู้ส่ง</TableHead>
                   <TableHead className="w-[160px]">วันที่ส่ง</TableHead>
-                  <TableHead className="w-[120px] text-right">จำนวนผู้รับ</TableHead>
+                  <TableHead className="w-[100px] text-right">จำนวนผู้รับ</TableHead>
+                  <TableHead className="w-[88px] text-right">อ่านแล้ว</TableHead>
+                  <TableHead className="w-[130px] text-right"> </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {historyList.map((item) => (
+                {historyList.map((item) => {
+                  const head = displayBroadcastTitle(item.title);
+                  return (
                   <TableRow key={item.id}>
+                    <TableCell className="align-top py-3">
+                      <div className="text-sm font-medium whitespace-pre-wrap break-words max-w-[220px]">
+                        {head}
+                      </div>
+                    </TableCell>
                     <TableCell className="align-top py-3">
                       <div className="text-sm whitespace-pre-wrap break-words max-w-md">
                         {item.messageText || "—"}
@@ -354,13 +476,47 @@ export function BroadcastComposer() {
                         ({GROUP_LABELS[item.recipientGroup] ?? item.recipientGroup})
                       </span>
                     </TableCell>
+                    <TableCell className="align-top py-3 text-right text-sm tabular-nums">
+                      {item.readCount}
+                    </TableCell>
+                    <TableCell className="align-top py-2 text-right">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="text-destructive border-destructive/40 hover:bg-destructive/10"
+                        disabled={removingHistoryId === item.id}
+                        onClick={() => setConfirmDeleteId(item.id)}
+                      >
+                        {removingHistoryId === item.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <>
+                            <Ban className="h-4 w-4 mr-1" />
+                            ยกเลิกส่ง
+                          </>
+                        )}
+                      </Button>
+                    </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
         )}
       </div>
+
+      <BroadcastDeleteConfirmDialog
+        open={confirmDeleteId !== null}
+        onOpenChange={(open) => {
+          if (!open && removingHistoryId === null) setConfirmDeleteId(null);
+        }}
+        onConfirm={executeDeleteBroadcast}
+        loading={
+          confirmDeleteId !== null && removingHistoryId === confirmDeleteId
+        }
+      />
     </div>
   );
 }

@@ -2,9 +2,9 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
-    // Helper function to check for a valid App Check token
+    // Same as Firestore: ID tokens do not carry app_check; use Console App Check enforcement per product.
     function isAppCheckVerified() {
-      return request.auth.token.app_check == true;
+      return true;
     }
 
     // Truck images

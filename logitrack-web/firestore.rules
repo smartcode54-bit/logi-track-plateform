@@ -2,9 +2,11 @@ rules_version='2'
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper function to check for a valid App Check token
+    // App Check is not exposed on ID tokens in rules (request.auth.token has no app_check claim).
+    // Use Firebase Console → App Check → enforce per product (e.g. Firestore) for attestation.
+    // This helper remains so existing rule structure stays readable; auth + data checks below do the real access control.
     function isAppCheckVerified() {
-      return request.auth.token.app_check == true;
+      return true;
     }
 
     // Hub→SOC distances (Google Distance Matrix cache). Read by web map & admin; write by admin/API.
@@ -90,16 +92,21 @@ service cloud.firestore {
     }
 
     // Unified Tasks: Admin full; Drivers read, create (manual check-in), update (check-in, Completed) own tasks.
+    // driverId on task = drivers collection document id (not always Auth UID); legacy tasks may store UID in driverId.
     match /tasks/{taskId} {
       allow read: if request.auth != null;
       allow create: if isAppCheckVerified() && request.auth != null && (
         request.auth.token.admin == true ||
-        (request.resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(request.resource.data.driverId)).data.get('authId', '') == request.auth.uid)
+        (request.resource.data.get('driverId', '') != '' &&
+          exists(/databases/$(database)/documents/drivers/$(request.resource.data.driverId)) &&
+          get(/databases/$(database)/documents/drivers/$(request.resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
       allow update, delete: if isAppCheckVerified() && request.auth != null && (
         request.auth.token.admin == true ||
         resource.data.driverId == request.auth.uid ||
-        (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
+        (resource.data.get('driverId', '') != '' &&
+          exists(/databases/$(database)/documents/drivers/$(resource.data.driverId)) &&
+          get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
     }
 
@@ -236,7 +243,11 @@ service cloud.firestore {
         resource.data.driverId == request.auth.uid ||
         (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
-      allow create: if isAppCheckVerified() && request.auth != null;
+      allow create: if isAppCheckVerified() && request.auth != null && (
+        request.auth.token.admin == true ||
+        (request.resource.data.get('driverId', '') != '' &&
+          get(/databases/$(database)/documents/drivers/$(request.resource.data.driverId)).data.get('authId', '') == request.auth.uid)
+      );
       allow update: if isAppCheckVerified() && request.auth != null && (
         request.auth.token.admin == true ||
         resource.data.driverId == request.auth.uid ||
