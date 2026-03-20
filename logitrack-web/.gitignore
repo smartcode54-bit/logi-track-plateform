@@ -60,7 +60,7 @@ playwright-mcp.json
 
 #Vibe
 .vibe-rules.md
-
+.api-index.md
 #cursor
 .cursorindexignore
 .cursorrules

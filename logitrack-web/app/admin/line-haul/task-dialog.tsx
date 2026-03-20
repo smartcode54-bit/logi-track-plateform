@@ -237,10 +237,10 @@ export function LineHaulTaskDialog({ mode, task, trigger, open, onOpenChange, on
         }
     }, [isOpen, mode, task, form]);
 
-    // Auto-select first SOC destination once options load for create mode
+    // Auto-select first SOC source once options load for create mode
     useEffect(() => {
-        if (isOpen && mode === "create" && socOptions.length > 0 && !form.getValues("destination")) {
-            form.setValue("destination", socOptions[0].source_id);
+        if (isOpen && mode === "create" && socOptions.length > 0 && !form.getValues("sourceHub")) {
+            form.setValue("sourceHub", socOptions[0].source_id);
         }
     }, [isOpen, mode, socOptions, form]);
 
@@ -446,10 +446,10 @@ export function LineHaulTaskDialog({ mode, task, trigger, open, onOpenChange, on
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {/* Destination Field - Moved up */}
+                            {/* Source Field (SOC) */}
                             <FormField
                                 control={form.control}
-                                name="destination"
+                                name="sourceHub"
                                 render={({ field }) => (
                                     <FormItem>
                                         <FormLabel>Source (SOC)</FormLabel>
@@ -490,10 +490,10 @@ export function LineHaulTaskDialog({ mode, task, trigger, open, onOpenChange, on
                                 )}
                             />
 
-                            {/* Source Hub Field - Moved down and labeled Destination */}
+                            {/* Destination Field (Hub) */}
                             <FormField
                                 control={form.control}
-                                name="sourceHub"
+                                name="destination"
                                 render={({ field }) => {
                                     const filteredHubs = hubOptions.filter((hub) => {
                                         const val = hub['Hub Code'] ?? '';
@@ -560,7 +560,7 @@ export function LineHaulTaskDialog({ mode, task, trigger, open, onOpenChange, on
                                                                             key={val || idx}
                                                                             onClick={() => {
                                                                                 if (!val) return;
-                                                                                form.setValue("sourceHub", val as any, { shouldValidate: true });
+                                                                                form.setValue("destination", val as any, { shouldValidate: true });
                                                                                 setHubDropdownOpen(false);
                                                                             }}
                                                                             className={cn(

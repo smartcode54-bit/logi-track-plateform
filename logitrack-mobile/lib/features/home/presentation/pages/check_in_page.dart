@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -1180,14 +1180,17 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
     try {
       final now = DateTime.now();
 
-      // Use Cloud Function to get sequential ID
+      // Generate sequential task ID client-side (avoids Cloud Function auth issues)
       final dateStr = DateFormat('ddMMyyyy').format(now);
-      final results =
-          await FirebaseFunctions.instanceFor(region: 'asia-southeast1')
-              .httpsCallable('getNextTaskId')
-              .call({'date': dateStr, 'taskType': widget.taskType});
-
-      final String newTaskId = results.data['taskId'];
+      final prefix = widget.taskType == 'LINE_HAUL' ? 'LH' : 'FM';
+      final countSnap = await FirebaseFirestore.instance
+          .collection('tasks')
+          .where('taskType', isEqualTo: widget.taskType)
+          .where('dateStr', isEqualTo: dateStr)
+          .count()
+          .get();
+      final nextNum = (countSnap.count ?? 0) + 1;
+      final newTaskId = '$prefix-$dateStr-$nextNum';
 
       final docRef = await FirebaseFirestore.instance.collection('tasks').add({
         'taskId': newTaskId,
