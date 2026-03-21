@@ -1,0 +1,373 @@
+import { db, storage } from "@/firebase/client";
+import { collection, doc, getDoc, getDocs, query, orderBy, addDoc, updateDoc, serverTimestamp, where, limit } from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { COLLECTIONS } from "@/lib/collections";
+
+export interface TruckData {
+    id: string;
+    // Ownership
+    ownershipType: "own" | "subcontractor";
+    subcontractorId?: string;
+
+    licensePlate: string;
+    province: string;
+    vin: string;
+    engineNumber: string;
+    GPSVehicleId?: string;
+    truckStatus: string;
+    brand: string;
+    model: string;
+    year: string;
+    color: string;
+    type: string;
+    seats?: string;
+    fuelType: string;
+    engineCapacity?: number;
+    fuelCapacity?: number;
+    maxLoadWeight?: number;
+    registrationDate: string;
+    buyingDate: string;
+    notes?: string;
+
+    // Assignment - Denormalized
+    currentAssignments?: {
+        driverId: string;
+        driverName: string;
+        assignedAt: Date;
+        assignmentId: string;
+    }[];
+    currentAssignment?: never; 
+
+    // Images
+    imageFrontRight?: string;
+    imageFrontLeft?: string;
+    imageBackRight?: string;
+    imageBackLeft?: string;
+    // Documents
+    documentTax?: string;
+    documentRegister?: string;
+
+    images?: string[];
+
+    // Insurance
+    insurancePolicyId?: string;
+    insurancePolicyNumber?: string;
+    insuranceCompany?: string;
+    insuranceType?: string;
+    insuranceStartDate?: string;
+    insuranceExpiryDate?: string;
+    insurancePremium?: number;
+    insuranceDocuments?: string[];
+    insuranceNotes?: string;
+
+    // Compliance Fields
+    taxExpiryDate?: string;
+    lastServiceDate?: string;
+    nextServiceDate?: string;
+    nextServiceMileage?: number;
+    currentMileage?: number;
+
+    // Responsibility
+    taxResponsible?: string;
+    maintenanceResponsible?: string;
+
+    // Renewal Fields
+    taxRenewalStatus?: "pending" | "in_progress" | "completed";
+    insuranceRenewalStatus?: "pending" | "in_progress" | "completed";
+    taxExpense?: number;
+    taxReceipt?: string;
+    paymentMethod?: string;
+    insuranceReceipt?: string;
+
+    statusHistory?: {
+        status: string;
+        date: string;
+        changedBy: string;
+        notes?: string;
+    }[];
+
+    createdBy: string;
+    createdAt: Date | null;
+    updatedAt: Date | null;
+}
+
+export const formatTimestamp = (timestamp: any): Date | null => {
+    if (!timestamp) return null;
+    if (timestamp.toDate) return timestamp.toDate();
+    if (timestamp.toMillis) return new Date(timestamp.toMillis());
+    if (timestamp.seconds) return new Date(timestamp.seconds * 1000);
+    return timestamp;
+};
+
+export async function logTransaction(data: any) {
+    try {
+        await addDoc(collection(db, COLLECTIONS.TRANSACTIONS), {
+            ...data,
+            createdAt: serverTimestamp(),
+        });
+    } catch (error) {
+        console.error("Error logging transaction:", error);
+        throw error;
+    }
+}
+
+export async function getTrucksClient(): Promise<TruckData[]> {
+    try {
+        const trucksRef = collection(db, COLLECTIONS.TRUCKS);
+        const q = query(trucksRef, orderBy("createdAt", "desc"));
+        const snapshot = await getDocs(q);
+
+        const trucks: TruckData[] = [];
+
+        snapshot.forEach((doc) => {
+            const data = doc.data();
+
+            trucks.push({
+                id: doc.id,
+                ownershipType: (data.ownershipType as "own" | "subcontractor") || "own",
+                subcontractorId: data.subcontractorId || undefined,
+                licensePlate: data.licensePlate || "",
+                province: data.province || "",
+                vin: data.vin || "",
+                engineNumber: data.engineNumber || "",
+                GPSVehicleId: data.GPSVehicleId || "",
+                truckStatus: data.truckStatus || "",
+                brand: data.brand || "",
+                model: data.model || "",
+                year: data.year || "",
+                color: data.color || "",
+                type: data.type || "",
+                seats: data.seats || "",
+                fuelType: data.fuelType || "",
+                engineCapacity: data.engineCapacity,
+                fuelCapacity: data.fuelCapacity,
+                maxLoadWeight: data.maxLoadWeight,
+                registrationDate: data.registrationDate || "",
+                buyingDate: data.buyingDate || "",
+                notes: data.notes || "",
+
+                currentAssignments: data.currentAssignments ? (data.currentAssignments as any[]).map(assignment => ({
+                    driverId: assignment.driverId,
+                    driverName: assignment.driverName,
+                    assignedAt: formatTimestamp(assignment.assignedAt) as Date,
+                    assignmentId: assignment.assignmentId
+                })) : (data.currentAssignment ? [{
+                    driverId: data.currentAssignment.driverId,
+                    driverName: data.currentAssignment.driverName,
+                    assignedAt: formatTimestamp(data.currentAssignment.assignedAt) as Date,
+                    assignmentId: data.currentAssignment.assignmentId
+                }] : []),
+
+                imageFrontRight: data.imageFrontRight || "",
+                imageFrontLeft: data.imageFrontLeft || "",
+                imageBackRight: data.imageBackRight || "",
+                imageBackLeft: data.imageBackLeft || "",
+                documentTax: data.documentTax || "",
+                documentRegister: data.documentRegister || "",
+
+                images: data.images || [],
+
+                insurancePolicyId: data.insurancePolicyId || "",
+                insurancePolicyNumber: data.insurancePolicyNumber || "",
+                insuranceCompany: data.insuranceCompany || "",
+                insuranceType: data.insuranceType || "",
+                insuranceStartDate: data.insuranceStartDate || "",
+                insuranceExpiryDate: data.insuranceExpiryDate || "",
+                insurancePremium: data.insurancePremium,
+                insuranceDocuments: data.insuranceDocuments || [],
+                insuranceNotes: data.insuranceNotes || "",
+
+                taxExpiryDate: data.taxExpiryDate || "",
+                lastServiceDate: data.lastServiceDate || "",
+                nextServiceDate: data.nextServiceDate || "",
+                nextServiceMileage: data.nextServiceMileage,
+                currentMileage: data.currentMileage,
+
+                taxRenewalStatus: data.taxRenewalStatus,
+                insuranceRenewalStatus: data.insuranceRenewalStatus,
+                taxExpense: data.taxExpense,
+                taxReceipt: data.taxReceipt,
+                paymentMethod: data.paymentMethod || "",
+                insuranceReceipt: data.insuranceReceipt,
+                statusHistory: data.statusHistory || [],
+
+                createdBy: data.createdBy || "",
+                createdAt: formatTimestamp(data.createdAt),
+                updatedAt: formatTimestamp(data.updatedAt),
+            });
+        });
+
+        return trucks;
+    } catch (error) {
+        console.error("Error fetching trucks:", error);
+        throw error;
+    }
+}
+
+export async function getTruckByIdClient(id: string): Promise<TruckData | null> {
+    try {
+        const truckRef = doc(db, COLLECTIONS.TRUCKS, id);
+        const docSnap = await getDoc(truckRef);
+
+        if (!docSnap.exists()) {
+            return null;
+        }
+
+        const data = docSnap.data();
+
+        return {
+            id: docSnap.id,
+            ownershipType: (data.ownershipType as "own" | "subcontractor") || "own",
+            subcontractorId: data.subcontractorId || undefined,
+            licensePlate: data.licensePlate || "",
+            province: data.province || "",
+            vin: data.vin || "",
+            engineNumber: data.engineNumber || "",
+            GPSVehicleId: data.GPSVehicleId || "",
+            truckStatus: data.truckStatus || "",
+            brand: data.brand || "",
+            model: data.model || "",
+            year: data.year || "",
+            color: data.color || "",
+            type: data.type || "",
+            seats: data.seats || "",
+            fuelType: data.fuelType || "",
+            engineCapacity: data.engineCapacity,
+            fuelCapacity: data.fuelCapacity,
+            maxLoadWeight: data.maxLoadWeight,
+            registrationDate: data.registrationDate || "",
+            buyingDate: data.buyingDate || "",
+            notes: data.notes || "",
+
+            currentAssignments: data.currentAssignments ? (data.currentAssignments as any[]).map(assignment => ({
+                driverId: assignment.driverId,
+                driverName: assignment.driverName,
+                assignedAt: formatTimestamp(assignment.assignedAt) as Date,
+                assignmentId: assignment.assignmentId
+            })) : (data.currentAssignment ? [{
+                driverId: data.currentAssignment.driverId,
+                driverName: data.currentAssignment.driverName,
+                assignedAt: formatTimestamp(data.currentAssignment.assignedAt) as Date,
+                assignmentId: data.currentAssignment.assignmentId
+            }] : []),
+
+            imageFrontRight: data.imageFrontRight || "",
+            imageFrontLeft: data.imageFrontLeft || "",
+            imageBackRight: data.imageBackRight || "",
+            imageBackLeft: data.imageBackLeft || "",
+            documentTax: data.documentTax || "",
+            documentRegister: data.documentRegister || "",
+
+            images: data.images || [],
+
+            insurancePolicyId: data.insurancePolicyId || "",
+            insurancePolicyNumber: data.insurancePolicyNumber || "",
+            insuranceCompany: data.insuranceCompany || "",
+            insuranceType: data.insuranceType || "",
+            insuranceStartDate: data.insuranceStartDate || "",
+            insuranceExpiryDate: data.insuranceExpiryDate || "",
+            insurancePremium: data.insurancePremium,
+            insuranceDocuments: data.insuranceDocuments || [],
+            insuranceNotes: data.insuranceNotes || "",
+
+            taxExpiryDate: data.taxExpiryDate || "",
+            lastServiceDate: data.lastServiceDate || "",
+            nextServiceDate: data.nextServiceDate || "",
+            nextServiceMileage: data.nextServiceMileage,
+            currentMileage: data.currentMileage,
+
+            taxResponsible: data.taxResponsible || "Operation Admin",
+            maintenanceResponsible: data.maintenanceResponsible || "Driver",
+
+            taxRenewalStatus: data.taxRenewalStatus,
+            insuranceRenewalStatus: data.insuranceRenewalStatus,
+            taxExpense: data.taxExpense,
+            taxReceipt: data.taxReceipt,
+            paymentMethod: data.paymentMethod || "",
+            insuranceReceipt: data.insuranceReceipt,
+            statusHistory: data.statusHistory || [],
+
+            createdBy: data.createdBy || "",
+            createdAt: formatTimestamp(data.createdAt),
+            updatedAt: formatTimestamp(data.updatedAt),
+        };
+    } catch (error) {
+        console.error("Error fetching truck:", error);
+        throw error;
+    }
+}
+
+export const uploadTruckFile = async (file: File, path: string): Promise<string> => {
+    try {
+        const storageRef = ref(storage, path);
+        const snapshot = await uploadBytes(storageRef, file);
+        return await getDownloadURL(snapshot.ref);
+    } catch (error) {
+        console.error("Error uploading file:", error);
+        throw error;
+    }
+};
+
+export const checkLicensePlateExists = async (licensePlate: string): Promise<boolean> => {
+    try {
+        const trucksRef = collection(db, COLLECTIONS.TRUCKS);
+        const q = query(trucksRef, where("licensePlate", "==", licensePlate), limit(1));
+        const querySnapshot = await getDocs(q);
+        return !querySnapshot.empty;
+    } catch (error) {
+        console.error("Error checking license plate:", error);
+        throw error;
+    }
+};
+
+const removeUndefinedFields = <T extends Record<string, any>>(obj: T): Partial<T> => {
+    const result: Partial<T> = {};
+    for (const key in obj) {
+        if (Object.prototype.hasOwnProperty.call(obj, key) && obj[key] !== undefined && obj[key] !== "") {
+            result[key] = obj[key];
+        }
+    }
+    return result;
+};
+
+export const saveNewTruckToFirestoreClient = async (
+    data: any,
+    userId: string
+) => {
+    try {
+        const sanitizedData = removeUndefinedFields(data);
+        const trucksRef = collection(db, COLLECTIONS.TRUCKS);
+        const docRef = await addDoc(trucksRef, {
+            ...sanitizedData,
+            createdBy: userId,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+        });
+        return { success: true, truckId: docRef.id };
+    } catch (error) {
+        console.error("Error saving truck:", error);
+        throw error;
+    }
+};
+
+export const updateTruckInFirestoreClient = async (
+    truckId: string,
+    data: any,
+    userId: string
+) => {
+    try {
+        const sanitizedData = removeUndefinedFields(data);
+        const truckData = {
+            ...sanitizedData,
+            updatedAt: serverTimestamp(),
+            updatedBy: userId,
+        };
+        const truckRef = doc(db, COLLECTIONS.TRUCKS, truckId);
+        await updateDoc(truckRef, truckData);
+        return { success: true, truckId };
+    } catch (error) {
+        console.error("Error updating truck:", error);
+        throw error;
+    }
+};
+

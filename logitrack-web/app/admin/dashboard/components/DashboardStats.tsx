@@ -5,6 +5,7 @@ import { collection, query, where, getCountFromServer, getDocs, orderBy, limit }
 import { db } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { Users, MapPin, Package, Zap } from "lucide-react";
+import { useLanguage } from "@/context/language";
 
 interface StatCardProps {
   title: string;
@@ -80,6 +81,7 @@ function StatCard({
 }
 
 export function DashboardStats() {
+  const { t } = useLanguage();
   const [loading, setLoading] = useState(true);
   const [totalUsers, setTotalUsers] = useState(0);
   const [activeDrivers, setActiveDrivers] = useState(0);
@@ -242,7 +244,7 @@ export function DashboardStats() {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
       <StatCard
-        title="Total Users"
+        title={t("dashboard.stats.totalUsers")}
         value={totalUsers.toLocaleString()}
         trend="—"
         isPositive={null}
@@ -251,7 +253,7 @@ export function DashboardStats() {
         iconColor="text-blue-500"
       />
       <StatCard
-        title="Active Drivers"
+        title={t("dashboard.stats.activeDrivers")}
         value={activeDrivers.toLocaleString()}
         trend="—"
         isPositive={null}
@@ -260,7 +262,7 @@ export function DashboardStats() {
         iconColor="text-sky-500"
       />
       <StatCard
-        title="Trips & Packages"
+        title={t("dashboard.stats.tripsAndPackages")}
         value={`${deliveredTrips.toLocaleString()} / ${totalPackages.toLocaleString()}`}
         trend="—"
         isPositive={null}
@@ -269,7 +271,7 @@ export function DashboardStats() {
         iconColor="text-indigo-500"
       />
       <StatCard
-        title="Fleet Efficiency (On-time / Delayed)"
+        title={t("dashboard.stats.fleetEfficiency")}
         value={
           fleetEfficiency != null && fleetDelayRate != null
             ? `${fleetEfficiency}% / ${fleetDelayRate}%`

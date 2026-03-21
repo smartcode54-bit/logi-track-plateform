@@ -152,7 +152,7 @@ export function AppSidebar() {
     return (
         <Sidebar
             collapsible="icon"
-            className="border-r-0"
+            className="border-r-0 !z-40"
         >
             <SidebarHeader>
                 <SidebarMenu>

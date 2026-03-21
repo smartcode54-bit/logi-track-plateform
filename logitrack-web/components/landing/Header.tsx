@@ -108,7 +108,7 @@ export function Header() {
                                     : "text-slate-500 dark:text-slate-400 hover:text-primary"
                             )}
                         >
-                            <img src="https://flagcdn.com/w20/us.png" alt="EN" className="h-4 w-4 inline-block object-contain" /> EN
+                             <img src="/usa_flag_v2.svg" alt="EN" className="h-4 w-4 inline-block object-cover rounded-full" /> EN
                         </button>
                         <button
                             onClick={() => setLanguage("th")}
@@ -119,7 +119,7 @@ export function Header() {
                                     : "text-slate-500 dark:text-slate-400 hover:text-primary"
                             )}
                         >
-                            <img src="https://flagcdn.com/w20/th.png" alt="TH" className="h-4 w-4 inline-block object-contain" /> TH
+                             <img src="/thailand_round_icon_64.png" alt="TH" className="h-4 w-4 inline-block object-contain rounded-full" /> TH
                         </button>
                     </div>
                     <button

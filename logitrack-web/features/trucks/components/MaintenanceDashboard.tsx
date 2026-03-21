@@ -1,0 +1,254 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { useLanguage } from "@/context/language";
+import { getTruckByIdClient, uploadTruckFile, TruckData } from "../services/truckService";
+import { saveMaintenanceRecord, getMaintenanceHistory, updateMaintenanceRecord } from "../services/maintenanceService";
+import { MaintenanceData } from "@/validate/maintenanceSchema";
+import { useAuth } from "@/context/auth";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { ArrowLeft, Wrench, CheckCircle2, Loader2 } from "lucide-react";
+import { formatLicensePlate } from "@/lib/utils";
+
+// Sub-components
+import { MaintenanceStats } from "./maintenance/MaintenanceStats";
+import { MaintenanceHistoryList } from "./maintenance/MaintenanceHistoryList";
+import { MaintenanceForm } from "./maintenance/MaintenanceForm";
+
+export default function MaintenanceDashboard() {
+    const { t } = useLanguage();
+    const searchParams = useSearchParams();
+    const router = useRouter();
+    const auth = useAuth();
+    const currentUser = auth?.currentUser;
+    const id = searchParams.get("id") as string;
+
+    const [truck, setTruck] = useState<TruckData | null>(null);
+    const [history, setHistory] = useState<MaintenanceData[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [view, setView] = useState<"list" | "form">("list");
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
+
+    const totalPMCost = history.filter(h => h.type === 'PM').reduce((sum, h) => sum + (h.totalCost || 0), 0);
+    const totalCMCost = history.filter(h => h.type === 'CM').reduce((sum, h) => sum + (h.totalCost || 0), 0);
+
+    const [type, setType] = useState<"PM" | "CM">("PM");
+    const [status, setStatus] = useState<"in_progress" | "completed" | "cancelled">("in_progress");
+    const [serviceType, setServiceType] = useState<string>("");
+    const [customServiceType, setCustomServiceType] = useState<string>(""); 
+    const [startDate, setStartDate] = useState<string>("");
+    const [endDate, setEndDate] = useState<string>("");
+    const [paymentMethod, setPaymentMethod] = useState<string>("cash");
+
+    const [costLabor, setCostLabor] = useState<string>("");
+    const [costParts, setCostParts] = useState<string>("");
+
+    const [currentMileage, setCurrentMileage] = useState<string>("");
+    const [nextServiceMileage, setNextServiceMileage] = useState<string>("");
+
+    const [provider, setProvider] = useState<string>("");
+    const [notes, setNotes] = useState<string>("");
+    const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
+    useEffect(() => {
+        async function loadData() {
+            setLoading(true);
+            try {
+                const truckData = await getTruckByIdClient(id);
+                setTruck(truckData);
+                if (truckData) {
+                    const historyData = await getMaintenanceHistory(id);
+                    setHistory(historyData);
+                    setCurrentMileage(truckData.currentMileage?.toString() || "");
+                    setStartDate(new Date().toISOString().split('T')[0]);
+                }
+            } catch (error) {
+                console.error("Failed to load data", error);
+            } finally {
+                setLoading(false);
+            }
+        }
+        if (id) loadData();
+    }, [id]);
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            setSelectedFile(e.target.files[0]);
+        }
+    };
+
+    const handleSave = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!currentUser || !truck) return;
+
+        setIsSubmitting(true);
+        try {
+            let imageUrl = "";
+            if (selectedFile) {
+                const path = `trucks/documents/maintenance/${truck.id}/${Date.now()}_${selectedFile.name}`;
+                imageUrl = await uploadTruckFile(selectedFile, path);
+            }
+
+            const labor = parseFloat(costLabor) || 0;
+            const parts = parseFloat(costParts) || 0;
+            const finalServiceType = type === "PM" ? serviceType : customServiceType;
+
+            const payload: any = {
+                truckId: truck.id,
+                type,
+                serviceType: finalServiceType,
+                startDate,
+                endDate: status === 'completed' ? endDate : undefined,
+                status,
+                costLabor: labor > 0 ? labor : undefined,
+                costParts: parts > 0 ? parts : undefined,
+                totalCost: (labor + parts) > 0 ? (labor + parts) : undefined,
+                provider,
+                currentMileage: parseFloat(currentMileage) || undefined,
+                nextServiceMileage: parseFloat(nextServiceMileage) || undefined,
+                paymentMethod,
+                images: imageUrl ? [imageUrl] : [],
+                notes
+            };
+
+            if (type === 'PM' && status === 'completed' && payload.currentMileage && !payload.nextServiceMileage) {
+                payload.nextServiceMileage = payload.currentMileage + 10000; 
+            }
+
+            if (selectedRecordId) {
+                await updateMaintenanceRecord(selectedRecordId, payload, currentUser.uid);
+            } else {
+                await saveMaintenanceRecord(payload, currentUser.uid);
+            }
+
+            const updatedHistory = await getMaintenanceHistory(truck.id);
+            setHistory(updatedHistory);
+
+            const updatedTruck = await getTruckByIdClient(id);
+            setTruck(updatedTruck);
+
+            setView("list");
+            resetForm();
+
+        } catch (error) {
+            console.error("Error saving record:", error);
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const resetForm = () => {
+        setSelectedRecordId(null);
+        setType("PM");
+        setStatus("in_progress");
+        setServiceType("");
+        setCustomServiceType("");
+        setCostLabor("");
+        setCostParts("");
+        setSelectedFile(null);
+        setPaymentMethod("cash");
+        setNotes("");
+        if (truck) {
+            setCurrentMileage(truck.currentMileage?.toString() || "");
+        }
+    };
+
+    const handleEdit = (record: MaintenanceData) => {
+        setSelectedRecordId(record.id);
+        setType(record.type);
+        setStatus(record.status);
+        if (record.type === 'PM') {
+            setServiceType(record.serviceType);
+        } else {
+            setCustomServiceType(record.serviceType);
+        }
+        setStartDate(record.startDate);
+        setEndDate(record.endDate || "");
+        setCostLabor(record.costLabor?.toString() || "");
+        setCostParts(record.costParts?.toString() || "");
+        setCurrentMileage(record.currentMileage?.toString() || "");
+        setNextServiceMileage(record.nextServiceMileage?.toString() || "");
+        setProvider(record.provider || "");
+        setPaymentMethod(record.paymentMethod || "cash");
+        setNotes(record.notes || "");
+        setView("form");
+    };
+
+    if (loading) return <div className="flex h-screen justify-center items-center"><Loader2 className="animate-spin" /></div>;
+    if (!truck) return <div>{t("maintenance.truckNotFound")}</div>;
+
+    return (
+        <div className="container mx-auto max-w-5xl p-6 space-y-6">
+            <div className="flex items-center gap-4">
+                <Button variant="ghost" size="icon" onClick={() => router.back()}>
+                    <ArrowLeft className="h-5 w-5" />
+                </Button>
+                <div>
+                    <h1 className="text-2xl font-bold tracking-tight">{t("maintenance.title")}</h1>
+                    <p className="text-muted-foreground">
+                        {truck.brand} {truck.model} - <span className="font-mono font-medium text-foreground">{formatLicensePlate(truck.licensePlate)}</span>
+                    </p>
+                </div>
+                <div className="ml-auto">
+                    <Badge variant={truck.truckStatus === 'maintenance' ? "destructive" : "secondary"} className="text-base px-3 py-1">
+                        {truck.truckStatus === 'maintenance' ? (
+                            <span className="flex items-center gap-2"><Wrench className="w-4 h-4" /> {t("maintenance.form.underMaintenance")}</span>
+                        ) : (
+                            <span className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> {t(truck.truckStatus || "active")}</span>
+                        )}
+                    </Badge>
+                </div>
+            </div>
+
+            {view === "list" ? (
+                <div className="space-y-6">
+                    <MaintenanceStats totalPMCost={totalPMCost} totalCMCost={totalCMCost} />
+
+                    <MaintenanceHistoryList
+                        history={history}
+                        onNewClick={() => { resetForm(); setView("form"); }}
+                        onEditClick={handleEdit}
+                    />
+                </div>
+            ) : (
+                <MaintenanceForm
+                    selectedRecordId={selectedRecordId}
+                    type={type}
+                    setType={setType}
+                    serviceType={serviceType}
+                    setServiceType={setServiceType}
+                    customServiceType={customServiceType}
+                    setCustomServiceType={setCustomServiceType}
+                    provider={provider}
+                    setProvider={setProvider}
+                    paymentMethod={paymentMethod}
+                    setPaymentMethod={setPaymentMethod}
+                    status={status}
+                    setStatus={setStatus}
+                    startDate={startDate}
+                    setStartDate={setStartDate}
+                    endDate={endDate}
+                    setEndDate={setEndDate}
+                    costLabor={costLabor}
+                    setCostLabor={setCostLabor}
+                    costParts={costParts}
+                    setCostParts={setCostParts}
+                    currentMileage={currentMileage}
+                    setCurrentMileage={setCurrentMileage}
+                    nextServiceMileage={nextServiceMileage}
+                    setNextServiceMileage={setNextServiceMileage}
+                    selectedFile={selectedFile}
+                    handleFileChange={handleFileChange}
+                    notes={notes}
+                    setNotes={setNotes}
+                    isSubmitting={isSubmitting}
+                    handleSave={handleSave}
+                    setView={setView}
+                />
+            )}
+        </div>
+    );
+}

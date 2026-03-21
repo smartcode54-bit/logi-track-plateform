@@ -229,7 +229,7 @@ export function DashboardVehicleMapClient() {
           </button>
         )}
       </div>
-      <div className="relative h-[320px] min-h-[280px] w-full bg-muted/30">
+      <div className="relative h-[500px] min-h-[400px] w-full bg-muted/30">
         {loading && (
           <div className="absolute inset-0 z-[1000] flex items-center justify-center bg-background/60">
             <p className="text-sm text-muted-foreground">{t("dashboard.vehicleMap.loading", "Loading...")}</p>
@@ -244,6 +244,7 @@ export function DashboardVehicleMapClient() {
           <div
             ref={mapContainerRef}
             style={{ height: "100%", width: "100%" }}
+            className="relative h-full w-full overflow-hidden z-0"
           />
         )}
       </div>

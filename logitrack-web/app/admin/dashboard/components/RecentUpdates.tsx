@@ -5,7 +5,8 @@ import Link from "next/link";
 import { collection, query, orderBy, getDocs, limit } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
-import { Truck, Users, AlertTriangle, Wrench, Loader2, LucideIcon } from "lucide-react";
+import { Truck, Users, AlertTriangle, Wrench, Loader2, LucideIcon, CheckCircle } from "lucide-react";
+import { useLanguage } from "@/context/language";
 
 type UpdateType = "delivered" | "driver" | "incident" | "maintenance";
 
@@ -21,17 +22,18 @@ interface FeedItem {
   link?: string;
 }
 
-function formatTimeAgo(d: Date): string {
+function formatTimeAgo(d: Date, t: any): string {
   const now = new Date();
   const sec = Math.floor((now.getTime() - d.getTime()) / 1000);
-  if (sec < 60) return "just now";
-  if (sec < 3600) return `${Math.floor(sec / 60)} minutes ago`;
-  if (sec < 86400) return `${Math.floor(sec / 3600)} hours ago`;
-  if (sec < 604800) return `${Math.floor(sec / 86400)} days ago`;
+  if (sec < 60) return t("dashboard.updates.time.justNow");
+  if (sec < 3600) return t("dashboard.updates.time.minutesAgo", { minutes: Math.floor(sec / 60) });
+  if (sec < 86400) return t("dashboard.updates.time.hoursAgo", { hours: Math.floor(sec / 3600) });
+  if (sec < 604800) return t("dashboard.updates.time.daysAgo", { days: Math.floor(sec / 86400) });
   return d.toLocaleDateString();
 }
 
 export function RecentUpdates() {
+  const { t } = useLanguage();
   const [items, setItems] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -57,7 +59,7 @@ export function RecentUpdates() {
           getDocs(
             query(
               collection(db, COLLECTIONS.DRIVERS),
-              orderBy("createdAt", "desc"),
+              orderBy("updatedAt", "desc"),
               limit(10)
             )
           ),
@@ -90,8 +92,8 @@ export function RecentUpdates() {
           feed.push({
             id: `trip-${doc.id}`,
             type: "delivered",
-            title: plate ? `Delivery completed · ${plate}` : "Delivery completed",
-            meta: `${formatTimeAgo(ts)} · ${dest}`,
+            title: plate ? `${t("dashboard.updates.type.delivered")} · ${plate}` : t("dashboard.updates.type.delivered"),
+            meta: `${formatTimeAgo(ts, t)} · ${dest}`,
             timestamp: ts,
             icon: Truck,
             iconBg: "bg-green-500/10",
@@ -102,16 +104,16 @@ export function RecentUpdates() {
 
         driversSnap.forEach((doc) => {
           const d = doc.data();
-          const ts = d.createdAt?.toDate?.() ?? d.updatedAt?.toDate?.();
+          const ts = d.updatedAt?.toDate?.() ?? d.createdAt?.toDate?.();
           if (!ts) return;
           const name = [d.firstName, d.lastName].filter(Boolean).join(" ") || "Driver";
           feed.push({
             id: `driver-${doc.id}`,
             type: "driver",
-            title: "New driver onboarded",
-            meta: `${formatTimeAgo(ts)} · ${name}`,
+            title: t("dashboard.updates.type.driver"),
+            meta: `${formatTimeAgo(ts, t)} · ${name}`,
             timestamp: ts,
-            icon: Users,
+            icon: CheckCircle,
             iconBg: "bg-blue-500/10",
             iconColor: "text-blue-500",
             link: "/admin/drivers",
@@ -127,13 +129,13 @@ export function RecentUpdates() {
             feed.push({
               id: `incident-${doc.id}`,
               type: "incident",
-              title: "Route delay / incident reported",
-              meta: `${formatTimeAgo(ts)} · ${typeof cause === "string" ? cause.slice(0, 40) : "Incident"}`,
+              title: t("dashboard.updates.type.incident"),
+              meta: `${formatTimeAgo(ts, t)} · ${typeof cause === "string" ? cause.slice(0, 40) : "Incident"}`,
               timestamp: ts,
               icon: AlertTriangle,
               iconBg: "bg-yellow-500/10",
               iconColor: "text-yellow-500",
-              link: "/admin/chat",
+              link: "/admin/incident-reports",
             });
           });
         }
@@ -151,8 +153,8 @@ export function RecentUpdates() {
             feed.push({
               id: `maint-${doc.id}`,
               type: "maintenance",
-              title: "Maintenance completed",
-              meta: `${formatTimeAgo(ts)} · ${typeof service === "string" ? service.slice(0, 30) : "Service"}`,
+              title: t("dashboard.updates.type.maintenance"),
+              meta: `${formatTimeAgo(ts, t)} · ${typeof service === "string" ? service.slice(0, 30) : "Service"}`,
               timestamp: ts,
               icon: Wrench,
               iconBg: "bg-gray-500/10",
@@ -176,15 +178,15 @@ export function RecentUpdates() {
 
   return (
     <div className="bg-card border border-border rounded-xl p-6 shadow-sm col-span-1 h-full">
-      <h3 className="text-lg font-semibold text-foreground mb-1">Recent Updates</h3>
-      <p className="text-sm text-muted-foreground mb-6">Latest fleet activities and alerts</p>
+      <h3 className="text-lg font-semibold text-foreground mb-1">{t("dashboard.updates.title")}</h3>
+      <p className="text-sm text-muted-foreground mb-6">{t("dashboard.updates.subtitle")}</p>
 
       {loading ? (
         <div className="flex justify-center py-8">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       ) : items.length === 0 ? (
-        <p className="text-sm text-muted-foreground py-4">No recent activity yet.</p>
+        <p className="text-sm text-muted-foreground py-4">{t("dashboard.updates.noActivity")}</p>
       ) : (
         <div className="space-y-6">
           {items.map((item) => {
@@ -218,7 +220,7 @@ export function RecentUpdates() {
 
       <div className="mt-8 pt-4 border-t border-border">
         <button className="w-full text-center text-sm font-medium text-blue-500 hover:text-blue-600 transition-colors">
-          View All Notifications
+          {t("dashboard.updates.viewAll")}
         </button>
       </div>
     </div>

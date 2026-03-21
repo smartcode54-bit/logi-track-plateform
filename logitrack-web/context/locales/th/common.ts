@@ -3,7 +3,7 @@ export default {
     "nav.home": "หน้าแรก",
     "nav.dashboard": "แดชบอร์ด",
     "nav.trucks": "รถบรรทุก",
-    "nav.fleets": "กองรถ",
+    "nav.fleets": "ยานยนต์",
     "nav.users": "ผู้ใช้งาน",
     "nav.drivers": "คนขับรถ",
     "nav.packages": "พัสดุ",

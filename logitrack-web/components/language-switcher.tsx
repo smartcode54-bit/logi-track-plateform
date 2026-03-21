@@ -17,7 +17,7 @@ export function LanguageSwitcher() {
             >
                 <div className="flex items-center gap-2">
                     <Image
-                        src="https://flagcdn.com/w40/us.png"
+                        src="/usa_flag_v2.svg"
                         alt="English (US)"
                         width={20}
                         height={20}

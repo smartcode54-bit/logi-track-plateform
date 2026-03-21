@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { collection, query, orderBy, getDocs, limit } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
+import { useLanguage } from "@/context/language";
 
 const DAY_LABELS_WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const CHART_WIDTH = 700;
@@ -21,6 +22,7 @@ function getStartOfDay(d: Date): Date {
 }
 
 export function ActivityChart() {
+  const { t } = useLanguage();
   const [period, setPeriod] = useState<"Week" | "Month">("Week");
   const [loading, setLoading] = useState(true);
   const [dailyCounts, setDailyCounts] = useState<{ date: string; count: number }[]>([]);
@@ -146,14 +148,14 @@ export function ActivityChart() {
       <div className="bg-card border border-border rounded-xl p-6 shadow-sm col-span-1 lg:col-span-2">
         <div className="flex justify-between items-start mb-8">
           <div>
-            <h3 className="text-lg font-semibold text-foreground">Logistics Activity</h3>
+            <h3 className="text-lg font-semibold text-foreground">{t("dashboard.activity.title")}</h3>
             <p className="text-sm text-muted-foreground">
-              {period === "Week" ? "Weekly" : "Monthly"} delivery performance metrics
+              {period === "Week" ? t("dashboard.activity.weekly") : t("dashboard.activity.monthly")}
             </p>
           </div>
         </div>
         <div className="h-[250px] flex items-center justify-center text-muted-foreground text-sm">
-          Loading chart…
+          {t("dashboard.activity.loading")}
         </div>
       </div>
     );
@@ -163,9 +165,9 @@ export function ActivityChart() {
     <div className="bg-card border border-border rounded-xl p-6 shadow-sm col-span-1 lg:col-span-2">
       <div className="flex justify-between items-start mb-8">
         <div>
-          <h3 className="text-lg font-semibold text-foreground">Logistics Activity</h3>
+          <h3 className="text-lg font-semibold text-foreground">{t("dashboard.activity.title")}</h3>
           <p className="text-sm text-muted-foreground">
-            {period === "Week" ? "Weekly" : "Monthly"} delivery performance metrics
+            {period === "Week" ? t("dashboard.activity.weekly") : t("dashboard.activity.monthly")}
           </p>
         </div>
         <div className="flex bg-muted/50 rounded-lg p-1">
@@ -175,7 +177,7 @@ export function ActivityChart() {
               period === "Week" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            Week
+            {t("dashboard.activity.week")}
           </button>
           <button
             onClick={() => setPeriod("Month")}
@@ -185,7 +187,7 @@ export function ActivityChart() {
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            Month
+            {t("dashboard.activity.month")}
           </button>
         </div>
       </div>
@@ -203,11 +205,13 @@ export function ActivityChart() {
                 {trendPercent >= 0 ? "↑" : "↓"} {Math.abs(trendPercent)}%
               </span>
               <span className="text-muted-foreground text-sm">
-                vs previous {period === "Week" ? "week" : "month"}
+                {t("dashboard.activity.vsPrevious", { period: period === "Week" ? t("dashboard.activity.week") : t("dashboard.activity.month") })}
               </span>
             </>
           ) : (
-            <span className="text-muted-foreground text-sm">vs previous {period === "Week" ? "week" : "month"}</span>
+            <span className="text-muted-foreground text-sm">
+              {t("dashboard.activity.vsPrevious", { period: period === "Week" ? t("dashboard.activity.week") : t("dashboard.activity.month") })}
+            </span>
           )}
         </div>
       </div>

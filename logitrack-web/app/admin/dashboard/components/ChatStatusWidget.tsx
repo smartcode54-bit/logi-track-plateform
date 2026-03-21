@@ -7,8 +7,10 @@ import { db } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { MessageCircle, AlertTriangle, Loader2 } from "lucide-react";
+import { useLanguage } from "@/context/language";
 
 export function ChatStatusWidget() {
+  const { t } = useLanguage();
   const [pending, setPending] = useState(0);
   const [urgent, setUrgent] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -42,12 +44,12 @@ export function ChatStatusWidget() {
     <Card className="bg-card border border-border">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-foreground">Chat status</h3>
+          <h3 className="text-sm font-semibold text-foreground">{t("dashboard.chats.title")}</h3>
           <Link
             href="/admin/chat"
             className="text-xs font-medium text-primary hover:underline"
           >
-            View all
+            {t("dashboard.chats.viewAll")}
           </Link>
         </div>
       </CardHeader>
@@ -66,8 +68,8 @@ export function ChatStatusWidget() {
                 <MessageCircle className="h-4 w-4" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground">Pending</p>
-                <p className="text-xs text-muted-foreground">Unassigned chats</p>
+                <p className="text-sm font-medium text-foreground">{t("dashboard.chats.pending")}</p>
+                <p className="text-xs text-muted-foreground">{t("dashboard.chats.unassigned")}</p>
               </div>
               <span className="text-lg font-bold tabular-nums">{pending}</span>
             </Link>
@@ -79,8 +81,8 @@ export function ChatStatusWidget() {
                 <AlertTriangle className="h-4 w-4" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground">Urgent</p>
-                <p className="text-xs text-muted-foreground">Needs attention</p>
+                <p className="text-sm font-medium text-foreground">{t("dashboard.chats.urgent")}</p>
+                <p className="text-xs text-muted-foreground">{t("dashboard.chats.needsAttention")}</p>
               </div>
               <span className="text-lg font-bold tabular-nums">{urgent}</span>
             </Link>
