@@ -21,7 +21,7 @@ export default {
     "nav.platform": "แพลตฟอร์ม",
 
     "nav.truckManagement": "จัดการรถบรรทุก",
-    "nav.truckAssignment": "มอบหมายงานรถ",
+    "nav.truckAssignment": "มอบหมายรถ",
     "nav.truckRenewals": "การต่อภาษี/พรบ./ประกันภัย",
     "nav.maintenanceCosts": "ค่าใช้จ่ายซ่อมบำรุง",
     "nav.manageSubcontractors": "จัดการผู้รับเหมาช่วง",

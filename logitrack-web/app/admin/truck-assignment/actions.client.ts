@@ -3,6 +3,14 @@ import { collection, query, where, getDocs, addDoc, orderBy, limit, Timestamp, r
 import { COLLECTIONS } from "@/lib/collections";
 import { z } from "zod";
 
+function parseDate(v: unknown): Date {
+    if (!v) return new Date();
+    if (v instanceof Date) return v;
+    if (typeof (v as { toDate?: () => Date }).toDate === "function") return (v as { toDate: () => Date }).toDate();
+    if (typeof v === "string") return new Date(v);
+    return new Date();
+}
+
 // --- Schemas ---
 
 export const AssignmentInputSchema = z.object({
@@ -214,8 +222,8 @@ export async function getActiveAssignments(): Promise<AssignmentData[]> {
         const assignments = snapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data(),
-            createdAt: (doc.data().createdAt as Timestamp).toDate(),
-            revokedAt: doc.data().revokedAt ? (doc.data().revokedAt as Timestamp).toDate() : undefined
+            createdAt: parseDate(doc.data().createdAt),
+            revokedAt: doc.data().revokedAt ? parseDate(doc.data().revokedAt) : undefined
         })) as AssignmentData[];
 
         // Client-side sort to avoid index requirement
@@ -238,8 +246,8 @@ export async function getRecentHistory(): Promise<AssignmentData[]> {
         const assignments = snapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data(),
-            createdAt: (doc.data().createdAt as Timestamp).toDate(),
-            revokedAt: doc.data().revokedAt ? (doc.data().revokedAt as Timestamp).toDate() : undefined
+            createdAt: parseDate(doc.data().createdAt),
+            revokedAt: doc.data().revokedAt ? parseDate(doc.data().revokedAt) : undefined
         })) as AssignmentData[];
 
         // Client-side sort and limit
@@ -262,8 +270,8 @@ export async function getTruckAssignmentHistory(truckId: string): Promise<Assign
         const assignments = snapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data(),
-            createdAt: (doc.data().createdAt as Timestamp).toDate(),
-            revokedAt: doc.data().revokedAt ? (doc.data().revokedAt as Timestamp).toDate() : undefined
+            createdAt: parseDate(doc.data().createdAt),
+            revokedAt: doc.data().revokedAt ? parseDate(doc.data().revokedAt) : undefined
         })) as AssignmentData[];
 
         return assignments.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
@@ -285,8 +293,8 @@ export async function getDriverAssignmentHistory(driverId: string): Promise<Assi
         const assignments = snapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data(),
-            createdAt: (doc.data().createdAt as Timestamp).toDate(),
-            revokedAt: doc.data().revokedAt ? (doc.data().revokedAt as Timestamp).toDate() : undefined
+            createdAt: parseDate(doc.data().createdAt),
+            revokedAt: doc.data().revokedAt ? parseDate(doc.data().revokedAt) : undefined
         })) as AssignmentData[];
 
         // Sort client-side to avoid composite index requirement

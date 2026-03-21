@@ -143,7 +143,7 @@ export default function TruckAssignmentPage() {
             setTrucks(availableTrucks);
 
             setStats({
-                totalTrucks: fetchedTrucks.length + assignedTruckIds.size, // Approximation
+                totalTrucks: fetchedTrucks.length, // Already includes absolute count of non-maintenance own trucks
                 availableDrivers: availableDrivers.length,
                 activeAssignments: fetchedAssignments.length
             });
@@ -230,15 +230,7 @@ export default function TruckAssignmentPage() {
                         {t('assignments.subtitle')}
                     </p>
                 </div>
-                <div className="flex gap-3">
-                    <Button variant="outline" className="gap-2 bg-card border-border/50 text-foreground hover:bg-muted/50">
-                        {t('assignments.viewMaps')}
-                    </Button>
-                    <Button className="bg-blue-600 hover:bg-blue-700 text-white gap-2 shadow-lg shadow-blue-900/20">
-                        <Plus className="h-4 w-4" />
-                        {t('assignments.quickAction')}
-                    </Button>
-                </div>
+                {/* Removed placeholder buttons */}
             </div>
 
             {/* Stats Cards */}
@@ -510,7 +502,7 @@ export default function TruckAssignmentPage() {
                                                 </Button>
                                             </DropdownMenuTrigger>
                                             <DropdownMenuContent align="end">
-                                                <DropdownMenuItem>View Details</DropdownMenuItem>
+                                                 {/* Removed View Details */}
                                                 {item.status === 'active' && (
                                                     <DropdownMenuItem
                                                         className="text-destructive focus:text-destructive cursor-pointer"
