@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useLanguage } from "@/context/language";
-import { getTruckByIdClient, uploadTruckFile, TruckData } from "../services/truckService";
-import { saveMaintenanceRecord, getMaintenanceHistory, updateMaintenanceRecord } from "../services/maintenanceService";
+import { getTruckByIdClient, uploadTruckFile, TruckData } from "@/features/trucks/services/truckService";
+import { saveMaintenanceRecord, getMaintenanceHistory, updateMaintenanceRecord } from "@/features/maintenance/api/maintenance";
 import { MaintenanceData } from "@/validate/maintenanceSchema";
 import { useAuth } from "@/context/auth";
 import { Button } from "@/components/ui/button";

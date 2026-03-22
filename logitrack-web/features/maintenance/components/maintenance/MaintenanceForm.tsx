@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useLanguage } from "@/context/language";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -8,14 +9,15 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DatePicker } from "@/components/ui/date-picker";
 import { format } from "date-fns";
-import { CheckCircle2, Loader2, Clock } from "lucide-react";
+import { CheckCircle2, Loader2, Clock, Check, ChevronsUpDown } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 
 const SERVICE_TYPES_PM = [
-    { value: "oil_change", label: "Oil Change" },
+    { value: "periodic_check", label: "Periodic Maintenance" },
+    { value: "tire_change", label: "Tire Change" },
     { value: "tire_rotation", label: "Tire Rotation" },
     { value: "brake_service", label: "Brake Service" },
-    { value: "full_service", label: "Full Service" },
-    { value: "check_distance", label: "Distance Check" },
 ];
 
 interface MaintenanceFormProps {
@@ -51,19 +53,73 @@ interface MaintenanceFormProps {
     isSubmitting: boolean;
     handleSave: (e: React.FormEvent) => void;
     setView: (v: "list" | "form") => void;
+    truckId?: string;
+    setTruckId?: (v: string) => void;
+    trucksList?: any[]; // To avoid importing TruckData which might not be at file level
 }
 
 export function MaintenanceForm(props: MaintenanceFormProps) {
     const { t } = useLanguage();
+    const [open, setOpen] = useState(false);
+    const [searchTerm, setSearchTerm] = useState("");
 
     return (
         <Card className="border-t-4 border-t-blue-500 shadow-md">
             <CardHeader>
-                <CardTitle>{props.selectedRecordId ? t("maintenance.form.editTitle") : t("maintenance.form.newTitle")}</CardTitle>
+                <CardTitle>{props.selectedRecordId ? t("maintenance.form.editTitle") : t("maintenance.form.addRecord")}</CardTitle>
                 <CardDescription>{props.selectedRecordId ? t("maintenance.form.editDesc") : t("maintenance.form.newDesc")}</CardDescription>
+                <CardDescription className="text-sm text-muted-foreground mt-2">{t("maintenance.form.buttonNotes")}</CardDescription>
             </CardHeader>
             <CardContent>
                 <form onSubmit={props.handleSave} className="space-y-8">
+                    {props.trucksList && props.setTruckId && (
+                        <div className="space-y-2 flex flex-col">
+                            <Label className="text-base font-semibold">เลือกรถบรรทุก (Select Truck)</Label>
+                            <Popover open={open} onOpenChange={setOpen}>
+                                <PopoverTrigger asChild>
+                                    <Button variant="outline" role="combobox" aria-expanded={open} className="w-full md:w-[400px] justify-between">
+                                        {props.truckId
+                                            ? props.trucksList.find(t => t.id === props.truckId)?.licensePlate
+                                            : "ค้นหา / เลือกรถ"
+                                        }
+                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-full md:w-[400px] p-2 space-y-2">
+                                    <div className="flex items-center border-b px-2 pb-1">
+                                        <Input
+                                            placeholder="ค้นหาทะเบียน..."
+                                            className="h-9 w-full bg-transparent border-none text-sm focus-visible:ring-0 shadow-none px-1"
+                                            value={searchTerm}
+                                            onChange={(e) => setSearchTerm(e.target.value)}
+                                        />
+                                    </div>
+                                    <div className="max-h-[250px] overflow-y-auto overflow-x-hidden space-y-1">
+                                        {props.trucksList
+                                            .filter(t => t.licensePlate.toLowerCase().includes(searchTerm.toLowerCase()))
+                                            .map(t => (
+                                                <div
+                                                    key={t.id}
+                                                    className={`flex items-center gap-2 p-2 rounded-sm cursor-pointer hover:bg-accent text-sm ${props.truckId === t.id ? "bg-accent text-accent-foreground" : ""}`}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation(); // Precautionary 
+                                                        props.setTruckId && props.setTruckId(t.id);
+                                                        setOpen(false);
+                                                        setSearchTerm("");
+                                                    }}
+                                                >
+                                                    <Check className={`h-4 w-4 ${props.truckId === t.id ? "opacity-100" : "opacity-0"}`} />
+                                                    <span>{t.licensePlate}</span>
+                                                </div>
+                                            ))}
+                                        {props.trucksList.filter(t => t.licensePlate.toLowerCase().includes(searchTerm.toLowerCase())).length === 0 && (
+                                            <p className="text-center py-4 text-muted-foreground text-sm">ไม่พบทะเบียนรถที่ค้นหา</p>
+                                        )}
+                                    </div>
+                                </PopoverContent>
+                            </Popover>
+                        </div>
+                    )}
                     <div className="space-y-3">
                         <Label className="text-base">{t("maintenance.form.type")}</Label>
                         <div className="flex gap-4">
@@ -142,21 +198,7 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                         <h3 className="font-semibold text-sm text-foreground/80 flex items-center gap-2">
                             <Clock className="w-4 h-4" /> {t("maintenance.form.statusValidation")}
                         </h3>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            <div className="space-y-2">
-                                <Label>{t("maintenance.form.jobStatus")}</Label>
-                                <Select value={props.status} onValueChange={(v: "in_progress" | "completed") => props.setStatus(v)}>
-                                    <SelectTrigger><SelectValue /></SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="in_progress">
-                                            <span className="flex items-center gap-2 text-amber-600"><Loader2 className="w-4 h-4" /> {t("maintenance.form.inProgress")}</span>
-                                        </SelectItem>
-                                        <SelectItem value="completed">
-                                            <span className="flex items-center gap-2 text-green-600"><CheckCircle2 className="w-4 h-4" /> {t("maintenance.form.completed")}</span>
-                                        </SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="space-y-2">
                                 <Label>{t("maintenance.form.startDate")}</Label>
                                 <DatePicker
@@ -226,26 +268,45 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                         <Input value={props.notes} onChange={e => props.setNotes(e.target.value)} />
                     </div>
 
-                    <div className="flex justify-end gap-2 pt-4 border-t">
-                        <Button type="button" variant="ghost" onClick={() => props.setView("list")}>{t("maintenance.form.cancel")}</Button>
-                        {props.status !== 'completed' && (
-                            <Button
-                                type="button"
-                                className="bg-green-600 hover:bg-green-700 text-white gap-2"
-                                disabled={props.isSubmitting}
-                                onClick={(e) => {
-                                    e.preventDefault();
-                                    props.setStatus('completed');
-                                    const form = e.currentTarget.closest('form');
-                                    setTimeout(() => {
-                                        if (form) form.requestSubmit();
-                                    }, 0);
-                                }}
-                            >
-                                <CheckCircle2 className="w-4 h-4" /> {t("maintenance.form.complete")}
+                    <div className="space-y-2 pt-6 border-t flex flex-col items-end">
+                        <p className="text-xs text-muted-foreground">
+                            {t("maintenance.form.buttonNotes")}
+                        </p>
+                        <div className="flex justify-end gap-2 w-full">
+                            <Button type="button" variant="ghost" onClick={() => props.setView("list")}>
+                                {t("maintenance.form.cancel")}
                             </Button>
-                        )}
-                        <Button type="submit" disabled={props.isSubmitting}>{props.isSubmitting ? <Loader2 className="animate-spin" /> : t("maintenance.form.save")}</Button>
+                            <div className="flex gap-2 ml-auto">
+                                <Button
+                                    type="submit"
+                                    disabled={props.isSubmitting}
+                                    className="bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-md px-6"
+                                >
+                                    {props.isSubmitting ? <Loader2 className="animate-spin" /> : t("maintenance.form.save")}
+                                </Button>
+                                {props.status !== 'completed' && (
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="border-green-600 text-green-600 hover:bg-green-50 hover:text-green-700 gap-2 font-semibold shadow-sm"
+                                        disabled={props.isSubmitting}
+                                        onClick={(e) => {
+                                            e.preventDefault();
+                                            const isConfirmed = window.confirm("คุณต้องการเสร็จสิ้นการซ่อมบำรุงรายการนี้ใช่หรือไม่? \n(การเสร็จสิ้นจะปิดงานซ่อมนี้อย่างถาวร)");
+                                            if (!isConfirmed) return;
+
+                                            props.setStatus('completed');
+                                            const form = e.currentTarget.closest('form');
+                                            setTimeout(() => {
+                                                if (form) form.requestSubmit();
+                                            }, 0);
+                                        }}
+                                    >
+                                        <CheckCircle2 className="w-4 h-4" /> {t("maintenance.form.complete")}
+                                    </Button>
+                                )}
+                            </div>
+                        </div>
                     </div>
                 </form>
             </CardContent>

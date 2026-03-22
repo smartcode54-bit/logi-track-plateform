@@ -23,7 +23,7 @@ export default {
     "nav.truckManagement": "จัดการรถบรรทุก",
     "nav.truckAssignment": "มอบหมายรถ",
     "nav.truckRenewals": "การต่อภาษี/พรบ./ประกันภัย",
-    "nav.maintenanceCosts": "ค่าใช้จ่ายซ่อมบำรุง",
+    "nav.maintenanceCosts": "จัดการการซ่อมบำรุง",
     "nav.manageSubcontractors": "จัดการผู้รับเหมาช่วง",
     "nav.driverManagement": "จัดการคนขับรถ",
     "nav.chat": "แชท",

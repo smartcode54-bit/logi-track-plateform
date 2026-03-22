@@ -26,6 +26,7 @@ export default {
     "maintenance.table.parts": "Parts",
     "maintenance.table.total": "Total",
     "maintenance.table.status": "Status",
+    "maintenance.table.truckStatus": "Truck Status",
     "maintenance.table.actions": "Actions",
     "maintenance.manageUpdate": "Manage / Update",
     "maintenance.noRecords": "No maintenance records found.",
@@ -49,8 +50,8 @@ export default {
     "maintenance.form.selectPayment": "Select Payment Method",
     "maintenance.form.statusValidation": "Status & Validation",
     "maintenance.form.jobStatus": "Job Status",
-    "maintenance.form.inProgress": "In Progress (Truck Unavailable)",
-    "maintenance.form.completed": "Completed (Truck Available)",
+    "maintenance.form.inProgress": "In Progress",
+    "maintenance.form.completed": "Completed",
     "maintenance.form.startDate": "Start Date",
     "maintenance.form.endDate": "End Date",
     "maintenance.form.laborCost": "Labor Cost",
@@ -70,6 +71,7 @@ export default {
     "maintenance.form.noRecordsDesc": "Start tracking repairs and services for this vehicle.",
     "maintenance.form.newRecord": "New Record",
     "maintenance.form.addRecord": "Add Record",
+    "maintenance.form.buttonNotes": "💡 Click \"Save Info\" to save progress (job stays in-progress) | Click \"Finish Maintenance\" to permanently close the job",
 
     // Payment Methods
     "maintenance.payment.credit_card": "Credit Card",
@@ -87,9 +89,8 @@ export default {
     "maintenance.saveFailed": "Failed to save record. Please check inputs.",
 
     // Service Types
-    "maintenance.service.oil_change": "Oil Change",
+    "maintenance.service.periodic_check": "Periodic Maintenance",
+    "maintenance.service.tire_change": "Tire Change",
     "maintenance.service.tire_rotation": "Tire Rotation",
     "maintenance.service.brake_service": "Brake Service",
-    "maintenance.service.full_service": "Full Service",
-    "maintenance.service.check_distance": "Distance Check",
 };

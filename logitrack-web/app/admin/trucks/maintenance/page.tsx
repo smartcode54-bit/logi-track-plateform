@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { Loader2 } from "lucide-react";
 
-const MaintenanceDashboard = dynamic(() => import("@/features/trucks/components/MaintenanceDashboard"), {
+const MaintenanceDashboard = dynamic(() => import("@/features/maintenance/components/MaintenanceDashboard"), {
     ssr: false,
     loading: () => (
         <div className="flex items-center justify-center min-h-[400px]">

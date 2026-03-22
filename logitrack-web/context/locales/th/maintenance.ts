@@ -26,6 +26,7 @@ export default {
     "maintenance.table.parts": "ค่าอะไหล่",
     "maintenance.table.total": "รวม",
     "maintenance.table.status": "สถานะ",
+    "maintenance.table.truckStatus": "สถานะรถ",
     "maintenance.table.actions": "การกระทำ",
     "maintenance.manageUpdate": "จัดการ / อัปเดต",
     "maintenance.noRecords": "ไม่พบประวัติการซ่อมบำรุง",
@@ -49,15 +50,15 @@ export default {
     "maintenance.form.selectPayment": "เลือกวิธีการชำระเงิน",
     "maintenance.form.statusValidation": "สถานะและการตรวจสอบ",
     "maintenance.form.jobStatus": "สถานะงาน",
-    "maintenance.form.inProgress": "กำลังดำเนินการ (รถไม่ว่าง)",
-    "maintenance.form.completed": "เสร็จสิ้น (รถว่าง)",
+    "maintenance.form.inProgress": "กำลังดำเนินการ",
+    "maintenance.form.completed": "เสร็จสิ้น",
     "maintenance.form.startDate": "วันที่เริ่ม",
     "maintenance.form.endDate": "วันที่สิ้นสุด",
     "maintenance.form.laborCost": "ค่าแรง",
     "maintenance.form.partsCost": "ค่าอะไหล่ / วัสดุ",
     "maintenance.form.totalCost": "ราคารวม",
     "maintenance.form.odometer": "เลขไมล์ (ปัจจุบัน)",
-    "maintenance.form.nextServiceDistance": "ระยะทางเข้าศูนย์ถัดไป",
+    "maintenance.form.nextServiceDistance": "เลขไมล์เข้าศูนย์ถัดไป",
     "maintenance.form.receipt": "ใบเสร็จ / รูปภาพ",
     "maintenance.form.notes": "หมายเหตุ",
     "maintenance.form.cancel": "ยกเลิก",
@@ -70,6 +71,7 @@ export default {
     "maintenance.form.noRecordsDesc": "เริ่มติดตามการซ่อมแซมและบริการสำหรับรถคันนี้",
     "maintenance.form.newRecord": "รายการใหม่",
     "maintenance.form.addRecord": "เพิ่มรายการ",
+    "maintenance.form.buttonNotes": "💡 คลิก \"บันทึกข้อมูล\" เพื่อบันทึกความคืบหน้า (งานยังไม่ปิด) | คลิก \"เสร็จสิ้นการซ่อมบำรุง\" เพื่อปิดงานอย่างถาวร",
 
     // Payment Methods
     "maintenance.payment.credit_card": "บัตรเครดิต",
@@ -87,9 +89,9 @@ export default {
     "maintenance.saveFailed": "ไม่สามารถบันทึกข้อมูลได้ กรุณาตรวจสอบข้อมูลอีกครั้ง",
 
     // Service Types
-    "maintenance.service.oil_change": "เปลี่ยนถ่ายน้ำมันเครื่อง",
+    "maintenance.service.periodic_check": "เช็คระยะตามรอบ",
+    "maintenance.service.tire_change": "เปลี่ยนยาง",
     "maintenance.service.tire_rotation": "สลับยาง",
     "maintenance.service.brake_service": "ระบบเบรก",
-    "maintenance.service.full_service": "เช็คระยะใหญ่",
-    "maintenance.service.check_distance": "เช็คระยะทาง",
+
 };
