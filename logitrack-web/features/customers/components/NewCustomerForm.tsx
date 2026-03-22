@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { getCustomerById, updateCustomer } from "../../actions.client";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { createCustomer } from "@/features/customers/api/customers";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -23,13 +23,10 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { customerSchema, type Customer } from "@/validate/customerSchema";
 import { useLanguage } from "@/context/language";
 
-export default function EditCustomerClient() {
-    const params = useParams();
+export default function NewCustomerForm() {
     const router = useRouter();
     const { t } = useLanguage();
-    const id = params?.id as string;
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [loading, setLoading] = useState(true);
 
     const form = useForm<Customer>({
         resolver: zodResolver(customerSchema) as any,
@@ -37,7 +34,10 @@ export default function EditCustomerClient() {
             code: "",
             name: "",
             description: "",
-            driverIdTypes: [],
+            driverIdTypes: [
+                { key: "appId", label: "SPX App ID" },
+                { key: "workId", label: "SPX Work ID" },
+            ],
         },
     });
 
@@ -46,63 +46,30 @@ export default function EditCustomerClient() {
         name: "driverIdTypes",
     });
 
-    useEffect(() => {
-        const fetchData = async () => {
-            if (!id) return;
-            setLoading(true);
-            try {
-                const data = await getCustomerById(id);
-                if (data) {
-                    form.reset({
-                        code: data.code,
-                        name: data.name,
-                        description: data.description ?? "",
-                        driverIdTypes: data.driverIdTypes ?? [],
-                    });
-                }
-            } catch (error) {
-                console.error("Error loading customer", error);
-                toast.error(t("customers.toast.updateError"));
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchData();
-    }, [id]);
-
     const onSubmit = async (data: Customer) => {
-        if (!id) return;
         try {
             setIsSubmitting(true);
-            await updateCustomer(id, data);
-            toast.success(t("customers.toast.updateSuccess"));
+            const id = await createCustomer(data);
+            toast.success(t("customers.toast.createSuccess"));
             router.push(`/admin/customers/${id}`);
         } catch (error) {
             console.error(error);
-            toast.error(t("customers.toast.updateError"));
+            toast.error(t("customers.toast.createError"));
         } finally {
             setIsSubmitting(false);
         }
     };
 
-    if (loading) {
-        return (
-            <div className="flex justify-center py-24">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-        );
-    }
-
     return (
         <div className="container max-w-2xl py-8">
             <div className="flex items-center gap-4 mb-6">
                 <Button variant="ghost" size="icon" asChild>
-                    <Link href={`/admin/customers/${id}`} prefetch={false}>
+                    <Link href="/admin/customers" prefetch={false}>
                         <ArrowLeft className="h-5 w-5" />
                     </Link>
                 </Button>
                 <div>
-                    <h1 className="text-2xl font-bold">{t("customers.action.edit")}</h1>
+                    <h1 className="text-2xl font-bold">{t("customers.add")}</h1>
                     <p className="text-sm text-muted-foreground">{t("customers.subtitle")}</p>
                 </div>
             </div>
@@ -215,11 +182,11 @@ export default function EditCustomerClient() {
 
                     <div className="flex gap-4">
                         <Button type="button" variant="outline" asChild>
-                            <Link href={`/admin/customers/${id}`} prefetch={false}>{t("customers.form.cancel")}</Link>
+                            <Link href="/admin/customers" prefetch={false}>{t("customers.form.cancel")}</Link>
                         </Button>
                         <Button type="submit" disabled={isSubmitting}>
                             {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                            {t("customers.form.save")}
+                            {t("customers.add")}
                         </Button>
                     </div>
                 </form>

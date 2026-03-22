@@ -3,7 +3,7 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { driverSchema, Driver } from "@/validate/driverSchema";
-import { getDriverByIdClient, updateDriver } from "../actions.client";
+import { getDriverByIdClient, updateDriver } from "@/features/drivers/api/drivers";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
@@ -38,7 +38,7 @@ import { COLLECTIONS } from "@/lib/collections";
 import Image from "next/image";
 import { useLanguage } from "@/context/language";
 
-export default function EditDriverClient() {
+export default function EditDriverForm() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const driverId = searchParams.get('id');
@@ -54,7 +54,6 @@ export default function EditDriverClient() {
     const [truckLicenseFile, setTruckLicenseFile] = useState<File | null>(null);
 
     // Existing URLs (for display if not changing)
-    const [existingProfileImage, setExistingProfileImage] = useState<string | null>(null);
     const [existingIdCardImage, setExistingIdCardImage] = useState<string | null>(null);
     const [existingTruckLicenseImage, setExistingTruckLicenseImage] = useState<string | null>(null);
 
@@ -88,17 +87,13 @@ export default function EditDriverClient() {
             try {
                 const driver = await getDriverByIdClient(driverId);
                 if (driver) {
-                    // Populate form
                     const formData = {
                         ...driver,
-                        // Ensure empty strings for missing optional fields
                         email: driver.email || "",
                         contractYears: driver.contractYears || ("" as any),
-                        // Ensure dates are strings or undefined for DatePicker/Form
                         birthDate: driver.birthDate || undefined,
                         idCardExpiredDate: driver.idCardExpiredDate || undefined,
                         truckLicenseExpiredDate: driver.truckLicenseExpiredDate || undefined,
-                        // Ensure customerDriverIds.SPX structure for form
                         customerDriverIds: {
                             ...(driver.customerDriverIds || {}),
                             SPX: {
@@ -110,9 +105,7 @@ export default function EditDriverClient() {
                     };
                     form.reset(formData);
 
-                    // Set existing images
                     if (driver.profileImage) {
-                        setExistingProfileImage(driver.profileImage);
                         setImagePreview(driver.profileImage);
                     }
                     if (driver.idCardImage) setExistingIdCardImage(driver.idCardImage);
@@ -129,11 +122,8 @@ export default function EditDriverClient() {
             }
         };
         fetchDriver();
-    }, [driverId, router, form]);
+    }, [driverId, router, form, t]);
 
-
-    // Fetch subs
-    const employmentType = form.watch("employmentType");
     useEffect(() => {
         const fetchSubcontractors = async () => {
             try {
@@ -148,7 +138,6 @@ export default function EditDriverClient() {
         fetchSubcontractors();
     }, []);
 
-    // Handlers
     const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
@@ -162,7 +151,6 @@ export default function EditDriverClient() {
     const removeImage = () => {
         setSelectedImage(null);
         setImagePreview(null);
-        setExistingProfileImage(null);
         form.setValue("profileImage", undefined);
     };
 
@@ -171,7 +159,6 @@ export default function EditDriverClient() {
         try {
             setIsSubmitting(true);
 
-            // Clean customerDriverIds: remove empty values
             let cleaned = data;
             if (data.customerDriverIds && typeof data.customerDriverIds === "object") {
                 const cleanedIds: Record<string, Record<string, string>> = {};
@@ -189,8 +176,6 @@ export default function EditDriverClient() {
                 };
             }
 
-            // Prepare files map for the action
-            // Only include files if they are new/changed
             const files: any = {};
             if (selectedImage) files.profile = selectedImage;
             if (idCardFile) files.idCard = idCardFile;
@@ -208,6 +193,8 @@ export default function EditDriverClient() {
         }
     };
 
+    const employmentType = form.watch("employmentType");
+
     if (isLoading) {
         return (
             <div className="flex items-center justify-center min-h-screen">
@@ -220,7 +207,6 @@ export default function EditDriverClient() {
     return (
         <div className="container mx-auto px-4 py-8">
             <div className="max-w-4xl mx-auto space-y-6">
-                {/* Header */}
                 <div className="flex items-center justify-between">
                     <div>
                         <h1 className="text-3xl font-bold text-foreground">
@@ -240,8 +226,6 @@ export default function EditDriverClient() {
 
                 <Form {...form}>
                     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-
-                        {/* Personal Info */}
                         <Card>
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
@@ -250,7 +234,6 @@ export default function EditDriverClient() {
                                 </CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-6">
-                                {/* Profile Image */}
                                 <div className="flex justify-center mb-6">
                                     <div className="relative group">
                                         <div className="w-32 h-32 rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center overflow-hidden bg-gray-50 relative">
@@ -310,7 +293,6 @@ export default function EditDriverClient() {
                             </CardContent>
                         </Card>
 
-                        {/* Identity Documents */}
                         <Card>
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
@@ -400,7 +382,6 @@ export default function EditDriverClient() {
                             </CardContent>
                         </Card>
 
-                        {/* Employment Details */}
                         <Card>
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
@@ -468,7 +449,6 @@ export default function EditDriverClient() {
                             </CardContent>
                         </Card>
 
-                        {/* Customer Driver IDs */}
                         <Card>
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
@@ -514,7 +494,6 @@ export default function EditDriverClient() {
                             </CardContent>
                         </Card>
 
-                        {/* Actions */}
                         <div className="flex justify-end gap-4">
                             <Button type="button" variant="outline" asChild>
                                 <Link href={`/admin/drivers/view?id=${driverId}`} prefetch={false}>{t("drivers.form.cancel")}</Link>

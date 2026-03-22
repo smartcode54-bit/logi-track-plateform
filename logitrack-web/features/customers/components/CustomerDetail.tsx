@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { getCustomerById, CustomerData } from "../actions.client";
+import { getCustomerById, CustomerData } from "@/features/customers/api/customers";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, Building2, Loader2, Edit } from "lucide-react";
 import Link from "next/link";
 import { useLanguage } from "@/context/language";
 
-export default function CustomerDetailClient() {
+export default function CustomerDetail() {
     const params = useParams();
     const { t } = useLanguage();
     const id = params?.id as string;

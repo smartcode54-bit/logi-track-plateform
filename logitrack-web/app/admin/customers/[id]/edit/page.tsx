@@ -1,9 +1,9 @@
-import EditCustomerClient from "./EditCustomerClient";
+import EditCustomerForm from "@/features/customers/components/EditCustomerForm";
 
 export async function generateStaticParams() {
     return [{ id: "placeholder" }];
 }
 
 export default function EditCustomerPage() {
-    return <EditCustomerClient />;
+    return <EditCustomerForm />;
 }

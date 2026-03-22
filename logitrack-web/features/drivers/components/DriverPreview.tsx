@@ -4,20 +4,17 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
-    ArrowLeft, Edit, Truck, Calendar, User, FileText, Info, Loader2, Camera,
-    MapPin, Phone, Shield, MoreHorizontal, Download, Plus,
-    Wrench, Mail, CreditCard, Briefcase, Building2
+    ArrowLeft, Edit, Truck, Calendar, User, FileText, Info, Loader2,
+    Phone, Mail, CreditCard, Briefcase, Building2, Plus
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import Image from "next/image";
-import { getDriverByIdClient } from "../actions.client";
-import { getDriverAssignmentHistory, AssignmentData } from "../../truck-assignment/actions.client";
+import { getDriverByIdClient } from "@/features/drivers/api/drivers";
+import { getDriverAssignmentHistory, AssignmentData } from "@/app/admin/truck-assignment/actions.client";
 import { Driver } from "@/validate/driverSchema";
 import { FileViewer } from "@/components/ui/file-viewer";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
     Table,
     TableBody,
@@ -28,10 +25,10 @@ import {
 } from "@/components/ui/table";
 import { useBreadcrumb } from "@/context/breadcrumb";
 import { format } from "date-fns";
-import { getSubcontractors } from "../../subcontractors/actions.client";
+import { getSubcontractors } from "@/features/subcontractors/services/subcontractorService";
 import { useLanguage } from "@/context/language";
 
-export default function DriverPreviewClient() {
+export default function DriverPreview() {
     const searchParams = useSearchParams();
     const router = useRouter();
     const driverId = searchParams.get('id');
@@ -65,7 +62,6 @@ export default function DriverPreviewClient() {
                 setDriver(data);
                 setCustomLastItem(`${data.firstName} ${data.lastName}`);
 
-                // Fetch Assignment History
                 getDriverAssignmentHistory(driverId).then(setAssignmentHistory);
             } catch (err) {
                 console.error("Error fetching driver:", err);
@@ -77,13 +73,11 @@ export default function DriverPreviewClient() {
 
         fetchDriver();
 
-        // Cleanup breadcrumb on unmount
         return () => {
             setCustomLastItem(null);
         };
-    }, [driverId, setCustomLastItem]);
+    }, [driverId, setCustomLastItem, t]);
 
-    // Fetch subcontractors to resolve names
     useEffect(() => {
         getSubcontractors().then(setSubcontractors);
     }, []);
@@ -136,7 +130,6 @@ export default function DriverPreviewClient() {
         );
     }
 
-    // Construct viewable files list
     const viewableFiles = [
         ...(driver.profileImage ? [{ url: driver.profileImage, type: "image" as const, label: t("drivers.detail.profilePhoto") }] : []),
         ...(driver.idCardImage ? [{ url: driver.idCardImage, type: "pdf" as const, label: t("drivers.detail.idCard") }] : []),
@@ -193,9 +186,8 @@ export default function DriverPreviewClient() {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Left Column - Main Info */}
+                {/* Left Column */}
                 <div className="lg:col-span-2 space-y-6">
-                    {/* Personal Information */}
                     <Card>
                         <CardHeader className="pb-3">
                             <CardTitle className="flex items-center gap-2 text-base font-semibold">
@@ -231,7 +223,6 @@ export default function DriverPreviewClient() {
                         </CardContent>
                     </Card>
 
-                    {/* Employment Details */}
                     <Card>
                         <CardHeader className="pb-3">
                             <CardTitle className="flex items-center gap-2 text-base font-semibold">
@@ -272,7 +263,6 @@ export default function DriverPreviewClient() {
                         </CardContent>
                     </Card>
 
-                    {/* Customer Driver IDs */}
                     {(() => {
                         const ids = driver.customerDriverIds;
                         if (!ids || typeof ids !== "object") return null;
@@ -308,7 +298,6 @@ export default function DriverPreviewClient() {
                         );
                     })()}
 
-                    {/* Documents */}
                     <Card>
                         <CardHeader className="pb-3 border-b">
                             <CardTitle className="flex items-center gap-2 text-base font-semibold">
@@ -317,7 +306,6 @@ export default function DriverPreviewClient() {
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="pt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            {/* ID Card */}
                             <div className="space-y-2">
                                 <p className="text-xs font-semibold text-muted-foreground uppercase">{t("drivers.detail.idCard")}</p>
                                 {driver.idCardImage ? (
@@ -346,7 +334,6 @@ export default function DriverPreviewClient() {
                                 )}
                             </div>
 
-                            {/* License */}
                             <div className="space-y-2">
                                 <p className="text-xs font-semibold text-muted-foreground uppercase">{t("drivers.detail.drivingLicense")}</p>
                                 {driver.truckLicenseImage ? (
@@ -378,9 +365,8 @@ export default function DriverPreviewClient() {
                     </Card>
                 </div>
 
-                {/* Right Column - Sidebar */}
+                {/* Right Column */}
                 <div className="space-y-6">
-                    {/* Profile Image */}
                     <Card>
                         <CardContent className="pt-6 flex flex-col items-center">
                             <div
@@ -410,7 +396,6 @@ export default function DriverPreviewClient() {
                         </CardContent>
                     </Card>
 
-                    {/* Current Assignment */}
                     <Card>
                         <CardHeader className="flex flex-row items-center justify-between py-6">
                             <CardTitle className="text-lg font-bold flex items-center gap-2">

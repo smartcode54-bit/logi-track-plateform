@@ -12,7 +12,7 @@ import { useLanguage } from "@/context/language";
 import { useAuth } from "@/context/auth";
 import { truckSchema, TruckFormValues, truckDefaultValues } from "@/validate/truckSchema";
 import { uploadTruckFile, saveNewTruckToFirestoreClient } from "../../services/truckService";
-import { getSubcontractors } from "@/app/admin/subcontractors/actions.client";
+import { getSubcontractors } from "@/features/subcontractors/services/subcontractorService";
 
 // Import Steps from local sub-folder
 import { Step1Specs } from "./TruckSteps/Step1Specs";

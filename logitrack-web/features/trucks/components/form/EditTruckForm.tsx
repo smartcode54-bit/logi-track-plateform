@@ -30,7 +30,7 @@ import { PhotosSection } from "./PhotosSection";
 import { InsuranceSection } from "./InsuranceSection";
 
 import { updateTruckInFirestoreClient, uploadTruckFile, getTruckByIdClient } from "../../services/truckService";
-import { getSubcontractors } from "@/app/admin/subcontractors/actions.client";
+import { getSubcontractors } from "@/features/subcontractors/services/subcontractorService";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 function SubcontractorSelector({ value, onChange }: { value?: string, onChange: (val: string) => void }) {
