@@ -61,8 +61,12 @@ export default function CustomerDetail() {
                         </Link>
                     </Button>
                     <div>
-                        <h1 className="text-2xl font-bold flex items-center gap-2">
-                            <Building2 className="h-6 w-6" />
+                        <h1 className="text-2xl font-bold flex items-center gap-3">
+                            {customer.logoUrl ? (
+                                <img src={customer.logoUrl} alt={customer.name} className="h-10 w-10 rounded-full object-cover border shadow-sm" />
+                            ) : (
+                                <Building2 className="h-6 w-6" />
+                            )}
                             {customer.name}
                         </h1>
                         <p className="text-muted-foreground font-mono">{customer.code}</p>

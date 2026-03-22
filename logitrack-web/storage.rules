@@ -62,6 +62,12 @@ service firebase.storage {
       allow write: if isAppCheckVerified() && request.auth != null && request.auth.uid == userId;
     }
 
+    // Customer logos
+    match /customers/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAppCheckVerified() && request.auth != null;
+    }
+
     // Default: deny all other paths
     match /{allPaths=**} {
       allow read, write: if false;

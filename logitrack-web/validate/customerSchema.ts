@@ -10,6 +10,7 @@ export const customerSchema = z.object({
     name: z.string().min(1, "Customer name is required"),
     /** Optional description */
     description: z.string().optional(),
+    logoUrl: z.string().optional(),
 
     /** Driver ID types this customer requires – defines keys in driver.customerDriverIds[customerCode] */
     driverIdTypes: z.array(z.object({

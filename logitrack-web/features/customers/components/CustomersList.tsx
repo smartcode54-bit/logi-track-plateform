@@ -109,7 +109,12 @@ export default function CustomersList() {
                                 {filtered.map((c) => (
                                     <TableRow key={c.id}>
                                         <TableCell className="font-mono font-medium">{c.code}</TableCell>
-                                        <TableCell>{c.name}</TableCell>
+                                        <TableCell className="flex items-center gap-2">
+                                            {c.logoUrl && (
+                                                <img src={c.logoUrl} alt={c.name} className="h-6 w-6 rounded-full object-cover border" />
+                                            )}
+                                            <span>{c.name}</span>
+                                        </TableCell>
                                         <TableCell className="text-sm text-muted-foreground">
                                             {(c.driverIdTypes || [])
                                                 .map((dt) => dt.label || dt.key)

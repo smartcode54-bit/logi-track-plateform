@@ -1,3 +1,5 @@
+"use client";
+
 import dynamic from "next/dynamic";
 
 const EditDriverForm = dynamic(() => import("@/features/drivers/components/EditDriverForm"), {

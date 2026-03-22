@@ -3,7 +3,7 @@
 import { db } from "@/firebase/client";
 import { collection, getDocs, query, orderBy } from "firebase/firestore";
 import { COLLECTIONS } from "@/lib/collections";
-import { TruckData } from "../trucks/actions.client";
+import { TruckData } from "@/features/trucks/services/truckService";
 import { z } from "zod";
 import { maintenanceSchema } from "@/validate/maintenanceSchema";
 

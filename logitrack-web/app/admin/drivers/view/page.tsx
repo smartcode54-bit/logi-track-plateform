@@ -1,3 +1,5 @@
+"use client";
+
 import dynamic from "next/dynamic";
 
 const DriverPreview = dynamic(() => import("@/features/drivers/components/DriverPreview"), {
