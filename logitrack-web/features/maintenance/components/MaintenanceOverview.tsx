@@ -21,10 +21,16 @@ import Link from "next/link";
 import { format } from "date-fns";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { MaintenanceFormWrapper } from "./maintenance/MaintenanceFormWrapper";
+import { httpsCallable } from "firebase/functions";
+import { functions } from "@/firebase/client";
+import { query, collection, where, getDocs } from "firebase/firestore";
+import { db } from "@/firebase/client";
+import { COLLECTIONS } from "@/lib/collections";
 
 export default function MaintenanceOverview() {
     const [records, setRecords] = useState<MaintenanceDashboardData[]>([]);
     const [loading, setLoading] = useState(true);
+    const [isTriggering, setIsTriggering] = useState(false);
     const [view, setView] = useState<"list" | "form">("list");
     const [searchTerm, setSearchTerm] = useState("");
     const [typeFilter, setTypeFilter] = useState<"all" | "PM" | "CM">("all");
@@ -36,6 +42,46 @@ export default function MaintenanceOverview() {
         const data = await getMaintenanceOverview();
         setRecords(data);
         setLoading(false);
+    };
+
+    const handleTriggerCheck = async () => {
+        setIsTriggering(true);
+        try {
+            // ดึงรายชื่อรถทั้งหมดมาลบช่องวาง/ขีดข่วน ฝั่ง Client-side เพื่อให้ครอบคลุม 100%
+            const trucksRef = collection(db, COLLECTIONS.TRUCKS);
+            const querySnapshot = await getDocs(trucksRef);
+
+            alert(`🔍 พบรถในระบบทั้งหมด ${querySnapshot.size} คัน\n📲 กำลังเริ่มสแกนหา '5ขด7371'...`);
+
+            const targetDoc = querySnapshot.docs.find(doc => {
+                const data = doc.data();
+                const plate = String(data.licensePlate || "").replace(/\s+/g, "").replace(/-/g, "");
+                return plate === "5ขต7371"; // แก้เป็น ต เต่า ตามในรูปครับ
+            });
+
+            if (!targetDoc) {
+                const allPlates = querySnapshot.docs.map(d => d.data().licensePlate).join(", ");
+                alert(`❌ สแกนแล้วไม่เจอ '5ขต7371'\n🚗 ทะเบียนรถที่มีในระบบ: [${allPlates || "ไม่มี"}]`);
+                return;
+            }
+
+            const truckId = targetDoc.id;
+            alert(`✅ เจอรถแล้ว! ID: ${truckId}\n🚀 กำลังเรียกพ่วงคำนวณ checkMaintenanceAlert...`);
+
+            const checkFn = httpsCallable(functions, "checkMaintenanceAlert");
+            const res = await checkFn({
+                truckId,
+                mileage: 98500 // ปรับเป็น 98500 ตามที่คุณแก้ไขเพื่อทดสอบเลยครับ!
+            });
+            console.log("✅ Trigger Result:", res);
+            await loadData();
+            alert("✅ ยิงคำสั่งประมวลผลระยะสำรองสำเร็จ กรุณาดูหน้าจอ Dashboard ใหม่ครับ!");
+        } catch (e: any) {
+            console.error("❌ Trigger Error:", e);
+            alert(`❌ เกิดข้อผิดพลาดในการยิงประมวลผล: ${e.message}`);
+        } finally {
+            setIsTriggering(false);
+        }
     };
 
     useEffect(() => {
@@ -56,7 +102,7 @@ export default function MaintenanceOverview() {
 
         const matchesType = typeFilter === "all" || record.type === typeFilter;
 
-        return matchesSearch && matchesType;
+        return matchesSearch && matchesType && record.status !== "PM Booking";
     });
 
     if (loading) {
@@ -146,6 +192,70 @@ export default function MaintenanceOverview() {
                 </Card>
             </div>
 
+            {records.filter(r => r.status === "PM Booking").length > 0 && (
+                <Card className="border-t-4 border-t-amber-500 shadow-md">
+                    <CardHeader className="bg-amber-500/10">
+                        <CardTitle className="flex items-center gap-2 text-amber-700">
+                            <AlertTriangle className="h-5 w-5" /> รายการแจ้งเตือนเช็คระยะตามรอบ (PM Booking)
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                        <Table>
+                            <TableHeader>
+                                <TableRow className="hover:bg-transparent">
+                                    <TableHead className="w-[120px]">วันที่ทริกเกอร์</TableHead>
+                                    <TableHead>เลือกรถบรรทุก</TableHead>
+                                    <TableHead>ประเภทบริการ</TableHead>
+                                    <TableHead>กิโลเมตร ณ วันนั้น</TableHead>
+                                    <TableHead className="text-right">สถานะ</TableHead>
+                                    <TableHead className="text-right">จัดการนัดหมาย</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {records.filter(r => r.status === "PM Booking").map((record) => (
+                                    <TableRow key={record.id} className="cursor-pointer hover:bg-muted/50">
+                                        <TableCell className="font-mono text-xs">
+                                            {record.createdAt
+                                                ? (() => {
+                                                    try {
+                                                        const date = (record.createdAt as any).toDate ? (record.createdAt as any).toDate() : new Date(record.createdAt);
+                                                        return format(date, "dd MMM yyyy");
+                                                    } catch (e) {
+                                                        return "-";
+                                                    }
+                                                })()
+                                                : "-"}
+                                        </TableCell>
+                                        <TableCell>
+                                            <div className="font-semibold">{record.truckLicensePlate}</div>
+                                            <div className="text-xs text-muted-foreground">{record.truckBrand}</div>
+                                        </TableCell>
+                                        <TableCell>{record.serviceType}</TableCell>
+                                        <TableCell className="font-bold">{record.currentMileage?.toLocaleString() || "-"}</TableCell>
+                                        <TableCell className="text-right">
+                                            <Badge variant="outline" className="text-amber-600 border-amber-200 bg-amber-50">รอนัดหมาย</Badge>
+                                        </TableCell>
+                                        <TableCell className="text-right">
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className="border-amber-600 text-amber-600 hover:bg-amber-50"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    router.push(`/admin/trucks/maintenance?id=${record.truckId}`);
+                                                }}
+                                            >
+                                                <Wrench className="w-4 h-4 mr-1" /> จัดการ
+                                            </Button>
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </CardContent>
+                </Card>
+            )}
+
             <Card>
                 <CardHeader>
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -228,8 +338,8 @@ export default function MaintenanceOverview() {
                                         )}
                                     </TableCell>
                                     <TableCell>
-                                        <Badge 
-                                            variant={record.truckStatus === 'maintenance' ? "destructive" : "outline"} 
+                                        <Badge
+                                            variant={record.truckStatus === 'maintenance' ? "destructive" : "outline"}
                                             className={record.truckStatus === 'active' ? "text-emerald-600 border-emerald-200 bg-emerald-50" : ""}
                                         >
                                             {t(record.truckStatus || "active")}

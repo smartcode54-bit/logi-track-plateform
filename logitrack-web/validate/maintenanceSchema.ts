@@ -33,7 +33,7 @@ export const maintenanceSchema = z.object({
     endDate: z.string().optional(),
 
     // Status
-    status: z.enum(["in_progress", "completed", "cancelled"]).default("in_progress"),
+    status: z.enum(["in_progress", "completed", "cancelled", "PM Booking"]).default("in_progress"),
 
     // Costs
     costLabor: optionalNumber(0, 1000000, "Labor Cost"),

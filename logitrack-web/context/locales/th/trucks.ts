@@ -334,5 +334,6 @@ export default {
     "trucks.maintenance.lastDate": "วันที่เข้าศูนย์ล่าสุด",
     "trucks.maintenance.nextDate": "วันที่นัดเข้าศูนย์ถัดไป",
     "trucks.maintenance.nextMileage": "ระยะทางที่ต้องเข้าศูนย์ถัดไป (กม.)",
+    "trucks.maintenance.currentMileage": "เลขไมล์ปัจจุบัน (กม.)",
     "trucks.maintenance.responsible": "ผู้รับผิดชอบ (ซ่อมบำรุง)",
 };

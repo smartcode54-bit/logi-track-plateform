@@ -42,6 +42,7 @@ exports.computeHubSocDistances = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const params_1 = require("firebase-functions/params");
+const distances_1 = require("./core/distances");
 const googleMapsApiKey = (0, params_1.defineString)("GOOGLE_MAPS_API_KEY", {
     description: "Google Maps API key for Distance Matrix API (used by computeHubSocDistances)",
 });
@@ -51,28 +52,6 @@ const COLLECTIONS = {
     SOC_HUB_DISTANCES: "soc_hub_distances",
     METADATA: "metadata",
 };
-const SOC_KEYS = ["SOCE", "SOCN", "SOCW"];
-function hubSocDistanceDocId(originId, destinationId) {
-    return `${originId}_${destinationId}`;
-}
-function socHubDistanceDocId(socId, hubId) {
-    return `${socId}_${hubId}`;
-}
-function normalizeStationType(value) {
-    const v = String(value ?? "").toUpperCase();
-    if (v === "SOC" || v === "RETURN_CENTER")
-        return "SOC";
-    return "HUB";
-}
-function normalizeSocIdToKey(sourceId) {
-    const u = (sourceId ?? "").trim().toUpperCase();
-    for (const key of SOC_KEYS) {
-        const k = key.toUpperCase();
-        if (u === k || u.startsWith(k + " ") || u.startsWith(k + "("))
-            return key;
-    }
-    return sourceId;
-}
 const MAX_ELEMENTS_PER_REQUEST = 100;
 const MAX_ORIGINS_PER_REQUEST = 25;
 const MAX_DESTINATIONS_PER_REQUEST = 25;
@@ -90,15 +69,15 @@ async function getHubsAndSocs(db) {
         const source_id = (data.source_id ?? data.hubId ?? data.hubCode ?? "").toString();
         if (!source_id)
             continue;
-        const station_type = normalizeStationType(data.station_type);
+        const station_type = (0, distances_1.normalizeStationType)(data.station_type);
         if (station_type === "HUB") {
             hubs.push({ id: d.id, source_id, lat, lng });
             continue;
         }
         if (station_type !== "SOC" || source_id.startsWith("0"))
             continue;
-        const key = normalizeSocIdToKey(source_id);
-        if (!SOC_KEYS.includes(key))
+        const key = (0, distances_1.normalizeSocIdToKey)(source_id);
+        if (!distances_1.SOC_KEYS.includes(key))
             continue;
         if (seenKeys.has(key))
             continue;
@@ -126,13 +105,6 @@ async function distanceMatrixRequest(apiKey, origins, destinations) {
         throw new Error(`Distance Matrix API: ${msg}`);
     }
     return json;
-}
-function parseElement(row, i, j, hub, soc) {
-    const el = row.elements?.[j];
-    if (!el || el.status !== "OK" || el.distance?.value == null || el.duration?.value == null)
-        return null;
-    const socId = normalizeSocIdToKey(soc.source_id);
-    return { hubId: hub.source_id, socId, distanceMeters: el.distance.value, durationSeconds: el.duration.value };
 }
 exports.computeHubSocDistances = (0, https_1.onCall)({ region: "asia-southeast1" }, async (request) => {
     if (request.auth?.token?.admin !== true) {
@@ -170,7 +142,7 @@ exports.computeHubSocDistances = (0, https_1.onCall)({ region: "asia-southeast1"
                 continue;
             for (let j = 0; j < socs.length; j++) {
                 const soc = socs[j];
-                const parsed = parseElement(rows[i], i, j, hub, soc);
+                const parsed = (0, distances_1.parseElement)(rows[i], i, j, hub, soc);
                 if (parsed)
                     hubToSocRows.push({ ...parsed, hubLat: hub.lat, hubLng: hub.lng, socLat: soc.lat, socLng: soc.lng });
             }
@@ -198,7 +170,7 @@ exports.computeHubSocDistances = (0, https_1.onCall)({ region: "asia-southeast1"
                     if (!el || el.status !== "OK" || el.distance?.value == null || el.duration?.value == null)
                         continue;
                     socToHubRows.push({
-                        socId: normalizeSocIdToKey(soc.source_id),
+                        socId: (0, distances_1.normalizeSocIdToKey)(soc.source_id),
                         hubId: hub.source_id,
                         distanceMeters: el.distance.value,
                         durationSeconds: el.duration.value,
@@ -228,7 +200,7 @@ exports.computeHubSocDistances = (0, https_1.onCall)({ region: "asia-southeast1"
         const chunk = hubToSocRows.slice(i, i + BATCH_WRITE_LIMIT);
         const batch = db.batch();
         for (const row of chunk) {
-            const docId = hubSocDistanceDocId(row.hubId, row.socId);
+            const docId = (0, distances_1.hubSocDistanceDocId)(row.hubId, row.socId);
             const distanceKm = row.distanceMeters / 1000;
             const durationMinutes = row.durationSeconds / 60;
             const isNew = !existingHubSocCreatedBy.has(docId);
@@ -267,7 +239,7 @@ exports.computeHubSocDistances = (0, https_1.onCall)({ region: "asia-southeast1"
         const chunk = socToHubRows.slice(i, i + BATCH_WRITE_LIMIT);
         const batch = db.batch();
         for (const row of chunk) {
-            const docId = socHubDistanceDocId(row.socId, row.hubId);
+            const docId = (0, distances_1.socHubDistanceDocId)(row.socId, row.hubId);
             const distanceKm = row.distanceMeters / 1000;
             const durationMinutes = row.durationSeconds / 60;
             const isNew = !existingSocHubCreatedBy.has(docId);

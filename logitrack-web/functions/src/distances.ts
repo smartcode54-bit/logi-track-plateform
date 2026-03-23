@@ -7,6 +7,14 @@
 import * as admin from "firebase-admin";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { defineString } from "firebase-functions/params";
+import { 
+    SOC_KEYS, 
+    hubSocDistanceDocId, 
+    socHubDistanceDocId, 
+    normalizeStationType, 
+    normalizeSocIdToKey, 
+    parseElement 
+} from "./core/distances";
 
 const googleMapsApiKey = defineString("GOOGLE_MAPS_API_KEY", {
     description: "Google Maps API key for Distance Matrix API (used by computeHubSocDistances)",
@@ -19,16 +27,6 @@ const COLLECTIONS = {
     METADATA: "metadata",
 } as const;
 
-const SOC_KEYS = ["SOCE", "SOCN", "SOCW"] as const;
-
-function hubSocDistanceDocId(originId: string, destinationId: string): string {
-    return `${originId}_${destinationId}`;
-}
-
-function socHubDistanceDocId(socId: string, hubId: string): string {
-    return `${socId}_${hubId}`;
-}
-
 interface HubOrSocPoint {
     id: string;
     source_id: string;
@@ -36,20 +34,7 @@ interface HubOrSocPoint {
     lng: number;
 }
 
-function normalizeStationType(value: unknown): "HUB" | "SOC" {
-    const v = String(value ?? "").toUpperCase();
-    if (v === "SOC" || v === "RETURN_CENTER") return "SOC";
-    return "HUB";
-}
 
-function normalizeSocIdToKey(sourceId: string): string {
-    const u = (sourceId ?? "").trim().toUpperCase();
-    for (const key of SOC_KEYS) {
-        const k = key.toUpperCase();
-        if (u === k || u.startsWith(k + " ") || u.startsWith(k + "(")) return key;
-    }
-    return sourceId;
-}
 
 const MAX_ELEMENTS_PER_REQUEST = 100;
 const MAX_ORIGINS_PER_REQUEST = 25;
@@ -106,18 +91,7 @@ async function distanceMatrixRequest(
     return json;
 }
 
-function parseElement(
-    row: { elements: Array<{ status: string; distance?: { value: number }; duration?: { value: number } }> },
-    i: number,
-    j: number,
-    hub: HubOrSocPoint,
-    soc: HubOrSocPoint
-): { hubId: string; socId: string; distanceMeters: number; durationSeconds: number } | null {
-    const el = row.elements?.[j];
-    if (!el || el.status !== "OK" || el.distance?.value == null || el.duration?.value == null) return null;
-    const socId = normalizeSocIdToKey(soc.source_id);
-    return { hubId: hub.source_id, socId, distanceMeters: el.distance.value, durationSeconds: el.duration.value };
-}
+
 
 export const computeHubSocDistances = onCall(
     { region: "asia-southeast1" },

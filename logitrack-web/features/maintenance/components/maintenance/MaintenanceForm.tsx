@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DatePicker } from "@/components/ui/date-picker";
+import { DateTimePicker } from "@/components/ui/datetime-picker";
 import { format } from "date-fns";
 import { CheckCircle2, Loader2, Clock, Check, ChevronsUpDown } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -36,6 +37,8 @@ interface MaintenanceFormProps {
     setStatus: (v: "in_progress" | "completed") => void;
     startDate: string;
     setStartDate: (v: string) => void;
+    pickupAppointment?: string;
+    setPickupAppointment?: (v: string) => void;
     endDate: string;
     setEndDate: (v: string) => void;
     costLabor: string;
@@ -198,12 +201,21 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                         <h3 className="font-semibold text-sm text-foreground/80 flex items-center gap-2">
                             <Clock className="w-4 h-4" /> {t("maintenance.form.statusValidation")}
                         </h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                             <div className="space-y-2">
                                 <Label>{t("maintenance.form.startDate")}</Label>
-                                <DatePicker
+                                <DateTimePicker
                                     value={props.startDate ? new Date(props.startDate) : undefined}
-                                    onChange={(date: any) => props.setStartDate(date ? format(date, "yyyy-MM-dd") : "")}
+                                    onChange={(date: any) => props.setStartDate(date ? format(date, "yyyy-MM-dd'T'HH:mm:ss") : "")}
+                                    fromYear={new Date().getFullYear() - 1}
+                                    toYear={new Date().getFullYear() + 1}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>{t("maintenance.form.pickupAppointment")}</Label>
+                                <DateTimePicker
+                                    value={props.pickupAppointment ? new Date(props.pickupAppointment) : undefined}
+                                    onChange={(date: any) => props.setPickupAppointment && props.setPickupAppointment(date ? format(date, "yyyy-MM-dd'T'HH:mm:ss") : "")}
                                     fromYear={new Date().getFullYear() - 1}
                                     toYear={new Date().getFullYear() + 1}
                                 />
@@ -211,9 +223,9 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                             {props.status === "completed" && (
                                 <div className="space-y-2">
                                     <Label>{t("maintenance.form.endDate")}</Label>
-                                    <DatePicker
+                                    <DateTimePicker
                                         value={props.endDate ? new Date(props.endDate) : undefined}
-                                        onChange={(date: any) => props.setEndDate(date ? format(date, "yyyy-MM-dd") : "")}
+                                        onChange={(date: any) => props.setEndDate(date ? format(date, "yyyy-MM-dd'T'HH:mm:ss") : "")}
                                         fromYear={new Date().getFullYear() - 1}
                                         toYear={new Date().getFullYear() + 1}
                                     />
@@ -238,15 +250,15 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="space-y-2">
-                            <Label>{t("maintenance.form.odometer")}</Label>
-                            <Input type="number" value={props.currentMileage} onChange={e => {
-                                props.setCurrentMileage(e.target.value);
-                                if (props.type === 'PM' && e.target.value) {
-                                    props.setNextServiceMileage((parseFloat(e.target.value) + 10000).toString());
-                                }
-                            }} />
-                        </div>
+                            <div className="space-y-2">
+                                <Label>{t("maintenance.form.odometer")}</Label>
+                                <Input type="number" value={props.currentMileage} onChange={e => {
+                                    props.setCurrentMileage(e.target.value);
+                                    if (props.type === 'PM' && e.target.value) {
+                                        props.setNextServiceMileage((parseFloat(e.target.value) + 20000).toString());
+                                    }
+                                }} />
+                            </div>
                         {props.type === "PM" && (
                             <div className="space-y-2">
                                 <Label>{t("maintenance.form.nextServiceDistance")}</Label>

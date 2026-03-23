@@ -4,7 +4,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:intl/intl.dart' as intl;
 import '../../../home/data/repositories/checkin_repository.dart';
 import '../../../home/data/services/cloud_vision_ocr_service.dart';
 import '../../../home/data/services/fuel_receipt_ocr_service.dart';

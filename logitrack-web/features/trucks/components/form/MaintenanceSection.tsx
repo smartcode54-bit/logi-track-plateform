@@ -61,6 +61,28 @@ export function MaintenanceSection() {
                     />
                     <FormField
                         control={control}
+                        name="currentMileage"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>{t("trucks.maintenance.currentMileage")}</FormLabel>
+                                <FormControl>
+                                    <Input
+                                        type="number"
+                                        placeholder="e.g., 48000"
+                                        {...field}
+                                        onChange={(e) => {
+                                            const val = e.target.value === "" ? undefined : Number(e.target.value);
+                                            field.onChange(val);
+                                        }}
+                                        value={field.value ?? ""}
+                                    />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={control}
                         name="nextServiceMileage"
                         render={({ field }) => (
                             <FormItem>

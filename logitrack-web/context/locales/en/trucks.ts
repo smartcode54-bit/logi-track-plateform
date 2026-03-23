@@ -335,5 +335,6 @@ export default {
     "trucks.maintenance.lastDate": "Last Service Date",
     "trucks.maintenance.nextDate": "Next Service Date",
     "trucks.maintenance.nextMileage": "Next Service Mileage (km)",
+    "trucks.maintenance.currentMileage": "Current Mileage (km)",
     "trucks.maintenance.responsible": "Responsible Person (Service)",
 };

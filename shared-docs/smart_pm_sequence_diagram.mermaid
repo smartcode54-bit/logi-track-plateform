@@ -1,0 +1,42 @@
+sequenceDiagram
+    autonumber
+    actor Driver as 📱 Driver (Mobile)
+    participant FCM as 🔔 Push Notification
+    participant DB as 🔥 Firestore (DB)
+    actor Admin as 💻 Admin (Web)
+    participant CF as ☁️ Cloud Function
+
+    Note over Driver, DB: ⛽ ขั้นตอนที่ 1: ตรวจพบระยะ PM
+    Driver->>DB: 1. บันทึกเติมน้ำมัน (Odometer)
+    Admin->>DB: 2. อนุมัติค่าน้ำมัน (Approved)
+    Admin->>CF: 3. ยิงตรวจสอบ checkMaintenanceAlert()
+    
+    rect rgb(230, 245, 255)
+        Note over CF, DB: 🔒 ล็อคสถานะกันแจ้งเตือนซ้ำซ้อน
+        CF->>DB: 4. ระยะเหลือ <= 2,000 กม. สร้างเอกสาร `maintenance` 
+        CF->>DB: 5. อัปเดตตารางรถยนต์: activeMaintenanceId = 'ID_ใบงาน' (Locked)
+        CF-->>Admin: จบกระบวนการแจ้งเตือน
+    end
+
+    Note over Admin, Driver: 📅 ขั้นตอนที่ 2: Admin จองคิว & ส่งทริกเกอร์แจ้งคนขับ
+    Admin->>Admin: 6. กด `จัดการ` บันทึกวันนัดหมาย + สถานที่ (อู่)
+    Admin->>CF: 7. เรียกใช้ API นัดหมายซ่อม (createAppointment)
+    CF->>DB: 8. อัปเดตตาราง `maintenance` (Scheduled)
+    CF->>FCM: 9. ยิง Push Notification หา Driver
+    FCM-->>Driver: 🔔 "แจ้งรถเข้าเช็คระยะ วันที่ DD/MM ที่อู่ อู่ช่างเล็ก"
+
+    Note over Driver, DB: 🛠️ ขั้นตอนที่ 3: คนขับเข้าอู่และปิดรอบซ่อม
+    Driver->>Driver: 10. เห็น Card งานซ่อมในหน้า App
+    Driver->>DB: 11. กด `[นำรถเข้าอู่ซ่อมแล้ว]` (In-Progress)
+    Driver->>DB: 12. กด `[🎉 ซ่อมเสร็จสิ้น]` แนบ Invoice/รูปถ่าย
+    
+    Note over DB, Admin: 💥 ขั้นตอนที่ 4: การคำนวณสับลูป & ปลดล็อค (Closing Loop)
+    Admin->>Admin: 13. ตรวจสอบใบกำกับความถูกต้อง Admin คอนเฟิร์มปิดหน้าแผง
+    Admin->>CF: 14. ยิงเรียกฟังก์ชัน closeMaintenanceTask()
+    
+    rect rgb(230, 255, 230)
+        Note over CF, DB: 🔓 สับขยับระยะและปลดล็อค
+        CF->>DB: 15. อัปเดตรถยนต์: nextServiceMileage = เลขไมล์ซ่อมวันนี้ + รอบ PM
+        CF->>DB: 16. อัปเดตรถยนต์: activeMaintenanceId = NULL (Unlocked)
+        CF-->>Admin: จบงานรถวิ่งซ่าสมบูรณ์ (Loop Reset)
+    end

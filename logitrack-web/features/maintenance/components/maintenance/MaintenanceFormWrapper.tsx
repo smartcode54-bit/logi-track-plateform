@@ -26,8 +26,14 @@ export function MaintenanceFormWrapper({ onSuccess, onCancel }: MaintenanceFormW
     const [status, setStatus] = useState<"in_progress" | "completed" | "cancelled">("in_progress");
     const [serviceType, setServiceType] = useState<string>("");
     const [customServiceType, setCustomServiceType] = useState<string>(""); 
-    const [startDate, setStartDate] = useState<string>(new Date().toISOString().split('T')[0]);
+    const [startDate, setStartDate] = useState<string>(() => {
+        const now = new Date();
+        const offset = now.getTimezoneOffset() * 60000;
+        const localISOTime = (new Date(now.getTime() - offset)).toISOString().slice(0, 16);
+        return localISOTime;
+    });
     const [endDate, setEndDate] = useState<string>("");
+    const [pickupAppointment, setPickupAppointment] = useState<string>("");
     const [paymentMethod, setPaymentMethod] = useState<string>("cash");
     const [costLabor, setCostLabor] = useState<string>("");
     const [costParts, setCostParts] = useState<string>("");
@@ -75,6 +81,7 @@ export function MaintenanceFormWrapper({ onSuccess, onCancel }: MaintenanceFormW
                 type,
                 serviceType: finalServiceType,
                 startDate,
+                pickupAppointment: pickupAppointment || undefined,
                 endDate: status === 'completed' ? endDate : undefined,
                 status,
                 costLabor: labor > 0 ? labor : undefined,
@@ -118,6 +125,8 @@ export function MaintenanceFormWrapper({ onSuccess, onCancel }: MaintenanceFormW
                 setStatus={setStatus}
                 startDate={startDate}
                 setStartDate={setStartDate}
+                pickupAppointment={pickupAppointment}
+                setPickupAppointment={setPickupAppointment}
                 endDate={endDate}
                 setEndDate={setEndDate}
                 costLabor={costLabor}

@@ -7,6 +7,9 @@ import '../../data/models/vehicle_expense.dart';
 import '../../data/repositories/vehicle_expense_repository.dart';
 import 'refuel_form_page.dart';
 import 'other_expense_form_page.dart';
+import '../../../home/data/repositories/driver_repository.dart'; // 🚗 ดึงข้อมูลรถ
+import '../../data/repositories/maintenance_repository.dart'; // 🛠️ ฟังก์ชันดึง PM
+import 'maintenance_action_page.dart'; // 🛠️ หน้าฟอร์มกดแนบเอกสารซ่อม
 
 /// หน้าหลัก "จัดการรถ / เปลี่ยนค่าใช้จ่าย" — เลือกบันทึกเติมน้ำมัน หรือค่าใช้จ่ายอื่น + แสดงประวัติล่าสุด
 class VehicleExpensePage extends StatefulWidget {
@@ -18,12 +21,16 @@ class VehicleExpensePage extends StatefulWidget {
 
 class _VehicleExpensePageState extends State<VehicleExpensePage>
     with RouteAware {
+  // .. state vars
   List<VehicleExpense> _recentList = [];
   bool _loading = true;
   bool _refreshing = false;
   String? _error;
   bool _routeObserverSubscribed = false;
   final ScrollController _historyScrollController = ScrollController();
+  
+  Map<String, dynamic>? _driverData; // 🚗 ข้อมูลพขร.
+  final _driverRepository = DriverRepository(); // 🚗 เพื่อดึง info รถ
 
   @override
   void initState() {
@@ -77,6 +84,8 @@ class _VehicleExpensePageState extends State<VehicleExpensePage>
     try {
       await syncPendingVehicleExpenses(uid);
       final fromServer = await getVehicleExpensesByDriver(uid, limit: 20);
+      _driverData = await _driverRepository.getCurrentDriver(uid); // 🚗 โหลดข้อมูลรถ
+      
       final pending = await getPendingVehicleExpenses(uid);
       final merged = <VehicleExpense>[...fromServer, ...pending];
       merged.sort((a, b) => (b.date).compareTo(a.date));
@@ -176,7 +185,66 @@ class _VehicleExpensePageState extends State<VehicleExpensePage>
                                 ).colorScheme.onSurface.withOpacity(0.7),
                               ),
                         ),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 16),
+                        // 🛠️ แผงจัดการซ่อมบำรุง (Maintenance CTA)
+                        StreamBuilder<List<Map<String, dynamic>>>(
+                          stream: MaintenanceRepository().streamActiveMaintenance(_driverData?['truckId'] ?? ''),
+                          builder: (context, snap) {
+                            final tasks = snap.data ?? [];
+                            if (tasks.isEmpty) return const SizedBox.shrink();
+                            final task = tasks.first;
+                            final status = task['status'] as String? ?? '';
+                            final serviceType = task['serviceType'] as String? ?? 'ซ่อมบำรุงตามรอบ';
+
+                            return Card(
+                              color: Colors.amber.shade50,
+                              elevation: 2,
+                              margin: const EdgeInsets.only(bottom: 16),
+                              shape: RoundedRectangleBorder(
+                                side: BorderSide(color: Colors.amber.shade400, width: 1),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
+                                child: ListTile(
+                                  leading: CircleAvatar(
+                                    backgroundColor: Colors.amber.shade600,
+                                    child: const Icon(Icons.build_circle_outlined, color: Colors.white),
+                                  ),
+                                  title: Text(
+                                    serviceType, 
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87)
+                                  ),
+                                  subtitle: Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Text(
+                                      'สถานะ: $status', 
+                                      style: TextStyle(color: Colors.amber.shade900, fontWeight: FontWeight.bold)
+                                    ),
+                                  ),
+                                  trailing: ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.amber.shade700,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                    ),
+                                    onPressed: () async {
+                                      final result = await Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => MaintenanceActionPage(task: task),
+                                        ),
+                                      );
+                                      if (result == true) _loadRecent();
+                                    },
+                                    child: const Text('ดำเนินการ'),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 8),
                         _buildActionCard(
                           context,
                           icon: Icons.local_gas_station,

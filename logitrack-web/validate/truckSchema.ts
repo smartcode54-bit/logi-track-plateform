@@ -137,6 +137,12 @@ export const truckSchema = z.object({
         if (!data.fuelType) {
             ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Fuel type is required for own fleet", path: ["fuelType"] });
         }
+        if (data.currentMileage === undefined || data.currentMileage === null) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Current Mileage is required for own fleet", path: ["currentMileage"] });
+        }
+        if (data.nextServiceMileage === undefined || data.nextServiceMileage === null) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Next Service Mileage is required for own fleet", path: ["nextServiceMileage"] });
+        }
     }
     // Subcontractor trucks must have a subcontractor selected
     if (data.ownershipType === "subcontractor" && !data.subcontractorId) {

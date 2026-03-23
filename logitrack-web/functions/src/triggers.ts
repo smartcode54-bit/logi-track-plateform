@@ -1,5 +1,6 @@
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
+import { isMaintenanceDue } from "./core/maintenance";
 
 // asia-southeast3 (Firestore region) does not support 1st Gen Cloud Functions.
 // FCM for tasks is triggered by the app via callable notifyTaskUpdate.
@@ -41,93 +42,6 @@ export const onUserDeleted = functions.region("asia-southeast1").auth.user().onD
     }
 });
 
-/**
- * Trigger: specific logic when a Driver is created in Firestore (Gen2)
- * Creates a corresponding Firebase Auth user.
- * Uses Gen2 to support Firestore in asia-southeast3.
- */
-// Region mismatch: Firestore in asia-southeast3, Functions in asia-southeast1.
-// Eventarc (Gen 2 triggers) does not support asia-southeast3 for Firestore yet.
-// Switching to a Callable Function to handle driver creation safely.
-
-// export const onDriverCreated = onDocumentCreated(
-//     {
-//         document: "drivers/{driverId}",
-//         region: "asia-southeast1",
-//     },
-//     async (event) => {
-//         const snap = event.data;
-//         if (!snap) {
-//             console.log("[onDriverCreated] No data in event.");
-//             return;
-//         }
-//         const driverId = event.params.driverId;
-//         const driverData = snap.data() as any;
-//         const { email, mobile, firstName, lastName } = driverData;
-
-//         if (!email || !mobile) {
-//             console.log(`[onDriverCreated] Missing email or mobile for driver ${driverId}, skipping Auth creation.`);
-//             return;
-//         }
-
-//         try {
-//             // 1. Check if user exists
-//             let userRecord;
-//             try {
-//                 userRecord = await admin.auth().getUserByEmail(email);
-//                 console.log(`[onDriverCreated] User already exists: ${userRecord.uid}`);
-//             } catch (error: any) {
-//                 if (error.code === "auth/user-not-found") {
-//                     // 2. Create new Auth user
-//                     // Default password: mobile number (secure enough for initial, user should change)
-//                     // OR generate a random one. Using mobile for simplicity as requested often.
-//                     const password = mobile.replace(/[^0-9]/g, ""); // stored mobile as password
-
-//                     userRecord = await admin.auth().createUser({
-//                         email: email,
-//                         password: password,
-//                         displayName: `${firstName} ${lastName}`,
-//                         phoneNumber: mobile.startsWith('+') ? mobile : undefined, // Auth requires E.164, strict
-//                         disabled: false,
-//                     });
-//                     console.log(`[onDriverCreated] Created new user: ${userRecord.uid}`);
-//                 } else {
-//                     throw error;
-//                 }
-//             }
-
-//             // 3. Set Custom Claims (role: driver)
-//             await admin.auth().setCustomUserClaims(userRecord.uid, {
-//                 role: "driver",
-//                 driverId: driverId, 
-//             });
-
-//             // 4. Update Firestore with Auth UID
-//             await admin.firestore().collection("drivers").doc(driverId).update({
-//                 authId: userRecord.uid,
-//                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-//             });
-
-//             console.log(`[onDriverCreated] Successfully linked driver ${driverId} to user ${userRecord.uid}`);
-
-//         } catch (error) {
-//             console.error(`[onDriverCreated] Error processing driver ${driverId}:`, error);
-//             if (error.code === 'auth/email-already-exists') {
-//                 console.log(`[onDriverCreated] User ${email} already exists in Auth.`);
-//                 try {
-//                     const user = await admin.auth().getUserByEmail(email);
-//                     await admin.auth().setCustomUserClaims(user.uid, {
-//                         role: 'driver',
-//                         driverId: driverId
-//                     });
-//                     await snap.ref.update({ authUid: user.uid });
-//                 } catch (e) {
-//                     console.error("Error linking existing user", e);
-//                 }
-//             }
-//         }
-//     }
-// );
 
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 
@@ -433,6 +347,91 @@ export const getNextTaskId = onCall(
         } catch (err) {
             console.error("[getNextTaskId] Error:", err);
             throw new HttpsError("internal", (err as Error).message);
+        }
+    }
+);
+
+/**
+ * Callable: Check if truck ODO is near maintenance gap (<= 2000 km) and create PM Booking task suggestion.
+ * Triggered manually from client after saving Fuel Log records.
+ */
+export const checkMaintenanceAlert = onCall(
+    { region: "asia-southeast1" },
+    async (request): Promise<{ success: boolean; message: string; created?: boolean }> => {
+        const data = request.data as { truckId: string; mileage: number };
+        const { truckId, mileage } = data;
+
+        if (!truckId || mileage === undefined) {
+            throw new HttpsError("invalid-argument", "truckId and mileage are required");
+        }
+
+        try {
+            // 1. Get Truck document
+            const truckRef = admin.firestore().collection("trucks").doc(truckId);
+            const truckSnap = await truckRef.get();
+            if (!truckSnap.exists) return { success: false, message: "Truck not found" };
+
+            const truckData = truckSnap.data() as any;
+            const nextServiceMileage = truckData.nextServiceMileage;
+            if (!nextServiceMileage) return { success: false, message: "No nextServiceMileage defined for this truck" };
+
+            // Lock Check: Skip if already in active maintenance loop
+            if (truckData.activeMaintenanceId) {
+                return { success: true, message: "Truck already has an active maintenance task", created: false };
+            }
+
+            const lastAlertMileage = truckData.lastAlertMileage || 0;
+            if (mileage === lastAlertMileage) return { success: true, message: "Already alert processed for this mileage" };
+
+            // 2. Check margin condition (Within 2,000 KM remaining) Pure Logic
+            if (isMaintenanceDue(mileage, nextServiceMileage)) {
+                // 3. Create Maintenance record { status: "PM Booking" }
+                // Check if already created recently to avoid duplication (e.g. check for same truck pending maintenance)
+                const existingTaskSnap = await admin.firestore().collection("maintenance")
+                    .where("truckId", "==", truckId)
+                    .where("status", "==", "PM Booking")
+                    .get();
+                if (!existingTaskSnap.empty) {
+                    return { success: true, message: "PM Booking already exists for this truck", created: false };
+                }
+
+                const maintenanceData = {
+                    truckId,
+                    truckLicensePlate: truckData.licensePlate || "", // 🚗 เพิ่มเพื่อให้แสดงฟอนต์ Dashboard ได้ถูกต้อง
+                    truckBrand: truckData.brand || "",
+                    status: "PM Booking",
+                    type: "PM",
+                    serviceType: "เช็คระยะตามรอบ", // Thai translation
+                    currentMileage: mileage,
+                    nextServiceMileage: nextServiceMileage,
+                    notes: `ระบบอัตโนมัติ: ดักตรวจกิโลเมตรจากรายการเติมน้ำมัน (${mileage.toLocaleString()} / ${nextServiceMileage.toLocaleString()} กม.)`,
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                };
+
+                const maintenanceRef = await admin.firestore().collection("maintenance").add(maintenanceData);
+
+                // Update truck to remember alert
+                await truckRef.update({
+                    lastAlertMileage: mileage,
+                    activeMaintenanceId: maintenanceRef.id, // 🔒 Lock: Attach active item ID to truck
+                    currentMileage: mileage, // Update current truck mileage with ground truth fuel log
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+
+                return { success: true, message: "Created PM Booking task successfully", created: true };
+            }
+
+            // Just update truck mileage if not triggers alert
+            await truckRef.update({
+                currentMileage: mileage,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            return { success: true, message: "Within safe threshold range. Mileage updated.", created: false };
+        } catch (err: any) {
+            console.error("[checkMaintenanceAlert] Error:", err);
+            throw new HttpsError("internal", err.message);
         }
     }
 );

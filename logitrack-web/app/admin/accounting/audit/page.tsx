@@ -87,6 +87,18 @@ export default function AccountingAuditPage() {
         setSubmitting(true);
         try {
             await updateVehicleExpenseStatus(actionRow.row.id, actionRow.action, adminNote.trim() || undefined);
+            
+            if (actionRow.action === "APPROVED" && actionRow.row.type === "fuel" && actionRow.row.truckId && actionRow.row.odometer) {
+                try {
+                    const { httpsCallable } = await import("firebase/functions");
+                    const { functions } = await import("@/firebase/client");
+                    const checkPM = httpsCallable(functions, "checkMaintenanceAlert");
+                    await checkPM({ truckId: actionRow.row.truckId, mileage: actionRow.row.odometer });
+                } catch (e) {
+                    console.error("Smart PM Trigger Error after Approval:", e);
+                }
+            }
+
             setActionRow(null);
             setAdminNote("");
             setDetailRow(null);
@@ -103,6 +115,18 @@ export default function AccountingAuditPage() {
         setSubmitting(true);
         try {
             await updateVehicleExpenseStatus(row.id, "APPROVED", undefined);
+            
+            if (row.type === "fuel" && row.truckId && row.odometer) {
+                try {
+                    const { httpsCallable } = await import("firebase/functions");
+                    const { functions } = await import("@/firebase/client");
+                    const checkPM = httpsCallable(functions, "checkMaintenanceAlert");
+                    await checkPM({ truckId: row.truckId, mileage: row.odometer });
+                } catch (e) {
+                    console.error("Smart PM Trigger Error after Direct Approval:", e);
+                }
+            }
+
             setDetailRow(null);
             loadData();
         } catch (err) {
