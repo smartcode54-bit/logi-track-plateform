@@ -70,6 +70,23 @@ export default {
     "accounting.preview.next": "ถัดไป",
     "accounting.preview.notPreviewable": "ไม่สามารถแสดงตัวอย่างไฟล์นี้ในหน้านี้ได้ กรุณาเปิดในแท็บใหม่",
     "accounting.preview.print": "พิมพ์",
+    "accounting.preview.downloadZip": "ดาวน์โหลด ZIP",
+    "accounting.preview.downloadZipLoading": "กำลังสร้าง ZIP…",
+
+    "accounting.error.zipFailed": "สร้าง ZIP ไม่ได้ ไม่สามารถดาวน์โหลดรูปได้",
+    "accounting.error.partialDownload": "บันทึก ZIP แล้ว {added} รูป ไม่สามารถดึงได้ {failed} รูป (เครือข่ายหรือ CORS ของ Storage)",
+    "accounting.error.corsHint": "ถ้าดาวน์โหลดไม่ได้แต่เห็นรูปในแอป ให้ตั้งค่า CORS ของ Storage bucket ให้ตรงกับโดเมนเว็บ ดู docs/FIREBASE_STORAGE_CORS.md",
+
+    "accounting.batchZip.title": "ดาวน์โหลดรูปใบเสร็จ (ZIP)",
+    "accounting.batchZip.hint": "รวมรายการที่โหลดไว้ทั้งหมดในช่วงวันที่ (ไม่ใช่ตัวกรองในตาราง) ดึงรูปแบบ batch พร้อมกัน",
+    "accounting.batchZip.dateFrom": "ตั้งแต่วันที่",
+    "accounting.batchZip.dateTo": "ถึงวันที่",
+    "accounting.batchZip.download": "ดาวน์โหลด ZIP",
+    "accounting.batchZip.loading": "กำลังสร้าง ZIP…",
+    "accounting.batchZip.invalidRange": "ช่วงวันที่ไม่ถูกต้อง (วันเริ่มต้องไม่เกินวันสิ้นสุด)",
+    "accounting.batchZip.noRecordsInRange": "ไม่มีรายการในช่วงวันที่นี้",
+    "accounting.batchZip.noImagesInRange": "ไม่มีรูปที่ดาวน์โหลดได้ในช่วงวันที่นี้",
+    "accounting.batchZip.summary": "{records} รายการในช่วง · {images} รูปใน ZIP",
 
     "accounting.noRecords": "ไม่พบรายการ",
     "accounting.audit.title": "ตรวจสอบค่าใช้จ่ายรถ",

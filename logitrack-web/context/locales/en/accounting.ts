@@ -70,6 +70,23 @@ export default {
     "accounting.preview.next": "Next",
     "accounting.preview.notPreviewable": "This file cannot be previewed here. Open in a new tab instead.",
     "accounting.preview.print": "Print",
+    "accounting.preview.downloadZip": "Download ZIP",
+    "accounting.preview.downloadZipLoading": "Building ZIP…",
+
+    "accounting.error.zipFailed": "Could not create the ZIP. No images could be downloaded.",
+    "accounting.error.partialDownload": "ZIP saved with {added} image(s). {failed} could not be fetched (network or Storage CORS).",
+    "accounting.error.corsHint": "If downloads fail but images show in the app, set Storage bucket CORS for your web origin. See docs/FIREBASE_STORAGE_CORS.md.",
+
+    "accounting.batchZip.title": "Download receipt images (ZIP)",
+    "accounting.batchZip.hint": "All loaded records in the date range are included (not filtered by table filters). Images are fetched in parallel batches.",
+    "accounting.batchZip.dateFrom": "From date",
+    "accounting.batchZip.dateTo": "To date",
+    "accounting.batchZip.download": "Download ZIP",
+    "accounting.batchZip.loading": "Building ZIP…",
+    "accounting.batchZip.invalidRange": "Invalid date range (from must be on or before to).",
+    "accounting.batchZip.noRecordsInRange": "No records in this date range.",
+    "accounting.batchZip.noImagesInRange": "No downloadable images in this date range.",
+    "accounting.batchZip.summary": "{records} records in range · {images} images in ZIP",
 
     "accounting.noRecords": "No records found.",
     "accounting.audit.title": "Audit Vehicle Expense",

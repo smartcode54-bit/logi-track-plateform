@@ -1,0 +1,15 @@
+[
+  {
+    "origin": [
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
+      "https://logi-track-wrt-dev.web.app",
+      "https://logi-track-wrt-dev.firebaseapp.com",
+      "https://logitrack-prod.web.app",
+      "https://logitrack-prod.firebaseapp.com"
+    ],
+    "method": ["GET", "HEAD"],
+    "maxAgeSeconds": 3600,
+    "responseHeader": ["Content-Type", "Content-Length", "Content-Disposition"]
+  }
+]

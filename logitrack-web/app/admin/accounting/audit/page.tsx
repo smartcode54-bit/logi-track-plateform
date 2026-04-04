@@ -22,7 +22,8 @@ import {
     type ImageUrlPreviewLabels,
 } from "@/components/image-preview/ImageUrlPreviewView";
 import { IMAGE_PREVIEW_VIEWPORT_ACCOUNTING_DIALOG_CLASS } from "@/components/image-preview/image-preview-constants";
-import { AccountingPreviewPrintButton } from "@/components/accounting/AccountingPreviewPrintButton";
+import { AccountingPreviewImageActions } from "@/components/accounting/AccountingPreviewImageActions";
+import { buildAccountingZipEntries } from "@/lib/download-image-urls-zip";
 import { looksLikeImageUrl } from "@/features/maintenance/utils/looksLikeImageUrl";
 import { format } from "date-fns";
 import {
@@ -171,6 +172,23 @@ export default function AccountingAuditPage() {
     );
 
     const previewUrls = useMemo(() => imageItems.map((i) => i.url), [imageItems]);
+
+    const zipEntries = useMemo(
+        () =>
+            detailRow
+                ? buildAccountingZipEntries(
+                      detailRow.id,
+                      detailRow.receiptPhotoUrl,
+                      detailRow.odometerPhotoUrl
+                  )
+                : [],
+        [detailRow]
+    );
+
+    const zipFilename = useMemo(() => {
+        if (!detailRow) return "";
+        return `${detailRow.id}_${format(detailRow.date, "yyyyMMdd")}.zip`;
+    }, [detailRow]);
 
     const handleSaveEdit = async () => {
         if (!detailRow || !editForm) return;
@@ -432,9 +450,10 @@ export default function AccountingAuditPage() {
                                                     : ""}
                                             </p>
                                         ) : null}
-                                        <AccountingPreviewPrintButton
-                                            url={currentPreviewUrl}
-                                            printLabel={t("accounting.preview.print")}
+                                        <AccountingPreviewImageActions
+                                            printUrl={currentPreviewUrl}
+                                            zipEntries={zipEntries}
+                                            zipFilename={zipFilename}
                                         />
                                     </div>
                                 ) : (

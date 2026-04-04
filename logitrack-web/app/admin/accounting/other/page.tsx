@@ -11,7 +11,8 @@ import {
     type ImageUrlPreviewLabels,
 } from "@/components/image-preview/ImageUrlPreviewView";
 import { IMAGE_PREVIEW_VIEWPORT_ACCOUNTING_DIALOG_CLASS } from "@/components/image-preview/image-preview-constants";
-import { AccountingPreviewPrintButton } from "@/components/accounting/AccountingPreviewPrintButton";
+import { AccountingPreviewImageActions } from "@/components/accounting/AccountingPreviewImageActions";
+import { AccountingBatchImagesZipCard } from "@/components/accounting/AccountingBatchImagesZipCard";
 import { looksLikeImageUrl } from "@/features/maintenance/utils/looksLikeImageUrl";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
@@ -197,6 +198,8 @@ export default function AccountingOtherPage() {
                 </Card>
             </div>
 
+            <AccountingBatchImagesZipCard records={records} kind="other" />
+
             {/* Table */}
             <Card>
                 <CardHeader>
@@ -287,9 +290,11 @@ export default function AccountingOtherPage() {
                                                     : ""}
                                             </p>
                                         ) : null}
-                                        <AccountingPreviewPrintButton
-                                            url={currentPreviewUrl}
-                                            printLabel={t("accounting.preview.print")}
+                                        <AccountingPreviewImageActions
+                                            printUrl={currentPreviewUrl}
+                                            zipEntries={[]}
+                                            zipFilename=""
+                                            includeZipDownload={false}
                                         />
                                     </div>
                                 ) : (
