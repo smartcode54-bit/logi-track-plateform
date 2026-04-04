@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
-import { format } from "date-fns";
+import { useMemo, useState } from "react";
+import { format, startOfMonth, endOfMonth } from "date-fns";
+import { enUS, th as thLocale } from "date-fns/locale";
+import * as XLSX from "xlsx";
 import {
-    Calendar as CalendarIcon,
     Truck,
     PackageCheck,
     Loader2,
@@ -14,10 +15,11 @@ import {
     MapPin,
     Clock,
     Camera,
-    ExternalLink,
     ClipboardCheck,
     Pencil,
     RefreshCw,
+    Download,
+    Calendar as CalendarIcon,
 } from "lucide-react";
 
 import { useLanguage } from "@/context/language";
@@ -27,11 +29,7 @@ import { canEditTripDetails } from "@/lib/permissions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Calendar } from "@/components/ui/calendar";
-import {
-    Popover,
-    PopoverContent,
-    PopoverTrigger,
-} from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
     Select,
     SelectContent,
@@ -60,8 +58,24 @@ import {
 import { cn } from "@/lib/utils";
 
 import { EditTripDetailsDialog } from "./EditTripDetailsDialog";
-import { useDriverMonitor } from "../hooks/useDriverMonitor";
+import {
+    useDriverMonitor,
+    type ExportFilterCriteria,
+    defaultDateRange,
+    clampDateRange,
+    DRIVER_MONITOR_DEFAULT_RANGE_DAYS,
+    DRIVER_MONITOR_MAX_RANGE_DAYS,
+    isExportRangeCoveredByLoaded,
+} from "../hooks/useDriverMonitor";
 import { TRIP_STATUS_ENUM } from "@/validate/tripRecordSchema";
+import type { TripRecord } from "@/validate/tripRecordSchema";
+
+const ROWS_PER_PAGE_OPTIONS = [10, 15, 25, 50, 100] as const;
+
+function escapeCsvCell(val: string): string {
+    if (/[",\r\n]/.test(val)) return `"${val.replace(/"/g, '""')}"`;
+    return val;
+}
 
 // Constants/Helpers
 const STATUS_COLOR: Record<string, string> = {
@@ -83,17 +97,34 @@ const JOB_TYPE_LABEL: Record<string, string> = {
 };
 
 function toDateLocal(val: any): Date | null {
-    if (!val) return null;
+    if (val == null) return null;
     if (val instanceof Date) return val;
     if (typeof val?.toDate === "function") return val.toDate();
     if (typeof val === "string") return new Date(val);
+    if (typeof val === "number" && Number.isFinite(val)) return new Date(val);
     return null;
 }
 
 export default function DriverMonitorDashboard() {
-    const { t } = useLanguage();
+    const { t, language } = useLanguage();
     const auth = useAuth();
     const canEdit = canEditTripDetails(auth?.customClaims ?? null);
+    const dateLocale = language === "th" ? thLocale : enUS;
+
+    const [exportOpen, setExportOpen] = useState(false);
+    const [exportLoading, setExportLoading] = useState(false);
+    const initExportFilters = (): ExportFilterCriteria => {
+        const dr = defaultDateRange();
+        return {
+            dateFrom: dr.from,
+            dateTo: dr.to,
+            driverFilter: "all",
+            statusFilter: "all",
+            jobTypeFilter: "all",
+            searchQuery: "",
+        };
+    };
+    const [exportFilters, setExportFilters] = useState<ExportFilterCriteria>(initExportFilters);
 
     const {
         paginatedTrips,
@@ -103,8 +134,12 @@ export default function DriverMonitorDashboard() {
         stats,
         filteredTrips,
         loading,
-        date,
-        setDate,
+        dateFrom,
+        dateTo,
+        setDateRange,
+        driverFilter,
+        setDriverFilter,
+        driverOptions,
         statusFilter,
         setStatusFilter,
         jobTypeFilter,
@@ -122,8 +157,42 @@ export default function DriverMonitorDashboard() {
         getDriver,
         getSourceDisplayName,
         fetchHubs,
-        itemsPerPage
+        itemsPerPage,
+        setItemsPerPage,
+        getTripsForExport,
+        getTripsForExportResolved,
+        trips,
     } = useDriverMonitor();
+
+    const openExportDialog = () => {
+        setExportFilters({
+            dateFrom,
+            dateTo,
+            driverFilter,
+            statusFilter,
+            jobTypeFilter,
+            searchQuery: "",
+        });
+        setExportOpen(true);
+    };
+
+    const exportRowCount = useMemo(
+        () => (exportOpen ? getTripsForExport(exportFilters).length : 0),
+        [exportOpen, exportFilters, getTripsForExport]
+    );
+
+    const exportNeedsFetch = useMemo(() => {
+        if (!exportOpen || !exportFilters.dateFrom || !exportFilters.dateTo) return false;
+        return !isExportRangeCoveredByLoaded(exportFilters.dateFrom, exportFilters.dateTo, dateFrom, dateTo);
+    }, [exportOpen, exportFilters.dateFrom, exportFilters.dateTo, dateFrom, dateTo]);
+
+    const exportFileSuffix = useMemo(() => {
+        const f = exportFilters.dateFrom ? format(exportFilters.dateFrom, "yyyy-MM-dd") : "from";
+        const to = exportFilters.dateTo ? format(exportFilters.dateTo, "yyyy-MM-dd") : "to";
+        return `${f}_${to}`;
+    }, [exportFilters.dateFrom, exportFilters.dateTo]);
+
+    const showLargeDatasetHint = trips.length >= 2000;
 
     const getDriverName = (driverId?: string) => {
         if (!driverId) return t("driverMonitor.table.unknown");
@@ -138,17 +207,85 @@ export default function DriverMonitorDashboard() {
         return driver?.currentAssignment?.truckPlate ?? "-";
     };
 
+    const formatTimestamp = (val: any) => {
+        const d = toDateLocal(val);
+        return d ? format(d, "dd/MM/yy HH:mm") : "-";
+    };
+
+    const buildExportTable = (list: TripRecord[]) => {
+        const headers = [
+            t("driverMonitor.table.tripId"),
+            t("driverMonitor.table.createdAt"),
+            t("driverMonitor.table.driver"),
+            t("driverMonitor.table.licensePlate"),
+            t("driverMonitor.table.jobType"),
+            t("driverMonitor.table.origin"),
+            t("driverMonitor.table.destination"),
+            t("driverMonitor.table.sealCode"),
+            t("driverMonitor.table.status"),
+            t("driverMonitor.table.deliveredTime"),
+        ];
+        const rows = list.map((trip) => {
+            const created = toDateLocal((trip.id && checkInAtByTaskId[trip.id]) || trip.createdAt);
+            const delivered = toDateLocal(
+                trip.status === "delivered" && trip.deliveredTimestamp ? trip.deliveredTimestamp : trip.updatedAt
+            );
+            const jobLabel = JOB_TYPE_LABEL[trip.jobType] || trip.jobType;
+            const statusLabel = t(`driverMonitor.status.${trip.status}` as any);
+            return [
+                trip.spxTripId || trip.id?.slice(0, 10) || "",
+                created ? format(created, "dd/MM/yyyy HH:mm") : "",
+                getDriverName(trip.driverId),
+                getLicensePlate(trip.driverId),
+                jobLabel,
+                getSourceDisplayName(trip.origin),
+                getSourceDisplayName(trip.destination),
+                trip.sealCode || "",
+                statusLabel,
+                delivered ? format(delivered, "dd/MM/yyyy HH:mm") : "",
+            ];
+        });
+        return { headers, rows };
+    };
+
+    const downloadExcel = async (criteria: ExportFilterCriteria) => {
+        setExportLoading(true);
+        try {
+            const list = await getTripsForExportResolved(criteria);
+            const { headers, rows } = buildExportTable(list);
+            const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Trips");
+            XLSX.writeFile(wb, `driver_monitor_${exportFileSuffix}.xlsx`);
+        } finally {
+            setExportLoading(false);
+        }
+    };
+
+    const downloadCsv = async (criteria: ExportFilterCriteria) => {
+        setExportLoading(true);
+        try {
+            const list = await getTripsForExportResolved(criteria);
+            const { headers, rows } = buildExportTable(list);
+            const lines = [headers, ...rows].map((line) => line.map((c) => escapeCsvCell(String(c))).join(","));
+            const blob = new Blob(["\uFEFF" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `driver_monitor_${exportFileSuffix}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+        } finally {
+            setExportLoading(false);
+        }
+    };
+
     const getDriverDisplayFull = (driverId?: string) => {
         if (!driverId) return t("driverMonitor.table.unknown");
         const driver = getDriver(driverId);
         if (!driver) return driverId.slice(0, 8) + "...";
         const plate = driver.currentAssignment?.truckPlate ?? "-";
         return `${driver.firstName} ${driver.lastName} - ${plate}`;
-    };
-
-    const formatTimestamp = (val: any) => {
-        const d = toDateLocal(val);
-        return d ? format(d, "dd/MM/yy HH:mm") : "-";
     };
 
     return (
@@ -163,9 +300,15 @@ export default function DriverMonitorDashboard() {
                         {t("driverMonitor.subtitle")}
                     </p>
                 </div>
-                <Button variant="outline" size="icon" onClick={() => fetchHubs()} aria-label={t("driverMonitor.refresh")}>
-                    <RefreshCw className="h-4 w-4" />
-                </Button>
+                <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={openExportDialog}>
+                        <Download className="h-4 w-4 mr-2" />
+                        {t("driverMonitor.export.open")}
+                    </Button>
+                    <Button variant="outline" size="icon" onClick={() => fetchHubs()} aria-label={t("driverMonitor.refresh")}>
+                        <RefreshCw className="h-4 w-4" />
+                    </Button>
+                </div>
             </div>
 
             {/* Stats Cards */}
@@ -276,29 +419,89 @@ export default function DriverMonitorDashboard() {
                         </Button>
                     </div>
 
-                    <Popover>
-                        <PopoverTrigger asChild>
+                    <div className="flex flex-col gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs text-muted-foreground whitespace-nowrap">{t("driverMonitor.filter.dateFrom")}</span>
+                            <Popover>
+                                <PopoverTrigger asChild>
+                                    <Button variant="outline" className="h-9 w-[150px] justify-start font-normal" type="button">
+                                        <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
+                                        {format(dateFrom, "dd/MM/yyyy")}
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0" align="start">
+                                    <Calendar
+                                        mode="single"
+                                        selected={dateFrom}
+                                        onSelect={(d) => {
+                                            if (d) setDateRange(d, dateTo);
+                                        }}
+                                        locale={dateLocale}
+                                        initialFocus
+                                    />
+                                </PopoverContent>
+                            </Popover>
+                            <span className="text-xs text-muted-foreground whitespace-nowrap">{t("driverMonitor.filter.dateTo")}</span>
+                            <Popover>
+                                <PopoverTrigger asChild>
+                                    <Button variant="outline" className="h-9 w-[150px] justify-start font-normal" type="button">
+                                        <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
+                                        {format(dateTo, "dd/MM/yyyy")}
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0" align="start">
+                                    <Calendar
+                                        mode="single"
+                                        selected={dateTo}
+                                        onSelect={(d) => {
+                                            if (d) setDateRange(dateFrom, d);
+                                        }}
+                                        locale={dateLocale}
+                                        initialFocus
+                                    />
+                                </PopoverContent>
+                            </Popover>
                             <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => {
+                                    const dr = defaultDateRange();
+                                    setDateRange(dr.from, dr.to);
+                                }}
+                            >
+                                {t("driverMonitor.filter.presetLastDays", { days: DRIVER_MONITOR_DEFAULT_RANGE_DAYS })}
+                            </Button>
+                            <Button
+                                type="button"
                                 variant="outline"
                                 size="sm"
-                                className={cn(
-                                    "w-[180px] justify-start text-left font-normal",
-                                    !date && "text-muted-foreground"
-                                )}
+                                onClick={() => {
+                                    const now = new Date();
+                                    setDateRange(startOfMonth(now), endOfMonth(now));
+                                }}
                             >
-                                <CalendarIcon className="mr-2 h-4 w-4" />
-                                {date ? format(date, "dd/MM/yyyy") : t("driverMonitor.filter.pickDate")}
+                                {t("driverMonitor.filter.presetThisMonth")}
                             </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                                mode="single"
-                                selected={date}
-                                onSelect={setDate as any}
-                                initialFocus
-                            />
-                        </PopoverContent>
-                    </Popover>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground max-w-xl">
+                            {t("driverMonitor.filter.maxRangeHint", { days: DRIVER_MONITOR_MAX_RANGE_DAYS })}
+                        </p>
+                    </div>
+
+                    <Select value={driverFilter} onValueChange={setDriverFilter}>
+                        <SelectTrigger className="w-[200px] h-9">
+                            <SelectValue placeholder={t("driverMonitor.filter.driver")} />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">{t("driverMonitor.filter.allDrivers")}</SelectItem>
+                            {driverOptions.map((o) => (
+                                <SelectItem key={o.value} value={o.value}>
+                                    {o.label}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
 
                     <Select value={statusFilter} onValueChange={setStatusFilter}>
                         <SelectTrigger className="w-[180px] h-9">
@@ -324,17 +527,13 @@ export default function DriverMonitorDashboard() {
                         />
                     </div>
 
-                    {date && (
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setDate(undefined)}
-                            className="text-muted-foreground"
-                        >
-                            ✕
-                        </Button>
-                    )}
                 </div>
+
+                {showLargeDatasetHint && (
+                    <p className="text-sm text-amber-700 dark:text-amber-400/90 bg-amber-50 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-900/50 rounded-md px-3 py-2">
+                        {t("driverMonitor.filter.largeDatasetHint")}
+                    </p>
+                )}
 
                 {/* Table */}
                 <div className="border rounded-lg bg-card overflow-hidden">
@@ -413,17 +612,252 @@ export default function DriverMonitorDashboard() {
                     </div>
 
                     {/* Pagination */}
-                    <div className="flex items-center justify-between px-4 py-4 border-t border-border/50 bg-muted/20">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-4 border-t border-border/50 bg-muted/20">
                         <div className="text-sm text-muted-foreground">
                             {t("driverMonitor.pagination.showing")} {paginatedTrips.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} {t("driverMonitor.pagination.to")} {Math.min(currentPage * itemsPerPage, filteredTrips.length)} {t("driverMonitor.pagination.of")} {filteredTrips.length} {t("driverMonitor.pagination.entries")}
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2 justify-end">
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm text-muted-foreground whitespace-nowrap">{t("driverMonitor.pagination.rowsPerPage")}</span>
+                                <Select
+                                    value={String(itemsPerPage)}
+                                    onValueChange={(v) => setItemsPerPage(Number(v))}
+                                >
+                                    <SelectTrigger className="h-9 w-[72px]">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {ROWS_PER_PAGE_OPTIONS.map((n) => (
+                                            <SelectItem key={n} value={String(n)}>
+                                                {n}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
                             <Button variant="outline" size="sm" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1}>{t("driverMonitor.pagination.previous")}</Button>
                             <Button variant="outline" size="sm" onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages || totalPages === 0}>{t("driverMonitor.pagination.next")}</Button>
                         </div>
                     </div>
                 </div>
             </div>
+
+            {/* Export dialog — full filter set independent from table */}
+            <Dialog open={exportOpen} onOpenChange={setExportOpen}>
+                <DialogContent className="sm:max-w-xl max-h-[90vh] flex flex-col">
+                    <DialogHeader>
+                        <DialogTitle>{t("driverMonitor.export.title")}</DialogTitle>
+                        <DialogDescription>{t("driverMonitor.export.description")}</DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 overflow-y-auto py-1 pr-1 max-h-[min(60vh,560px)]">
+                        <div className="flex flex-wrap gap-2">
+                            <Button
+                                type="button"
+                                variant={exportFilters.jobTypeFilter === "all" ? "secondary" : "ghost"}
+                                onClick={() => setExportFilters((f) => ({ ...f, jobTypeFilter: "all" }))}
+                                className="whitespace-nowrap"
+                                size="sm"
+                            >
+                                {t("driverMonitor.jobType.all")}
+                            </Button>
+                            <Button
+                                type="button"
+                                variant={exportFilters.jobTypeFilter === "first_mile" ? "secondary" : "ghost"}
+                                onClick={() => setExportFilters((f) => ({ ...f, jobTypeFilter: "first_mile" }))}
+                                className="whitespace-nowrap"
+                                size="sm"
+                            >
+                                <span className="w-2 h-2 rounded-full bg-indigo-500 mr-1.5" />
+                                {t("driverMonitor.jobType.firstMile")}
+                            </Button>
+                            <Button
+                                type="button"
+                                variant={exportFilters.jobTypeFilter === "line_haul" ? "secondary" : "ghost"}
+                                onClick={() => setExportFilters((f) => ({ ...f, jobTypeFilter: "line_haul" }))}
+                                className="whitespace-nowrap"
+                                size="sm"
+                            >
+                                <span className="w-2 h-2 rounded-full bg-orange-500 mr-1.5" />
+                                {t("driverMonitor.jobType.lineHaul")}
+                            </Button>
+                        </div>
+
+                        <div className="space-y-1.5">
+                            <span className="text-xs font-medium text-muted-foreground">{t("driverMonitor.export.dateRange")}</span>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-xs text-muted-foreground">{t("driverMonitor.filter.dateFrom")}</span>
+                                <Popover>
+                                    <PopoverTrigger asChild>
+                                        <Button variant="outline" className="h-9 w-[150px] justify-start font-normal" type="button">
+                                            <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
+                                            {exportFilters.dateFrom ? format(exportFilters.dateFrom, "dd/MM/yyyy") : "—"}
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0" align="start">
+                                        <Calendar
+                                            mode="single"
+                                            selected={exportFilters.dateFrom ?? undefined}
+                                            onSelect={(d) => {
+                                                if (!d) return;
+                                                setExportFilters((f) => {
+                                                    const to = f.dateTo ?? d;
+                                                    const c = clampDateRange(d, to);
+                                                    return { ...f, dateFrom: c.from, dateTo: c.to };
+                                                });
+                                            }}
+                                            locale={dateLocale}
+                                            initialFocus
+                                        />
+                                    </PopoverContent>
+                                </Popover>
+                                <span className="text-xs text-muted-foreground">{t("driverMonitor.filter.dateTo")}</span>
+                                <Popover>
+                                    <PopoverTrigger asChild>
+                                        <Button variant="outline" className="h-9 w-[150px] justify-start font-normal" type="button">
+                                            <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
+                                            {exportFilters.dateTo ? format(exportFilters.dateTo, "dd/MM/yyyy") : "—"}
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0" align="start">
+                                        <Calendar
+                                            mode="single"
+                                            selected={exportFilters.dateTo ?? undefined}
+                                            onSelect={(d) => {
+                                                if (!d) return;
+                                                setExportFilters((f) => {
+                                                    const from = f.dateFrom ?? d;
+                                                    const c = clampDateRange(from, d);
+                                                    return { ...f, dateFrom: c.from, dateTo: c.to };
+                                                });
+                                            }}
+                                            locale={dateLocale}
+                                            initialFocus
+                                        />
+                                    </PopoverContent>
+                                </Popover>
+                                <Button
+                                    type="button"
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() => {
+                                        const dr = defaultDateRange();
+                                        setExportFilters((f) => ({ ...f, dateFrom: dr.from, dateTo: dr.to }));
+                                    }}
+                                >
+                                    {t("driverMonitor.filter.presetLastDays", { days: DRIVER_MONITOR_DEFAULT_RANGE_DAYS })}
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                        const now = new Date();
+                                        const c = clampDateRange(startOfMonth(now), endOfMonth(now));
+                                        setExportFilters((f) => ({ ...f, dateFrom: c.from, dateTo: c.to }));
+                                    }}
+                                >
+                                    {t("driverMonitor.filter.presetThisMonth")}
+                                </Button>
+                            </div>
+                            <p className="text-[11px] text-muted-foreground">
+                                {t("driverMonitor.filter.maxRangeHint", { days: DRIVER_MONITOR_MAX_RANGE_DAYS })}
+                            </p>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="space-y-1.5">
+                                <span className="text-xs font-medium text-muted-foreground">{t("driverMonitor.filter.driver")}</span>
+                                <Select
+                                    value={exportFilters.driverFilter}
+                                    onValueChange={(v) => setExportFilters((f) => ({ ...f, driverFilter: v }))}
+                                >
+                                    <SelectTrigger className="h-9 w-full">
+                                        <SelectValue placeholder={t("driverMonitor.filter.driver")} />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="all">{t("driverMonitor.filter.allDrivers")}</SelectItem>
+                                        {driverOptions.map((o) => (
+                                            <SelectItem key={o.value} value={o.value}>
+                                                {o.label}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-1.5">
+                                <span className="text-xs font-medium text-muted-foreground">{t("driverMonitor.filter.status")}</span>
+                                <Select
+                                    value={exportFilters.statusFilter}
+                                    onValueChange={(v) => setExportFilters((f) => ({ ...f, statusFilter: v }))}
+                                >
+                                    <SelectTrigger className="h-9 w-full">
+                                        <SelectValue placeholder={t("driverMonitor.filter.allStatuses")} />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="all">{t("driverMonitor.filter.allStatuses")}</SelectItem>
+                                        {TRIP_STATUS_ENUM.map((s) => (
+                                            <SelectItem key={s} value={s}>
+                                                {t(`driverMonitor.status.${s}` as any)}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                            <span className="text-xs font-medium text-muted-foreground">{t("driverMonitor.filter.searchDriver")}</span>
+                            <div className="relative">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                    className="pl-10 h-9"
+                                    value={exportFilters.searchQuery}
+                                    onChange={(e) => setExportFilters((f) => ({ ...f, searchQuery: e.target.value }))}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="space-y-1 text-sm text-muted-foreground">
+                            <p>{t("driverMonitor.export.rowCount", { count: exportRowCount })}</p>
+                            {exportNeedsFetch && (
+                                <p className="text-amber-700 dark:text-amber-400/90">
+                                    {t("driverMonitor.export.fetchNote")}
+                                </p>
+                            )}
+                        </div>
+                    </div>
+                    <DialogFooter className="gap-2 sm:gap-0 flex-col sm:flex-row sm:justify-between border-t pt-4">
+                        <Button variant="outline" onClick={() => setExportOpen(false)} disabled={exportLoading}>
+                            {t("driverMonitor.export.cancel")}
+                        </Button>
+                        <div className="flex flex-wrap gap-2 w-full sm:w-auto justify-end">
+                            <Button
+                                variant="secondary"
+                                className="inline-flex items-center gap-2"
+                                disabled={exportLoading}
+                                onClick={async () => {
+                                    await downloadCsv(exportFilters);
+                                    setExportOpen(false);
+                                }}
+                            >
+                                {exportLoading ? <Loader2 className="h-4 w-4 animate-spin shrink-0" /> : null}
+                                {t("driverMonitor.export.csv")}
+                            </Button>
+                            <Button
+                                className="inline-flex items-center gap-2"
+                                disabled={exportLoading}
+                                onClick={async () => {
+                                    await downloadExcel(exportFilters);
+                                    setExportOpen(false);
+                                }}
+                            >
+                                {exportLoading ? <Loader2 className="h-4 w-4 animate-spin shrink-0" /> : null}
+                                {t("driverMonitor.export.excel")}
+                            </Button>
+                        </div>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             {/* Detail Dialog */}
             <Dialog open={!!detailTrip} onOpenChange={(open) => !open && setDetailTrip(null)}>

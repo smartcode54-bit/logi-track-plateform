@@ -13,6 +13,7 @@ import { format } from "date-fns";
 import { CheckCircle2, Loader2, Clock, Check, ChevronsUpDown } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import type { MaintenanceData } from "@/validate/maintenanceSchema";
 
 const SERVICE_TYPES_PM = [
     { value: "periodic_check", label: "Periodic Maintenance" },
@@ -33,8 +34,8 @@ interface MaintenanceFormProps {
     setProvider: (v: string) => void;
     paymentMethod: string;
     setPaymentMethod: (v: string) => void;
-    status: "in_progress" | "completed" | "cancelled";
-    setStatus: (v: "in_progress" | "completed") => void;
+    status: MaintenanceData["status"];
+    setStatus: (v: MaintenanceData["status"]) => void;
     startDate: string;
     setStartDate: (v: string) => void;
     pickupAppointment?: string;

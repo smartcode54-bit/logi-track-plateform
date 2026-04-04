@@ -36,7 +36,7 @@ export default function MaintenanceDashboard() {
     const totalCMCost = history.filter(h => h.type === 'CM').reduce((sum, h) => sum + (h.totalCost || 0), 0);
 
     const [type, setType] = useState<"PM" | "CM">("PM");
-    const [status, setStatus] = useState<"in_progress" | "completed" | "cancelled">("in_progress");
+    const [status, setStatus] = useState<MaintenanceData["status"]>("in_progress");
     const [serviceType, setServiceType] = useState<string>("");
     const [customServiceType, setCustomServiceType] = useState<string>(""); 
     const [startDate, setStartDate] = useState<string>("");

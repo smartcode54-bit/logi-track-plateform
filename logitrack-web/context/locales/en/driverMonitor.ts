@@ -19,6 +19,19 @@ export default {
     // Filters
     "driverMonitor.filter.date": "Date",
     "driverMonitor.filter.pickDate": "Pick a date",
+    "driverMonitor.filter.dateFrom": "From",
+    "driverMonitor.filter.dateTo": "To",
+    "driverMonitor.filter.presetLastDays": "Last {days} days",
+    "driverMonitor.filter.presetThisMonth": "This month",
+    "driverMonitor.filter.maxRangeHint": "You can select at most {days} days at a time; wider selections are clamped automatically.",
+    "driverMonitor.filter.largeDatasetHint": "This date range loaded many trips. The page may feel slower; narrow the range if needed.",
+    "driverMonitor.filter.period": "Period",
+    "driverMonitor.filter.year": "Year",
+    "driverMonitor.filter.month": "Month",
+    "driverMonitor.filter.allPeriods": "All",
+    "driverMonitor.filter.clearPeriod": "Clear period",
+    "driverMonitor.filter.driver": "Driver",
+    "driverMonitor.filter.allDrivers": "All drivers",
     "driverMonitor.filter.status": "Status",
     "driverMonitor.filter.allStatuses": "All Statuses",
     "driverMonitor.filter.searchDriver": "Search by driver name or trip ID...",
@@ -58,6 +71,18 @@ export default {
     "driverMonitor.pagination.entries": "entries",
     "driverMonitor.pagination.previous": "Previous",
     "driverMonitor.pagination.next": "Next",
+    "driverMonitor.pagination.rowsPerPage": "Rows / page",
+
+    // Export
+    "driverMonitor.export.open": "Export",
+    "driverMonitor.export.title": "Export trips",
+    "driverMonitor.export.description": "Set filters below for the export file. They are separate from the table and can be changed freely before download.",
+    "driverMonitor.export.dateRange": "Trip created date range",
+    "driverMonitor.export.rowCount": "{count} trips match these filters in the data currently loaded for the table (same date range as the main view unless you change the dates below).",
+    "driverMonitor.export.fetchNote": "The export date range is wider than the date range loaded for the table. The download will load all matching trips for the selected dates (this may take a moment).",
+    "driverMonitor.export.excel": "Download Excel",
+    "driverMonitor.export.csv": "Download CSV",
+    "driverMonitor.export.cancel": "Cancel",
 
     // Detail Dialog
     "driverMonitor.detail.title": "Trip Details",

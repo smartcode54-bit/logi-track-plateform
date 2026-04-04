@@ -75,85 +75,6 @@ exports.onUserDeleted = functions.region("asia-southeast1").auth.user().onDelete
         console.error(`[onUserDeleted] Error deleting user:`, error);
     }
 });
-/**
- * Trigger: specific logic when a Driver is created in Firestore (Gen2)
- * Creates a corresponding Firebase Auth user.
- * Uses Gen2 to support Firestore in asia-southeast3.
- */
-// Region mismatch: Firestore in asia-southeast3, Functions in asia-southeast1.
-// Eventarc (Gen 2 triggers) does not support asia-southeast3 for Firestore yet.
-// Switching to a Callable Function to handle driver creation safely.
-// export const onDriverCreated = onDocumentCreated(
-//     {
-//         document: "drivers/{driverId}",
-//         region: "asia-southeast1",
-//     },
-//     async (event) => {
-//         const snap = event.data;
-//         if (!snap) {
-//             console.log("[onDriverCreated] No data in event.");
-//             return;
-//         }
-//         const driverId = event.params.driverId;
-//         const driverData = snap.data() as any;
-//         const { email, mobile, firstName, lastName } = driverData;
-//         if (!email || !mobile) {
-//             console.log(`[onDriverCreated] Missing email or mobile for driver ${driverId}, skipping Auth creation.`);
-//             return;
-//         }
-//         try {
-//             // 1. Check if user exists
-//             let userRecord;
-//             try {
-//                 userRecord = await admin.auth().getUserByEmail(email);
-//                 console.log(`[onDriverCreated] User already exists: ${userRecord.uid}`);
-//             } catch (error: any) {
-//                 if (error.code === "auth/user-not-found") {
-//                     // 2. Create new Auth user
-//                     // Default password: mobile number (secure enough for initial, user should change)
-//                     // OR generate a random one. Using mobile for simplicity as requested often.
-//                     const password = mobile.replace(/[^0-9]/g, ""); // stored mobile as password
-//                     userRecord = await admin.auth().createUser({
-//                         email: email,
-//                         password: password,
-//                         displayName: `${firstName} ${lastName}`,
-//                         phoneNumber: mobile.startsWith('+') ? mobile : undefined, // Auth requires E.164, strict
-//                         disabled: false,
-//                     });
-//                     console.log(`[onDriverCreated] Created new user: ${userRecord.uid}`);
-//                 } else {
-//                     throw error;
-//                 }
-//             }
-//             // 3. Set Custom Claims (role: driver)
-//             await admin.auth().setCustomUserClaims(userRecord.uid, {
-//                 role: "driver",
-//                 driverId: driverId, 
-//             });
-//             // 4. Update Firestore with Auth UID
-//             await admin.firestore().collection("drivers").doc(driverId).update({
-//                 authId: userRecord.uid,
-//                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-//             });
-//             console.log(`[onDriverCreated] Successfully linked driver ${driverId} to user ${userRecord.uid}`);
-//         } catch (error) {
-//             console.error(`[onDriverCreated] Error processing driver ${driverId}:`, error);
-//             if (error.code === 'auth/email-already-exists') {
-//                 console.log(`[onDriverCreated] User ${email} already exists in Auth.`);
-//                 try {
-//                     const user = await admin.auth().getUserByEmail(email);
-//                     await admin.auth().setCustomUserClaims(user.uid, {
-//                         role: 'driver',
-//                         driverId: driverId
-//                     });
-//                     await snap.ref.update({ authUid: user.uid });
-//                 } catch (e) {
-//                     console.error("Error linking existing user", e);
-//                 }
-//             }
-//         }
-//     }
-// );
 const https_1 = require("firebase-functions/v2/https");
 exports.createDriverAccount = (0, https_1.onCall)({
     region: "asia-southeast1",
@@ -412,6 +333,10 @@ exports.checkMaintenanceAlert = (0, https_1.onCall)({ region: "asia-southeast1" 
         const nextServiceMileage = truckData.nextServiceMileage;
         if (!nextServiceMileage)
             return { success: false, message: "No nextServiceMileage defined for this truck" };
+        // Lock Check: Skip if already in active maintenance loop
+        if (truckData.activeMaintenanceId) {
+            return { success: true, message: "Truck already has an active maintenance task", created: false };
+        }
         const lastAlertMileage = truckData.lastAlertMileage || 0;
         if (mileage === lastAlertMileage)
             return { success: true, message: "Already alert processed for this mileage" };
@@ -428,6 +353,8 @@ exports.checkMaintenanceAlert = (0, https_1.onCall)({ region: "asia-southeast1" 
             }
             const maintenanceData = {
                 truckId,
+                truckLicensePlate: truckData.licensePlate || "", // 🚗 เพิ่มเพื่อให้แสดงฟอนต์ Dashboard ได้ถูกต้อง
+                truckBrand: truckData.brand || "",
                 status: "PM Booking",
                 type: "PM",
                 serviceType: "เช็คระยะตามรอบ", // Thai translation
@@ -437,10 +364,11 @@ exports.checkMaintenanceAlert = (0, https_1.onCall)({ region: "asia-southeast1" 
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             };
-            await admin.firestore().collection("maintenance").add(maintenanceData);
+            const maintenanceRef = await admin.firestore().collection("maintenance").add(maintenanceData);
             // Update truck to remember alert
             await truckRef.update({
                 lastAlertMileage: mileage,
+                activeMaintenanceId: maintenanceRef.id, // 🔒 Lock: Attach active item ID to truck
                 currentMileage: mileage, // Update current truck mileage with ground truth fuel log
                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
             });

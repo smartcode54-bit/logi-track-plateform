@@ -8,6 +8,7 @@ import { uploadTruckFile } from "@/features/trucks/services/truckService";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
+import type { MaintenanceData } from "@/validate/maintenanceSchema";
 
 interface MaintenanceFormWrapperProps {
     onSuccess: () => void;
@@ -23,7 +24,7 @@ export function MaintenanceFormWrapper({ onSuccess, onCancel }: MaintenanceFormW
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const [type, setType] = useState<"PM" | "CM">("PM");
-    const [status, setStatus] = useState<"in_progress" | "completed" | "cancelled">("in_progress");
+    const [status, setStatus] = useState<MaintenanceData["status"]>("in_progress");
     const [serviceType, setServiceType] = useState<string>("");
     const [customServiceType, setCustomServiceType] = useState<string>(""); 
     const [startDate, setStartDate] = useState<string>(() => {

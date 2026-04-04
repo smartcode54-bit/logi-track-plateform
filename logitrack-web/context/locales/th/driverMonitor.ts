@@ -19,6 +19,19 @@ export default {
     // Filters
     "driverMonitor.filter.date": "วันที่",
     "driverMonitor.filter.pickDate": "เลือกวันที่",
+    "driverMonitor.filter.dateFrom": "ตั้งแต่",
+    "driverMonitor.filter.dateTo": "ถึง",
+    "driverMonitor.filter.presetLastDays": "{days} วันล่าสุด",
+    "driverMonitor.filter.presetThisMonth": "เดือนนี้",
+    "driverMonitor.filter.maxRangeHint": "เลือกได้สูงสุด {days} วันต่อครั้ง หากเลือกเกินระบบจะปรับให้อยู่ในช่วงนี้โดยอัตโนมัติ",
+    "driverMonitor.filter.largeDatasetHint": "ช่วงวันที่นี้โหลดเที่ยวจำนวนมาก หน้าอาจช้าลง ลองหดช่วงวันที่หากไม่จำเป็นต้องดูทั้งหมด",
+    "driverMonitor.filter.period": "ช่วงเวลา",
+    "driverMonitor.filter.year": "ปี",
+    "driverMonitor.filter.month": "เดือน",
+    "driverMonitor.filter.allPeriods": "ทั้งหมด",
+    "driverMonitor.filter.clearPeriod": "ล้างช่วงเวลา",
+    "driverMonitor.filter.driver": "คนขับ",
+    "driverMonitor.filter.allDrivers": "คนขับทั้งหมด",
     "driverMonitor.filter.status": "สถานะ",
     "driverMonitor.filter.allStatuses": "สถานะทั้งหมด",
     "driverMonitor.filter.searchDriver": "ค้นหาด้วยชื่อคนขับหรือ trip ID...",
@@ -58,6 +71,18 @@ export default {
     "driverMonitor.pagination.entries": "รายการ",
     "driverMonitor.pagination.previous": "ก่อนหน้า",
     "driverMonitor.pagination.next": "ถัดไป",
+    "driverMonitor.pagination.rowsPerPage": "แถว / หน้า",
+
+    // Export
+    "driverMonitor.export.open": "ดาวน์โหลด",
+    "driverMonitor.export.title": "ดาวน์โหลดเที่ยวงาน",
+    "driverMonitor.export.description": "ตั้งค่าตัวกรองด้านล่างสำหรับไฟล์ที่ดาวน์โหลด แยกจากตารางหลัก ปรับได้เต็มที่ก่อนดาวน์โหลด",
+    "driverMonitor.export.dateRange": "ช่วงวันที่สร้างเที่ยว (created)",
+    "driverMonitor.export.rowCount": "พบ {count} เที่ยวตามตัวกรองในข้อมูลที่โหลดสำหรับตาราง (ช่วงวันที่เดียวกับหน้าหลัก ยกเว้นคุณเปลี่ยนวันที่ด้านล่าง)",
+    "driverMonitor.export.fetchNote": "ช่วงวันที่ส่งออกกว้างกว่าช่วงที่โหลดในตาราง ระบบจะดึงเที่ยวทั้งหมดในช่วงที่เลือก (อาจใช้เวลาสักครู่)",
+    "driverMonitor.export.excel": "ดาวน์โหลด Excel",
+    "driverMonitor.export.csv": "ดาวน์โหลด CSV",
+    "driverMonitor.export.cancel": "ยกเลิกการดาวน์โหลด",
 
     // Detail Dialog
     "driverMonitor.detail.title": "รายละเอียดเที่ยวงาน",
