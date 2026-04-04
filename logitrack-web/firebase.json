@@ -36,6 +36,24 @@
           }
         ]
       }
+    ],
+    "rewrites": [
+      {
+        "source": "/admin/customers/*/edit",
+        "destination": "/admin/customers/placeholder/edit.html"
+      },
+      {
+        "source": "/admin/customers/*",
+        "destination": "/admin/customers/placeholder.html"
+      },
+      {
+        "source": "/admin/subcontractors/*/edit",
+        "destination": "/admin/subcontractors/placeholder/edit.html"
+      },
+      {
+        "source": "/admin/subcontractors/*",
+        "destination": "/admin/subcontractors/placeholder.html"
+      }
     ]
   },
   "storage": {

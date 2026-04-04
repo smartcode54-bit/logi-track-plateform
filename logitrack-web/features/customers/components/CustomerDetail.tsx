@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, usePathname } from "next/navigation";
 import { getCustomerById, CustomerData } from "@/features/customers/api/customers";
+import { getCustomerIdFromPathname } from "@/features/customers/utils/customerRouteId";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, Building2, Loader2, Edit } from "lucide-react";
@@ -11,8 +12,10 @@ import { useLanguage } from "@/context/language";
 
 export default function CustomerDetail() {
     const params = useParams();
+    const pathname = usePathname();
     const { t } = useLanguage();
-    const id = params?.id as string;
+    const id =
+        getCustomerIdFromPathname(pathname) ?? (params?.id as string | undefined) ?? "";
     const [customer, setCustomer] = useState<CustomerData | null>(null);
     const [loading, setLoading] = useState(true);
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, usePathname, useRouter } from "next/navigation";
 import { getCustomerById, updateCustomer } from "@/features/customers/api/customers";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,12 +23,15 @@ import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { customerSchema, type Customer } from "@/validate/customerSchema";
 import { useLanguage } from "@/context/language";
+import { getCustomerIdFromPathname } from "@/features/customers/utils/customerRouteId";
 
 export default function EditCustomerForm() {
     const params = useParams();
+    const pathname = usePathname();
     const router = useRouter();
     const { t } = useLanguage();
-    const id = params?.id as string;
+    const id =
+        getCustomerIdFromPathname(pathname) ?? (params?.id as string | undefined) ?? "";
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [loading, setLoading] = useState(true);
     const [logoFile, setLogoFile] = useState<File | null>(null);
