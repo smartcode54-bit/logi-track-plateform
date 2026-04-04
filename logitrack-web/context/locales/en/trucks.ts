@@ -103,6 +103,7 @@ export default {
     "trucks.step3.lastServiceDate": "Last Service Date",
     "trucks.step3.nextServiceDate": "Next Service Date",
     "trucks.step3.nextServiceMileage": "Next Service Mileage (km)",
+    "trucks.step3.pmIntervalKm": "PM service every (km)",
 
     "trucks.step4.title": "Step 4: Review & Finalize",
     "trucks.step4.desc": "Please review all information before adding this vehicle to flight.",
@@ -186,6 +187,8 @@ export default {
     "trucks.placeholder.insurer": "e.g. Viriyah Insurance",
     "trucks.placeholder.premium": "e.g. 15000",
     "trucks.placeholder.coverage": "Coverage details...",
+    "trucks.placeholder.mileage": "e.g. 50000",
+    "trucks.placeholder.pmIntervalKm": "e.g. 20000",
 
     "trucks.section.photos": "Truck Photos (Required)",
     "trucks.photos.frontRight": "Front-Right View",
@@ -336,5 +339,6 @@ export default {
     "trucks.maintenance.nextDate": "Next Service Date",
     "trucks.maintenance.nextMileage": "Next Service Mileage (km)",
     "trucks.maintenance.currentMileage": "Current Mileage (km)",
+    "trucks.maintenance.pmIntervalKm": "PM service every (km)",
     "trucks.maintenance.responsible": "Responsible Person (Service)",
 };

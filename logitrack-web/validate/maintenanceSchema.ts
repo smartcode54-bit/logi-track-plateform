@@ -50,6 +50,11 @@ export const maintenanceSchema = z.object({
     images: z.array(z.string()).optional(),
     receipts: z.array(z.string()).optional(),
 
+    // คนขับส่งจากแอปมือถือ (maintenance_repository)
+    invoiceUrl: z.string().optional(),
+    driverSubmitted: z.boolean().optional(),
+    invoiceAmount: z.number().optional(),
+
     notes: z.string().optional(),
 
     // Metadata

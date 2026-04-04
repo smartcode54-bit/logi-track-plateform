@@ -117,6 +117,30 @@ export function Step3Maintenance() {
                             </FormItem>
                         )}
                     />
+                    {ownershipType === "own" && (
+                        <FormField
+                            control={form.control}
+                            name="pmIntervalKm"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>{t("trucks.step3.pmIntervalKm")}</FormLabel>
+                                    <FormControl>
+                                        <Input
+                                            type="number"
+                                            placeholder={t("trucks.placeholder.pmIntervalKm")}
+                                            {...field}
+                                            onChange={(e) => {
+                                                const val = e.target.value === "" ? undefined : Number(e.target.value);
+                                                field.onChange(val);
+                                            }}
+                                            value={field.value ?? ""}
+                                        />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                    )}
                 </div>
             </div>
         </div>

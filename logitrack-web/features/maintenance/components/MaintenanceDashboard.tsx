@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, Wrench, CheckCircle2, Loader2 } from "lucide-react";
 import { formatLicensePlate } from "@/lib/utils";
+import { DEFAULT_PM_INTERVAL_KM } from "@/features/trucks/constants";
 
 // Sub-components
 import { MaintenanceStats } from "./maintenance/MaintenanceStats";
@@ -52,6 +53,9 @@ export default function MaintenanceDashboard() {
     const [provider, setProvider] = useState<string>("");
     const [notes, setNotes] = useState<string>("");
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const [existingReceiptUrls, setExistingReceiptUrls] = useState<string[]>([]);
+    const [driverReceiptUrl, setDriverReceiptUrl] = useState<string | null>(null);
+    const [driverReceiptAmount, setDriverReceiptAmount] = useState<number | null>(null);
 
     useEffect(() => {
         async function loadData() {
@@ -110,12 +114,22 @@ export default function MaintenanceDashboard() {
                 currentMileage: parseFloat(currentMileage) || undefined,
                 nextServiceMileage: parseFloat(nextServiceMileage) || undefined,
                 paymentMethod,
-                images: imageUrl ? [imageUrl] : [],
                 notes
             };
 
+            if (selectedRecordId) {
+                if (imageUrl) {
+                    payload.images = [...existingReceiptUrls, imageUrl];
+                } else if (existingReceiptUrls.length > 0) {
+                    payload.images = existingReceiptUrls;
+                }
+            } else {
+                payload.images = imageUrl ? [imageUrl] : [];
+            }
+
             if (type === 'PM' && status === 'completed' && payload.currentMileage && !payload.nextServiceMileage) {
-                payload.nextServiceMileage = payload.currentMileage + 10000; 
+                const interval = truck.pmIntervalKm ?? DEFAULT_PM_INTERVAL_KM;
+                payload.nextServiceMileage = payload.currentMileage + interval;
             }
 
             if (selectedRecordId) {
@@ -151,6 +165,9 @@ export default function MaintenanceDashboard() {
         setSelectedFile(null);
         setPaymentMethod("cash");
         setNotes("");
+        setExistingReceiptUrls([]);
+        setDriverReceiptUrl(null);
+        setDriverReceiptAmount(null);
         if (truck) {
             setCurrentMileage(truck.currentMileage?.toString() || "");
         }
@@ -174,6 +191,13 @@ export default function MaintenanceDashboard() {
         setProvider(record.provider || "");
         setPaymentMethod(record.paymentMethod || "cash");
         setNotes(record.notes || "");
+        setExistingReceiptUrls(
+            Array.isArray(record.images) ? record.images.filter((u): u is string => typeof u === "string" && u.length > 0) : []
+        );
+        setDriverReceiptUrl(record.invoiceUrl?.trim() ? record.invoiceUrl : null);
+        setDriverReceiptAmount(
+            typeof record.invoiceAmount === "number" && !Number.isNaN(record.invoiceAmount) ? record.invoiceAmount : null
+        );
         setView("form");
     };
 
@@ -216,6 +240,7 @@ export default function MaintenanceDashboard() {
             ) : (
                 <MaintenanceForm
                     selectedRecordId={selectedRecordId}
+                    pmIntervalKm={truck.pmIntervalKm ?? DEFAULT_PM_INTERVAL_KM}
                     type={type}
                     setType={setType}
                     serviceType={serviceType}
@@ -247,6 +272,9 @@ export default function MaintenanceDashboard() {
                     isSubmitting={isSubmitting}
                     handleSave={handleSave}
                     setView={setView}
+                    existingReceiptUrls={existingReceiptUrls}
+                    driverReceiptUrl={driverReceiptUrl}
+                    driverReceiptAmount={driverReceiptAmount}
                 />
             )}
         </div>

@@ -75,6 +75,7 @@ export const truckSchema = z.object({
     lastServiceDate: z.string().optional(),
     nextServiceDate: z.string().optional(),
     nextServiceMileage: optionalNumber(0, 2000000, "Next Service Mileage"),
+    pmIntervalKm: optionalNumber(1, 500000, "PM interval"),
     currentMileage: optionalNumber(0, 2000000, "Current Mileage"),
 
     // Insurance Information (Optional)
@@ -137,6 +138,9 @@ export const truckSchema = z.object({
         if (!data.fuelType) {
             ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Fuel type is required for own fleet", path: ["fuelType"] });
         }
+        if (data.pmIntervalKm === undefined || data.pmIntervalKm === null) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: "PM service interval (km) is required for own fleet", path: ["pmIntervalKm"] });
+        }
     }
     // Subcontractor trucks must have a subcontractor selected
     if (data.ownershipType === "subcontractor" && !data.subcontractorId) {
@@ -196,6 +200,7 @@ export const truckDefaultValues: TruckFormValues = {
     lastServiceDate: "",
     nextServiceDate: "",
     nextServiceMileage: undefined,
+    pmIntervalKm: undefined,
     currentMileage: 0,
 
     // Renewal Defaults

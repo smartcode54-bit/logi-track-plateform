@@ -65,6 +65,8 @@ export interface TruckData {
     lastServiceDate?: string;
     nextServiceDate?: string;
     nextServiceMileage?: number;
+    /** Periodic PM interval in km (between services) */
+    pmIntervalKm?: number;
     currentMileage?: number;
 
     // Responsibility
@@ -181,6 +183,7 @@ export async function getTrucksClient(): Promise<TruckData[]> {
                 lastServiceDate: data.lastServiceDate || "",
                 nextServiceDate: data.nextServiceDate || "",
                 nextServiceMileage: data.nextServiceMileage,
+                pmIntervalKm: data.pmIntervalKm,
                 currentMileage: data.currentMileage,
 
                 taxRenewalStatus: data.taxRenewalStatus,
@@ -274,6 +277,7 @@ export async function getTruckByIdClient(id: string): Promise<TruckData | null> 
             lastServiceDate: data.lastServiceDate || "",
             nextServiceDate: data.nextServiceDate || "",
             nextServiceMileage: data.nextServiceMileage,
+            pmIntervalKm: data.pmIntervalKm,
             currentMileage: data.currentMileage,
 
             taxResponsible: data.taxResponsible || "Operation Admin",

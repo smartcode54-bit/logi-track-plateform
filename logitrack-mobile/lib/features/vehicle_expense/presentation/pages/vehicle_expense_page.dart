@@ -10,6 +10,7 @@ import 'other_expense_form_page.dart';
 import '../../../home/data/repositories/driver_repository.dart'; // 🚗 ดึงข้อมูลรถ
 import '../../data/repositories/maintenance_repository.dart'; // 🛠️ ฟังก์ชันดึง PM
 import 'maintenance_action_page.dart'; // 🛠️ หน้าฟอร์มกดแนบเอกสารซ่อม
+import '../utils/maintenance_i18n.dart';
 
 /// หน้าหลัก "จัดการรถ / เปลี่ยนค่าใช้จ่าย" — เลือกบันทึกเติมน้ำมัน หรือค่าใช้จ่ายอื่น + แสดงประวัติล่าสุด
 class VehicleExpensePage extends StatefulWidget {
@@ -31,6 +32,19 @@ class _VehicleExpensePageState extends State<VehicleExpensePage>
   
   Map<String, dynamic>? _driverData; // 🚗 ข้อมูลพขร.
   final _driverRepository = DriverRepository(); // 🚗 เพื่อดึง info รถ
+
+  /// รถที่พขร. ขับ — Firestore เก็บที่ currentAssignment.truckId (ไม่ใช่ top-level truckId)
+  String _truckIdForMaintenance(Map<String, dynamic>? driver) {
+    if (driver == null) return '';
+    final top = driver['truckId'] as String?;
+    if (top != null && top.isNotEmpty) return top;
+    final ca = driver['currentAssignment'];
+    if (ca is Map) {
+      final tid = ca['truckId'] as String?;
+      if (tid != null && tid.isNotEmpty) return tid;
+    }
+    return '';
+  }
 
   @override
   void initState() {
@@ -83,11 +97,22 @@ class _VehicleExpensePageState extends State<VehicleExpensePage>
     });
     try {
       await syncPendingVehicleExpenses(uid);
+      _driverData = await _driverRepository.getCurrentDriver(uid);
       final fromServer = await getVehicleExpensesByDriver(uid, limit: 20);
-      _driverData = await _driverRepository.getCurrentDriver(uid); // 🚗 โหลดข้อมูลรถ
-      
+      final truckId = _truckIdForMaintenance(_driverData);
+      final fromCompletedMaintenance =
+          await MaintenanceRepository().fetchCompletedMaintenanceAsExpenses(
+        truckId: truckId,
+        driverId: uid,
+        limit: 24,
+      );
+
       final pending = await getPendingVehicleExpenses(uid);
-      final merged = <VehicleExpense>[...fromServer, ...pending];
+      final merged = <VehicleExpense>[
+        ...fromServer,
+        ...fromCompletedMaintenance,
+        ...pending,
+      ];
       merged.sort((a, b) => (b.date).compareTo(a.date));
       final list = List<VehicleExpense>.from(merged.take(30));
       if (mounted) {
@@ -188,13 +213,17 @@ class _VehicleExpensePageState extends State<VehicleExpensePage>
                         const SizedBox(height: 16),
                         // 🛠️ แผงจัดการซ่อมบำรุง (Maintenance CTA)
                         StreamBuilder<List<Map<String, dynamic>>>(
-                          stream: MaintenanceRepository().streamActiveMaintenance(_driverData?['truckId'] ?? ''),
+                          stream: MaintenanceRepository().streamActiveMaintenance(
+                            _truckIdForMaintenance(_driverData),
+                          ),
                           builder: (context, snap) {
                             final tasks = snap.data ?? [];
                             if (tasks.isEmpty) return const SizedBox.shrink();
                             final task = tasks.first;
                             final status = task['status'] as String? ?? '';
-                            final serviceType = task['serviceType'] as String? ?? 'ซ่อมบำรุงตามรอบ';
+                            final serviceLabel = trMaintenanceServiceType(
+                              task['serviceType'] as String?,
+                            );
 
                             return Card(
                               color: Colors.amber.shade50,
@@ -212,13 +241,17 @@ class _VehicleExpensePageState extends State<VehicleExpensePage>
                                     child: const Icon(Icons.build_circle_outlined, color: Colors.white),
                                   ),
                                   title: Text(
-                                    serviceType, 
+                                    serviceLabel,
                                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87)
                                   ),
                                   subtitle: Padding(
                                     padding: const EdgeInsets.only(top: 4),
                                     child: Text(
-                                      'สถานะ: $status', 
+                                      'maintenance_vehicle_status_line'.tr(
+                                        namedArgs: {
+                                          'status': trMaintenanceStatus(status),
+                                        },
+                                      ),
                                       style: TextStyle(color: Colors.amber.shade900, fontWeight: FontWeight.bold)
                                     ),
                                   ),
@@ -237,7 +270,7 @@ class _VehicleExpensePageState extends State<VehicleExpensePage>
                                       );
                                       if (result == true) _loadRecent();
                                     },
-                                    child: const Text('ดำเนินการ'),
+                                    child: Text('maintenance_vehicle_card_cta'.tr()),
                                   ),
                                 ),
                               ),

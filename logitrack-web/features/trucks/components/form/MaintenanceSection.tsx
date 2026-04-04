@@ -12,9 +12,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useFormContext } from "react-hook-form";
 import { useLanguage } from "@/context/language";
 import { Wrench } from "lucide-react";
+import type { TruckFormValues } from "@/validate/truckSchema";
 
 export function MaintenanceSection() {
-    const { control } = useFormContext();
+    const { control, watch } = useFormContext<TruckFormValues>();
+    const ownershipType = watch("ownershipType");
     const { t } = useLanguage();
 
     return (
@@ -103,6 +105,30 @@ export function MaintenanceSection() {
                             </FormItem>
                         )}
                     />
+                    {ownershipType === "own" && (
+                        <FormField
+                            control={control}
+                            name="pmIntervalKm"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>{t("trucks.maintenance.pmIntervalKm")}</FormLabel>
+                                    <FormControl>
+                                        <Input
+                                            type="number"
+                                            placeholder={t("trucks.placeholder.pmIntervalKm")}
+                                            {...field}
+                                            onChange={(e) => {
+                                                const val = e.target.value === "" ? undefined : Number(e.target.value);
+                                                field.onChange(val);
+                                            }}
+                                            value={field.value ?? ""}
+                                        />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                    )}
                     <FormField
                         control={control}
                         name="maintenanceResponsible"

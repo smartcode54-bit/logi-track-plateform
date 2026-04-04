@@ -1,0 +1,3 @@
+export const IMAGE_PREVIEW_SCALE_MIN = 0.5;
+export const IMAGE_PREVIEW_SCALE_MAX = 4;
+export const IMAGE_PREVIEW_SCALE_STEP = 1.25;

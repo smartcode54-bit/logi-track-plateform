@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { MaintenanceForm } from "./MaintenanceForm";
 import { saveMaintenanceRecord, getTruckChoices } from "@/features/maintenance/api/maintenance";
 import { useAuth } from "@/context/auth";
 import { uploadTruckFile } from "@/features/trucks/services/truckService";
+import { DEFAULT_PM_INTERVAL_KM } from "@/features/trucks/constants";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
@@ -51,6 +52,11 @@ export function MaintenanceFormWrapper({ onSuccess, onCancel }: MaintenanceFormW
         }
         loadTrucks();
     }, []);
+
+    const pmIntervalKm = useMemo(() => {
+        const t = trucksList.find((x) => x.id === truckId);
+        return t?.pmIntervalKm ?? DEFAULT_PM_INTERVAL_KM;
+    }, [trucksList, truckId]);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -112,6 +118,7 @@ export function MaintenanceFormWrapper({ onSuccess, onCancel }: MaintenanceFormW
             </Button>
             <MaintenanceForm
                 selectedRecordId={null}
+                pmIntervalKm={pmIntervalKm}
                 type={type}
                 setType={setType}
                 serviceType={serviceType}

@@ -58,6 +58,7 @@ export function useTrucksList() {
                     lastServiceDate: data.lastServiceDate,
                     nextServiceDate: data.nextServiceDate,
                     nextServiceMileage: data.nextServiceMileage,
+                    pmIntervalKm: data.pmIntervalKm,
                     currentMileage: data.currentMileage,
                     createdBy: data.createdBy || "",
                     createdAt: formatTimestamp(data.createdAt),

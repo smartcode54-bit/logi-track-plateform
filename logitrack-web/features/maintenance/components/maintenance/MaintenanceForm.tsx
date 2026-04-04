@@ -1,19 +1,34 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useLanguage } from "@/context/language";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DatePicker } from "@/components/ui/date-picker";
 import { DateTimePicker } from "@/components/ui/datetime-picker";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import { format } from "date-fns";
-import { CheckCircle2, Loader2, Clock, Check, ChevronsUpDown } from "lucide-react";
+import { CheckCircle2, Loader2, Clock, Check, ChevronsUpDown, ExternalLink, Eye } from "lucide-react";
+import { looksLikeImageUrl } from "@/features/maintenance/utils/looksLikeImageUrl";
+import {
+    MaintenanceImagePreviewDialog,
+    type MaintenancePreviewGallery,
+} from "@/features/maintenance/components/maintenance/MaintenanceImagePreviewDialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import type { MaintenanceData } from "@/validate/maintenanceSchema";
+import { DEFAULT_PM_INTERVAL_KM } from "@/features/trucks/constants";
 
 const SERVICE_TYPES_PM = [
     { value: "periodic_check", label: "Periodic Maintenance" },
@@ -60,12 +75,35 @@ interface MaintenanceFormProps {
     truckId?: string;
     setTruckId?: (v: string) => void;
     trucksList?: any[]; // To avoid importing TruckData which might not be at file level
+    /** Truck PM interval (km); legacy trucks without the field use DEFAULT_PM_INTERVAL_KM. */
+    pmIntervalKm?: number;
+    /** URLs already stored on this maintenance doc (admin uploads). */
+    existingReceiptUrls?: string[];
+    /** Driver-submitted invoice image URL (mobile app). */
+    driverReceiptUrl?: string | null;
+    driverReceiptAmount?: number | null;
 }
 
 export function MaintenanceForm(props: MaintenanceFormProps) {
     const { t } = useLanguage();
+    const pmStepKm = props.pmIntervalKm ?? DEFAULT_PM_INTERVAL_KM;
     const [open, setOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
+    const [previewGallery, setPreviewGallery] = useState<MaintenancePreviewGallery>(null);
+    const [completeConfirmOpen, setCompleteConfirmOpen] = useState(false);
+    const formRef = useRef<HTMLFormElement>(null);
+
+    const savedUrls = (props.existingReceiptUrls ?? []).filter((u): u is string => typeof u === "string" && u.length > 0);
+    const driverUrl = props.driverReceiptUrl?.trim() ? props.driverReceiptUrl : null;
+
+    const openReceiptPreview = (clickedUrl: string) => {
+        const merged: string[] = [...savedUrls];
+        if (driverUrl) merged.push(driverUrl);
+        const urls = [...new Set(merged.filter(Boolean))];
+        if (urls.length === 0) return;
+        const startIndex = Math.max(0, urls.indexOf(clickedUrl));
+        setPreviewGallery({ urls, startIndex });
+    };
 
     return (
         <Card className="border-t-4 border-t-blue-500 shadow-md">
@@ -75,7 +113,7 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                 <CardDescription className="text-sm text-muted-foreground mt-2">{t("maintenance.form.buttonNotes")}</CardDescription>
             </CardHeader>
             <CardContent>
-                <form onSubmit={props.handleSave} className="space-y-8">
+                <form ref={formRef} onSubmit={props.handleSave} className="space-y-8">
                     {props.trucksList && props.setTruckId && (
                         <div className="space-y-2 flex flex-col">
                             <Label className="text-base font-semibold">เลือกรถบรรทุก (Select Truck)</Label>
@@ -256,7 +294,7 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                                 <Input type="number" value={props.currentMileage} onChange={e => {
                                     props.setCurrentMileage(e.target.value);
                                     if (props.type === 'PM' && e.target.value) {
-                                        props.setNextServiceMileage((parseFloat(e.target.value) + 20000).toString());
+                                        props.setNextServiceMileage((parseFloat(e.target.value) + pmStepKm).toString());
                                     }
                                 }} />
                             </div>
@@ -268,11 +306,107 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                         )}
                     </div>
 
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                         <Label>{t("maintenance.form.receipt")}</Label>
-                        <div className="border border-dashed rounded-lg p-4 bg-background">
-                            <Input type="file" onChange={props.handleFileChange} />
-                            {props.selectedFile && <p className="text-xs text-muted-foreground mt-2">{props.selectedFile.name}</p>}
+
+                        <MaintenanceImagePreviewDialog
+                            gallery={previewGallery}
+                            onClose={() => setPreviewGallery(null)}
+                            title={t("maintenance.form.receiptPreviewTitle")}
+                            openInNewTabLabel={t("maintenance.history.openInNewTab")}
+                            zoomInLabel={t("maintenance.preview.zoomIn")}
+                            zoomOutLabel={t("maintenance.preview.zoomOut")}
+                            resetZoomLabel={t("maintenance.preview.resetZoom")}
+                            prevLabel={t("maintenance.preview.previous")}
+                            nextLabel={t("maintenance.preview.next")}
+                            notPreviewableLabel={t("maintenance.preview.notPreviewable")}
+                            printLabel={t("maintenance.preview.print")}
+                        />
+
+                        {(savedUrls.length > 0 || driverUrl) && (
+                            <div className="space-y-4 rounded-lg border bg-muted/10 p-4">
+                                {savedUrls.length > 0 && (
+                                    <div className="space-y-2">
+                                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                                            {t("maintenance.form.savedReceipts")}
+                                        </p>
+                                        <div className="flex flex-wrap gap-3">
+                                            {savedUrls.map((url) => (
+                                                <button
+                                                    key={url}
+                                                    type="button"
+                                                    onClick={() => openReceiptPreview(url)}
+                                                    className="group relative flex h-24 w-24 shrink-0 overflow-hidden rounded-md border bg-background ring-offset-background transition hover:ring-2 hover:ring-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                                    title={t("maintenance.form.clickToPreview")}
+                                                >
+                                                    {looksLikeImageUrl(url) ? (
+                                                        /* eslint-disable-next-line @next/next/no-img-element */
+                                                        <img src={url} alt="" className="h-full w-full object-cover" />
+                                                    ) : (
+                                                        <span className="flex h-full w-full items-center justify-center p-1 text-center text-[10px] text-muted-foreground">
+                                                            {t("maintenance.history.viewDriverFile")}
+                                                        </span>
+                                                    )}
+                                                    <span className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition group-hover:opacity-100">
+                                                        <Eye className="h-6 w-6 text-white" />
+                                                    </span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {driverUrl && (
+                                    <div className="space-y-2 border-t border-dashed pt-4">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                                                {t("maintenance.form.driverReceiptBlock")}
+                                            </p>
+                                            {props.driverReceiptAmount != null &&
+                                            !Number.isNaN(Number(props.driverReceiptAmount)) ? (
+                                                <Badge variant="secondary" className="text-xs">
+                                                    {t("maintenance.history.driverInvoiceAmount")}: ฿
+                                                    {Number(props.driverReceiptAmount).toLocaleString()}
+                                                </Badge>
+                                            ) : null}
+                                        </div>
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => openReceiptPreview(driverUrl)}
+                                                className="group relative flex h-28 w-28 shrink-0 overflow-hidden rounded-md border bg-amber-500/5 ring-amber-500/30 ring-offset-background transition hover:ring-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                            >
+                                                {looksLikeImageUrl(driverUrl) ? (
+                                                    /* eslint-disable-next-line @next/next/no-img-element */
+                                                    <img src={driverUrl} alt="" className="h-full w-full object-cover" />
+                                                ) : (
+                                                    <span className="flex h-full w-full items-center justify-center p-2 text-center text-xs text-muted-foreground">
+                                                        {t("maintenance.history.viewDriverFile")}
+                                                    </span>
+                                                )}
+                                                <span className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition group-hover:opacity-100">
+                                                    <Eye className="h-7 w-7 text-white" />
+                                                </span>
+                                            </button>
+                                            <Button variant="outline" size="sm" asChild>
+                                                <a href={driverUrl} target="_blank" rel="noopener noreferrer">
+                                                    <ExternalLink className="mr-2 h-4 w-4" />
+                                                    {t("maintenance.history.openInNewTab")}
+                                                </a>
+                                            </Button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        <div className="border border-dashed rounded-lg p-4 bg-background space-y-2">
+                            <Input type="file" accept="image/*,.pdf" onChange={props.handleFileChange} />
+                            {props.selectedFile ? (
+                                <p className="text-xs text-muted-foreground">{props.selectedFile.name}</p>
+                            ) : (
+                                <p className="text-xs text-muted-foreground">{t("maintenance.form.newReceiptHint")}</p>
+                            )}
                         </div>
                     </div>
 
@@ -301,18 +435,11 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                                     <Button
                                         type="button"
                                         variant="outline"
-                                        className="border-green-600 text-green-600 hover:bg-green-50 hover:text-green-700 gap-2 font-semibold shadow-sm"
+                                        className="border-green-600 text-green-600 hover:bg-green-50 hover:text-green-700 dark:hover:bg-green-950/40 dark:text-green-400 gap-2 font-semibold shadow-sm"
                                         disabled={props.isSubmitting}
                                         onClick={(e) => {
                                             e.preventDefault();
-                                            const isConfirmed = window.confirm("คุณต้องการเสร็จสิ้นการซ่อมบำรุงรายการนี้ใช่หรือไม่? \n(การเสร็จสิ้นจะปิดงานซ่อมนี้อย่างถาวร)");
-                                            if (!isConfirmed) return;
-
-                                            props.setStatus('completed');
-                                            const form = e.currentTarget.closest('form');
-                                            setTimeout(() => {
-                                                if (form) form.requestSubmit();
-                                            }, 0);
+                                            setCompleteConfirmOpen(true);
                                         }}
                                     >
                                         <CheckCircle2 className="w-4 h-4" /> {t("maintenance.form.complete")}
@@ -322,6 +449,32 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                         </div>
                     </div>
                 </form>
+
+                <Dialog open={completeConfirmOpen} onOpenChange={setCompleteConfirmOpen}>
+                    <DialogContent className="sm:max-w-md">
+                        <DialogHeader>
+                            <DialogTitle>{t("maintenance.form.completeConfirmTitle")}</DialogTitle>
+                            <DialogDescription>{t("maintenance.form.completeConfirmDescription")}</DialogDescription>
+                        </DialogHeader>
+                        <DialogFooter className="gap-2 sm:gap-0">
+                            <Button type="button" variant="outline" onClick={() => setCompleteConfirmOpen(false)}>
+                                {t("maintenance.form.completeConfirmCancel")}
+                            </Button>
+                            <Button
+                                type="button"
+                                className="bg-green-600 text-white hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-600"
+                                disabled={props.isSubmitting}
+                                onClick={() => {
+                                    setCompleteConfirmOpen(false);
+                                    props.setStatus("completed");
+                                    setTimeout(() => formRef.current?.requestSubmit(), 0);
+                                }}
+                            >
+                                {t("maintenance.form.completeConfirmOk")}
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
             </CardContent>
         </Card>
     );

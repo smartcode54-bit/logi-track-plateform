@@ -1,11 +1,10 @@
 import 'dart:typed_data';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import '../../../home/data/services/image_compression_service.dart';
-import '../../../home/data/repositories/checkin_repository.dart'; // 📸 For stampOverlayAndCompressForEvidence
+import '../../../home/data/repositories/checkin_repository.dart';
 import '../../data/repositories/maintenance_repository.dart';
+import '../utils/maintenance_i18n.dart';
 
 class MaintenanceActionPage extends StatefulWidget {
   final Map<String, dynamic> task;
@@ -19,7 +18,7 @@ class MaintenanceActionPage extends StatefulWidget {
 class _MaintenanceActionPageState extends State<MaintenanceActionPage> {
   final _amountController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
-  
+
   Uint8List? _invoicePhoto;
   bool _saving = false;
 
@@ -47,14 +46,18 @@ class _MaintenanceActionPageState extends State<MaintenanceActionPage> {
       if (mounted) {
         Navigator.pop(context, true);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('เช็คอินสถานีซ่อมสำเร็จเรียบร้อยครับ')),
+          SnackBar(content: Text('maintenance_checkin_success'.tr())),
         );
       }
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('เกิดข้อผิดพลาด: $e')),
+          SnackBar(
+            content: Text(
+              'maintenance_error_generic'.tr(namedArgs: {'error': e.toString()}),
+            ),
+          ),
         );
       }
     }
@@ -63,7 +66,7 @@ class _MaintenanceActionPageState extends State<MaintenanceActionPage> {
   Future<void> _handleSubmitCompletion() async {
     if (!_formKey.currentState!.validate() || _invoicePhoto == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('กรุณากรอกข้อมูลและแนบรูปภาพใบเสร็จให้ครบถ้วนก่อนส่งงาน')),
+        SnackBar(content: Text('maintenance_form_incomplete'.tr())),
       );
       return;
     }
@@ -83,14 +86,18 @@ class _MaintenanceActionPageState extends State<MaintenanceActionPage> {
       if (mounted) {
         Navigator.pop(context, true);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('ส่งรายงานซ่อมให้ผู้ดูแลระบบตรวจสอบและปิดงานแล้วครับ')),
+          SnackBar(content: Text('maintenance_submit_success'.tr())),
         );
       }
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('เกิดข้อผิดพลาดในการอัปโหลด: $e')),
+          SnackBar(
+            content: Text(
+              '${'maintenance_upload_error'.tr()}: $e',
+            ),
+          ),
         );
       }
     }
@@ -98,14 +105,19 @@ class _MaintenanceActionPageState extends State<MaintenanceActionPage> {
 
   @override
   Widget build(BuildContext context) {
-    final status = widget.task['status'] as String? ?? '';
-    final serviceType = widget.task['serviceType'] as String? ?? 'เช็คระยะตามรอบ';
+    final statusRaw = widget.task['status'] as String? ?? '';
+    final serviceLabel = trMaintenanceServiceType(
+      widget.task['serviceType'] as String?,
+    );
     final notes = widget.task['notes'] as String? ?? '';
-    final location = widget.task['locationName'] as String? ?? 'ไม่ระบุสถานที่';
+    final locationRaw = widget.task['locationName'] as String?;
+    final locationDisplay = (locationRaw == null || locationRaw.trim().isEmpty)
+        ? 'maintenance_location_unspecified'.tr()
+        : locationRaw;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(serviceType),
+        title: Text(serviceLabel),
       ),
       body: _saving
           ? const Center(child: CircularProgressIndicator())
@@ -116,13 +128,20 @@ class _MaintenanceActionPageState extends State<MaintenanceActionPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _buildInfoSection(serviceType, notes, location, status),
+                    _buildInfoSection(
+                      serviceLabel,
+                      notes,
+                      locationDisplay,
+                      statusRaw,
+                    ),
                     const SizedBox(height: 24),
-                    
-                    if (status == 'Scheduled') ...[
-                       const Text(
-                        'ขั้นตอนที่ 1: การรับรถเข้าศูนย์',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+
+                    if (statusRaw == 'Scheduled' ||
+                        statusRaw == 'PM Booking' ||
+                        statusRaw == 'in_progress') ...[
+                      Text(
+                        'maintenance_step1_title'.tr(),
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                       ),
                       const SizedBox(height: 12),
                       ElevatedButton.icon(
@@ -132,31 +151,38 @@ class _MaintenanceActionPageState extends State<MaintenanceActionPage> {
                         ),
                         onPressed: _handleCheckIn,
                         icon: const Icon(Icons.location_on),
-                        label: const Text('เช็คอินนำรถเข้าอู่ซ่อมบำรุง', style: TextStyle(fontSize: 16)),
+                        label: Text(
+                          'maintenance_step1_button'.tr(),
+                          style: const TextStyle(fontSize: 16),
+                        ),
                       ),
                     ],
 
-                    if (status == 'In-Progress') ...[
-                      const Text(
-                        'ขั้นตอนที่ 2: ดำเนินงานซ่อมบำรุงเสร็จสิ้น',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    if (statusRaw == 'In-Progress') ...[
+                      Text(
+                        'maintenance_step2_title'.tr(),
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                       ),
                       const SizedBox(height: 16),
                       TextFormField(
                         controller: _amountController,
                         keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'ยอดเงินค่าใช้จ่ายตามใบเสร็จ (บาท)',
-                          hintText: 'กรอกตัวเลขยอดรวมค่าใช้จ่าย',
+                        decoration: InputDecoration(
+                          labelText: 'maintenance_invoice_amount_label'.tr(),
+                          hintText: 'maintenance_invoice_amount_hint'.tr(),
                         ),
                         validator: (value) {
-                          if (value == null || value.isEmpty) return 'กรุณากรอกยอดเงิน';
-                          if (double.tryParse(value) == null) return 'กรุณากรอกตัวเลขที่ถูกต้อง';
+                          if (value == null || value.isEmpty) {
+                            return 'maintenance_amount_required'.tr();
+                          }
+                          if (double.tryParse(value) == null) {
+                            return 'maintenance_amount_invalid'.tr();
+                          }
                           return null;
                         },
                       ),
                       const SizedBox(height: 16),
-                      const Text('แนบรูปถ่าย หรือ บิลใบเสร็จ:'),
+                      Text('maintenance_attach_receipt_label'.tr()),
                       const SizedBox(height: 8),
                       InkWell(
                         onTap: _pickInvoicePhoto,
@@ -174,7 +200,10 @@ class _MaintenanceActionPageState extends State<MaintenanceActionPage> {
                                   children: [
                                     const Icon(Icons.camera_alt, size: 40, color: Colors.blue),
                                     const SizedBox(height: 8),
-                                    Text('แตะเพื่อถ่ายรูปใบเสร็จซ่อม', style: TextStyle(color: Colors.grey[700])),
+                                    Text(
+                                      'maintenance_attach_receipt_tap'.tr(),
+                                      style: TextStyle(color: Colors.grey[700]),
+                                    ),
                                   ],
                                 ),
                         ),
@@ -186,7 +215,10 @@ class _MaintenanceActionPageState extends State<MaintenanceActionPage> {
                           padding: const EdgeInsets.symmetric(vertical: 16),
                         ),
                         onPressed: _handleSubmitCompletion,
-                        child: const Text('แจ้งซ่อมเสร็จ & ส่งให้ผู้ตรวจ', style: TextStyle(fontSize: 16)),
+                        child: Text(
+                          'maintenance_submit_done_button'.tr(),
+                          style: const TextStyle(fontSize: 16),
+                        ),
                       ),
                     ],
                   ],
@@ -196,10 +228,19 @@ class _MaintenanceActionPageState extends State<MaintenanceActionPage> {
     );
   }
 
-  Widget _buildInfoSection(String serviceType, String notes, String location, String status) {
+  Widget _buildInfoSection(
+    String serviceDisplay,
+    String notes,
+    String locationDisplay,
+    String statusRaw,
+  ) {
+    final statusDisplay = trMaintenanceStatus(statusRaw);
     Color statusColor = Colors.orange;
-    if (status == 'In-Progress') statusColor = Colors.blue;
-    if (status == 'Scheduled') statusColor = Colors.teal;
+    if (statusRaw == 'In-Progress') statusColor = Colors.blue;
+    if (statusRaw == 'Scheduled') statusColor = Colors.teal;
+    if (statusRaw == 'PM Booking' || statusRaw == 'in_progress') {
+      statusColor = Colors.deepOrange;
+    }
 
     return Card(
       elevation: 3,
@@ -211,25 +252,43 @@ class _MaintenanceActionPageState extends State<MaintenanceActionPage> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('สถานะงานซ่อมเเจ้งเตือน:', style: TextStyle(fontWeight: FontWeight.bold)),
+                Expanded(
+                  child: Text(
+                    'maintenance_info_status_header'.tr(),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.15),
+                    color: statusColor.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(color: statusColor),
                   ),
-                  child: Text(status, style: TextStyle(color: statusColor, fontWeight: FontWeight.bold, fontSize: 12)),
+                  child: Text(
+                    statusDisplay,
+                    style: TextStyle(
+                      color: statusColor,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
                 ),
               ],
             ),
             const Divider(),
             const SizedBox(height: 8),
-            Text('ประเภทซ่อม: $serviceType', style: const TextStyle(fontWeight: FontWeight.bold)),
+            Text(
+              '${'maintenance_info_type_label'.tr()}: $serviceDisplay',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
-            Text('สถานที่นัดหมาย: $location'),
+            Text('${'maintenance_info_location_label'.tr()}: $locationDisplay'),
             const SizedBox(height: 8),
-            Text('รายละเอียดเพิ่ม: $notes', style: const TextStyle(color: Colors.grey)),
+            Text(
+              '${'maintenance_info_notes_label'.tr()}: $notes',
+              style: const TextStyle(color: Colors.grey),
+            ),
           ],
         ),
       ),

@@ -39,3 +39,17 @@ export function formatLicensePlate(plate: string): string {
 
   return cleaned;
 }
+
+/**
+ * True if URL points to a PDF (handles Firebase Storage URLs that end with ?alt=media&token=...).
+ * Do not use string.endsWith(".pdf") on full URLs.
+ */
+export function isPdfUrl(url: string): boolean {
+  if (!url) return false;
+  const noQueryOrHash = url.split("?")[0].split("#")[0];
+  try {
+    return decodeURIComponent(noQueryOrHash).toLowerCase().endsWith(".pdf");
+  } catch {
+    return noQueryOrHash.toLowerCase().endsWith(".pdf");
+  }
+}

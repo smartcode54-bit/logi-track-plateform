@@ -75,6 +75,8 @@ export const truckSchema = z.object({
     lastServiceDate: z.string().optional(),
     nextServiceDate: z.string().optional(),
     nextServiceMileage: optionalNumber(0, 2000000, "Next Service Mileage"),
+    /** Periodic PM interval (km between services); required for own fleet in superRefine */
+    pmIntervalKm: optionalNumber(1, 500000, "PM interval"),
     currentMileage: optionalNumber(0, 2000000, "Current Mileage"),
 
     // Insurance Information (Optional)
@@ -143,6 +145,9 @@ export const truckSchema = z.object({
         if (data.nextServiceMileage === undefined || data.nextServiceMileage === null) {
             ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Next Service Mileage is required for own fleet", path: ["nextServiceMileage"] });
         }
+        if (data.pmIntervalKm === undefined || data.pmIntervalKm === null) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: "PM service interval (km) is required for own fleet", path: ["pmIntervalKm"] });
+        }
     }
     // Subcontractor trucks must have a subcontractor selected
     if (data.ownershipType === "subcontractor" && !data.subcontractorId) {
@@ -203,6 +208,7 @@ export const truckDefaultValues: TruckFormValues = {
     lastServiceDate: "",
     nextServiceDate: "",
     nextServiceMileage: undefined,
+    pmIntervalKm: undefined,
     currentMileage: 0,
 
     // Renewal Defaults

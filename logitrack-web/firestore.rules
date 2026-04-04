@@ -218,10 +218,35 @@ service cloud.firestore {
       );
     }
 
-    // Maintenance: admin read/write.
+    // Maintenance: admin full; assigned driver may read/update rows for their truck (mobile PM / receipt).
+    function driverMaintenanceTruckId() {
+      let did = request.auth.token.get('driverId', '');
+      return did != '' && exists(/databases/$(database)/documents/drivers/$(did))
+        ? (
+            get(/databases/$(database)/documents/drivers/$(did)).data.get('currentAssignment', {}).get('truckId', '') != ''
+            ? get(/databases/$(database)/documents/drivers/$(did)).data.get('currentAssignment', {}).get('truckId', '')
+            : get(/databases/$(database)/documents/drivers/$(did)).data.get('truckId', '')
+          )
+        : '';
+    }
+
+    function maintenanceVisibleToAssignedDriver(truckId) {
+      return truckId != ''
+        && driverMaintenanceTruckId() != ''
+        && truckId == driverMaintenanceTruckId();
+    }
+
     match /maintenance/{docId} {
-      allow read: if request.auth != null && request.auth.token.admin == true;
-      allow write: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+      allow read: if request.auth != null && (
+        request.auth.token.admin == true ||
+        maintenanceVisibleToAssignedDriver(resource.data.truckId)
+      );
+      allow create: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+      allow update: if isAppCheckVerified() && request.auth != null && (
+        request.auth.token.admin == true ||
+        maintenanceVisibleToAssignedDriver(resource.data.truckId)
+      );
+      allow delete: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
     }
 
     // Transactions (tax, insurance, etc.): admin only.

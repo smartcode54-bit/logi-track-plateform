@@ -1,11 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import { useLanguage } from "@/context/language";
 import { MaintenanceData } from "@/validate/maintenanceSchema";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { History, Wrench, AlertTriangle, MoreHorizontal, Pencil, Plus } from "lucide-react";
+import { History, Wrench, AlertTriangle, MoreHorizontal, Pencil, Plus, ExternalLink, Eye } from "lucide-react";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -13,6 +14,11 @@ import {
     DropdownMenuLabel,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { buildMaintenanceGalleryUrls } from "@/features/maintenance/utils/buildMaintenanceGalleryUrls";
+import {
+    MaintenanceImagePreviewDialog,
+    type MaintenancePreviewGallery,
+} from "@/features/maintenance/components/maintenance/MaintenanceImagePreviewDialog";
 
 interface MaintenanceHistoryListProps {
     history: MaintenanceData[];
@@ -22,6 +28,21 @@ interface MaintenanceHistoryListProps {
 
 export function MaintenanceHistoryList({ history, onNewClick, onEditClick }: MaintenanceHistoryListProps) {
     const { t } = useLanguage();
+    const [previewGallery, setPreviewGallery] = useState<MaintenancePreviewGallery>(null);
+
+    const openRecordPreview = (record: MaintenanceData, startOnInvoice?: boolean) => {
+        const urls = buildMaintenanceGalleryUrls(record);
+        if (urls.length === 0) return;
+        let startIndex = 0;
+        if (startOnInvoice && record.invoiceUrl) {
+            const i = urls.indexOf(record.invoiceUrl);
+            if (i >= 0) startIndex = i;
+        }
+        setPreviewGallery({ urls, startIndex });
+    };
+
+    const primaryAttachmentUrl = (record: MaintenanceData) =>
+        record.invoiceUrl?.trim() || buildMaintenanceGalleryUrls(record)[0] || "";
 
     if (history.length === 0) {
         return (
@@ -41,8 +62,24 @@ export function MaintenanceHistoryList({ history, onNewClick, onEditClick }: Mai
                 <Button onClick={onNewClick} size="sm"><Plus className="w-4 h-4 mr-2" /> {t("maintenance.form.addRecord")}</Button>
             </CardHeader>
             <CardContent>
+                <MaintenanceImagePreviewDialog
+                    gallery={previewGallery}
+                    onClose={() => setPreviewGallery(null)}
+                    title={t("maintenance.history.previewTitle")}
+                    openInNewTabLabel={t("maintenance.history.openInNewTab")}
+                    zoomInLabel={t("maintenance.preview.zoomIn")}
+                    zoomOutLabel={t("maintenance.preview.zoomOut")}
+                    resetZoomLabel={t("maintenance.preview.resetZoom")}
+                    prevLabel={t("maintenance.preview.previous")}
+                    nextLabel={t("maintenance.preview.next")}
+                    notPreviewableLabel={t("maintenance.preview.notPreviewable")}
+                    printLabel={t("maintenance.preview.print")}
+                />
                 <div className="space-y-4">
-                    {history.map((record) => (
+                    {history.map((record) => {
+                        const galleryUrls = buildMaintenanceGalleryUrls(record);
+                        const hasAttachments = galleryUrls.length > 0;
+                        return (
                         <div
                             key={record.id}
                             className="flex items-start justify-between p-4 border rounded-lg hover:bg-muted/30 transition-colors group relative"
@@ -51,20 +88,58 @@ export function MaintenanceHistoryList({ history, onNewClick, onEditClick }: Mai
                                 <div className={`p-3 rounded-full ${record.type === 'PM' ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'}`}>
                                     {record.type === 'PM' ? <History className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
                                 </div>
-                                inverse
                                 <div>
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex flex-wrap items-center gap-2">
                                         <p className="font-semibold">
                                             {t(`maintenance.service.${record.serviceType}`) !== `maintenance.service.${record.serviceType}` 
                                                 ? t(`maintenance.service.${record.serviceType}`) 
                                                 : record.serviceType}
                                         </p>
                                         <Badge variant="outline" className="text-xs">{record.status.replace("_", " ")}</Badge>
+                                        {record.driverSubmitted ? (
+                                            <Badge className="text-xs bg-amber-600 hover:bg-amber-600">
+                                                {t("maintenance.history.driverSubmittedBadge")}
+                                            </Badge>
+                                        ) : null}
                                     </div>
                                     <p className="text-sm text-muted-foreground">
                                         {record.startDate} {record.endDate ? ` - ${record.endDate}` : ''} • {record.provider}
                                     </p>
                                     {record.notes && <p className="text-sm italic text-muted-foreground mt-1">"{record.notes}"</p>}
+                                    {hasAttachments ? (
+                                        <div
+                                            className="mt-3 flex flex-wrap items-center gap-2"
+                                            onClick={(e) => e.stopPropagation()}
+                                        >
+                                            <Button
+                                                type="button"
+                                                variant="secondary"
+                                                size="sm"
+                                                className="h-8"
+                                                onClick={() => openRecordPreview(record, !!record.invoiceUrl)}
+                                            >
+                                                <Eye className="mr-1.5 h-3.5 w-3.5" />
+                                                {record.invoiceUrl
+                                                    ? t("maintenance.history.viewDriverFile")
+                                                    : t("maintenance.preview.viewReceipts")}
+                                            </Button>
+                                            <Button variant="ghost" size="sm" className="h-8 px-2" asChild>
+                                                <a
+                                                    href={primaryAttachmentUrl(record)}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                >
+                                                    <ExternalLink className="h-3.5 w-3.5" />
+                                                </a>
+                                            </Button>
+                                            {typeof record.invoiceAmount === "number" && !Number.isNaN(record.invoiceAmount) ? (
+                                                <span className="text-sm text-muted-foreground">
+                                                    {t("maintenance.history.driverInvoiceAmount")}: ฿
+                                                    {record.invoiceAmount.toLocaleString()}
+                                                </span>
+                                            ) : null}
+                                        </div>
+                                    ) : null}
                                 </div>
                             </div>
                             <div className="flex items-center gap-4">
@@ -83,6 +158,17 @@ export function MaintenanceHistoryList({ history, onNewClick, onEditClick }: Mai
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="end">
                                         <DropdownMenuLabel>{t("maintenance.table.actions")}</DropdownMenuLabel>
+                                        {hasAttachments ? (
+                                            <DropdownMenuItem
+                                                className="cursor-pointer"
+                                                onClick={() => openRecordPreview(record, !!record.invoiceUrl)}
+                                            >
+                                                <Eye className="mr-2 h-4 w-4" />
+                                                {record.invoiceUrl
+                                                    ? t("maintenance.history.viewDriverFile")
+                                                    : t("maintenance.preview.viewReceipts")}
+                                            </DropdownMenuItem>
+                                        ) : null}
                                         <DropdownMenuItem onClick={() => onEditClick(record)} className="cursor-pointer">
                                             <Pencil className="mr-2 h-4 w-4" />
                                             {t("maintenance.history.editUpdate")}
@@ -91,7 +177,8 @@ export function MaintenanceHistoryList({ history, onNewClick, onEditClick }: Mai
                                 </DropdownMenu>
                             </div>
                         </div>
-                    ))}
+                        );
+                    })}
                 </div>
             </CardContent>
         </Card>

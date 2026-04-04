@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import Image from "next/image";
 import { FileViewer } from "@/components/ui/file-viewer";
+import { isPdfUrl } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useTruckPreview } from "../hooks/useTruckPreview";
 
@@ -462,7 +463,7 @@ export default function TruckPreview() {
                                     className="relative aspect-[4/3] rounded-md overflow-hidden bg-muted cursor-pointer"
                                     onClick={() => handleFileClick(truck.documentTax!)}
                                 >
-                                    {truck.documentTax.toLowerCase().endsWith('.pdf') ? (
+                                    {isPdfUrl(truck.documentTax) ? (
                                         <div className="flex flex-col items-center justify-center h-full bg-muted">
                                             <FileText className="h-12 w-12 text-blue-600 mb-2" />
                                             <span className="text-sm font-medium text-blue-600">{t("trucks.detail.viewTaxDoc")}</span>
@@ -498,7 +499,7 @@ export default function TruckPreview() {
                                     className="relative aspect-[4/3] rounded-md overflow-hidden bg-muted cursor-pointer"
                                     onClick={() => handleFileClick(truck.insuranceDocuments![0])}
                                 >
-                                    {truck.insuranceDocuments[0].toLowerCase().endsWith('.pdf') ? (
+                                    {isPdfUrl(truck.insuranceDocuments[0]) ? (
                                         <div className="flex flex-col items-center justify-center h-full bg-muted">
                                             <FileText className="h-12 w-12 text-blue-600 mb-2" />
                                             <span className="text-sm font-medium text-blue-600">{t("trucks.detail.viewInsuranceDoc")}</span>

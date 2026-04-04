@@ -76,7 +76,10 @@ export default function NewTruckWizard() {
         } else if (currentStep === 2 && ownershipType === 'own') {
             fieldsToValidate = ["documentTax", "documentRegister"];
         } else if (currentStep === 3 && ownershipType === 'own') {
-            fieldsToValidate = ["fuelType", "engineCapacity", "fuelCapacity", "maxLoadWeight"];
+            fieldsToValidate = [
+                "fuelType", "engineCapacity", "fuelCapacity", "maxLoadWeight",
+                "currentMileage", "nextServiceMileage", "pmIntervalKm",
+            ];
         }
 
         const isValid = await trigger(fieldsToValidate);

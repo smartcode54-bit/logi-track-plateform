@@ -116,6 +116,7 @@ export default {
     "trucks.step3.lastServiceDate": "วันที่ซ่อมบำรุงล่าสุด",
     "trucks.step3.nextServiceDate": "วันที่ซ่อมบำรุงถัดไป",
     "trucks.step3.nextServiceMileage": "ระยะทางซ่อมบำรุงถัดไป (กม.)",
+    "trucks.step3.pmIntervalKm": "ซ่อมบำรุงตามรอบทุก (กม.)",
 
     "trucks.step4.title": "ขั้นตอนที่ 4: ตรวจสอบและยืนยัน",
     "trucks.step4.desc": "กรุณาตรวจสอบข้อมูลทั้งหมดก่อนเพิ่มรถเข้าสู่ระบบ",
@@ -199,6 +200,8 @@ export default {
     "trucks.placeholder.insurer": "เช่น วิริยะประกันภัย",
     "trucks.placeholder.premium": "เช่น 15000",
     "trucks.placeholder.coverage": "รายละเอียดความคุ้มครอง...",
+    "trucks.placeholder.mileage": "เช่น 50000",
+    "trucks.placeholder.pmIntervalKm": "เช่น 20000",
 
     "trucks.section.photos": "รูปรถบรรทุก (จำเป็น)",
     "trucks.photos.frontRight": "ด้านหน้า-ขวา",
@@ -335,5 +338,6 @@ export default {
     "trucks.maintenance.nextDate": "วันที่นัดเข้าศูนย์ถัดไป",
     "trucks.maintenance.nextMileage": "ระยะทางที่ต้องเข้าศูนย์ถัดไป (กม.)",
     "trucks.maintenance.currentMileage": "เลขไมล์ปัจจุบัน (กม.)",
+    "trucks.maintenance.pmIntervalKm": "ซ่อมบำรุงตามรอบทุก (กม.)",
     "trucks.maintenance.responsible": "ผู้รับผิดชอบ (ซ่อมบำรุง)",
 };

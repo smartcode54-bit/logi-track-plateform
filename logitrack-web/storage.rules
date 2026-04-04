@@ -49,6 +49,12 @@ service firebase.storage {
       allow write: if isAppCheckVerified() && request.auth != null;
     }
 
+    // Maintenance receipts / invoice photos (แอปคนขับอัปโหลดที่ maintenance/{taskId}/...)
+    match /maintenance/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAppCheckVerified() && request.auth != null;
+    }
+
     // Chat media (รูปในแชท Admin–Driver จากแอปคนขับ)
     match /chat_media/{allPaths=**} {
       allow read: if request.auth != null;
