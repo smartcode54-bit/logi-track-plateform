@@ -195,6 +195,7 @@ export async function updateVehicleExpense(
         volumeLiters: number;
         pricePerLiter: number;
         odometer: number;
+        distanceKm: number;
         stationTaxId: string;
         taxInvId: string;
         refillLocation: string;
@@ -212,6 +213,7 @@ export async function updateVehicleExpense(
     if (data.volumeLiters != null) payload.volumeLiters = Number(data.volumeLiters);
     if (data.pricePerLiter != null) payload.pricePerLiter = Number(data.pricePerLiter);
     if (data.odometer != null) payload.odometer = Number(data.odometer);
+    if (data.distanceKm != null) payload.distanceKm = Number(data.distanceKm);
     if (data.stationTaxId !== undefined) payload.stationTaxId = data.stationTaxId;
     if (data.taxInvId !== undefined) payload.taxInvId = data.taxInvId;
     if (data.refillLocation !== undefined) payload.refillLocation = data.refillLocation;

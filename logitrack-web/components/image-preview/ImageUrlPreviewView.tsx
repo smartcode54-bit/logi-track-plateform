@@ -5,6 +5,14 @@ import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useImageUrlPreview } from "@/hooks/use-image-url-preview";
+import {
+    IMAGE_PREVIEW_IMG_MAX_CLASS,
+    IMAGE_PREVIEW_SCALE_UI_EPSILON,
+    IMAGE_PREVIEW_STAGE_MIN_H_CLASS,
+    IMAGE_PREVIEW_TOUCH_SWIPE_MIN_PX,
+    IMAGE_PREVIEW_VIEWPORT_BASE_CLASS,
+    IMAGE_PREVIEW_ZOOMED_NAV_THRESHOLD,
+} from "@/components/image-preview/image-preview-constants";
 
 export interface ImageUrlPreviewLabels {
     zoomIn: string;
@@ -41,12 +49,32 @@ export function ImageUrlPreviewView({
     viewportClassName,
     toolbarClassName,
 }: ImageUrlPreviewViewProps) {
-    const p = useImageUrlPreview({ urls, startIndex, active, isPreviewableImage });
+    const {
+        touchStartXRef,
+        dragRef,
+        viewportRef,
+        index,
+        scale,
+        pan,
+        isDragging,
+        currentUrl,
+        canNavigate,
+        isImage,
+        goPrev,
+        goNext,
+        zoomIn,
+        zoomOut,
+        resetZoomAndPan,
+        setPan,
+        setIsDragging,
+        scaleMin,
+        scaleMax,
+    } = useImageUrlPreview({ urls, startIndex, active, isPreviewableImage });
 
     useEffect(() => {
         if (!active || !onCurrentUrlChange) return;
-        onCurrentUrlChange(p.currentUrl);
-    }, [active, onCurrentUrlChange, p.currentUrl]);
+        onCurrentUrlChange(currentUrl);
+    }, [active, onCurrentUrlChange, currentUrl]);
 
     if (!active || urls.length === 0) {
         return null;
@@ -54,9 +82,9 @@ export function ImageUrlPreviewView({
 
     return (
         <>
-            {p.canNavigate ? (
+            {canNavigate ? (
                 <p className="border-b px-4 py-2 text-sm font-normal text-muted-foreground sm:px-6">
-                    {p.index + 1} / {urls.length}
+                    {index + 1} / {urls.length}
                 </p>
             ) : null}
             <div
@@ -71,8 +99,10 @@ export function ImageUrlPreviewView({
                         variant="outline"
                         size="icon"
                         className="h-9 w-9"
-                        disabled={!p.isImage || p.scale >= p.scaleMax - 0.01}
-                        onClick={p.zoomIn}
+                        disabled={
+                            !isImage || scale >= scaleMax - IMAGE_PREVIEW_SCALE_UI_EPSILON
+                        }
+                        onClick={zoomIn}
                         title={labels.zoomIn}
                     >
                         <ZoomIn className="h-4 w-4" />
@@ -83,8 +113,10 @@ export function ImageUrlPreviewView({
                         variant="outline"
                         size="icon"
                         className="h-9 w-9"
-                        disabled={!p.isImage || p.scale <= p.scaleMin + 0.01}
-                        onClick={p.zoomOut}
+                        disabled={
+                            !isImage || scale <= scaleMin + IMAGE_PREVIEW_SCALE_UI_EPSILON
+                        }
+                        onClick={zoomOut}
                         title={labels.zoomOut}
                     >
                         <ZoomOut className="h-4 w-4" />
@@ -96,23 +128,23 @@ export function ImageUrlPreviewView({
                         size="icon"
                         className="h-9 w-9"
                         disabled={
-                            !p.isImage || (p.scale === 1 && p.pan.x === 0 && p.pan.y === 0)
+                            !isImage || (scale === 1 && pan.x === 0 && pan.y === 0)
                         }
-                        onClick={p.resetZoomAndPan}
+                        onClick={resetZoomAndPan}
                         title={labels.resetZoom}
                     >
                         <RotateCcw className="h-4 w-4" />
                         <span className="sr-only">{labels.resetZoom}</span>
                     </Button>
                 </div>
-                {p.canNavigate ? (
+                {canNavigate ? (
                     <div className="flex items-center justify-center gap-1">
                         <Button
                             type="button"
                             variant="outline"
                             size="sm"
                             className="gap-1"
-                            onClick={p.goPrev}
+                            onClick={goPrev}
                             title={labels.prev}
                         >
                             <ChevronLeft className="h-4 w-4" />
@@ -123,7 +155,7 @@ export function ImageUrlPreviewView({
                             variant="outline"
                             size="sm"
                             className="gap-1"
-                            onClick={p.goNext}
+                            onClick={goNext}
                             title={labels.next}
                         >
                             {labels.next}
@@ -134,24 +166,21 @@ export function ImageUrlPreviewView({
             </div>
 
             <div
-                ref={p.viewportRef}
-                className={cn(
-                    "relative min-h-[200px] max-h-[min(70vh,640px)] overflow-hidden bg-muted/20",
-                    viewportClassName
-                )}
+                ref={viewportRef}
+                className={cn(IMAGE_PREVIEW_VIEWPORT_BASE_CLASS, viewportClassName)}
                 onTouchStart={(e) => {
-                    p.touchStartX.current = e.touches[0]?.clientX ?? 0;
+                    touchStartXRef.current = e.touches[0]?.clientX ?? 0;
                 }}
                 onTouchEnd={(e) => {
-                    if (p.scale > 1.02) return;
-                    if (!p.canNavigate) return;
-                    const endX = e.changedTouches[0]?.clientX ?? p.touchStartX.current;
-                    const d = endX - p.touchStartX.current;
-                    if (d > 56) p.goPrev();
-                    else if (d < -56) p.goNext();
+                    if (scale > IMAGE_PREVIEW_ZOOMED_NAV_THRESHOLD) return;
+                    if (!canNavigate) return;
+                    const endX = e.changedTouches[0]?.clientX ?? touchStartXRef.current;
+                    const d = endX - touchStartXRef.current;
+                    if (d > IMAGE_PREVIEW_TOUCH_SWIPE_MIN_PX) goPrev();
+                    else if (d < -IMAGE_PREVIEW_TOUCH_SWIPE_MIN_PX) goNext();
                 }}
             >
-                {p.canNavigate ? (
+                {canNavigate ? (
                     <>
                         <Button
                             type="button"
@@ -161,7 +190,7 @@ export function ImageUrlPreviewView({
                                 "absolute left-2 top-1/2 z-10 h-10 w-10 -translate-y-1/2 rounded-full shadow-md",
                                 "hidden sm:inline-flex"
                             )}
-                            onClick={p.goPrev}
+                            onClick={goPrev}
                             aria-label={labels.prev}
                         >
                             <ChevronLeft className="h-5 w-5" />
@@ -174,7 +203,7 @@ export function ImageUrlPreviewView({
                                 "absolute right-2 top-1/2 z-10 h-10 w-10 -translate-y-1/2 rounded-full shadow-md",
                                 "hidden sm:inline-flex"
                             )}
-                            onClick={p.goNext}
+                            onClick={goNext}
                             aria-label={labels.next}
                         >
                             <ChevronRight className="h-5 w-5" />
@@ -184,35 +213,43 @@ export function ImageUrlPreviewView({
 
                 <div
                     className={cn(
-                        "flex min-h-[200px] items-center justify-center p-4",
-                        p.isImage && p.scale > 1.02 && "cursor-grab active:cursor-grabbing touch-none"
+                        "flex items-center justify-center p-4",
+                        IMAGE_PREVIEW_STAGE_MIN_H_CLASS,
+                        isImage &&
+                            scale > IMAGE_PREVIEW_ZOOMED_NAV_THRESHOLD &&
+                            "cursor-grab active:cursor-grabbing touch-none"
                     )}
                     onPointerDown={(e) => {
-                        if (!p.isImage || p.scale <= 1.02 || e.button !== 0) return;
+                        if (
+                            !isImage ||
+                            scale <= IMAGE_PREVIEW_ZOOMED_NAV_THRESHOLD ||
+                            e.button !== 0
+                        )
+                            return;
                         e.currentTarget.setPointerCapture(e.pointerId);
-                        p.setIsDragging(true);
-                        p.dragRef.current = {
+                        setIsDragging(true);
+                        dragRef.current = {
                             active: true,
                             sx: e.clientX,
                             sy: e.clientY,
-                            px: p.pan.x,
-                            py: p.pan.y,
+                            px: pan.x,
+                            py: pan.y,
                             pointerId: e.pointerId,
                         };
                     }}
                     onPointerMove={(e) => {
-                        const d = p.dragRef.current;
+                        const d = dragRef.current;
                         if (!d?.active) return;
-                        p.setPan({
+                        setPan({
                             x: d.px + e.clientX - d.sx,
                             y: d.py + e.clientY - d.sy,
                         });
                     }}
                     onPointerUp={(e) => {
-                        const d = p.dragRef.current;
+                        const d = dragRef.current;
                         if (!d?.active || d.pointerId !== e.pointerId) return;
-                        p.dragRef.current = null;
-                        p.setIsDragging(false);
+                        dragRef.current = null;
+                        setIsDragging(false);
                         try {
                             e.currentTarget.releasePointerCapture(e.pointerId);
                         } catch {
@@ -220,30 +257,30 @@ export function ImageUrlPreviewView({
                         }
                     }}
                     onPointerCancel={(e) => {
-                        const d = p.dragRef.current;
+                        const d = dragRef.current;
                         if (!d?.active || d.pointerId !== e.pointerId) return;
-                        p.dragRef.current = null;
-                        p.setIsDragging(false);
+                        dragRef.current = null;
+                        setIsDragging(false);
                     }}
                 >
-                    {p.currentUrl && p.isImage ? (
+                    {currentUrl && isImage ? (
                         <div
                             className="inline-block max-w-full will-change-transform"
                             style={{
-                                transform: `translate(${p.pan.x}px, ${p.pan.y}px) scale(${p.scale})`,
+                                transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
                                 transformOrigin: "center center",
-                                transition: p.isDragging ? "none" : "transform 0.12s ease-out",
+                                transition: isDragging ? "none" : "transform 0.12s ease-out",
                             }}
                         >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
-                                src={p.currentUrl}
+                                src={currentUrl}
                                 alt=""
-                                className="max-h-[min(65vh,600px)] w-auto max-w-full object-contain select-none"
+                                className={IMAGE_PREVIEW_IMG_MAX_CLASS}
                                 draggable={false}
                             />
                         </div>
-                    ) : p.currentUrl ? (
+                    ) : currentUrl ? (
                         <p className="px-4 text-center text-sm text-muted-foreground">
                             {labels.notPreviewable}
                         </p>

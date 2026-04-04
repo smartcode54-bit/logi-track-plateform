@@ -5,6 +5,8 @@ import {
     IMAGE_PREVIEW_SCALE_MAX,
     IMAGE_PREVIEW_SCALE_MIN,
     IMAGE_PREVIEW_SCALE_STEP,
+    IMAGE_PREVIEW_SCALE_IDENTITY_UPPER,
+    IMAGE_PREVIEW_WHEEL_ZOOM_FACTOR,
 } from "@/components/image-preview/image-preview-constants";
 
 export interface UseImageUrlPreviewOptions {
@@ -26,7 +28,7 @@ export function useImageUrlPreview({
     const [pan, setPan] = useState({ x: 0, y: 0 });
     const [isDragging, setIsDragging] = useState(false);
     const viewportRef = useRef<HTMLDivElement>(null);
-    const touchStartX = useRef(0);
+    const touchStartXRef = useRef(0);
     const dragRef = useRef<{
         active: boolean;
         sx: number;
@@ -45,6 +47,8 @@ export function useImageUrlPreview({
     useEffect(() => {
         if (!active || urls.length === 0) return;
         const i = Math.max(0, Math.min(startIndex, urls.length - 1));
+        // Sync derived index + zoom when gallery / startIndex / active changes
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset on urls/startIndex
         setIndex(i);
         resetZoomAndPan();
     }, [active, startIndex, urls.length, urlsKey, resetZoomAndPan]);
@@ -81,11 +85,17 @@ export function useImageUrlPreview({
     }, [active, urls.length, goPrev, goNext]);
 
     useEffect(() => {
-        if (scale <= 1.001) setPan({ x: 0, y: 0 });
+        if (scale <= IMAGE_PREVIEW_SCALE_IDENTITY_UPPER) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- snap pan when zoom returns to ~1
+            setPan({ x: 0, y: 0 });
+        }
     }, [scale]);
 
     useEffect(() => {
-        if (!active) setIsDragging(false);
+        if (!active) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- drop drag when dialog closes
+            setIsDragging(false);
+        }
     }, [active]);
 
     useEffect(() => {
@@ -96,7 +106,8 @@ export function useImageUrlPreview({
             e.preventDefault();
             e.stopPropagation();
             const delta = -e.deltaY;
-            const factor = delta > 0 ? 1.09 : 1 / 1.09;
+            const factor =
+                delta > 0 ? IMAGE_PREVIEW_WHEEL_ZOOM_FACTOR : 1 / IMAGE_PREVIEW_WHEEL_ZOOM_FACTOR;
             setScale((s) =>
                 Math.min(IMAGE_PREVIEW_SCALE_MAX, Math.max(IMAGE_PREVIEW_SCALE_MIN, s * factor))
             );
@@ -119,7 +130,7 @@ export function useImageUrlPreview({
         pan,
         isDragging,
         viewportRef,
-        touchStartX,
+        touchStartXRef,
         currentUrl,
         canNavigate,
         isImage,

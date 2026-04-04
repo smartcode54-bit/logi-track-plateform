@@ -16,7 +16,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { ClipboardCheck, Loader2, RefreshCw, Check, X, Fuel, Receipt, ChevronLeft, ChevronRight, Save } from "lucide-react";
+import { ClipboardCheck, Loader2, RefreshCw, Check, X, Fuel, Receipt, Save } from "lucide-react";
+import {
+    ImageUrlPreviewView,
+    type ImageUrlPreviewLabels,
+} from "@/components/image-preview/ImageUrlPreviewView";
+import { IMAGE_PREVIEW_VIEWPORT_ACCOUNTING_DIALOG_CLASS } from "@/components/image-preview/image-preview-constants";
+import { AccountingPreviewPrintButton } from "@/components/accounting/AccountingPreviewPrintButton";
+import { looksLikeImageUrl } from "@/features/maintenance/utils/looksLikeImageUrl";
 import { format } from "date-fns";
 import {
     Dialog,
@@ -64,8 +71,10 @@ export default function AccountingAuditPage() {
     const [adminNote, setAdminNote] = useState("");
     const [submitting, setSubmitting] = useState(false);
     const [editForm, setEditForm] = useState<VehicleExpenseRow | null>(null);
-    const [imageIndex, setImageIndex] = useState(0);
     const [detailMapKey, setDetailMapKey] = useState(0);
+    const [slideCaption, setSlideCaption] = useState("");
+    const [slideIndex, setSlideIndex] = useState(0);
+    const [currentPreviewUrl, setCurrentPreviewUrl] = useState("");
 
     const loadData = () => {
         setLoading(true);
@@ -141,13 +150,27 @@ export default function AccountingAuditPage() {
         setAdminNote(row.adminNote ?? "");
     };
 
-    const imageItems = detailRow
-        ? [
-              ...(detailRow.receiptPhotoUrl ? [{ url: detailRow.receiptPhotoUrl, label: t("accounting.detail.receiptPhoto") }] : []),
-              ...(detailRow.odometerPhotoUrl ? [{ url: detailRow.odometerPhotoUrl, label: t("accounting.detail.odometerPhoto") }] : []),
-          ]
-        : [];
-    const currentImage = imageItems[imageIndex];
+    const imageItems = useMemo(() => {
+        if (!detailRow) return [];
+        const items: { url: string; label: string }[] = [];
+        if (detailRow.receiptPhotoUrl) items.push({ url: detailRow.receiptPhotoUrl, label: t("accounting.detail.receiptPhoto") });
+        if (detailRow.odometerPhotoUrl) items.push({ url: detailRow.odometerPhotoUrl, label: t("accounting.detail.odometerPhoto") });
+        return items;
+    }, [detailRow, t]);
+
+    const imagePreviewLabels: ImageUrlPreviewLabels = useMemo(
+        () => ({
+            zoomIn: t("accounting.preview.zoomIn"),
+            zoomOut: t("accounting.preview.zoomOut"),
+            resetZoom: t("accounting.preview.resetZoom"),
+            prev: t("accounting.preview.previous"),
+            next: t("accounting.preview.next"),
+            notPreviewable: t("accounting.preview.notPreviewable"),
+        }),
+        [t]
+    );
+
+    const previewUrls = useMemo(() => imageItems.map((i) => i.url), [imageItems]);
 
     const handleSaveEdit = async () => {
         if (!detailRow || !editForm) return;
@@ -192,12 +215,29 @@ export default function AccountingAuditPage() {
                 row.pricePerLiter = Math.round(row.pricePerLiter * 100) / 100;
             }
             setEditForm(row);
-            setImageIndex(0);
-            setDetailMapKey((k) => k + 1);
         } else {
             setEditForm(null);
         }
     }, [detailRow?.id]);
+
+    useEffect(() => {
+        setDetailMapKey((k) => k + 1);
+    }, [detailRow?.id]);
+
+    useEffect(() => {
+        setSlideIndex(0);
+        if (!detailRow) {
+            setSlideCaption("");
+            setCurrentPreviewUrl("");
+            return;
+        }
+        if (detailRow.receiptPhotoUrl) setSlideCaption(t("accounting.detail.receiptPhoto"));
+        else if (detailRow.odometerPhotoUrl) setSlideCaption(t("accounting.detail.odometerPhoto"));
+        else {
+            setSlideCaption("");
+            setCurrentPreviewUrl("");
+        }
+    }, [detailRow, t]);
 
     if (loading && records.length === 0) {
         return (
@@ -364,40 +404,39 @@ export default function AccountingAuditPage() {
                             {/* Left: Large image + prev/next */}
                             <div className="bg-muted/30 border-t md:border-t-0 md:border-r border-border p-4 flex flex-col min-h-0">
                                 {imageItems.length > 0 ? (
-                                    <>
-                                        <div className="flex-1 min-h-[280px] flex items-center justify-center overflow-hidden rounded-lg border border-border bg-black/5">
-                                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                                            <img
-                                                src={currentImage?.url}
-                                                alt={currentImage?.label ?? ""}
-                                                className="max-w-full max-h-[60vh] md:max-h-[70vh] w-auto h-auto object-contain select-none"
-                                                draggable={false}
-                                            />
-                                        </div>
-                                        <div className="flex items-center justify-between gap-2 pt-2 shrink-0">
-                                            <Button
-                                                type="button"
-                                                variant="outline"
-                                                size="icon"
-                                                disabled={imageItems.length <= 1}
-                                                onClick={() => setImageIndex((i) => (i <= 0 ? imageItems.length - 1 : i - 1))}
-                                            >
-                                                <ChevronLeft className="h-4 w-4" />
-                                            </Button>
-                                            <span className="text-sm text-muted-foreground">
-                                                {currentImage?.label ?? ""} ({imageIndex + 1} / {imageItems.length})
-                                            </span>
-                                            <Button
-                                                type="button"
-                                                variant="outline"
-                                                size="icon"
-                                                disabled={imageItems.length <= 1}
-                                                onClick={() => setImageIndex((i) => (i >= imageItems.length - 1 ? 0 : i + 1))}
-                                            >
-                                                <ChevronRight className="h-4 w-4" />
-                                            </Button>
-                                        </div>
-                                    </>
+                                    <div className="flex flex-1 min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-black/5">
+                                        <ImageUrlPreviewView
+                                            urls={previewUrls}
+                                            startIndex={0}
+                                            active={!!detailRow && previewUrls.length > 0}
+                                            labels={imagePreviewLabels}
+                                            isPreviewableImage={looksLikeImageUrl}
+                                            onCurrentUrlChange={(url) => {
+                                                setCurrentPreviewUrl(url);
+                                                const i = previewUrls.indexOf(url);
+                                                if (i >= 0) setSlideIndex(i);
+                                                if (detailRow?.receiptPhotoUrl === url) {
+                                                    setSlideCaption(t("accounting.detail.receiptPhoto"));
+                                                } else if (detailRow?.odometerPhotoUrl === url) {
+                                                    setSlideCaption(t("accounting.detail.odometerPhoto"));
+                                                }
+                                            }}
+                                            viewportClassName={IMAGE_PREVIEW_VIEWPORT_ACCOUNTING_DIALOG_CLASS}
+                                            toolbarClassName="shrink-0 border-border bg-muted/30"
+                                        />
+                                        {slideCaption ? (
+                                            <p className="shrink-0 border-t border-border bg-muted/20 px-3 py-2 text-center text-sm text-muted-foreground">
+                                                {slideCaption}
+                                                {previewUrls.length > 1
+                                                    ? ` (${slideIndex + 1} / ${previewUrls.length})`
+                                                    : ""}
+                                            </p>
+                                        ) : null}
+                                        <AccountingPreviewPrintButton
+                                            url={currentPreviewUrl}
+                                            printLabel={t("accounting.preview.print")}
+                                        />
+                                    </div>
                                 ) : (
                                     <div className="flex items-center justify-center flex-1 min-h-[200px] rounded-lg border border-dashed border-muted-foreground/30 text-muted-foreground text-sm">
                                         {t("accounting.detail.noImages")}

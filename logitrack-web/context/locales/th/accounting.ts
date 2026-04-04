@@ -63,6 +63,14 @@ export default {
     "accounting.detail.category": "ประเภท",
     "accounting.detail.description": "รายละเอียด",
 
+    "accounting.preview.zoomIn": "ขยาย",
+    "accounting.preview.zoomOut": "ย่อ",
+    "accounting.preview.resetZoom": "รีเซ็ตการซูม",
+    "accounting.preview.previous": "ก่อนหน้า",
+    "accounting.preview.next": "ถัดไป",
+    "accounting.preview.notPreviewable": "ไม่สามารถแสดงตัวอย่างไฟล์นี้ในหน้านี้ได้ กรุณาเปิดในแท็บใหม่",
+    "accounting.preview.print": "พิมพ์",
+
     "accounting.noRecords": "ไม่พบรายการ",
     "accounting.audit.title": "ตรวจสอบค่าใช้จ่ายรถ",
     "accounting.audit.subtitle": "ตรวจสอบ อนุมัติ หรือปฏิเสธรายการที่คนขับส่งเข้ามา",

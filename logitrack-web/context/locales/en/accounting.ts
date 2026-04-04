@@ -63,6 +63,14 @@ export default {
     "accounting.detail.category": "Category",
     "accounting.detail.description": "Description",
 
+    "accounting.preview.zoomIn": "Zoom in",
+    "accounting.preview.zoomOut": "Zoom out",
+    "accounting.preview.resetZoom": "Reset zoom",
+    "accounting.preview.previous": "Previous",
+    "accounting.preview.next": "Next",
+    "accounting.preview.notPreviewable": "This file cannot be previewed here. Open in a new tab instead.",
+    "accounting.preview.print": "Print",
+
     "accounting.noRecords": "No records found.",
     "accounting.audit.title": "Audit Vehicle Expense",
     "accounting.audit.subtitle": "Review and approve or reject expense submissions from drivers.",
