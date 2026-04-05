@@ -35,13 +35,35 @@ jobs:
 
       - name: Create .env.production
         run: |
-          if [ -z "${ENV_PROD_WEB:-}" ]; then
-            echo "::error::ENV_PROD_WEB secret is empty. Add it under repo Settings → Secrets → Actions (full envs/.env.prod.web contents with all NEXT_PUBLIC_FIREBASE_* lines)."
+          set -e
+          if [ -n "${ENV_PROD_WEB:-}" ]; then
+            printf '%s\n' "$ENV_PROD_WEB" > logitrack-web/.env.production
+          elif [ -n "${NEXT_PUBLIC_FIREBASE_API_KEY:-}" ] && [ -n "${NEXT_PUBLIC_FIREBASE_PROJECT_ID:-}" ]; then
+            {
+              echo "NEXT_PUBLIC_FIREBASE_API_KEY=${NEXT_PUBLIC_FIREBASE_API_KEY}"
+              echo "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN}"
+              echo "NEXT_PUBLIC_FIREBASE_PROJECT_ID=${NEXT_PUBLIC_FIREBASE_PROJECT_ID}"
+              echo "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET}"
+              echo "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID}"
+              echo "NEXT_PUBLIC_FIREBASE_APP_ID=${NEXT_PUBLIC_FIREBASE_APP_ID}"
+              if [ -n "${NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID:-}" ]; then
+                echo "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=${NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID}"
+              fi
+            } > logitrack-web/.env.production
+          else
+            echo "::error::No Firebase prod env. Add Secret ENV_PROD_WEB = full envs/.env.prod.web, OR Secrets FIREBASE_PROD_API_KEY … FIREBASE_PROD_APP_ID (six keys), OR Variables NEXT_PUBLIC_FIREBASE_* ."
             exit 1
           fi
-          printf '%s\n' "$ENV_PROD_WEB" > logitrack-web/.env.production
         env:
           ENV_PROD_WEB: ${{ secrets.ENV_PROD_WEB }}
+          # Prod-only: do not use repo Variables NEXT_PUBLIC_* here (same names as dev would conflict).
+          NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.FIREBASE_PROD_API_KEY }}
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.FIREBASE_PROD_AUTH_DOMAIN }}
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROD_PROJECT_ID }}
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_PROD_STORAGE_BUCKET }}
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.FIREBASE_PROD_MESSAGING_SENDER_ID }}
+          NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.FIREBASE_PROD_APP_ID }}
+          NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: ${{ secrets.FIREBASE_PROD_MEASUREMENT_ID }}
 
       - name: Verify Firebase client env for Next build
         run: |

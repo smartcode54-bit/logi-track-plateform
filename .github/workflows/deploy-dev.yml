@@ -32,8 +32,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Option A: one secret ENV_DEV_WEB = full copy of envs/.env.dev.web (multiline)
-      # Option B: no secret — set Repository *Variables* (same names as in .env.dev.web) for the six NEXT_PUBLIC_FIREBASE_* keys
+      # Option A: Secret ENV_DEV_WEB = full copy of envs/.env.dev.web (multiline)
+      # Option B: Repository Variables OR Secrets FIREBASE_DEV_* (same values as in .env — vars fall back to secrets per key)
       - name: Create .env.production (dev)
         run: |
           set -e
@@ -52,18 +52,18 @@ jobs:
               fi
             } > logitrack-web/.env.production
           else
-            echo "::error::No Firebase web env for CI. Either (1) add repository Secret ENV_DEV_WEB = paste full contents of envs/.env.dev.web, or (2) add Repository Variables: NEXT_PUBLIC_FIREBASE_API_KEY, NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN, NEXT_PUBLIC_FIREBASE_PROJECT_ID, NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET, NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID, NEXT_PUBLIC_FIREBASE_APP_ID (Settings → Secrets and variables → Actions → Variables tab). Use the same repo that runs this workflow (fork needs its own)."
+            echo "::error::No Firebase web env. Add ONE of: (1) Secret ENV_DEV_WEB = full paste of envs/.env.dev.web, OR (2) six Secrets FIREBASE_DEV_API_KEY, FIREBASE_DEV_AUTH_DOMAIN, FIREBASE_DEV_PROJECT_ID, FIREBASE_DEV_STORAGE_BUCKET, FIREBASE_DEV_MESSAGING_SENDER_ID, FIREBASE_DEV_APP_ID (same values as in .env), OR (3) Repository Variables with names NEXT_PUBLIC_FIREBASE_* . Must be on the repo that runs Actions (fork = add there)."
             exit 1
           fi
         env:
           ENV_DEV_WEB: ${{ secrets.ENV_DEV_WEB }}
-          NEXT_PUBLIC_FIREBASE_API_KEY: ${{ vars.NEXT_PUBLIC_FIREBASE_API_KEY }}
-          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ vars.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
-          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ vars.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
-          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ vars.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }}
-          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
-          NEXT_PUBLIC_FIREBASE_APP_ID: ${{ vars.NEXT_PUBLIC_FIREBASE_APP_ID }}
-          NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: ${{ vars.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID }}
+          NEXT_PUBLIC_FIREBASE_API_KEY: ${{ vars.NEXT_PUBLIC_FIREBASE_API_KEY || secrets.FIREBASE_DEV_API_KEY }}
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ vars.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || secrets.FIREBASE_DEV_AUTH_DOMAIN }}
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ vars.NEXT_PUBLIC_FIREBASE_PROJECT_ID || secrets.FIREBASE_DEV_PROJECT_ID }}
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ vars.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || secrets.FIREBASE_DEV_STORAGE_BUCKET }}
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || secrets.FIREBASE_DEV_MESSAGING_SENDER_ID }}
+          NEXT_PUBLIC_FIREBASE_APP_ID: ${{ vars.NEXT_PUBLIC_FIREBASE_APP_ID || secrets.FIREBASE_DEV_APP_ID }}
+          NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: ${{ vars.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID || secrets.FIREBASE_DEV_MEASUREMENT_ID }}
 
       - name: Verify Firebase client env for Next build
         run: |
