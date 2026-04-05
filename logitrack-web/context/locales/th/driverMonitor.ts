@@ -112,4 +112,8 @@ export default {
     "driverMonitor.detail.distance": "ระยะทาง",
     "driverMonitor.detail.parcelCount": "จำนวนพัสดุ",
     "driverMonitor.detail.weight": "น้ำหนักรวม",
+
+    "driverMonitor.preview.downloadCurrent": "ดาวน์โหลดรูปนี้",
+    "driverMonitor.preview.downloadAllZip": "ดาวน์โหลดทั้งหมด (ZIP)",
+    "driverMonitor.preview.downloadCurrentLoading": "กำลังดาวน์โหลด…",
 };

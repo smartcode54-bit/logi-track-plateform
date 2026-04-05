@@ -220,7 +220,8 @@ export function useDriverMonitor() {
     const [searchQuery, setSearchQuery] = useState("");
 
     const [detailTrip, setDetailTrip] = useState<TripRecord | null>(null);
-    const [previewPhoto, setPreviewPhoto] = useState<{ url: string; type: string; address?: string } | null>(null);
+    /** Index into [detailTrip.photos] when the photo preview dialog is open. */
+    const [photoPreviewStartIndex, setPhotoPreviewStartIndex] = useState<number | null>(null);
     const [editTripDialogOpen, setEditTripDialogOpen] = useState(false);
 
     const [currentPage, setCurrentPage] = useState(1);
@@ -480,8 +481,8 @@ export function useDriverMonitor() {
         setSearchQuery,
         detailTrip,
         setDetailTrip,
-        previewPhoto,
-        setPreviewPhoto,
+        photoPreviewStartIndex,
+        setPhotoPreviewStartIndex,
         editTripDialogOpen,
         setEditTripDialogOpen,
         incidentReportsByTripId,

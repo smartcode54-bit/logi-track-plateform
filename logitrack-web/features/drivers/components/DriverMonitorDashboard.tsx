@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 import { enUS, th as thLocale } from "date-fns/locale";
 import * as XLSX from "xlsx";
@@ -56,6 +56,14 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import {
+    ImageUrlPreviewView,
+    type ImageUrlPreviewLabels,
+} from "@/components/image-preview/ImageUrlPreviewView";
+import { IMAGE_PREVIEW_VIEWPORT_ACCOUNTING_DIALOG_CLASS } from "@/components/image-preview/image-preview-constants";
+import { ImageUrlPreviewDownloadBar } from "@/components/image-preview/ImageUrlPreviewDownloadBar";
+import { looksLikeImageUrl } from "@/features/maintenance/utils/looksLikeImageUrl";
+import { buildTripPhotosZipEntries } from "@/lib/download-image-urls-zip";
 
 import { EditTripDetailsDialog } from "./EditTripDetailsDialog";
 import {
@@ -148,8 +156,8 @@ export default function DriverMonitorDashboard() {
         setSearchQuery,
         detailTrip,
         setDetailTrip,
-        previewPhoto,
-        setPreviewPhoto,
+        photoPreviewStartIndex,
+        setPhotoPreviewStartIndex,
         editTripDialogOpen,
         setEditTripDialogOpen,
         incidentReportsByTripId,
@@ -163,6 +171,71 @@ export default function DriverMonitorDashboard() {
         getTripsForExportResolved,
         trips,
     } = useDriverMonitor();
+
+    const [tripPreviewCurrentUrl, setTripPreviewCurrentUrl] = useState("");
+    const [tripPreviewCaption, setTripPreviewCaption] = useState("");
+    const [tripPreviewSlideIndex, setTripPreviewSlideIndex] = useState(0);
+
+    const tripDetailPhotos = detailTrip?.photos ?? [];
+    const tripPreviewUrls = useMemo(() => tripDetailPhotos.map((p) => p.url), [tripDetailPhotos]);
+
+    const tripPhotoZipEntries = useMemo(
+        () => (detailTrip?.id ? buildTripPhotosZipEntries(detailTrip.id, tripDetailPhotos) : []),
+        [detailTrip?.id, tripDetailPhotos]
+    );
+
+    const tripPreviewZipFilename = useMemo(() => {
+        if (!detailTrip?.id) return "trip-photos.zip";
+        return `trip-photos-${detailTrip.id.replace(/[/\\]/g, "_")}.zip`;
+    }, [detailTrip?.id]);
+
+    const accountingImagePreviewLabels: ImageUrlPreviewLabels = useMemo(
+        () => ({
+            zoomIn: t("accounting.preview.zoomIn"),
+            zoomOut: t("accounting.preview.zoomOut"),
+            resetZoom: t("accounting.preview.resetZoom"),
+            prev: t("accounting.preview.previous"),
+            next: t("accounting.preview.next"),
+            notPreviewable: t("accounting.preview.notPreviewable"),
+        }),
+        [t]
+    );
+
+    const tripPreviewDownloadStem = useMemo(() => {
+        if (!detailTrip?.id || !tripPreviewCurrentUrl.trim()) return "";
+        const i = tripDetailPhotos.findIndex((p) => p.url === tripPreviewCurrentUrl);
+        if (i < 0) return "";
+        const safeId = detailTrip.id.replace(/[/\\]/g, "_");
+        const safeType = String(tripDetailPhotos[i].type).replace(/[/\\]/g, "_");
+        return `${safeId}_${safeType}_${i}`;
+    }, [detailTrip?.id, tripDetailPhotos, tripPreviewCurrentUrl]);
+
+    const tripPhotoPreviewActive =
+        photoPreviewStartIndex !== null &&
+        !!detailTrip?.photos?.length &&
+        photoPreviewStartIndex >= 0 &&
+        photoPreviewStartIndex < (detailTrip.photos?.length ?? 0);
+
+    useEffect(() => {
+        if (!detailTrip) {
+            setPhotoPreviewStartIndex(null);
+            setTripPreviewCurrentUrl("");
+            setTripPreviewCaption("");
+            setTripPreviewSlideIndex(0);
+        }
+    }, [detailTrip, setPhotoPreviewStartIndex]);
+
+    useEffect(() => {
+        if (photoPreviewStartIndex === null || !detailTrip?.photos?.length) return;
+        const p = detailTrip.photos![photoPreviewStartIndex];
+        if (p) {
+            setTripPreviewCurrentUrl(p.url);
+            setTripPreviewCaption(p.type.replace(/_/g, " "));
+            setTripPreviewSlideIndex(photoPreviewStartIndex);
+        }
+        // Intentionally only when opening preview or changing start index; slide changes use onCurrentUrlChange.
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- detailTrip.photos identity updates would reset the viewer
+    }, [photoPreviewStartIndex]);
 
     const openExportDialog = () => {
         setExportFilters({
@@ -959,7 +1032,7 @@ export default function DriverMonitorDashboard() {
                                             <button
                                                 key={idx}
                                                 type="button"
-                                                onClick={() => setPreviewPhoto({ url: photo.url, type: photo.type, address: photo.geocoding?.address })}
+                                                onClick={() => setPhotoPreviewStartIndex(idx)}
                                                 className="group relative block rounded-lg overflow-hidden border border-border/50 aspect-square bg-muted/50 hover:border-primary/50 transition-colors text-left w-full"
                                             >
                                                 <img src={photo.url} alt={photo.type} className="object-cover w-full h-full" />
@@ -984,6 +1057,65 @@ export default function DriverMonitorDashboard() {
                             {t("driverMonitor.detail.close")}
                         </Button>
                     </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog
+                open={tripPhotoPreviewActive}
+                onOpenChange={(open) => {
+                    if (!open) setPhotoPreviewStartIndex(null);
+                }}
+            >
+                <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col p-0">
+                    <DialogHeader className="px-6 pt-6 pb-2 shrink-0">
+                        <DialogTitle>{t("driverMonitor.detail.imagePreview")}</DialogTitle>
+                        <DialogDescription>
+                            {detailTrip?.spxTripId || detailTrip?.id || ""}
+                        </DialogDescription>
+                    </DialogHeader>
+                    {tripPhotoPreviewActive && detailTrip && tripPreviewUrls.length > 0 ? (
+                        <div className="flex flex-1 min-h-0 flex-col px-4 pb-4">
+                            <div className="flex flex-1 min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-black/5">
+                                <ImageUrlPreviewView
+                                    urls={tripPreviewUrls}
+                                    startIndex={photoPreviewStartIndex ?? 0}
+                                    active={tripPhotoPreviewActive}
+                                    labels={accountingImagePreviewLabels}
+                                    isPreviewableImage={looksLikeImageUrl}
+                                    onCurrentUrlChange={(url) => {
+                                        setTripPreviewCurrentUrl(url);
+                                        const i = tripPreviewUrls.indexOf(url);
+                                        if (i >= 0) {
+                                            setTripPreviewSlideIndex(i);
+                                            const ph = detailTrip.photos?.[i];
+                                            setTripPreviewCaption(ph ? ph.type.replace(/_/g, " ") : "");
+                                        }
+                                    }}
+                                    viewportClassName={IMAGE_PREVIEW_VIEWPORT_ACCOUNTING_DIALOG_CLASS}
+                                    toolbarClassName="shrink-0 border-border bg-muted/30"
+                                />
+                                {tripPreviewCaption ? (
+                                    <p className="shrink-0 border-t border-border bg-muted/20 px-3 py-2 text-center text-sm text-muted-foreground">
+                                        {tripPreviewCaption}
+                                        {tripPreviewUrls.length > 1
+                                            ? ` (${tripPreviewSlideIndex + 1} / ${tripPreviewUrls.length})`
+                                            : ""}
+                                    </p>
+                                ) : null}
+                                <ImageUrlPreviewDownloadBar
+                                    currentUrl={tripPreviewCurrentUrl}
+                                    currentFilenameStem={tripPreviewDownloadStem}
+                                    zipEntries={tripPhotoZipEntries}
+                                    zipFilename={tripPreviewZipFilename}
+                                    labels={{
+                                        downloadCurrent: t("driverMonitor.preview.downloadCurrent"),
+                                        downloadAllZip: t("driverMonitor.preview.downloadAllZip"),
+                                        downloadCurrentLoading: t("driverMonitor.preview.downloadCurrentLoading"),
+                                    }}
+                                />
+                            </div>
+                        </div>
+                    ) : null}
                 </DialogContent>
             </Dialog>
 

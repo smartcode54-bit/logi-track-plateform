@@ -152,3 +152,37 @@ export function shouldSuggestCorsHint(failed: { reason: string }[]): boolean {
         /failed to fetch|networkerror|load failed|cors|aborted/i.test(f.reason)
     );
 }
+
+export type TripPhotoZipInput = {
+    url: string;
+    type: string;
+};
+
+/** ZIP entries for trip evidence photos; index suffix avoids filename clashes when types repeat. */
+export function buildTripPhotosZipEntries(
+    tripId: string,
+    photos: TripPhotoZipInput[]
+): ZipImageEntryInput[] {
+    const safeTripId = tripId.replace(/[/\\]/g, "_");
+    const out: ZipImageEntryInput[] = [];
+    photos.forEach((p, i) => {
+        const u = p.url?.trim();
+        if (!u || !looksLikeImageUrl(u)) return;
+        const safeType = String(p.type).replace(/[/\\]/g, "_");
+        out.push({ url: u, filenameStem: `${safeTripId}_${safeType}_${i}` });
+    });
+    return out;
+}
+
+/** Fetch one image URL and trigger browser download (same fetch path as ZIP entries). */
+export async function downloadSingleImageUrl(
+    url: string,
+    filenameStem: string
+): Promise<{ ok: true; filename: string } | { ok: false; reason: string }> {
+    const r = await fetchOneEntry({ url, filenameStem });
+    if (!isOkFetch(r)) {
+        return { ok: false, reason: r.reason };
+    }
+    triggerBlobDownload(r.blob, r.name);
+    return { ok: true, filename: r.name };
+}

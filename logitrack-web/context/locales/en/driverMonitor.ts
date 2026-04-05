@@ -112,4 +112,8 @@ export default {
     "driverMonitor.detail.distance": "Distance",
     "driverMonitor.detail.parcelCount": "Parcel Count",
     "driverMonitor.detail.weight": "Total Weight",
+
+    "driverMonitor.preview.downloadCurrent": "Download this image",
+    "driverMonitor.preview.downloadAllZip": "Download all as ZIP",
+    "driverMonitor.preview.downloadCurrentLoading": "Downloading…",
 };

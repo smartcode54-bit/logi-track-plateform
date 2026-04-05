@@ -17,6 +17,7 @@ import { doc, updateDoc, serverTimestamp, getDocs, collection, query, where, lim
 import { db } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { uploadTripPhoto } from "@/lib/uploadTripPhoto";
+import { dedupeTripPhotosByTypeLastWins } from "@/lib/trip-photo-utils";
 import type { TripRecord, TripPhoto } from "@/validate/tripRecordSchema";
 import { useLanguage } from "@/context/language";
 import { ReportIncidentModal } from "../chat/components/ReportIncidentModal";
@@ -148,7 +149,8 @@ export function EditTripDetailsDialog({
                 updatedAt: serverTimestamp(),
             };
             if (hasPhotoChanges) {
-                updateData.photos = updatedPhotos.map((p) => ({
+                const deduped = dedupeTripPhotosByTypeLastWins(updatedPhotos);
+                updateData.photos = deduped.map((p) => ({
                     url: p.url,
                     type: p.type,
                     geocoding: p.geocoding ?? null,
