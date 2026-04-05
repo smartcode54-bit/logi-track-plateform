@@ -14,6 +14,8 @@ import {
   updateDoc,
   serverTimestamp,
   Timestamp,
+  type DocumentData,
+  type UpdateData,
 } from "firebase/firestore";
 import { db, functions } from "@/firebase/client";
 import { httpsCallable } from "firebase/functions";
@@ -172,7 +174,7 @@ function AdminChatRoomContent() {
         "notifyChatMessageCreated"
       );
       await notifyChatMessageCreated({ chatId, messageId: messageRef.id });
-      const updates: Record<string, unknown> = {
+      const updates: UpdateData<DocumentData> = {
         lastMessage: text,
         lastMessageAt: serverTimestamp(),
         lastMessageBy: currentUser.uid,
@@ -405,7 +407,7 @@ function AdminChatRoomContent() {
                     <div className="flex flex-col max-w-[75%] items-start">
                       <span className="text-xs text-muted-foreground mb-0.5 px-1">{senderName}</span>
                       <div className="rounded-lg px-3 py-2 bg-muted">
-                        <p className="text-sm whitespace-pre-wrap break-words">
+                        <p className="text-sm whitespace-pre-wrap wrap-break-word">
                           {isBroadcast && <span className="mr-1" aria-hidden>📢 </span>}
                           {m.text}
                         </p>
@@ -428,7 +430,7 @@ function AdminChatRoomContent() {
                 )}
                 {isAdmin && (
                   <div className="rounded-lg px-3 py-2 bg-primary text-primary-foreground max-w-[75%]">
-                    <p className="text-sm whitespace-pre-wrap break-words">
+                    <p className="text-sm whitespace-pre-wrap wrap-break-word">
                       {isBroadcast && <span className="mr-1" aria-hidden>📢 </span>}
                       {m.text}
                     </p>
