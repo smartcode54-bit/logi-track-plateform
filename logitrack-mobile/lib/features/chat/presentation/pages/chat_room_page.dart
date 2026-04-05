@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../data/repositories/chat_repository.dart';
 import '../../../../main.dart' show onChatRoomExited;
@@ -25,11 +26,27 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
   bool _sendingImage = false;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
   _messagesSubscription;
+  /// เวลา `lastReadByDriver` ก่อนเปิดห้อง (ms) — ใช้เส้นคั่นข้อความจากแอดมินที่ยังไม่ได้อ่าน
+  int? _readBaselineMs;
+
+  Future<void> _bootstrapReadBaseline() async {
+    try {
+      final snap = await _repo.getChatDoc(widget.chatId);
+      if (!mounted) return;
+      final raw = snap.data()?['lastReadByDriver'];
+      var ms = 0;
+      if (raw is Timestamp) ms = raw.millisecondsSinceEpoch;
+      setState(() => _readBaselineMs = ms);
+    } catch (_) {
+      if (mounted) setState(() => _readBaselineMs = 0);
+    }
+    await _repo.markChatAsReadByDriver(widget.chatId);
+  }
 
   @override
   void initState() {
     super.initState();
-    _repo.markChatAsReadByDriver(widget.chatId);
+    _bootstrapReadBaseline();
     _messagesSubscription = _repo.watchMessages(widget.chatId).listen((snap) {
       final docs = snap.docs;
       if (docs.isNotEmpty) {
@@ -205,14 +222,23 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
                       return false;
                     }
 
-                    return ListView.builder(
-                      controller: _scrollController,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      itemCount: docs.length,
-                      itemBuilder: (context, index) {
+                    int? firstUnreadAdminIndex;
+                    final baseline = _readBaselineMs;
+                    if (baseline != null) {
+                      for (var i = 0; i < docs.length; i++) {
+                        final dd = docs[i].data();
+                        final role = dd['senderRole'] as String? ?? '';
+                        final ts = dd['createdAt'] as Timestamp?;
+                        if (role == 'admin' &&
+                            ts != null &&
+                            ts.millisecondsSinceEpoch > baseline) {
+                          firstUnreadAdminIndex = i;
+                          break;
+                        }
+                      }
+                    }
+
+                    Widget messageTile(int index) {
                         final doc = docs[index];
                         final d = doc.data();
                         final senderRole = d['senderRole'] as String? ?? '';
@@ -423,7 +449,34 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
                             ),
                           ),
                         );
-                      },
+                    }
+
+                    final messageChildren = <Widget>[];
+                    DateTime? prevDayCal;
+                    for (var index = 0; index < docs.length; index++) {
+                      final d0 = docs[index].data();
+                      final createdAt0 = d0['createdAt'] as Timestamp?;
+                      final day = createdAt0?.toDate();
+                      if (day != null) {
+                        final cal = DateTime(day.year, day.month, day.day);
+                        if (prevDayCal == null || cal != prevDayCal) {
+                          messageChildren.add(_buildDateSeparator(context, day));
+                          prevDayCal = cal;
+                        }
+                      }
+                      if (firstUnreadAdminIndex == index && baseline != null) {
+                        messageChildren.add(_buildUnreadDivider(context));
+                      }
+                      messageChildren.add(messageTile(index));
+                    }
+
+                    return ListView(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      children: messageChildren,
                     );
                   },
                 );
@@ -473,6 +526,78 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
                   ),
                 ],
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _labelForChatDate(DateTime d, BuildContext context) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final d0 = DateTime(d.year, d.month, d.day);
+    if (d0 == today) return 'chat_date_today'.tr();
+    final yesterday = today.subtract(const Duration(days: 1));
+    if (d0 == yesterday) return 'chat_date_yesterday'.tr();
+    return DateFormat.yMMMEd(context.locale.toString()).format(d);
+  }
+
+  Widget _buildDateSeparator(BuildContext context, DateTime dateTime) {
+    final label = _labelForChatDate(dateTime, context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(
+            color: Theme.of(context)
+                .colorScheme
+                .surfaceContainerHighest
+                .withValues(alpha: 0.85),
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUnreadDivider(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Divider(
+              color: cs.primary.withValues(alpha: 0.4),
+              height: 1,
+              thickness: 1,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Text(
+              'chat_unread_divider'.tr(),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: cs.primary,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Divider(
+              color: cs.primary.withValues(alpha: 0.4),
+              height: 1,
+              thickness: 1,
             ),
           ),
         ],

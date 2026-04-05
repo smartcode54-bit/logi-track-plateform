@@ -221,4 +221,9 @@ export default {
     "payroll.dialog.downloadPdf": "Download PDF",
     "payroll.dialog.close": "Close",
     "payroll.dialog.approvePayroll": "Approve Payroll",
+
+    "chat.read": "Read",
+    "chat.dateToday": "Today",
+    "chat.dateYesterday": "Yesterday",
+    "chat.unreadDivider": "New messages",
 };

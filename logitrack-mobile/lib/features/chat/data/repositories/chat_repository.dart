@@ -78,6 +78,11 @@ class ChatRepository {
     return _firestore.collection('chats').doc(chatId).snapshots();
   }
 
+  /// ดึงเอกสารแชทครั้งเดียว (ใช้เก็บเวลาอ่านก่อน mark-as-read ตอนเปิดห้อง).
+  Future<DocumentSnapshot<Map<String, dynamic>>> getChatDoc(String chatId) {
+    return _firestore.collection('chats').doc(chatId).get();
+  }
+
   /// Stream messages for a chat room.
   Stream<QuerySnapshot<Map<String, dynamic>>> watchMessages(String chatId) {
     return _firestore

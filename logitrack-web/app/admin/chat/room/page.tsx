@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, Suspense } from "react";
+import { useState, useEffect, useRef, useMemo, Suspense, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -26,12 +26,26 @@ import { Input } from "@/components/ui/input";
 import { Loader2, ArrowLeft, Send, User, CheckCircle, RotateCcw } from "lucide-react";
 import type { MessageDoc, ChatStatus } from "@/lib/chat";
 
+function startOfLocalDay(d: Date): Date {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function isSameCalendarDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
 function AdminChatRoomContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const chatId = searchParams.get("chatId") ?? "";
   const auth = useAuth();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const currentUser = auth?.currentUser ?? null;
   const [chat, setChat] = useState<{
     driverDisplayName: string;
@@ -44,6 +58,8 @@ function AdminChatRoomContent() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  /** lastReadByAdmin[uid] (ms) ก่อนเข้าห้อง — ใช้คั่น “ยังไม่ได้อ่าน” แบบ LINE */
+  const [readBaselineMs, setReadBaselineMs] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -105,11 +121,28 @@ function AdminChatRoomContent() {
 
   useEffect(() => {
     if (!chatId || !currentUser?.uid) return;
+    let cancelled = false;
     const chatRef = doc(db, COLLECTIONS.CHATS, chatId);
-    updateDoc(chatRef, {
-      [`lastReadByAdmin.${currentUser.uid}`]: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    }).catch(() => {});
+    (async () => {
+      try {
+        const snap = await getDoc(chatRef);
+        if (cancelled || !snap.exists()) return;
+        const d = snap.data();
+        const ms =
+          (d.lastReadByAdmin as Record<string, Timestamp> | undefined)?.[currentUser.uid]?.toMillis?.() ?? 0;
+        setReadBaselineMs(ms);
+      } catch {
+        if (!cancelled) setReadBaselineMs(0);
+      }
+      if (cancelled) return;
+      await updateDoc(chatRef, {
+        [`lastReadByAdmin.${currentUser.uid}`]: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      }).catch(() => {});
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [chatId, currentUser?.uid]);
 
   useEffect(() => {
@@ -232,6 +265,31 @@ function AdminChatRoomContent() {
     return false;
   };
 
+  const firstUnreadDriverIndex = useMemo(() => {
+    if (readBaselineMs === null) return -1;
+    return messages.findIndex((m) => {
+      if (m.senderRole !== "driver") return false;
+      const ms = m.createdAt?.toMillis?.();
+      return ms != null && ms > readBaselineMs;
+    });
+  }, [messages, readBaselineMs]);
+
+  const formatChatDateLabel = (d: Date) => {
+    const now = new Date();
+    const today = startOfLocalDay(now);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const msgDay = startOfLocalDay(d);
+    if (msgDay.getTime() === today.getTime()) return t("chat.dateToday");
+    if (msgDay.getTime() === yesterday.getTime()) return t("chat.dateYesterday");
+    return d.toLocaleDateString(language === "th" ? "th-TH" : "en-US", {
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+  };
+
   if (!chatId) {
     return null;
   }
@@ -294,12 +352,44 @@ function AdminChatRoomContent() {
           {messages.length === 0 && (
             <p className="text-center text-muted-foreground text-sm py-8">No messages yet. Send the first message to take this chat.</p>
           )}
-          {messages.map((m) => {
+          {messages.flatMap((m, index) => {
             const isAdmin = m.senderRole === "admin";
             const isBroadcast = m.type === "broadcast";
             const senderName = chat?.driverDisplayName ?? "Driver";
             const senderInitial = senderName.charAt(0).toUpperCase() || "?";
-            return (
+            const tCurr = m.createdAt?.toDate?.();
+            const tPrev = index > 0 ? messages[index - 1].createdAt?.toDate?.() : undefined;
+            const rows: ReactNode[] = [];
+            if (tCurr && (!tPrev || !isSameCalendarDay(tPrev, tCurr))) {
+              const label = formatChatDateLabel(tCurr);
+              rows.push(
+                <div
+                  key={`date-${m.id}`}
+                  className="flex justify-center py-2"
+                  role="separator"
+                  aria-label={label}
+                >
+                  <span className="text-xs text-muted-foreground bg-muted/80 px-3 py-1 rounded-full">
+                    {label}
+                  </span>
+                </div>
+              );
+            }
+            if (readBaselineMs !== null && firstUnreadDriverIndex === index) {
+              rows.push(
+                <div
+                  key={`unread-${m.id}`}
+                  className="flex items-center gap-3 py-2"
+                  role="separator"
+                  aria-label={t("chat.unreadDivider")}
+                >
+                  <div className="h-px flex-1 bg-primary/35" />
+                  <span className="text-xs font-medium text-primary shrink-0">{t("chat.unreadDivider")}</span>
+                  <div className="h-px flex-1 bg-primary/35" />
+                </div>
+              );
+            }
+            rows.push(
               <div
                 key={m.id}
                 className={`flex gap-2 ${isAdmin ? "justify-end" : "justify-start"}`}
@@ -355,13 +445,14 @@ function AdminChatRoomContent() {
                     <p className="text-xs mt-1 text-primary-foreground/80">
                       {formatTime(m.createdAt)}
                       {isMessageReadByRecipient(m) && (
-                        <span className="ml-1.5 opacity-90">· {(t("chat.read") === "chat.read" ? "Read" : t("chat.read"))}</span>
+                        <span className="ml-1.5 opacity-90">· {t("chat.read")}</span>
                       )}
                     </p>
                   </div>
                 )}
               </div>
             );
+            return rows;
           })}
           <div ref={bottomRef} />
         </CardContent>
