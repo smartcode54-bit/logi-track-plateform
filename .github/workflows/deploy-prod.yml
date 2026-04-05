@@ -34,9 +34,24 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Create .env.production
-        run: printf '%s\n' "$ENV_PROD_WEB" > logitrack-web/.env.production
+        run: |
+          if [ -z "${ENV_PROD_WEB:-}" ]; then
+            echo "::error::ENV_PROD_WEB secret is empty. Add it under repo Settings → Secrets → Actions (full envs/.env.prod.web contents with all NEXT_PUBLIC_FIREBASE_* lines)."
+            exit 1
+          fi
+          printf '%s\n' "$ENV_PROD_WEB" > logitrack-web/.env.production
         env:
           ENV_PROD_WEB: ${{ secrets.ENV_PROD_WEB }}
+
+      - name: Verify Firebase client env for Next build
+        run: |
+          f=logitrack-web/.env.production
+          for key in NEXT_PUBLIC_FIREBASE_API_KEY NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN NEXT_PUBLIC_FIREBASE_PROJECT_ID NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID NEXT_PUBLIC_FIREBASE_APP_ID; do
+            if ! grep -qE "^[[:space:]]*${key}=.+" "$f"; then
+              echo "::error::Missing or empty ${key} in .env.production (from ENV_PROD_WEB). Compare with envs/.env.prod.web.example."
+              exit 1
+            fi
+          done
 
       - name: Build
         run: pnpm run build
