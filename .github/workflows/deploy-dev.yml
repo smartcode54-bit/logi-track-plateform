@@ -7,10 +7,9 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # Only FORCE_* here — never put ENV_DEV_WEB at job level (would show as empty in logs).
     env:
-      # Until all JS actions default to Node 24+ (see GitHub changelog 2025-09-19)
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      # Do not set ENV_DEV_WEB here — it must come only from the step below via secrets.
 
     steps:
       - uses: actions/checkout@v6
@@ -33,16 +32,38 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Option A: one secret ENV_DEV_WEB = full copy of envs/.env.dev.web (multiline)
+      # Option B: no secret — set Repository *Variables* (same names as in .env.dev.web) for the six NEXT_PUBLIC_FIREBASE_* keys
       - name: Create .env.production (dev)
         run: |
-          if [ -z "${ENV_DEV_WEB:-}" ]; then
-            echo "::error::No web env secret found. Add a repository secret named ENV_DEV_WEB (or DEV_WEB_ENV) under Settings → Secrets and variables → Actions. Paste the full contents of your local envs/.env.dev.web file (multiline). For a fork: add the secret on the fork repo, not only upstream."
+          set -e
+          if [ -n "${ENV_DEV_WEB:-}" ]; then
+            printf '%s\n' "$ENV_DEV_WEB" > logitrack-web/.env.production
+          elif [ -n "${NEXT_PUBLIC_FIREBASE_API_KEY:-}" ] && [ -n "${NEXT_PUBLIC_FIREBASE_PROJECT_ID:-}" ]; then
+            {
+              echo "NEXT_PUBLIC_FIREBASE_API_KEY=${NEXT_PUBLIC_FIREBASE_API_KEY}"
+              echo "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN}"
+              echo "NEXT_PUBLIC_FIREBASE_PROJECT_ID=${NEXT_PUBLIC_FIREBASE_PROJECT_ID}"
+              echo "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET}"
+              echo "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID}"
+              echo "NEXT_PUBLIC_FIREBASE_APP_ID=${NEXT_PUBLIC_FIREBASE_APP_ID}"
+              if [ -n "${NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID:-}" ]; then
+                echo "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=${NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID}"
+              fi
+            } > logitrack-web/.env.production
+          else
+            echo "::error::No Firebase web env for CI. Either (1) add repository Secret ENV_DEV_WEB = paste full contents of envs/.env.dev.web, or (2) add Repository Variables: NEXT_PUBLIC_FIREBASE_API_KEY, NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN, NEXT_PUBLIC_FIREBASE_PROJECT_ID, NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET, NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID, NEXT_PUBLIC_FIREBASE_APP_ID (Settings → Secrets and variables → Actions → Variables tab). Use the same repo that runs this workflow (fork needs its own)."
             exit 1
           fi
-          printf '%s\n' "$ENV_DEV_WEB" > logitrack-web/.env.production
         env:
-          # Prefer ENV_DEV_WEB; fallback DEV_WEB_ENV if you used a different name
-          ENV_DEV_WEB: ${{ secrets.ENV_DEV_WEB || secrets.DEV_WEB_ENV }}
+          ENV_DEV_WEB: ${{ secrets.ENV_DEV_WEB }}
+          NEXT_PUBLIC_FIREBASE_API_KEY: ${{ vars.NEXT_PUBLIC_FIREBASE_API_KEY }}
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ vars.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ vars.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ vars.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }}
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
+          NEXT_PUBLIC_FIREBASE_APP_ID: ${{ vars.NEXT_PUBLIC_FIREBASE_APP_ID }}
+          NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: ${{ vars.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID }}
 
       - name: Verify Firebase client env for Next build
         run: |
