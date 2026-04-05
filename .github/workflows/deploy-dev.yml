@@ -10,6 +10,7 @@ jobs:
     env:
       # Until all JS actions default to Node 24+ (see GitHub changelog 2025-09-19)
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      # Do not set ENV_DEV_WEB here — it must come only from the step below via secrets.
 
     steps:
       - uses: actions/checkout@v6
@@ -35,12 +36,13 @@ jobs:
       - name: Create .env.production (dev)
         run: |
           if [ -z "${ENV_DEV_WEB:-}" ]; then
-            echo "::error::ENV_DEV_WEB secret is empty. GitHub repo → Settings → Secrets and variables → Actions → add ENV_DEV_WEB with the full contents of envs/.env.dev.web (all NEXT_PUBLIC_FIREBASE_* lines filled)."
+            echo "::error::No web env secret found. Add a repository secret named ENV_DEV_WEB (or DEV_WEB_ENV) under Settings → Secrets and variables → Actions. Paste the full contents of your local envs/.env.dev.web file (multiline). For a fork: add the secret on the fork repo, not only upstream."
             exit 1
           fi
           printf '%s\n' "$ENV_DEV_WEB" > logitrack-web/.env.production
         env:
-          ENV_DEV_WEB: ${{ secrets.ENV_DEV_WEB }}
+          # Prefer ENV_DEV_WEB; fallback DEV_WEB_ENV if you used a different name
+          ENV_DEV_WEB: ${{ secrets.ENV_DEV_WEB || secrets.DEV_WEB_ENV }}
 
       - name: Verify Firebase client env for Next build
         run: |
