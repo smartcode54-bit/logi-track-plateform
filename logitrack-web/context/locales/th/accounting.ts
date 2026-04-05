@@ -26,6 +26,8 @@ export default {
     "accounting.filter.vehicle": "ทะเบียนรถ",
     "accounting.filter.all": "ทั้งหมด",
     "accounting.filter.searchPlaceholder": "ค้นหาทะเบียนหรือชื่อคนขับ",
+    "accounting.filter.month": "เดือน",
+    "accounting.filter.year": "ปี",
     "accounting.filter.kmPerLiter": "กม./ลิตร",
     "accounting.filter.kmOp.eq": "=",
     "accounting.filter.kmOp.lt": "<",

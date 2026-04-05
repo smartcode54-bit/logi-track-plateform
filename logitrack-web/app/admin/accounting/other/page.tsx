@@ -2,10 +2,18 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { useLanguage } from "@/context/language";
-import { getVehicleExpensesByType, VehicleExpenseRow } from "../actions.client";
+import {
+    getVehicleExpensesByType,
+    getDriversForFilter,
+    getTrucksForFilter,
+    VehicleExpenseRow,
+    DriverOption,
+    TruckOption,
+    updateVehicleExpense,
+} from "../actions.client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Receipt, DollarSign, Hash, TrendingUp, Loader2, RefreshCw, Save } from "lucide-react";
+import { Receipt, DollarSign, Hash, TrendingUp, Loader2, RefreshCw, Save, Search } from "lucide-react";
 import {
     ImageUrlPreviewView,
     type ImageUrlPreviewLabels,
@@ -29,7 +37,6 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { usePermission } from "@/hooks/usePermission";
 import { CAPABILITIES } from "@/lib/capabilities";
-import { updateVehicleExpense } from "../actions.client";
 
 const categoryKeys: Record<string, string> = {
     tire_repair: "accounting.category.tireRepair",
@@ -40,8 +47,15 @@ const categoryKeys: Record<string, string> = {
 };
 
 export default function AccountingOtherPage() {
-    const { t } = useLanguage();
+    const { t, language } = useLanguage();
     const [records, setRecords] = useState<VehicleExpenseRow[]>([]);
+    const [drivers, setDrivers] = useState<DriverOption[]>([]);
+    const [trucks, setTrucks] = useState<TruckOption[]>([]);
+    const [filterDriverId, setFilterDriverId] = useState<string>("all");
+    const [filterTruckId, setFilterTruckId] = useState<string>("all");
+    const [plateSearch, setPlateSearch] = useState("");
+    const [filterMonth, setFilterMonth] = useState<string>("all");
+    const [filterYear, setFilterYear] = useState<string>("all");
     const [loading, setLoading] = useState(true);
     const [detailRow, setDetailRow] = useState<VehicleExpenseRow | null>(null);
     const [editForm, setEditForm] = useState<VehicleExpenseRow | null>(null);
@@ -92,12 +106,35 @@ export default function AccountingOtherPage() {
 
     const loadData = () => {
         setLoading(true);
-        getVehicleExpensesByType("other").then(setRecords).finally(() => setLoading(false));
+        Promise.all([
+            getVehicleExpensesByType("other"),
+            getDriversForFilter(),
+            getTrucksForFilter(),
+        ]).then(([rows, driverList, truckList]) => {
+            setRecords(rows);
+            setDrivers(driverList);
+            setTrucks(truckList);
+        }).finally(() => setLoading(false));
     };
 
     useEffect(() => {
         loadData();
     }, []);
+
+    const filterYearOptions = useMemo(() => {
+        const ys = new Set<number>();
+        const cy = new Date().getFullYear();
+        for (let i = 0; i < 6; i++) ys.add(cy - i);
+        records.forEach((r) => ys.add(r.date.getFullYear()));
+        return Array.from(ys).sort((a, b) => b - a);
+    }, [records]);
+
+    const monthLabels = useMemo(() => {
+        const loc = language === "th" ? "th-TH" : "en-US";
+        return Array.from({ length: 12 }, (_, i) =>
+            new Intl.DateTimeFormat(loc, { month: "long" }).format(new Date(2024, i, 1))
+        );
+    }, [language]);
 
     const handleSaveEdit = async () => {
         if (!detailRow || !editForm) return;
@@ -126,11 +163,34 @@ export default function AccountingOtherPage() {
         }
     }, [detailRow]);
 
-    const totalAmount = records.reduce((s, r) => s + r.amount, 0);
-    const count = records.length;
+    const filteredRecords = useMemo(() => {
+        let list = records;
+        if (filterDriverId !== "all") list = list.filter((r) => r.driverId === filterDriverId);
+        if (filterTruckId !== "all") list = list.filter((r) => r.truckId === filterTruckId);
+        if (plateSearch.trim()) {
+            const q = plateSearch.trim().toLowerCase();
+            list = list.filter(
+                (r) =>
+                    (r.licensePlate ?? "").toLowerCase().includes(q) ||
+                    (r.driverName ?? "").toLowerCase().includes(q)
+            );
+        }
+        if (filterYear !== "all") {
+            const y = Number(filterYear);
+            if (!Number.isNaN(y)) list = list.filter((r) => r.date.getFullYear() === y);
+        }
+        if (filterMonth !== "all") {
+            const m = Number(filterMonth);
+            if (!Number.isNaN(m)) list = list.filter((r) => r.date.getMonth() === m);
+        }
+        return list;
+    }, [records, filterDriverId, filterTruckId, plateSearch, filterYear, filterMonth]);
+
+    const totalAmount = filteredRecords.reduce((s, r) => s + r.amount, 0);
+    const count = filteredRecords.length;
     const avgAmount = count > 0 ? totalAmount / count : 0;
     const now = new Date();
-    const thisMonth = records.filter(
+    const thisMonth = filteredRecords.filter(
         (r) => r.date.getMonth() === now.getMonth() && r.date.getFullYear() === now.getFullYear()
     );
     const thisMonthTotal = thisMonth.reduce((s, r) => s + r.amount, 0);
@@ -144,17 +204,15 @@ export default function AccountingOtherPage() {
     }
 
     return (
-        <div className="container mx-auto p-6 space-y-8 max-w-[1400px]">
+        <div className="container mx-auto p-6 space-y-8 max-w-[1600px]">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">{t("accounting.other.title")}</h1>
                     <p className="text-muted-foreground mt-1">{t("accounting.other.subtitle")}</p>
                 </div>
-                <Button variant="outline" size="sm" onClick={loadData} disabled={loading}>
-                    <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-                    {t("common.refresh")}
-                </Button>
             </div>
+
+            <AccountingBatchImagesZipCard records={records} kind="other" />
 
             {/* Mini dashboard */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -198,12 +256,109 @@ export default function AccountingOtherPage() {
                 </Card>
             </div>
 
-            <AccountingBatchImagesZipCard records={records} kind="other" />
+            {/* Filters */}
+            <Card>
+                <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                        <Search className="h-4 w-4" />
+                        {t("accounting.filter.title")}
+                    </CardTitle>
+                </CardHeader>
+                <CardContent className="flex flex-wrap gap-4">
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-medium text-muted-foreground">
+                            {t("accounting.filter.driver")}
+                        </label>
+                        <Select value={filterDriverId} onValueChange={setFilterDriverId}>
+                            <SelectTrigger className="w-[200px]">
+                                <SelectValue placeholder={t("accounting.filter.all")} />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">{t("accounting.filter.all")}</SelectItem>
+                                {drivers.map((d) => (
+                                    <SelectItem key={d.id} value={d.id}>
+                                        {d.name}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-medium text-muted-foreground">
+                            {t("accounting.filter.vehicle")}
+                        </label>
+                        <Select value={filterTruckId} onValueChange={setFilterTruckId}>
+                            <SelectTrigger className="w-[180px]">
+                                <SelectValue placeholder={t("accounting.filter.all")} />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">{t("accounting.filter.all")}</SelectItem>
+                                {trucks.map((truck) => (
+                                    <SelectItem key={truck.id} value={truck.id}>
+                                        {truck.licensePlate}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-medium text-muted-foreground">
+                            {t("accounting.filter.title")}
+                        </label>
+                        <Input
+                            placeholder={t("accounting.filter.searchPlaceholder")}
+                            className="w-[180px]"
+                            value={plateSearch}
+                            onChange={(e) => setPlateSearch(e.target.value)}
+                        />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-medium text-muted-foreground">
+                            {t("accounting.filter.month")}
+                        </label>
+                        <Select value={filterMonth} onValueChange={setFilterMonth}>
+                            <SelectTrigger className="w-[160px]">
+                                <SelectValue placeholder={t("accounting.filter.all")} />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">{t("accounting.filter.all")}</SelectItem>
+                                {monthLabels.map((label, i) => (
+                                    <SelectItem key={i} value={String(i)}>
+                                        {label}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-medium text-muted-foreground">
+                            {t("accounting.filter.year")}
+                        </label>
+                        <Select value={filterYear} onValueChange={setFilterYear}>
+                            <SelectTrigger className="w-[120px]">
+                                <SelectValue placeholder={t("accounting.filter.all")} />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">{t("accounting.filter.all")}</SelectItem>
+                                {filterYearOptions.map((y) => (
+                                    <SelectItem key={y} value={String(y)}>
+                                        {y}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                </CardContent>
+            </Card>
 
             {/* Table */}
             <Card>
-                <CardHeader>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0">
                     <CardTitle>{t("accounting.other.title")}</CardTitle>
+                    <Button variant="outline" size="sm" onClick={loadData} disabled={loading}>
+                        <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+                        {t("common.refresh")}
+                    </Button>
                 </CardHeader>
                 <CardContent>
                     <Table>
@@ -217,7 +372,7 @@ export default function AccountingOtherPage() {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {records.map((row) => (
+                            {filteredRecords.map((row) => (
                                 <TableRow
                                     key={row.id}
                                     className="cursor-pointer hover:bg-muted/50 transition-colors"
@@ -236,7 +391,7 @@ export default function AccountingOtherPage() {
                                     </TableCell>
                                 </TableRow>
                             ))}
-                            {records.length === 0 && (
+                            {filteredRecords.length === 0 && (
                                 <TableRow>
                                     <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
                                         {t("accounting.noRecords")}

@@ -26,6 +26,8 @@ export default {
     "accounting.filter.vehicle": "Vehicle (plate)",
     "accounting.filter.all": "All",
     "accounting.filter.searchPlaceholder": "Search by plate or driver",
+    "accounting.filter.month": "Month",
+    "accounting.filter.year": "Year",
     "accounting.filter.kmPerLiter": "Km/L",
     "accounting.filter.kmOp.eq": "=",
     "accounting.filter.kmOp.lt": "<",

@@ -84,7 +84,7 @@ function computeKmPerLiter(records: VehicleExpenseRow[]): FuelRow[] {
 }
 
 export default function AccountingFuelPage() {
-    const { t } = useLanguage();
+    const { t, language } = useLanguage();
     const [records, setRecords] = useState<VehicleExpenseRow[]>([]);
     const [drivers, setDrivers] = useState<DriverOption[]>([]);
     const [trucks, setTrucks] = useState<TruckOption[]>([]);
@@ -92,6 +92,8 @@ export default function AccountingFuelPage() {
     const [filterDriverId, setFilterDriverId] = useState<string>("all");
     const [filterTruckId, setFilterTruckId] = useState<string>("all");
     const [plateSearch, setPlateSearch] = useState("");
+    const [filterMonth, setFilterMonth] = useState<string>("all");
+    const [filterYear, setFilterYear] = useState<string>("all");
     const [filterKmOp, setFilterKmOp] = useState<string>("");
     const [filterKmValue, setFilterKmValue] = useState<string>("");
     const [filterKmMin, setFilterKmMin] = useState<string>("");
@@ -201,6 +203,21 @@ export default function AccountingFuelPage() {
         loadData();
     }, []);
 
+    const filterYearOptions = useMemo(() => {
+        const ys = new Set<number>();
+        const cy = new Date().getFullYear();
+        for (let i = 0; i < 6; i++) ys.add(cy - i);
+        records.forEach((r) => ys.add(r.date.getFullYear()));
+        return Array.from(ys).sort((a, b) => b - a);
+    }, [records]);
+
+    const monthLabels = useMemo(() => {
+        const loc = language === "th" ? "th-TH" : "en-US";
+        return Array.from({ length: 12 }, (_, i) =>
+            new Intl.DateTimeFormat(loc, { month: "long" }).format(new Date(2024, i, 1))
+        );
+    }, [language]);
+
     const rowsWithKm = useMemo(() => computeKmPerLiter(records), [records]);
 
     const filteredRecords = useMemo(() => {
@@ -214,6 +231,14 @@ export default function AccountingFuelPage() {
                     (r.licensePlate ?? "").toLowerCase().includes(q) ||
                     (r.driverName ?? "").toLowerCase().includes(q)
             );
+        }
+        if (filterYear !== "all") {
+            const y = Number(filterYear);
+            if (!Number.isNaN(y)) list = list.filter((r) => r.date.getFullYear() === y);
+        }
+        if (filterMonth !== "all") {
+            const m = Number(filterMonth);
+            if (!Number.isNaN(m)) list = list.filter((r) => r.date.getMonth() === m);
         }
         if (filterKmOp && filterKmOp !== "between") {
             const val = parseFloat(filterKmValue);
@@ -240,7 +265,7 @@ export default function AccountingFuelPage() {
             }
         }
         return list;
-    }, [rowsWithKm, filterDriverId, filterTruckId, plateSearch, filterKmOp, filterKmValue, filterKmMin, filterKmMax]);
+    }, [rowsWithKm, filterDriverId, filterTruckId, plateSearch, filterYear, filterMonth, filterKmOp, filterKmValue, filterKmMin, filterKmMax]);
 
     const totalAmount = filteredRecords.reduce((s, r) => s + r.amount, 0);
     const count = filteredRecords.length;
@@ -273,6 +298,64 @@ export default function AccountingFuelPage() {
                     <h1 className="text-3xl font-bold tracking-tight">{t("accounting.fuel.title")}</h1>
                     <p className="text-muted-foreground mt-1">{t("accounting.fuel.subtitle")}</p>
                 </div>
+            </div>
+
+            <AccountingBatchImagesZipCard records={rowsWithKm} kind="fuel" />
+
+            {/* Mini dashboard */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">{t("accounting.dashboard.totalAmount")}</CardTitle>
+                        <DollarSign className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">฿{totalAmount.toLocaleString()}</div>
+                        <p className="text-xs text-muted-foreground">{t("accounting.dashboard.recordCount")}: {count}</p>
+                    </CardContent>
+                </Card>
+                <Card className="border-l-4 border-l-blue-500">
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium text-blue-700">{t("accounting.dashboard.thisMonth")}</CardTitle>
+                        <TrendingUp className="h-4 w-4 text-blue-500" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold text-blue-700">฿{thisMonthTotal.toLocaleString()}</div>
+                        <p className="text-xs text-muted-foreground">{thisMonth.length} {t("accounting.dashboard.recordCount").toLowerCase()}</p>
+                    </CardContent>
+                </Card>
+                <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">{t("accounting.dashboard.avgAmount")}</CardTitle>
+                        <Hash className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">฿{Math.round(avgAmount).toLocaleString()}</div>
+                    </CardContent>
+                </Card>
+                <Card className="border-l-4 border-l-green-500">
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium text-green-700">{t("accounting.dashboard.avgKmPerLiter")}</CardTitle>
+                        <Gauge className="h-4 w-4 text-green-500" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold text-green-700">
+                            {avgKmPerLiter != null ? `${avgKmPerLiter} km/L` : "—"}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                            {kmPerLiterValues.length} {t("accounting.dashboard.recordCount").toLowerCase()}
+                        </p>
+                    </CardContent>
+                </Card>
+                <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">{t("accounting.dashboard.recordCount")}</CardTitle>
+                        <Fuel className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">{count}</div>
+                    </CardContent>
+                </Card>
             </div>
 
             {/* Filters */}
@@ -330,6 +413,42 @@ export default function AccountingFuelPage() {
                             value={plateSearch}
                             onChange={(e) => setPlateSearch(e.target.value)}
                         />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-medium text-muted-foreground">
+                            {t("accounting.filter.month")}
+                        </label>
+                        <Select value={filterMonth} onValueChange={setFilterMonth}>
+                            <SelectTrigger className="w-[160px]">
+                                <SelectValue placeholder={t("accounting.filter.all")} />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">{t("accounting.filter.all")}</SelectItem>
+                                {monthLabels.map((label, i) => (
+                                    <SelectItem key={i} value={String(i)}>
+                                        {label}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-medium text-muted-foreground">
+                            {t("accounting.filter.year")}
+                        </label>
+                        <Select value={filterYear} onValueChange={setFilterYear}>
+                            <SelectTrigger className="w-[120px]">
+                                <SelectValue placeholder={t("accounting.filter.all")} />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">{t("accounting.filter.all")}</SelectItem>
+                                {filterYearOptions.map((y) => (
+                                    <SelectItem key={y} value={String(y)}>
+                                        {y}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
                     </div>
                     <div className="flex flex-col gap-1.5">
                         <label className="text-xs font-medium text-muted-foreground">
@@ -391,64 +510,6 @@ export default function AccountingFuelPage() {
                     </div>
                 </CardContent>
             </Card>
-
-            {/* Mini dashboard */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">{t("accounting.dashboard.totalAmount")}</CardTitle>
-                        <DollarSign className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">฿{totalAmount.toLocaleString()}</div>
-                        <p className="text-xs text-muted-foreground">{t("accounting.dashboard.recordCount")}: {count}</p>
-                    </CardContent>
-                </Card>
-                <Card className="border-l-4 border-l-blue-500">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-blue-700">{t("accounting.dashboard.thisMonth")}</CardTitle>
-                        <TrendingUp className="h-4 w-4 text-blue-500" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold text-blue-700">฿{thisMonthTotal.toLocaleString()}</div>
-                        <p className="text-xs text-muted-foreground">{thisMonth.length} {t("accounting.dashboard.recordCount").toLowerCase()}</p>
-                    </CardContent>
-                </Card>
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">{t("accounting.dashboard.avgAmount")}</CardTitle>
-                        <Hash className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">฿{Math.round(avgAmount).toLocaleString()}</div>
-                    </CardContent>
-                </Card>
-                <Card className="border-l-4 border-l-green-500">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-green-700">{t("accounting.dashboard.avgKmPerLiter")}</CardTitle>
-                        <Gauge className="h-4 w-4 text-green-500" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold text-green-700">
-                            {avgKmPerLiter != null ? `${avgKmPerLiter} km/L` : "—"}
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                            {kmPerLiterValues.length} {t("accounting.dashboard.recordCount").toLowerCase()}
-                        </p>
-                    </CardContent>
-                </Card>
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">{t("accounting.dashboard.recordCount")}</CardTitle>
-                        <Fuel className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">{count}</div>
-                    </CardContent>
-                </Card>
-            </div>
-
-            <AccountingBatchImagesZipCard records={rowsWithKm} kind="fuel" />
 
             {/* Table */}
             <Card>
