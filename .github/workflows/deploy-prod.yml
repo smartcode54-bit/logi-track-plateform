@@ -36,10 +36,9 @@ jobs:
         run: pnpm run build
         working-directory: logitrack-web
 
+      # Docker-based actions cannot use working-directory; use the CLI on a run step instead.
       - name: Deploy to Firebase
-        uses: w9jds/firebase-action@master
-        with:
-          args: deploy --config firebase.prod.json --project logitrack-prod --non-interactive
+        run: npx firebase-tools@13 deploy --config firebase.prod.json --project logitrack-prod --non-interactive
+        working-directory: logitrack-web
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
-        working-directory: logitrack-web
