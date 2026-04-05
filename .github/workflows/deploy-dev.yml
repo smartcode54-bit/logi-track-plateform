@@ -3,6 +3,12 @@ name: Deploy Development
 
 on:
   workflow_dispatch:
+    inputs:
+      env_dev_web_b64:
+        description: "Optional. Base64 of envs/.env.dev.web (UTF-8). Use when repo Secrets/Variables are not set. Git bash: base64 -w0 envs/.env.dev.web"
+        required: false
+        default: ""
+        type: string
 
 jobs:
   deploy:
@@ -32,12 +38,29 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Option A: Secret ENV_DEV_WEB = full copy of envs/.env.dev.web (multiline)
-      # Option B: Repository Variables OR Secrets FIREBASE_DEV_* (same values as in .env — vars fall back to secrets per key)
+      # Secrets never print values; empty-looking env: lines are normal. These booleans confirm what is configured.
+      - name: Diagnose Firebase env sources (no secret values)
+        run: |
+          echo "ENV_DEV_WEB secret set: ${{ secrets.ENV_DEV_WEB != '' }}"
+          echo "FIREBASE_DEV_API_KEY secret set: ${{ secrets.FIREBASE_DEV_API_KEY != '' }}"
+          echo "FIREBASE_DEV_PROJECT_ID secret set: ${{ secrets.FIREBASE_DEV_PROJECT_ID != '' }}"
+          echo "VAR NEXT_PUBLIC_FIREBASE_API_KEY set: ${{ vars.NEXT_PUBLIC_FIREBASE_API_KEY != '' }}"
+          echo "workflow_dispatch env_dev_web_b64 non-empty: ${{ github.event.inputs.env_dev_web_b64 != '' }}"
+
+      # Option A: workflow input env_dev_web_b64 (base64 file) — Option B: Secret ENV_DEV_WEB — Option C: vars || FIREBASE_DEV_* secrets
       - name: Create .env.production (dev)
         run: |
           set -e
-          if [ -n "${ENV_DEV_WEB:-}" ]; then
+          if [ -n "${ENV_DEV_WEB_B64_INPUT:-}" ]; then
+            if ! printf '%s' "$ENV_DEV_WEB_B64_INPUT" | base64 -d > logitrack-web/.env.production; then
+              echo "::error::env_dev_web_b64 is not valid base64. On Linux/Git Bash: base64 -w0 envs/.env.dev.web"
+              exit 1
+            fi
+            if ! grep -qE '^[[:space:]]*NEXT_PUBLIC_FIREBASE_API_KEY=' logitrack-web/.env.production; then
+              echo "::error::Decoded file missing NEXT_PUBLIC_FIREBASE_API_KEY. Use UTF-8 .env without BOM."
+              exit 1
+            fi
+          elif [ -n "${ENV_DEV_WEB:-}" ]; then
             printf '%s\n' "$ENV_DEV_WEB" > logitrack-web/.env.production
           elif [ -n "${NEXT_PUBLIC_FIREBASE_API_KEY:-}" ] && [ -n "${NEXT_PUBLIC_FIREBASE_PROJECT_ID:-}" ]; then
             {
@@ -52,10 +75,11 @@ jobs:
               fi
             } > logitrack-web/.env.production
           else
-            echo "::error::No Firebase web env. Add ONE of: (1) Secret ENV_DEV_WEB = full paste of envs/.env.dev.web, OR (2) six Secrets FIREBASE_DEV_API_KEY, FIREBASE_DEV_AUTH_DOMAIN, FIREBASE_DEV_PROJECT_ID, FIREBASE_DEV_STORAGE_BUCKET, FIREBASE_DEV_MESSAGING_SENDER_ID, FIREBASE_DEV_APP_ID (same values as in .env), OR (3) Repository Variables with names NEXT_PUBLIC_FIREBASE_* . Must be on the repo that runs Actions (fork = add there)."
+            echo "::error::No Firebase web env. See job log step 'Diagnose Firebase env sources' (all false = nothing configured). Fix: add repo Secrets on THIS repo, or run workflow again and paste base64 into input env_dev_web_b64."
             exit 1
           fi
         env:
+          ENV_DEV_WEB_B64_INPUT: ${{ github.event.inputs.env_dev_web_b64 }}
           ENV_DEV_WEB: ${{ secrets.ENV_DEV_WEB }}
           NEXT_PUBLIC_FIREBASE_API_KEY: ${{ vars.NEXT_PUBLIC_FIREBASE_API_KEY || secrets.FIREBASE_DEV_API_KEY }}
           NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ vars.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || secrets.FIREBASE_DEV_AUTH_DOMAIN }}
