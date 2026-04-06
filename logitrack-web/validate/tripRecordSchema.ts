@@ -41,6 +41,7 @@ export const tripOcrDataSchema = z.object({
     tripId: z.string().optional(),
     sealCode: z.string().optional(),
     routeInfo: z.string().optional(),
+    partnerCode: z.string().optional(),
 });
 
 export const tripRecordSchema = z.object({
@@ -60,6 +61,8 @@ export const tripRecordSchema = z.object({
     destination: z.string().optional(),
 
     sealCode: z.string().optional(),
+
+    partnerCode: z.string().optional(),
 
     driverId: z.string().optional(),
 

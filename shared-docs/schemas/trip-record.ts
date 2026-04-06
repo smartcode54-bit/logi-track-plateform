@@ -44,6 +44,7 @@ export const tripOcrDataSchema = z.object({
     tripId: z.string().optional(), // Pattern: LTQ...
     sealCode: z.string().optional(), // Pattern: SPX...
     routeInfo: z.string().optional(), // Extracted from Shopee screenshot
+    partnerCode: z.string().optional(), // e.g. TTP, JWT from LH-XXX / FM-XXX on runsheet OCR
 });
 
 // --- Main Trip Record schema (TripRecords collection - SSOT for Web Dashboard & Billing) ---
@@ -67,6 +68,9 @@ export const tripRecordSchema = z.object({
 
     // Seal code (จากฟอร์มหรือ OCR)
     sealCode: z.string().optional(),
+
+    // ช่องทาง / พาร์ทเนอร์มอบงาน (จาก OCR รันชีท LH-XXX / FM-XXX)
+    partnerCode: z.string().optional(),
 
     // Delivery completion (เมื่อส่งงานเสร็จ)
     deliveredTimestamp: z.date().optional(),

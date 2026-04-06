@@ -295,6 +295,7 @@ export default function DriverMonitorDashboard() {
             t("driverMonitor.table.origin"),
             t("driverMonitor.table.destination"),
             t("driverMonitor.table.sealCode"),
+            t("driverMonitor.table.partnerCode"),
             t("driverMonitor.table.status"),
             t("driverMonitor.table.deliveredTime"),
         ];
@@ -314,6 +315,7 @@ export default function DriverMonitorDashboard() {
                 getSourceDisplayName(trip.origin),
                 getSourceDisplayName(trip.destination),
                 trip.sealCode || "",
+                trip.partnerCode || "",
                 statusLabel,
                 delivered ? format(delivered, "dd/MM/yyyy HH:mm") : "",
             ];
@@ -622,6 +624,7 @@ export default function DriverMonitorDashboard() {
                                     <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.origin")}</TableHead>
                                     <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.destination")}</TableHead>
                                     <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.sealCode")}</TableHead>
+                                    <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.partnerCode")}</TableHead>
                                     <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.status")}</TableHead>
                                     <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.deliveredTime")}</TableHead>
                                 </TableRow>
@@ -629,7 +632,7 @@ export default function DriverMonitorDashboard() {
                             <TableBody>
                                 {loading ? (
                                     <TableRow>
-                                        <TableCell colSpan={10} className="h-32 text-center">
+                                        <TableCell colSpan={11} className="h-32 text-center">
                                             <div className="flex flex-col items-center justify-center gap-2">
                                                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                                                 <p className="text-sm text-muted-foreground">{t("driverMonitor.table.loadingData")}</p>
@@ -638,7 +641,7 @@ export default function DriverMonitorDashboard() {
                                     </TableRow>
                                 ) : paginatedTrips.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={10} className="h-32 text-center">
+                                        <TableCell colSpan={11} className="h-32 text-center">
                                             <p className="text-sm text-muted-foreground">{t("driverMonitor.table.noTrips")}</p>
                                         </TableCell>
                                     </TableRow>
@@ -663,6 +666,7 @@ export default function DriverMonitorDashboard() {
                                             <TableCell className="text-sm"><span className="font-medium">{getSourceDisplayName(trip.origin)}</span></TableCell>
                                             <TableCell className="text-sm"><span className="font-medium">{getSourceDisplayName(trip.destination)}</span></TableCell>
                                             <TableCell><span className="font-mono text-xs">{trip.sealCode || "-"}</span></TableCell>
+                                            <TableCell><span className="font-mono text-xs">{trip.partnerCode || "-"}</span></TableCell>
                                             <TableCell>
                                                 <div className="flex items-center gap-2">
                                                     <Badge variant="secondary" className={cn("font-medium border", STATUS_COLOR[trip.status] || "bg-gray-500/10 text-gray-500")}>
@@ -989,6 +993,8 @@ export default function DriverMonitorDashboard() {
                                     <span className="font-mono text-xs">{detailTrip.spxTripId || "-"}</span>
                                     <span className="text-muted-foreground">{t("driverMonitor.detail.sealCode")}</span>
                                     <span className="font-mono text-xs">{detailTrip.sealCode || "-"}</span>
+                                    <span className="text-muted-foreground">{t("driverMonitor.detail.partnerCode")}</span>
+                                    <span className="font-mono text-xs">{detailTrip.partnerCode || "-"}</span>
                                 </div>
                             </div>
 

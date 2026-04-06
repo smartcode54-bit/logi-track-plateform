@@ -7,6 +7,9 @@ import '../../../home/data/repositories/driver_repository.dart';
 import '../../../home/data/repositories/hubs_repository.dart';
 import '../../../home/data/repositories/trip_records_repository.dart';
 
+const String _tripPartnerFilterAll = '__ALL__';
+const String _tripPartnerFilterUnspecified = '__NONE__';
+
 class TripHistoryPage extends StatefulWidget {
   const TripHistoryPage({super.key});
 
@@ -22,6 +25,9 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
   late int _selectedMonth; // 1–12
   bool _firstMileExpanded = false;
   bool _lineHaulExpanded = false;
+
+  /// Client-side filter by `partnerCode` (OCR); `__ALL__` = ทั้งหมด, `__NONE__` = ไม่ระบุ
+  String _partnerFilter = _tripPartnerFilterAll;
 
   @override
   void initState() {
@@ -122,11 +128,35 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
     return created.year == _selectedYear && created.month == _selectedMonth;
   }
 
+  List<TripRecord> _tripsInSelectedMonth() =>
+      _allTrips.where(_isInSelectedYearMonth).toList();
+
+  Set<String> _distinctPartnerCodesInMonth() {
+    final codes = <String>{};
+    for (final t in _tripsInSelectedMonth()) {
+      final c = t.partnerCode?.trim();
+      if (c != null && c.isNotEmpty) codes.add(c);
+    }
+    return codes;
+  }
+
+  bool _tripMatchesPartnerFilter(TripRecord t) {
+    if (_partnerFilter == _tripPartnerFilterAll) return true;
+    final pc = t.partnerCode?.trim() ?? '';
+    if (_partnerFilter == _tripPartnerFilterUnspecified) return pc.isEmpty;
+    return pc == _partnerFilter;
+  }
+
+  List<TripRecord> _filteredByPartner(List<TripRecord> list) =>
+      list.where(_tripMatchesPartnerFilter).toList();
+
   @override
   Widget build(BuildContext context) {
-    final inMonth = _allTrips.where(_isInSelectedYearMonth).toList();
+    final inMonth =
+        _filteredByPartner(_tripsInSelectedMonth());
     final firstMile = inMonth.where((t) => t.jobType == 'first_mile').toList();
     final lineHaul = inMonth.where((t) => t.jobType == 'line_haul').toList();
+    final partnerCodesSorted = _distinctPartnerCodesInMonth().toList()..sort();
 
     return Scaffold(
       appBar: AppBar(
@@ -165,7 +195,12 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
                                 )
                                 .toList(),
                             onChanged: (v) {
-                              if (v != null) setState(() => _selectedYear = v);
+                              if (v != null) {
+                                setState(() {
+                                  _selectedYear = v;
+                                  _partnerFilter = _tripPartnerFilterAll;
+                                });
+                              }
                             },
                           ),
                         ),
@@ -186,11 +221,44 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
                                 )
                                 .toList(),
                             onChanged: (v) {
-                              if (v != null) setState(() => _selectedMonth = v);
+                              if (v != null) {
+                                setState(() {
+                                  _selectedMonth = v;
+                                  _partnerFilter = _tripPartnerFilterAll;
+                                });
+                              }
                             },
                           ),
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: partnerCodesSorted.contains(_partnerFilter) ||
+                              _partnerFilter == _tripPartnerFilterAll ||
+                              _partnerFilter == _tripPartnerFilterUnspecified
+                          ? _partnerFilter
+                          : _tripPartnerFilterAll,
+                      decoration: InputDecoration(
+                        labelText: 'trip_history_filter_partner'.tr(),
+                        border: const OutlineInputBorder(),
+                      ),
+                      items: [
+                        DropdownMenuItem(
+                          value: _tripPartnerFilterAll,
+                          child: Text('trip_history_partner_all'.tr()),
+                        ),
+                        DropdownMenuItem(
+                          value: _tripPartnerFilterUnspecified,
+                          child: Text('trip_history_partner_unspecified'.tr()),
+                        ),
+                        ...partnerCodesSorted.map(
+                          (c) => DropdownMenuItem(value: c, child: Text(c)),
+                        ),
+                      ],
+                      onChanged: (v) {
+                        if (v != null) setState(() => _partnerFilter = v);
+                      },
                     ),
                     const SizedBox(height: 20),
 
@@ -404,6 +472,11 @@ class _SectionCard extends StatelessWidget {
                           ? t.id!.substring(0, 12)
                           : t.id) ??
                       '–';
+                  final pc = t.partnerCode?.trim();
+                  final partnerLine = (pc != null && pc.isNotEmpty)
+                      ? pc
+                      : 'trip_history_partner_unspecified'.tr();
+                  final partnerLabel = 'trip_history_partner'.tr();
                   return ListTile(
                     title: Text(
                       tripId,
@@ -413,9 +486,9 @@ class _SectionCard extends StatelessWidget {
                       ),
                     ),
                     subtitle: Text(
-                      '$date\n$originLabel : $originName\n$destLabel : $destName',
+                      '$date\n$originLabel : $originName\n$destLabel : $destName\n$partnerLabel: $partnerLine',
                       style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                      maxLines: 3,
+                      maxLines: 4,
                       overflow: TextOverflow.ellipsis,
                     ),
                     trailing: _StatusChip(status: t.status, trip: t),

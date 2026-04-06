@@ -19,6 +19,7 @@ class LoadingDraft {
   final String parcelCount;
   final String sealTime;
   final String totalWeight;
+  final String? partnerCode;
   final String? jobType;
   final String? runsheetPath;
   final Map<String, String> stepPhotoPaths; // stepKey -> path
@@ -32,6 +33,7 @@ class LoadingDraft {
     this.parcelCount = '',
     this.sealTime = '',
     this.totalWeight = '',
+    this.partnerCode,
     this.jobType,
     this.runsheetPath,
     this.stepPhotoPaths = const {},
@@ -46,6 +48,7 @@ class LoadingDraft {
     'parcelCount': parcelCount,
     'sealTime': sealTime,
     'totalWeight': totalWeight,
+    'partnerCode': partnerCode,
     'jobType': jobType,
     'runsheetPath': runsheetPath,
     'stepPhotoPaths': stepPhotoPaths,
@@ -62,6 +65,7 @@ class LoadingDraft {
       parcelCount: json['parcelCount'] as String? ?? '',
       sealTime: json['sealTime'] as String? ?? '',
       totalWeight: json['totalWeight'] as String? ?? '',
+      partnerCode: json['partnerCode'] as String?,
       jobType: json['jobType'] as String?,
       runsheetPath: json['runsheetPath'] as String?,
       stepPhotoPaths: stepMap is Map
@@ -193,6 +197,7 @@ class DraftStorageService {
     required String parcelCount,
     required String sealTime,
     required String totalWeight,
+    String? partnerCode,
     String? jobType,
     Uint8List? runsheetPhoto,
     Map<String, Uint8List>? stepPhotos,
@@ -231,6 +236,7 @@ class DraftStorageService {
       parcelCount: parcelCount,
       sealTime: sealTime,
       totalWeight: totalWeight,
+      partnerCode: partnerCode,
       jobType: jobType,
       runsheetPath: runsheetPath,
       stepPhotoPaths: stepPhotoPaths,

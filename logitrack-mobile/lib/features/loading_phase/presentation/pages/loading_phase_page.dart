@@ -52,6 +52,9 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
   bool _ocrLoading = false;
   bool _saving = false;
 
+  /// จาก OCR รันชีท (LH-XXX / FM-XXX) — ไม่มีช่องแก้มือ
+  String? _ocrPartnerCode;
+
   /// Inline duplicate validation (set when user blurs Trip ID / Seal Code)
   String? _tripIdDuplicateError;
   String? _sealCodeDuplicateError;
@@ -200,6 +203,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       parcelCount: _parcelCountController.text,
       sealTime: _sealTimeController.text,
       totalWeight: _totalWeightController.text,
+      partnerCode: _ocrPartnerCode,
       jobType: _jobType,
       runsheetPhoto: _runsheetPhoto,
       stepPhotos: _stepPhotos.isNotEmpty ? _stepPhotos : null,
@@ -212,6 +216,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     final hasData =
         draft.tripId.isNotEmpty ||
         draft.sealCode.isNotEmpty ||
+        (draft.partnerCode != null && draft.partnerCode!.trim().isNotEmpty) ||
         draft.runsheetPath != null ||
         draft.stepPhotoPaths.isNotEmpty;
     if (!hasData) return;
@@ -258,7 +263,13 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       );
       if (bytes != null) stepPhotos[e.key] = Uint8List.fromList(bytes);
     }
-    if (mounted) setState(() => _stepPhotos.addAll(stepPhotos));
+    if (mounted) {
+      setState(() {
+        _stepPhotos.addAll(stepPhotos);
+        final pc = draft.partnerCode?.trim();
+        _ocrPartnerCode = (pc != null && pc.isNotEmpty) ? pc : null;
+      });
+    }
   }
 
   void _clearTripIdDuplicateError() {
@@ -402,6 +413,8 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         if (result.totalWeight != null) {
           _totalWeightController.text = result.totalWeight!;
         }
+        final pc = result.partnerCode?.trim();
+        _ocrPartnerCode = (pc != null && pc.isNotEmpty) ? pc : null;
       });
       if (!mounted) return;
       if (!isCloudVisionApiKeyConfigured()) {
@@ -843,6 +856,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       _jobType = jobTypeFirstMile;
       _runsheetPhoto = null;
       _stepPhotos.clear();
+      _ocrPartnerCode = null;
       _tripIdDuplicateError = null;
       _sealCodeDuplicateError = null;
       _lastDuplicateDebug = null;
@@ -964,6 +978,11 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         }
       }
 
+      final partnerTrimmed = _ocrPartnerCode?.trim();
+      final partnerForRecord = (partnerTrimmed != null && partnerTrimmed.isNotEmpty)
+          ? partnerTrimmed
+          : null;
+
       await submitLoadingPhaseRecord(
         tripId: tripId,
         jobType: _jobType ?? jobTypeFirstMile,
@@ -972,6 +991,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         sealCode: _sealCodeController.text.trim().isEmpty
             ? null
             : _sealCodeController.text.trim(),
+        partnerCode: partnerForRecord,
         origin: originName.isEmpty ? null : originName,
         destination: destName.isEmpty ? null : destName,
         distance: null,
@@ -990,6 +1010,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         ocrData: TripOcrData(
           tripId: tripId,
           sealCode: sealCode.isEmpty ? null : sealCode,
+          partnerCode: partnerForRecord,
         ),
       );
       if (!mounted) return;

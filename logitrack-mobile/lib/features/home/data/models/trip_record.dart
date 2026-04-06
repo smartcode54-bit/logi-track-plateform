@@ -13,6 +13,7 @@ class TripRecord {
   final String? origin;
   final String? destination;
   final String? sealCode;
+  final String? partnerCode;
   final String? driverId;
   final String? distance;
   final int? parcelCount;
@@ -83,6 +84,7 @@ class TripRecord {
         tripId: ocr['tripId'] as String?,
         sealCode: ocr['sealCode'] as String?,
         routeInfo: ocr['routeInfo'] as String?,
+        partnerCode: ocr['partnerCode'] as String?,
       );
     }
     return TripRecord(
@@ -96,6 +98,7 @@ class TripRecord {
       origin: map['origin'] as String?,
       destination: map['destination'] as String?,
       sealCode: map['sealCode'] as String?,
+      partnerCode: map['partnerCode'] as String?,
       driverId: map['driverId'] as String?,
       distance: map['distance'] as String?,
       parcelCount: (map['parcelCount'] as num?)?.toInt(),
@@ -130,6 +133,7 @@ class TripRecord {
     this.origin,
     this.destination,
     this.sealCode,
+    this.partnerCode,
     this.driverId,
     this.distance,
     this.parcelCount,
@@ -164,6 +168,7 @@ class TripRecord {
       if (origin != null) 'origin': origin,
       if (destination != null) 'destination': destination,
       if (sealCode != null) 'sealCode': sealCode,
+      if (partnerCode != null) 'partnerCode': partnerCode,
       if (driverId != null) 'driverId': driverId,
       if (distance != null) 'distance': distance,
       if (parcelCount != null) 'parcelCount': parcelCount,
@@ -222,12 +227,19 @@ class TripOcrData {
   final String? tripId;
   final String? sealCode;
   final String? routeInfo;
+  final String? partnerCode;
 
-  const TripOcrData({this.tripId, this.sealCode, this.routeInfo});
+  const TripOcrData({
+    this.tripId,
+    this.sealCode,
+    this.routeInfo,
+    this.partnerCode,
+  });
 
   Map<String, dynamic> toMap() => {
     if (tripId != null) 'tripId': tripId,
     if (sealCode != null) 'sealCode': sealCode,
     if (routeInfo != null) 'routeInfo': routeInfo,
+    if (partnerCode != null) 'partnerCode': partnerCode,
   };
 }

@@ -19,6 +19,8 @@ class OcrScreenshotResult {
   final String? parcelCount;
   final String? sealTime;
   final String? totalWeight;
+  /// ช่องทาง / พาร์ทเนอร์จากป้าย เช่น JWT, TTP (หลัง LH- / FM-)
+  final String? partnerCode;
 
   OcrScreenshotResult({
     this.tripId,
@@ -30,6 +32,7 @@ class OcrScreenshotResult {
     this.parcelCount,
     this.sealTime,
     this.totalWeight,
+    this.partnerCode,
   });
 }
 
@@ -100,6 +103,7 @@ Future<OcrScreenshotResult> runOcrOnImageBytes(
       return OcrScreenshotResult();
     }
 
+    final partner = _clean(_extractPartnerCode(fullText));
     return OcrScreenshotResult(
       tripId: qrTripId ?? _clean(_extractTripId(fullText)),
       sealCode: qrSealCode ?? _clean(_extractSealCode(fullText)),
@@ -110,6 +114,7 @@ Future<OcrScreenshotResult> runOcrOnImageBytes(
       parcelCount: _clean(_extractParcelCount(fullText)),
       sealTime: _clean(_extractSealTime(fullText)),
       totalWeight: _clean(_extractTotalWeight(fullText)),
+      partnerCode: partner,
     );
   } catch (e, st) {
     debugPrint('OCR screenshot error: $e\n$st');
@@ -166,6 +171,41 @@ String? _extractSealCode(String text) {
     var g = match.group(0)!;
     g = g.replaceFirst(RegExp(r'^5PX', caseSensitive: false), 'SPX');
     return _compactSealCode(g);
+  }
+  return null;
+}
+
+/// Partner slot from runsheet: `LH-TTP`, `FM-XXX` on driver line (ชื่อคนขับ) preferred.
+String? _extractPartnerCode(String text) {
+  if (text.trim().isEmpty) return null;
+  final pattern = RegExp(
+    r'(?:LH|FM)\s*-\s*([A-Z0-9]{2,})',
+    caseSensitive: false,
+  );
+
+  bool validCode(String code) {
+    final u = code.toUpperCase();
+    if (u == 'SUB') return false;
+    return u.isNotEmpty;
+  }
+
+  final lines = text.split(RegExp(r'\r?\n'));
+  for (final line in lines) {
+    if (line.contains('ชื่อคนขับ') ||
+        line.toUpperCase().contains('DRIVER')) {
+      final m = pattern.firstMatch(line.toUpperCase());
+      if (m != null) {
+        final code = m.group(1)!;
+        if (validCode(code)) return code.toUpperCase();
+      }
+    }
+  }
+
+  final fullUpper = text.toUpperCase();
+  final m = pattern.firstMatch(fullUpper);
+  if (m != null) {
+    final code = m.group(1)!;
+    if (validCode(code)) return code.toUpperCase();
   }
   return null;
 }
