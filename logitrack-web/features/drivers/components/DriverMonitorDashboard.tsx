@@ -1050,10 +1050,24 @@ export default function DriverMonitorDashboard() {
                             )}
 
                             <div className="space-y-3">
-                                <h4 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
-                                    <Navigation className="h-4 w-4" />
-                                    {t("driverMonitor.detail.tripInfo")}
-                                </h4>
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <h4 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+                                        <Navigation className="h-4 w-4" />
+                                        {t("driverMonitor.detail.tripInfo")}
+                                    </h4>
+                                    {canEdit && (
+                                        <Button
+                                            type="button"
+                                            variant="secondary"
+                                            size="sm"
+                                            className="shrink-0 gap-1.5"
+                                            onClick={() => setEditTripDialogOpen(true)}
+                                        >
+                                            <Pencil className="h-3.5 w-3.5" />
+                                            {t("driverMonitor.detail.editPartner")}
+                                        </Button>
+                                    )}
+                                </div>
                                 <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm bg-muted/30 rounded-lg p-4">
                                     <span className="text-muted-foreground">{t("driverMonitor.table.status")}</span>
                                     <span>
@@ -1127,14 +1141,8 @@ export default function DriverMonitorDashboard() {
                             )}
                         </div>
                     )}
-                    <DialogFooter>
-                        {canEdit && (
-                            <Button variant="outline" onClick={() => setEditTripDialogOpen(true)} className="mr-auto">
-                                <Pencil className="mr-2 h-4 w-4" />
-                                {t("driverMonitor.detail.edit", "Edit Task")}
-                            </Button>
-                        )}
-                        <Button variant="outline" onClick={() => setDetailTrip(null)}>
+                    <DialogFooter className="gap-2 sm:gap-0">
+                        <Button variant="outline" onClick={() => setDetailTrip(null)} className="w-full sm:w-auto">
                             {t("driverMonitor.detail.close")}
                         </Button>
                     </DialogFooter>

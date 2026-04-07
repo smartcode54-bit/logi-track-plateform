@@ -12,13 +12,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Camera, Loader2, ExternalLink } from "lucide-react";
-import { doc, updateDoc, serverTimestamp, getDocs, collection, query, where, limit } from "firebase/firestore";
+import { doc, updateDoc, serverTimestamp, getDocs, collection, query, where, limit, deleteField } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { uploadTripPhoto } from "@/lib/uploadTripPhoto";
 import { dedupeTripPhotosByTypeLastWins } from "@/lib/trip-photo-utils";
 import type { TripRecord, TripPhoto } from "@/validate/tripRecordSchema";
 import { useLanguage } from "@/context/language";
+import { effectivePartnerCode } from "@/features/drivers/hooks/useDriverMonitor";
 import { ReportIncidentModal } from "@/app/admin/chat/components/ReportIncidentModal";
 import { ImagePreviewGallery } from "@/components/accounting/ImagePreviewGallery";
 
@@ -53,6 +54,8 @@ export function EditTripDetailsDialog({
     const [replaceByType, setReplaceByType] = useState<Record<string, File>>({});
     const [spxTripId, setSpxTripId] = useState(trip.spxTripId ?? "");
     const [sealCode, setSealCode] = useState(trip.sealCode ?? "");
+    const [partnerCode, setPartnerCode] = useState("");
+    const initialPartnerEffectiveRef = useRef("");
     const [incidentReport, setIncidentReport] = useState<{
         description: string;
         delayCause: string | null;
@@ -63,6 +66,7 @@ export function EditTripDetailsDialog({
     } | null>(null);
     const [isReportModalOpen, setIsReportModalOpen] = useState(false);
     const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+    const dialogWasOpenRef = useRef(false);
 
     const photos = trip.photos ?? [];
 
@@ -89,9 +93,12 @@ export function EditTripDetailsDialog({
     };
 
     useEffect(() => {
-        if (open) {
+        if (open && !dialogWasOpenRef.current) {
             setSpxTripId(trip.spxTripId ?? "");
             setSealCode(trip.sealCode ?? "");
+            const eff = effectivePartnerCode(trip);
+            initialPartnerEffectiveRef.current = eff;
+            setPartnerCode(eff || "");
             setReplaceByType({});
             if (trip.id) {
                 fetchIncidentReport(trip.id);
@@ -99,7 +106,8 @@ export function EditTripDetailsDialog({
                 setIncidentReport(null);
             }
         }
-    }, [open, trip.id, trip.spxTripId, trip.sealCode]);
+        dialogWasOpenRef.current = open;
+    }, [open, trip]);
 
     const handleFileSelect = (photoType: string, e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -113,7 +121,12 @@ export function EditTripDetailsDialog({
         if (!trip.id) return;
 
         const hasPhotoChanges = Object.keys(replaceByType).length > 0;
-        const hasMetaChanges = spxTripId !== (trip.spxTripId ?? "") || sealCode !== (trip.sealCode ?? "");
+        const partnerTrim = partnerCode.trim();
+        const partnerChanged = partnerTrim !== initialPartnerEffectiveRef.current.trim();
+        const hasMetaChanges =
+            spxTripId !== (trip.spxTripId ?? "") ||
+            sealCode !== (trip.sealCode ?? "") ||
+            partnerChanged;
         if (!hasPhotoChanges && !hasMetaChanges) {
             onOpenChange(false);
             if (onSuccess) onSuccess();
@@ -158,6 +171,9 @@ export function EditTripDetailsDialog({
             if (hasMetaChanges) {
                 if (spxTripId.trim()) updateData.spxTripId = spxTripId.trim();
                 if (sealCode.trim()) updateData.sealCode = sealCode.trim();
+                if (partnerChanged) {
+                    updateData.partnerCode = partnerTrim ? partnerTrim : deleteField();
+                }
             }
             await updateDoc(doc(db, COLLECTIONS.TRIP_RECORDS, trip.id), updateData);
 
@@ -174,7 +190,8 @@ export function EditTripDetailsDialog({
     const hasChanges =
         Object.keys(replaceByType).length > 0 ||
         spxTripId !== (trip.spxTripId ?? "") ||
-        sealCode !== (trip.sealCode ?? "");
+        sealCode !== (trip.sealCode ?? "") ||
+        partnerCode.trim() !== initialPartnerEffectiveRef.current.trim();
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -189,6 +206,15 @@ export function EditTripDetailsDialog({
                 <div className="space-y-6 py-2">
                     <div className="space-y-4">
                         <div className="grid grid-cols-2 gap-x-4 gap-y-4 text-sm">
+                            <div className="col-span-2 space-y-2">
+                                <label className="text-muted-foreground block">{t("driverMonitor.detail.partnerCode")}</label>
+                                <Input
+                                    value={partnerCode}
+                                    onChange={(e) => setPartnerCode(e.target.value)}
+                                    placeholder="e.g. JWT, TTP"
+                                    className="font-mono text-xs max-w-md"
+                                />
+                            </div>
                             <div className="space-y-2">
                                 <label className="text-muted-foreground block">{t("driverMonitor.detail.spxTripId")}</label>
                                 <Input
