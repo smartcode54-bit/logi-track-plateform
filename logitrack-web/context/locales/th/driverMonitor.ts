@@ -35,6 +35,9 @@ export default {
     "driverMonitor.filter.status": "สถานะ",
     "driverMonitor.filter.allStatuses": "สถานะทั้งหมด",
     "driverMonitor.filter.searchDriver": "ค้นหาด้วยชื่อคนขับหรือ trip ID...",
+    "driverMonitor.filter.partnerChannel": "ช่องทาง / พาร์ทเนอร์",
+    "driverMonitor.filter.allPartnerChannels": "ช่องทาง / พาร์ทเนอร์ทั้งหมด",
+    "driverMonitor.filter.partnerNotSpecified": "ไม่ระบุ",
 
     // Table Headers
     "driverMonitor.table.tripId": "รหัสเที่ยว",

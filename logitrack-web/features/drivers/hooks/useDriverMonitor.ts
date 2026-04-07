@@ -33,7 +33,17 @@ export const DRIVER_MONITOR_DEFAULT_RANGE_DAYS = 30;
 /** Max span users may select (read / memory guard). */
 export const DRIVER_MONITOR_MAX_RANGE_DAYS = 180;
 
+/** Select value for trips with no partner / channel code (not a real partner code). */
+export const DRIVER_MONITOR_PARTNER_NONE = "__none__";
+
 const FETCH_PAGE_SIZE = 500;
+
+export function effectivePartnerCode(trip: TripRecord): string {
+    const top = trip.partnerCode?.trim();
+    if (top) return top;
+    const ocr = trip.ocrData?.partnerCode?.trim();
+    return ocr || "";
+}
 
 /** Criteria for export dialog — independent from on-screen filters */
 export type ExportFilterCriteria = {
@@ -42,6 +52,7 @@ export type ExportFilterCriteria = {
     driverFilter: string;
     statusFilter: string;
     jobTypeFilter: string;
+    partnerFilter: string;
     searchQuery: string;
 };
 
@@ -99,6 +110,7 @@ function tripMatchesClientFilters(
     driverFilter: string,
     statusFilter: string,
     jobTypeFilter: string,
+    partnerFilter: string,
     searchQuery: string,
     incidentReportsByTripId: Record<string, { description: string; delayCause: string | null; createdAt: Date | null }>,
     getDriver: (driverId?: string) => Driver | null
@@ -112,6 +124,15 @@ function tripMatchesClientFilters(
     }
 
     if (jobTypeFilter !== "all" && trip.jobType !== jobTypeFilter) return false;
+
+    if (partnerFilter !== "all") {
+        const pc = effectivePartnerCode(trip);
+        if (partnerFilter === DRIVER_MONITOR_PARTNER_NONE) {
+            if (pc !== "") return false;
+        } else if (pc !== partnerFilter) {
+            return false;
+        }
+    }
 
     if (driverFilter !== "all") {
         const tid = trip.driverId;
@@ -154,6 +175,7 @@ function tripMatchesExportCriteria(
         criteria.driverFilter,
         criteria.statusFilter,
         criteria.jobTypeFilter,
+        criteria.partnerFilter,
         criteria.searchQuery,
         incidentReportsByTripId,
         getDriver
@@ -217,6 +239,7 @@ export function useDriverMonitor() {
     const [driverFilter, setDriverFilter] = useState("all");
     const [statusFilter, setStatusFilter] = useState("all");
     const [jobTypeFilter, setJobTypeFilter] = useState<string>("all");
+    const [partnerFilter, setPartnerFilter] = useState<string>("all");
     const [searchQuery, setSearchQuery] = useState("");
 
     const [detailTrip, setDetailTrip] = useState<TripRecord | null>(null);
@@ -334,6 +357,15 @@ export function useDriverMonitor() {
             .sort((a, b) => a.label.localeCompare(b.label));
     }, [drivers]);
 
+    const partnerOptions = useMemo(() => {
+        const set = new Set<string>();
+        trips.forEach((t) => {
+            const c = effectivePartnerCode(t);
+            if (c) set.add(c);
+        });
+        return Array.from(set).sort((a, b) => a.localeCompare(b));
+    }, [trips]);
+
     const sourceIdToName = useMemo(() => {
         const map: Record<string, string> = {};
         hubs.forEach((h) => {
@@ -392,12 +424,13 @@ export function useDriverMonitor() {
                 driverFilter,
                 statusFilter,
                 jobTypeFilter,
+                partnerFilter,
                 searchQuery,
                 incidentReportsByTripId,
                 getDriver
             )
         );
-    }, [trips, driverFilter, statusFilter, jobTypeFilter, searchQuery, incidentReportsByTripId, getDriver]);
+    }, [trips, driverFilter, statusFilter, jobTypeFilter, partnerFilter, searchQuery, incidentReportsByTripId, getDriver]);
 
     const getTripsForExport = useCallback(
         (criteria: ExportFilterCriteria): TripRecord[] => {
@@ -435,7 +468,7 @@ export function useDriverMonitor() {
 
     useEffect(() => {
         setCurrentPage(1);
-    }, [dateFrom, dateTo, statusFilter, jobTypeFilter, searchQuery, driverFilter]);
+    }, [dateFrom, dateTo, statusFilter, jobTypeFilter, partnerFilter, searchQuery, driverFilter]);
 
     useEffect(() => {
         setCurrentPage(1);
@@ -477,6 +510,9 @@ export function useDriverMonitor() {
         setStatusFilter,
         jobTypeFilter,
         setJobTypeFilter,
+        partnerFilter,
+        setPartnerFilter,
+        partnerOptions,
         searchQuery,
         setSearchQuery,
         detailTrip,

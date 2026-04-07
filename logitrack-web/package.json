@@ -18,7 +18,9 @@
     "prepare": "husky",
     "test": "vitest run",
     "test:unit": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "backfill:trip-partner-jwt:dry-run": "node scripts/backfill-trip-partner-code-jwt.mjs --dry-run",
+    "backfill:trip-partner-jwt:apply": "node scripts/backfill-trip-partner-code-jwt.mjs"
   },
   "dependencies": {
     "@fullcalendar/daygrid": "^6.1.20",

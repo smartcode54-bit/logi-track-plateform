@@ -35,6 +35,9 @@ export default {
     "driverMonitor.filter.status": "Status",
     "driverMonitor.filter.allStatuses": "All Statuses",
     "driverMonitor.filter.searchDriver": "Search by driver name or trip ID...",
+    "driverMonitor.filter.partnerChannel": "Partner / channel",
+    "driverMonitor.filter.allPartnerChannels": "All partners / channels",
+    "driverMonitor.filter.partnerNotSpecified": "Not specified",
 
     // Table Headers
     "driverMonitor.table.tripId": "Trip ID",

@@ -73,6 +73,8 @@ import {
     clampDateRange,
     DRIVER_MONITOR_DEFAULT_RANGE_DAYS,
     DRIVER_MONITOR_MAX_RANGE_DAYS,
+    DRIVER_MONITOR_PARTNER_NONE,
+    effectivePartnerCode,
     isExportRangeCoveredByLoaded,
 } from "../hooks/useDriverMonitor";
 import { TRIP_STATUS_ENUM } from "@/validate/tripRecordSchema";
@@ -129,6 +131,7 @@ export default function DriverMonitorDashboard() {
             driverFilter: "all",
             statusFilter: "all",
             jobTypeFilter: "all",
+            partnerFilter: "all",
             searchQuery: "",
         };
     };
@@ -152,6 +155,9 @@ export default function DriverMonitorDashboard() {
         setStatusFilter,
         jobTypeFilter,
         setJobTypeFilter,
+        partnerFilter,
+        setPartnerFilter,
+        partnerOptions,
         searchQuery,
         setSearchQuery,
         detailTrip,
@@ -216,6 +222,27 @@ export default function DriverMonitorDashboard() {
         photoPreviewStartIndex >= 0 &&
         photoPreviewStartIndex < (detailTrip.photos?.length ?? 0);
 
+    const partnerFilterSelectCodes = useMemo(() => {
+        const set = new Set(partnerOptions);
+        if (
+            partnerFilter !== "all" &&
+            partnerFilter !== DRIVER_MONITOR_PARTNER_NONE &&
+            !set.has(partnerFilter)
+        ) {
+            return [...partnerOptions, partnerFilter].sort((a, b) => a.localeCompare(b));
+        }
+        return partnerOptions;
+    }, [partnerOptions, partnerFilter]);
+
+    const exportPartnerSelectCodes = useMemo(() => {
+        const set = new Set(partnerOptions);
+        const v = exportFilters.partnerFilter;
+        if (v !== "all" && v !== DRIVER_MONITOR_PARTNER_NONE && !set.has(v)) {
+            return [...partnerOptions, v].sort((a, b) => a.localeCompare(b));
+        }
+        return partnerOptions;
+    }, [partnerOptions, exportFilters.partnerFilter]);
+
     useEffect(() => {
         if (!detailTrip) {
             setPhotoPreviewStartIndex(null);
@@ -244,6 +271,7 @@ export default function DriverMonitorDashboard() {
             driverFilter,
             statusFilter,
             jobTypeFilter,
+            partnerFilter,
             searchQuery: "",
         });
         setExportOpen(true);
@@ -315,7 +343,7 @@ export default function DriverMonitorDashboard() {
                 getSourceDisplayName(trip.origin),
                 getSourceDisplayName(trip.destination),
                 trip.sealCode || "",
-                trip.partnerCode || "",
+                effectivePartnerCode(trip),
                 statusLabel,
                 delivered ? format(delivered, "dd/MM/yyyy HH:mm") : "",
             ];
@@ -592,6 +620,23 @@ export default function DriverMonitorDashboard() {
                         </SelectContent>
                     </Select>
 
+                    <Select value={partnerFilter} onValueChange={setPartnerFilter}>
+                        <SelectTrigger className="w-[200px] h-9">
+                            <SelectValue placeholder={t("driverMonitor.filter.partnerChannel")} />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">{t("driverMonitor.filter.allPartnerChannels")}</SelectItem>
+                            <SelectItem value={DRIVER_MONITOR_PARTNER_NONE}>
+                                {t("driverMonitor.filter.partnerNotSpecified")}
+                            </SelectItem>
+                            {partnerFilterSelectCodes.map((code) => (
+                                <SelectItem key={code} value={code}>
+                                    {code}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+
                     <div className="relative flex-1">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
@@ -666,7 +711,11 @@ export default function DriverMonitorDashboard() {
                                             <TableCell className="text-sm"><span className="font-medium">{getSourceDisplayName(trip.origin)}</span></TableCell>
                                             <TableCell className="text-sm"><span className="font-medium">{getSourceDisplayName(trip.destination)}</span></TableCell>
                                             <TableCell><span className="font-mono text-xs">{trip.sealCode || "-"}</span></TableCell>
-                                            <TableCell><span className="font-mono text-xs">{trip.partnerCode || "-"}</span></TableCell>
+                                            <TableCell>
+                                                <span className="font-mono text-xs">
+                                                    {effectivePartnerCode(trip) || "-"}
+                                                </span>
+                                            </TableCell>
                                             <TableCell>
                                                 <div className="flex items-center gap-2">
                                                     <Badge variant="secondary" className={cn("font-medium border", STATUS_COLOR[trip.status] || "bg-gray-500/10 text-gray-500")}>
@@ -841,7 +890,7 @@ export default function DriverMonitorDashboard() {
                             </p>
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                             <div className="space-y-1.5">
                                 <span className="text-xs font-medium text-muted-foreground">{t("driverMonitor.filter.driver")}</span>
                                 <Select
@@ -875,6 +924,30 @@ export default function DriverMonitorDashboard() {
                                         {TRIP_STATUS_ENUM.map((s) => (
                                             <SelectItem key={s} value={s}>
                                                 {t(`driverMonitor.status.${s}` as any)}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-1.5 sm:col-span-2 lg:col-span-1">
+                                <span className="text-xs font-medium text-muted-foreground">
+                                    {t("driverMonitor.filter.partnerChannel")}
+                                </span>
+                                <Select
+                                    value={exportFilters.partnerFilter}
+                                    onValueChange={(v) => setExportFilters((f) => ({ ...f, partnerFilter: v }))}
+                                >
+                                    <SelectTrigger className="h-9 w-full">
+                                        <SelectValue placeholder={t("driverMonitor.filter.partnerChannel")} />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="all">{t("driverMonitor.filter.allPartnerChannels")}</SelectItem>
+                                        <SelectItem value={DRIVER_MONITOR_PARTNER_NONE}>
+                                            {t("driverMonitor.filter.partnerNotSpecified")}
+                                        </SelectItem>
+                                        {exportPartnerSelectCodes.map((code) => (
+                                            <SelectItem key={code} value={code}>
+                                                {code}
                                             </SelectItem>
                                         ))}
                                     </SelectContent>
@@ -994,7 +1067,9 @@ export default function DriverMonitorDashboard() {
                                     <span className="text-muted-foreground">{t("driverMonitor.detail.sealCode")}</span>
                                     <span className="font-mono text-xs">{detailTrip.sealCode || "-"}</span>
                                     <span className="text-muted-foreground">{t("driverMonitor.detail.partnerCode")}</span>
-                                    <span className="font-mono text-xs">{detailTrip.partnerCode || "-"}</span>
+                                    <span className="font-mono text-xs">
+                                        {effectivePartnerCode(detailTrip) || "-"}
+                                    </span>
                                 </div>
                             </div>
 
