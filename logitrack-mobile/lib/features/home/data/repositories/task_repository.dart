@@ -1,5 +1,84 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+/// Sort key for driver task queue: [runOrder] ascending when set, else legacy bucket last by [createdAt] ascending.
+int compareTasksForDriverQueue(Map<String, dynamic> a, Map<String, dynamic> b) {
+  final roA = a['runOrder'];
+  final roB = b['runOrder'];
+  final hasA = roA is num;
+  final hasB = roB is num;
+  if (hasA && hasB) {
+    final c = roA.toInt().compareTo(roB.toInt());
+    if (c != 0) return c;
+  } else if (hasA != hasB) {
+    return hasA ? -1 : 1;
+  }
+  final at = a['createdAt'] as DateTime?;
+  final bt = b['createdAt'] as DateTime?;
+  if (at == null && bt == null) return 0;
+  if (at == null) return 1;
+  if (bt == null) return -1;
+  return at.compareTo(bt);
+}
+
+void sortTasksForDriverQueue(List<Map<String, dynamic>> list) {
+  list.sort(compareTasksForDriverQueue);
+}
+
+/// True if successors must wait for this task to clear the queue.
+bool taskBlocksSuccessorInQueue(
+  Map<String, dynamic> t,
+  Set<String> deliveredTaskIds,
+) {
+  final st = t['status'] as String? ?? '';
+  if (st == 'Completed' || st == 'Cancelled' || st == 'Delivered') {
+    return false;
+  }
+  final taskDocId = t['id'] as String? ?? '';
+  final altTaskId = t['taskId'] as String? ??
+      t['LineHaulTaskId'] as String? ??
+      t['FirstMileTaskId'] as String? ??
+      '';
+  final isDeliveredByTrip = deliveredTaskIds.contains(taskDocId) ||
+      (altTaskId.isNotEmpty && deliveredTaskIds.contains(altTaskId));
+  if (st == 'Checked in' && isDeliveredByTrip) return false;
+  // Pending, Assigned, undelivered Checked in, In-Transit, unknown — block successors.
+  return true;
+}
+
+/// Whether [task] may start check-in given the full list [sortedAllTasks] (same order as UI queue).
+bool isQueueEligibleForCheckIn({
+  required Map<String, dynamic> task,
+  required List<Map<String, dynamic>> sortedAllTasks,
+  required Set<String> deliveredTaskIds,
+}) {
+  final id = task['id'] as String?;
+  if (id == null) return false;
+  final idx = sortedAllTasks.indexWhere((x) => x['id'] == id);
+  if (idx < 0) return false;
+  for (var i = 0; i < idx; i++) {
+    if (taskBlocksSuccessorInQueue(sortedAllTasks[i], deliveredTaskIds)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/// Next [runOrder] for a new task for this driver (max existing + 1).
+Future<int> getNextRunOrderForDriver(String driverId) async {
+  if (driverId.isEmpty) return 1;
+  final snap = await FirebaseFirestore.instance
+      .collection('tasks')
+      .where('driverId', isEqualTo: driverId)
+      .get();
+  var max = 0;
+  for (final d in snap.docs) {
+    final ro = d.data()['runOrder'];
+    if (ro is int && ro > max) max = ro;
+    if (ro is num && ro.toInt() > max) max = ro.toInt();
+  }
+  return max + 1;
+}
+
 /// Streams tasks assigned to the given driver (real-time from Firestore).
 Stream<List<Map<String, dynamic>>> streamTasksForDriver(String driverId) {
   if (driverId.isEmpty) {
@@ -19,15 +98,7 @@ Stream<List<Map<String, dynamic>>> streamTasksForDriver(String driverId) {
           _convertTimestamp(data, 'checkInAt');
           return data;
         }).toList();
-        // Sort by createdAt descending (no composite index required)
-        list.sort((a, b) {
-          final aAt = a['createdAt'] as DateTime?;
-          final bAt = b['createdAt'] as DateTime?;
-          if (aAt == null && bAt == null) return 0;
-          if (aAt == null) return 1;
-          if (bAt == null) return -1;
-          return bAt.compareTo(aAt);
-        });
+        sortTasksForDriverQueue(list);
         return list;
       });
 }

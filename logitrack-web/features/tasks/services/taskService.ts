@@ -30,10 +30,11 @@ export const taskService = {
     return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Driver));
   },
 
+  /** Drivers who are on an active run (not queued Pending/Assigned). Allows multiple planned tasks per driver. */
   async fetchActiveDriverIds() {
     const activeQuery = query(
       collection(db, COLLECTIONS.TASKS),
-      where("status", "in", ["Pending", "Assigned", "Checked in", "In-Transit"])
+      where("status", "in", ["Checked in", "In-Transit"])
     );
     const snapshot = await getDocs(activeQuery);
     const busyDrivers = new Set<string>();
@@ -44,20 +45,17 @@ export const taskService = {
     return busyDrivers;
   },
 
-  async fetchDeliveredDrivers(driverIds: string[]) {
-    if (driverIds.length === 0) return [];
-    const tripQuery = query(
-      collection(db, COLLECTIONS.TRIP_RECORDS),
-      where("driverId", "in", driverIds),
-      where("status", "==", "delivered")
-    );
-    const snapshot = await getDocs(tripQuery);
-    const delivered = [] as string[];
-    snapshot.forEach((doc) => {
-       const data = doc.data();
-       if (data.driverId) delivered.push(data.driverId);
+  /** Next runOrder for new tasks assigned to this driver (max existing + 1). */
+  async getNextRunOrderForDriver(driverId: string) {
+    if (!driverId) return 1;
+    const q = query(collection(db, COLLECTIONS.TASKS), where("driverId", "==", driverId));
+    const snapshot = await getDocs(q);
+    let max = 0;
+    snapshot.forEach((d) => {
+      const ro = d.data().runOrder;
+      if (typeof ro === "number" && Number.isFinite(ro) && ro > max) max = ro;
     });
-    return delivered;
+    return max + 1;
   },
 
   async countTasksForDay(startDate: Date, endDate: Date) {

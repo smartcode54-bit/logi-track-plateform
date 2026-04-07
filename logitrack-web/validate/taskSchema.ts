@@ -55,6 +55,9 @@ export const taskSchema = z.object({
 
     status: z.enum(TASK_STATUS_ENUM).default("Pending"),
 
+    /** Per-driver queue sequence (1-based). Set on create when driverId is set. */
+    runOrder: z.number().int().min(1).optional(),
+
     /** Check-in at pickup: set by driver on mobile */
     checkInAt: z.any().optional(),
     checkInPhotoUrl: z.string().optional(),

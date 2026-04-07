@@ -96,15 +96,6 @@ export function useLineHaulTask({
         const fetchActiveDrivers = async () => {
              try {
                  const busyDrivers = await taskService.fetchActiveDriverIds();
-                 if (busyDrivers.size > 0) {
-                      const driverArr = Array.from(busyDrivers);
-                      for (let i = 0; i < driverArr.length; i += 30) {
-                          const batch = driverArr.slice(i, i + 30);
-                          const delivered = await taskService.fetchDeliveredDrivers(batch);
-                          // Removing from Set
-                          delivered.forEach((id) => busyDrivers.delete(id));
-                      }
-                 }
                  setActiveTaskDriverIds(busyDrivers);
              } catch (err) {
                  console.error("Failed to fetch active tasks", err);
@@ -185,9 +176,13 @@ export function useLineHaulTask({
         try {
             if (mode === "create") {
                 const dateStr = values.date ? format(values.date, "ddMMyyyy") : "";
+                const runOrder = values.driverId
+                    ? await taskService.getNextRunOrderForDriver(values.driverId)
+                    : undefined;
                 const ref = await addDoc(collection(db, COLLECTIONS.TASKS), {
                     ...values,
                     dateStr,
+                    ...(runOrder != null ? { runOrder } : {}),
                     createdAt: new Date(),
                     updatedAt: new Date(),
                 });

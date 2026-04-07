@@ -70,16 +70,6 @@ class _CheckInPageState extends State<CheckInPage> {
     return _hubNameMap[sourceId] ?? sourceId;
   }
 
-  static bool _canCheckIn(Map<String, dynamic> t) {
-    final taskId = t['id'] as String?;
-    final status = t['status'] ?? '';
-    return taskId != null &&
-        status != 'Checked in' &&
-        status != 'Completed' &&
-        status != 'Cancelled' &&
-        status != 'Delivered';
-  }
-
   static bool _isHistory(Map<String, dynamic> t) {
     final status = t['status'] ?? '';
     return status == 'Checked in' ||
@@ -135,27 +125,6 @@ class _CheckInPageState extends State<CheckInPage> {
       builder: (context, snap) {
         final tasks = snap.data ?? [];
         if (tasks.isNotEmpty) _latestTasks = tasks;
-        final hasOngoingTask = tasks.any((t) {
-          final st = t['status'] as String? ?? '';
-          final taskDocId = t['id'] as String? ?? '';
-          final altTaskId =
-              t['taskId'] as String? ??
-              t['LineHaulTaskId'] as String? ??
-              t['FirstMileTaskId'] as String? ??
-              '';
-          final isDeliveredByTrip =
-              _deliveredTaskIds.contains(taskDocId) ||
-              (altTaskId.isNotEmpty && _deliveredTaskIds.contains(altTaskId));
-          if (st == 'Pending' ||
-              st == 'Assigned' ||
-              st == 'Completed' ||
-              st == 'Cancelled' ||
-              st == 'Delivered') {
-            return false;
-          }
-          if (st == 'Checked in' && isDeliveredByTrip) return false;
-          return true;
-        });
 
         return Scaffold(
           appBar: AppBar(
@@ -428,7 +397,8 @@ class _CheckInPageState extends State<CheckInPage> {
                       context,
                       t,
                       canCheckIn: true,
-                      hasOngoingTask: hasOngoingTask,
+                      sortedAllTasks: tasks,
+                      deliveredTaskIds: _deliveredTaskIds,
                     ),
                   ),
                 const SizedBox(height: 16),
@@ -472,7 +442,8 @@ class _CheckInPageState extends State<CheckInPage> {
                       context,
                       t,
                       canCheckIn: false,
-                      hasOngoingTask: hasOngoingTask,
+                      sortedAllTasks: tasks,
+                      deliveredTaskIds: _deliveredTaskIds,
                     ),
                   ),
               ],
@@ -487,7 +458,8 @@ class _CheckInPageState extends State<CheckInPage> {
     BuildContext context,
     Map<String, dynamic> t, {
     required bool canCheckIn,
-    required bool hasOngoingTask,
+    required List<Map<String, dynamic>> sortedAllTasks,
+    required Set<String> deliveredTaskIds,
   }) {
     final taskId = t['id'] as String?;
     final source = t['sourceHub'] ?? '';
@@ -502,6 +474,11 @@ class _CheckInPageState extends State<CheckInPage> {
         status != 'Completed' &&
         status != 'Cancelled' &&
         status != 'Delivered';
+    final queueEligible = isQueueEligibleForCheckIn(
+      task: t,
+      sortedAllTasks: sortedAllTasks,
+      deliveredTaskIds: deliveredTaskIds,
+    );
     String dateStr = '';
     if (date != null && date is DateTime) {
       dateStr = '${date.day}/${date.month}/${date.year}';
@@ -571,7 +548,7 @@ class _CheckInPageState extends State<CheckInPage> {
             ? TextButton.icon(
                 icon: const Icon(Icons.camera_alt, size: 20),
                 label: Text('Check in'.tr()),
-                onPressed: hasOngoingTask
+                onPressed: !queueEligible
                     ? () {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
@@ -1192,6 +1169,8 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
       final nextNum = (countSnap.count ?? 0) + 1;
       final newTaskId = '$prefix-$dateStr-$nextNum';
 
+      final runOrder = await getNextRunOrderForDriver(widget.driverId);
+
       final docRef = await FirebaseFirestore.instance.collection('tasks').add({
         'taskId': newTaskId,
         'taskType': widget.taskType,
@@ -1208,6 +1187,7 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
         'driverName': _driverName,
         'driverPhone': _driverData?['mobile'] ?? '',
         'licensePlate': _licensePlate,
+        'runOrder': runOrder,
       });
 
       final pos = await getCurrentPosition();
