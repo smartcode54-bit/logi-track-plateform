@@ -2,6 +2,7 @@
 
 import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import { auth } from "@/firebase/client";
+import { resolveLoginGeoForClient, updateUserLastLogin } from "@/lib/updateUserLastLogin";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,8 @@ export default function ContinueWithGoogleButton() {
       setLoading(true);
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
+      const geo = await resolveLoginGeoForClient();
+      await updateUserLastLogin(result.user, geo);
 
       let tokenResult = await result.user.getIdTokenResult();
       await result.user.getIdToken(true);

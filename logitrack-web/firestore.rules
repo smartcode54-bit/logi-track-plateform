@@ -14,6 +14,15 @@ service cloud.firestore {
       return request.auth.token.admin == true || request.auth.token.get('role', '') == 'admin';
     }
 
+    // Role matrix stores capability keys as matrix row ids, e.g. security_view_audit (see capabilities.ts / roles UI).
+    function canReadSecurityEvents() {
+      return isWebAdmin() || (
+        exists(/databases/$(database)/documents/permissions_config/$(request.auth.token.get('role', ''))) &&
+        get(/databases/$(database)/documents/permissions_config/$(request.auth.token.get('role', '')))
+          .data.get('capabilities', {}).get('security_view_audit', false) == true
+      );
+    }
+
     // Hub→SOC distances (Google Distance Matrix cache). Read by web map & admin; write by admin/API.
     match /hub_soc_distances/{docId} {
       allow read: if request.auth != null;
@@ -340,6 +349,12 @@ service cloud.firestore {
         (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
       allow write: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+    }
+
+    // Security audit stream: read for Security Center (admin or explicit audit capability); writes only via Admin SDK (Cloud Functions).
+    match /security_events/{eventId} {
+      allow read: if request.auth != null && canReadSecurityEvents();
+      allow create, update, delete: if false;
     }
 
     // Collection-group read for Security Center: collectionGroup('mobile_installations').

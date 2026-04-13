@@ -13,9 +13,11 @@ setGlobalOptions({
 
 // Export functions from separate files
 export * from "./auth";
+export * from "./authSessions";
 export * from "./users";
 export * from "./triggers";
 export * from "./distances";
 export * from "./chat";
 export * from "./cartrack";
 export * from "./holidays";
+export * from "./securityEvents";

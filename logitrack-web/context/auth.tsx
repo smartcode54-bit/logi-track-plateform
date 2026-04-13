@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { User, signOut, signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "@/firebase/client";
+import { resolveLoginGeoForClient, updateUserLastLogin } from "@/lib/updateUserLastLogin";
 import { onAuthStateChanged } from "firebase/auth";
 import { getIdTokenResult, getIdToken } from "firebase/auth";
 import { getFunctions, httpsCallable, connectFunctionsEmulator } from "firebase/functions";
@@ -80,7 +81,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const login = async (email: string, pass: string) => {
-    await signInWithEmailAndPassword(auth, email, pass);
+    const cred = await signInWithEmailAndPassword(auth, email, pass);
+    if (cred.user) {
+      const geo = await resolveLoginGeoForClient();
+      await updateUserLastLogin(cred.user, geo);
+    }
   };
 
   return (

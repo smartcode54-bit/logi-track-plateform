@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getFunctions, httpsCallable } from "firebase/functions";
+import type { Functions } from "firebase/functions";
+import { httpsCallable } from "firebase/functions";
 import { collection, query, orderBy, limit, onSnapshot } from "firebase/firestore";
-import { db } from "@/firebase/client";
+import { db, functions } from "@/firebase/client";
+import { usePermission } from "@/hooks/usePermission";
+import { CAPABILITIES } from "@/lib/capabilities";
 import { COLLECTIONS } from "@/lib/collections";
 import { ROLE_IDS } from "@/lib/roles";
 import { useAuth } from "@/context/auth";
@@ -11,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Shield, User, Plus, Edit, ArrowUpDown, ArrowUp, ArrowDown, Search, MoreHorizontal, X, Truck } from "lucide-react";
+import { Loader2, Shield, User, Plus, Edit, ArrowUpDown, ArrowUp, ArrowDown, Search, MoreHorizontal, X, Truck, LogOut } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -44,10 +47,10 @@ type UserData = {
 
 function PartnerScopeCell({
     user,
-    functions,
+    functions: functionsInstance,
 }: {
     user: UserData;
-    functions: ReturnType<typeof getFunctions>;
+    functions: Functions;
 }) {
     const { t } = useLanguage();
     const initial =
@@ -62,7 +65,7 @@ function PartnerScopeCell({
     const save = async () => {
         setSaving(true);
         try {
-            const updateUserRole = httpsCallable(functions, "updateUserRole");
+            const updateUserRole = httpsCallable(functionsInstance, "updateUserRole");
             await updateUserRole({
                 targetUid: user.uid,
                 role: "partner",
@@ -115,10 +118,14 @@ export default function AdminUsersPage() {
 
     // Sync State
     const [isSyncing, setIsSyncing] = useState(false);
+    const [revokeTarget, setRevokeTarget] = useState<UserData | null>(null);
+    const [isRevoking, setIsRevoking] = useState(false);
+    const { hasPermission: canManageUsers, loading: manageUsersPermLoading } = usePermission(
+        CAPABILITIES.security_manage_users,
+    );
 
     const auth = useAuth();
     const currentUser = auth?.currentUser;
-    const functions = getFunctions(undefined, "asia-southeast1");
 
     const [limitCount, setLimitCount] = useState(50);
     const [searchQuery, setSearchQuery] = useState("");
@@ -278,6 +285,22 @@ export default function AdminUsersPage() {
             toast.error(t("users.toast.roleUpdateFailed"));
         } finally {
             setIsEditRoleLoading(false);
+        }
+    };
+
+    const confirmRevokeSessions = async () => {
+        if (!revokeTarget) return;
+        setIsRevoking(true);
+        try {
+            const revoke = httpsCallable<{ targetUid: string }, { ok: boolean }>(functions, "revokeUserRefreshTokens");
+            await revoke({ targetUid: revokeTarget.uid });
+            toast.success(t("users.revokeSessionsSuccess"));
+            setRevokeTarget(null);
+        } catch (error: unknown) {
+            console.error("[Users] revokeUserRefreshTokens:", error);
+            toast.error(t("users.revokeSessionsFailed"));
+        } finally {
+            setIsRevoking(false);
         }
     };
 
@@ -494,6 +517,31 @@ export default function AdminUsersPage() {
                             </form>
                         </DialogContent>
                     </Dialog>
+
+                    <Dialog open={!!revokeTarget} onOpenChange={(open) => !open && setRevokeTarget(null)}>
+                        <DialogContent>
+                            <DialogHeader>
+                                <DialogTitle>{t("users.revokeSessionsTitle")}</DialogTitle>
+                                <DialogDescription className="space-y-2">
+                                    <span>{t("users.revokeSessionsDesc")}</span>
+                                    {revokeTarget ? (
+                                        <span className="block text-foreground font-medium">
+                                            {revokeTarget.displayName} ({revokeTarget.email})
+                                        </span>
+                                    ) : null}
+                                </DialogDescription>
+                            </DialogHeader>
+                            <DialogFooter>
+                                <Button type="button" variant="outline" onClick={() => setRevokeTarget(null)} disabled={isRevoking}>
+                                    {t("users.revokeSessionsCancel")}
+                                </Button>
+                                <Button type="button" variant="destructive" onClick={() => void confirmRevokeSessions()} disabled={isRevoking}>
+                                    {isRevoking ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                    {t("users.revokeSessionsConfirm")}
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
                 </div>
             </div>
 
@@ -567,6 +615,13 @@ export default function AdminUsersPage() {
                                                 {t("users.table.lastSignIn")} {getSortIcon('lastSignInTime')}
                                             </div>
                                         </TableHead>
+                                        {canManageUsers && !manageUsersPermLoading ? (
+                                            <TableHead className="h-11 w-[52px] text-right">
+                                                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                                    {t("users.table.actions")}
+                                                </span>
+                                            </TableHead>
+                                        ) : null}
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -635,6 +690,29 @@ export default function AdminUsersPage() {
                                                         {user.metadata.lastSignInTime ? new Date(user.metadata.lastSignInTime).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : "-"}
                                                     </div>
                                                 </TableCell>
+                                                {canManageUsers && !manageUsersPermLoading ? (
+                                                    <TableCell className="text-right py-2">
+                                                        <DropdownMenu>
+                                                            <DropdownMenuTrigger asChild>
+                                                                <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={t("users.table.actions")}>
+                                                                    <MoreHorizontal className="h-4 w-4" />
+                                                                </Button>
+                                                            </DropdownMenuTrigger>
+                                                            <DropdownMenuContent align="end">
+                                                                <DropdownMenuItem
+                                                                    disabled={isCurrentUser}
+                                                                    title={isCurrentUser ? t("users.revokeSessionsSelf") : undefined}
+                                                                    onSelect={() => {
+                                                                        if (!isCurrentUser) setRevokeTarget(user);
+                                                                    }}
+                                                                >
+                                                                    <LogOut className="mr-2 h-4 w-4" />
+                                                                    {t("users.revokeSessionsShort")}
+                                                                </DropdownMenuItem>
+                                                            </DropdownMenuContent>
+                                                        </DropdownMenu>
+                                                    </TableCell>
+                                                ) : null}
                                             </TableRow>
                                         );
                                     })}

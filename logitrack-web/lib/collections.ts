@@ -84,6 +84,9 @@ export const COLLECTIONS = {
 
     /** Payroll records (net pay, earnings, deductions) */
     PAYROLL: "payroll",
+
+    /** Security / audit events (append via Cloud Functions only; client read with audit capability) */
+    SECURITY_EVENTS: "security_events",
 } as const;
 
 /** Type for collection names */

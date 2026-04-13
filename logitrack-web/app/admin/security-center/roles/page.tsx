@@ -10,9 +10,11 @@ import {
     Info,
     Loader2,
 } from "lucide-react";
-import { collection, doc, getCountFromServer, getDoc, query, where, writeBatch } from "firebase/firestore";
-import { db } from "@/firebase/client";
+import { doc, getDoc, writeBatch } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
+import { db, functions } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
+import { fetchUserRoleCounts } from "@/lib/fetchSecurityOverviewStats";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -314,21 +316,14 @@ export default function RolePermissionMatrixPage() {
     useEffect(() => {
         async function fetchCounts() {
             try {
-                const [adminSnap, managerSnap, opStaffSnap, operatorSnap, driversSnap, partnerSnap] = await Promise.all([
-                    getCountFromServer(query(collection(db, COLLECTIONS.USERS), where("role", "==", "admin"))),
-                    getCountFromServer(query(collection(db, COLLECTIONS.USERS), where("role", "==", "manager"))),
-                    getCountFromServer(query(collection(db, COLLECTIONS.USERS), where("role", "==", "operation_staff"))),
-                    getCountFromServer(query(collection(db, COLLECTIONS.USERS), where("role", "==", "operator"))),
-                    getCountFromServer(query(collection(db, COLLECTIONS.USERS), where("role", "==", "driver"))),
-                    getCountFromServer(query(collection(db, COLLECTIONS.USERS), where("role", "==", "partner"))),
-                ]);
+                const c = await fetchUserRoleCounts();
                 setRoleCounts({
-                    admins: adminSnap.data().count,
-                    managers: managerSnap.data().count,
-                    operationStaff: opStaffSnap.data().count,
-                    operators: operatorSnap.data().count,
-                    drivers: driversSnap.data().count,
-                    subcontractors: partnerSnap.data().count,
+                    admins: c.admins,
+                    managers: c.managers,
+                    operationStaff: c.operationStaff,
+                    operators: c.operators,
+                    drivers: c.drivers,
+                    subcontractors: c.subcontractors,
                 });
             } catch (e) {
                 console.error("[RoleMatrix] Failed to fetch role counts:", e);
@@ -401,6 +396,19 @@ export default function RolePermissionMatrixPage() {
             });
             await batch.commit();
             setHasChanges(false);
+            try {
+                const logSecurityEvent = httpsCallable<
+                    { type: string; summary?: string; details?: Record<string, unknown> },
+                    { ok: boolean }
+                >(functions, "logSecurityEvent");
+                await logSecurityEvent({
+                    type: "role_matrix_saved",
+                    summary: "Role & permission matrix saved",
+                    details: { roleDocsUpdated: ROLES.length },
+                });
+            } catch (logErr) {
+                console.warn("[RoleMatrix] logSecurityEvent:", logErr);
+            }
             toast.success(t("securityCenter.roles.savedSuccess"));
         } catch (e) {
             console.error("[RoleMatrix] Save error:", e);

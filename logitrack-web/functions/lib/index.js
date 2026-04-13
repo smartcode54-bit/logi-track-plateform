@@ -48,10 +48,12 @@ admin.initializeApp();
 });
 // Export functions from separate files
 __exportStar(require("./auth"), exports);
+__exportStar(require("./authSessions"), exports);
 __exportStar(require("./users"), exports);
 __exportStar(require("./triggers"), exports);
 __exportStar(require("./distances"), exports);
 __exportStar(require("./chat"), exports);
 __exportStar(require("./cartrack"), exports);
 __exportStar(require("./holidays"), exports);
+__exportStar(require("./securityEvents"), exports);
 //# sourceMappingURL=index.js.map

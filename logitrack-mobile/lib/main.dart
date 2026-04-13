@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 // import 'package:device_preview/device_preview.dart';
+import 'core/auth_session_listener.dart';
 import 'core/route_observer.dart';
 import 'core/theme/theme_controller.dart';
 import 'core/services/fcm_service.dart';
@@ -110,7 +111,10 @@ class MyApp extends StatelessWidget {
           navigatorKey: navigatorKey,
           navigatorObservers: [routeObserver],
           locale: context.locale,
-          builder: (context, child) => child ?? const SizedBox.shrink(),
+          builder: (context, child) => AuthSessionListener(
+            navigatorKey: navigatorKey,
+            child: child ?? const SizedBox.shrink(),
+          ),
           // builder: DevicePreview.appBuilder,
           localizationsDelegates: context.localizationDelegates,
           supportedLocales: context.supportedLocales,

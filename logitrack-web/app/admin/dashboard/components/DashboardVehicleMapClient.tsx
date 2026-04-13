@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { collection, getDocs, limit, query } from "firebase/firestore";
@@ -93,9 +93,11 @@ export function DashboardVehicleMapClient() {
         const list: VehiclePoint[] = [];
         locSnap.docs.forEach((doc) => {
           const d = doc.data();
-          const lat = d.lat;
-          const lng = d.lng;
-          if (typeof lat === "number" && typeof lng === "number" && Number.isFinite(lat) && Number.isFinite(lng)) {
+          const latRaw = d.lat ?? d.latitude;
+          const lngRaw = d.lng ?? d.longitude;
+          const lat = typeof latRaw === "number" ? latRaw : Number(latRaw);
+          const lng = typeof lngRaw === "number" ? lngRaw : Number(lngRaw);
+          if (Number.isFinite(lat) && Number.isFinite(lng)) {
             const tId = d.truckId ?? "";
             const plate = d.licensePlate ?? "—";
             list.push({
@@ -125,9 +127,10 @@ export function DashboardVehicleMapClient() {
     return () => { cancelled = true; };
   }, []);
 
-  // Initialize map (once) and clean up on unmount
-  useEffect(() => {
-    if (!mapContainerRef.current || mapInstanceRef.current) return;
+  // Create map only after the container mounts (after loading/error gate). useLayoutEffect runs
+  // after DOM commit so the ref is set before the markers effect runs.
+  useLayoutEffect(() => {
+    if (loading || error || !mapContainerRef.current || mapInstanceRef.current) return;
 
     const map = L.map(mapContainerRef.current, {
       center: DEFAULT_CENTER,
@@ -142,21 +145,43 @@ export function DashboardVehicleMapClient() {
 
     mapInstanceRef.current = map;
 
-    // Ensure proper sizing after mount
-    setTimeout(() => map.invalidateSize(), 200);
+    const t0 = window.setTimeout(() => map.invalidateSize(), 0);
+    const t1 = window.setTimeout(() => map.invalidateSize(), 200);
 
     return () => {
+      window.clearTimeout(t0);
+      window.clearTimeout(t1);
       map.remove();
       mapInstanceRef.current = null;
     };
-  }, [loading]); // Re-run when loading changes (map div is conditionally shown)
+  }, [loading, error]);
 
-  // Update markers when vehicles change
-  useEffect(() => {
+  const fitMapToVehicles = useCallback(() => {
     const map = mapInstanceRef.current;
-    if (!map || vehicles.length === 0) return;
+    if (!map) return;
+    map.invalidateSize();
+    if (vehicles.length === 0) {
+      map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+      return;
+    }
+    const run = () => {
+      map.invalidateSize();
+      if (vehicles.length === 1) {
+        map.setView([vehicles[0].lat, vehicles[0].lng], 14);
+      } else {
+        const bounds = L.latLngBounds(vehicles.map((v) => [v.lat, v.lng] as [number, number]));
+        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+      }
+    };
+    requestAnimationFrame(() => requestAnimationFrame(run));
+  }, [vehicles]);
 
-    // Clear old markers
+  // Update markers and auto-zoom whenever vehicles change (map may have just been created).
+  useEffect(() => {
+    if (loading || error) return;
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
     markersRef.current.forEach((m) => m.remove());
     markersRef.current = [];
 
@@ -164,7 +189,6 @@ export function DashboardVehicleMapClient() {
     const engineOffLabel = t("dashboard.vehicleMap.engineOff", "Engine OFF");
     const speedLabel = t("dashboard.vehicleMap.speed", "Speed");
 
-    // Add new markers
     vehicles.forEach((v) => {
       const marker = L.marker([v.lat, v.lng], {
         icon: createTruckIcon(v.licensePlate, v.engineOn, v.hasIncident),
@@ -186,28 +210,23 @@ export function DashboardVehicleMapClient() {
       markersRef.current.push(marker);
     });
 
-    // Fit bounds
-    map.invalidateSize();
-    if (vehicles.length === 1) {
-      map.setView([vehicles[0].lat, vehicles[0].lng], 14);
-    } else {
-      const bounds = L.latLngBounds(vehicles.map((v) => [v.lat, v.lng] as [number, number]));
-      map.fitBounds(bounds, { padding: [24, 24], maxZoom: 14 });
-    }
-  }, [vehicles, t]);
+    fitMapToVehicles();
 
-  // Center map to fit all vehicles
+    return () => {
+      markersRef.current.forEach((m) => {
+        try {
+          m.remove();
+        } catch {
+          /* map layer may already be torn down */
+        }
+      });
+      markersRef.current = [];
+    };
+  }, [vehicles, t, loading, error, fitMapToVehicles]);
+
   const fitAllVehicles = useCallback(() => {
-    const map = mapInstanceRef.current;
-    if (!map || vehicles.length === 0) return;
-    map.invalidateSize();
-    if (vehicles.length === 1) {
-      map.setView([vehicles[0].lat, vehicles[0].lng], 14);
-    } else {
-      const bounds = L.latLngBounds(vehicles.map((v) => [v.lat, v.lng] as [number, number]));
-      map.fitBounds(bounds, { padding: [24, 24], maxZoom: 14 });
-    }
-  }, [vehicles]);
+    fitMapToVehicles();
+  }, [fitMapToVehicles]);
 
   return (
     <div className="rounded-lg border border-border bg-card overflow-hidden">

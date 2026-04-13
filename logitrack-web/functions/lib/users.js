@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.syncExistingUsers = exports.createUser = exports.updateUserRole = exports.getUsers = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
+const securityEvents_1 = require("./securityEvents");
 /**
  * Cloud Function to get all users (Admin only)
  */
@@ -124,6 +125,24 @@ exports.updateUserRole = (0, https_1.onCall)(async (request) => {
         catch (dbError) {
             console.error(`[updateUserRole] Failed to sync role to Firestore:`, dbError);
         }
+        try {
+            const actorEmail = request.auth.token.email;
+            await (0, securityEvents_1.appendSecurityEvent)({
+                type: "user_role_changed",
+                severity: "info",
+                summary: `User role updated to ${newRole}`,
+                details: {
+                    targetUid,
+                    newRole,
+                    previousRole: typeof currentClaims.role === "string" ? currentClaims.role : null,
+                },
+                actorUid: request.auth.uid,
+                actorEmail: typeof actorEmail === "string" ? actorEmail : null,
+            });
+        }
+        catch (logErr) {
+            console.error("[updateUserRole] security_events append:", logErr);
+        }
         return {
             success: true,
             message: `User role updated successfully to ${newRole}`,
@@ -173,6 +192,24 @@ exports.createUser = (0, https_1.onCall)(async (request) => {
         }
         catch (dbErr) {
             console.error("[createUser] Firestore sync:", dbErr);
+        }
+        try {
+            const actorEmail = request.auth.token.email;
+            await (0, securityEvents_1.appendSecurityEvent)({
+                type: "user_created",
+                severity: "info",
+                summary: `User created: ${email}`,
+                details: {
+                    targetUid: userRecord.uid,
+                    email,
+                    role: userRole,
+                },
+                actorUid: request.auth.uid,
+                actorEmail: typeof actorEmail === "string" ? actorEmail : null,
+            });
+        }
+        catch (logErr) {
+            console.error("[createUser] security_events append:", logErr);
         }
         return {
             success: true,

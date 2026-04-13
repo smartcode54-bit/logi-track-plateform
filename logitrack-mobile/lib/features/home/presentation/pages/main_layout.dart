@@ -191,7 +191,25 @@ class _MainLayoutState extends State<MainLayout> with RouteAware, WidgetsBinding
 
   Future<void> _onAppResumed() async {
     if (!mounted) return;
+    // Force ID token refresh so revoked refresh tokens fail immediately
+    // (otherwise the app can stay "logged in" until the old ID token expires).
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      try {
+        await user.getIdToken(true);
+      } on FirebaseAuthException catch (e) {
+        debugPrint('[MainLayout] token refresh on resume: ${e.code}');
+        await FirebaseAuth.instance.signOut();
+        return;
+      } catch (e) {
+        debugPrint('[MainLayout] token refresh on resume: $e');
+        await FirebaseAuth.instance.signOut();
+        return;
+      }
+    }
+    if (!mounted) return;
     await MobileAppVersionService.instance.ensureAllowedToRun(context);
+    if (!mounted) return;
     await MobileClientHeartbeatService.instance.onResumed(_driverId);
   }
 
