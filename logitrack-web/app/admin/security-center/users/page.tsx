@@ -30,6 +30,7 @@ type UserData = {
     customClaims?: {
         admin?: boolean;
         role?: string;
+        partnerScopeId?: string;
         [key: string]: any;
     };
     metadata: {
@@ -40,6 +41,55 @@ type UserData = {
     providerData: string[];
     disabled?: boolean;
 };
+
+function PartnerScopeCell({
+    user,
+    functions,
+}: {
+    user: UserData;
+    functions: ReturnType<typeof getFunctions>;
+}) {
+    const { t } = useLanguage();
+    const initial =
+        typeof user.customClaims?.partnerScopeId === "string" ? user.customClaims.partnerScopeId : "";
+    const [value, setValue] = useState(initial);
+
+    useEffect(() => {
+        setValue(typeof user.customClaims?.partnerScopeId === "string" ? user.customClaims.partnerScopeId : "");
+    }, [user.uid, user.customClaims?.partnerScopeId]);
+
+    const [saving, setSaving] = useState(false);
+    const save = async () => {
+        setSaving(true);
+        try {
+            const updateUserRole = httpsCallable(functions, "updateUserRole");
+            await updateUserRole({
+                targetUid: user.uid,
+                role: "partner",
+                partnerScopeId: value.trim(),
+            });
+            toast.success(t("users.partnerScopeSaved"));
+        } catch {
+            toast.error(t("users.partnerScopeSaveFailed"));
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div className="flex flex-col gap-1 min-w-[160px]">
+            <Input
+                className="h-8 text-xs"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                placeholder={t("users.partnerScopePlaceholder")}
+            />
+            <Button type="button" size="sm" className="h-7 text-xs w-fit" onClick={save} disabled={saving}>
+                {t("users.partnerScopeSave")}
+            </Button>
+        </div>
+    );
+}
 
 export default function AdminUsersPage() {
     const { t } = useLanguage();
@@ -58,6 +108,7 @@ export default function AdminUsersPage() {
     const [newUserPassword, setNewUserPassword] = useState("");
     const [newUserDisplayName, setNewUserDisplayName] = useState("");
     const [newUserRole, setNewUserRole] = useState("user");
+    const [newUserPartnerScopeId, setNewUserPartnerScopeId] = useState("");
 
     // Sorting State
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
@@ -104,7 +155,10 @@ export default function AdminUsersPage() {
                     // Map Firestore 'role' to customClaims structure to match UI expectation
                     customClaims: {
                         role: data.role,
-                        admin: data.role === 'admin'
+                        admin: data.role === "admin",
+                        ...(typeof data.partnerScopeId === "string" && data.partnerScopeId.trim()
+                            ? { partnerScopeId: data.partnerScopeId.trim() }
+                            : {}),
                     },
                     metadata: {
                         lastSignInTime: data.lastLogin || null,
@@ -146,7 +200,10 @@ export default function AdminUsersPage() {
                 email: newUserEmail,
                 password: newUserPassword,
                 displayName: newUserDisplayName,
-                role: newUserRole
+                role: newUserRole,
+                ...(newUserRole === "partner" && newUserPartnerScopeId.trim()
+                    ? { partnerScopeId: newUserPartnerScopeId.trim() }
+                    : {}),
             });
 
             toast.success(t("users.toast.created"));
@@ -157,6 +214,7 @@ export default function AdminUsersPage() {
             setNewUserPassword("");
             setNewUserDisplayName("");
             setNewUserRole("user");
+            setNewUserPartnerScopeId("");
 
             // Refresh list
             fetchUsers();
@@ -174,9 +232,13 @@ export default function AdminUsersPage() {
         try {
             setIsEditRoleLoading(true);
             const updateUserRole = httpsCallable(functions, 'updateUserRole');
+            const existingScope = (editRoleUser.customClaims as { partnerScopeId?: string } | undefined)
+                ?.partnerScopeId;
             await updateUserRole({
                 targetUid: editRoleUser.uid,
-                role: editRoleValue
+                role: editRoleValue,
+                partnerScopeId:
+                    editRoleValue === "partner" && typeof existingScope === "string" ? existingScope : undefined,
             });
 
             toast.success(t("users.toast.roleUpdated"));
@@ -197,9 +259,12 @@ export default function AdminUsersPage() {
         try {
             setIsEditRoleLoading(true);
             const updateUserRole = httpsCallable(functions, 'updateUserRole');
+            const existingScope = (user.customClaims as { partnerScopeId?: string } | undefined)?.partnerScopeId;
             await updateUserRole({
                 targetUid: user.uid,
-                role: newRole
+                role: newRole,
+                partnerScopeId:
+                    newRole === "partner" && typeof existingScope === "string" ? existingScope : undefined,
             });
             toast.success(
                 <div className="flex flex-col gap-0.5">
@@ -406,6 +471,17 @@ export default function AdminUsersPage() {
                                         </SelectContent>
                                     </Select>
                                 </div>
+                                {newUserRole === "partner" && (
+                                    <div className="space-y-2">
+                                        <Label htmlFor="partnerScope">{t("users.partnerScope")}</Label>
+                                        <Input
+                                            id="partnerScope"
+                                            value={newUserPartnerScopeId}
+                                            onChange={(e) => setNewUserPartnerScopeId(e.target.value)}
+                                            placeholder={t("users.partnerScopePlaceholder")}
+                                        />
+                                    </div>
+                                )}
                                 <DialogFooter>
                                     <Button type="button" variant="outline" onClick={() => setIsCreateOpen(false)}>
                                         {t("users.form.cancel")}
@@ -478,6 +554,11 @@ export default function AdminUsersPage() {
                                                 {t("users.table.role")} {getSortIcon('role')}
                                             </div>
                                         </TableHead>
+                                        <TableHead className="h-11 min-w-[180px]">
+                                            <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                                {t("users.partnerScope")}
+                                            </div>
+                                        </TableHead>
                                         <TableHead className="h-11">
                                             <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t("users.table.status")}</div>
                                         </TableHead>
@@ -530,6 +611,13 @@ export default function AdminUsersPage() {
                                                             ))}
                                                         </SelectContent>
                                                     </Select>
+                                                </TableCell>
+                                                <TableCell className="align-top py-3">
+                                                    {role === "partner" ? (
+                                                        <PartnerScopeCell user={user} functions={functions} />
+                                                    ) : (
+                                                        <span className="text-xs text-muted-foreground">—</span>
+                                                    )}
                                                 </TableCell>
                                                 <TableCell>
                                                     <div className={cn("inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border",

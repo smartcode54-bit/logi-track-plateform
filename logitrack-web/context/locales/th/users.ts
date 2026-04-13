@@ -53,4 +53,9 @@ export default {
     "users.toast.roleUpdateFailed": "อัปเดตบทบาทผู้ใช้ไม่สำเร็จ",
     "users.toast.loadFailed": "โหลดผู้ใช้จากฐานข้อมูลไม่สำเร็จ",
     "users.toast.syncFailed": "ซิงค์ผู้ใช้ไม่สำเร็จ",
+    "users.partnerScope": "ขอบเขตพาร์ทเนอร์ (รหัส subcontractor)",
+    "users.partnerScopePlaceholder": "Document ID ของ subcontractor ใน Firestore",
+    "users.partnerScopeSave": "บันทึก scope",
+    "users.partnerScopeSaved": "อัปเดต partner scope แล้ว",
+    "users.partnerScopeSaveFailed": "อัปเดต partner scope ไม่สำเร็จ",
 };

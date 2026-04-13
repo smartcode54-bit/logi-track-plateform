@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
+
+import '../../../../core/services/mobile_client_heartbeat_service.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:geolocator/geolocator.dart';
 import '../services/image_compression_service.dart';
@@ -102,4 +104,12 @@ Future<void> submitCheckIn({
     'checkInLng': lng,
     'updatedAt': Timestamp.fromDate(DateTime.now()),
   });
+
+  try {
+    final t = await FirebaseFirestore.instance.collection('tasks').doc(taskId).get();
+    final did = t.data()?['driverId'] as String?;
+    if (did != null && did.isNotEmpty) {
+      await MobileClientHeartbeatService.instance.onJobAction(did);
+    }
+  } catch (_) {}
 }

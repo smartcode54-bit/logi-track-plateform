@@ -9,6 +9,7 @@ export default {
     "securityCenter.securityAudit": "บันทึกการตรวจสอบ",
     "securityCenter.apiKeys": "คีย์ API",
     "securityCenter.systemStatus": "สถานะระบบ",
+    "securityCenter.mobileClients": "ไคลเอนต์มือถือ",
     "securityCenter.backToAdmin": "กลับไปหน้าแอดมิน",
 
     // Overview page
@@ -219,4 +220,19 @@ export default {
     "securityCenter.capabilities.accounting_audit_expense.description": "ตรวจสอบ อนุมัติ หรือปฏิเสธรายการที่คนขับส่ง",
     "securityCenter.capabilities.accounting_edit_other.title": "แก้ไขรายจ่ายอื่น",
     "securityCenter.capabilities.accounting_edit_other.description": "แก้ไขบัญชีอื่น",
+
+    "securityCenter.mobileClients.title": "ไคลเอนต์แอปมือถือ",
+    "securityCenter.mobileClients.subtitle": "เวอร์ชันแอปคนขับและเวลาที่เห็นล่าสุดต่อการติดตั้ง (heartbeat)",
+    "securityCenter.mobileClients.partnerScopeMissing": "บัญชีของคุณยังไม่มี partner scope ให้ super admin ตั้งรหัส subcontractor (custom claim partnerScopeId)",
+    "securityCenter.mobileClients.empty": "ยังไม่มีข้อมูลการติดตั้ง",
+    "securityCenter.mobileClients.colDriver": "คนขับ",
+    "securityCenter.mobileClients.colDriverId": "รหัสคนขับ",
+    "securityCenter.mobileClients.colPartner": "พาร์ทเนอร์",
+    "securityCenter.mobileClients.colPlatform": "แพลตฟอร์ม",
+    "securityCenter.mobileClients.colVersion": "เวอร์ชัน",
+    "securityCenter.mobileClients.colBuild": "Build",
+    "securityCenter.mobileClients.colFlavor": "Flavor",
+    "securityCenter.mobileClients.colLastSeen": "เห็นล่าสุด",
+    "securityCenter.mobileClients.colInstallId": "รหัสติดตั้ง",
+    "securityCenter.mobileClients.accessDenied": "คุณไม่มีสิทธิ์ดูหน้านี้",
 };

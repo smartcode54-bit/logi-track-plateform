@@ -8,6 +8,8 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../main.dart' show pendingChatIdFromNotification, pendingBroadcastFromNotification, onChatRoomExited;
 import '../../../../core/route_observer.dart';
+import '../../../../core/services/mobile_app_version_service.dart';
+import '../../../../core/services/mobile_client_heartbeat_service.dart';
 import '../../../../core/services/notification_service.dart';
 import '../../../chat/data/repositories/chat_repository.dart';
 import '../../data/repositories/driver_repository.dart';
@@ -32,7 +34,7 @@ class MainLayout extends StatefulWidget {
   State<MainLayout> createState() => _MainLayoutState();
 }
 
-class _MainLayoutState extends State<MainLayout> with RouteAware {
+class _MainLayoutState extends State<MainLayout> with RouteAware, WidgetsBindingObserver {
   late int _currentIndex;
 
   /// สรุปเที่ยวที่เพิ่ง save จาก Loading (แสดงบน Delivery)
@@ -53,6 +55,7 @@ class _MainLayoutState extends State<MainLayout> with RouteAware {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _currentIndex = widget.initialTabIndex ?? 0;
     _savedTripSummary = widget.initialTripSummary;
     if (_savedTripSummary != null) _savePendingDeliverySummary(_savedTripSummary);
@@ -180,7 +183,21 @@ class _MainLayoutState extends State<MainLayout> with RouteAware {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _onAppResumed();
+    }
+  }
+
+  Future<void> _onAppResumed() async {
+    if (!mounted) return;
+    await MobileAppVersionService.instance.ensureAllowedToRun(context);
+    await MobileClientHeartbeatService.instance.onResumed(_driverId);
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     onChatRoomExited = null;
     if (_routeObserverSubscribed) {
       routeObserver.unsubscribe(this);
@@ -246,6 +263,14 @@ class _MainLayoutState extends State<MainLayout> with RouteAware {
       setState(() => _driverId = driverId);
       final hasCheckedIn = await hasCheckedInTask(driverId);
       if (mounted) setState(() => _hasCheckedIn = hasCheckedIn);
+      unawaited(MobileClientHeartbeatService.instance.onLoginResolved(driverId));
+      if (mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            unawaited(MobileAppVersionService.instance.ensureAllowedToRun(context));
+          }
+        });
+      }
     } catch (_) {}
   }
 

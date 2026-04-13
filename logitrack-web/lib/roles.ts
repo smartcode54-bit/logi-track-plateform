@@ -111,6 +111,7 @@ export const DEFAULT_ROLE_CAPABILITIES: Record<
     CAPABILITIES.operations_view_driver_monitor,
     CAPABILITIES.chat_view,
     CAPABILITIES.chat_send,
+    CAPABILITIES.security_view_mobile_clients,
   ],
   user: [
     CAPABILITIES.fleet_view_trucks,

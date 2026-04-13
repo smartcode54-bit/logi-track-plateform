@@ -1,4 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+
+import '../../../../core/services/mobile_client_heartbeat_service.dart';
 import '../../../home/data/models/trip_record.dart';
 import '../../../home/data/repositories/trip_records_repository.dart';
 
@@ -95,6 +97,13 @@ Future<void> submitDeliveryPhaseRecord({
     } catch (_) {
       // Ignored if document doesn't exist or isn't a first mile task.
     }
+    try {
+      final t = await FirebaseFirestore.instance.collection('tasks').doc(taskId).get();
+      final did = t.data()?['driverId'] as String?;
+      if (did != null && did.isNotEmpty) {
+        await MobileClientHeartbeatService.instance.onJobAction(did);
+      }
+    } catch (_) {}
   }
 }
 

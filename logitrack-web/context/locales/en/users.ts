@@ -53,4 +53,9 @@ export default {
     "users.toast.roleUpdateFailed": "Failed to update user role.",
     "users.toast.loadFailed": "Failed to load users from live database.",
     "users.toast.syncFailed": "Failed to sync users",
+    "users.partnerScope": "Partner scope (subcontractor ID)",
+    "users.partnerScopePlaceholder": "Firestore subcontractor doc ID",
+    "users.partnerScopeSave": "Save scope",
+    "users.partnerScopeSaved": "Partner scope updated",
+    "users.partnerScopeSaveFailed": "Failed to update partner scope",
 };

@@ -9,6 +9,11 @@ service cloud.firestore {
       return true;
     }
 
+    // Matches web getRole(): admin via boolean claim OR role string (some accounts only have role == "admin").
+    function isWebAdmin() {
+      return request.auth.token.admin == true || request.auth.token.get('role', '') == 'admin';
+    }
+
     // Hub→SOC distances (Google Distance Matrix cache). Read by web map & admin; write by admin/API.
     match /hub_soc_distances/{docId} {
       allow read: if request.auth != null;
@@ -123,10 +128,36 @@ service cloud.firestore {
       );
     }
 
-    // Role-permission config: admin only
+    // Role-permission config: admin full; each signed-in user may read their own role doc (for capability UI).
     match /permissions_config/{roleId} {
-      allow read: if request.auth != null && request.auth.token.admin == true;
+      allow read: if request.auth != null && (
+        request.auth.token.admin == true ||
+        roleId == request.auth.token.get('role', '')
+      );
       allow write: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+    }
+
+    // App-wide settings (e.g. mobile min version). Authenticated read; admin write.
+    match /settings/{docId} {
+      allow read: if request.auth != null;
+      allow write: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+    }
+
+    function driverAuthId(driverId) {
+      return exists(/databases/$(database)/documents/drivers/$(driverId))
+        ? get(/databases/$(database)/documents/drivers/$(driverId)).data.get('authId', '')
+        : '';
+    }
+
+    // Normalized subcontractor / partner id for heartbeat (null must match client empty string).
+    function driverSubcontractorId(driverId) {
+      return !exists(/databases/$(database)/documents/drivers/$(driverId))
+        ? ''
+        : (
+            get(/databases/$(database)/documents/drivers/$(driverId)).data.get('subcontractorId', '') == null
+            ? ''
+            : string(get(/databases/$(database)/documents/drivers/$(driverId)).data.get('subcontractorId', ''))
+          );
     }
 
     // Drivers: any authenticated read (dashboard counts); admin or own doc for write.
@@ -137,6 +168,26 @@ service cloud.firestore {
         request.auth.token.admin == true ||
         resource.data.authId == request.auth.uid
       );
+
+      // Mobile app heartbeat: one doc per device install. Driver self-write only; admin/partner read for Security Center.
+      match /mobile_installations/{installId} {
+        allow read: if request.auth != null && (
+          isWebAdmin() ||
+          (request.auth.token.get('role', '') == 'partner' &&
+            resource.data.get('partnerId', '') != '' &&
+            resource.data.get('partnerId', '') == request.auth.token.get('partnerScopeId', '')) ||
+          driverAuthId(driverId) == request.auth.uid
+        );
+        allow create: if isAppCheckVerified() && request.auth != null &&
+          driverAuthId(driverId) == request.auth.uid &&
+          request.resource.data.get('driverId', '') == driverId &&
+          request.resource.data.get('partnerId', '') == driverSubcontractorId(driverId);
+        allow update: if isAppCheckVerified() && request.auth != null &&
+          driverAuthId(driverId) == request.auth.uid &&
+          request.resource.data.get('driverId', '') == driverId &&
+          request.resource.data.get('partnerId', '') == driverSubcontractorId(driverId);
+        allow delete: if false;
+      }
     }
 
     // Trip records: Admin full; Drivers read/create/update own only (driverId = auth UID or driver doc id).
@@ -289,6 +340,17 @@ service cloud.firestore {
         (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
       allow write: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+    }
+
+    // Collection-group read for Security Center: collectionGroup('mobile_installations').
+    // Nested rules alone do not cover collection group queries — explicit wildcard path required.
+    match /{path=**}/mobile_installations/{installId} {
+      allow read: if request.auth != null && (
+        isWebAdmin() ||
+        (request.auth.token.get('role', '') == 'partner' &&
+          resource.data.get('partnerId', '') != '' &&
+          resource.data.get('partnerId', '') == request.auth.token.get('partnerScopeId', ''))
+      );
     }
 
     // Fallback for any collection not yet explicitly listed (deny after migration).

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../../../../core/theme/theme_controller.dart';
 import '../../../../core/services/fcm_service.dart';
+import '../../../../core/services/mobile_app_version_service.dart';
 import '../../../home/data/services/draft_storage_service.dart';
 import '../../data/repositories/auth_repository.dart';
 
@@ -79,6 +80,10 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _navigateToHome() async {
+    if (!mounted) return;
+    final allowed = await MobileAppVersionService.instance.ensureAllowedToRun(context);
+    if (!allowed || !mounted) return;
+
     final draft = await DraftStorageService.instance.loadDeliveryDraft();
     final args = draft != null
         ? {

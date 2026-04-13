@@ -46,7 +46,12 @@ export const updateUserRole = onCall(async (request) => {
         throw new HttpsError("permission-denied", "Only admins can modify user roles");
     }
 
-    const { targetUid, role, isAdmin } = request.data;
+    const { targetUid, role, isAdmin, partnerScopeId } = request.data as {
+        targetUid?: string;
+        role?: string;
+        isAdmin?: boolean;
+        partnerScopeId?: string;
+    };
 
     if (!targetUid) {
         throw new HttpsError("invalid-argument", "Target UID is required");
@@ -54,7 +59,7 @@ export const updateUserRole = onCall(async (request) => {
 
     try {
         const user = await admin.auth().getUser(targetUid);
-        const currentClaims = user.customClaims || {};
+        const currentClaims = (user.customClaims || {}) as Record<string, unknown>;
 
         let newRole = role;
         let newIsAdmin = false;
@@ -67,17 +72,33 @@ export const updateUserRole = onCall(async (request) => {
             newIsAdmin = isAdmin;
         }
 
-        await admin.auth().setCustomUserClaims(targetUid, {
-            ...currentClaims,
-            role: newRole,
-            admin: newIsAdmin,
-        });
+        const nextClaims: Record<string, unknown> = { ...currentClaims };
+        nextClaims.role = newRole;
+        nextClaims.admin = newIsAdmin;
+
+        if (newRole === 'partner') {
+            if (typeof partnerScopeId === 'string' && partnerScopeId.trim() !== '') {
+                nextClaims.partnerScopeId = partnerScopeId.trim();
+            } else if (typeof currentClaims.partnerScopeId === 'string' && String(currentClaims.partnerScopeId).trim() !== '') {
+                nextClaims.partnerScopeId = currentClaims.partnerScopeId;
+            } else {
+                delete nextClaims.partnerScopeId;
+            }
+        } else {
+            delete nextClaims.partnerScopeId;
+        }
+
+        await admin.auth().setCustomUserClaims(targetUid, nextClaims as { [key: string]: unknown });
 
         // Sync to Firestore
         try {
-            await admin.firestore().collection("users").doc(targetUid).set({
-                role: newRole
-            }, { merge: true });
+            const userDoc: Record<string, unknown> = { role: newRole };
+            if (newRole === 'partner' && typeof nextClaims.partnerScopeId === 'string' && String(nextClaims.partnerScopeId).trim() !== '') {
+                userDoc.partnerScopeId = nextClaims.partnerScopeId;
+            } else if (newRole !== 'partner') {
+                userDoc.partnerScopeId = admin.firestore.FieldValue.delete();
+            }
+            await admin.firestore().collection("users").doc(targetUid).set(userDoc, { merge: true });
         } catch (dbError) {
             console.error(`[updateUserRole] Failed to sync role to Firestore:`, dbError);
         }
@@ -104,7 +125,13 @@ export const createUser = onCall(async (request) => {
         throw new HttpsError("permission-denied", "Only admins can create users");
     }
 
-    const { email, password, displayName, role } = request.data;
+    const { email, password, displayName, role, partnerScopeId } = request.data as {
+        email?: string;
+        password?: string;
+        displayName?: string;
+        role?: string;
+        partnerScopeId?: string;
+    };
 
     if (!email || !password || !displayName) {
         throw new HttpsError("invalid-argument", "Email, password, and display name are required");
@@ -120,10 +147,25 @@ export const createUser = onCall(async (request) => {
         const userRole = role || 'user';
         const isAdmin = userRole === 'admin';
 
-        await admin.auth().setCustomUserClaims(userRecord.uid, {
+        const claims: Record<string, unknown> = {
             role: userRole,
             admin: isAdmin,
-        });
+        };
+        if (userRole === 'partner' && typeof partnerScopeId === 'string' && partnerScopeId.trim() !== '') {
+            claims.partnerScopeId = partnerScopeId.trim();
+        }
+
+        await admin.auth().setCustomUserClaims(userRecord.uid, claims as { [key: string]: unknown });
+
+        try {
+            const userDoc: Record<string, unknown> = { role: userRole };
+            if (userRole === 'partner' && typeof claims.partnerScopeId === 'string') {
+                userDoc.partnerScopeId = claims.partnerScopeId;
+            }
+            await admin.firestore().collection("users").doc(userRecord.uid).set(userDoc, { merge: true });
+        } catch (dbErr) {
+            console.error("[createUser] Firestore sync:", dbErr);
+        }
 
         return {
             success: true,

@@ -1,4 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+
+import '../../../../core/services/mobile_client_heartbeat_service.dart';
 import 'package:intl/intl.dart' as intl;
 import '../../../home/data/models/trip_record.dart';
 import '../../../home/data/repositories/trip_records_repository.dart';
@@ -128,5 +130,9 @@ Future<void> submitLoadingPhaseRecord({
           .doc(taskId)
           .update(updateData);
     }
+  }
+
+  if (driverId != null && driverId.isNotEmpty) {
+    await MobileClientHeartbeatService.instance.onJobAction(driverId);
   }
 }

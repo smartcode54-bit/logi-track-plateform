@@ -41,6 +41,7 @@ export const CAPABILITIES = {
   security_view_audit: "security:view_audit",
   security_manage_api_keys: "security:manage_api_keys",
   security_view_status: "security:view_status",
+  security_view_mobile_clients: "security:view_mobile_clients",
 
   // Accounting
   accounting_view_fuel: "accounting:view_fuel",
@@ -201,6 +202,11 @@ export const CAPABILITY_META: Record<
     description: "System status",
     module: "Security",
   },
+  [CAPABILITIES.security_view_mobile_clients]: {
+    title: "View Mobile Clients",
+    description: "Driver app versions and last seen (per device)",
+    module: "Security",
+  },
   [CAPABILITIES.accounting_view_fuel]: {
     title: "View Fuel",
     description: "Fuel accounting",
@@ -297,6 +303,7 @@ export const ROUTE_CAPABILITIES: Record<string, CapabilityId> = {
   "/admin/security-center/audit": CAPABILITIES.security_view_audit,
   "/admin/security-center/api-keys": CAPABILITIES.security_manage_api_keys,
   "/admin/security-center/status": CAPABILITIES.security_view_status,
+  "/admin/security-center/mobile-clients": CAPABILITIES.security_view_mobile_clients,
   "/admin/accounting/fuel": CAPABILITIES.accounting_view_fuel,
   "/admin/accounting/other": CAPABILITIES.accounting_view_other,
   "/admin/accounting/audit": CAPABILITIES.accounting_audit_expense,

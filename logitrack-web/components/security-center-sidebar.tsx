@@ -9,6 +9,7 @@ import {
     LogOut,
     ShieldCheck,
     Layers,
+    Smartphone,
 } from "lucide-react"
 
 import {
@@ -38,6 +39,7 @@ const securityItems = [
     { titleKey: "securityCenter.securityAudit", url: "/admin/security-center/audit", icon: Shield, capability: CAPABILITIES.security_view_audit },
     { titleKey: "securityCenter.apiKeys", url: "/admin/security-center/api-keys", icon: Key, capability: CAPABILITIES.security_manage_api_keys },
     { titleKey: "securityCenter.systemStatus", url: "/admin/security-center/status", icon: Server, capability: CAPABILITIES.security_view_status },
+    { titleKey: "securityCenter.mobileClients", url: "/admin/security-center/mobile-clients", icon: Smartphone, capability: CAPABILITIES.security_view_mobile_clients },
 ]
 
 export function SecurityCenterSidebar() {
