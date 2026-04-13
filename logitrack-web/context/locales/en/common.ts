@@ -19,6 +19,7 @@ export default {
     "nav.propertyStockSearch": "Property stock search",
     "nav.waitlist": "Waitlist",
     "nav.platform": "Platform",
+    "nav.appVersion": "Version {version}",
 
     "nav.truckManagement": "Truck Management",
     "nav.truckAssignment": "Truck Assignment",

@@ -3,7 +3,7 @@ export default {
     "securityCenter.title": "ศูนย์ความปลอดภัย",
     "securityCenter.subtitle": "ผู้ดูแลระบบโลจิสติกส์",
     "securityCenter.overview": "ภาพรวม",
-    "securityCenter.overviewSoon": "ภาพรวม (เร็วๆ นี้)",
+    "securityCenter.overviewSoon": "ภาพรวม",
     "securityCenter.userManagement": "จัดการผู้ใช้งาน",
     "securityCenter.rolePermissionMatrix": "บทบาทและสิทธิ์",
     "securityCenter.securityAudit": "บันทึกการตรวจสอบ",

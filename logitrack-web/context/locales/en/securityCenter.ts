@@ -2,7 +2,7 @@ export default {
     "securityCenter.title": "SECURITY CENTER",
     "securityCenter.subtitle": "Logistics Admin",
     "securityCenter.overview": "Overview",
-    "securityCenter.overviewSoon": "Overview (soon)",
+    "securityCenter.overviewSoon": "Overview",
     "securityCenter.userManagement": "User Management",
     "securityCenter.rolePermissionMatrix": "Role & Permission Matrix",
     "securityCenter.securityAudit": "Security Audit",

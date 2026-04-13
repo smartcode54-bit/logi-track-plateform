@@ -19,6 +19,7 @@ export default {
     "nav.propertyStockSearch": "ค้นหาคลังสินค้า",
     "nav.waitlist": "รายการรอ",
     "nav.platform": "แพลตฟอร์ม",
+    "nav.appVersion": "เวอร์ชัน {version}",
 
     "nav.truckManagement": "จัดการรถบรรทุก",
     "nav.truckAssignment": "มอบหมายรถ",

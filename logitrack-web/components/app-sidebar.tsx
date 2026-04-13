@@ -47,6 +47,7 @@ import { usePathname } from "next/navigation"
 import { useAuth } from "@/context/auth"
 import { can } from "@/lib/permissions"
 import { CAPABILITIES } from "@/lib/capabilities"
+import { WEB_APP_VERSION } from "@/lib/app-version"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 
@@ -176,6 +177,9 @@ export function AppSidebar() {
                                 <div className="grid flex-1 text-left text-sm leading-tight">
                                     <span className="truncate font-semibold text-base">Logistics Pro</span>
                                     <span className="truncate text-xs text-muted-foreground">Enterprise Admin</span>
+                                    <span className="truncate text-[11px] text-muted-foreground/90">
+                                        {t("nav.appVersion", { version: WEB_APP_VERSION })}
+                                    </span>
                                 </div>
                             </Link>
                         </SidebarMenuButton>
