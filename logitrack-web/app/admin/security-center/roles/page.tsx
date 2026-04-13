@@ -177,6 +177,17 @@ const FINANCIALS_CAPABILITIES: { id: string; title: string; description: string;
     { id: "accounting_audit_expense", title: "Audit Vehicle Expense", description: "Review and approve/reject vehicle expenses", defaultPermissions: { ADMIN: true, MANAGER: true, OPERATION_STAFF: true, OPERATOR: false, DRIVER: false, PARTNER: false, CUSTOMER: false } },
 ];
 
+// Security & Access Control permissions
+const SECURITY_CAPABILITIES: { id: string; title: string; description: string; defaultPermissions: CapabilityPermission }[] = [
+    { id: "security_view_overview", title: "View Security Overview", description: "View security dashboard and threat summary", defaultPermissions: { ADMIN: true, MANAGER: false, OPERATION_STAFF: false, OPERATOR: false, DRIVER: false, PARTNER: false, CUSTOMER: false } },
+    { id: "security_manage_users", title: "Manage Users", description: "Create, edit and manage web admin accounts", defaultPermissions: { ADMIN: true, MANAGER: false, OPERATION_STAFF: false, OPERATOR: false, DRIVER: false, PARTNER: false, CUSTOMER: false } },
+    { id: "security_manage_roles", title: "Manage Roles & Permissions", description: "Edit the Role & Permission Matrix", defaultPermissions: { ADMIN: true, MANAGER: false, OPERATION_STAFF: false, OPERATOR: false, DRIVER: false, PARTNER: false, CUSTOMER: false } },
+    { id: "security_view_audit", title: "View Audit Logs", description: "View security audit events and permission changes", defaultPermissions: { ADMIN: true, MANAGER: false, OPERATION_STAFF: false, OPERATOR: false, DRIVER: false, PARTNER: false, CUSTOMER: false } },
+    { id: "security_manage_api_keys", title: "Manage API Keys", description: "Create and revoke API keys for integrations", defaultPermissions: { ADMIN: true, MANAGER: false, OPERATION_STAFF: false, OPERATOR: false, DRIVER: false, PARTNER: false, CUSTOMER: false } },
+    { id: "security_view_status", title: "View System Status", description: "View real-time service health and uptime", defaultPermissions: { ADMIN: true, MANAGER: false, OPERATION_STAFF: false, OPERATOR: false, DRIVER: false, PARTNER: false, CUSTOMER: false } },
+    { id: "security_view_mobile_clients", title: "View Mobile Clients", description: "Driver app versions and last-seen per device (Security Center)", defaultPermissions: { ADMIN: true, MANAGER: false, OPERATION_STAFF: false, OPERATOR: false, DRIVER: false, PARTNER: true, CUSTOMER: false } },
+];
+
 function getDefaultPermissions(): Record<string, CapabilityPermission> {
     const allCaps = [
         ...FLEET_CAPABILITIES,
@@ -184,6 +195,7 @@ function getDefaultPermissions(): Record<string, CapabilityPermission> {
         ...USER_MANAGEMENT_CAPABILITIES,
         ...COMMUNICATION_CAPABILITIES,
         ...FINANCIALS_CAPABILITIES,
+        ...SECURITY_CAPABILITIES,
     ];
     const initial: Record<string, CapabilityPermission> = {};
     allCaps.forEach((c) => {
@@ -283,6 +295,7 @@ export default function RolePermissionMatrixPage() {
         ...USER_MANAGEMENT_CAPABILITIES,
         ...COMMUNICATION_CAPABILITIES,
         ...FINANCIALS_CAPABILITIES,
+        ...SECURITY_CAPABILITIES,
     ];
     const [permissions, setPermissions] = useState<Record<string, CapabilityPermission>>(getDefaultPermissions);
     const [hasChanges, setHasChanges] = useState(false);
@@ -519,6 +532,15 @@ export default function RolePermissionMatrixPage() {
                     >
                         {t("securityCenter.roles.financials")}
                     </TabsTrigger>
+                    <TabsTrigger
+                        value="security"
+                        className={cn(
+                            "rounded-none border-b-2 border-transparent bg-transparent px-4 pb-3 pt-2 font-semibold text-muted-foreground",
+                            "data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:shadow-none"
+                        )}
+                    >
+                        {t("securityCenter.roles.security")}
+                    </TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="operations" className="mt-0">
@@ -572,6 +594,18 @@ export default function RolePermissionMatrixPage() {
                 <TabsContent value="financials" className="mt-0">
                     <MatrixTable
                         capabilities={FINANCIALS_CAPABILITIES}
+                        permissions={permissions}
+                        onToggle={handleToggle}
+                        searchQuery={searchQuery}
+                        capabilitiesLabel={t("securityCenter.roles.capabilities")}
+                        roleLabels={roleLabels}
+                        t={t}
+                    />
+                </TabsContent>
+
+                <TabsContent value="security" className="mt-0">
+                    <MatrixTable
+                        capabilities={SECURITY_CAPABILITIES}
                         permissions={permissions}
                         onToggle={handleToggle}
                         searchQuery={searchQuery}
