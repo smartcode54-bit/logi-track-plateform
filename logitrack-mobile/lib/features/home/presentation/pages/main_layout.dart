@@ -13,6 +13,7 @@ import '../../../../core/services/mobile_client_heartbeat_service.dart';
 import '../../../../core/services/notification_service.dart';
 import '../../../chat/data/repositories/chat_repository.dart';
 import '../../data/repositories/driver_repository.dart';
+import '../../data/services/draft_storage_service.dart' show prefKeyPendingDeliverySummary;
 import '../../data/repositories/task_repository.dart';
 import '../../data/repositories/trip_records_repository.dart';
 import 'home_page.dart';
@@ -50,7 +51,7 @@ class _MainLayoutState extends State<MainLayout> with RouteAware, WidgetsBinding
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _chatUnreadSubscription;
   bool _routeObserverSubscribed = false;
 
-  static const String _prefKeyPendingDelivery = 'logitrack_pending_delivery_summary';
+  static const String _prefKeyPendingDelivery = prefKeyPendingDeliverySummary;
 
   @override
   void initState() {
@@ -226,25 +227,35 @@ class _MainLayoutState extends State<MainLayout> with RouteAware, WidgetsBinding
 
   Future<void> _loadPendingDeliverySummary() async {
     try {
+      final currentUid = FirebaseAuth.instance.currentUser?.uid;
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_prefKeyPendingDelivery);
       if (raw != null && raw.isNotEmpty) {
-        final map = jsonDecode(raw) as Map<String, dynamic>?;
-        final summary = SavedTripSummary.fromJson(map);
-        if (summary != null && summary.tripId.trim().isNotEmpty) {
-          final status = await getTripStatus(summary.tripId);
-          if (status == null || status == 'delivered') {
-            await _savePendingDeliverySummary(null);
-            if (mounted) setState(() => _savedTripSummary = null);
+        final outer = jsonDecode(raw) as Map<String, dynamic>?;
+        if (outer != null) {
+          final storedUid = outer['uid'] as String?;
+          final summaryMap = outer['summary'] as Map<String, dynamic>?;
+          if (storedUid != null && storedUid == currentUid && summaryMap != null) {
+            // ข้อมูลเป็นของ user คนนี้ — โหลดและ verify กับ Firestore
+            final summary = SavedTripSummary.fromJson(summaryMap);
+            if (summary != null && summary.tripId.trim().isNotEmpty) {
+              final status = await getTripStatus(summary.tripId);
+              if (status == null || status == 'delivered') {
+                await _savePendingDeliverySummary(null);
+                if (mounted) setState(() => _savedTripSummary = null);
+                return;
+              }
+              if (mounted) setState(() => _savedTripSummary = summary);
+            }
             return;
+          } else {
+            // ข้อมูลเป็นของ user คนอื่น หรือ format เก่า (ไม่มี uid) — ทิ้งทันที
+            await prefs.remove(_prefKeyPendingDelivery);
           }
-          if (mounted) setState(() => _savedTripSummary = summary);
         }
-        return;
       }
-      // ไม่มีในเครื่อง → ดึงจาก Firestore (งานค้าง status in_transit ของ Driver คนนี้)
-      final driverId = FirebaseAuth.instance.currentUser?.uid;
-      final inTransit = await getPendingInTransitTrip(driverId);
+      // ไม่มีในเครื่อง หรือถูกทิ้ง → ดึงจาก Firestore (งานค้าง status in_transit ของ Driver คนนี้)
+      final inTransit = await getPendingInTransitTrip(currentUid);
       if (inTransit == null || !mounted) return;
       final summary = SavedTripSummary.fromJson(inTransit);
       if (summary != null && mounted) {
@@ -260,7 +271,10 @@ class _MainLayoutState extends State<MainLayout> with RouteAware, WidgetsBinding
       if (summary == null) {
         await prefs.remove(_prefKeyPendingDelivery);
       } else {
-        await prefs.setString(_prefKeyPendingDelivery, jsonEncode(summary.toJson()));
+        final uid = FirebaseAuth.instance.currentUser?.uid;
+        // เก็บ uid ของเจ้าของข้อมูลไว้ด้วย เพื่อป้องกัน user อื่นมาโหลดผิด
+        final data = {'uid': uid, 'summary': summary.toJson()};
+        await prefs.setString(_prefKeyPendingDelivery, jsonEncode(data));
       }
     } catch (_) {}
   }

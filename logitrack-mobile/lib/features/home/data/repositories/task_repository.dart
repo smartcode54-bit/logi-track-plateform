@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 /// Sort key for driver task queue: [runOrder] ascending when set, else legacy bucket last by [createdAt] ascending.
 int compareTasksForDriverQueue(Map<String, dynamic> a, Map<String, dynamic> b) {
@@ -105,6 +106,9 @@ Stream<List<Map<String, dynamic>>> streamTasksForDriver(String driverId) {
 
 /// Returns true if the driver has at least one task with status "Checked in".
 /// Used to enforce step order: Check in → Loading → Deliver + incident.
+///
+/// Queries by Firestore driver document ID first (standard format). If no result is found,
+/// also tries the current Auth UID as a fallback for legacy tasks where driverId stores Auth UID.
 Future<bool> hasCheckedInTask(String driverId) async {
   if (driverId.isEmpty) return false;
   try {
@@ -114,7 +118,20 @@ Future<bool> hasCheckedInTask(String driverId) async {
         .where('status', isEqualTo: 'Checked in')
         .limit(1)
         .get();
-    return snapshot.docs.isNotEmpty;
+    if (snapshot.docs.isNotEmpty) return true;
+
+    // Fallback: some tasks may store Auth UID as driverId (legacy or web-assigned tasks).
+    final authUid = FirebaseAuth.instance.currentUser?.uid;
+    if (authUid != null && authUid.isNotEmpty && authUid != driverId) {
+      final snap2 = await FirebaseFirestore.instance
+          .collection('tasks')
+          .where('driverId', isEqualTo: authUid)
+          .where('status', isEqualTo: 'Checked in')
+          .limit(1)
+          .get();
+      return snap2.docs.isNotEmpty;
+    }
+    return false;
   } catch (_) {
     return false;
   }

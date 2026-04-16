@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -47,7 +48,11 @@ class _CheckInPageState extends State<CheckInPage> {
   Future<void> _loadDeliveredTaskIds() async {
     if (widget.driverId.isEmpty) return;
     try {
-      final ids = await getDeliveredTaskIdsForDriver(widget.driverId);
+      // trip_records.driverId stores Auth UID (set from FirebaseAuth.instance.currentUser?.uid
+      // in loading_phase_page). Use Auth UID so delivered trips are correctly identified and
+      // old "Checked in" tasks do not block subsequent check-ins.
+      final authUid = FirebaseAuth.instance.currentUser?.uid ?? widget.driverId;
+      final ids = await getDeliveredTaskIdsForDriver(authUid);
       if (mounted) setState(() => _deliveredTaskIds = ids);
     } catch (_) {}
   }

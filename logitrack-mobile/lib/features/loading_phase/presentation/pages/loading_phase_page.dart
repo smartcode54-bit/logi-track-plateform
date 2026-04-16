@@ -1264,7 +1264,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: _sealCodeController,
-                        readOnly: true,
+                        textCapitalization: TextCapitalization.characters,
                         decoration: InputDecoration(
                           labelText: 'loading_phase_seal_code'.tr(),
                           hintText: 'SPX...',
@@ -1276,7 +1276,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                             onPressed: () => _scanAndSet(_sealCodeController),
                           ),
                         ),
-                        onTap: _validateDuplicateOnBlur,
+                        onEditingComplete: _validateDuplicateOnBlur,
                       ),
                       if (_lastDuplicateDebug != null) ...[
                         const SizedBox(height: 12),

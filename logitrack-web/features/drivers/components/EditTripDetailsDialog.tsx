@@ -11,13 +11,13 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Camera, Loader2, ExternalLink } from "lucide-react";
+import { Camera, Loader2, ExternalLink, ImagePlus } from "lucide-react";
 import { doc, updateDoc, serverTimestamp, getDocs, collection, query, where, limit, deleteField } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { uploadTripPhoto } from "@/lib/uploadTripPhoto";
 import { dedupeTripPhotosByTypeLastWins } from "@/lib/trip-photo-utils";
-import type { TripRecord, TripPhoto } from "@/validate/tripRecordSchema";
+import { TRIP_PHOTO_TYPE_ENUM, type TripRecord, type TripPhoto } from "@/validate/tripRecordSchema";
 import { useLanguage } from "@/context/language";
 import { effectivePartnerCode } from "@/features/drivers/hooks/useDriverMonitor";
 import { ReportIncidentModal } from "@/app/admin/chat/components/ReportIncidentModal";
@@ -41,6 +41,9 @@ const PHOTO_TYPE_LABELS: Record<string, string> = {
     empty_container: "Empty container",
     runsheet_received: "Runsheet received",
 };
+
+const LOADING_PHASE_TYPES = ["pre_close", "closing", "seal", "runsheet"] as const;
+const DELIVERY_PHASE_TYPES = ["pre_open", "opening", "empty_container", "runsheet_received"] as const;
 
 export function EditTripDetailsDialog({
     open,
@@ -69,6 +72,9 @@ export function EditTripDetailsDialog({
     const dialogWasOpenRef = useRef(false);
 
     const photos = trip.photos ?? [];
+    const photoByType = new Map(photos.map((photo) => [photo.type, photo]));
+    const pendingPhotoCount = Object.keys(replaceByType).length;
+    const totalPhotoSlots = TRIP_PHOTO_TYPE_ENUM.length;
 
     const fetchIncidentReport = async (tripId: string) => {
         try {
@@ -311,67 +317,93 @@ export function EditTripDetailsDialog({
                     <div className="space-y-3">
                         <h4 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
                             <Camera className="h-4 w-4" />
-                            {t("driverMonitor.detail.photos")} ({photos.length})
+                            {t("driverMonitor.detail.photos")} ({photos.length}/{totalPhotoSlots})
                         </h4>
-                        {photos.length === 0 ? (
-                            <p className="text-sm text-muted-foreground">
-                                {t("driverMonitor.detail.noPhotos", "No photos available")}
-                            </p>
-                        ) : (
-                            <>
-                                <p className="text-xs text-muted-foreground">
-                                    {t("driverMonitor.editTrip.replaceHint", "Replace any photo when it was recorded incorrectly.")}
-                                </p>
-                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                                    {photos.map((photo, idx) => {
-                                        const file = replaceByType[photo.type];
-                                        const label = PHOTO_TYPE_LABELS[photo.type] ?? photo.type.replace(/_/g, " ");
-                                        return (
-                                            <div key={idx} className="space-y-2">
-                                                <p className="text-xs font-medium text-muted-foreground">{label}</p>
-                                                <div className="relative aspect-square rounded-lg overflow-hidden border border-border/50 bg-muted/50">
-                                                    <img
-                                                        src={file ? URL.createObjectURL(file) : photo.url}
-                                                        alt={photo.type}
-                                                        className="object-cover w-full h-full"
-                                                    />
-                                                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2">
-                                                        <a
-                                                            href={photo.url}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="text-white text-xs underline flex items-center gap-1"
-                                                            onClick={(e) => e.stopPropagation()}
+                        <p className="text-xs text-muted-foreground">
+                            {t("driverMonitor.editTrip.replaceHint", "Replace any photo when it was recorded incorrectly.")}
+                            {pendingPhotoCount > 0 ? ` (${pendingPhotoCount})` : ""}
+                        </p>
+
+                        <div className="space-y-4">
+                            {[
+                                { titleKey: "driverMonitor.editTrip.loadingPhase", photoTypes: LOADING_PHASE_TYPES },
+                                { titleKey: "driverMonitor.editTrip.deliveryPhase", photoTypes: DELIVERY_PHASE_TYPES },
+                            ].map((section) => (
+                                <div key={section.titleKey} className="space-y-2">
+                                    <p className="text-xs font-semibold text-muted-foreground">{t(section.titleKey)}</p>
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                                        {section.photoTypes.map((photoType) => {
+                                            const existingPhoto = photoByType.get(photoType);
+                                            const file = replaceByType[photoType];
+                                            const label = PHOTO_TYPE_LABELS[photoType] ?? photoType.replace(/_/g, " ");
+                                            const hasImage = !!existingPhoto || !!file;
+
+                                            return (
+                                                <div key={photoType} className="space-y-2">
+                                                    <p className="text-xs font-medium text-muted-foreground">{label}</p>
+                                                    <div
+                                                        className={[
+                                                            "relative aspect-square rounded-lg overflow-hidden bg-muted/50",
+                                                            hasImage ? "border border-border/50" : "border border-dashed border-border/70",
+                                                        ].join(" ")}
+                                                    >
+                                                        {hasImage ? (
+                                                            <>
+                                                                <img
+                                                                    src={file ? URL.createObjectURL(file) : existingPhoto?.url}
+                                                                    alt={photoType}
+                                                                    className="object-cover w-full h-full"
+                                                                />
+                                                                {existingPhoto?.url ? (
+                                                                    <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/70 to-transparent p-2">
+                                                                        <a
+                                                                            href={existingPhoto.url}
+                                                                            target="_blank"
+                                                                            rel="noopener noreferrer"
+                                                                            className="text-white text-xs underline flex items-center gap-1"
+                                                                            onClick={(e) => e.stopPropagation()}
+                                                                        >
+                                                                            <ExternalLink className="h-3 w-3" />
+                                                                            {t("driverMonitor.detail.openInNewTab")}
+                                                                        </a>
+                                                                    </div>
+                                                                ) : null}
+                                                            </>
+                                                        ) : (
+                                                            <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+                                                                <ImagePlus className="h-8 w-8" />
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <input
+                                                            ref={(el) => { fileInputRefs.current[photoType] = el; }}
+                                                            type="file"
+                                                            accept="image/*"
+                                                            className="hidden"
+                                                            onChange={(e) => handleFileSelect(photoType, e)}
+                                                        />
+                                                        <Button
+                                                            type="button"
+                                                            variant="outline"
+                                                            size="sm"
+                                                            className="flex-1 text-xs"
+                                                            onClick={() => fileInputRefs.current[photoType]?.click()}
                                                         >
-                                                            <ExternalLink className="h-3 w-3" />
-                                                            {t("driverMonitor.detail.openInNewTab")}
-                                                        </a>
+                                                            {file
+                                                                ? file.name
+                                                                : hasImage
+                                                                    ? t("driverMonitor.editTrip.replace", "Replace")
+                                                                    : t("driverMonitor.editTrip.addPhoto", "Add photo")}
+                                                        </Button>
                                                     </div>
                                                 </div>
-                                                <div className="flex items-center gap-2">
-                                                    <input
-                                                        ref={(el) => { fileInputRefs.current[photo.type] = el; }}
-                                                        type="file"
-                                                        accept="image/*"
-                                                        className="hidden"
-                                                        onChange={(e) => handleFileSelect(photo.type, e)}
-                                                    />
-                                                    <Button
-                                                        type="button"
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="flex-1 text-xs"
-                                                        onClick={() => fileInputRefs.current[photo.type]?.click()}
-                                                    >
-                                                        {file ? file.name : t("driverMonitor.editTrip.replace", "Replace")}
-                                                    </Button>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
+                                            );
+                                        })}
+                                    </div>
                                 </div>
-                            </>
-                        )}
+                            ))}
+                        </div>
                     </div>
                 </div>
 

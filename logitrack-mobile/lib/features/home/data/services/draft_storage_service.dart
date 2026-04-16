@@ -128,6 +128,10 @@ class DeliveryDraft {
 const String _prefKeyLoadingDraft = 'logitrack_loading_draft';
 const String _prefKeyDeliveryDraft = 'logitrack_delivery_draft';
 const String _prefKeyActiveCheckInTaskId = 'logitrack_active_checkin_task_id';
+
+/// Key ที่ MainLayout ใช้เก็บ pending delivery summary — expose ไว้ให้ clearAllUserData ใช้ได้
+const String prefKeyPendingDeliverySummary = 'logitrack_pending_delivery_summary';
+
 const String _draftDirName = 'logitrack_draft';
 
 /// เก็บ/โหลดงานค้าง (draft) เมื่อแอปถูกปิดหรือหลุด เพื่อให้กลับมาโหลดต่อได้
@@ -344,5 +348,24 @@ class DraftStorageService {
     final prefs = await _preferences;
     await prefs.remove(_prefKeyDeliveryDraft);
     await _clearDeliveryDraftFiles();
+  }
+
+  // ---------- Clear all user-scoped data on logout ----------
+
+  /// ล้างข้อมูลทั้งหมดที่ผูกกับ user คนนี้ เรียกตอน signOut เพื่อไม่ให้ user ถัดไปเห็นข้อมูลคนเก่า
+  ///
+  /// หมายเหตุ: [prefKeyPendingDeliverySummary] ไม่ถูก clear ที่นี่ —
+  /// ข้อมูลนั้นถูก tag ด้วย uid ของเจ้าของไว้แล้ว ตรวจสอบใน MainLayout._loadPendingDeliverySummary
+  /// ถ้า uid ไม่ตรงกับ user ปัจจุบัน จะถูกทิ้งอัตโนมัติ ซึ่งทำให้ user คนเดิม login กลับมาแล้วยังเห็นงานค้างได้
+  Future<void> clearAllUserData() async {
+    final prefs = await _preferences;
+    await Future.wait([
+      prefs.remove(_prefKeyLoadingDraft),
+      prefs.remove(_prefKeyDeliveryDraft),
+      prefs.remove(_prefKeyActiveCheckInTaskId),
+    ]);
+    await _clearLoadingDraftFiles();
+    await _clearDeliveryDraftFiles();
+    debugPrint('[DraftStorageService] clearAllUserData: done');
   }
 }

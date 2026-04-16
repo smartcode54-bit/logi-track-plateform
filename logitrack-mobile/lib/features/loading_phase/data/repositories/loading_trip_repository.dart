@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 
 import '../../../../core/services/mobile_client_heartbeat_service.dart';
 import 'package:intl/intl.dart' as intl;
@@ -125,10 +126,16 @@ Future<void> submitLoadingPhaseRecord({
       updateData['destination'] = destination;
     }
     if (updateData.isNotEmpty) {
-      await FirebaseFirestore.instance
-          .collection('tasks')
-          .doc(taskId)
-          .update(updateData);
+      try {
+        await FirebaseFirestore.instance
+            .collection('tasks')
+            .doc(taskId)
+            .update(updateData);
+      } catch (e) {
+        // Task metadata update is supplementary — trip record is already saved.
+        // Log for investigation but do not surface as a user-facing error.
+        debugPrint('[LoadingPhase] tasks.update($taskId) failed (non-critical): $e');
+      }
     }
   }
 

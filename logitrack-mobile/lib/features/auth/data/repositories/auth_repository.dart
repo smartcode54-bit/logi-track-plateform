@@ -9,6 +9,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 
 import '../../../../core/services/cloud_functions_service.dart';
+import '../../../home/data/services/draft_storage_service.dart';
 
 class AuthRepository {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -178,6 +179,13 @@ class AuthRepository {
   }
 
   Future<void> signOut() async {
+    // Clear all user-scoped local data before signing out so the next
+    // user who logs in on this device does not see stale data.
+    try {
+      await DraftStorageService.instance.clearAllUserData();
+    } catch (e) {
+      debugPrint('[AuthRepository] signOut clearAllUserData error: $e');
+    }
     await _auth.signOut();
   }
 
