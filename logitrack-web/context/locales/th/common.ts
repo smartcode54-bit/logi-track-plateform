@@ -78,6 +78,7 @@ export default {
     "leaveRequests.table.type": "ประเภท",
     "leaveRequests.table.duration": "ระยะเวลา",
     "leaveRequests.table.reason": "เหตุผล",
+    "leaveRequests.table.createdAt": "สร้างเมื่อ",
     "leaveRequests.table.status": "สถานะ",
     "leaveRequests.loading": "กำลังโหลดคำขอลา...",
     "leaveRequests.noRequests": "ไม่พบคำขอลา",

@@ -1,0 +1,15 @@
+# Copy this file to android/key.properties and set real values.
+# Do not commit android/key.properties or keystore files.
+
+# Path to your release keystore (relative to android/ is recommended)
+storeFile=app/upload-keystore.jks
+storePassword=CHANGE_ME
+keyAlias=upload
+keyPassword=CHANGE_ME
+
+# Build production APK for driver distribution:
+# flutter build apk --release --flavor prod --dart-define=FLAVOR=prod
+#
+# After creating keystore, get fingerprints and add to Firebase (prod app com.wrt.logitrack):
+# keytool -list -v -keystore app/upload-keystore.jks -alias upload
+# Firebase Console > Project settings > Your apps > Android (com.wrt.logitrack) > Add SHA-1 and SHA-256

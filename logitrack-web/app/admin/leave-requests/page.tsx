@@ -38,12 +38,14 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { useLanguage } from "@/context/language";
 import { format } from "date-fns";
+import { enUS, th as thLocale } from "date-fns/locale";
 import { toast } from "sonner";
 import { useAuth } from "@/context/auth";
 import { LeaveRequestReviewDialog } from "./LeaveRequestReviewDialog";
 
 export default function LeaveRequestsPage() {
-    const { t } = useLanguage();
+    const { t, language } = useLanguage();
+    const dateLocale = language === "th" ? thLocale : enUS;
     const auth = useAuth();
     const user = auth?.currentUser ?? null;
     const [requests, setRequests] = useState<LeaveRequest[]>([]);
@@ -216,6 +218,7 @@ export default function LeaveRequestsPage() {
                             <TableHead>{t("leaveRequests.table.type")}</TableHead>
                             <TableHead>{t("leaveRequests.table.duration")}</TableHead>
                             <TableHead>{t("leaveRequests.table.reason")}</TableHead>
+                            <TableHead>{t("leaveRequests.table.createdAt")}</TableHead>
                             <TableHead>{t("leaveRequests.table.status")}</TableHead>
                             <TableHead className="text-right">{t("common.actions")}</TableHead>
                         </TableRow>
@@ -223,7 +226,7 @@ export default function LeaveRequestsPage() {
                     <TableBody>
                         {loading ? (
                             <TableRow>
-                                <TableCell colSpan={6} className="h-32 text-center">
+                                <TableCell colSpan={7} className="h-32 text-center">
                                     <div className="flex flex-col items-center justify-center gap-2">
                                         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                                         <p className="text-sm text-muted-foreground">{t("leaveRequests.loading")}</p>
@@ -232,7 +235,7 @@ export default function LeaveRequestsPage() {
                             </TableRow>
                         ) : filteredRequests.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
+                                <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
                                     {t("leaveRequests.noRequests")}
                                 </TableCell>
                             </TableRow>
@@ -270,6 +273,11 @@ export default function LeaveRequestsPage() {
                                     </TableCell>
                                     <TableCell className="max-w-[200px] truncate text-sm">
                                         {req.reason}
+                                    </TableCell>
+                                    <TableCell className="text-xs whitespace-nowrap text-muted-foreground">
+                                        {req.createdAt && !isNaN(req.createdAt.getTime())
+                                            ? format(req.createdAt, "PPp", { locale: dateLocale })
+                                            : "—"}
                                     </TableCell>
                                     <TableCell>
                                         <Badge variant="outline" className={getStatusColor(req.status)}>

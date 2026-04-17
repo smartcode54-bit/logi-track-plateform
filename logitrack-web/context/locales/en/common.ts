@@ -78,6 +78,7 @@ export default {
     "leaveRequests.table.type": "Type",
     "leaveRequests.table.duration": "Duration",
     "leaveRequests.table.reason": "Reason",
+    "leaveRequests.table.createdAt": "Created",
     "leaveRequests.table.status": "Status",
     "leaveRequests.loading": "Loading requests...",
     "leaveRequests.noRequests": "No leave requests found.",
