@@ -121,7 +121,7 @@ async function canViewFuelByRole(role: string): Promise<boolean> {
     return capabilities[ACCOUNTING_VIEW_FUEL_CAPABILITY] === true;
 }
 
-export const getBangchakRetailOilPrices = onCall(async (request) => {
+export const getBangchakRetailOilPrices = onCall({ region: "asia-southeast1" }, async (request) => {
     if (!request.auth) {
         throw new HttpsError("unauthenticated", "User must be authenticated");
     }
