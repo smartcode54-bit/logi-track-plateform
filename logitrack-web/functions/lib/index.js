@@ -56,4 +56,5 @@ __exportStar(require("./chat"), exports);
 __exportStar(require("./cartrack"), exports);
 __exportStar(require("./holidays"), exports);
 __exportStar(require("./securityEvents"), exports);
+__exportStar(require("./bangchakOilPrice"), exports);
 //# sourceMappingURL=index.js.map

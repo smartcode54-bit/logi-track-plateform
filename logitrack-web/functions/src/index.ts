@@ -21,3 +21,4 @@ export * from "./chat";
 export * from "./cartrack";
 export * from "./holidays";
 export * from "./securityEvents";
+export * from "./bangchakOilPrice";
