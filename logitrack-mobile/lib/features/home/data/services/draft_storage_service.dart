@@ -21,7 +21,8 @@ class LoadingDraft {
   final String totalWeight;
   final String? partnerCode;
   final String? jobType;
-  final String? runsheetPath;
+  /// Paths to compressed runsheet JPEGs (primary first, then extras). Legacy: [runsheetPath].
+  final List<String> runsheetPaths;
   final Map<String, String> stepPhotoPaths; // stepKey -> path
 
   const LoadingDraft({
@@ -35,7 +36,7 @@ class LoadingDraft {
     this.totalWeight = '',
     this.partnerCode,
     this.jobType,
-    this.runsheetPath,
+    this.runsheetPaths = const [],
     this.stepPhotoPaths = const {},
   });
 
@@ -50,12 +51,22 @@ class LoadingDraft {
     'totalWeight': totalWeight,
     'partnerCode': partnerCode,
     'jobType': jobType,
-    'runsheetPath': runsheetPath,
+    'runsheetPaths': runsheetPaths,
     'stepPhotoPaths': stepPhotoPaths,
   };
 
   static LoadingDraft fromJson(Map<String, dynamic> json) {
     final stepMap = json['stepPhotoPaths'];
+    final legacyPath = json['runsheetPath'] as String?;
+    final listRaw = json['runsheetPaths'];
+    final List<String> paths;
+    if (listRaw is List && listRaw.isNotEmpty) {
+      paths = listRaw.map((e) => e.toString()).toList();
+    } else if (legacyPath != null && legacyPath.isNotEmpty) {
+      paths = [legacyPath];
+    } else {
+      paths = [];
+    }
     return LoadingDraft(
       tripId: json['tripId'] as String? ?? '',
       sealCode: json['sealCode'] as String? ?? '',
@@ -67,7 +78,7 @@ class LoadingDraft {
       totalWeight: json['totalWeight'] as String? ?? '',
       partnerCode: json['partnerCode'] as String?,
       jobType: json['jobType'] as String?,
-      runsheetPath: json['runsheetPath'] as String?,
+      runsheetPaths: paths,
       stepPhotoPaths: stepMap is Map
           ? Map<String, String>.from(
               stepMap.map((k, v) => MapEntry(k.toString(), v.toString())),
@@ -203,22 +214,28 @@ class DraftStorageService {
     required String totalWeight,
     String? partnerCode,
     String? jobType,
-    Uint8List? runsheetPhoto,
+    List<Uint8List>? runsheetPhotos,
     Map<String, Uint8List>? stepPhotos,
   }) async {
     final prefs = await _preferences;
     final base = await _draftDirectory;
-    if (base == null &&
-        (runsheetPhoto != null || (stepPhotos?.isNotEmpty == true))) {
+    final hasRunsheet = runsheetPhotos != null && runsheetPhotos.isNotEmpty;
+    if (base == null && (hasRunsheet || (stepPhotos?.isNotEmpty == true))) {
       return;
     }
 
-    String? runsheetPath;
-    if (runsheetPhoto != null && runsheetPhoto.isNotEmpty) {
-      runsheetPath = await _writePhotoBytes(
-        'loading_runsheet.jpg',
-        runsheetPhoto,
-      );
+    final runsheetPathList = <String>[];
+    final rs = runsheetPhotos;
+    if (rs != null && rs.isNotEmpty && base != null) {
+      for (var i = 0; i < rs.length; i++) {
+        final bytes = rs[i];
+        if (bytes.isEmpty) continue;
+        final path = await _writePhotoBytes(
+          'loading_runsheet_$i.jpg',
+          bytes,
+        );
+        if (path != null) runsheetPathList.add(path);
+      }
     }
 
     final stepPhotoPaths = <String, String>{};
@@ -242,7 +259,7 @@ class DraftStorageService {
       totalWeight: totalWeight,
       partnerCode: partnerCode,
       jobType: jobType,
-      runsheetPath: runsheetPath,
+      runsheetPaths: runsheetPathList,
       stepPhotoPaths: stepPhotoPaths,
     );
     await prefs.setString(_prefKeyLoadingDraft, jsonEncode(draft.toJson()));

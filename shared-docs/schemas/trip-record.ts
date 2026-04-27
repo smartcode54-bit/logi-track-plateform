@@ -12,12 +12,15 @@ export const TRIP_STATUS_ENUM = [
 // --- Job Type (auto-detected from origin: Hub = first_mile, SOC = line_haul) ---
 export const TRIP_JOB_TYPE_ENUM = ["FIRST_MILE", "LINE_HAUL"] as const;
 
-// --- Photo type (Loading: pre-close, closing, seal, runsheet; Delivery: pre_open, opening, empty_container, runsheet_received) ---
+// --- Photo type (Loading: pre-close, closing, seal, runsheet + extra handover pages; Delivery: pre_open, opening, empty_container, runsheet_received) ---
 export const TRIP_PHOTO_TYPE_ENUM = [
     "pre_close",
     "closing",
     "seal",
     "runsheet",
+    "runsheet_extra_1",
+    "runsheet_extra_2",
+    "runsheet_extra_3",
     "pre_open",
     "opening",
     "empty_container",
@@ -43,8 +46,13 @@ export const tripPhotoSchema = z.object({
 export const tripOcrDataSchema = z.object({
     tripId: z.string().optional(), // Pattern: LTQ...
     sealCode: z.string().optional(), // Pattern: SPX...
+    secondarySealCode: z.string().optional(),
     routeInfo: z.string().optional(), // Extracted from Shopee screenshot
     partnerCode: z.string().optional(), // e.g. TTP, JWT from LH-XXX / FM-XXX on runsheet OCR
+    supplierCode: z.string().optional(),
+    releaseTime: z.string().optional(),
+    sealSource: z.enum(["scanned", "ocr_fallback"]).optional(),
+    ocrProfile: z.enum(["spx_runsheet", "zx_waybill", "seal"]).optional(),
 });
 
 // --- Main Trip Record schema (TripRecords collection - SSOT for Web Dashboard & Billing) ---

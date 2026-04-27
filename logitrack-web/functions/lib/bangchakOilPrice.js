@@ -124,7 +124,13 @@ async function canViewFuelByRole(role) {
         return false;
     return capabilities[ACCOUNTING_VIEW_FUEL_CAPABILITY] === true;
 }
-exports.getBangchakRetailOilPrices = (0, https_1.onCall)({ region: "asia-southeast1" }, async (request) => {
+// App Check off: prod static builds may omit reCAPTCHA; Callable still enforces Auth + RBAC.
+// Gen2 = Cloud Run: invoker "public" lets browsers reach the endpoint; IAM auth is not used for Callable + httpsCallable.
+exports.getBangchakRetailOilPrices = (0, https_1.onCall)({
+    region: "asia-southeast1",
+    enforceAppCheck: false,
+    invoker: "public",
+}, async (request) => {
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "User must be authenticated");
     }
@@ -158,7 +164,6 @@ exports.getBangchakRetailOilPrices = (0, https_1.onCall)({ region: "asia-southea
             fetchedAt: new Date().toISOString(),
             source: "Bangchak ApiOilPrice2",
             items,
-            raw: rawJson,
         };
     }
     catch (error) {

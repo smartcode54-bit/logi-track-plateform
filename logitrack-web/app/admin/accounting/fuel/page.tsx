@@ -28,6 +28,7 @@ const RefillLocationMap = dynamic(
     { ssr: false }
 );
 import { format } from "date-fns";
+import { httpsCallable } from "firebase/functions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,11 +44,44 @@ import {
 import { usePermission } from "@/hooks/usePermission";
 import { CAPABILITIES } from "@/lib/capabilities";
 import { updateVehicleExpense } from "../actions.client";
+import { functions } from "@/firebase/client";
 
 export interface FuelRow extends VehicleExpenseRow {
     kmPerLiter?: number;
     /** ระยะทาง (กม.) ตั้งแต่การเติมครั้งก่อน */
     distanceKm?: number;
+}
+
+interface BangchakPriceItem {
+    nameTh: string;
+    nameEn: string;
+    price: number;
+    unit: string;
+}
+
+interface BangchakPriceResponse {
+    locale: "th" | "en";
+    fetchedAt: string;
+    source: string;
+    items: BangchakPriceItem[];
+}
+
+/** Badge colors approximating Bangchak retail UI (keyword match on API label). */
+function bangchakFuelChipClasses(label: string): string {
+    const n = label.toLowerCase();
+    if (n.includes("e85")) return "bg-red-600";
+    if (n.includes("e20")) return "bg-orange-500";
+    if (n.includes("b20")) return "bg-emerald-600";
+    if (n.includes("98")) return "bg-amber-500";
+    if (n.includes("ไฮดีเซล") || n.includes("hi-diesel")) return "bg-blue-950";
+    if (n.includes("พรีเมียม") && n.includes("ดีเซล")) return "bg-purple-700";
+    if (/\b91\b/.test(n)) return "bg-teal-600";
+    if (/\b95\b/.test(n)) return "bg-blue-600";
+    return "bg-slate-600";
+}
+
+function formatBangchakPriceOnly(price: number): string {
+    return price.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
 function computeKmPerLiter(records: VehicleExpenseRow[]): FuelRow[] {
@@ -101,6 +135,10 @@ export default function AccountingFuelPage() {
     const [detailRow, setDetailRow] = useState<FuelRow | null>(null);
     const [editForm, setEditForm] = useState<FuelRow | null>(null);
     const [submitting, setSubmitting] = useState(false);
+    const [bangchakPrices, setBangchakPrices] = useState<BangchakPriceItem[]>([]);
+    const [bangchakFetchedAt, setBangchakFetchedAt] = useState<string | null>(null);
+    const [bangchakLoading, setBangchakLoading] = useState(false);
+    const [bangchakError, setBangchakError] = useState<string | null>(null);
 
     const { hasPermission: canEdit } = usePermission(CAPABILITIES.accounting_edit_fuel);
 
@@ -219,6 +257,34 @@ export default function AccountingFuelPage() {
     }, [language]);
 
     const rowsWithKm = useMemo(() => computeKmPerLiter(records), [records]);
+    const bangchakCallable = useMemo(
+        () => httpsCallable<{ locale: "th" | "en" }, BangchakPriceResponse>(functions, "getBangchakRetailOilPrices"),
+        []
+    );
+    const canReadExternalFuelPrice = usePermission(CAPABILITIES.accounting_view_fuel).hasPermission;
+
+    const loadBangchakPrices = async () => {
+        if (!canReadExternalFuelPrice) return;
+        setBangchakLoading(true);
+        setBangchakError(null);
+        try {
+            const locale = language === "th" ? "th" : "en";
+            const result = await bangchakCallable({ locale });
+            const payload = result.data;
+            setBangchakPrices(Array.isArray(payload.items) ? payload.items : []);
+            setBangchakFetchedAt(payload.fetchedAt ?? null);
+        } catch (error) {
+            console.error("Failed to load Bangchak prices:", error);
+            setBangchakError(t("accounting.bangchak.errorLoad"));
+        } finally {
+            setBangchakLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        void loadBangchakPrices();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [language, canReadExternalFuelPrice]);
 
     const filteredRecords = useMemo(() => {
         let list = rowsWithKm;
@@ -301,6 +367,58 @@ export default function AccountingFuelPage() {
             </div>
 
             <AccountingBatchImagesZipCard records={rowsWithKm} kind="fuel" />
+
+            <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 gap-3">
+                    <div>
+                        <CardTitle>{t("accounting.bangchak.title")}</CardTitle>
+                        <p className="text-xs text-muted-foreground mt-1">{t("accounting.bangchak.disclaimer")}</p>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={loadBangchakPrices} disabled={bangchakLoading || !canReadExternalFuelPrice}>
+                        <RefreshCw className={`h-4 w-4 mr-2 ${bangchakLoading ? "animate-spin" : ""}`} />
+                        {t("accounting.bangchak.refresh")}
+                    </Button>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                    {bangchakError && (
+                        <p className="text-sm text-red-600 dark:text-red-400">{bangchakError}</p>
+                    )}
+                    {!bangchakError && bangchakPrices.length === 0 && !bangchakLoading && (
+                        <p className="text-sm text-muted-foreground">{t("accounting.bangchak.noData")}</p>
+                    )}
+                    {bangchakPrices.length > 0 && (
+                        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-4 lg:grid-cols-8 gap-3">
+                            {bangchakPrices.map((item, index) => {
+                                const label =
+                                    language === "th" ? (item.nameTh || item.nameEn) : (item.nameEn || item.nameTh);
+                                return (
+                                    <div
+                                        key={`${item.nameTh}-${item.nameEn}-${index}`}
+                                        className="flex flex-col rounded-xl overflow-hidden border border-border/50 shadow-sm"
+                                    >
+                                        <div className={`${bangchakFuelChipClasses(label)} px-2 py-2 text-center min-h-[3rem] flex items-center justify-center`}>
+                                            <span className="text-white text-[10px] font-semibold leading-tight" title={label}>
+                                                {label}
+                                            </span>
+                                        </div>
+                                        <div className="flex flex-col items-center justify-center px-2 py-3 bg-card">
+                                            <span className="text-2xl font-bold tabular-nums tracking-tight text-foreground">
+                                                {formatBangchakPriceOnly(item.price)}
+                                            </span>
+                                            <span className="text-[10px] text-muted-foreground mt-0.5">{item.unit || "บาท/ลิตร"}</span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                    {bangchakFetchedAt && (
+                        <p className="text-xs text-muted-foreground">
+                            {t("accounting.bangchak.fetchedAt")}: {format(new Date(bangchakFetchedAt), "dd MMM yyyy HH:mm")}
+                        </p>
+                    )}
+                </CardContent>
+            </Card>
 
             {/* Mini dashboard */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">

@@ -1,0 +1,8 @@
+# Explicit include/exclude for Firebase Gen 2 Cloud Build.
+# This file overrides auto-generated .gcloudignore so package-lock.json
+# is always uploaded (required for `npm ci` on Cloud Build).
+
+node_modules/
+.git/
+.firebase/
+firebase-debug.log

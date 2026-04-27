@@ -1069,15 +1069,16 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
 
       final all = await fetchAllHubs();
 
-      _hubs = all.where((h) {
-        final st = h.stationType.toUpperCase();
-        return st != 'SOC' && st != 'RETURN_CENTER' && !st.startsWith('SOC');
-      }).toList();
-
+      // HUB vs SOC (aligned with web hubSchema: only HUB | SOC). Standby SOCs: source_id 0xxx — same as loading_phase.
+      _hubs = all
+          .where((h) => h.stationType == stationTypeHub)
+          .toList();
       _socs = all.where((h) {
-        final st = h.stationType.toUpperCase();
-        final code = h.sourceId;
-        return st.startsWith('SOC') && !RegExp(r'^\d').hasMatch(code);
+        if (h.stationType != stationTypeSoc) return false;
+        final code = h.sourceId.trim();
+        if (code.isEmpty) return false;
+        if (code.startsWith('0')) return false; // stand by SOC, not for FM/LH pickers
+        return true;
       }).toList();
 
       // Do NOT auto-select — use placeholders
@@ -1387,13 +1388,18 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
   }
 
   Widget _buildPreviewStep() {
-    final originHub = _socs.where((h) => h.sourceId == _origin).firstOrNull;
-    final destHub = _hubs.where((h) => h.sourceId == _dest).firstOrNull;
-    final originDisplay = originHub != null
-        ? '${originHub.sourceId} - ${originHub.sourceNameEn}'
+    final isFm = widget.taskType == 'FIRST_MILE';
+    final originResolved = isFm
+        ? _hubs.where((h) => h.sourceId == _origin).firstOrNull
+        : _socs.where((h) => h.sourceId == _origin).firstOrNull;
+    final destResolved = isFm
+        ? _socs.where((h) => h.sourceId == _dest).firstOrNull
+        : _hubs.where((h) => h.sourceId == _dest).firstOrNull;
+    final originDisplay = originResolved != null
+        ? '${originResolved.sourceId} - ${originResolved.sourceNameEn}'
         : _origin ?? '-';
-    final destDisplay = destHub != null
-        ? '${destHub.sourceId} - ${destHub.sourceNameEn}'
+    final destDisplay = destResolved != null
+        ? '${destResolved.sourceId} - ${destResolved.sourceNameEn}'
         : _dest ?? '-';
 
     return SingleChildScrollView(

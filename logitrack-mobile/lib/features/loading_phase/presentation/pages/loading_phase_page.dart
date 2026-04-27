@@ -27,6 +27,17 @@ import '../../../../core/presentation/widgets/searchable_hub_picker.dart';
 /// ขั้นตอนรูป Loading (ไม่รวม runsheet ที่ย้ายขึ้นไปข้างบน)
 const List<String> _cameraPhotoStepKeys = ['pre_close', 'closing', 'seal'];
 
+/// รูปรันชีท/เอกสารมือ: อัปโหลดได้หลายใบ (สอดคล้อง `runsheet` + `runsheet_extra_*` ใน trip_records)
+const int _kMaxRunsheetPhotos = 4;
+const List<String> _runsheetStorageTypes = [
+  'runsheet',
+  'runsheet_extra_1',
+  'runsheet_extra_2',
+  'runsheet_extra_3',
+];
+
+enum _RunsheetImportAction { camera, gallerySingle, galleryMulti }
+
 class LoadingPhasePage extends StatefulWidget {
   const LoadingPhasePage({super.key});
 
@@ -46,7 +57,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
 
   String? _jobType = jobTypeFirstMile;
 
-  Uint8List? _runsheetPhoto;
+  final List<Uint8List> _runsheetPhotos = [];
   final Map<String, Uint8List> _stepPhotos = {};
 
   bool _ocrLoading = false;
@@ -54,6 +65,10 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
 
   /// จาก OCR รันชีท (LH-XXX / FM-XXX) — ไม่มีช่องแก้มือ
   String? _ocrPartnerCode;
+  String? _ocrSupplierCode;
+  String? _ocrReleaseTime;
+  String? _ocrSecondarySealCode;
+  String? _ocrSealSource;
 
   /// Inline duplicate validation (set when user blurs Trip ID / Seal Code)
   String? _tripIdDuplicateError;
@@ -205,7 +220,8 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       totalWeight: _totalWeightController.text,
       partnerCode: _ocrPartnerCode,
       jobType: _jobType,
-      runsheetPhoto: _runsheetPhoto,
+      runsheetPhotos:
+          _runsheetPhotos.isNotEmpty ? List<Uint8List>.from(_runsheetPhotos) : null,
       stepPhotos: _stepPhotos.isNotEmpty ? _stepPhotos : null,
     );
   }
@@ -217,7 +233,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         draft.tripId.isNotEmpty ||
         draft.sealCode.isNotEmpty ||
         (draft.partnerCode != null && draft.partnerCode!.trim().isNotEmpty) ||
-        draft.runsheetPath != null ||
+        draft.runsheetPaths.isNotEmpty ||
         draft.stepPhotoPaths.isNotEmpty;
     if (!hasData) return;
     final confirm = await showDialog<bool>(
@@ -243,6 +259,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       return;
     }
     _tripIdController.text = draft.tripId;
+    _applyPartnerCodeFromTripId(_tripIdController.text);
     _sealCodeController.text = draft.sealCode;
     _originController.text = draft.origin;
     _destinationController.text = draft.destination;
@@ -250,11 +267,12 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     _sealTimeController.text = draft.sealTime;
     _totalWeightController.text = draft.totalWeight;
     if (draft.jobType != null) _jobType = draft.jobType;
-    if (draft.runsheetPath != null) {
+    final loadedRunsheet = <Uint8List>[];
+    for (final path in draft.runsheetPaths) {
       final bytes = await DraftStorageService.instance.loadLoadingDraftPhoto(
-        draft.runsheetPath!,
+        path,
       );
-      if (bytes != null && mounted) _runsheetPhoto = Uint8List.fromList(bytes);
+      if (bytes != null) loadedRunsheet.add(Uint8List.fromList(bytes));
     }
     final stepPhotos = <String, Uint8List>{};
     for (final e in draft.stepPhotoPaths.entries) {
@@ -265,6 +283,9 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     }
     if (mounted) {
       setState(() {
+        _runsheetPhotos
+          ..clear()
+          ..addAll(loadedRunsheet);
         _stepPhotos.addAll(stepPhotos);
         final pc = draft.partnerCode?.trim();
         _ocrPartnerCode = (pc != null && pc.isNotEmpty) ? pc : null;
@@ -343,23 +364,145 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     ).push<String>(MaterialPageRoute(builder: (_) => const QrScanPage()));
     if (value != null && mounted) {
       if (controller == _tripIdController) {
-        final match = RegExp(r'LT[A-Za-z0-9\-]{8,}').firstMatch(value);
-        controller.text = match?.group(0) ?? value;
+        final trip = extractTripIdFromRawValue(value) ??
+            extractTripIdFromRawValue(
+              value.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9\-]'), ''),
+            );
+        if (trip != null && trip.isNotEmpty) {
+          controller.text = trip.trim().toUpperCase();
+          _applyPartnerCodeFromTripId(controller.text);
+        } else {
+          controller.text = value.trim().toUpperCase();
+        }
       } else if (controller == _sealCodeController) {
-        final match = RegExp(r'SPX\s*[A-Za-z0-9\-]{5,}', caseSensitive: false)
-            .firstMatch(value.trim());
-        final compact = match != null
-            ? match.group(0)!.toUpperCase().replaceAll(RegExp(r'\s+'), '')
-            : value.trim();
-        controller.text = compact;
+        final compact = extractPrimarySealFromRawValue(
+              value.trim(),
+              kind: OcrImageKind.seal,
+            ) ??
+            extractPrimarySealFromRawValue(value.trim()) ??
+            value.trim();
+        controller.text = compact.trim().toUpperCase();
+        _ocrSealSource = 'scanned';
       } else {
         controller.text = value;
       }
     }
   }
 
-  /// แนบรันชีทจาก camera หรือ gallery แล้วรัน OCR สกัด Trip ID/Seal/ต้นทาง-ปลายทาง เติมฟอร์ม
+  /// แนบรันชีท: รูปแรกใช้ OCR — รูมเพิ่ม (ถ้ายังไม่เต็ม) อัปโหลดแบบอัดเท่านั้น
   Future<void> _pickRunsheetAndOcr() async {
+    final canMulti = !kIsWeb && _runsheetPhotos.isEmpty;
+    final action = await showModalBottomSheet<_RunsheetImportAction>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: Text('refuel_receipt_take_photo'.tr()),
+              onTap: () => Navigator.pop(ctx, _RunsheetImportAction.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: Text('refuel_receipt_from_gallery'.tr()),
+              onTap: () => Navigator.pop(
+                ctx,
+                _RunsheetImportAction.gallerySingle,
+              ),
+            ),
+            if (canMulti)
+              ListTile(
+                leading: const Icon(Icons.collections),
+                title: Text('loading_phase_runsheet_pick_multi'.tr()),
+                onTap: () => Navigator.pop(
+                  ctx,
+                  _RunsheetImportAction.galleryMulti,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (action == null || !mounted) return;
+    if (action == _RunsheetImportAction.galleryMulti) {
+      await _pickMultipleRunsheetFromGallery();
+      return;
+    }
+    final source = action == _RunsheetImportAction.camera
+        ? ImageSource.camera
+        : ImageSource.gallery;
+    final picker = ImagePicker();
+    final xfile = await picker.pickImage(source: source, imageQuality: 85);
+    if (xfile == null || !mounted) return;
+    final imageBytes = await xfile.readAsBytes();
+    if (!mounted) return;
+    await _applyOcrToFirstRunsheetPage(imageBytes, imagePath: xfile.path);
+  }
+
+  /// เลือกหลายรูปจากแกลเลอรี: รูปแรก OCR เป็น "หน้าแรก" รูปที่เหลือต่อท้าย (ไม่เกิน [_kMaxRunsheetPhotos])
+  Future<void> _pickMultipleRunsheetFromGallery() async {
+    if (kIsWeb) return;
+    final picker = ImagePicker();
+    final files = await picker.pickMultiImage(imageQuality: 85);
+    if (files.isEmpty || !mounted) return;
+    setState(() => _ocrLoading = true);
+    try {
+      for (var i = 0; i < files.length; i++) {
+        if (_runsheetPhotos.length >= _kMaxRunsheetPhotos) break;
+        final imageBytes = await files[i].readAsBytes();
+        if (!mounted) return;
+        if (i == 0) {
+          await _applyOcrToFirstRunsheetPage(
+            imageBytes,
+            imagePath: files[i].path,
+            manageOcrLoading: false,
+          );
+        } else {
+          final compressed = await compressImageForUpload(imageBytes);
+          if (!mounted) return;
+          setState(() {
+            if (_runsheetPhotos.length < _kMaxRunsheetPhotos) {
+              _runsheetPhotos.add(compressed);
+            }
+          });
+        }
+      }
+      if (mounted) {
+        setState(() => _ocrLoading = false);
+        if (!isCloudVisionApiKeyConfigured() && _runsheetPhotos.isNotEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('ocr_missing_api_key_hint'.tr()),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('loading_phase_runsheet_multi_added'.tr()),
+            ),
+          );
+        }
+        _saveLoadingDraft();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _ocrLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${'loading_phase_ocr_failed'.tr()} $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  /// รูปเพิ่ม (ไม่ OCR) หลังมีหน้าแรกแล้ว
+  Future<void> _addRunsheetExtraNoOcr() async {
+    if (_runsheetPhotos.isEmpty) return;
+    if (_runsheetPhotos.length >= _kMaxRunsheetPhotos) return;
     final source = await showModalBottomSheet<ImageSource>(
       context: context,
       builder: (ctx) => SafeArea(
@@ -381,28 +524,63 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       ),
     );
     if (source == null || !mounted) return;
-
     final picker = ImagePicker();
     final xfile = await picker.pickImage(source: source, imageQuality: 85);
     if (xfile == null || !mounted) return;
     final imageBytes = await xfile.readAsBytes();
     if (!mounted) return;
+    final compressed = await compressImageForUpload(imageBytes);
+    if (!mounted) return;
+    setState(() {
+      if (_runsheetPhotos.length < _kMaxRunsheetPhotos) {
+        _runsheetPhotos.add(compressed);
+      }
+    });
+    _saveLoadingDraft();
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('loading_phase_runsheet_extra_added'.tr())));
+  }
 
-    setState(() => _ocrLoading = true);
+  void _removeRunsheetAt(int index) {
+    if (index < 0 || index >= _runsheetPhotos.length) return;
+    setState(() => _runsheetPhotos.removeAt(index));
+    _saveLoadingDraft();
+  }
+
+  /// ตั้งรูปหน้าแรก + รัน OCR (ใช้ทั้งอัปโหลดใบเดียวและชุด multi รูปแรก)
+  Future<void> _applyOcrToFirstRunsheetPage(
+    Uint8List imageBytes, {
+    String? imagePath,
+    /// เมื่อ false ผู้เรียกจัดการ `_ocrLoading` เอง (เช่น multi gallery loop)
+    bool manageOcrLoading = true,
+  }) async {
+    if (manageOcrLoading) {
+      setState(() => _ocrLoading = true);
+    }
     try {
       final result = await runOcrOnImageBytes(
         imageBytes,
-        imagePath: xfile.path,
+        imagePath: imagePath,
       );
       if (!mounted) return;
       final compressed = await compressImageForUpload(imageBytes);
       if (!mounted) return;
       setState(() {
-        _runsheetPhoto = compressed;
-        _ocrLoading = false;
+        if (_runsheetPhotos.isEmpty) {
+          _runsheetPhotos.add(compressed);
+        } else {
+          _runsheetPhotos[0] = compressed;
+        }
+        if (manageOcrLoading) _ocrLoading = false;
         if (result.tripId != null) _tripIdController.text = result.tripId!;
+        _applyPartnerCodeFromTripId(_tripIdController.text);
         if (result.sealCode != null) {
           _sealCodeController.text = result.sealCode!;
+        }
+        if (result.secondarySealCode != null &&
+            result.secondarySealCode!.isNotEmpty) {
+          _ocrSecondarySealCode = result.secondarySealCode;
         }
         if (result.parcelCount != null) {
           _parcelCountController.text = result.parcelCount!;
@@ -414,20 +592,36 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
           _totalWeightController.text = result.totalWeight!;
         }
         final pc = result.partnerCode?.trim();
-        _ocrPartnerCode = (pc != null && pc.isNotEmpty) ? pc : null;
+        if (!_isZxTripId(_tripIdController.text)) {
+          _ocrPartnerCode = (pc != null && pc.isNotEmpty) ? pc : null;
+        }
+        final supplier = result.supplierCode?.trim();
+        _ocrSupplierCode = (supplier != null && supplier.isNotEmpty)
+            ? supplier
+            : null;
+        final release = result.releaseTime?.trim();
+        _ocrReleaseTime = (release != null && release.isNotEmpty)
+            ? release
+            : null;
+        final sealSource = result.sealSource?.trim();
+        _ocrSealSource = (sealSource != null && sealSource.isNotEmpty)
+            ? sealSource
+            : _ocrSealSource;
       });
       if (!mounted) return;
-      if (!isCloudVisionApiKeyConfigured()) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('ocr_missing_api_key_hint'.tr()),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('loading_phase_ocr_done'.tr())));
+      if (manageOcrLoading) {
+        if (!isCloudVisionApiKeyConfigured()) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('ocr_missing_api_key_hint'.tr()),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('loading_phase_ocr_done'.tr())),
+          );
+        }
       }
       final ocrTripId = result.tripId?.trim();
       if (ocrTripId != null && ocrTripId.isNotEmpty) {
@@ -469,6 +663,47 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
           ),
         );
       }
+    }
+  }
+
+  Future<void> _scanRunsheetBarcodeLive() async {
+    if (kIsWeb) return;
+    final raw = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => const QrScanPage(title: 'loading_phase_scan_qr'),
+      ),
+    );
+    if (raw == null || !mounted) return;
+    final trip = extractTripIdFromRawValue(raw) ??
+        extractTripIdFromRawValue(
+          raw.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9\-]'), ''),
+        );
+    final spxSeal = extractPrimarySealFromRawValue(raw);
+    final numericSeal = extractPrimarySealFromRawValue(
+      raw,
+      kind: OcrImageKind.seal,
+    );
+    setState(() {
+      if (trip != null && trip.isNotEmpty) {
+        _tripIdController.text = trip.trim().toUpperCase();
+        _applyPartnerCodeFromTripId(_tripIdController.text);
+      }
+      if (spxSeal != null && spxSeal.isNotEmpty) {
+        _sealCodeController.text = spxSeal.toUpperCase().trim();
+        _ocrSealSource = 'scanned';
+      } else if (numericSeal != null && numericSeal.isNotEmpty) {
+        _sealCodeController.text = numericSeal.trim();
+        _ocrSealSource = 'scanned';
+      }
+    });
+    _saveLoadingDraft();
+  }
+
+  bool _isZxTripId(String tripId) => tripId.trim().toUpperCase().startsWith('ZX');
+
+  void _applyPartnerCodeFromTripId(String tripId) {
+    if (_isZxTripId(tripId)) {
+      _ocrPartnerCode = zxPartnerCode;
     }
   }
 
@@ -554,11 +789,20 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       _scrollToRunsheetSection();
       return;
     }
-    if (_runsheetPhoto == null ||
+    if (_runsheetPhotos.isEmpty ||
         _stepPhotos.length != _cameraPhotoStepKeys.length) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('loading_phase_photos_required'.tr()),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+    if (_isZxTripId(tripId) && _ocrSealSource != 'scanned') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('loading_phase_seal_scan_required'.tr()),
           backgroundColor: Colors.orange,
         ),
       );
@@ -669,7 +913,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         timestamp: intl.DateFormat(
           'dd-MM-yyyy HH:mm:ss',
         ).format(DateTime.now()),
-        runsheetPhoto: _runsheetPhoto!,
+        runsheetPhotos: List<Uint8List>.from(_runsheetPhotos),
         stepPhotos: _stepPhotos,
       ),
     );
@@ -854,9 +1098,13 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     ).format(now);
     setState(() {
       _jobType = jobTypeFirstMile;
-      _runsheetPhoto = null;
+      _runsheetPhotos.clear();
       _stepPhotos.clear();
       _ocrPartnerCode = null;
+      _ocrSupplierCode = null;
+      _ocrReleaseTime = null;
+      _ocrSecondarySealCode = null;
+      _ocrSealSource = null;
       _tripIdDuplicateError = null;
       _sealCodeDuplicateError = null;
       _lastDuplicateDebug = null;
@@ -917,12 +1165,15 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         );
       }
 
-      allStepPhotos['runsheet'] = StampedPhotoInput(
-        bytes: _runsheetPhoto!,
-        lat: position.latitude,
-        lng: position.longitude,
-        timestamp: timestamp,
-      );
+      for (var i = 0; i < _runsheetPhotos.length; i++) {
+        final type = _runsheetStorageTypes[i];
+        allStepPhotos[type] = StampedPhotoInput(
+          bytes: _runsheetPhotos[i],
+          lat: position.latitude,
+          lng: position.longitude,
+          timestamp: timestamp,
+        );
+      }
 
       final parcelText = _parcelCountController.text.trim();
       final parcelCount = parcelText.isNotEmpty
@@ -982,6 +1233,10 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       final partnerForRecord = (partnerTrimmed != null && partnerTrimmed.isNotEmpty)
           ? partnerTrimmed
           : null;
+      final supplierTrimmed = _ocrSupplierCode?.trim();
+      final releaseTimeTrimmed = _ocrReleaseTime?.trim();
+      final sealSourceTrimmed = _ocrSealSource?.trim();
+      final secondarySealTrimmed = _ocrSecondarySealCode?.trim();
 
       await submitLoadingPhaseRecord(
         tripId: tripId,
@@ -1010,7 +1265,23 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         ocrData: TripOcrData(
           tripId: tripId,
           sealCode: sealCode.isEmpty ? null : sealCode,
+          secondarySealCode: (secondarySealTrimmed != null &&
+                  secondarySealTrimmed.isNotEmpty)
+              ? secondarySealTrimmed
+              : null,
           partnerCode: partnerForRecord,
+          supplierCode: (supplierTrimmed != null && supplierTrimmed.isNotEmpty)
+              ? supplierTrimmed
+              : null,
+          releaseTime: (releaseTimeTrimmed != null &&
+                  releaseTimeTrimmed.isNotEmpty)
+              ? releaseTimeTrimmed
+              : null,
+          sealSource:
+              (sealSourceTrimmed != null && sealSourceTrimmed.isNotEmpty)
+              ? sealSourceTrimmed
+              : null,
+          ocrProfile: _isZxTripId(tripId) ? 'zx_waybill' : 'spx_runsheet',
         ),
       );
       if (!mounted) return;
@@ -1032,6 +1303,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
 
       // Clear the task ID from local storage since it is now safely recorded in the remote trip record
       await DraftStorageService.instance.clearActiveCheckInTaskId();
+      if (!mounted) return;
 
       final scope = MainLayoutScope.of(context);
       if (scope != null) {
@@ -1184,36 +1456,88 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                                   crossAxisAlignment:
                                       CrossAxisAlignment.stretch,
                                   children: [
-                                    if (_runsheetPhoto != null) ...[
-                                      ClipRRect(
-                                        borderRadius: BorderRadius.circular(8),
-                                        child: Image.memory(
-                                          _runsheetPhoto!,
-                                          height: 150,
-                                          width: double.infinity,
-                                          fit: BoxFit.cover,
+                                    if (_runsheetPhotos.isNotEmpty) ...[
+                                      SizedBox(
+                                        height: 124,
+                                        child: ListView.separated(
+                                          scrollDirection: Axis.horizontal,
+                                          itemCount: _runsheetPhotos.length,
+                                          separatorBuilder: (context, index) =>
+                                              const SizedBox(width: 8),
+                                          itemBuilder: (ctx, i) => Stack(
+                                            clipBehavior: Clip.none,
+                                            children: [
+                                              ClipRRect(
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                                child: Image.memory(
+                                                  _runsheetPhotos[i],
+                                                  height: 120,
+                                                  width: 96,
+                                                  fit: BoxFit.cover,
+                                                ),
+                                              ),
+                                              Positioned(
+                                                top: 2,
+                                                right: 2,
+                                                child: Material(
+                                                  color: Colors.black54,
+                                                  shape: const CircleBorder(),
+                                                  child: InkWell(
+                                                    customBorder:
+                                                        const CircleBorder(),
+                                                    onTap: () =>
+                                                        _removeRunsheetAt(i),
+                                                    child: const Padding(
+                                                      padding:
+                                                          EdgeInsets.all(4),
+                                                      child: Icon(
+                                                        Icons.close,
+                                                        size: 16,
+                                                        color: Colors.white,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
                                         ),
+                                      ),
+                                      Text(
+                                        'loading_phase_runsheet_count'.tr(
+                                          namedArgs: {
+                                            'n': '${_runsheetPhotos.length}',
+                                            'max': '$_kMaxRunsheetPhotos',
+                                          },
+                                        ),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(color: Colors.grey[700]),
                                       ),
                                       const SizedBox(height: 8),
                                     ],
                                     if (_ocrLoading)
-                                      const Padding(
-                                        padding: EdgeInsets.symmetric(
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(
                                           vertical: 12,
                                         ),
                                         child: Row(
                                           mainAxisAlignment:
                                               MainAxisAlignment.center,
                                           children: [
-                                            SizedBox(
+                                            const SizedBox(
                                               width: 20,
                                               height: 20,
                                               child: CircularProgressIndicator(
                                                 strokeWidth: 2,
                                               ),
                                             ),
-                                            SizedBox(width: 12),
-                                            Text('กำลังอ่านเอกสาร...'),
+                                            const SizedBox(width: 12),
+                                            Text(
+                                              'loading_phase_ocr_reading'.tr(),
+                                            ),
                                           ],
                                         ),
                                       ),
@@ -1226,17 +1550,48 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                                         size: 20,
                                       ),
                                       label: Text(
-                                        _runsheetPhoto != null
+                                        _runsheetPhotos.isNotEmpty
                                             ? 'loading_phase_change_runsheet'
                                                   .tr()
                                             : 'loading_phase_upload_from_gallery'
                                                   .tr(),
                                       ),
                                     ),
+                                    if (_runsheetPhotos.isNotEmpty &&
+                                        _runsheetPhotos.length <
+                                            _kMaxRunsheetPhotos) ...[
+                                      const SizedBox(height: 8),
+                                      OutlinedButton.icon(
+                                        onPressed: _ocrLoading
+                                            ? null
+                                            : _addRunsheetExtraNoOcr,
+                                        icon: const Icon(
+                                          Icons.add_photo_alternate_outlined,
+                                          size: 20,
+                                        ),
+                                        label: Text(
+                                          'loading_phase_add_runsheet_extra'
+                                              .tr(),
+                                        ),
+                                      ),
+                                    ],
                                   ],
                                 ),
                               ),
                             ),
+                                    const SizedBox(height: 8),
+                                    OutlinedButton.icon(
+                                      onPressed: _ocrLoading
+                                          ? null
+                                          : _scanRunsheetBarcodeLive,
+                                      icon: const Icon(
+                                        Icons.qr_code_scanner,
+                                        size: 20,
+                                      ),
+                                      label: Text(
+                                        'loading_phase_scan_from_camera'.tr(),
+                                      ),
+                                    ),
                           ],
                         ),
                       ),
@@ -1578,7 +1933,7 @@ class _PreviewSheet extends StatelessWidget {
   final String totalWeight;
   final String coordination;
   final String timestamp;
-  final Uint8List runsheetPhoto;
+  final List<Uint8List> runsheetPhotos;
   final Map<String, Uint8List> stepPhotos;
 
   const _PreviewSheet({
@@ -1594,7 +1949,7 @@ class _PreviewSheet extends StatelessWidget {
     required this.totalWeight,
     required this.coordination,
     required this.timestamp,
-    required this.runsheetPhoto,
+    required this.runsheetPhotos,
     required this.stepPhotos,
   });
 
@@ -1649,16 +2004,51 @@ class _PreviewSheet extends StatelessWidget {
                       style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(height: 8),
-                    _buildPreviewThumb(
-                      context,
-                      runsheetPhoto,
-                      height: 100,
-                      allImages: [
-                        runsheetPhoto,
-                        ...stepPhotos.entries.map((e) => e.value),
-                      ],
-                      initialIndex: 0,
-                    ),
+                    if (runsheetPhotos.isNotEmpty)
+                      _buildPreviewThumb(
+                        context,
+                        runsheetPhotos.first,
+                        height: 100,
+                        allImages: [
+                          ...runsheetPhotos,
+                          ...stepPhotos.entries.map((e) => e.value),
+                        ],
+                        initialIndex: 0,
+                      ),
+                    if (runsheetPhotos.length > 1) ...[
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        height: 72,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: runsheetPhotos.length - 1,
+                          separatorBuilder: (context, index) =>
+                              const SizedBox(width: 6),
+                          itemBuilder: (ctx, j) {
+                            final i = j + 1;
+                            return GestureDetector(
+                              onTap: () => _showFullImage(
+                                context,
+                                [
+                                  ...runsheetPhotos,
+                                  ...stepPhotos.entries.map((e) => e.value),
+                                ],
+                                initialIndex: i,
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(6),
+                                child: Image.memory(
+                                  runsheetPhotos[i],
+                                  height: 72,
+                                  width: 56,
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     // Camera photos (tappable) — เลื่อนซ้าย/ขวาได้ใน full-screen
                     Text(
@@ -1672,7 +2062,7 @@ class _PreviewSheet extends StatelessWidget {
                           final i = entry.key;
                           final e = entry.value;
                           final allImages = [
-                            runsheetPhoto,
+                            ...runsheetPhotos,
                             ...stepPhotos.entries.map((x) => x.value),
                           ];
                           return Expanded(
@@ -1684,7 +2074,7 @@ class _PreviewSheet extends StatelessWidget {
                                 onTap: () => _showFullImage(
                                   context,
                                   allImages,
-                                  initialIndex: 1 + i,
+                                  initialIndex: runsheetPhotos.length + i,
                                 ),
                                 child: ClipRRect(
                                   borderRadius: BorderRadius.circular(8),

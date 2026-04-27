@@ -38,17 +38,31 @@ class HubDoc {
   factory HubDoc.fromFirestore(Map<String, dynamic> data, [String? docId]) {
     final lat = data['latitude'];
     final lng = data['longitude'];
+    final sourceId = (data['source_id'] ??
+            data['sourceId'] ??
+            data['hubId'] ??
+            data['hubCode'] ??
+            '')
+        .toString();
+    final nameEn = (data['source_name_en'] ?? data['sourceNameEn'] ?? '')
+        .toString();
+    final nameTh = (data['source_name_th'] ??
+            data['sourceNameTh'] ??
+            data['source_name_en'] ??
+            data['sourceNameEn'] ??
+            '')
+        .toString();
+    final rawType = (data['station_type'] ?? data['stationType'] ?? stationTypeHub)
+        .toString()
+        .trim();
     return HubDoc(
       id: docId,
-      sourceId: (data['source_id'] ?? '').toString(),
-      sourceNameEn: (data['source_name_en'] ?? '').toString(),
-      sourceNameTh: (data['source_name_th'] ?? data['source_name_en'] ?? '')
-          .toString(),
+      sourceId: sourceId,
+      sourceNameEn: nameEn,
+      sourceNameTh: nameTh.isNotEmpty ? nameTh : nameEn,
       latitude: lat is num ? lat.toDouble() : null,
       longitude: lng is num ? lng.toDouble() : null,
-      stationType:
-          (data['station_type'] ?? stationTypeHub).toString().toUpperCase() ==
-              stationTypeSoc
+      stationType: rawType.toUpperCase() == stationTypeSoc
           ? stationTypeSoc
           : stationTypeHub,
     );
@@ -158,4 +172,24 @@ Future<String?> detectJobTypeFromPosition({
 
   if (nearestType == null) return null;
   return nearestType == stationTypeHub ? jobTypeFirstMile : jobTypeLineHaul;
+}
+
+/// หา Hub/SOC จากข้อความปลายทางที่บันทึกใน trip (ชื่อ EN/TH หรือรหัส source_id ตามที่ใช้ใน Loading)
+HubDoc? findHubByDestinationLabel(List<HubDoc> hubs, String? destinationLabel) {
+  if (destinationLabel == null) return null;
+  final t = destinationLabel.trim();
+  if (t.isEmpty) return null;
+  for (final h in hubs) {
+    if (h.sourceNameEn == t || h.sourceNameTh == t || h.sourceId == t) {
+      return h;
+    }
+  }
+  final tl = t.toLowerCase();
+  for (final h in hubs) {
+    if (h.sourceNameEn.toLowerCase() == tl ||
+        h.sourceNameTh.toLowerCase() == tl) {
+      return h;
+    }
+  }
+  return null;
 }

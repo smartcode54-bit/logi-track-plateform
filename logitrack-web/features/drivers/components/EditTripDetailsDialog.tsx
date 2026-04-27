@@ -36,13 +36,24 @@ const PHOTO_TYPE_LABELS: Record<string, string> = {
     closing: "During closing",
     seal: "Seal (Physical)",
     runsheet: "Runsheet / Handover",
+    runsheet_extra_1: "Runsheet / handover (extra 1)",
+    runsheet_extra_2: "Runsheet / handover (extra 2)",
+    runsheet_extra_3: "Runsheet / handover (extra 3)",
     pre_open: "Before opening",
     opening: "During opening",
     empty_container: "Empty container",
     runsheet_received: "Runsheet received",
 };
 
-const LOADING_PHASE_TYPES = ["pre_close", "closing", "seal", "runsheet"] as const;
+const LOADING_PHASE_TYPES = [
+    "pre_close",
+    "closing",
+    "seal",
+    "runsheet",
+    "runsheet_extra_1",
+    "runsheet_extra_2",
+    "runsheet_extra_3",
+] as const;
 const DELIVERY_PHASE_TYPES = ["pre_open", "opening", "empty_container", "runsheet_received"] as const;
 
 export function EditTripDetailsDialog({

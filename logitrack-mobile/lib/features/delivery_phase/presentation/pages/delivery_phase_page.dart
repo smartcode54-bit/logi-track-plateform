@@ -9,7 +9,8 @@ import '../../../home/data/services/photo_overlay_service.dart';
 import '../../../home/data/repositories/trip_records_repository.dart';
 import '../../data/repositories/delivery_trip_repository.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../../../home/data/models/trip_record.dart';
+import '../../../../core/utils/maps_navigation.dart';
+import '../../../home/data/repositories/hubs_repository.dart';
 import '../../../home/data/services/draft_storage_service.dart';
 import '../../../home/data/services/image_compression_service.dart';
 import '../../../home/data/services/ocr_screenshot_service.dart';
@@ -51,17 +52,72 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
   /// เก็บผลการตรวจ Trip ID เมื่อไม่ตรง เพื่อแสดง debug UI ให้ผู้ใช้เห็นว่าอะไรไม่ตรง
   Map<String, String>? _lastTripIdValidationDebug;
 
-  TripRecord? _currentTrip;
   bool _loadingTrip = false;
+
+  /// สำหรับจับคู่ชื่อปลายทางกับพิกัด Hub ใน Firestore
+  List<HubDoc> _hubs = [];
+
+  HubDoc? get _destinationHub {
+    final label = widget.savedTripSummary?.destination?.trim();
+    if (label == null || label.isEmpty) return null;
+    return findHubByDestinationLabel(_hubs, label);
+  }
 
   @override
   void initState() {
     super.initState();
     _loadLocation();
+    _loadHubsForNavigation();
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => _tryRestoreDeliveryDraft(),
     );
     _fetchCurrentTrip();
+  }
+
+  Future<void> _loadHubsForNavigation() async {
+    try {
+      final list = await fetchAllHubs();
+      if (mounted) setState(() => _hubs = list);
+    } catch (_) {}
+  }
+
+  Future<void> _openNavigationToDestination() async {
+    final destName = widget.savedTripSummary?.destination?.trim();
+    if (destName == null || destName.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('delivery_navigation_no_destination'.tr())),
+      );
+      return;
+    }
+    try {
+      final pos = await getCurrentPosition();
+      final hub = _destinationHub;
+      final useCoords = hub != null && hub.hasCoordinates;
+      final ok = await openGoogleMapsDrivingDirections(
+        originLat: pos.latitude,
+        originLng: pos.longitude,
+        destLat: useCoords ? hub.latitude : null,
+        destLng: useCoords ? hub.longitude : null,
+        destinationPlaceName: useCoords ? null : destName,
+      );
+      if (!mounted) return;
+      if (!ok) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('delivery_navigation_could_not_open'.tr())),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '${'delivery_navigation_location_error'.tr()} $e',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _fetchCurrentTrip() async {
@@ -69,17 +125,10 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
     if (tripId == null || tripId.isEmpty) return;
     setState(() => _loadingTrip = true);
     try {
-      final snap = await FirebaseFirestore.instance
+      await FirebaseFirestore.instance
           .collection(tripRecordsCollection)
           .doc(tripId)
           .get();
-      if (snap.exists && snap.data() != null) {
-        if (mounted) {
-          setState(() {
-            _currentTrip = TripRecord.fromMap(snap.data()!, id: snap.id);
-          });
-        }
-      }
     } catch (_) {}
     if (mounted) setState(() => _loadingTrip = false);
   }
@@ -448,6 +497,7 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     const darkNavy = Color(0xFF0F172A);
+    final destName = widget.savedTripSummary?.destination?.trim() ?? '';
 
     return PopScope(
       canPop: !_saving,
@@ -593,6 +643,79 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
                                     ),
                                   ],
                                 ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+
+                          // นำทาง (in_transit) — คลิกทั้งการ์ด
+                          Card(
+                            elevation: 2,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            clipBehavior: Clip.antiAlias,
+                            child: InkWell(
+                              onTap: destName.isEmpty || _locationLoading
+                                  ? null
+                                  : _openNavigationToDestination,
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 12,
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.near_me_outlined,
+                                      size: 20,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .primary,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Icon(
+                                      Icons.arrow_forward,
+                                      size: 18,
+                                      color: Colors.grey[600],
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Icon(
+                                      Icons.place_outlined,
+                                      size: 22,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .error,
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Text(
+                                      'delivery_navigation_title'.tr(),
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleSmall
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                    const Spacer(),
+                                    if (_locationLoading)
+                                      const SizedBox(
+                                        width: 22,
+                                        height: 22,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    else
+                                      Icon(
+                                        Icons.map_outlined,
+                                        size: 26,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .tertiary,
+                                      ),
+                                  ],
+                                ),
                               ),
                             ),
                           ),

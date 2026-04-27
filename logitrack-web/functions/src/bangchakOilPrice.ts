@@ -121,55 +121,63 @@ async function canViewFuelByRole(role: string): Promise<boolean> {
     return capabilities[ACCOUNTING_VIEW_FUEL_CAPABILITY] === true;
 }
 
-export const getBangchakRetailOilPrices = onCall({ region: "asia-southeast1" }, async (request) => {
-    if (!request.auth) {
-        throw new HttpsError("unauthenticated", "User must be authenticated");
-    }
-
-    if (request.auth.token.admin !== true) {
-        const role = typeof request.auth.token.role === "string" ? request.auth.token.role : "";
-        const allowed = await canViewFuelByRole(role);
-        if (!allowed) {
-            throw new HttpsError("permission-denied", "Insufficient permission to view fuel prices");
-        }
-    }
-
-    const localeRaw = (request.data as { locale?: unknown } | undefined)?.locale;
-    const locale: SupportedLocale = localeRaw === "en" ? "en" : "th";
-    const endpoint = `https://oil-price.bangchak.co.th/ApiOilPrice2/${locale}`;
-
-    try {
-        const response = await fetch(endpoint, {
-            signal: AbortSignal.timeout(10000),
-            headers: {
-                Accept: "application/json",
-            },
-        });
-
-        if (!response.ok) {
-            throw new HttpsError(
-                "unavailable",
-                `Bangchak API failed with status ${response.status}`
-            );
+// App Check off: prod static builds may omit reCAPTCHA; Callable still enforces Auth + RBAC.
+// Gen2 = Cloud Run: invoker "public" lets browsers reach the endpoint; IAM auth is not used for Callable + httpsCallable.
+export const getBangchakRetailOilPrices = onCall(
+    {
+        region: "asia-southeast1",
+        enforceAppCheck: false,
+        invoker: "public",
+    },
+    async (request) => {
+        if (!request.auth) {
+            throw new HttpsError("unauthenticated", "User must be authenticated");
         }
 
-        const rawJson = (await response.json()) as unknown;
-        const sourceItems: BangchakRawItem[] = parseOilList(rawJson);
+        if (request.auth.token.admin !== true) {
+            const role = typeof request.auth.token.role === "string" ? request.auth.token.role : "";
+            const allowed = await canViewFuelByRole(role);
+            if (!allowed) {
+                throw new HttpsError("permission-denied", "Insufficient permission to view fuel prices");
+            }
+        }
 
-        const items = sourceItems
-            .map((entry) => toPriceItem(entry))
-            .filter((entry): entry is BangchakPriceItem => entry != null);
+        const localeRaw = (request.data as { locale?: unknown } | undefined)?.locale;
+        const locale: SupportedLocale = localeRaw === "en" ? "en" : "th";
+        const endpoint = `https://oil-price.bangchak.co.th/ApiOilPrice2/${locale}`;
 
-        return {
-            locale,
-            fetchedAt: new Date().toISOString(),
-            source: "Bangchak ApiOilPrice2",
-            items,
-            raw: rawJson,
-        };
-    } catch (error) {
-        if (error instanceof HttpsError) throw error;
-        console.error("[getBangchakRetailOilPrices] Failed to fetch", error);
-        throw new HttpsError("unavailable", "Unable to fetch Bangchak fuel prices");
+        try {
+            const response = await fetch(endpoint, {
+                signal: AbortSignal.timeout(10000),
+                headers: {
+                    Accept: "application/json",
+                },
+            });
+
+            if (!response.ok) {
+                throw new HttpsError(
+                    "unavailable",
+                    `Bangchak API failed with status ${response.status}`
+                );
+            }
+
+            const rawJson = (await response.json()) as unknown;
+            const sourceItems: BangchakRawItem[] = parseOilList(rawJson);
+
+            const items = sourceItems
+                .map((entry) => toPriceItem(entry))
+                .filter((entry): entry is BangchakPriceItem => entry != null);
+
+            return {
+                locale,
+                fetchedAt: new Date().toISOString(),
+                source: "Bangchak ApiOilPrice2",
+                items,
+            };
+        } catch (error) {
+            if (error instanceof HttpsError) throw error;
+            console.error("[getBangchakRetailOilPrices] Failed to fetch", error);
+            throw new HttpsError("unavailable", "Unable to fetch Bangchak fuel prices");
+        }
     }
-});
+);

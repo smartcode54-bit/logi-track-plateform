@@ -83,8 +83,13 @@ class TripRecord {
       ocrData = TripOcrData(
         tripId: ocr['tripId'] as String?,
         sealCode: ocr['sealCode'] as String?,
+        secondarySealCode: ocr['secondarySealCode'] as String?,
         routeInfo: ocr['routeInfo'] as String?,
         partnerCode: ocr['partnerCode'] as String?,
+        supplierCode: ocr['supplierCode'] as String?,
+        releaseTime: ocr['releaseTime'] as String?,
+        sealSource: ocr['sealSource'] as String?,
+        ocrProfile: ocr['ocrProfile'] as String?,
       );
     }
     return TripRecord(
@@ -226,20 +231,35 @@ class TripPhotoGeocoding {
 class TripOcrData {
   final String? tripId;
   final String? sealCode;
+  final String? secondarySealCode;
   final String? routeInfo;
   final String? partnerCode;
+  final String? supplierCode;
+  final String? releaseTime;
+  final String? sealSource;
+  final String? ocrProfile;
 
   const TripOcrData({
     this.tripId,
     this.sealCode,
+    this.secondarySealCode,
     this.routeInfo,
     this.partnerCode,
+    this.supplierCode,
+    this.releaseTime,
+    this.sealSource,
+    this.ocrProfile,
   });
 
   Map<String, dynamic> toMap() => {
     if (tripId != null) 'tripId': tripId,
     if (sealCode != null) 'sealCode': sealCode,
+    if (secondarySealCode != null) 'secondarySealCode': secondarySealCode,
     if (routeInfo != null) 'routeInfo': routeInfo,
     if (partnerCode != null) 'partnerCode': partnerCode,
+    if (supplierCode != null) 'supplierCode': supplierCode,
+    if (releaseTime != null) 'releaseTime': releaseTime,
+    if (sealSource != null) 'sealSource': sealSource,
+    if (ocrProfile != null) 'ocrProfile': ocrProfile,
   };
 }
