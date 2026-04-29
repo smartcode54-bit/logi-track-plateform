@@ -24,6 +24,8 @@ class HubDoc {
   final double? latitude;
   final double? longitude;
   final String stationType; // HUB | SOC
+  final String? linkedCustomerId;
+  final String? customerLinkKind; // customer | partner
 
   HubDoc({
     this.id,
@@ -33,6 +35,8 @@ class HubDoc {
     this.latitude,
     this.longitude,
     this.stationType = stationTypeHub,
+    this.linkedCustomerId,
+    this.customerLinkKind,
   });
 
   factory HubDoc.fromFirestore(Map<String, dynamic> data, [String? docId]) {
@@ -55,6 +59,8 @@ class HubDoc {
     final rawType = (data['station_type'] ?? data['stationType'] ?? stationTypeHub)
         .toString()
         .trim();
+    final linkedCustomerId = (data['linkedCustomerId'] ?? '').toString().trim();
+    final customerLinkKind = (data['customerLinkKind'] ?? '').toString().trim();
     return HubDoc(
       id: docId,
       sourceId: sourceId,
@@ -65,6 +71,8 @@ class HubDoc {
       stationType: rawType.toUpperCase() == stationTypeSoc
           ? stationTypeSoc
           : stationTypeHub,
+      linkedCustomerId: linkedCustomerId.isEmpty ? null : linkedCustomerId,
+      customerLinkKind: customerLinkKind.isEmpty ? null : customerLinkKind,
     );
   }
 
@@ -73,6 +81,56 @@ class HubDoc {
       longitude != null &&
       latitude!.isFinite &&
       longitude!.isFinite;
+}
+
+/// ตรงกับ web `hubSourceIdHasSpxSuffix` — สถานีลงท้าย SPX → รหัสลูกค้า SPX บนงาน.
+bool hubSourceIdHasSpxSuffix(String sourceIdOrHubCode) {
+  final s = sourceIdOrHubCode.trim().toUpperCase();
+  if (s.isEmpty) return false;
+  if (s == 'SPX') return true;
+  return s.endsWith('-SPX') || s.endsWith('_SPX') || s.endsWith('.SPX');
+}
+
+/// ฟิลด์เหมือน Admin ใส่บน `tasks` จากคู่ hub ที่คนขับเลือก (manual check-in).
+///
+/// ชื่อจาก `customers` ไม่ดึงบนมือถือได้ (rules) — `*LinkedCustomerName` ว่าง;
+/// ให้เห็น partner/customer จาก `*CustomerLinkKind` + รหัส SPX (เมื่อมี suffix) แทน.
+Map<String, dynamic> taskFieldsFromHubDocsForManualCreate({
+  required HubDoc? originHub,
+  required HubDoc? destHub,
+}) {
+  final out = <String, dynamic>{};
+  void source(HubDoc? h) {
+    if (h == null) return;
+    final id = h.linkedCustomerId?.trim();
+    if (id == null || id.isEmpty) return;
+    out['sourceHubLinkedCustomerId'] = id;
+    final k = h.customerLinkKind?.trim();
+    out['sourceHubCustomerLinkKind'] =
+        k != null && k.isNotEmpty ? k : 'customer';
+    if (hubSourceIdHasSpxSuffix(h.sourceId)) {
+      out['sourceHubLinkedCustomerCode'] = 'SPX';
+    }
+    out['sourceHubLinkedCustomerName'] = '';
+  }
+
+  void dest(HubDoc? h) {
+    if (h == null) return;
+    final id = h.linkedCustomerId?.trim();
+    if (id == null || id.isEmpty) return;
+    out['destinationLinkedCustomerId'] = id;
+    final k = h.customerLinkKind?.trim();
+    out['destinationCustomerLinkKind'] =
+        k != null && k.isNotEmpty ? k : 'customer';
+    if (hubSourceIdHasSpxSuffix(h.sourceId)) {
+      out['destinationLinkedCustomerCode'] = 'SPX';
+    }
+    out['destinationLinkedCustomerName'] = '';
+  }
+
+  source(originHub);
+  dest(destHub);
+  return out;
 }
 
 /// Fetches all hubs (and SOCs) with coordinates from Firestore.

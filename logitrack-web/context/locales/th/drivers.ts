@@ -93,11 +93,11 @@ export default {
 
     // Customer Driver IDs
     "drivers.form.customerDriverIds": "รหัสคนขับของลูกค้า",
-    "drivers.form.customerDriverIdsDesc": "รหัสจากระบบภายในของลูกค้า/ขนส่ง สำหรับวางบิล (เช่น SPX app ID, work ID)",
-    "drivers.form.spxAppId": "SPX App ID",
-    "drivers.form.spxAppId.placeholder": "App ID จากระบบ SPX",
-    "drivers.form.spxWorkId": "SPX Work ID",
-    "drivers.form.spxWorkId.placeholder": "Work ID จากระบบ SPX",
+    "drivers.form.customerDriverIdsDesc": "รหัสจากระบบภายในของลูกค้า/ขนส่ง สำหรับวางบิล (เช่น app ID, work ID)",
+    "drivers.form.spxAppId": "App ID",
+    "drivers.form.spxAppId.placeholder": "App ID จากระบบลูกค้า",
+    "drivers.form.spxWorkId": "Work ID",
+    "drivers.form.spxWorkId.placeholder": "Work ID จากระบบลูกค้า",
 
     // Step 3 - Employment
     "drivers.form.employmentDetails": "รายละเอียดการจ้างงาน",

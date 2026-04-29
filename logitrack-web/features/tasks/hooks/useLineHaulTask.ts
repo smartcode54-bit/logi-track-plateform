@@ -2,14 +2,16 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { format } from "date-fns";
-import { collection, addDoc, updateDoc, doc } from "firebase/firestore";
+import { collection, addDoc, updateDoc, doc, deleteField } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { uploadCheckInPhoto } from "@/lib/uploadCheckInPhoto";
 import { taskSchema as firstMileTaskSchema, Task as FirstMileTask, normalizeSocIdToKey } from "@/validate/taskSchema";
+import { hubSourceIdHasSpxSuffix } from "@/validate/hubSchema";
 import { Driver } from "@/validate/driverSchema";
 import { taskService } from "../services/taskService";
+import { getCustomers, CustomerData } from "@/features/customers/api/customers";
 
 export function useLineHaulTask({
     mode,
@@ -34,6 +36,7 @@ export function useLineHaulTask({
     const [hubSearch, setHubSearch] = useState("");
     const [activeTaskDriverIds, setActiveTaskDriverIds] = useState<Set<string>>(new Set());
     const [newCheckInPhotoFile, setNewCheckInPhotoFile] = useState<File | null>(null);
+    const [customersById, setCustomersById] = useState<Map<string, CustomerData>>(new Map());
 
     const form = useForm<FirstMileTask>({
         resolver: zodResolver(firstMileTaskSchema as any),
@@ -84,6 +87,10 @@ export function useLineHaulTask({
 
                 const driverList = await taskService.fetchDrivers();
                 setDrivers(driverList);
+                const customers = await getCustomers();
+                const customerMap = new Map<string, CustomerData>();
+                customers.forEach((customer) => customerMap.set(customer.id, customer));
+                setCustomersById(customerMap);
             } catch (err) {
                 console.error("Failed to fetch data", err);
             }
@@ -171,6 +178,36 @@ export function useLineHaulTask({
         return () => clearTimeout(timer);
     }, [watchedDate, watchedDestination, mode, form]);
 
+    const buildHubLinkFields = (values: FirstMileTask, useDeleteFieldForMissing: boolean) => {
+        const sourceHub = hubs.find((h) => String(h["Hub Code"] ?? "").trim() === String(values.sourceHub ?? "").trim());
+        const destinationHub = hubs.find((h) => String(h["Hub Code"] ?? "").trim() === String(values.destination ?? "").trim());
+        const sourceCustomer = sourceHub?.linkedCustomerId ? customersById.get(sourceHub.linkedCustomerId) : undefined;
+        const destinationCustomer = destinationHub?.linkedCustomerId ? customersById.get(destinationHub.linkedCustomerId) : undefined;
+        const missing = useDeleteFieldForMissing ? deleteField() : undefined;
+
+        const sourceCode =
+            sourceHub &&
+            hubSourceIdHasSpxSuffix(String(sourceHub["Hub Code"] ?? ""))
+                ? "SPX"
+                : sourceCustomer?.code;
+        const destCode =
+            destinationHub &&
+            hubSourceIdHasSpxSuffix(String(destinationHub["Hub Code"] ?? ""))
+                ? "SPX"
+                : destinationCustomer?.code;
+
+        return {
+            sourceHubLinkedCustomerId: sourceHub?.linkedCustomerId || missing,
+            sourceHubLinkedCustomerName: sourceCustomer?.name || missing,
+            sourceHubLinkedCustomerCode: sourceCode || missing,
+            sourceHubCustomerLinkKind: sourceHub?.customerLinkKind || missing,
+            destinationLinkedCustomerId: destinationHub?.linkedCustomerId || missing,
+            destinationLinkedCustomerName: destinationCustomer?.name || missing,
+            destinationLinkedCustomerCode: destCode || missing,
+            destinationCustomerLinkKind: destinationHub?.customerLinkKind || missing,
+        };
+    };
+
     const onSubmit = async (values: FirstMileTask) => {
         setLoading(true);
         try {
@@ -179,8 +216,10 @@ export function useLineHaulTask({
                 const runOrder = values.driverId
                     ? await taskService.getNextRunOrderForDriver(values.driverId)
                     : undefined;
+                const hubLinkFields = buildHubLinkFields(values, false);
                 const ref = await addDoc(collection(db, COLLECTIONS.TASKS), {
                     ...values,
+                    ...hubLinkFields,
                     dateStr,
                     ...(runOrder != null ? { runOrder } : {}),
                     createdAt: new Date(),
@@ -204,6 +243,7 @@ export function useLineHaulTask({
             } else if (mode === "edit" && task?.id) {
                 const payload: Record<string, unknown> = {
                     ...values,
+                    ...buildHubLinkFields(values, true),
                     updatedAt: new Date(),
                 };
                 if (task.status === "Cancelled" && values.driverId) {

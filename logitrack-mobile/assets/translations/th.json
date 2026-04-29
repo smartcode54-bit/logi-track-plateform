@@ -252,6 +252,8 @@
     "checkin_origin_hub": "ต้นทาง (Hub)",
     "checkin_select_hub": "เลือก Hub",
     "checkin_destination_soc": "ปลายทาง (SOC)",
+    "checkin_customer_label": "ลูกค้า",
+    "checkin_partner_label": "พาร์ทเนอร์",
     "manual_checkin_add_task": "เช็คอินด้วยตนเอง",
     "manual_checkin_add_fm": "เช็คอินงานรับฮับ(FM)",
     "manual_checkin_add_fm_subtitle": "เรียกเสริม/เรียกวน/(Hub → SOC)",

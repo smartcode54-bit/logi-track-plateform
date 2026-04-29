@@ -99,7 +99,7 @@ export function PickupLocationImportDialog({ onSuccess }: PickupImportDialogProp
             };
 
             const colSourceId = getCol(["source", "id", "รหัส", "source_id", "source id"]);
-            const colName = getCol(["name", "spx", "ชื่อ", "source_name", "name (spx)"]);
+            const colName = getCol(["name", "spx", "ชื่อ", "source_name", "name (spx)", "point name", "pdp name"]);
             const colLat = getCol(["lat", "latitude", "ละติจูด"]);
             const colLng = getCol(["lng", "long", "longitude", "ลองจิจูด"]);
             const colType = getCol(["station", "type", "ประเภท", "station_type"]);
@@ -138,7 +138,7 @@ export function PickupLocationImportDialog({ onSuccess }: PickupImportDialogProp
     const handleDownloadTemplate = () => {
         const headers = [
             "Source ID (รหัสจุดรับงาน)",
-            "Name SPX (ชื่อ SPX)",
+            "Point Name (ชื่อจุดรับส่ง)",
             "Latitude (ละติจูด)",
             "Longitude (ลองจิจูด)",
             "Station Type (HUB/SOC)",

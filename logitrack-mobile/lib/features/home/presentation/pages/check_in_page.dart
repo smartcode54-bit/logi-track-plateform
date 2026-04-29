@@ -6,7 +6,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../data/repositories/task_repository.dart';
 import '../../data/repositories/checkin_repository.dart';
@@ -73,6 +72,21 @@ class _CheckInPageState extends State<CheckInPage> {
   String _resolveHubName(String sourceId) {
     if (sourceId.isEmpty) return '-';
     return _hubNameMap[sourceId] ?? sourceId;
+  }
+
+  String _formatTaskLinkMeta(
+    Map<String, dynamic> task,
+    String side,
+  ) {
+    final name = (task['${side}LinkedCustomerName'] as String? ?? '').trim();
+    final code = (task['${side}LinkedCustomerCode'] as String? ?? '').trim();
+    final kind = (task['${side}CustomerLinkKind'] as String? ?? '').trim();
+    if (name.isEmpty && code.isEmpty) return '';
+    final kindLabel = kind == 'partner'
+        ? 'checkin_partner_label'.tr()
+        : 'checkin_customer_label'.tr();
+    final value = code.isNotEmpty && name.isNotEmpty ? '$code - $name' : (name.isNotEmpty ? name : code);
+    return '${side == 'sourceHub' ? 'checkin_origin'.tr() : 'checkin_destination'.tr()} $kindLabel: $value';
   }
 
   static bool _isHistory(Map<String, dynamic> t) {
@@ -499,6 +513,8 @@ class _CheckInPageState extends State<CheckInPage> {
         'dd/MM/yyyy HH:mm:ss',
       ).format(checkInAt.toDate());
     }
+    final sourceLinkMeta = _formatTaskLinkMeta(t, 'sourceHub');
+    final destinationLinkMeta = _formatTaskLinkMeta(t, 'destination');
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -524,6 +540,20 @@ class _CheckInPageState extends State<CheckInPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('$dateStr $time · $status'),
+            if (sourceLinkMeta.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                sourceLinkMeta,
+                style: const TextStyle(fontSize: 12),
+              ),
+            ],
+            if (destinationLinkMeta.isNotEmpty) ...[
+              const SizedBox(height: 2),
+              Text(
+                destinationLinkMeta,
+                style: const TextStyle(fontSize: 12),
+              ),
+            ],
             if (checkInTimeStr.isNotEmpty) ...[
               const SizedBox(height: 4),
               Text(
@@ -765,6 +795,23 @@ class _TaskCheckInPageState extends State<TaskCheckInPage> {
     return widget.hubNameMap[id] ?? id;
   }
 
+  String _metaDisplay(String sidePrefix) {
+    final name = (widget.taskData['${sidePrefix}LinkedCustomerName'] as String? ?? '').trim();
+    final code = (widget.taskData['${sidePrefix}LinkedCustomerCode'] as String? ?? '').trim();
+    if (name.isEmpty && code.isEmpty) return '-';
+    if (name.isNotEmpty && code.isNotEmpty) return '$code - $name';
+    return name.isNotEmpty ? name : code;
+  }
+
+  String _metaLabel(String sidePrefix) {
+    final kind = (widget.taskData['${sidePrefix}CustomerLinkKind'] as String? ?? '').trim();
+    final side = sidePrefix == 'sourceHub' ? 'checkin_origin'.tr() : 'checkin_destination'.tr();
+    final kindLabel = kind == 'partner'
+        ? 'checkin_partner_label'.tr()
+        : 'checkin_customer_label'.tr();
+    return '$side $kindLabel';
+  }
+
   String get _driverName {
     if (_driverData != null) {
       return '${_driverData?['firstName'] ?? ''} ${_driverData?['lastName'] ?? ''}'
@@ -878,8 +925,24 @@ class _TaskCheckInPageState extends State<TaskCheckInPage> {
                     'checkin_origin'.tr(),
                     _source,
                   ),
+                  if (_metaDisplay('sourceHub') != '-') ...[
+                    const Divider(height: 20),
+                    _previewRow(
+                      Icons.business,
+                      _metaLabel('sourceHub'),
+                      _metaDisplay('sourceHub'),
+                    ),
+                  ],
                   const Divider(height: 20),
                   _previewRow(Icons.flag, 'checkin_destination'.tr(), _dest),
+                  if (_metaDisplay('destination') != '-') ...[
+                    const Divider(height: 20),
+                    _previewRow(
+                      Icons.apartment,
+                      _metaLabel('destination'),
+                      _metaDisplay('destination'),
+                    ),
+                  ],
                   const Divider(height: 20),
                   _previewRow(
                     Icons.local_shipping,
@@ -1177,6 +1240,18 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
 
       final runOrder = await getNextRunOrderForDriver(widget.driverId);
 
+      final isFm = widget.taskType == 'FIRST_MILE';
+      final originHubResolved = isFm
+          ? _hubs.where((h) => h.sourceId == _origin).firstOrNull
+          : _socs.where((h) => h.sourceId == _origin).firstOrNull;
+      final destHubResolved = isFm
+          ? _socs.where((h) => h.sourceId == _dest).firstOrNull
+          : _hubs.where((h) => h.sourceId == _dest).firstOrNull;
+      final hubLinkFields = taskFieldsFromHubDocsForManualCreate(
+        originHub: originHubResolved,
+        destHub: destHubResolved,
+      );
+
       final docRef = await FirebaseFirestore.instance.collection('tasks').add({
         'taskId': newTaskId,
         'taskType': widget.taskType,
@@ -1194,6 +1269,7 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
         'driverPhone': _driverData?['mobile'] ?? '',
         'licensePlate': _licensePlate,
         'runOrder': runOrder,
+        ...hubLinkFields,
       });
 
       final pos = await getCurrentPosition();

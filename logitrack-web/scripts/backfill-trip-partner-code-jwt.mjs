@@ -26,7 +26,7 @@
  */
 import { initializeApp, cert, applicationDefault } from "firebase-admin/app";
 import { getFirestore, FieldValue, FieldPath } from "firebase-admin/firestore";
-import { readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 
 const dryRun = process.argv.includes("--dry-run");
 const verbose = process.argv.includes("--verbose");
@@ -39,9 +39,23 @@ const docIdArg = process.argv.find((a) => a.startsWith("--doc-id="));
 const singleDocId = docIdArg ? docIdArg.slice("--doc-id=".length) : null;
 
 function initAdmin() {
-    const keyPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    const keyPathRaw = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    const keyPath = keyPathRaw
+        ? String(keyPathRaw)
+              .trim()
+              .replace(/^["']|["']$/g, "")
+        : "";
     let projectId = process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT;
     if (keyPath) {
+        const badPlaceholder = keyPath === "..." || keyPath === "." || keyPath === "..";
+        if (badPlaceholder || !existsSync(keyPath)) {
+            console.error(
+                "GOOGLE_APPLICATION_CREDENTIALS ไม่ชี้ไฟล์ Service Account ที่มีจริง:\n" +
+                    `  ได้รับ: ${keyPath}\n` +
+                    "แก้ไข: พาธเต็มไปยังไฟล์ .json (ห้ามใช้ ... เป็นตัวอย่าง) หรือลบ env นี้แล้วใช้ application-default + FIREBASE_PROJECT_ID",
+            );
+            process.exit(1);
+        }
         const serviceAccount = JSON.parse(readFileSync(keyPath, "utf8"));
         projectId = projectId || serviceAccount.project_id;
         initializeApp({ credential: cert(serviceAccount), projectId });

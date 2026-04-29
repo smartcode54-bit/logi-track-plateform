@@ -93,11 +93,11 @@ export default {
 
     // Customer Driver IDs
     "drivers.form.customerDriverIds": "Customer Driver IDs",
-    "drivers.form.customerDriverIdsDesc": "IDs from customer/LSP internal systems for billing (e.g. SPX app ID, work ID)",
-    "drivers.form.spxAppId": "SPX App ID",
-    "drivers.form.spxAppId.placeholder": "App ID from SPX system",
-    "drivers.form.spxWorkId": "SPX Work ID",
-    "drivers.form.spxWorkId.placeholder": "Work ID from SPX system",
+    "drivers.form.customerDriverIdsDesc": "IDs from customer/LSP internal systems for billing (e.g. app ID, work ID)",
+    "drivers.form.spxAppId": "App ID",
+    "drivers.form.spxAppId.placeholder": "App ID from customer system",
+    "drivers.form.spxWorkId": "Work ID",
+    "drivers.form.spxWorkId.placeholder": "Work ID from customer system",
 
     // Step 3 - Employment
     "drivers.form.employmentDetails": "Employment Details",

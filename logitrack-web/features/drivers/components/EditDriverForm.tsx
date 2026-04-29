@@ -461,7 +461,7 @@ export default function EditDriverForm() {
                             </CardHeader>
                             <CardContent className="space-y-6">
                                 <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-lg space-y-4">
-                                    <h3 className="font-semibold flex items-center gap-2">SPX</h3>
+                                    <h3 className="font-semibold flex items-center gap-2">Primary Customer</h3>
                                     <div className="grid md:grid-cols-2 gap-4">
                                         <FormField
                                             control={form.control}

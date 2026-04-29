@@ -20,7 +20,9 @@
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
     "backfill:trip-partner-jwt:dry-run": "node scripts/backfill-trip-partner-code-jwt.mjs --dry-run",
-    "backfill:trip-partner-jwt:apply": "node scripts/backfill-trip-partner-code-jwt.mjs"
+    "backfill:trip-partner-jwt:apply": "node scripts/backfill-trip-partner-code-jwt.mjs",
+    "backfill:task-hub-customers:dry-run": "node scripts/backfill-task-hub-linked-customers.mjs --dry-run",
+    "backfill:task-hub-customers:apply": "node scripts/backfill-task-hub-linked-customers.mjs"
   },
   "dependencies": {
     "@fullcalendar/daygrid": "^6.1.20",

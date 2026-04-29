@@ -97,7 +97,7 @@ export default {
     "driverMonitor.detail.destination": "ปลายทาง",
     "driverMonitor.detail.sealCode": "รหัสซีล",
     "driverMonitor.detail.partnerCode": "ช่องทาง / พาร์ทเนอร์",
-    "driverMonitor.detail.spxTripId": "SPX Trip ID",
+    "driverMonitor.detail.spxTripId": "รหัสอ้างอิงเที่ยว",
     "driverMonitor.detail.ocrRoute": "ข้อมูลเส้นทางจาก OCR",
     "driverMonitor.detail.photos": "รูปภาพ",
     "driverMonitor.detail.delivery": "การจัดส่ง",

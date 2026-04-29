@@ -30,12 +30,13 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { hubSchema, Hub, STATION_TYPE_ENUM } from "@/validate/hubSchema";
+import { hubSchema, Hub, STATION_TYPE_ENUM, CUSTOMER_LINK_KIND_ENUM } from "@/validate/hubSchema";
 import { collection, addDoc, doc, updateDoc, query, where, getDocs } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import SimpleMap from "@/components/map/SimpleMap";
 import { useLanguage } from "@/context/language";
 import { toast } from "sonner";
+import { getCustomers, CustomerData } from "@/features/customers/api/customers";
 
 interface HubDialogProps {
     trigger?: React.ReactNode;
@@ -50,6 +51,7 @@ interface HubDialogProps {
 export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValues, documentId }: HubDialogProps) {
     const [internalOpen, setInternalOpen] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [customers, setCustomers] = useState<CustomerData[]>([]);
     const { t } = useLanguage();
 
     // Controlled open state
@@ -64,10 +66,25 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
             latitude: 13.7563, // Default BKK
             longitude: 100.5018,
             station_type: "HUB",
+            linkedCustomerId: "",
+            customerLinkKind: "customer",
         },
     });
 
     const isEditMode = Boolean(documentId && defaultValues);
+
+    useEffect(() => {
+        const fetchCustomers = async () => {
+            try {
+                const result = await getCustomers();
+                setCustomers(result);
+            } catch (error) {
+                console.error("Failed to fetch customers:", error);
+                toast.error(t("firstMile.hub.loadCustomersFailed"));
+            }
+        };
+        fetchCustomers();
+    }, []);
 
     // Reset form when dialog opens (add vs edit)
     useEffect(() => {
@@ -79,6 +96,8 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
                     latitude: defaultValues.latitude ?? 13.7563,
                     longitude: defaultValues.longitude ?? 100.5018,
                     station_type: defaultValues.station_type ?? "HUB",
+                    linkedCustomerId: defaultValues.linkedCustomerId ?? "",
+                    customerLinkKind: defaultValues.customerLinkKind ?? "customer",
                 });
             } else {
                 form.reset({
@@ -87,6 +106,8 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
                     latitude: 13.7563,
                     longitude: 100.5018,
                     station_type: "HUB",
+                    linkedCustomerId: "",
+                    customerLinkKind: "customer",
                 });
             }
         }
@@ -97,6 +118,12 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
         try {
             const sourceId = String(values.source_id ?? "").trim();
             if (!sourceId) return;
+            const linkedCustomerId = String(values.linkedCustomerId ?? "").trim();
+            if (!linkedCustomerId) {
+                toast.error(t("firstMile.hub.linkedCustomerRequired"));
+                setLoading(false);
+                return;
+            }
 
             // เช็ครหัสซ้ำ (ยกเว้นเอกสารที่กำลังแก้ไข)
             const q = query(
@@ -113,6 +140,8 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
 
             const payload = {
                 ...values,
+                linkedCustomerId,
+                customerLinkKind: values.customerLinkKind ?? "customer",
                 updatedAt: new Date(),
             };
             if (documentId) {
@@ -199,6 +228,57 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
                                 </FormItem>
                             )}
                         />
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <FormField
+                                control={form.control}
+                                name="customerLinkKind"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>{t("firstMile.hub.linkType")}</FormLabel>
+                                        <Select onValueChange={field.onChange} value={field.value}>
+                                            <FormControl>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder={t("firstMile.hub.linkTypePlaceholder")} />
+                                                </SelectTrigger>
+                                            </FormControl>
+                                            <SelectContent>
+                                                {CUSTOMER_LINK_KIND_ENUM.map((kind) => (
+                                                    <SelectItem key={kind} value={kind}>
+                                                        {kind === "customer" ? t("firstMile.hub.linkType.customer") : t("firstMile.hub.linkType.partner")}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                            <FormField
+                                control={form.control}
+                                name="linkedCustomerId"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>{t("firstMile.hub.linkedCustomer")}</FormLabel>
+                                        <Select onValueChange={field.onChange} value={field.value || ""}>
+                                            <FormControl>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder={t("firstMile.hub.linkedCustomerPlaceholder")} />
+                                                </SelectTrigger>
+                                            </FormControl>
+                                            <SelectContent>
+                                                {customers.map((customer) => (
+                                                    <SelectItem key={customer.id} value={customer.id}>
+                                                        {customer.code} - {customer.name}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                        </div>
 
                         <div className="space-y-2">
                             <FormLabel>{t("firstMile.hub.location")}</FormLabel>

@@ -12,6 +12,8 @@ export const taskService = {
         'Hub Code': data.source_id ?? data.hubId ?? data.hubCode,
         'Hub Name': data.source_name_en ?? data.hubName,
         station_type: data.station_type ?? "",
+        linkedCustomerId: data.linkedCustomerId ?? "",
+        customerLinkKind: data.customerLinkKind ?? "",
         lat: data.latitude ?? data.lat,
         lng: data.longitude ?? data.lng,
         source: 'custom',

@@ -39,6 +39,14 @@ export const taskSchema = z.object({
 
     sourceHub: z.string().min(1, "Source Hub is required"), // From SPX_Hub
     destination: z.string().min(1, "Destination (SOC) is required"),
+    sourceHubLinkedCustomerId: z.string().optional(),
+    sourceHubLinkedCustomerName: z.string().optional(),
+    sourceHubLinkedCustomerCode: z.string().optional(),
+    sourceHubCustomerLinkKind: z.enum(["customer", "partner"]).optional(),
+    destinationLinkedCustomerId: z.string().optional(),
+    destinationLinkedCustomerName: z.string().optional(),
+    destinationLinkedCustomerCode: z.string().optional(),
+    destinationCustomerLinkKind: z.enum(["customer", "partner"]).optional(),
 
     // Vehicle Requirements
     truckType: z.enum(["4WH", "4WJ", "6WH", "10WH", "18WH", "PICKUP", "VAN"]).optional(), // Based on image

@@ -97,7 +97,7 @@ export default {
     "driverMonitor.detail.destination": "Destination",
     "driverMonitor.detail.sealCode": "Seal Code",
     "driverMonitor.detail.partnerCode": "Partner channel",
-    "driverMonitor.detail.spxTripId": "SPX Trip ID",
+    "driverMonitor.detail.spxTripId": "Trip Reference ID",
     "driverMonitor.detail.ocrRoute": "OCR Route Info",
     "driverMonitor.detail.photos": "Photos",
     "driverMonitor.detail.delivery": "Delivery",

@@ -246,7 +246,7 @@ export function EditTripDetailsDialog({
                                 <Input
                                     value={sealCode}
                                     onChange={(e) => setSealCode(e.target.value)}
-                                    placeholder="e.g. SPX1567844"
+                                    placeholder="e.g. SEAL1567844"
                                     className="font-mono text-xs"
                                 />
                             </div>

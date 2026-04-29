@@ -188,7 +188,7 @@ export function EditTripDetailsDialog({
                 </DialogHeader>
 
                 <div className="space-y-6 py-2">
-                    {/* Trip info - editable SPX Trip ID, Seal Code */}
+                    {/* Trip info - editable Trip ID, Seal Code */}
                     <div className="space-y-4">
                         <div className="grid grid-cols-2 gap-x-4 gap-y-4 text-sm">
                             <div className="space-y-2">
@@ -205,7 +205,7 @@ export function EditTripDetailsDialog({
                                 <Input
                                     value={sealCode}
                                     onChange={(e) => setSealCode(e.target.value)}
-                                    placeholder="e.g. SPX1567844"
+                                    placeholder="e.g. SEAL1567844"
                                     className="font-mono text-xs"
                                 />
                             </div>
