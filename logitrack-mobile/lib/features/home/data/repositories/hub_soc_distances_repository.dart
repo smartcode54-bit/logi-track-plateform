@@ -9,14 +9,14 @@ const String socHubDistancesCollection = 'soc_hub_distances';
 /// SOC keys ตรงกับ web (firstMileTaskSchema SOC_KEYS). ใช้ normalize doc id ใน soc_hub_distances.
 const List<String> _socKeys = ['SOCE', 'SOCN', 'SOCW'];
 
-/// แปลง source_id ของ SOC เป็น key มาตรฐาน SOCE/SOCN/SOCW (ให้ตรงกับ doc id ใน soc_hub_distances).
+/// แปลง source_id ของ SOC ให้ตรงกับ doc id ใน hub_soc_distances / soc_hub_distances (รวม SOC ใหม่ที่ไม่ใช่แค่ SOCE/N/W).
 String normalizeSocIdToKey(String sourceId) {
-  final u = (sourceId ?? '').trim().toUpperCase();
+  final u = sourceId.trim().toUpperCase();
   for (final key in _socKeys) {
     final k = key.toUpperCase();
     if (u == k || u.startsWith('$k ') || u.startsWith('$k(')) return key;
   }
-  return sourceId;
+  return u;
 }
 
 /// Document ID = ต้นทาง_ปลายทาง (origin_destination).

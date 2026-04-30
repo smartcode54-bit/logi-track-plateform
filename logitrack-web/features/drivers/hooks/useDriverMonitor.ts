@@ -18,6 +18,7 @@ import { db } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { TripRecord } from "@/validate/tripRecordSchema";
 import { Driver } from "@/validate/driverSchema";
+import { buildHubCodeToDisplayMapFromEntries, resolveHubOrSocDisplay } from "@/lib/hubDisplay";
 import { Task } from "@/validate/taskSchema";
 
 /**
@@ -227,7 +228,9 @@ export function useDriverMonitor() {
     const [trips, setTrips] = useState<TripRecord[]>([]);
     const [drivers, setDrivers] = useState<Record<string, Driver>>({});
     const [tasks, setTasks] = useState<Task[]>([]);
-    const [hubs, setHubs] = useState<{ source_id: string; source_name_en?: string }[]>([]);
+    const [hubs, setHubs] = useState<
+        { source_id: string; source_name_en?: string; source_name_th?: string }[]
+    >([]);
     const [loading, setLoading] = useState(true);
     const [incidentReportsByTripId, setIncidentReportsByTripId] = useState<
         Record<string, { description: string; delayCause: string | null; createdAt: Date | null }>
@@ -320,6 +323,9 @@ export function useDriverMonitor() {
             return {
                 source_id: (data.source_id ?? data.hubId ?? data.hubCode ?? "").toString(),
                 source_name_en: (data.source_name_en ?? data.hubName ?? "").toString() || undefined,
+                source_name_th:
+                    (data.source_name_th ?? data.hubTHName ?? data.hub_th_name ?? "").toString().trim() ||
+                    undefined,
             };
         });
         setHubs(list);
@@ -366,20 +372,12 @@ export function useDriverMonitor() {
         return Array.from(set).sort((a, b) => a.localeCompare(b));
     }, [trips]);
 
-    const sourceIdToName = useMemo(() => {
-        const map: Record<string, string> = {};
-        hubs.forEach((h) => {
-            const id = (h.source_id ?? "").trim();
-            if (id) map[id] = (h.source_name_en ?? id).trim() || id;
-        });
-        return map;
-    }, [hubs]);
+    const sourceIdToName = useMemo(() => buildHubCodeToDisplayMapFromEntries(hubs), [hubs]);
 
-    const getSourceDisplayName = (code?: string | null): string => {
-        if (code == null || String(code).trim() === "") return "-";
-        const key = String(code).trim();
-        return sourceIdToName[key] ?? key;
-    };
+    const getSourceDisplayName = useCallback(
+        (code?: string | null): string => resolveHubOrSocDisplay(code ?? null, sourceIdToName),
+        [sourceIdToName]
+    );
 
     useEffect(() => {
         const q = query(

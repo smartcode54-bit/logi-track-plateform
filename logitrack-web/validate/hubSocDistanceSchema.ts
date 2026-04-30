@@ -1,9 +1,13 @@
 import { z } from "zod";
 
+const HUB_DISTANCE_NETWORK_ENUM = ["SPX", "SPK"] as const;
+
 /** One cached row: driving distance/duration from a Hub to a SOC (from Google Distance Matrix) */
 export const hubSocDistanceSchema = z.object({
     hubId: z.string(),
     socId: z.string(),
+    /** เครือข่ายที่ใช้จับคู่ Hub↔SOC ตอนคำนวณ (SPX vs J&T/SPK) */
+    network: z.enum(HUB_DISTANCE_NETWORK_ENUM).optional(),
     distanceMeters: z.number(),
     distanceKm: z.number(),
     durationSeconds: z.number(),

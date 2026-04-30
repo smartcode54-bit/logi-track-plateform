@@ -41,6 +41,18 @@ export async function getCustomers(): Promise<CustomerData[]> {
     })) as CustomerData[];
 }
 
+/** โหลด customers ทั้งหมดโดยไม่ orderBy — ใช้ตอน import PDP (หลีกเลี่ยงข้อกำหนด index) */
+export async function getAllCustomersForCodeLookup(): Promise<CustomerData[]> {
+    const ref = collection(db, COLLECTIONS.CUSTOMERS);
+    const snap = await getDocs(ref);
+    return snap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+        createdAt: toDate(d.data().createdAt),
+        updatedAt: toDate(d.data().updatedAt),
+    })) as CustomerData[];
+}
+
 export async function getCustomerById(id: string): Promise<CustomerData | null> {
     const ref = doc(db, COLLECTIONS.CUSTOMERS, id);
     const snap = await getDoc(ref);

@@ -1,9 +1,12 @@
 import { z } from "zod";
 
+const HUB_DISTANCE_NETWORK_ENUM = ["SPX", "SPK"] as const;
+
 /** One cached row: driving distance/duration from a SOC to a Hub (Google Distance Matrix) */
 export const socHubDistanceSchema = z.object({
     socId: z.string(),
     hubId: z.string(),
+    network: z.enum(HUB_DISTANCE_NETWORK_ENUM).optional(),
     distanceMeters: z.number(),
     distanceKm: z.number(),
     durationSeconds: z.number(),

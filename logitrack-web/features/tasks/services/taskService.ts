@@ -11,6 +11,8 @@ export const taskService = {
       return {
         'Hub Code': data.source_id ?? data.hubId ?? data.hubCode,
         'Hub Name': data.source_name_en ?? data.hubName,
+        'Hub Name Th':
+          (data.source_name_th ?? data.hubTHName ?? data.hub_th_name ?? data.station_name_th ?? "") || undefined,
         station_type: data.station_type ?? "",
         linkedCustomerId: data.linkedCustomerId ?? "",
         customerLinkKind: data.customerLinkKind ?? "",

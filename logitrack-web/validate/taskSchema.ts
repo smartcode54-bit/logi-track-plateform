@@ -16,14 +16,14 @@ export function socIdMatchesKey(socId: string, key: string): boolean {
     return u === k || u.startsWith(k + " ") || u.startsWith(k + "(");
 }
 
-/** แปลง source_id ของ SOC เป็น key มาตรฐาน SOCE/SOCN/SOCW (ใช้ query hub_soc_distances สำหรับ SOC→Hub). */
+/** แปลง source_id ของ SOC เป็น key มาตรฐาน SOCE/SOCN/SOCW หรือรหัส SOC อื่นที่เป็น UPPERCASE (สำหรับ hub_soc_distances / SOC ใหม่). */
 export function normalizeSocIdToKey(sourceId: string): string {
     const u = (sourceId ?? "").trim().toUpperCase();
     for (const key of SOC_KEYS) {
         const k = key.toUpperCase();
         if (u === k || u.startsWith(k + " ") || u.startsWith(k + "(")) return key;
     }
-    return sourceId;
+    return u;
 }
 
 export const TASK_STATUS_ENUM = ["Pending", "Assigned", "Checked in", "In-Transit", "Completed", "Cancelled"] as const;

@@ -5,7 +5,6 @@ import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import { useLanguage } from "@/context/language";
 import { COLLECTIONS } from "@/lib/collections";
-import { SOC_KEYS, socIdMatchesKey } from "@/validate/taskSchema";
 import { Label } from "@/components/ui/label";
 
 export interface SourceRowLike {
@@ -46,30 +45,29 @@ export function HubDistancePanel({ selectedRow }: HubDistancePanelProps) {
 
     if (!selectedRow || selectedRow.station_type !== "HUB") return null;
 
-    const getBySoc = (key: string) => distances.find((d) => socIdMatchesKey(d.socId, key));
+    const sorted = [...distances].sort((a, b) =>
+        a.socId.localeCompare(b.socId, undefined, { sensitivity: "base" })
+    );
 
     return (
         <div className="rounded-md border bg-muted/30 p-3 space-y-2">
             <p className="text-sm font-medium text-muted-foreground">{t("firstMile.sources.distanceToSoc")}</p>
             {loading ? (
                 <p className="text-sm text-muted-foreground">{t("firstMile.sources.loading")}</p>
+            ) : sorted.length === 0 ? (
+                <p className="text-sm text-muted-foreground">{t("firstMile.sources.noDistanceData")}</p>
             ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    {SOC_KEYS.map((key) => {
-                        const d = getBySoc(key);
-                        const label = key;
-                        const value = d
-                            ? t("firstMile.sources.kmMin")
-                                .replace("{{km}}", String(d.distanceKm.toFixed(2)))
-                                .replace("{{min}}", String(d.durationMinutes.toFixed(1)))
-                            : t("firstMile.sources.noDistanceData");
-                        return (
-                            <div key={key} className="flex flex-col gap-1">
-                                <Label className="text-xs font-medium text-muted-foreground">{label} :</Label>
-                                <span className="text-sm">{value}</span>
-                            </div>
-                        );
-                    })}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-[220px] overflow-y-auto">
+                    {sorted.map((d) => (
+                        <div key={d.socId} className="flex flex-col gap-1">
+                            <Label className="text-xs font-medium text-muted-foreground">{d.socId} :</Label>
+                            <span className="text-sm">
+                                {t("firstMile.sources.kmMin")
+                                    .replace("{{km}}", String(d.distanceKm.toFixed(2)))
+                                    .replace("{{min}}", String(d.durationMinutes.toFixed(1)))}
+                            </span>
+                        </div>
+                    ))}
                 </div>
             )}
         </div>

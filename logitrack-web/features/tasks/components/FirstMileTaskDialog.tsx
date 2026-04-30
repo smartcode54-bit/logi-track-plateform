@@ -171,8 +171,13 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
                                     const filteredHubs = hubOptions.filter((hub) => {
                                         const val = hub['Hub Code'] ?? '';
                                         const name = hub['Hub Name'] ?? '';
+                                        const nameTh = hub['Hub Name Th'] ?? '';
                                         const searchLower = hubSearch.toLowerCase();
-                                        return val.toString().toLowerCase().includes(searchLower) || name.toString().toLowerCase().includes(searchLower);
+                                        return (
+                                            val.toString().toLowerCase().includes(searchLower) ||
+                                            name.toString().toLowerCase().includes(searchLower) ||
+                                            nameTh.toString().toLowerCase().includes(searchLower)
+                                        );
                                     });
 
                                     return (
@@ -184,7 +189,7 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
                                                     variant="outline"
                                                     role="combobox"
                                                     className={cn(
-                                                        "w-full justify-between",
+                                                        "w-full justify-between h-auto min-h-10 py-2",
                                                         !field.value && "text-muted-foreground"
                                                     )}
                                                     onClick={() => {
@@ -192,17 +197,31 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
                                                         setHubSearch("");
                                                     }}
                                                 >
-                                                    {field.value
-                                                        ? (() => {
-                                                            const h = hubOptions.find(
-                                                                (hub) => (hub['Hub Code'] ?? '') === field.value
-                                                            );
-                                                            const val = h ? (h['Hub Code'] ?? '') : field.value;
-                                                            const name = h ? (h['Hub Name'] ?? val) : "";
-                                                            return `${val} - ${name}`;
-                                                        })()
-                                                        : t("firstMile.task.selectHub")}
-                                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                                    <div className="flex w-full items-center gap-2 min-w-0">
+                                                        <div className="flex-1 min-w-0 text-left">
+                                                            {field.value ? (
+                                                                (() => {
+                                                                    const h = hubOptions.find(
+                                                                        (hub) => (hub['Hub Code'] ?? '') === field.value
+                                                                    );
+                                                                    const val = h ? (h['Hub Code'] ?? '') : field.value;
+                                                                    const primary = h
+                                                                        ? String(
+                                                                              h['Hub Name Th'] || h['Hub Name'] || val
+                                                                          )
+                                                                        : field.value;
+                                                                    return (
+                                                                        <span className="block truncate font-medium">
+                                                                            {primary}
+                                                                        </span>
+                                                                    );
+                                                                })()
+                                                            ) : (
+                                                                t("firstMile.task.selectHub")
+                                                            )}
+                                                        </div>
+                                                        <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+                                                    </div>
                                                 </Button>
                                             </FormControl>
                                             {hubDropdownOpen && (
@@ -227,12 +246,14 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
                                                             ) : (
                                                                 filteredHubs.slice(0, 100).map((hub, idx) => {
                                                                     const val = hub['Hub Code'] ?? '';
-                                                                    const name = hub['Hub Name'] ?? val;
+                                                                    const primary = String(
+                                                                        hub['Hub Name Th'] || hub['Hub Name'] || val
+                                                                    );
                                                                     if (!val) return null;
                                                                     return (
                                                                         <div
                                                                             key={`${val}-${idx}`}
-                                                                            className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
+                                                                            className="relative flex cursor-pointer select-none items-start rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
                                                                             onClick={() => {
                                                                                 form.setValue("sourceHub", val as any);
                                                                                 setHubDropdownOpen(false);
@@ -241,13 +262,17 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
                                                                         >
                                                                             <Check
                                                                                 className={cn(
-                                                                                    "mr-2 h-4 w-4",
+                                                                                    "mr-2 h-4 w-4 mt-0.5 shrink-0",
                                                                                     val === field.value
                                                                                         ? "opacity-100"
                                                                                         : "opacity-0"
                                                                                 )}
                                                                             />
-                                                                            {val} - {name}
+                                                                            <div className="min-w-0 flex-1">
+                                                                                <span className="block font-medium leading-tight">
+                                                                                    {primary}
+                                                                                </span>
+                                                                            </div>
                                                                         </div>
                                                                     );
                                                                 })
@@ -295,7 +320,7 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
                                                 ) : (
                                                     socOptions.map((soc) => (
                                                         <SelectItem key={soc.source_id} value={soc.source_id}>
-                                                            {soc.source_id} {soc.name ? `- ${soc.name}` : ""}
+                                                            {soc.name || soc.source_id}
                                                         </SelectItem>
                                                     ))
                                                 )}

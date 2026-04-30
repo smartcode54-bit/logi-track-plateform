@@ -40,25 +40,34 @@ class HubDoc {
   });
 
   factory HubDoc.fromFirestore(Map<String, dynamic> data, [String? docId]) {
-    final lat = data['latitude'];
-    final lng = data['longitude'];
+    final lat = data['latitude'] ?? data['lat'];
+    final lng = data['longitude'] ?? data['lng'];
     final sourceId = (data['source_id'] ??
             data['sourceId'] ??
             data['hubId'] ??
             data['hubCode'] ??
             '')
         .toString();
-    final nameEn = (data['source_name_en'] ?? data['sourceNameEn'] ?? '')
-        .toString();
-    final nameTh = (data['source_name_th'] ??
-            data['sourceNameTh'] ??
-            data['source_name_en'] ??
+    // Align with web `mapDocToSourceRow`: legacy hubName / hubTHName
+    final nameEn = (data['source_name_en'] ??
             data['sourceNameEn'] ??
+            data['hubName'] ??
+            data['station_name_en'] ??
             '')
         .toString();
-    final rawType = (data['station_type'] ?? data['stationType'] ?? stationTypeHub)
+    var nameTh = (data['source_name_th'] ??
+            data['sourceNameTh'] ??
+            data['hubTHName'] ??
+            data['hub_th_name'] ??
+            data['station_name_th'] ??
+            '')
+        .toString();
+    if (nameTh.isEmpty) nameTh = nameEn;
+    final upperType = (data['station_type'] ?? data['stationType'] ?? stationTypeHub)
         .toString()
-        .trim();
+        .trim()
+        .toUpperCase();
+    // Match web `normalizeStationType`: RETURN_CENTER → SOC
     final linkedCustomerId = (data['linkedCustomerId'] ?? '').toString().trim();
     final customerLinkKind = (data['customerLinkKind'] ?? '').toString().trim();
     return HubDoc(
@@ -68,9 +77,10 @@ class HubDoc {
       sourceNameTh: nameTh.isNotEmpty ? nameTh : nameEn,
       latitude: lat is num ? lat.toDouble() : null,
       longitude: lng is num ? lng.toDouble() : null,
-      stationType: rawType.toUpperCase() == stationTypeSoc
-          ? stationTypeSoc
-          : stationTypeHub,
+      stationType:
+          upperType == stationTypeSoc || upperType == 'RETURN_CENTER'
+              ? stationTypeSoc
+              : stationTypeHub,
       linkedCustomerId: linkedCustomerId.isEmpty ? null : linkedCustomerId,
       customerLinkKind: customerLinkKind.isEmpty ? null : customerLinkKind,
     );

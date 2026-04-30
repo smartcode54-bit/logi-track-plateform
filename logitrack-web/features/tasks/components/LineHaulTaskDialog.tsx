@@ -196,7 +196,7 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                                 ) : (
                                                     socOptions.map((soc) => (
                                                         <SelectItem key={soc.source_id} value={soc.source_id}>
-                                                            {soc.source_id} {soc.name ? `- ${soc.name}` : ""}
+                                                            {soc.name || soc.source_id}
                                                         </SelectItem>
                                                     ))
                                                 )}
@@ -215,8 +215,13 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                     const filteredHubs = hubOptions.filter((hub) => {
                                         const val = hub['Hub Code'] ?? '';
                                         const name = hub['Hub Name'] ?? '';
+                                        const nameTh = hub['Hub Name Th'] ?? '';
                                         const searchLower = hubSearch.toLowerCase();
-                                        return val.toString().toLowerCase().includes(searchLower) || name.toString().toLowerCase().includes(searchLower);
+                                        return (
+                                            val.toString().toLowerCase().includes(searchLower) ||
+                                            name.toString().toLowerCase().includes(searchLower) ||
+                                            nameTh.toString().toLowerCase().includes(searchLower)
+                                        );
                                     });
 
                                     return (
@@ -228,7 +233,7 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                                     variant="outline"
                                                     role="combobox"
                                                     className={cn(
-                                                        "w-full justify-between",
+                                                        "w-full justify-between h-auto min-h-10 py-2",
                                                         !field.value && "text-muted-foreground"
                                                     )}
                                                     onClick={() => {
@@ -236,17 +241,31 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                                         setHubSearch("");
                                                     }}
                                                 >
-                                                    {field.value
-                                                        ? (() => {
-                                                            const h = hubOptions.find(
-                                                                (hub) => (hub['Hub Code'] ?? '') === field.value
-                                                            );
-                                                            const val = h ? (h['Hub Code'] ?? '') : field.value;
-                                                            const name = h ? (h['Hub Name'] ?? val) : "";
-                                                            return `${val} - ${name}`;
-                                                        })()
-                                                        : "Select Destination Hub"}
-                                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                                    <div className="flex w-full items-center gap-2 min-w-0">
+                                                        <div className="flex-1 min-w-0 text-left">
+                                                            {field.value ? (
+                                                                (() => {
+                                                                    const h = hubOptions.find(
+                                                                        (hub) => (hub['Hub Code'] ?? '') === field.value
+                                                                    );
+                                                                    const val = h ? (h['Hub Code'] ?? '') : field.value;
+                                                                    const primary = h
+                                                                        ? String(
+                                                                              h['Hub Name Th'] || h['Hub Name'] || val
+                                                                          )
+                                                                        : field.value;
+                                                                    return (
+                                                                        <span className="block truncate font-medium">
+                                                                            {primary}
+                                                                        </span>
+                                                                    );
+                                                                })()
+                                                            ) : (
+                                                                "Select Destination Hub"
+                                                            )}
+                                                        </div>
+                                                        <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+                                                    </div>
                                                 </Button>
                                             </FormControl>
                                             {hubDropdownOpen && (
@@ -271,7 +290,9 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                                             ) : (
                                                                 filteredHubs.slice(0, 100).map((hub, idx) => {
                                                                     const val = hub['Hub Code'] ?? '';
-                                                                    const name = hub['Hub Name'] ?? '';
+                                                                    const primary = String(
+                                                                        hub['Hub Name Th'] || hub['Hub Name'] || val
+                                                                    );
                                                                     return (
                                                                         <div
                                                                             key={val || idx}
@@ -281,17 +302,21 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                                                                 setHubDropdownOpen(false);
                                                                             }}
                                                                             className={cn(
-                                                                                "relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+                                                                                "relative flex cursor-default select-none items-start rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
                                                                                 field.value === val ? "bg-accent" : ""
                                                                             )}
                                                                         >
                                                                             <Check
                                                                                 className={cn(
-                                                                                    "mr-2 h-4 w-4",
+                                                                                    "mr-2 h-4 w-4 mt-0.5 shrink-0",
                                                                                     field.value === val ? "opacity-100" : "opacity-0"
                                                                                 )}
                                                                             />
-                                                                            {val} - {name}
+                                                                            <div className="min-w-0 flex-1">
+                                                                                <span className="block font-medium leading-tight">
+                                                                                    {primary}
+                                                                                </span>
+                                                                            </div>
                                                                         </div>
                                                                     );
                                                                 })

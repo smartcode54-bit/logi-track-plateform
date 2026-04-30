@@ -31,7 +31,15 @@ import { db, functions } from "@/firebase/client";
 import { useAuth } from "@/context/auth";
 import { useLanguage } from "@/context/language";
 import { COLLECTIONS } from "@/lib/collections";
-import type { Hub, StationType } from "@/validate/hubSchema";
+import type { CustomerLinkKind, Hub, StationType } from "@/validate/hubSchema";
+import { getCustomers, type CustomerData } from "@/features/customers/api/customers";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
 
 const SourcesMap = dynamic(() => import("@/components/map/SourcesMap"), {
@@ -46,6 +54,13 @@ const SourcesMap = dynamic(() => import("@/components/map/SourcesMap"), {
 /** Display row: supports both new schema and legacy Firestore fields */
 interface SourceRow extends Pick<Hub, "source_id" | "source_name_en" | "latitude" | "longitude" | "station_type"> {
     id?: string;
+    /** Thai / legacy hubTHName — ค้นหาและแสดง (ฟอร์มแก้ไขยังใช้ source_name_en เป็นหลัก) */
+    source_name_th?: string;
+    linkedCustomerId?: string;
+    customerLinkKind?: CustomerLinkKind;
+    /** Denormalized สำหรับ export Excel — จาก customers lookup */
+    linkedCustomerCode?: string;
+    linkedCustomerName?: string;
     /** Driver เพิ่มจาก Mobile — Admin ควรกรอกพิกัดและข้อมูลให้ครบ */
     createdByDriver?: boolean;
 }
@@ -59,13 +74,32 @@ function normalizeStationType(value: unknown): StationType {
 
 function mapDocToSourceRow(doc: { id: string; data: Record<string, unknown> }): SourceRow {
     const data = doc.data;
+    const source_name_en = (data.source_name_en ??
+        data.hubName ??
+        data.station_name_en ??
+        "") as string;
+    const thRaw = (data.source_name_th ??
+        data.hubTHName ??
+        data.hub_th_name ??
+        data.station_name_th ??
+        "") as string;
+    const source_name_th = String(thRaw).trim();
+    const lk = data.linkedCustomerId;
+    const linkedCustomerId = typeof lk === "string" && lk.trim() !== "" ? lk.trim() : undefined;
+    const ck = data.customerLinkKind;
+    const customerLinkKind: CustomerLinkKind | undefined =
+        ck === "partner" || ck === "customer" ? ck : undefined;
+
     return {
         id: doc.id,
         source_id: (data.source_id ?? data.hubId ?? data.hubCode ?? "") as string,
-        source_name_en: (data.source_name_en ?? data.hubName ?? "") as string,
+        source_name_en,
+        source_name_th: source_name_th.length > 0 ? source_name_th : undefined,
         latitude: (data.latitude ?? data.lat ?? undefined) as number | undefined,
         longitude: (data.longitude ?? data.lng ?? undefined) as number | undefined,
         station_type: normalizeStationType(data.station_type),
+        linkedCustomerId,
+        customerLinkKind,
         createdByDriver: data.createdByDriver === true,
     };
 }
@@ -87,8 +121,13 @@ export default function SourcesPage() {
     const [lastCalculatedAt, setLastCalculatedAt] = useState<Date | null>(null);
     /** Hub→SOC: เลือก Hub เห็นระยะไป SOC | SOC→Hub: เลือก SOC เห็นระยะไป Hub */
     const [distanceViewMode, setDistanceViewMode] = useState<"HUB_SOC" | "SOC_HUB">("HUB_SOC");
+    /** แท็บจุดรับส่ง: Hub หรือ SOC */
+    const [stationTab, setStationTab] = useState<"HUB" | "SOC">("HUB");
     /** true = แสดงเฉพาะ Driver เพิ่มจาก Mobile ที่รอ Admin กรอกพิกัด */
     const [showOnlyNew, setShowOnlyNew] = useState(false);
+    /** ลูกค้าใน Dropdown — "all" = ไม่กรอง | "__unlinked__" = ยังไม่ผูกลูกค้า */
+    const [customerFilterId, setCustomerFilterId] = useState<string>("all");
+    const [customerOptions, setCustomerOptions] = useState<CustomerData[]>([]);
 
     /** จำนวนแถวต่อหน้า fix ที่ 10 */
     const itemsPerPage = 10;
@@ -96,10 +135,21 @@ export default function SourcesPage() {
     const fetchHubs = async () => {
         setLoading(true);
         try {
-            const querySnapshot = await getDocs(collection(db, COLLECTIONS.HUBS));
-            const list: SourceRow[] = querySnapshot.docs.map((doc) =>
-                mapDocToSourceRow({ id: doc.id, data: doc.data() as Record<string, unknown> })
-            );
+            const [querySnapshot, customers] = await Promise.all([
+                getDocs(collection(db, COLLECTIONS.HUBS)),
+                getCustomers(),
+            ]);
+            setCustomerOptions(customers);
+            const customerById = new Map(customers.map((c) => [c.id, c]));
+            const list: SourceRow[] = querySnapshot.docs.map((d) => {
+                const row = mapDocToSourceRow({ id: d.id, data: d.data() as Record<string, unknown> });
+                const c = row.linkedCustomerId ? customerById.get(row.linkedCustomerId) : undefined;
+                return {
+                    ...row,
+                    linkedCustomerCode: c?.code,
+                    linkedCustomerName: c?.name,
+                };
+            });
             setSources(list);
         } catch (error) {
             console.error("Error fetching sources:", error);
@@ -125,32 +175,46 @@ export default function SourcesPage() {
         fetchLastCalculated();
     }, []);
 
-    const filteredSources = useMemo(
-        () =>
-            sources.filter(
-                (row) =>
-                    (row.source_name_en && row.source_name_en.toLowerCase().includes(search.toLowerCase())) ||
-                    (row.source_id && row.source_id.toLowerCase().includes(search.toLowerCase()))
-            ),
-        [sources, search]
-    );
+    const filteredSources = useMemo(() => {
+        let list = sources;
+        if (customerFilterId === "__unlinked__") {
+            list = list.filter((row) => !row.linkedCustomerId);
+        } else if (customerFilterId !== "all") {
+            list = list.filter((row) => row.linkedCustomerId === customerFilterId);
+        }
 
-    /** รายการแสดง Hub เสมอ — โหมดเปลี่ยนแค่ต้นทาง (Hub→SOC หรือ SOC→Hub) สำหรับ popup */
-    const sourcesForMode = useMemo(
-        () => filteredSources.filter((row) => row.station_type === "HUB"),
-        [filteredSources]
+        const q = search.trim().toLowerCase();
+        if (!q) return list;
+        const hay = (s: string | undefined) => (s ?? "").toLowerCase().includes(q);
+        return list.filter(
+            (row) =>
+                hay(row.source_name_en) ||
+                hay(row.source_id) ||
+                hay(row.source_name_th) ||
+                hay(row.linkedCustomerCode) ||
+                hay(row.linkedCustomerName)
+        );
+    }, [sources, search, customerFilterId]);
+
+    /** รายการตามประเภทสถานีที่เลือกในแท็บ */
+    const sourcesForStationTab = useMemo(
+        () => filteredSources.filter((row) => row.station_type === stationTab),
+        [filteredSources, stationTab]
     );
 
     /** Driver เพิ่มจาก Mobile ที่ยังไม่มีพิกัด — แจ้ง Admin กรอกข้อมูลให้ครบ */
     const driverAddedNeedsCompletion = useMemo(
-        () => filteredSources.filter(
-            (row) => row.createdByDriver === true && (row.latitude == null || row.longitude == null)
-        ),
+        () =>
+            filteredSources.filter(
+                (row) => row.createdByDriver === true && (row.latitude == null || row.longitude == null)
+            ),
         [filteredSources]
     );
 
-    /** เมื่อ showOnlyNew = แสดงเฉพาะของใหม่ที่รอกรอก | ไม่ใช่ = แสดง Hub ตามเดิม */
-    const tableSources = showOnlyNew ? driverAddedNeedsCompletion : sourcesForMode;
+    /** เมื่อ showOnlyNew = แสดงเฉพาะของใหม่ที่รอกรอก (ตามแท็บ HUB/SOC) | ไม่ใช่ = แสดงตามแท็บ */
+    const tableSources = showOnlyNew
+        ? driverAddedNeedsCompletion.filter((row) => row.station_type === stationTab)
+        : sourcesForStationTab;
 
     const totalPages = Math.max(1, Math.ceil(tableSources.length / itemsPerPage));
     const paginatedSources = useMemo(
@@ -165,7 +229,7 @@ export default function SourcesPage() {
     useEffect(() => {
         setCurrentPage(1);
         setSelectedSourceId(null);
-    }, [search, showOnlyNew]);
+    }, [search, showOnlyNew, stationTab, customerFilterId]);
 
 
     useEffect(() => {
@@ -174,18 +238,26 @@ export default function SourcesPage() {
 
     const handleDownloadSources = () => {
         const headers = [
+            t("firstMile.sources.export.firestoreDocId"),
             t("firstMile.sources.table.sourceId"),
             t("firstMile.sources.table.nameSPX"),
+            t("firstMile.sources.table.nameThai"),
             "Latitude",
             "Longitude",
             t("firstMile.sources.table.stationType"),
+            t("firstMile.sources.export.customerCode"),
+            t("firstMile.sources.export.customerName"),
         ];
         const rows = tableSources.map((row) => [
+            row.id ?? "",
             row.source_id ?? "",
             row.source_name_en ?? "",
+            row.source_name_th ?? "",
             row.latitude ?? "",
             row.longitude ?? "",
             row.station_type ?? "",
+            row.linkedCustomerCode ?? "",
+            row.linkedCustomerName ?? "",
         ]);
         const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
         const wb = XLSX.utils.book_new();
@@ -284,6 +356,16 @@ export default function SourcesPage() {
                             </>
                         )}
                     </Button>
+                    <Button
+                        variant="outline"
+                        onClick={handleDownloadSources}
+                        disabled={loading || tableSources.length === 0}
+                        className="gap-2"
+                        title={loading || tableSources.length === 0 ? undefined : t("firstMile.sources.downloadHint")}
+                    >
+                        <Download className="h-4 w-4" />
+                        {t("firstMile.sources.download")}
+                    </Button>
                     <PickupLocationImportDialog onSuccess={fetchHubs} />
                     <HubDialog
                         trigger={
@@ -306,6 +388,8 @@ export default function SourcesPage() {
                             latitude: editSource.latitude,
                             longitude: editSource.longitude,
                             station_type: editSource.station_type,
+                            linkedCustomerId: editSource.linkedCustomerId ?? "",
+                            customerLinkKind: editSource.customerLinkKind ?? "customer",
                         } : undefined}
                         documentId={editSource?.id}
                         onSuccess={() => {
@@ -341,6 +425,21 @@ export default function SourcesPage() {
                         <div className="flex items-center justify-between gap-2 flex-wrap">
                             <div className="flex items-center gap-3 flex-wrap">
                                 <CardTitle className="text-lg">{t("firstMile.sources.dbSources")}</CardTitle>
+                                <Tabs
+                                    value={stationTab}
+                                    onValueChange={(v) =>
+                                        v === "HUB" || v === "SOC" ? setStationTab(v) : undefined
+                                    }
+                                >
+                                    <TabsList className="h-8">
+                                        <TabsTrigger value="HUB" className="text-xs px-3">
+                                            {t("firstMile.sources.tabHub")}
+                                        </TabsTrigger>
+                                        <TabsTrigger value="SOC" className="text-xs px-3">
+                                            {t("firstMile.sources.tabSoc")}
+                                        </TabsTrigger>
+                                    </TabsList>
+                                </Tabs>
                                 <Button
                                     variant={showOnlyNew ? "default" : "outline"}
                                     size="sm"
@@ -378,10 +477,11 @@ export default function SourcesPage() {
                                     className="h-8 shrink-0 gap-1"
                                     onClick={handleDownloadSources}
                                     disabled={loading || tableSources.length === 0}
+                                    title={loading || tableSources.length === 0 ? undefined : t("firstMile.sources.downloadHint")}
                                     aria-label={t("firstMile.sources.download")}
                                 >
                                     <Download className="h-4 w-4" />
-                                    {t("firstMile.sources.download")}
+                                    <span className="max-sm:hidden">{t("firstMile.sources.download")}</span>
                                 </Button>
                                 <Search className="h-4 w-4 text-muted-foreground shrink-0" />
                                 <Input
@@ -392,6 +492,22 @@ export default function SourcesPage() {
                                     }}
                                     className="h-8 w-[200px]"
                                 />
+                                <Select value={customerFilterId} onValueChange={setCustomerFilterId}>
+                                    <SelectTrigger className="h-8 w-[220px] shrink-0">
+                                        <SelectValue placeholder={t("firstMile.sources.filterCustomer")} />
+                                    </SelectTrigger>
+                                    <SelectContent position="popper" className="max-h-[280px]">
+                                        <SelectItem value="all">{t("firstMile.sources.filterCustomerAll")}</SelectItem>
+                                        <SelectItem value="__unlinked__">
+                                            {t("firstMile.sources.filterCustomerUnlinked")}
+                                        </SelectItem>
+                                        {customerOptions.map((c) => (
+                                            <SelectItem key={c.id} value={c.id}>
+                                                {(c.code ?? "").trim() || c.id} — {c.name ?? ""}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
                             </div>
                         </div>
                     </CardHeader>
@@ -416,7 +532,11 @@ export default function SourcesPage() {
                                 ) : tableSources.length === 0 ? (
                                     <TableRow>
                                         <TableCell colSpan={5} className="text-center h-24 text-muted-foreground">
-                                            {showOnlyNew ? t("firstMile.sources.noNewItems") : t("firstMile.sources.noHubsInFilter")}
+                                            {showOnlyNew
+                                                ? t("firstMile.sources.noNewItems")
+                                                : stationTab === "HUB"
+                                                  ? t("firstMile.sources.noHubsInFilter")
+                                                  : t("firstMile.sources.noSocsInFilter")}
                                         </TableCell>
                                     </TableRow>
                                 ) : (
@@ -443,7 +563,17 @@ export default function SourcesPage() {
                                                         )}
                                                     </span>
                                                 </TableCell>
-                                                <TableCell>{row.source_name_en}</TableCell>
+                                                <TableCell>
+                                                    <div>
+                                                        <span>{row.source_name_en || "—"}</span>
+                                                        {row.source_name_th &&
+                                                            row.source_name_th !== row.source_name_en && (
+                                                                <span className="block text-xs text-muted-foreground mt-0.5">
+                                                                    {row.source_name_th}
+                                                                </span>
+                                                            )}
+                                                    </div>
+                                                </TableCell>
                                                 <TableCell>
                                                     {hasCoords ? (
                                                         <a
@@ -543,7 +673,7 @@ export default function SourcesPage() {
                                 {t("firstMile.sources.mapTitle")}
                             </CardTitle>
                             <p className="text-xs text-muted-foreground">
-                                {sourcesForMode.filter((s) => s.latitude != null && s.longitude != null).length}{" "}
+                                {sourcesForStationTab.filter((s) => s.latitude != null && s.longitude != null).length}{" "}
                                 {t("firstMile.sources.mapPoints")}
                             </p>
                         </div>
@@ -560,7 +690,7 @@ export default function SourcesPage() {
                     </CardHeader>
                     <CardContent className="flex-1 min-h-0 pt-0 overflow-hidden flex flex-col">
                         <SourcesMap
-                            sources={sourcesForMode}
+                            sources={sourcesForStationTab}
                             selectedSourceId={selectedSourceId}
                             onClearSelection={() => setSelectedSourceId(null)}
                             distanceViewMode={distanceViewMode}

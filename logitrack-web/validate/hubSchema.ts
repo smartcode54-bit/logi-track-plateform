@@ -26,6 +26,24 @@ export const hubSchema = z.object({
     updatedAt: z.any().optional(),
 });
 
+export type HubDistanceNetworkGroup = "SPX" | "SPK";
+
+/** กลุ่มสำหรับคำนวณระยะ Hub↔SOC: SPX = Shopee/เดิม, SPK = J&T (รหัสขึ้นต้น SPK หรือลูกค้า SPK/J&T) */
+export function hubDistanceNetworkGroup(
+    sourceId: string,
+    linkedCustomerCode?: string | null
+): HubDistanceNetworkGroup {
+    const id = String(sourceId ?? "").trim();
+    const u = id.toUpperCase();
+    if (u.startsWith("SPK")) return "SPK";
+
+    const code = String(linkedCustomerCode ?? "").trim().toUpperCase();
+    if (code === "SPK" || code === "J&T" || code === "JT") return "SPK";
+
+    if (hubSourceIdHasSpxSuffix(id)) return "SPX";
+    return "SPX";
+}
+
 export type Hub = z.infer<typeof hubSchema>;
 
 /** Hub Code / source_id ลงท้าย SPX → ใช้รหัสลูกค้า "SPX" ใน task (ตรงกับ migration backfill) */

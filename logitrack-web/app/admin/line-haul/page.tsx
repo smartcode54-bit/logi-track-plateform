@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import { Calendar as CalendarIcon, Plus } from "lucide-react";
@@ -36,6 +36,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { SOC_DESTINATIONS, SOC_KEYS, Task as FirstMileTask, normalizeSocIdToKey } from "@/validate/taskSchema";
+import { buildHubCodeToDisplayMapFromHubRows, resolveHubOrSocDisplay } from "@/lib/hubDisplay";
 import { collection, getDocs, onSnapshot, query, orderBy, limit, doc, updateDoc, where } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "@/firebase/client";
@@ -92,6 +93,9 @@ export default function LineHaulPage() {
                 return {
                     'Hub Code': data.source_id ?? data.hubId ?? data.hubCode,
                     'Hub Name': data.source_name_en ?? data.hubName,
+                    'Hub Name Th':
+                        (data.source_name_th ?? data.hubTHName ?? data.hub_th_name ?? data.station_name_th ?? "") ||
+                        undefined,
                     lat: data.latitude ?? data.lat,
                     lng: data.longitude ?? data.lng,
                     source: 'custom',
@@ -166,6 +170,13 @@ export default function LineHaulPage() {
         return () => unsubscribe();
     }, []);
 
+    const hubDisplayMap = useMemo(() => buildHubCodeToDisplayMapFromHubRows(hubs), [hubs]);
+
+    const routeLabel = useCallback(
+        (code: string | null | undefined) => resolveHubOrSocDisplay(code ?? null, hubDisplayMap),
+        [hubDisplayMap]
+    );
+
     const getSOCColor = (soc: string) => {
         const key = normalizeSocIdToKey(soc);
         switch (key) {
@@ -175,9 +186,6 @@ export default function LineHaulPage() {
             default: return "bg-slate-600 text-white";
         }
     };
-
-    const getDestinationLabel = (dest: string | undefined) =>
-        dest ? (SOC_DESTINATIONS[dest as keyof typeof SOC_DESTINATIONS] ?? dest) : "-";
 
     const handleCreate = () => {
         setDialogMode("create");
@@ -307,7 +315,7 @@ export default function LineHaulPage() {
                                 {/* Limit mapped hubs for performance if list is huge */}
                                 {hubs.slice(0, 50).map((hub, idx) => (
                                     <SelectItem key={idx} value={hub['Hub Code'] || hub['Code'] || `hub-${idx}`}>
-                                        {hub['Hub Name'] || hub['station_name_en'] || hub['Hub Code']}
+                                        {hub['Hub Name Th'] || hub['Hub Name'] || hub['station_name_en'] || hub['Hub Code']}
                                     </SelectItem>
                                 ))}
                             </SelectContent>
@@ -350,10 +358,14 @@ export default function LineHaulPage() {
                                     onClick={() => setDetailTask(task)}
                                 >
                                     <TableCell>{task.date ? format(task.date, 'dd/MM/yyyy') : '-'}</TableCell>
-                                    <TableCell className="font-medium">{task.sourceHub}</TableCell>
+                                    <TableCell className="max-w-[220px]">
+                                        <span className="font-medium leading-tight block">
+                                            {routeLabel(task.sourceHub)}
+                                        </span>
+                                    </TableCell>
                                     <TableCell>
                                         <Badge className={cn("font-normal border-0", getSOCColor(task.destination || ""))}>
-                                            {getDestinationLabel(task.destination)}
+                                            {routeLabel(task.destination)}
                                         </Badge>
                                     </TableCell>
                                     <TableCell>{task.time}</TableCell>
@@ -463,9 +475,9 @@ export default function LineHaulPage() {
                                 <span className="text-muted-foreground">{t("lineHaul.table.time")}</span>
                                 <span>{detailTask.time ?? "-"}</span>
                                 <span className="text-muted-foreground">{t("lineHaul.detail.sourceHub")}</span>
-                                <span className="font-medium">{detailTask.sourceHub ?? "-"}</span>
+                                <span className="font-medium">{routeLabel(detailTask.sourceHub)}</span>
                                 <span className="text-muted-foreground">{t("lineHaul.detail.destination")}</span>
-                                <span>{getDestinationLabel(detailTask.destination)}</span>
+                                <span>{routeLabel(detailTask.destination)}</span>
                                 <span className="text-muted-foreground">{t("lineHaul.table.type")}</span>
                                 <span>{detailTask.truckType ?? "-"}</span>
                                 <span className="text-muted-foreground">{t("lineHaul.table.taskId")}</span>
@@ -531,6 +543,7 @@ export default function LineHaulPage() {
                     open={editTripDialogOpen}
                     onOpenChange={setEditTripDialogOpen}
                     trip={detailTrip}
+                    getSourceDisplayName={routeLabel}
                     onSuccess={() => setEditTripDialogOpen(false)}
                 />
             )}

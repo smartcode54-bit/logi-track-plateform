@@ -77,7 +77,7 @@ export function useFirstMileTask({
                     })
                     .map((h: any) => ({
                         source_id: (h["Hub Code"] ?? "").toString(),
-                        name: (h["Hub Name"] ?? h["Hub Code"] ?? "").toString(),
+                        name: (h["Hub Name Th"] ?? h["Hub Name"] ?? h["Hub Code"] ?? "").toString(),
                     }))
                     .filter((s: any) => s.source_id.length > 0);
                 setSocOptions(socList);
@@ -217,14 +217,18 @@ export function useFirstMileTask({
                     ? await taskService.getNextRunOrderForDriver(values.driverId)
                     : undefined;
                 const hubLinkFields = buildHubLinkFields(values, false);
-                const ref = await addDoc(collection(db, COLLECTIONS.TASKS), {
+                const rawCreate = {
                     ...values,
                     ...hubLinkFields,
                     dateStr,
                     ...(runOrder != null ? { runOrder } : {}),
                     createdAt: new Date(),
                     updatedAt: new Date(),
-                });
+                };
+                const createPayload = Object.fromEntries(
+                    Object.entries(rawCreate).filter(([, v]) => v !== undefined)
+                );
+                const ref = await addDoc(collection(db, COLLECTIONS.TASKS), createPayload as FirstMileTask);
                 try {
                     const notify = httpsCallable<{ taskId: string; oldDriverId?: string; newDriverId?: string; status?: string; sourceHub?: string; destination?: string; date?: string; time?: string, taskType: string }, { ok: boolean }>(functions, "notifyTaskUpdate");
                     await notify({

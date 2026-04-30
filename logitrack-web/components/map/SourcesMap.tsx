@@ -8,7 +8,7 @@ import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import { useLanguage } from "@/context/language";
 import { COLLECTIONS } from "@/lib/collections";
-import { normalizeSocIdToKey, SOC_KEYS, socIdMatchesKey } from "@/validate/taskSchema";
+import { normalizeSocIdToKey, socIdMatchesKey } from "@/validate/taskSchema";
 
 const defaultIcon = L.icon({
     iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
@@ -21,6 +21,7 @@ export interface SourcePoint {
     id?: string;
     source_id: string;
     source_name_en: string;
+    source_name_th?: string;
     latitude?: number;
     longitude?: number;
     station_type?: string;
@@ -74,6 +75,13 @@ function FitBounds({ points, skipWhenSelected, selectedSourceId }: FitBoundsProp
 /** Distance row: for HUB we use socId (SOC key); for SOC we use destId (Hub source_id). */
 type DistanceRow = { socId: string; destId: string; distanceKm: number; durationMinutes: number };
 
+/** รายการ SOC จากผล query ระยะ (ไม่จำกัดเฉพาะ SOCE/SOCN/SOCW) */
+function sortedSocIdsFromDistanceRows(distances: DistanceRow[]): string[] {
+    return [
+        ...new Set(distances.map((r) => String(r.socId ?? "").trim()).filter(Boolean)),
+    ].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+}
+
 /** เมื่อเลือกแถวตามราง: บินไปที่พิกัดและเปิด popup แสดงรายละเอียดจุดรับส่ง + ระยะทาง Hub→SOC หรือ SOC→Hub (LM trip_records prep). */
 function SelectedSourcePopup({
     selectedSourceId,
@@ -110,10 +118,6 @@ function SelectedSourcePopup({
         const s = t("firstMile.sources.distanceToSoc");
         return s && !s.includes("distanceToSoc") ? s : "Distance to SOC";
     })();
-    const distanceToHubLabel = (() => {
-        const s = t("firstMile.sources.distanceToHub");
-        return s && !s.includes("distanceToHub") ? s : "Distance to Hub";
-    })();
     const distanceFromSocLabel = (() => {
         const s = t("firstMile.sources.distanceFromSoc");
         return s && !s.includes("distanceFromSoc") ? s : "Distance from SOC";
@@ -121,26 +125,46 @@ function SelectedSourcePopup({
 
     const buildContent = useCallback(
         (distances: DistanceRow[], effectiveMode: "HUB_SOC" | "SOC_HUB") => {
-            let rowsHtml = "";
             const sectionLabel = effectiveMode === "HUB_SOC" ? distanceToSocLabel : distanceFromSocLabel;
-            if (effectiveMode === "HUB_SOC") {
-                rowsHtml = SOC_KEYS.map((key) => {
-                    const d = distances.find((r) => socIdMatchesKey(r.socId, key));
-                    const value = d
-                        ? kmMinTpl.replace("{{km}}", d.distanceKm.toFixed(2)).replace("{{min}}", d.durationMinutes.toFixed(1))
-                        : noDataLabel;
-                    return `<p class="text-xs mt-0"><span class="font-medium">${escapeHtml(key)}</span> : ${escapeHtml(value)}</p>`;
+            const isSocStation = String(selected?.station_type ?? "").toUpperCase() === "SOC";
+
+            const rowLine = (label: string, d: DistanceRow | undefined) => {
+                const value = d
+                    ? kmMinTpl
+                          .replace("{{km}}", d.distanceKm.toFixed(2))
+                          .replace("{{min}}", d.durationMinutes.toFixed(1))
+                    : noDataLabel;
+                return `<p class="text-xs mt-0"><span class="font-medium">${escapeHtml(label)}</span> : ${escapeHtml(value)}</p>`;
+            };
+
+            let rowsHtml = "";
+            if (isSocStation) {
+                const hubIds = [
+                    ...new Set(distances.map((r) => String(r.destId ?? "").trim()).filter(Boolean)),
+                ].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+                rowsHtml = hubIds.map((hid) => {
+                    const d = distances.find((r) => r.destId === hid);
+                    return rowLine(hid, d);
                 }).join("");
             } else {
-                rowsHtml = SOC_KEYS.map((key) => {
-                    const d = distances.find((r) => socIdMatchesKey(r.socId, key));
-                    const value = d
-                        ? kmMinTpl.replace("{{km}}", d.distanceKm.toFixed(2)).replace("{{min}}", d.durationMinutes.toFixed(1))
-                        : noDataLabel;
-                    return `<p class="text-xs mt-0"><span class="font-medium">${escapeHtml(key)}</span> : ${escapeHtml(value)}</p>`;
-                }).join("");
+                const ids = sortedSocIdsFromDistanceRows(distances);
+                rowsHtml = ids
+                    .map((id) => {
+                        const d = distances.find(
+                            (r) => r.socId === id || socIdMatchesKey(r.socId, id)
+                        );
+                        return rowLine(id, d);
+                    })
+                    .join("");
             }
-            const name = selected ? selected.source_name_en : "";
+
+            let name = selected ? selected.source_name_en : "";
+            if (
+                selected?.source_name_th &&
+                selected.source_name_th !== selected.source_name_en
+            ) {
+                name = `${name} (${selected.source_name_th})`;
+            }
             return `
             <div class="px-1.5 py-0.5 text-sm min-w-[140px] max-h-[200px] overflow-y-auto">
                 <p class="text-muted-foreground text-xs leading-tight">${escapeHtml(name)}</p>
@@ -174,11 +198,14 @@ function SelectedSourcePopup({
             .openOn(map);
         popupRef.current = popup;
 
-        const isSocHubMode = mode === "SOC_HUB";
-        const coll = isSocHubMode ? COLLECTIONS.SOC_HUB_DISTANCES : COLLECTIONS.HUB_SOC_DISTANCES;
-        const queryField = "hubId";
-        const queryId = selected.source_id;
-        getDocs(query(collection(db, coll), where(queryField, "==", queryId)))
+        const isSocStation = String(selected.station_type ?? "").toUpperCase() === "SOC";
+        const socKey = normalizeSocIdToKey(selected.source_id);
+        const coll =
+            mode === "HUB_SOC" ? COLLECTIONS.HUB_SOC_DISTANCES : COLLECTIONS.SOC_HUB_DISTANCES;
+        const queryField = isSocStation ? "socId" : "hubId";
+        const queryVal = isSocStation ? socKey : selected.source_id;
+
+        getDocs(query(collection(db, coll), where(queryField, "==", queryVal)))
             .then((snap) => {
                 const list: DistanceRow[] = snap.docs.map((d) => {
                     const data = d.data();
@@ -199,7 +226,7 @@ function SelectedSourcePopup({
             map.removeLayer(popup);
             popupRef.current = null;
         };
-    }, [map, selectedSourceId, selected?.source_id, selected?.latitude, selected?.longitude, selected?.source_name_en, distanceViewMode]);
+    }, [map, selectedSourceId, selected?.source_id, selected?.latitude, selected?.longitude, selected?.source_name_en, selected?.source_name_th, selected?.station_type, distanceViewMode]);
 
     // Update popup content when distance data loads (or selection name changes)
     useEffect(() => {
@@ -311,6 +338,10 @@ export default function SourcesMap({ sources, selectedSourceId = null, onSourceS
                                 <div className="text-sm">
                                     <p className="font-semibold">{src.source_id}</p>
                                     <p className="text-muted-foreground">{src.source_name_en}</p>
+                                    {src.source_name_th &&
+                                        src.source_name_th !== src.source_name_en && (
+                                            <p className="text-muted-foreground text-xs">{src.source_name_th}</p>
+                                        )}
                                     {src.station_type && (
                                         <p className="text-xs mt-1">{getStationTypeLabel(src.station_type)}</p>
                                     )}
