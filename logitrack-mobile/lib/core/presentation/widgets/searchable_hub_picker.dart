@@ -35,6 +35,14 @@ class SearchableHubPicker extends StatelessWidget {
         hub.sourceId.toLowerCase().contains(q);
   }
 
+  static String _displayName(HubDoc hub) {
+    final th = hub.sourceNameTh.trim();
+    if (th.isNotEmpty) return th;
+    final en = hub.sourceNameEn.trim();
+    if (en.isNotEmpty) return en;
+    return hub.sourceId;
+  }
+
   Future<void> _openPicker(BuildContext context) async {
     final selected = await showModalBottomSheet<HubDoc>(
       context: context,
@@ -57,6 +65,21 @@ class SearchableHubPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    HubDoc? selectedHub;
+    if (value.isNotEmpty) {
+      for (final hub in hubs) {
+        if (hub.sourceId == value ||
+            hub.sourceNameEn == value ||
+            hub.sourceNameTh == value) {
+          selectedHub = hub;
+          break;
+        }
+      }
+    }
+    final displayValue = value.isEmpty
+        ? ''
+        : (selectedHub != null ? _displayName(selectedHub) : value);
+
     return InkWell(
       onTap: () => _openPicker(context),
       borderRadius: BorderRadius.circular(4),
@@ -68,9 +91,9 @@ class SearchableHubPicker extends StatelessWidget {
           suffixIcon: const Icon(Icons.arrow_drop_down),
         ),
         child: Text(
-          value.isEmpty ? '' : value,
+          displayValue,
           style: TextStyle(
-            color: value.isEmpty
+            color: displayValue.isEmpty
                 ? Theme.of(context).hintColor
                 : Theme.of(context).textTheme.titleMedium?.color,
           ),
@@ -321,12 +344,13 @@ class _SearchableHubSheetState extends State<SearchableHubSheet> {
                         );
                       }
                       final hub = filtered[index];
-                      final label = '${hub.sourceId} - ${hub.sourceNameTh.isNotEmpty ? hub.sourceNameTh : hub.sourceNameEn}';
+                      final label = SearchableHubPicker._displayName(hub);
                       final isSelected = hub.sourceId == widget.initialValue ||
                           hub.sourceNameEn == widget.initialValue ||
                           hub.sourceNameTh == widget.initialValue;
                       return ListTile(
                         title: Text(label),
+                        subtitle: Text(hub.sourceId),
                         trailing: isSelected
                             ? const Icon(Icons.check, color: Colors.green)
                             : null,

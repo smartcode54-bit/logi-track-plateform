@@ -53,6 +53,7 @@ export default {
     "driverMonitor.table.sealCode": "รหัสซีล",
     "driverMonitor.table.partnerCode": "ช่องทาง / พาร์ทเนอร์",
     "driverMonitor.table.status": "สถานะ",
+    "driverMonitor.table.estimatedRevenue": "ประมาณการรายได้",
     "driverMonitor.table.time": "เวลา",
     "driverMonitor.table.actions": "การดำเนินการ",
 

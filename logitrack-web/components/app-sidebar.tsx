@@ -122,6 +122,8 @@ export function AppSidebar() {
                 { title: t("nav.fuel"), url: "/admin/accounting/fuel", capability: CAPABILITIES.accounting_view_fuel },
                 { title: t("nav.other"), url: "/admin/accounting/other", capability: CAPABILITIES.accounting_view_other },
                 { title: t("nav.auditExpense"), url: "/admin/accounting/audit", capability: CAPABILITIES.accounting_audit_expense },
+                { title: t("nav.rateCard"), url: "/admin/accounting/rate-card", capability: CAPABILITIES.accounting_view_rate_card },
+                { title: t("nav.income"), url: "/admin/accounting/income", capability: CAPABILITIES.accounting_view_income },
             ],
         },
         {

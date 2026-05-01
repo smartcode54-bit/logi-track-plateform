@@ -176,6 +176,7 @@ export default function DriverMonitorDashboard() {
         getTripsForExport,
         getTripsForExportResolved,
         trips,
+        getBillingForTrip,
     } = useDriverMonitor();
 
     const [tripPreviewCurrentUrl, setTripPreviewCurrentUrl] = useState("");
@@ -312,6 +313,8 @@ export default function DriverMonitorDashboard() {
         const d = toDateLocal(val);
         return d ? format(d, "dd/MM/yy HH:mm") : "-";
     };
+    const formatMoney = (amount?: number | null) =>
+        typeof amount === "number" ? `฿${amount.toLocaleString()}` : "-";
 
     const buildExportTable = (list: TripRecord[]) => {
         const headers = [
@@ -326,6 +329,7 @@ export default function DriverMonitorDashboard() {
             t("driverMonitor.table.partnerCode"),
             t("driverMonitor.table.status"),
             t("driverMonitor.table.deliveredTime"),
+            t("driverMonitor.table.estimatedRevenue"),
         ];
         const rows = list.map((trip) => {
             const created = toDateLocal((trip.id && checkInAtByTaskId[trip.id]) || trip.createdAt);
@@ -334,6 +338,7 @@ export default function DriverMonitorDashboard() {
             );
             const jobLabel = JOB_TYPE_LABEL[trip.jobType] || trip.jobType;
             const statusLabel = t(`driverMonitor.status.${trip.status}` as any);
+            const billing = getBillingForTrip(trip.id);
             return [
                 trip.spxTripId || trip.id?.slice(0, 10) || "",
                 created ? format(created, "dd/MM/yyyy HH:mm") : "",
@@ -346,6 +351,7 @@ export default function DriverMonitorDashboard() {
                 effectivePartnerCode(trip),
                 statusLabel,
                 delivered ? format(delivered, "dd/MM/yyyy HH:mm") : "",
+                billing ? billing.finalRateThb : trip.billingEstimateThb,
             ];
         });
         return { headers, rows };
@@ -672,12 +678,13 @@ export default function DriverMonitorDashboard() {
                                     <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.partnerCode")}</TableHead>
                                     <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.status")}</TableHead>
                                     <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.deliveredTime")}</TableHead>
+                                    <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider text-right">{t("driverMonitor.table.estimatedRevenue")}</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {loading ? (
                                     <TableRow>
-                                        <TableCell colSpan={11} className="h-32 text-center">
+                                        <TableCell colSpan={12} className="h-32 text-center">
                                             <div className="flex flex-col items-center justify-center gap-2">
                                                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                                                 <p className="text-sm text-muted-foreground">{t("driverMonitor.table.loadingData")}</p>
@@ -686,7 +693,7 @@ export default function DriverMonitorDashboard() {
                                     </TableRow>
                                 ) : paginatedTrips.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={11} className="h-32 text-center">
+                                        <TableCell colSpan={12} className="h-32 text-center">
                                             <p className="text-sm text-muted-foreground">{t("driverMonitor.table.noTrips")}</p>
                                         </TableCell>
                                     </TableRow>
@@ -729,6 +736,9 @@ export default function DriverMonitorDashboard() {
                                             </TableCell>
                                             <TableCell className="text-sm text-muted-foreground">
                                                 {formatTimestamp(trip.status === "delivered" && trip.deliveredTimestamp ? trip.deliveredTimestamp : trip.updatedAt)}
+                                            </TableCell>
+                                            <TableCell className="text-sm text-right font-medium">
+                                                {formatMoney(getBillingForTrip(trip.id)?.finalRateThb ?? trip.billingEstimateThb)}
                                             </TableCell>
                                         </TableRow>
                                     ))
@@ -1083,6 +1093,12 @@ export default function DriverMonitorDashboard() {
                                     <span className="text-muted-foreground">{t("driverMonitor.detail.partnerCode")}</span>
                                     <span className="font-mono text-xs">
                                         {effectivePartnerCode(detailTrip) || "-"}
+                                    </span>
+                                    <span className="text-muted-foreground">{t("driverMonitor.table.estimatedRevenue")}</span>
+                                    <span className="font-semibold">
+                                        {formatMoney(
+                                            getBillingForTrip(detailTrip.id)?.finalRateThb ?? detailTrip.billingEstimateThb
+                                        )}
                                     </span>
                                 </div>
                             </div>

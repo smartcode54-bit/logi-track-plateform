@@ -81,6 +81,17 @@ export const tripRecordSchema = z.object({
     deliveredLat: z.number().optional(),
     deliveredLng: z.number().optional(),
 
+    // Billing snapshot fields (optional)
+    billingEstimateThb: z.number().optional(),
+    billingBaseRateThb: z.number().optional(),
+    billingRateImportId: z.string().optional(),
+    billingLookupHubId: z.string().optional(),
+    billingLookupDestination: z.string().optional(),
+    billingFuelAdjustmentId: z.string().optional(),
+    billingRateMultiplier: z.number().optional(),
+    billingAddThbPerTrip: z.number().optional(),
+    billingEffectiveFromDateStr: z.string().optional(),
+
     createdAt: z.any().optional(),
     updatedAt: z.any().optional(),
 });

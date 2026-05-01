@@ -36,6 +36,8 @@ export default {
     "nav.fuel": "Fuel",
     "nav.other": "Other",
     "nav.auditExpense": "Audit expense",
+    "nav.rateCard": "Rate Card",
+    "nav.income": "Income (Ex)",
     "nav.operations": "Operations",
     "nav.firstMileTasks": "First Mile Tasks",
     "nav.sourceManagement": "Pickup Location Management",

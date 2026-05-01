@@ -67,6 +67,9 @@ export const DEFAULT_ROLE_CAPABILITIES: Record<
     CAPABILITIES.accounting_view_other,
     CAPABILITIES.accounting_edit_other,
     CAPABILITIES.accounting_audit_expense,
+    CAPABILITIES.accounting_view_rate_card,
+    CAPABILITIES.accounting_edit_rate_card,
+    CAPABILITIES.accounting_view_income,
     CAPABILITIES.reporting_view_analytics,
     CAPABILITIES.packages_view,
     CAPABILITIES.waitlist_view,
@@ -87,6 +90,8 @@ export const DEFAULT_ROLE_CAPABILITIES: Record<
     CAPABILITIES.accounting_view_fuel,
     CAPABILITIES.accounting_view_other,
     CAPABILITIES.accounting_audit_expense,
+    CAPABILITIES.accounting_view_rate_card,
+    CAPABILITIES.accounting_view_income,
     CAPABILITIES.packages_view,
   ],
   operator: [

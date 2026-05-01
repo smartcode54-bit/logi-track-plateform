@@ -12,6 +12,9 @@ import {
     type QueryDocumentSnapshot,
     type DocumentData,
     type QueryConstraint,
+    doc,
+    writeBatch,
+    serverTimestamp,
 } from "firebase/firestore";
 import { startOfDay, endOfDay, subDays, differenceInCalendarDays } from "date-fns";
 import { db } from "@/firebase/client";
@@ -20,6 +23,13 @@ import { TripRecord } from "@/validate/tripRecordSchema";
 import { Driver } from "@/validate/driverSchema";
 import { buildHubCodeToDisplayMapFromEntries, resolveHubOrSocDisplay } from "@/lib/hubDisplay";
 import { Task } from "@/validate/taskSchema";
+import {
+    computeTripBilling,
+    fetchFuelAdjustmentsForCustomers,
+    fetchRateEntriesForCustomers,
+    type TripBillingComputed,
+    resolveTaskCustomerId,
+} from "@/lib/billingRates";
 
 /**
  * Driver monitor trip_records loading:
@@ -235,6 +245,7 @@ export function useDriverMonitor() {
     const [incidentReportsByTripId, setIncidentReportsByTripId] = useState<
         Record<string, { description: string; delayCause: string | null; createdAt: Date | null }>
     >({});
+    const [tripBillingByTripId, setTripBillingByTripId] = useState<Record<string, TripBillingComputed>>({});
 
     const [dateFrom, setDateFrom] = useState<Date>(() => defaultDateRange().from);
     const [dateTo, setDateTo] = useState<Date>(() => defaultDateRange().to);
@@ -399,6 +410,82 @@ export function useDriverMonitor() {
         return () => unsub();
     }, []);
 
+    useEffect(() => {
+        let cancelled = false;
+        const run = async () => {
+            const taskById = new Map<string, Task>();
+            tasks.forEach((task) => {
+                if (task.id) taskById.set(task.id, task);
+                if (task.taskId) taskById.set(task.taskId, task);
+            });
+            const customerIds = new Set<string>();
+            trips.forEach((trip) => {
+                const task = taskById.get(trip.taskId || "") ?? taskById.get(trip.id || "");
+                const customerId = resolveTaskCustomerId(task);
+                if (customerId) customerIds.add(customerId);
+            });
+            const customerIdList = Array.from(customerIds);
+            const [rateEntries, fuelAdjustments] = await Promise.all([
+                fetchRateEntriesForCustomers(db, customerIdList),
+                fetchFuelAdjustmentsForCustomers(db, customerIdList),
+            ]);
+            if (cancelled) return;
+            const next: Record<string, TripBillingComputed> = {};
+            trips.forEach((trip) => {
+                if (!trip.id) return;
+                const task = taskById.get(trip.taskId || "") ?? taskById.get(trip.id || "");
+                const result = computeTripBilling(trip, task, rateEntries, fuelAdjustments);
+                if (result) next[trip.id] = result;
+            });
+            setTripBillingByTripId(next);
+        };
+        void run();
+        return () => {
+            cancelled = true;
+        };
+    }, [trips, tasks]);
+
+    useEffect(() => {
+        const deliveredWithoutSnapshot = trips.filter((trip) => {
+            if (!trip.id) return false;
+            if (trip.status !== "delivered") return false;
+            if (typeof trip.billingEstimateThb === "number") return false;
+            return !!tripBillingByTripId[trip.id];
+        });
+        if (!deliveredWithoutSnapshot.length) return;
+
+        let cancelled = false;
+        const run = async () => {
+            for (let i = 0; i < deliveredWithoutSnapshot.length; i += 200) {
+                if (cancelled) return;
+                const chunk = deliveredWithoutSnapshot.slice(i, i + 200);
+                const batch = writeBatch(db);
+                chunk.forEach((trip) => {
+                    if (!trip.id) return;
+                    const computed = tripBillingByTripId[trip.id];
+                    if (!computed) return;
+                    batch.update(doc(db, COLLECTIONS.TRIP_RECORDS, trip.id), {
+                        billingEstimateThb: computed.finalRateThb,
+                        billingBaseRateThb: computed.baseRateThb,
+                        billingRateImportId: computed.rateImportId,
+                        billingLookupHubId: computed.lookupHubId,
+                        billingLookupDestination: computed.lookupDestination,
+                        billingFuelAdjustmentId: computed.fuelAdjustmentId || null,
+                        billingRateMultiplier: computed.rateMultiplier,
+                        billingAddThbPerTrip: computed.addThbPerTrip,
+                        billingEffectiveFromDateStr: computed.effectiveFromDateStr || null,
+                        updatedAt: serverTimestamp(),
+                    });
+                });
+                await batch.commit();
+            }
+        };
+        void run();
+        return () => {
+            cancelled = true;
+        };
+    }, [trips, tripBillingByTripId]);
+
     const stats = useMemo(() => {
         const total = trips.length;
         const inTransit = trips.filter((t) => t.status === "in_transit").length;
@@ -487,6 +574,14 @@ export function useDriverMonitor() {
         setDateTo(c.to);
     }, []);
 
+    const getBillingForTrip = useCallback(
+        (tripId?: string) => {
+            if (!tripId) return null;
+            return tripBillingByTripId[tripId] ?? null;
+        },
+        [tripBillingByTripId]
+    );
+
     return {
         trips,
         paginatedTrips,
@@ -528,5 +623,6 @@ export function useDriverMonitor() {
         setItemsPerPage,
         getTripsForExport,
         getTripsForExportResolved,
+        getBillingForTrip,
     };
 }

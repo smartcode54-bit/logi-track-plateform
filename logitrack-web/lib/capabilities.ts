@@ -49,6 +49,9 @@ export const CAPABILITIES = {
   accounting_view_other: "accounting:view_other",
   accounting_edit_other: "accounting:edit_other",
   accounting_audit_expense: "accounting:audit_expense",
+  accounting_view_rate_card: "accounting:view_rate_card",
+  accounting_edit_rate_card: "accounting:edit_rate_card",
+  accounting_view_income: "accounting:view_income",
 
   // Reporting
   reporting_view_analytics: "reporting:view_analytics",
@@ -232,6 +235,21 @@ export const CAPABILITY_META: Record<
     description: "Review and approve/reject vehicle expenses",
     module: "Accounting",
   },
+  [CAPABILITIES.accounting_view_rate_card]: {
+    title: "View Rate Card",
+    description: "View customer rate cards and fuel adjustments",
+    module: "Accounting",
+  },
+  [CAPABILITIES.accounting_edit_rate_card]: {
+    title: "Edit Rate Card",
+    description: "Import and manage customer rate cards",
+    module: "Accounting",
+  },
+  [CAPABILITIES.accounting_view_income]: {
+    title: "View Income",
+    description: "View estimated income from delivered trips",
+    module: "Accounting",
+  },
   [CAPABILITIES.reporting_view_analytics]: {
     title: "View Analytics",
     description: "Analytics",
@@ -307,6 +325,8 @@ export const ROUTE_CAPABILITIES: Record<string, CapabilityId> = {
   "/admin/accounting/fuel": CAPABILITIES.accounting_view_fuel,
   "/admin/accounting/other": CAPABILITIES.accounting_view_other,
   "/admin/accounting/audit": CAPABILITIES.accounting_audit_expense,
+  "/admin/accounting/rate-card": CAPABILITIES.accounting_view_rate_card,
+  "/admin/accounting/income": CAPABILITIES.accounting_view_income,
   "/admin/analytics": CAPABILITIES.reporting_view_analytics,
   "/admin/payroll": CAPABILITIES.hr_view_payroll,
   "/admin/leave-requests": CAPABILITIES.hr_view_leave,

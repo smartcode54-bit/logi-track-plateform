@@ -53,6 +53,7 @@ export default {
     "driverMonitor.table.sealCode": "Seal Code",
     "driverMonitor.table.partnerCode": "Partner channel",
     "driverMonitor.table.status": "Status",
+    "driverMonitor.table.estimatedRevenue": "Estimated revenue",
     "driverMonitor.table.time": "Time",
     "driverMonitor.table.actions": "Actions",
 

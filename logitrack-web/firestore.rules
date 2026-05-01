@@ -105,6 +105,18 @@ service cloud.firestore {
       allow write: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
     }
 
+    // Customer-specific route rate cards for billing estimates.
+    match /customer_rate_entries/{docId} {
+      allow read: if request.auth != null && request.auth.token.admin == true;
+      allow write: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+    }
+
+    // Customer fuel-price-linked billing adjustments by effective date.
+    match /customer_fuel_rate_adjustments/{docId} {
+      allow read: if request.auth != null && request.auth.token.admin == true;
+      allow write: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+    }
+
     // Unified Tasks: Admin full; Drivers read, create (manual check-in), update (check-in, Completed) own tasks.
     // driverId on task = drivers collection document id (not always Auth UID); legacy tasks may store UID in driverId.
     match /tasks/{taskId} {

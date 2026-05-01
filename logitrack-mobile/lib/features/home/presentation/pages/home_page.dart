@@ -156,6 +156,14 @@ class _HomePageState extends State<HomePage> {
               },
             ),
             ListTile(
+              leading: const Icon(Icons.map_outlined),
+              title: Text('menu_hubs_reference'.tr()),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.pushNamed(context, '/hubs-reference');
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.calendar_month_outlined),
               title: Text('menu_working_holiday_calendar'.tr()),
               onTap: () {

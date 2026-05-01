@@ -43,6 +43,12 @@ export const COLLECTIONS = {
     /** Trip records (driver jobs - first_mile / line_haul) */
     TRIP_RECORDS: "trip_records",
 
+    /** Customer-specific billing rate rows (Hub -> destination -> vehicle class) */
+    CUSTOMER_RATE_ENTRIES: "customer_rate_entries",
+
+    /** Customer fuel-linked billing adjustments by effective date */
+    CUSTOMER_FUEL_RATE_ADJUSTMENTS: "customer_fuel_rate_adjustments",
+
     /** Hub and SOC locations (pickup/delivery points) */
     HUBS: "hubs",
 

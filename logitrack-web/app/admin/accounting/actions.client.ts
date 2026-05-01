@@ -11,6 +11,7 @@ import {
     serverTimestamp,
     Timestamp,
     writeBatch,
+    where,
 } from "firebase/firestore";
 import { COLLECTIONS } from "@/lib/collections";
 
@@ -76,12 +77,51 @@ export interface TollImportRowInput {
     description?: string;
 }
 
+export interface CustomerRateEntryInput {
+    hubId: string;
+    rawHubName: string;
+    destinationCode: string;
+    vehicleClass: string;
+    rateThb: number;
+    distanceKm?: number;
+}
+
+export interface CustomerRateEntryRow extends CustomerRateEntryInput {
+    id: string;
+    customerId: string;
+    importId: string;
+    effectiveFrom: Date;
+    importedAt?: Date;
+}
+
+export interface CustomerFuelRateAdjustmentInput {
+    customerId: string;
+    effectiveFrom: Date;
+    rateMultiplier: number;
+    addThbPerTrip?: number;
+    referenceFuelPriceThbPerLitre?: number;
+    announcementNote?: string;
+}
+
+export interface CustomerFuelRateAdjustmentRow extends CustomerFuelRateAdjustmentInput {
+    id: string;
+    createdAt?: Date;
+}
+
 function parseDate(v: unknown): Date | undefined {
     if (!v) return undefined;
     if (v instanceof Date) return v;
     if (typeof (v as { toDate?: () => Date }).toDate === "function") return (v as { toDate: () => Date }).toDate();
     if (typeof v === "string") return new Date(v);
     return undefined;
+}
+
+function normalizeCode(v: string): string {
+    return (v ?? "").trim().toUpperCase();
+}
+
+function parseDateOnly(value: Date): Date {
+    return new Date(Date.UTC(value.getFullYear(), value.getMonth(), value.getDate(), 0, 0, 0, 0));
 }
 
 export async function getVehicleExpensesByType(type: VehicleExpenseType): Promise<VehicleExpenseRow[]> {
@@ -264,6 +304,132 @@ export async function batchCreateTollExpenseImports(
         }
         await batch.commit();
     }
+}
+
+export async function batchCreateCustomerRateEntries(
+    customerId: string,
+    rows: CustomerRateEntryInput[],
+    effectiveFrom: Date = new Date()
+): Promise<{ importId: string; written: number }> {
+    const normalizedCustomerId = customerId.trim();
+    if (!normalizedCustomerId) throw new Error("Customer is required");
+    if (rows.length === 0) throw new Error("No rows to import");
+
+    const importId = `rc_${Date.now()}`;
+    const effectiveFromTs = Timestamp.fromDate(parseDateOnly(effectiveFrom));
+    const colRef = collection(db, COLLECTIONS.CUSTOMER_RATE_ENTRIES);
+    let written = 0;
+
+    for (let i = 0; i < rows.length; i += BATCH_LIMIT) {
+        const chunk = rows.slice(i, i + BATCH_LIMIT);
+        const batch = writeBatch(db);
+        for (const row of chunk) {
+            const hubId = normalizeCode(row.hubId);
+            const destinationCode = normalizeCode(row.destinationCode);
+            const vehicleClass = normalizeCode(row.vehicleClass || "4WJ");
+            const ref = doc(colRef);
+            batch.set(ref, {
+                customerId: normalizedCustomerId,
+                importId,
+                hubId,
+                rawHubName: row.rawHubName.trim(),
+                destinationCode,
+                vehicleClass,
+                rateThb: Number(row.rateThb),
+                distanceKm: row.distanceKm != null ? Number(row.distanceKm) : null,
+                effectiveFrom: effectiveFromTs,
+                importedAt: serverTimestamp(),
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+            });
+            written += 1;
+        }
+        await batch.commit();
+    }
+    return { importId, written };
+}
+
+export async function getCustomerRateEntries(customerId?: string): Promise<CustomerRateEntryRow[]> {
+    const colRef = collection(db, COLLECTIONS.CUSTOMER_RATE_ENTRIES);
+    const useCustomer = customerId?.trim();
+    const q = useCustomer
+        ? query(colRef, where("customerId", "==", useCustomer))
+        : query(colRef);
+    const snap = await getDocs(q);
+    return snap.docs.map((docSnap) => {
+        const d = docSnap.data();
+        return {
+            id: docSnap.id,
+            customerId: String(d.customerId ?? ""),
+            importId: String(d.importId ?? ""),
+            hubId: String(d.hubId ?? ""),
+            rawHubName: String(d.rawHubName ?? ""),
+            destinationCode: String(d.destinationCode ?? ""),
+            vehicleClass: String(d.vehicleClass ?? "4WJ"),
+            rateThb: Number(d.rateThb ?? 0),
+            distanceKm: d.distanceKm != null ? Number(d.distanceKm) : undefined,
+            effectiveFrom: parseDate(d.effectiveFrom) ?? new Date(0),
+            importedAt: parseDate(d.importedAt),
+        };
+    }).sort((a, b) => {
+        const byDate = b.effectiveFrom.getTime() - a.effectiveFrom.getTime();
+        if (byDate !== 0) return byDate;
+        return b.importId.localeCompare(a.importId);
+    });
+}
+
+export async function createCustomerFuelRateAdjustment(
+    input: CustomerFuelRateAdjustmentInput
+): Promise<void> {
+    const customerId = input.customerId.trim();
+    if (!customerId) throw new Error("Customer is required");
+    if (!Number.isFinite(input.rateMultiplier) || input.rateMultiplier <= 0) {
+        throw new Error("rateMultiplier must be greater than 0");
+    }
+    const colRef = collection(db, COLLECTIONS.CUSTOMER_FUEL_RATE_ADJUSTMENTS);
+    const ref = doc(colRef);
+    const batch = writeBatch(db);
+    batch.set(ref, {
+        customerId,
+        effectiveFrom: Timestamp.fromDate(parseDateOnly(input.effectiveFrom)),
+        rateMultiplier: Number(input.rateMultiplier),
+        addThbPerTrip: Number(input.addThbPerTrip ?? 0),
+        referenceFuelPriceThbPerLitre:
+            input.referenceFuelPriceThbPerLitre != null
+                ? Number(input.referenceFuelPriceThbPerLitre)
+                : null,
+        announcementNote: input.announcementNote?.trim() || "",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+    });
+    await batch.commit();
+}
+
+export async function getCustomerFuelRateAdjustments(
+    customerId?: string
+): Promise<CustomerFuelRateAdjustmentRow[]> {
+    const colRef = collection(db, COLLECTIONS.CUSTOMER_FUEL_RATE_ADJUSTMENTS);
+    const useCustomer = customerId?.trim();
+    const q = useCustomer
+        ? query(colRef, where("customerId", "==", useCustomer))
+        : query(colRef);
+    const snap = await getDocs(q);
+    return snap.docs.map((docSnap) => {
+        const d = docSnap.data();
+        return {
+            id: docSnap.id,
+            customerId: String(d.customerId ?? ""),
+            effectiveFrom: parseDate(d.effectiveFrom) ?? new Date(0),
+            rateMultiplier: Number(d.rateMultiplier ?? 1),
+            addThbPerTrip: d.addThbPerTrip != null ? Number(d.addThbPerTrip) : 0,
+            referenceFuelPriceThbPerLitre:
+                d.referenceFuelPriceThbPerLitre != null
+                    ? Number(d.referenceFuelPriceThbPerLitre)
+                    : undefined,
+            announcementNote: String(d.announcementNote ?? ""),
+            createdAt: parseDate(d.createdAt),
+        };
+    }).sort((a, b) => b.effectiveFrom.getTime() - a.effectiveFrom.getTime());
 }
 
 /** ดึงรายการ vehicle expenses ทั้ง fuel และ other สำหรับหน้าตรวจสอบ (filter ตาม status ได้) */

@@ -1,5 +1,24 @@
 import 'package:url_launcher/url_launcher.dart';
 
+/// เปิด Google Maps ไปที่พิกัด (ค้นหา/ปักหมุด) — ไม่บังคับจุดเริ่มนำทาง
+///
+/// อ้างอิง: https://developers.google.com/maps/documentation/urls/get-started#search-action
+Future<bool> openGoogleMapsPlace({
+  required double lat,
+  required double lng,
+}) async {
+  if (!lat.isFinite || !lng.isFinite) return false;
+  final uri = Uri.https('www.google.com', '/maps/search/', {
+    'api': '1',
+    'query': '${lat.toStringAsFixed(6)},${lng.toStringAsFixed(6)}',
+  });
+  try {
+    return await launchUrl(uri, mode: LaunchMode.externalApplication);
+  } catch (_) {
+    return false;
+  }
+}
+
 /// เปิดแอปแผนที่ (Google Maps) โหมดขับรถ จากตำแหน่งปัจจุบัน → ปลายทาง
 ///
 /// ถ้ามีพิกัดปลายทางใช้พิกัด; ถ้าไม่มีใช้ชื่อสถานที่ให้ Google ค้นหา
