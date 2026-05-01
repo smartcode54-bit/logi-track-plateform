@@ -3,6 +3,7 @@
 import { db } from "@/firebase/client";
 import {
     collection,
+    deleteDoc,
     getDocs,
     query,
     orderBy,
@@ -349,6 +350,41 @@ export async function batchCreateCustomerRateEntries(
     return { importId, written };
 }
 
+export async function createCustomerRateEntry(
+    customerId: string,
+    row: CustomerRateEntryInput,
+    effectiveFrom: Date = new Date()
+): Promise<{ id: string; importId: string }> {
+    const normalizedCustomerId = customerId.trim();
+    if (!normalizedCustomerId) throw new Error("Customer is required");
+    const hubId = normalizeCode(row.hubId);
+    const destinationCode = normalizeCode(row.destinationCode);
+    const vehicleClass = normalizeCode(row.vehicleClass || "4WJ");
+    if (!hubId || !destinationCode) throw new Error("hubId and destinationCode are required");
+    if (!Number.isFinite(row.rateThb)) throw new Error("rateThb is required");
+
+    const importId = `manual_${Date.now()}`;
+    const effectiveFromTs = Timestamp.fromDate(parseDateOnly(effectiveFrom));
+    const ref = doc(collection(db, COLLECTIONS.CUSTOMER_RATE_ENTRIES));
+    await writeBatch(db)
+        .set(ref, {
+            customerId: normalizedCustomerId,
+            importId,
+            hubId,
+            rawHubName: row.rawHubName.trim() || hubId,
+            destinationCode,
+            vehicleClass,
+            rateThb: Number(row.rateThb),
+            distanceKm: row.distanceKm != null ? Number(row.distanceKm) : null,
+            effectiveFrom: effectiveFromTs,
+            importedAt: serverTimestamp(),
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+        })
+        .commit();
+    return { id: ref.id, importId };
+}
+
 export async function getCustomerRateEntries(customerId?: string): Promise<CustomerRateEntryRow[]> {
     const colRef = collection(db, COLLECTIONS.CUSTOMER_RATE_ENTRIES);
     const useCustomer = customerId?.trim();
@@ -430,6 +466,38 @@ export async function getCustomerFuelRateAdjustments(
             createdAt: parseDate(d.createdAt),
         };
     }).sort((a, b) => b.effectiveFrom.getTime() - a.effectiveFrom.getTime());
+}
+
+export async function deleteCustomerFuelRateAdjustment(id: string): Promise<void> {
+    const normalizedId = id.trim();
+    if (!normalizedId) throw new Error("Adjustment id is required");
+    await deleteDoc(doc(db, COLLECTIONS.CUSTOMER_FUEL_RATE_ADJUSTMENTS, normalizedId));
+}
+
+export async function updateCustomerFuelRateAdjustment(
+    id: string,
+    input: CustomerFuelRateAdjustmentInput
+): Promise<void> {
+    const normalizedId = id.trim();
+    const customerId = input.customerId.trim();
+    if (!normalizedId) throw new Error("Adjustment id is required");
+    if (!customerId) throw new Error("Customer is required");
+    if (!Number.isFinite(input.rateMultiplier) || input.rateMultiplier <= 0) {
+        throw new Error("rateMultiplier must be greater than 0");
+    }
+
+    await updateDoc(doc(db, COLLECTIONS.CUSTOMER_FUEL_RATE_ADJUSTMENTS, normalizedId), {
+        customerId,
+        effectiveFrom: Timestamp.fromDate(parseDateOnly(input.effectiveFrom)),
+        rateMultiplier: Number(input.rateMultiplier),
+        addThbPerTrip: Number(input.addThbPerTrip ?? 0),
+        referenceFuelPriceThbPerLitre:
+            input.referenceFuelPriceThbPerLitre != null
+                ? Number(input.referenceFuelPriceThbPerLitre)
+                : null,
+        announcementNote: input.announcementNote?.trim() || "",
+        updatedAt: serverTimestamp(),
+    });
 }
 
 /** ดึงรายการ vehicle expenses ทั้ง fuel และ other สำหรับหน้าตรวจสอบ (filter ตาม status ได้) */
