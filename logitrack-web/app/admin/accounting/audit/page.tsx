@@ -310,6 +310,7 @@ export default function AccountingAuditPage() {
                             <TableRow>
                                 <TableHead>{t("accounting.table.date")}</TableHead>
                                 <TableHead>{t("accounting.table.driver")}</TableHead>
+                                <TableHead>{t("accounting.table.licensePlate")}</TableHead>
                                 <TableHead>{t("accounting.table.amount")}</TableHead>
                                 <TableHead>{t("accounting.audit.tableType")}</TableHead>
                                 <TableHead>{t("accounting.audit.tableStatus")}</TableHead>
@@ -324,14 +325,12 @@ export default function AccountingAuditPage() {
                                     onClick={() => setDetailRow(row)}
                                 >
                                     <TableCell className="whitespace-nowrap font-mono text-xs">
-                                        {format(row.date, "dd MMM yyyy")}
+                                        {format(row.date, "dd MMM yyyy HH:mm:ss")}
                                     </TableCell>
                                     <TableCell>
                                         <div className="font-medium">{row.driverName ?? row.driverId ?? "—"}</div>
-                                        {row.licensePlate && (
-                                            <div className="text-xs text-muted-foreground font-mono">{row.licensePlate}</div>
-                                        )}
                                     </TableCell>
+                                    <TableCell className="font-mono text-xs">{row.licensePlate ?? "—"}</TableCell>
                                     <TableCell className="font-semibold">฿{row.amount.toLocaleString()}</TableCell>
                                     <TableCell>
                                         {row.type === "fuel" ? (
@@ -394,7 +393,7 @@ export default function AccountingAuditPage() {
                             ))}
                             {records.length === 0 && (
                                 <TableRow>
-                                    <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                                         {t("accounting.noRecords")}
                                     </TableCell>
                                 </TableRow>
@@ -414,7 +413,7 @@ export default function AccountingAuditPage() {
                                 : t("accounting.detail.otherTitle")}
                         </DialogTitle>
                         <DialogDescription>
-                            {detailRow && format(detailRow.date, "dd MMM yyyy")} · {detailRow?.driverName ?? detailRow?.driverId}
+                            {detailRow && format(detailRow.date, "dd MMM yyyy HH:mm:ss")} · {detailRow?.driverName ?? detailRow?.driverId}
                         </DialogDescription>
                     </DialogHeader>
                     {detailRow && (

@@ -24,3 +24,6 @@ logitrack-mobile/android/build/
 logitrack-mobile/.dart_tool/
 logitrack-mobile/android/.gradle/
 logitrack-mobile/android/.cxx/
+
+# Local sample import files
+file example/

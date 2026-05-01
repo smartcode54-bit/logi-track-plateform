@@ -11,6 +11,7 @@ import {
     TruckOption,
     updateVehicleExpense,
 } from "../actions.client";
+import { TollExpenseImportDialog } from "../toll-expense-import-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Receipt, DollarSign, Hash, TrendingUp, Loader2, RefreshCw, Save, Search } from "lucide-react";
@@ -56,6 +57,7 @@ export default function AccountingOtherPage() {
     const [plateSearch, setPlateSearch] = useState("");
     const [filterMonth, setFilterMonth] = useState<string>("all");
     const [filterYear, setFilterYear] = useState<string>("all");
+    const [quickDateFilter, setQuickDateFilter] = useState<"all" | "thisMonth" | "last30Days">("all");
     const [loading, setLoading] = useState(true);
     const [detailRow, setDetailRow] = useState<VehicleExpenseRow | null>(null);
     const [editForm, setEditForm] = useState<VehicleExpenseRow | null>(null);
@@ -183,8 +185,31 @@ export default function AccountingOtherPage() {
             const m = Number(filterMonth);
             if (!Number.isNaN(m)) list = list.filter((r) => r.date.getMonth() === m);
         }
+        if (quickDateFilter === "thisMonth") {
+            const now = new Date();
+            list = list.filter(
+                (r) => r.date.getMonth() === now.getMonth() && r.date.getFullYear() === now.getFullYear()
+            );
+        } else if (quickDateFilter === "last30Days") {
+            const cutoff = new Date();
+            cutoff.setHours(0, 0, 0, 0);
+            cutoff.setDate(cutoff.getDate() - 30);
+            list = list.filter((r) => r.date >= cutoff);
+        }
         return list;
-    }, [records, filterDriverId, filterTruckId, plateSearch, filterYear, filterMonth]);
+    }, [records, filterDriverId, filterTruckId, plateSearch, filterYear, filterMonth, quickDateFilter]);
+
+    const applyQuickDateFilter = (next: "thisMonth" | "last30Days") => {
+        setFilterMonth("all");
+        setFilterYear("all");
+        setQuickDateFilter(next);
+    };
+
+    const resetQuickDateFilter = () => {
+        setQuickDateFilter("all");
+        setFilterMonth("all");
+        setFilterYear("all");
+    };
 
     const totalAmount = filteredRecords.reduce((s, r) => s + r.amount, 0);
     const count = filteredRecords.length;
@@ -210,6 +235,9 @@ export default function AccountingOtherPage() {
                     <h1 className="text-3xl font-bold tracking-tight">{t("accounting.other.title")}</h1>
                     <p className="text-muted-foreground mt-1">{t("accounting.other.subtitle")}</p>
                 </div>
+                {canEdit && (
+                    <TollExpenseImportDialog onSuccess={loadData} canImport={canEdit} />
+                )}
             </div>
 
             <AccountingBatchImagesZipCard records={records} kind="other" />
@@ -316,7 +344,13 @@ export default function AccountingOtherPage() {
                         <label className="text-xs font-medium text-muted-foreground">
                             {t("accounting.filter.month")}
                         </label>
-                        <Select value={filterMonth} onValueChange={setFilterMonth}>
+                        <Select
+                            value={filterMonth}
+                            onValueChange={(v) => {
+                                setQuickDateFilter("all");
+                                setFilterMonth(v);
+                            }}
+                        >
                             <SelectTrigger className="w-[160px]">
                                 <SelectValue placeholder={t("accounting.filter.all")} />
                             </SelectTrigger>
@@ -334,7 +368,13 @@ export default function AccountingOtherPage() {
                         <label className="text-xs font-medium text-muted-foreground">
                             {t("accounting.filter.year")}
                         </label>
-                        <Select value={filterYear} onValueChange={setFilterYear}>
+                        <Select
+                            value={filterYear}
+                            onValueChange={(v) => {
+                                setQuickDateFilter("all");
+                                setFilterYear(v);
+                            }}
+                        >
                             <SelectTrigger className="w-[120px]">
                                 <SelectValue placeholder={t("accounting.filter.all")} />
                             </SelectTrigger>
@@ -347,6 +387,38 @@ export default function AccountingOtherPage() {
                                 ))}
                             </SelectContent>
                         </Select>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-medium text-muted-foreground">
+                            {t("accounting.filter.quick")}
+                        </label>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant={quickDateFilter === "thisMonth" ? "default" : "outline"}
+                                onClick={() => applyQuickDateFilter("thisMonth")}
+                            >
+                                {t("accounting.filter.thisMonth")}
+                            </Button>
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant={quickDateFilter === "last30Days" ? "default" : "outline"}
+                                onClick={() => applyQuickDateFilter("last30Days")}
+                            >
+                                {t("accounting.filter.last30Days")}
+                            </Button>
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                onClick={resetQuickDateFilter}
+                                disabled={quickDateFilter === "all" && filterMonth === "all" && filterYear === "all"}
+                            >
+                                {t("accounting.filter.reset")}
+                            </Button>
+                        </div>
                     </div>
                 </CardContent>
             </Card>
@@ -365,6 +437,7 @@ export default function AccountingOtherPage() {
                         <TableHeader>
                             <TableRow>
                                 <TableHead>{t("accounting.table.date")}</TableHead>
+                                <TableHead>{t("accounting.table.licensePlate")}</TableHead>
                                 <TableHead>{t("accounting.table.driver")}</TableHead>
                                 <TableHead>{t("accounting.table.category")}</TableHead>
                                 <TableHead className="text-right">{t("accounting.table.amount")}</TableHead>
@@ -379,8 +452,9 @@ export default function AccountingOtherPage() {
                                     onClick={() => setDetailRow(row)}
                                 >
                                     <TableCell className="whitespace-nowrap font-mono text-xs">
-                                        {format(row.date, "dd MMM yyyy")}
+                                        {format(row.date, "dd MMM yyyy HH:mm:ss")}
                                     </TableCell>
+                                    <TableCell className="font-mono text-sm">{row.licensePlate ?? "—"}</TableCell>
                                     <TableCell>{row.driverName ?? (row.driverId || "—")}</TableCell>
                                     <TableCell>
                                         {row.category ? t(categoryKeys[row.category] ?? row.category) : "—"}
@@ -393,7 +467,7 @@ export default function AccountingOtherPage() {
                             ))}
                             {filteredRecords.length === 0 && (
                                 <TableRow>
-                                    <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+                                    <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
                                         {t("accounting.noRecords")}
                                     </TableCell>
                                 </TableRow>
@@ -409,7 +483,7 @@ export default function AccountingOtherPage() {
                     <DialogHeader className="px-6 pt-6 pb-2 shrink-0">
                         <DialogTitle>{t("accounting.detail.otherTitle")}</DialogTitle>
                         <DialogDescription>
-                            {detailRow && format(detailRow.date, "dd MMM yyyy")} · {detailRow?.driverName ?? detailRow?.driverId}
+                            {detailRow && format(detailRow.date, "dd MMM yyyy HH:mm:ss")} · {detailRow?.driverName ?? detailRow?.driverId}
                         </DialogDescription>
                     </DialogHeader>
                     {detailRow && editForm && (
@@ -463,7 +537,7 @@ export default function AccountingOtherPage() {
                                 <div className="flex-1 overflow-y-auto p-6 space-y-4">
                                     <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
                                         <Label className="text-muted-foreground">{t("accounting.table.date")}</Label>
-                                        <span className="font-medium h-9 flex items-center">{format(editForm.date, "dd MMM yyyy")}</span>
+                                        <span className="font-medium h-9 flex items-center">{format(editForm.date, "dd MMM yyyy HH:mm:ss")}</span>
                                         <Label className="text-muted-foreground">{t("accounting.detail.driver")}</Label>
                                         <Input value={editForm.driverName ?? editForm.driverId ?? "—"} readOnly className="h-9 bg-muted/50 cursor-not-allowed" />
                                         <Label className="text-muted-foreground">{t("accounting.detail.vehicle")}</Label>

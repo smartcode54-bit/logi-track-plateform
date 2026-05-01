@@ -260,6 +260,19 @@ service cloud.firestore {
       allow write: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
     }
 
+    // Required shape for admin-created vehicle expenses (import / backfill).
+    function vehicleExpenseAdminCreateValid() {
+      let d = request.resource.data;
+      return d.driverId is string
+        && d.driverId.size() > 0
+        && d.type is string
+        && (d.type == 'fuel' || d.type == 'other')
+        && d.date is timestamp
+        && d.amount is number
+        && d.status is string
+        && (d.status == 'PENDING' || d.status == 'APPROVED' || d.status == 'REJECTED');
+    }
+
     // Vehicle expenses: admin full; drivers create/read/update own only (driverId = auth UID or driver doc id).
     match /vehicle_expenses/{docId} {
       allow read: if request.auth != null && (
@@ -268,6 +281,7 @@ service cloud.firestore {
         (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
       allow create: if isAppCheckVerified() && request.auth != null && (
+        (request.auth.token.admin == true && vehicleExpenseAdminCreateValid()) ||
         request.resource.data.driverId == request.auth.uid ||
         (request.resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(request.resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
