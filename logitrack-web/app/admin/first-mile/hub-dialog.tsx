@@ -216,7 +216,7 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
                                                 <SelectValue placeholder={t("firstMile.hub.stationTypePlaceholder")} />
                                             </SelectTrigger>
                                         </FormControl>
-                                        <SelectContent>
+                                        <SelectContent className="z-[1005]" position="popper">
                                             {STATION_TYPE_ENUM.map((type) => (
                                                 <SelectItem key={type} value={type}>
                                                     {t(`firstMile.hub.stationType.${type}`)}
@@ -242,7 +242,7 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
                                                     <SelectValue placeholder={t("firstMile.hub.linkTypePlaceholder")} />
                                                 </SelectTrigger>
                                             </FormControl>
-                                            <SelectContent>
+                                            <SelectContent className="z-[1005]" position="popper">
                                                 {CUSTOMER_LINK_KIND_ENUM.map((kind) => (
                                                     <SelectItem key={kind} value={kind}>
                                                         {kind === "customer" ? t("firstMile.hub.linkType.customer") : t("firstMile.hub.linkType.partner")}
@@ -266,7 +266,7 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
                                                     <SelectValue placeholder={t("firstMile.hub.linkedCustomerPlaceholder")} />
                                                 </SelectTrigger>
                                             </FormControl>
-                                            <SelectContent>
+                                            <SelectContent className="z-[1005]" position="popper">
                                                 {customers.map((customer) => (
                                                     <SelectItem key={customer.id} value={customer.id}>
                                                         {customer.code} - {customer.name}
