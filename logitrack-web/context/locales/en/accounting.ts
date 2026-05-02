@@ -195,6 +195,7 @@ export default {
     "accounting.rateCard.import.title": "Import customer rate card",
     "accounting.rateCard.import.selectCustomer": "Customer",
     "accounting.rateCard.import.selectCustomerPlaceholder": "Select customer",
+    "accounting.rateCard.import.effectiveDatePlaceholder": "dd/MM/yyyy",
     "accounting.rateCard.import.clickUpload": "Choose rate card Excel file",
     "accounting.rateCard.import.formatsSupported": ".xlsx, .xls supported",
     "accounting.rateCard.import.parseError": "Could not parse the file. Check headers and values.",

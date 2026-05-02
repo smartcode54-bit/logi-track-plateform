@@ -123,8 +123,9 @@ export default function AccountingRateCardPage() {
         return map;
     }, [hubs]);
     const formatSource = (hubId: string) => sourceNameByHubId.get(hubId) ?? hubNameById.get(hubId) ?? hubId;
+    /** Same ordering/hints as origin + SOC labels for legacy destination-only codes (imports). */
     const formatDestination = (destinationCode: string) =>
-        (SOC_DESTINATIONS as Record<string, string>)[destinationCode] ?? destinationCode;
+        (SOC_DESTINATIONS as Record<string, string>)[destinationCode] ?? formatSource(destinationCode);
 
     const loadData = async () => {
         setLoading(true);
@@ -196,16 +197,47 @@ export default function AccountingRateCardPage() {
         }
         return list;
     }, [entries, filterCustomerId, filterSourceHubId, filterDestinationCode, filterVehicleClass, filterSearch]);
-    const sourceHubOptions = useMemo(() => {
+    /** Single option list for origin + manual/filter destination so hubs need not be split into two workflows. */
+    const rateCardLocationOptions = useMemo(() => {
         const fromHubs = hubs.map((h) => h.id);
         const fromEntries = entries.map((e) => e.hubId);
         return Array.from(new Set([...fromHubs, ...fromEntries])).sort((a, b) => a.localeCompare(b));
     }, [hubs, entries]);
-    const destinationOptions = useMemo(() => {
-        const socKeys = Object.keys(SOC_DESTINATIONS as Record<string, string>);
-        const fromEntries = entries.map((e) => e.destinationCode);
-        return Array.from(new Set([...socKeys, ...fromEntries])).sort((a, b) => a.localeCompare(b));
-    }, [entries]);
+    /** When a customer is chosen: only hubId / destinationCode seen for that customer; if none yet, full master list. */
+    const manualLocationOptions = useMemo(() => {
+        const cid = manualRateForm.customerId.trim();
+        if (!cid) return rateCardLocationOptions;
+        const scoped = new Set<string>();
+        for (const e of entries) {
+            if (e.customerId !== cid) continue;
+            scoped.add(e.hubId);
+            scoped.add(e.destinationCode);
+        }
+        if (scoped.size === 0) return rateCardLocationOptions;
+        return Array.from(scoped).sort((a, b) => a.localeCompare(b));
+    }, [manualRateForm.customerId, entries, rateCardLocationOptions]);
+    const filterLocationOptions = useMemo(() => {
+        if (filterCustomerId === "all") return rateCardLocationOptions;
+        const scoped = new Set<string>();
+        for (const e of entries) {
+            if (e.customerId !== filterCustomerId) continue;
+            scoped.add(e.hubId);
+            scoped.add(e.destinationCode);
+        }
+        if (scoped.size === 0) return rateCardLocationOptions;
+        return Array.from(scoped).sort((a, b) => a.localeCompare(b));
+    }, [filterCustomerId, entries, rateCardLocationOptions]);
+    const manualLocationComboboxOptions = useMemo<ComboboxOption[]>(
+        () => manualLocationOptions.map((code) => ({ value: code, label: formatSource(code) })),
+        [manualLocationOptions, t]
+    );
+    const filterLocationComboboxOptions = useMemo<ComboboxOption[]>(
+        () => [
+            { value: "all", label: t("accounting.filter.all") },
+            ...filterLocationOptions.map((code) => ({ value: code, label: formatSource(code) })),
+        ],
+        [filterLocationOptions, t]
+    );
     const vehicleOptions = useMemo(
         () => Array.from(new Set(entries.map((e) => e.vehicleClass))).sort((a, b) => a.localeCompare(b)),
         [entries]
@@ -215,23 +247,6 @@ export default function AccountingRateCardPage() {
         if (options.length === 0) return ["4WJ"];
         return options;
     }, [truckTypes, vehicleOptions]);
-    const sourceComboboxOptions = useMemo<ComboboxOption[]>(
-        () => [
-            { value: "all", label: t("accounting.filter.all") },
-            ...sourceHubOptions.map((hubId) => ({ value: hubId, label: formatSource(hubId) })),
-        ],
-        [sourceHubOptions, t]
-    );
-    const destinationComboboxOptions = useMemo<ComboboxOption[]>(
-        () => [
-            { value: "all", label: t("accounting.filter.all") },
-            ...destinationOptions.map((destinationCode) => ({
-                value: destinationCode,
-                label: formatDestination(destinationCode),
-            })),
-        ],
-        [destinationOptions, t]
-    );
     const entriesTotalPages = Math.max(1, Math.ceil(filteredEntries.length / entriesPerPage));
     const paginatedEntries = useMemo(() => {
         const start = (entriesPage - 1) * entriesPerPage;
@@ -259,6 +274,26 @@ export default function AccountingRateCardPage() {
             setManualRateForm((prev) => ({ ...prev, vehicleClass: manualVehicleClassOptions[0] }));
         }
     }, [manualVehicleClassOptions, manualRateForm.vehicleClass]);
+
+    useEffect(() => {
+        setManualRateForm((prev) => {
+            const hubOk = !prev.hubId || manualLocationOptions.includes(prev.hubId);
+            const destOk = !prev.destinationCode || manualLocationOptions.includes(prev.destinationCode);
+            if (hubOk && destOk) return prev;
+            return {
+                ...prev,
+                hubId: hubOk ? prev.hubId : "",
+                destinationCode: destOk ? prev.destinationCode : "",
+            };
+        });
+    }, [manualLocationOptions]);
+
+    useEffect(() => {
+        setFilterSourceHubId((prev) => (prev === "all" || filterLocationOptions.includes(prev) ? prev : "all"));
+        setFilterDestinationCode((prev) =>
+            prev === "all" || filterLocationOptions.includes(prev) ? prev : "all"
+        );
+    }, [filterLocationOptions]);
 
     const handleCreateAdjustment = async () => {
         setAdjustmentError(null);
@@ -506,7 +541,7 @@ export default function AccountingRateCardPage() {
                         <div className="space-y-1.5">
                             <Label>{t("accounting.rateCard.table.hubId")}</Label>
                             <Combobox
-                                options={sourceComboboxOptions.filter((x) => x.value !== "all")}
+                                options={manualLocationComboboxOptions}
                                 value={manualRateForm.hubId}
                                 onSelect={(value) => setManualRateForm((prev) => ({ ...prev, hubId: value || "" }))}
                                 placeholder={t("accounting.rateCard.filterSource")}
@@ -517,7 +552,7 @@ export default function AccountingRateCardPage() {
                         <div className="space-y-1.5">
                             <Label>{t("accounting.rateCard.table.destination")}</Label>
                             <Combobox
-                                options={destinationComboboxOptions.filter((x) => x.value !== "all")}
+                                options={manualLocationComboboxOptions}
                                 value={manualRateForm.destinationCode}
                                 onSelect={(value) =>
                                     setManualRateForm((prev) => ({ ...prev, destinationCode: value || "" }))
@@ -619,7 +654,7 @@ export default function AccountingRateCardPage() {
                             <div className="flex flex-col gap-1.5 min-w-[200px]">
                                 <Label>{t("accounting.rateCard.filterSource")}</Label>
                                 <Combobox
-                                    options={sourceComboboxOptions}
+                                    options={filterLocationComboboxOptions}
                                     value={filterSourceHubId}
                                     onSelect={(value) => setFilterSourceHubId(value || "all")}
                                     placeholder={t("accounting.rateCard.filterSource")}
@@ -631,7 +666,7 @@ export default function AccountingRateCardPage() {
                             <div className="flex flex-col gap-1.5 min-w-[200px]">
                                 <Label>{t("accounting.rateCard.filterDestination")}</Label>
                                 <Combobox
-                                    options={destinationComboboxOptions}
+                                    options={filterLocationComboboxOptions}
                                     value={filterDestinationCode}
                                     onSelect={(value) => setFilterDestinationCode(value || "all")}
                                     placeholder={t("accounting.rateCard.filterDestination")}

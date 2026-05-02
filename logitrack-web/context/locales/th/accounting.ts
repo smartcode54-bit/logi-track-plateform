@@ -195,6 +195,7 @@ export default {
     "accounting.rateCard.import.title": "นำเข้าเรทราคาลูกค้า",
     "accounting.rateCard.import.selectCustomer": "ลูกค้า",
     "accounting.rateCard.import.selectCustomerPlaceholder": "เลือกลูกค้า",
+    "accounting.rateCard.import.effectiveDatePlaceholder": "dd/MM/yyyy",
     "accounting.rateCard.import.clickUpload": "เลือกไฟล์ Excel ของ Rate Card",
     "accounting.rateCard.import.formatsSupported": "รองรับ .xlsx, .xls",
     "accounting.rateCard.import.parseError": "ไม่สามารถอ่านไฟล์ได้ ตรวจสอบหัวคอลัมน์และข้อมูล",

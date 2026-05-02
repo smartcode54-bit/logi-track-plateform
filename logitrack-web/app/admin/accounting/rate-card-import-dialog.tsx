@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useLanguage } from "@/context/language";
 import {
@@ -59,7 +60,7 @@ export function RateCardImportDialog({
 }: RateCardImportDialogProps) {
     const { t } = useLanguage();
     const [customerId, setCustomerId] = useState<string>(initialCustomerId ?? "");
-    const [effectiveFrom, setEffectiveFrom] = useState<string>("");
+    const [effectiveFrom, setEffectiveFrom] = useState<Date | undefined>(undefined);
     const [rows, setRows] = useState<CustomerRateEntryInput[]>([]);
     const [warnings, setWarnings] = useState<string[]>([]);
     const [loading, setLoading] = useState(false);
@@ -75,6 +76,7 @@ export function RateCardImportDialog({
         setRows([]);
         setWarnings([]);
         setError(null);
+        setEffectiveFrom(undefined);
     };
 
     const parseFile = async (file: File) => {
@@ -157,7 +159,7 @@ export function RateCardImportDialog({
         setLoading(true);
         setError(null);
         try {
-            const date = effectiveFrom ? new Date(`${effectiveFrom}T00:00:00`) : new Date();
+            const date = effectiveFrom ?? new Date();
             await batchCreateCustomerRateEntries(customerId, rows, date);
             onImported?.();
             onOpenChange(false);
@@ -207,10 +209,11 @@ export function RateCardImportDialog({
 
                     <div className="grid gap-2">
                         <Label>{t("accounting.rateCard.table.effectiveFrom")}</Label>
-                        <Input
-                            type="date"
+                        <DatePicker
                             value={effectiveFrom}
-                            onChange={(e) => setEffectiveFrom(e.target.value)}
+                            onChange={setEffectiveFrom}
+                            placeholder={t("accounting.rateCard.import.effectiveDatePlaceholder")}
+                            disabled={loading}
                         />
                     </div>
 
