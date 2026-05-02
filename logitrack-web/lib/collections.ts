@@ -49,6 +49,9 @@ export const COLLECTIONS = {
     /** Customer fuel-linked billing adjustments by effective date */
     CUSTOMER_FUEL_RATE_ADJUSTMENTS: "customer_fuel_rate_adjustments",
 
+    /** Bangchak retail fuel snapshots (doc id yyyy-MM Bangkok; refreshed daily + manual sync) */
+    FUEL_MONTHLY_SNAPSHOTS: "fuel_monthly_snapshots",
+
     /** Hub and SOC locations (pickup/delivery points) */
     HUBS: "hubs",
 

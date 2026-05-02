@@ -117,6 +117,12 @@ service cloud.firestore {
       allow write: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
     }
 
+    // Monthly retail fuel snapshots (written by Cloud Functions only).
+    match /fuel_monthly_snapshots/{docId} {
+      allow read: if request.auth != null && request.auth.token.admin == true;
+      allow write: if false;
+    }
+
     // Unified Tasks: Admin full; Drivers read, create (manual check-in), update (check-in, Completed) own tasks.
     // driverId on task = drivers collection document id (not always Auth UID); legacy tasks may store UID in driverId.
     match /tasks/{taskId} {

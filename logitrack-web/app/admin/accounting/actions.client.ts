@@ -8,6 +8,7 @@ import {
     query,
     orderBy,
     doc,
+    limit,
     updateDoc,
     serverTimestamp,
     Timestamp,
@@ -107,6 +108,25 @@ export interface CustomerFuelRateAdjustmentInput {
 export interface CustomerFuelRateAdjustmentRow extends CustomerFuelRateAdjustmentInput {
     id: string;
     createdAt?: Date;
+}
+
+export interface FuelMonthlySnapshotItem {
+    nameTh: string;
+    nameEn: string;
+    price: number;
+    unit: string;
+}
+
+export interface FuelMonthlySnapshotRow {
+    id: string;
+    monthKey: string;
+    capturedAt?: Date;
+    fetchedAtIso?: string;
+    source: string;
+    locale: string;
+    status: "ok" | "error";
+    errorMessage?: string;
+    items: FuelMonthlySnapshotItem[];
 }
 
 function parseDate(v: unknown): Date | undefined {
@@ -466,6 +486,35 @@ export async function getCustomerFuelRateAdjustments(
             createdAt: parseDate(d.createdAt),
         };
     }).sort((a, b) => b.effectiveFrom.getTime() - a.effectiveFrom.getTime());
+}
+
+export async function getFuelMonthlySnapshots(limitCount = 36): Promise<FuelMonthlySnapshotRow[]> {
+    const colRef = collection(db, COLLECTIONS.FUEL_MONTHLY_SNAPSHOTS);
+    const q = query(colRef, orderBy("monthKey", "desc"), limit(limitCount));
+    const snap = await getDocs(q);
+    return snap.docs.map((docSnap) => {
+        const d = docSnap.data();
+        const rawItems = d.items;
+        const items: FuelMonthlySnapshotItem[] = Array.isArray(rawItems)
+            ? rawItems.map((x: Record<string, unknown>) => ({
+                  nameTh: String(x.nameTh ?? ""),
+                  nameEn: String(x.nameEn ?? ""),
+                  price: Number(x.price ?? 0),
+                  unit: String(x.unit ?? ""),
+              }))
+            : [];
+        return {
+            id: docSnap.id,
+            monthKey: String(d.monthKey ?? docSnap.id),
+            capturedAt: parseDate(d.capturedAt),
+            fetchedAtIso: d.fetchedAtIso != null ? String(d.fetchedAtIso) : undefined,
+            source: String(d.source ?? ""),
+            locale: String(d.locale ?? "th"),
+            status: d.status === "error" ? "error" : "ok",
+            errorMessage: d.errorMessage != null ? String(d.errorMessage) : undefined,
+            items,
+        };
+    });
 }
 
 export async function deleteCustomerFuelRateAdjustment(id: string): Promise<void> {

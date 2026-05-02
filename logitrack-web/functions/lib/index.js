@@ -57,4 +57,6 @@ __exportStar(require("./cartrack"), exports);
 __exportStar(require("./holidays"), exports);
 __exportStar(require("./securityEvents"), exports);
 __exportStar(require("./bangchakOilPrice"), exports);
+__exportStar(require("./monthlyFuelPriceSnapshot"), exports);
+__exportStar(require("./syncBangchakFuelMonthlySnapshot"), exports);
 //# sourceMappingURL=index.js.map

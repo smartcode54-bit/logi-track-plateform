@@ -22,3 +22,5 @@ export * from "./cartrack";
 export * from "./holidays";
 export * from "./securityEvents";
 export * from "./bangchakOilPrice";
+export * from "./monthlyFuelPriceSnapshot";
+export * from "./syncBangchakFuelMonthlySnapshot";

@@ -36,77 +36,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.getBangchakRetailOilPrices = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
+const bangchakOilFetch_1 = require("./core/bangchakOilFetch");
 const PERMISSIONS_CONFIG_COLLECTION = "permissions_config";
 const ACCOUNTING_VIEW_FUEL_CAPABILITY = "accounting:view_fuel";
 const DEFAULT_ALLOWED_ROLES = new Set(["manager", "operation_staff"]);
-function toNumber(value) {
-    const n = Number(value);
-    return Number.isFinite(n) ? n : null;
-}
-function toText(value) {
-    return typeof value === "string" ? value.trim() : "";
-}
-function toPriceItem(raw) {
-    const price = toNumber(raw["price"]) ??
-        toNumber(raw["Price"]) ??
-        toNumber(raw["pricePerLiter"]) ??
-        toNumber(raw["PricePerLiter"]) ??
-        toNumber(raw["ราคาน้ำมัน"]);
-    if (price == null)
-        return null;
-    const nameTh = toText(raw["fuel_name_th"]) ||
-        toText(raw["Fuel_Name_Th"]) ||
-        toText(raw["name_th"]) ||
-        toText(raw["NameTh"]) ||
-        toText(raw["fuel_name"]) ||
-        toText(raw["name"]) ||
-        toText(raw["ชื่อ"]);
-    const nameEn = toText(raw["fuel_name_en"]) ||
-        toText(raw["Fuel_Name_En"]) ||
-        toText(raw["name_en"]) ||
-        toText(raw["NameEn"]) ||
-        toText(raw["fuel_name"]) ||
-        toText(raw["name"]);
-    if (!nameTh && !nameEn)
-        return null;
-    const unit = toText(raw["unit"]) ||
-        toText(raw["Unit"]) ||
-        toText(raw["price_unit"]) ||
-        toText(raw["หน่วย"]) ||
-        "บาท/ลิตร";
-    return {
-        nameTh,
-        nameEn,
-        price,
-        unit,
-    };
-}
-function parseOilList(rawJson) {
-    if (Array.isArray(rawJson)) {
-        const first = rawJson[0];
-        const oilListRaw = first?.OilList;
-        if (typeof oilListRaw === "string" && oilListRaw.trim()) {
-            try {
-                const parsed = JSON.parse(oilListRaw);
-                if (Array.isArray(parsed)) {
-                    return parsed.map((entry) => ({
-                        name: entry.OilName,
-                        fuel_name: entry.OilName,
-                        price: entry.PriceToday,
-                        unit: entry.Unit ?? "บาท/ลิตร",
-                    }));
-                }
-            }
-            catch (error) {
-                console.error("[getBangchakRetailOilPrices] Failed to parse OilList", error);
-            }
-        }
-        return rawJson;
-    }
-    return Array.isArray(rawJson?.data)
-        ? (rawJson.data)
-        : [];
-}
 async function canViewFuelByRole(role) {
     if (!role)
         return false;
@@ -143,32 +76,16 @@ exports.getBangchakRetailOilPrices = (0, https_1.onCall)({
     }
     const localeRaw = request.data?.locale;
     const locale = localeRaw === "en" ? "en" : "th";
-    const endpoint = `https://oil-price.bangchak.co.th/ApiOilPrice2/${locale}`;
     try {
-        const response = await fetch(endpoint, {
-            signal: AbortSignal.timeout(10000),
-            headers: {
-                Accept: "application/json",
-            },
-        });
-        if (!response.ok) {
-            throw new https_1.HttpsError("unavailable", `Bangchak API failed with status ${response.status}`);
-        }
-        const rawJson = (await response.json());
-        const sourceItems = parseOilList(rawJson);
-        const items = sourceItems
-            .map((entry) => toPriceItem(entry))
-            .filter((entry) => entry != null);
+        const { items, fetchedAtIso, source } = await (0, bangchakOilFetch_1.fetchBangchakRetailOilPrices)(locale);
         return {
             locale,
-            fetchedAt: new Date().toISOString(),
-            source: "Bangchak ApiOilPrice2",
+            fetchedAt: fetchedAtIso,
+            source,
             items,
         };
     }
     catch (error) {
-        if (error instanceof https_1.HttpsError)
-            throw error;
         console.error("[getBangchakRetailOilPrices] Failed to fetch", error);
         throw new https_1.HttpsError("unavailable", "Unable to fetch Bangchak fuel prices");
     }

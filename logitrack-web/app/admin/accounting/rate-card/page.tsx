@@ -1,16 +1,36 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { format } from "date-fns";
+import { format, isValid, parseISO } from "date-fns";
+import { enUS, th as thDateLocale } from "date-fns/locale";
 import * as XLSX from "xlsx";
-import { Download, Loader2, MoreHorizontal, Pencil, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
+import {
+    Calculator,
+    Download,
+    Loader2,
+    MoreHorizontal,
+    Pencil,
+    Plus,
+    RefreshCw,
+    Trash2,
+    Upload,
+} from "lucide-react";
 import { useLanguage } from "@/context/language";
 import { usePermission } from "@/hooks/usePermission";
 import { CAPABILITIES } from "@/lib/capabilities";
 import { getCustomers } from "@/features/customers/api/customers";
 import type { Customer } from "@/validate/customerSchema";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -28,14 +48,21 @@ import {
     deleteCustomerFuelRateAdjustment,
     getCustomerFuelRateAdjustments,
     getCustomerRateEntries,
+    getFuelMonthlySnapshots,
     updateCustomerFuelRateAdjustment,
     type CustomerFuelRateAdjustmentRow,
     type CustomerRateEntryRow,
+    type FuelMonthlySnapshotRow,
 } from "../actions.client";
 import { RateCardImportDialog, type RateCardCustomerOption } from "../rate-card-import-dialog";
-import { db } from "@/firebase/client";
+import { db, functions } from "@/firebase/client";
+import { httpsCallable } from "firebase/functions";
 import { collection, getDocs } from "firebase/firestore";
 import { COLLECTIONS } from "@/lib/collections";
+import {
+    latestFleetDieselFromMonthlySnapshots,
+    pickFleetBangchakDieselReference,
+} from "@/lib/bangchakFleetReferenceFuel";
 import { SOC_DESTINATIONS } from "@/validate/taskSchema";
 
 interface HubOption {
@@ -54,8 +81,94 @@ function multiplierToPercentText(multiplier: number): string {
     return `${percent >= 0 ? "+" : ""}${percent.toFixed(2)}%`;
 }
 
+function formatMultiplierTimes(multiplier: number): string {
+    return `*${multiplier.toFixed(2)}`;
+}
+
+/** Rounded THB change vs base when applying multiplier (before addThbPerTrip). */
+function deltaThbFromMultiplier(rateThb: number, multiplier: number): number {
+    return Math.round(rateThb * (multiplier - 1));
+}
+
+function formatDeltaThbSigned(rateThb: number, multiplier: number): string {
+    const d = deltaThbFromMultiplier(rateThb, multiplier);
+    if (d === 0) return "±฿0";
+    return d > 0 ? `+฿${d.toLocaleString()}` : `-฿${Math.abs(d).toLocaleString()}`;
+}
+
+function ruleEffectiveDateKey(d: Date): string {
+    return format(d, "yyyy-MM-dd");
+}
+
+/** Latest fuel rule for the customer in effect on or before `asOf` (date-only, yyyy-MM-dd). */
+function pickFuelRuleAsOf(
+    customerId: string,
+    asOf: Date,
+    byCustomer: Map<string, CustomerFuelRateAdjustmentRow[]>
+): CustomerFuelRateAdjustmentRow | null {
+    const id = customerId.trim();
+    const list = byCustomer.get(id);
+    if (!list?.length) return null;
+    const cutoff = ruleEffectiveDateKey(asOf);
+    for (const rule of list) {
+        if (ruleEffectiveDateKey(rule.effectiveFrom) <= cutoff) return rule;
+    }
+    return null;
+}
+
+function computedRateAfterRule(rateThb: number, rule: CustomerFuelRateAdjustmentRow): number {
+    const deltaVsBase = rateThb * (rule.rateMultiplier - 1);
+    return Math.round(rateThb + deltaVsBase + (rule.addThbPerTrip ?? 0));
+}
+
+function parseMonthKeyDate(monthKey: string): Date | null {
+    const m = /^(\d{4})-(\d{2})$/.exec(monthKey.trim());
+    if (!m) return null;
+    const y = Number(m[1]);
+    const mo = Number(m[2]);
+    if (!Number.isFinite(y) || mo < 1 || mo > 12) return null;
+    return new Date(y, mo - 1, 1, 12, 0, 0, 0);
+}
+
+function formatFuelMonthPeriod(monthKey: string, language: "en" | "th"): { label: string; key: string } {
+    const d = parseMonthKeyDate(monthKey);
+    if (!d) return { label: monthKey, key: monthKey };
+    const locale = language === "th" ? thDateLocale : enUS;
+    return {
+        label: format(d, "MMMM yyyy", { locale }),
+        key: monthKey,
+    };
+}
+
+function formatDieselRetailLine(row: FuelMonthlySnapshotRow): string {
+    if (row.status === "error") return row.errorMessage?.trim() || "";
+    const diesel = pickFleetBangchakDieselReference(row.items);
+    if (diesel) {
+        const u = diesel.unit?.trim() || "L";
+        const nm = diesel.nameTh?.trim() || diesel.nameEn?.trim() || "";
+        const pricePart = `฿${diesel.price.toLocaleString()} / ${u}`;
+        return nm ? `${nm} · ${pricePart}` : pricePart;
+    }
+    const first = row.items[0];
+    if (first) {
+        const u = first.unit?.trim() || "L";
+        const name = first.nameTh?.trim() || first.nameEn?.trim() || "";
+        return name ? `${name} · ฿${first.price.toLocaleString()} / ${u}` : `฿${first.price.toLocaleString()} / ${u}`;
+    }
+    return "—";
+}
+
+function fuelSnapshotSourceLabel(source: string, t: (key: string) => string): string {
+    const s = source.trim().toLowerCase();
+    if (!s) return "—";
+    if (s === "bangchak_api" || s.includes("bangchak")) {
+        return t("accounting.rateCard.fuelMonthly.source.bangchak");
+    }
+    return source.trim();
+}
+
 export default function AccountingRateCardPage() {
-    const { t } = useLanguage();
+    const { t, language } = useLanguage();
     const { hasPermission: canEdit } = usePermission(CAPABILITIES.accounting_edit_rate_card);
     const [loading, setLoading] = useState(true);
     const [importOpen, setImportOpen] = useState(false);
@@ -64,6 +177,11 @@ export default function AccountingRateCardPage() {
     const [truckTypes, setTruckTypes] = useState<string[]>([]);
     const [entries, setEntries] = useState<CustomerRateEntryRow[]>([]);
     const [fuelAdjustments, setFuelAdjustments] = useState<CustomerFuelRateAdjustmentRow[]>([]);
+    const [fuelSnapshots, setFuelMonthlySnapshots] = useState<FuelMonthlySnapshotRow[]>([]);
+    const [syncingFuelSnapshot, setSyncingFuelSnapshot] = useState(false);
+    const [fuelMonthlySyncMessage, setFuelMonthlySyncMessage] = useState<string | null>(null);
+    const [fuelMonthlySyncIsError, setFuelMonthlySyncIsError] = useState(false);
+    const [fuelAdjustmentDialogOpen, setFuelAdjustmentDialogOpen] = useState(false);
     const [filterCustomerId, setFilterCustomerId] = useState("all");
     const [filterSourceHubId, setFilterSourceHubId] = useState("all");
     const [filterDestinationCode, setFilterDestinationCode] = useState("all");
@@ -71,6 +189,7 @@ export default function AccountingRateCardPage() {
     const [filterSearch, setFilterSearch] = useState("");
     const [entriesPage, setEntriesPage] = useState(1);
     const [entriesPerPage, setEntriesPerPage] = useState(15);
+    const [showRateCalPreview, setShowRateCalPreview] = useState(false);
     const [adjustmentError, setAdjustmentError] = useState<string | null>(null);
     const [savingAdjustment, setSavingAdjustment] = useState(false);
     const [deletingAdjustmentId, setDeletingAdjustmentId] = useState<string | null>(null);
@@ -130,10 +249,11 @@ export default function AccountingRateCardPage() {
     const loadData = async () => {
         setLoading(true);
         try {
-            const [customerRows, entryRows, fuelRows, hubRows, truckRows] = await Promise.all([
+            const [customerRows, entryRows, fuelRows, snapshotRows, hubRows, truckRows] = await Promise.all([
                 getCustomers(),
                 getCustomerRateEntries(),
                 getCustomerFuelRateAdjustments(),
+                getFuelMonthlySnapshots(36),
                 getDocs(collection(db, COLLECTIONS.HUBS)),
                 getDocs(collection(db, COLLECTIONS.TRUCKS)),
             ]);
@@ -145,6 +265,7 @@ export default function AccountingRateCardPage() {
             setCustomers(mappedCustomers);
             setEntries(entryRows);
             setFuelAdjustments(fuelRows);
+            setFuelMonthlySnapshots(snapshotRows);
             setHubs(
                 hubRows.docs.map((d) => {
                     const data = d.data();
@@ -260,6 +381,29 @@ export default function AccountingRateCardPage() {
         return fuelAdjustments.filter((r) => r.customerId === filterCustomerId);
     }, [fuelAdjustments, filterCustomerId]);
 
+    const adjustmentsByCustomer = useMemo(() => {
+        const m = new Map<string, CustomerFuelRateAdjustmentRow[]>();
+        for (const a of fuelAdjustments) {
+            const id = a.customerId.trim();
+            if (!id) continue;
+            const list = m.get(id) ?? [];
+            list.push(a);
+            m.set(id, list);
+        }
+        for (const list of m.values()) {
+            list.sort((a, b) => b.effectiveFrom.getTime() - a.effectiveFrom.getTime());
+        }
+        return m;
+    }, [fuelAdjustments]);
+
+    const latestSyncedFleetFuel = useMemo(
+        () => latestFleetDieselFromMonthlySnapshots(fuelSnapshots),
+        [fuelSnapshots]
+    );
+
+    /** Cal column: rule must have started on or before this day (today, local calendar). */
+    const rateCalPreviewAsOf = new Date();
+
     useEffect(() => {
         setEntriesPage(1);
     }, [filterCustomerId, filterSourceHubId, filterDestinationCode, filterVehicleClass, filterSearch, entriesPerPage]);
@@ -330,14 +474,8 @@ export default function AccountingRateCardPage() {
             } else {
                 await createCustomerFuelRateAdjustment(payload);
             }
-            setAdjustmentForm((prev) => ({
-                ...prev,
-                effectiveFrom: "",
-                ratePercent: "0",
-                referenceFuelPrice: "",
-                announcementNote: "",
-            }));
-            setEditingAdjustmentId(null);
+            setFuelAdjustmentDialogOpen(false);
+            handleCancelEditAdjustment();
             await loadData();
         } catch (err) {
             console.error(err);
@@ -365,6 +503,7 @@ export default function AccountingRateCardPage() {
     const handleEditAdjustment = (row: CustomerFuelRateAdjustmentRow) => {
         const effectiveFrom = format(row.effectiveFrom, "yyyy-MM-dd");
         const ratePercent = ((row.rateMultiplier - 1) * 100).toFixed(2);
+        const latest = latestFleetDieselFromMonthlySnapshots(fuelSnapshots);
         setEditingAdjustmentId(row.id);
         setAdjustmentError(null);
         setAdjustmentForm({
@@ -372,11 +511,14 @@ export default function AccountingRateCardPage() {
             effectiveFrom,
             ratePercent,
             referenceFuelPrice:
-                row.referenceFuelPriceThbPerLitre != null
-                    ? String(row.referenceFuelPriceThbPerLitre)
-                    : "",
+                latest != null
+                    ? String(latest.price)
+                    : row.referenceFuelPriceThbPerLitre != null
+                      ? String(row.referenceFuelPriceThbPerLitre)
+                      : "",
             announcementNote: row.announcementNote ?? "",
         });
+        setFuelAdjustmentDialogOpen(true);
     };
 
     const handleCancelEditAdjustment = () => {
@@ -389,6 +531,61 @@ export default function AccountingRateCardPage() {
             referenceFuelPrice: "",
             announcementNote: "",
         });
+    };
+
+    const handleSyncBangchakFuelSnapshot = async () => {
+        if (!canEdit) return;
+        setFuelMonthlySyncMessage(null);
+        setFuelMonthlySyncIsError(false);
+        setSyncingFuelSnapshot(true);
+        try {
+            const fn = httpsCallable<
+                Record<string, never>,
+                { ok: boolean; monthKey: string; itemCount?: number; errorMessage?: string }
+            >(functions, "syncBangchakFuelMonthlySnapshot");
+            const { data } = await fn({});
+            if (data.ok) {
+                setFuelMonthlySyncIsError(false);
+                setFuelMonthlySyncMessage(
+                    t("accounting.rateCard.fuelMonthly.syncSuccess", {
+                        monthKey: data.monthKey,
+                        count: data.itemCount ?? 0,
+                    })
+                );
+            } else {
+                setFuelMonthlySyncIsError(true);
+                setFuelMonthlySyncMessage(
+                    data.errorMessage?.trim() || t("accounting.rateCard.fuelMonthly.syncFailed")
+                );
+            }
+            await loadData();
+        } catch (err: unknown) {
+            console.error(err);
+            setFuelMonthlySyncIsError(true);
+            const code =
+                err && typeof err === "object" && "code" in err ? String((err as { code: string }).code) : "";
+            const rawMsg =
+                err && typeof err === "object" && "message" in err
+                    ? String((err as { message?: string }).message ?? "")
+                    : "";
+            const msgTrim = rawMsg.trim();
+            const looksLikeUndeployedCallable =
+                code === "functions/not-found" ||
+                /\bnot\s+found\b/i.test(msgTrim) ||
+                /\b404\b/.test(msgTrim);
+            const looksLikeOpaqueFailure =
+                code === "functions/internal" || /^internal$/i.test(msgTrim);
+
+            setFuelMonthlySyncMessage(
+                code === "functions/permission-denied"
+                    ? t("accounting.rateCard.fuelMonthly.syncDenied")
+                    : looksLikeUndeployedCallable || looksLikeOpaqueFailure
+                      ? t("accounting.rateCard.fuelMonthly.syncDeployHint")
+                      : msgTrim || t("accounting.rateCard.fuelMonthly.syncFailed")
+            );
+        } finally {
+            setSyncingFuelSnapshot(false);
+        }
     };
 
     const handleExportTemplate = () => {
@@ -628,8 +825,18 @@ export default function AccountingRateCardPage() {
             )}
 
             <Card>
-                <CardHeader>
+                <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-center sm:justify-between">
                     <CardTitle>{t("accounting.rateCard.title")}</CardTitle>
+                    <Button
+                        type="button"
+                        variant={showRateCalPreview ? "default" : "outline"}
+                        size="sm"
+                        className="shrink-0"
+                        onClick={() => setShowRateCalPreview((v) => !v)}
+                    >
+                        <Calculator className="h-4 w-4 mr-2" />
+                        {t("accounting.rateCard.calcPreview.button")}
+                    </Button>
                 </CardHeader>
                 <CardContent className="space-y-4">
                     <div className="rounded-lg border p-4">
@@ -709,29 +916,62 @@ export default function AccountingRateCardPage() {
                                 <TableHead>{t("accounting.rateCard.table.destination")}</TableHead>
                                 <TableHead>{t("accounting.rateCard.table.vehicleClass")}</TableHead>
                                 <TableHead className="text-right">{t("accounting.rateCard.table.rateThb")}</TableHead>
+                                {showRateCalPreview && (
+                                    <TableHead className="text-right">{t("accounting.rateCard.table.newRateThb")}</TableHead>
+                                )}
                                 <TableHead className="text-right">{t("accounting.rateCard.table.distanceKm")}</TableHead>
                                 <TableHead>{t("accounting.rateCard.table.effectiveFrom")}</TableHead>
                                 <TableHead>{t("accounting.rateCard.table.importId")}</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {paginatedEntries.map((row) => (
+                            {paginatedEntries.map((row) => {
+                                const rule = pickFuelRuleAsOf(row.customerId, rateCalPreviewAsOf, adjustmentsByCustomer);
+                                const newRate =
+                                    rule != null ? computedRateAfterRule(row.rateThb, rule) : null;
+                                return (
                                 <TableRow key={row.id}>
                                     <TableCell>{customerNameById.get(row.customerId) ?? row.customerId}</TableCell>
                                     <TableCell>{formatSource(row.hubId)}</TableCell>
                                     <TableCell>{formatDestination(row.destinationCode)}</TableCell>
                                     <TableCell className="font-mono text-xs">{row.vehicleClass}</TableCell>
                                     <TableCell className="text-right">฿{row.rateThb.toLocaleString()}</TableCell>
+                                    {showRateCalPreview && (
+                                        <TableCell className="text-right">
+                                            {newRate != null && rule != null ? (
+                                                <span
+                                                    title={t("accounting.rateCard.calcPreview.rowTooltip", {
+                                                        times: formatMultiplierTimes(rule.rateMultiplier),
+                                                        percent: multiplierToPercentText(rule.rateMultiplier),
+                                                        delta: formatDeltaThbSigned(row.rateThb, rule.rateMultiplier),
+                                                    })}
+                                                >
+                                                    ฿{newRate.toLocaleString()}
+                                                </span>
+                                            ) : (
+                                                <span
+                                                    className="text-muted-foreground"
+                                                    title={t("accounting.rateCard.calcPreview.noRuleHint")}
+                                                >
+                                                    {t("accounting.rateCard.calcPreview.noRule")}
+                                                </span>
+                                            )}
+                                        </TableCell>
+                                    )}
                                     <TableCell className="text-right">
                                         {row.distanceKm != null ? row.distanceKm.toLocaleString() : "-"}
                                     </TableCell>
                                     <TableCell>{format(row.effectiveFrom, "dd/MM/yyyy")}</TableCell>
                                     <TableCell className="font-mono text-xs">{row.importId}</TableCell>
                                 </TableRow>
-                            ))}
+                                );
+                            })}
                             {paginatedEntries.length === 0 && (
                                 <TableRow>
-                                    <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                                    <TableCell
+                                        colSpan={showRateCalPreview ? 9 : 8}
+                                        className="h-24 text-center text-muted-foreground"
+                                    >
                                         {t("accounting.rateCard.noEntries")}
                                     </TableCell>
                                 </TableRow>
@@ -789,7 +1029,7 @@ export default function AccountingRateCardPage() {
             </Card>
 
             <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0">
                     <div>
                         <CardTitle>{t("accounting.rateCard.fuelAdjustments.title")}</CardTitle>
                         <p className="text-sm text-muted-foreground mt-1">
@@ -797,91 +1037,195 @@ export default function AccountingRateCardPage() {
                         </p>
                     </div>
                     {canEdit && (
-                        <div className="flex items-center gap-2">
-                            {editingAdjustmentId && (
-                                <Button variant="outline" onClick={handleCancelEditAdjustment} disabled={savingAdjustment}>
-                                    {t("accounting.rateCard.fuelAdjustments.form.cancelEdit")}
-                                </Button>
-                            )}
-                            <Button variant="secondary" onClick={handleCreateAdjustment} disabled={savingAdjustment}>
-                                {savingAdjustment ? (
-                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                ) : editingAdjustmentId ? (
-                                    <Pencil className="h-4 w-4 mr-2" />
-                                ) : (
-                                    <Plus className="h-4 w-4 mr-2" />
-                                )}
-                                {savingAdjustment
-                                    ? t("accounting.rateCard.fuelAdjustments.form.saving")
-                                    : editingAdjustmentId
-                                        ? t("accounting.rateCard.fuelAdjustments.form.update")
-                                        : t("accounting.rateCard.fuelAdjustments.form.save")}
-                            </Button>
-                        </div>
+                        <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => {
+                                const latest = latestFleetDieselFromMonthlySnapshots(fuelSnapshots);
+                                setEditingAdjustmentId(null);
+                                setAdjustmentError(null);
+                                setAdjustmentForm({
+                                    customerId: "",
+                                    effectiveFrom: "",
+                                    ratePercent: "0",
+                                    referenceFuelPrice: latest != null ? String(latest.price) : "",
+                                    announcementNote: "",
+                                });
+                                setFuelAdjustmentDialogOpen(true);
+                            }}
+                        >
+                            <Plus className="h-4 w-4 mr-2" />
+                            {t("accounting.rateCard.fuelAdjustments.addRule")}
+                        </Button>
                     )}
                 </CardHeader>
-                <CardContent className="space-y-4">
+                <CardContent>
                     {canEdit && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 rounded-lg border p-4">
-                            <div className="space-y-1.5">
-                                <Label>{t("accounting.rateCard.fuelAdjustments.form.customer")}</Label>
-                                <Select
-                                    value={adjustmentForm.customerId}
-                                    onValueChange={(v) => setAdjustmentForm((prev) => ({ ...prev, customerId: v }))}
+                    <Dialog
+                        open={fuelAdjustmentDialogOpen}
+                        onOpenChange={(open) => {
+                            setFuelAdjustmentDialogOpen(open);
+                            if (!open) {
+                                handleCancelEditAdjustment();
+                                setAdjustmentError(null);
+                            }
+                        }}
+                    >
+                        <DialogContent className="sm:max-w-xl">
+                            <DialogHeader>
+                                <DialogTitle>
+                                    {editingAdjustmentId
+                                        ? t("accounting.rateCard.fuelAdjustments.dialog.editTitle")
+                                        : t("accounting.rateCard.fuelAdjustments.dialog.createTitle")}
+                                </DialogTitle>
+                                <DialogDescription>
+                                    {t("accounting.rateCard.fuelAdjustments.dialog.description")}
+                                </DialogDescription>
+                            </DialogHeader>
+                            <div className="grid grid-cols-1 gap-3 py-2 sm:grid-cols-2">
+                                <div className="space-y-1.5 sm:col-span-2">
+                                    <Label>{t("accounting.rateCard.fuelAdjustments.form.customer")}</Label>
+                                    <Select
+                                        value={adjustmentForm.customerId}
+                                        onValueChange={(v) =>
+                                            setAdjustmentForm((prev) => ({ ...prev, customerId: v }))
+                                        }
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue
+                                                placeholder={t("accounting.rateCard.import.selectCustomerPlaceholder")}
+                                            />
+                                        </SelectTrigger>
+                                        <SelectContent className="z-1005" position="popper">
+                                            {customers.map((c) => (
+                                                <SelectItem key={c.id} value={c.id}>
+                                                    {c.code} - {c.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <Label>{t("accounting.rateCard.fuelAdjustments.form.effectiveFrom")}</Label>
+                                    <Input
+                                        type="date"
+                                        value={adjustmentForm.effectiveFrom}
+                                        onChange={(e) =>
+                                            setAdjustmentForm((prev) => ({
+                                                ...prev,
+                                                effectiveFrom: e.target.value,
+                                            }))
+                                        }
+                                    />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <Label>{t("accounting.rateCard.fuelAdjustments.form.multiplier")}</Label>
+                                    <Input
+                                        type="number"
+                                        step="0.01"
+                                        value={adjustmentForm.ratePercent}
+                                        onChange={(e) =>
+                                            setAdjustmentForm((prev) => ({
+                                                ...prev,
+                                                ratePercent: e.target.value,
+                                            }))
+                                        }
+                                        placeholder={t(
+                                            "accounting.rateCard.fuelAdjustments.form.multiplierPlaceholder"
+                                        )}
+                                    />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <div className="flex flex-wrap items-end justify-between gap-2">
+                                        <Label className="mb-0">
+                                            {t("accounting.rateCard.fuelAdjustments.form.referenceFuelPrice")}
+                                        </Label>
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-auto shrink-0 px-2 py-1 text-xs text-muted-foreground"
+                                            disabled={latestSyncedFleetFuel == null}
+                                            onClick={() => {
+                                                if (latestSyncedFleetFuel == null) return;
+                                                setAdjustmentForm((prev) => ({
+                                                    ...prev,
+                                                    referenceFuelPrice: String(latestSyncedFleetFuel.price),
+                                                }));
+                                            }}
+                                        >
+                                            {t("accounting.rateCard.fuelAdjustments.form.applyLatestSyncedPrice")}
+                                        </Button>
+                                    </div>
+                                    <Input
+                                        type="number"
+                                        step="0.01"
+                                        value={adjustmentForm.referenceFuelPrice}
+                                        onChange={(e) =>
+                                            setAdjustmentForm((prev) => ({
+                                                ...prev,
+                                                referenceFuelPrice: e.target.value,
+                                            }))
+                                        }
+                                    />
+                                    {latestSyncedFleetFuel != null && (
+                                        <p className="text-xs text-muted-foreground leading-snug">
+                                            {t("accounting.rateCard.fuelAdjustments.form.referenceLatestHint", {
+                                                monthKey: latestSyncedFleetFuel.monthKey,
+                                                price: latestSyncedFleetFuel.price.toLocaleString(),
+                                            })}
+                                        </p>
+                                    )}
+                                </div>
+                                <div className="space-y-1.5 sm:col-span-2">
+                                    <Label>{t("accounting.rateCard.fuelAdjustments.form.note")}</Label>
+                                    <Input
+                                        value={adjustmentForm.announcementNote}
+                                        onChange={(e) =>
+                                            setAdjustmentForm((prev) => ({
+                                                ...prev,
+                                                announcementNote: e.target.value,
+                                            }))
+                                        }
+                                        placeholder={t(
+                                            "accounting.rateCard.fuelAdjustments.form.notePlaceholder"
+                                        )}
+                                    />
+                                </div>
+                                {adjustmentError && (
+                                    <p className="sm:col-span-2 text-sm text-destructive">{adjustmentError}</p>
+                                )}
+                            </div>
+                            <DialogFooter>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => setFuelAdjustmentDialogOpen(false)}
+                                    disabled={savingAdjustment}
                                 >
-                                    <SelectTrigger>
-                                        <SelectValue placeholder={t("accounting.rateCard.import.selectCustomerPlaceholder")} />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {customers.map((c) => (
-                                            <SelectItem key={c.id} value={c.id}>
-                                            {c.code} - {c.name}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div className="space-y-1.5">
-                                <Label>{t("accounting.rateCard.fuelAdjustments.form.effectiveFrom")}</Label>
-                                <Input
-                                    type="date"
-                                    value={adjustmentForm.effectiveFrom}
-                                    onChange={(e) => setAdjustmentForm((prev) => ({ ...prev, effectiveFrom: e.target.value }))}
-                                />
-                            </div>
-                            <div className="space-y-1.5">
-                                <Label>{t("accounting.rateCard.fuelAdjustments.form.multiplier")}</Label>
-                                <Input
-                                    type="number"
-                                    step="0.01"
-                                    value={adjustmentForm.ratePercent}
-                                    onChange={(e) =>
-                                        setAdjustmentForm((prev) => ({ ...prev, ratePercent: e.target.value }))
-                                    }
-                                    placeholder="+5 or -3"
-                                />
-                            </div>
-                            <div className="space-y-1.5">
-                                <Label>{t("accounting.rateCard.fuelAdjustments.form.referenceFuelPrice")}</Label>
-                                <Input
-                                    type="number"
-                                    step="0.01"
-                                    value={adjustmentForm.referenceFuelPrice}
-                                    onChange={(e) => setAdjustmentForm((prev) => ({ ...prev, referenceFuelPrice: e.target.value }))}
-                                />
-                            </div>
-                            <div className="space-y-1.5">
-                                <Label>{t("accounting.rateCard.fuelAdjustments.form.note")}</Label>
-                                <Input
-                                    value={adjustmentForm.announcementNote}
-                                    onChange={(e) => setAdjustmentForm((prev) => ({ ...prev, announcementNote: e.target.value }))}
-                                    placeholder={t("accounting.rateCard.fuelAdjustments.form.notePlaceholder")}
-                                />
-                            </div>
-                            {adjustmentError && (
-                                <p className="md:col-span-2 lg:col-span-3 text-sm text-destructive">{adjustmentError}</p>
-                            )}
-                        </div>
+                                    {t("accounting.rateCard.fuelAdjustments.dialog.cancel")}
+                                </Button>
+                                <Button
+                                    type="button"
+                                    onClick={() => void handleCreateAdjustment()}
+                                    disabled={savingAdjustment}
+                                >
+                                    {savingAdjustment ? (
+                                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                    ) : editingAdjustmentId ? (
+                                        <Pencil className="h-4 w-4 mr-2" />
+                                    ) : (
+                                        <Plus className="h-4 w-4 mr-2" />
+                                    )}
+                                    {savingAdjustment
+                                        ? t("accounting.rateCard.fuelAdjustments.form.saving")
+                                        : editingAdjustmentId
+                                          ? t("accounting.rateCard.fuelAdjustments.form.update")
+                                          : t("accounting.rateCard.fuelAdjustments.form.save")}
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
                     )}
 
                     <Table>
@@ -902,7 +1246,17 @@ export default function AccountingRateCardPage() {
                                 <TableRow key={row.id}>
                                     <TableCell>{customerOnlyNameById.get(row.customerId) ?? row.customerId}</TableCell>
                                     <TableCell>{format(row.effectiveFrom, "dd/MM/yyyy")}</TableCell>
-                                    <TableCell className="text-right">{multiplierToPercentText(row.rateMultiplier)}</TableCell>
+                                    <TableCell className="text-right">
+                                        <div className="flex flex-col items-end gap-0.5">
+                                            <span className="tabular-nums font-medium">
+                                                {formatMultiplierTimes(row.rateMultiplier)}
+                                            </span>
+                                            <span className="text-xs text-muted-foreground">
+                                                {multiplierToPercentText(row.rateMultiplier)}{" "}
+                                                {t("accounting.rateCard.fuelAdjustments.table.multiplierFromBase")}
+                                            </span>
+                                        </div>
+                                    </TableCell>
                                     <TableCell className="text-right">
                                         {row.referenceFuelPriceThbPerLitre != null
                                             ? `฿${row.referenceFuelPriceThbPerLitre.toLocaleString()}`
@@ -953,6 +1307,127 @@ export default function AccountingRateCardPage() {
                             )}
                         </TableBody>
                     </Table>
+                </CardContent>
+            </Card>
+
+            <Card>
+                <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="space-y-1">
+                        <CardTitle>{t("accounting.rateCard.fuelMonthly.title")}</CardTitle>
+                        <p className="text-sm text-muted-foreground">{t("accounting.rateCard.fuelMonthly.subtitle")}</p>
+                        {fuelMonthlySyncMessage && (
+                            <p
+                                className={
+                                    fuelMonthlySyncIsError ? "text-sm text-destructive" : "text-sm text-muted-foreground"
+                                }
+                            >
+                                {fuelMonthlySyncMessage}
+                            </p>
+                        )}
+                    </div>
+                    {canEdit && (
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="shrink-0"
+                            disabled={syncingFuelSnapshot || loading}
+                            onClick={() => void handleSyncBangchakFuelSnapshot()}
+                        >
+                            {syncingFuelSnapshot ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                                <RefreshCw className="h-4 w-4 mr-2" />
+                            )}
+                            {t("accounting.rateCard.fuelMonthly.syncButton")}
+                        </Button>
+                    )}
+                </CardHeader>
+                <CardContent className="space-y-3">
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                        {t("accounting.rateCard.fuelMonthly.tableCaption")}
+                    </p>
+                    <div className="rounded-md border overflow-x-auto">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead className="min-w-36">{t("accounting.rateCard.fuelMonthly.table.period")}</TableHead>
+                                    <TableHead className="w-26">{t("accounting.rateCard.fuelMonthly.table.status")}</TableHead>
+                                    <TableHead className="min-w-40">{t("accounting.rateCard.fuelMonthly.table.savedAt")}</TableHead>
+                                    <TableHead className="min-w-44">{t("accounting.rateCard.fuelMonthly.table.dieselRetail")}</TableHead>
+                                    <TableHead className="text-right min-w-28 whitespace-normal">
+                                        {t("accounting.rateCard.fuelMonthly.table.fuelTypesCount")}
+                                    </TableHead>
+                                    <TableHead className="min-w-32">{t("accounting.rateCard.fuelMonthly.table.source")}</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {fuelSnapshots.map((snap) => {
+                                    const period = formatFuelMonthPeriod(snap.monthKey, language);
+                                    const fetchedParsed = snap.fetchedAtIso ? parseISO(snap.fetchedAtIso) : undefined;
+                                    const bangchakTime =
+                                        fetchedParsed && isValid(fetchedParsed)
+                                            ? format(fetchedParsed, "dd/MM/yyyy HH:mm")
+                                            : null;
+                                    const dieselLine = formatDieselRetailLine(snap);
+                                    const showError = snap.status === "error";
+
+                                    return (
+                                        <TableRow key={snap.id}>
+                                            <TableCell>
+                                                <span className="block font-medium">{period.label}</span>
+                                                <span className="font-mono text-xs text-muted-foreground">{period.key}</span>
+                                            </TableCell>
+                                            <TableCell>
+                                                {showError ? (
+                                                    <Badge variant="destructive">{t("accounting.rateCard.fuelMonthly.table.statusError")}</Badge>
+                                                ) : (
+                                                    <Badge variant="secondary" className="font-normal">
+                                                        {t("accounting.rateCard.fuelMonthly.table.statusOk")}
+                                                    </Badge>
+                                                )}
+                                            </TableCell>
+                                            <TableCell>
+                                                <div className="space-y-1 text-sm">
+                                                    <div>
+                                                        {snap.capturedAt
+                                                            ? format(snap.capturedAt, "dd/MM/yyyy HH:mm")
+                                                            : "—"}
+                                                    </div>
+                                                    {bangchakTime && (
+                                                        <div className="text-xs text-muted-foreground leading-snug">
+                                                            {t("accounting.rateCard.fuelMonthly.bangchakPageTime", {
+                                                                time: bangchakTime,
+                                                            })}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </TableCell>
+                                            <TableCell
+                                                className={
+                                                    showError ? "text-destructive text-sm max-w-[min(22rem,55vw)]" : "text-sm"
+                                                }
+                                                title={showError ? dieselLine : undefined}
+                                            >
+                                                {showError ? dieselLine || t("accounting.rateCard.fuelMonthly.error") : dieselLine}
+                                            </TableCell>
+                                            <TableCell className="text-right tabular-nums">{snap.items.length}</TableCell>
+                                            <TableCell className="text-sm text-muted-foreground">
+                                                {fuelSnapshotSourceLabel(snap.source, t)}
+                                            </TableCell>
+                                        </TableRow>
+                                    );
+                                })}
+                                {fuelSnapshots.length === 0 && (
+                                    <TableRow>
+                                        <TableCell colSpan={6} className="h-20 text-center text-muted-foreground">
+                                            {t("accounting.rateCard.fuelMonthly.noRows")}
+                                        </TableCell>
+                                    </TableRow>
+                                )}
+                            </TableBody>
+                        </Table>
+                    </div>
                 </CardContent>
             </Card>
 
