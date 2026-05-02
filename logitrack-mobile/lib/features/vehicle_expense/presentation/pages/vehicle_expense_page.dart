@@ -225,6 +225,7 @@ class _VehicleExpensePageState extends State<VehicleExpensePage>
                               task['serviceType'] as String?,
                             );
 
+                            final loc = rawMaintenanceLocation(task);
                             return Card(
                               color: Colors.amber.shade50,
                               elevation: 2,
@@ -246,31 +247,77 @@ class _VehicleExpensePageState extends State<VehicleExpensePage>
                                   ),
                                   subtitle: Padding(
                                     padding: const EdgeInsets.only(top: 4),
-                                    child: Text(
-                                      'maintenance_vehicle_status_line'.tr(
-                                        namedArgs: {
-                                          'status': trMaintenanceStatus(status),
-                                        },
-                                      ),
-                                      style: TextStyle(color: Colors.amber.shade900, fontWeight: FontWeight.bold)
+                                    child: Wrap(
+                                      spacing: 8,
+                                      runSpacing: 4,
+                                      crossAxisAlignment:
+                                          WrapCrossAlignment.center,
+                                      children: [
+                                        Text(
+                                          'maintenance_vehicle_status_line'.tr(
+                                            namedArgs: {
+                                              'status':
+                                                  trMaintenanceStatus(status),
+                                            },
+                                          ),
+                                          style: TextStyle(
+                                            color: Colors.amber.shade900,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                        if (loc != null) ...[
+                                          Text(
+                                            '·',
+                                            style: TextStyle(
+                                              color: Colors.amber.shade800
+                                                  .withOpacity(0.6),
+                                            ),
+                                          ),
+                                          ConstrainedBox(
+                                            constraints: const BoxConstraints(
+                                              maxWidth: 200,
+                                            ),
+                                            child: Text(
+                                              loc,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                color: Colors.amber.shade800,
+                                                fontSize: 13,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
                                     ),
                                   ),
-                                  trailing: ElevatedButton(
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.amber.shade700,
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                  trailing: FilledButton.tonal(
+                                    style: FilledButton.styleFrom(
+                                      visualDensity: VisualDensity.compact,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 8,
+                                      ),
+                                      backgroundColor: Colors.amber.shade200,
+                                      foregroundColor: Colors.amber.shade900,
                                     ),
                                     onPressed: () async {
                                       final result = await Navigator.push(
                                         context,
                                         MaterialPageRoute(
-                                          builder: (_) => MaintenanceActionPage(task: task),
+                                          builder: (_) =>
+                                              MaintenanceActionPage(task: task),
                                         ),
                                       );
                                       if (result == true) _loadRecent();
                                     },
-                                    child: Text('maintenance_vehicle_card_cta'.tr()),
+                                    child: Text(
+                                      'maintenance_vehicle_card_cta'.tr(),
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ),
@@ -278,22 +325,31 @@ class _VehicleExpensePageState extends State<VehicleExpensePage>
                           },
                         ),
                         const SizedBox(height: 8),
-                        _buildActionCard(
-                          context,
-                          icon: Icons.local_gas_station,
-                          iconColor: Colors.blue,
-                          title: 'vehicle_expense_refuel'.tr(),
-                          subtitle: 'vehicle_expense_refuel_hint'.tr(),
-                          onTap: _openRefuelForm,
-                        ),
-                        const SizedBox(height: 12),
-                        _buildActionCard(
-                          context,
-                          icon: Icons.receipt_long,
-                          iconColor: Colors.orange,
-                          title: 'vehicle_expense_other'.tr(),
-                          subtitle: 'vehicle_expense_other_hint'.tr(),
-                          onTap: _openOtherExpenseForm,
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: _buildSquareActionCard(
+                                context,
+                                icon: Icons.local_gas_station,
+                                iconColor: Colors.blue,
+                                title: 'vehicle_expense_refuel'.tr(),
+                                subtitle: 'vehicle_expense_refuel_hint'.tr(),
+                                onTap: _openRefuelForm,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _buildSquareActionCard(
+                                context,
+                                icon: Icons.receipt_long,
+                                iconColor: Colors.orange,
+                                title: 'vehicle_expense_other'.tr(),
+                                subtitle: 'vehicle_expense_other_hint'.tr(),
+                                onTap: _openOtherExpenseForm,
+                              ),
+                            ),
+                          ],
                         ),
                         const SizedBox(height: 28),
                         Text(
@@ -380,7 +436,8 @@ class _VehicleExpensePageState extends State<VehicleExpensePage>
     );
   }
 
-  Widget _buildActionCard(
+  /// การ์ดปุ่มสี่เหลี่ยมสำหรับวางคู่ในแถว (Row) — ไอคอนมุมบน ข้อความจัดกลาง
+  Widget _buildSquareActionCard(
     BuildContext context, {
     required IconData icon,
     required Color iconColor,
@@ -388,47 +445,51 @@ class _VehicleExpensePageState extends State<VehicleExpensePage>
     required String subtitle,
     required VoidCallback onTap,
   }) {
+    final cardColor =
+        Theme.of(context).cardTheme.color ?? Theme.of(context).cardColor;
     return Material(
-      color: Theme.of(context).cardTheme.color ?? Theme.of(context).cardColor,
+      color: cardColor,
       borderRadius: BorderRadius.circular(12),
       clipBehavior: Clip.antiAlias,
+      elevation: 1,
+      shadowColor: Theme.of(context).colorScheme.shadow.withOpacity(0.12),
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Row(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
             children: [
               CircleAvatar(
                 backgroundColor: iconColor.withOpacity(0.15),
-                radius: 28,
-                child: Icon(icon, color: iconColor, size: 28),
+                radius: 24,
+                child: Icon(icon, color: iconColor, size: 26),
               ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
+              const SizedBox(height: 10),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.onSurface.withOpacity(0.6),
-                      ),
-                    ),
-                  ],
-                ),
               ),
-              Icon(
-                Icons.chevron_right,
-                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.6),
+                      height: 1.25,
+                    ),
               ),
             ],
           ),
@@ -509,10 +570,12 @@ class _VehicleExpensePageState extends State<VehicleExpensePage>
               );
               if (result == true) _loadRecent();
             } else {
-              // TODO: Implement Edit form for rejected other items (if needed)
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Edit feature coming soon...')),
+              final result = await Navigator.of(context).push<bool>(
+                MaterialPageRoute(
+                  builder: (_) => OtherExpenseFormPage(initialData: e),
+                ),
               );
+              if (result == true) _loadRecent();
             }
           }
         },
@@ -533,23 +596,34 @@ class _VehicleExpensePageState extends State<VehicleExpensePage>
                   ),
                 ),
                 title: Text(typeLabel),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 4),
-                    isLocalPending
-                        ? Text(
-                            'vehicle_expense_syncing'.tr(),
-                            style: Theme.of(context).textTheme.labelSmall
-                                ?.copyWith(
-                                  color: Colors.grey,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                          )
-                        : _buildStatusBadge(context, e.status),
-                    const SizedBox(height: 4),
-                    Text(dateStr),
-                  ],
+                subtitle: Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      if (isLocalPending)
+                        Text(
+                          'vehicle_expense_syncing'.tr(),
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                color: Colors.grey,
+                                fontWeight: FontWeight.w600,
+                              ),
+                        )
+                      else
+                        _buildStatusBadge(context, e.status),
+                      Text(
+                        dateStr,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurface
+                                  .withOpacity(0.75),
+                            ),
+                      ),
+                    ],
+                  ),
                 ),
                 trailing: Text(
                   '฿${e.amount.toStringAsFixed(0)}',

@@ -1,8 +1,8 @@
-import 'dart:typed_data';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../home/data/repositories/checkin_repository.dart';
 import '../../../home/data/services/cloud_vision_ocr_service.dart';
@@ -13,6 +13,23 @@ import '../../data/repositories/vehicle_expense_repository.dart';
 
 /// รูปแบบวันที่เวลา: dd/MM/yyyy HH:mm:ss
 final DateFormat _dateTimeFormat = DateFormat('dd/MM/yyyy HH:mm:ss');
+
+/// แปลงช่องยอดเงิน/ลิตรที่พิมพ์เอง (ตัด comma คั่นหลักพัน ถ้ามี)
+double? _parseDecimalInput(String raw) {
+  var t = raw.trim().replaceAll(RegExp(r'\s'), '');
+  if (t.isEmpty) return null;
+  t = t.replaceAll(',', '');
+  return double.tryParse(t);
+}
+
+/// OCR อาจอ่านเลขทะเบียนเข้าช่องเลขไมล์ — ใช้เกณฑ์เดียวกับ fuel_receipt_ocr_service
+String? _sanitizeOcrOdometerForForm(String raw) {
+  final digits = raw.replaceAll(RegExp(r'\D'), '');
+  if (digits.length < 5 || digits.length > 8) return null;
+  final v = int.tryParse(digits);
+  if (v == null || v < 10000 || v > 9999999) return null;
+  return digits;
+}
 
 class RefuelFormPage extends StatefulWidget {
   final VehicleExpense? initialData;
@@ -77,10 +94,10 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _getRefillLocation());
   }
 
-  /// คำนวณราคาต่อลิตรจาก ยอดเงิน/ปริมาณลิตร (disable edit)
+  /// คำนวณราคาต่อลิตรจาก ยอดเงิน/ปริมาณลิตร (ช่องราคา/ลิตรเป็น read-only)
   void _updatePricePerLiter() {
-    final amount = double.tryParse(_amountController.text.trim());
-    final volume = double.tryParse(_volumeController.text.trim());
+    final amount = _parseDecimalInput(_amountController.text);
+    final volume = _parseDecimalInput(_volumeController.text);
     if (amount != null && volume != null && volume > 0) {
       final price = amount / volume;
       if (_pricePerLiterController.text != price.toStringAsFixed(2)) {
@@ -99,13 +116,13 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
 
   @override
   void dispose() {
+    _amountController.removeListener(_updatePricePerLiter);
+    _volumeController.removeListener(_updatePricePerLiter);
     _dateTimeController.dispose();
     _amountController.dispose();
     _volumeController.dispose();
     _pricePerLiterController.dispose();
     _odometerController.dispose();
-    _amountController.removeListener(_updatePricePerLiter);
-    _volumeController.removeListener(_updatePricePerLiter);
     _taxIdController.dispose();
     _taxInvIdController.dispose();
     super.dispose();
@@ -209,7 +226,8 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
           _taxInvIdController.text = result.taxInvNo!;
         }
         if (result.odometer != null) {
-          _odometerController.text = result.odometer!;
+          final o = _sanitizeOcrOdometerForForm(result.odometer!);
+          if (o != null) _odometerController.text = o;
         }
         _updatePricePerLiter();
       });
@@ -343,7 +361,7 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
       setState(() => _saveError = 'user_not_authenticated'.tr());
       return;
     }
-    final amount = double.tryParse(_amountController.text.trim()) ?? 0;
+    final amount = _parseDecimalInput(_amountController.text) ?? 0;
     if (amount <= 0) {
       setState(() => _saveError = 'vehicle_expense_amount_required'.tr());
       return;
@@ -402,8 +420,8 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
       _saveError = null;
     });
     try {
-      final amount = double.tryParse(_amountController.text.trim()) ?? 0;
-      final vol = double.tryParse(_volumeController.text.trim());
+      final amount = _parseDecimalInput(_amountController.text) ?? 0;
+      final vol = _parseDecimalInput(_volumeController.text);
       final odo = int.tryParse(_odometerController.text.trim());
       final taxId = _taxIdController.text.trim().isEmpty
           ? null
@@ -649,8 +667,11 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+                    ],
                     validator: (v) {
-                      final n = double.tryParse(v?.trim() ?? '');
+                      final n = _parseDecimalInput(v ?? '');
                       if (n == null || n <= 0) {
                         return 'vehicle_expense_amount_required'.tr();
                       }
@@ -668,6 +689,9 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+                    ],
                   ),
                   const SizedBox(height: 16),
                   TextFormField(
@@ -688,6 +712,9 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
                       hintText: 'vehicle_expense_odometer_hint'.tr(),
                     ),
                     keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                    ],
                   ),
                   const SizedBox(height: 16),
                   // หลังกรอกเลขไมล์: ถ่ายรูปบันทึกเลขไมล์

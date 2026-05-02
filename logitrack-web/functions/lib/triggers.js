@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.checkMaintenanceAlert = exports.getNextTaskId = exports.notifyTaskUpdate = exports.updateDriverAccount = exports.createDriverAccount = exports.onUserDeleted = exports.onUserCreated = void 0;
+exports.checkMaintenanceAlert = exports.getNextTaskId = exports.notifyMaintenanceReminder = exports.notifyTaskUpdate = exports.updateDriverAccount = exports.createDriverAccount = exports.onUserDeleted = exports.onUserCreated = void 0;
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
 const maintenance_1 = require("./core/maintenance");
@@ -286,6 +286,27 @@ exports.notifyTaskUpdate = (0, https_1.onCall)({ region: "asia-southeast1" }, as
     }
 });
 /**
+ * Callable: notify assigned driver when PM booking moves to in-shop (PM Booking → in_progress).
+ */
+exports.notifyMaintenanceReminder = (0, https_1.onCall)({ region: "asia-southeast1" }, async (request) => {
+    if (!request.auth?.uid) {
+        throw new https_1.HttpsError("unauthenticated", "Authentication required");
+    }
+    const payload = request.data;
+    const { driverId, maintenanceId, title, body } = payload;
+    if (!driverId) {
+        throw new https_1.HttpsError("invalid-argument", "driverId is required");
+    }
+    try {
+        await sendFcmToDriver(driverId, title || "นัดเช็คระยะ", body || "มีงานเช็คระยะ — กรุณาเข้าอู่ตามนัด (ดูรายละเอียดในแอป)", { type: "maintenance_scheduled", maintenanceId: maintenanceId || "" });
+        return { ok: true };
+    }
+    catch (err) {
+        console.error("[notifyMaintenanceReminder] Error:", err);
+        throw new https_1.HttpsError("internal", err.message || "FCM failed");
+    }
+});
+/**
  * Callable: Get the next sequential shipment ID for a given date and task type.
  * Format: FM-[Date]-[NUM] or LH-[Date]-[NUM]
  */
@@ -314,72 +335,89 @@ exports.getNextTaskId = (0, https_1.onCall)({ region: "asia-southeast1" }, async
     }
 });
 /**
- * Callable: Check if truck ODO is near maintenance gap (<= 2000 km) and create PM Booking task suggestion.
- * Triggered manually from client after saving Fuel Log records.
+ * Callable: Check if truck ODO is within PM threshold or overdue; create PM Booking. Triggered after fuel log approval.
  */
 exports.checkMaintenanceAlert = (0, https_1.onCall)({ region: "asia-southeast1" }, async (request) => {
     const data = request.data;
-    const { truckId, mileage } = data;
-    if (!truckId || mileage === undefined) {
-        throw new https_1.HttpsError("invalid-argument", "truckId and mileage are required");
+    const { truckId } = data;
+    const mileage = Number(data.mileage);
+    if (!truckId || !Number.isFinite(mileage)) {
+        throw new https_1.HttpsError("invalid-argument", "truckId and valid mileage are required");
     }
     try {
-        // 1. Get Truck document
+        const logExit = (r) => {
+            console.log("[checkMaintenanceAlert] result", JSON.stringify({ truckId, mileage, ...r }));
+            return r;
+        };
         const truckRef = admin.firestore().collection("trucks").doc(truckId);
-        const truckSnap = await truckRef.get();
+        let truckSnap = await truckRef.get();
         if (!truckSnap.exists)
-            return { success: false, message: "Truck not found" };
-        const truckData = truckSnap.data();
-        const nextServiceMileage = truckData.nextServiceMileage;
-        if (!nextServiceMileage)
-            return { success: false, message: "No nextServiceMileage defined for this truck" };
-        // Lock Check: Skip if already in active maintenance loop
-        if (truckData.activeMaintenanceId) {
-            return { success: true, message: "Truck already has an active maintenance task", created: false };
+            return logExit({ success: false, message: "Truck not found" });
+        let truckData = truckSnap.data();
+        const nextServiceMileageRaw = truckData.nextServiceMileage;
+        const nextServiceMileage = Number(nextServiceMileageRaw);
+        if (!Number.isFinite(nextServiceMileage) || nextServiceMileage <= 0) {
+            return logExit({ success: false, message: "No nextServiceMileage defined for this truck" });
         }
-        const lastAlertMileage = truckData.lastAlertMileage || 0;
-        if (mileage === lastAlertMileage)
-            return { success: true, message: "Already alert processed for this mileage" };
-        // 2. Check margin condition (Within 2,000 KM remaining) Pure Logic
-        if ((0, maintenance_1.isMaintenanceDue)(mileage, nextServiceMileage)) {
-            // 3. Create Maintenance record { status: "PM Booking" }
-            // Check if already created recently to avoid duplication (e.g. check for same truck pending maintenance)
-            const existingTaskSnap = await admin.firestore().collection("maintenance")
-                .where("truckId", "==", truckId)
-                .where("status", "==", "PM Booking")
-                .get();
-            if (!existingTaskSnap.empty) {
-                return { success: true, message: "PM Booking already exists for this truck", created: false };
+        if (truckData.activeMaintenanceId) {
+            const mid = truckData.activeMaintenanceId;
+            const mSnap = await admin.firestore().collection("maintenance").doc(mid).get();
+            const st = mSnap.exists ? String(mSnap.data()?.status ?? "") : "";
+            const terminal = !mSnap.exists || st === "completed" || st === "cancelled";
+            if (!terminal) {
+                return logExit({ success: true, message: "Truck already has an active maintenance task", created: false });
             }
+            await truckRef.update({
+                activeMaintenanceId: admin.firestore.FieldValue.delete(),
+                lastAlertMileage: admin.firestore.FieldValue.delete(),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            truckSnap = await truckRef.get();
+            truckData = truckSnap.data();
+        }
+        const lastAlertMileage = Number(truckData.lastAlertMileage) || 0;
+        if (mileage === lastAlertMileage)
+            return logExit({ success: true, message: "Already alert processed for this mileage" });
+        if ((0, maintenance_1.isMaintenanceDue)(mileage, nextServiceMileage)) {
+            const existingOpenSnap = await admin.firestore().collection("maintenance")
+                .where("truckId", "==", truckId)
+                .where("status", "in", ["PM Booking", "Scheduled"])
+                .get();
+            if (!existingOpenSnap.empty) {
+                return logExit({ success: true, message: "Open PM or scheduled maintenance exists for this truck", created: false });
+            }
+            const distanceLeft = nextServiceMileage - mileage;
+            const notes = distanceLeft < 0
+                ? `ระบบอัตโนมัติ: เลยกำหนดเช็คระยะ (${mileage.toLocaleString()} กม. / รอบ ${nextServiceMileage.toLocaleString()} กม.)`
+                : `ระบบอัตโนมัติ: จากรายการเติมน้ำมัน (${mileage.toLocaleString()} / ${nextServiceMileage.toLocaleString()} กม. เหลือ ${distanceLeft.toLocaleString()} กม. ≤ ${maintenance_1.PM_ALERT_THRESHOLD_KM.toLocaleString()} กม.)`;
             const maintenanceData = {
                 truckId,
-                truckLicensePlate: truckData.licensePlate || "", // 🚗 เพิ่มเพื่อให้แสดงฟอนต์ Dashboard ได้ถูกต้อง
+                truckLicensePlate: truckData.licensePlate || "",
                 truckBrand: truckData.brand || "",
                 status: "PM Booking",
                 type: "PM",
-                serviceType: "เช็คระยะตามรอบ", // Thai translation
+                serviceType: "เช็คระยะตามรอบ",
+                startDate: new Date().toISOString().slice(0, 10),
                 currentMileage: mileage,
                 nextServiceMileage: nextServiceMileage,
-                notes: `ระบบอัตโนมัติ: ดักตรวจกิโลเมตรจากรายการเติมน้ำมัน (${mileage.toLocaleString()} / ${nextServiceMileage.toLocaleString()} กม.)`,
+                notes,
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             };
             const maintenanceRef = await admin.firestore().collection("maintenance").add(maintenanceData);
-            // Update truck to remember alert
             await truckRef.update({
                 lastAlertMileage: mileage,
-                activeMaintenanceId: maintenanceRef.id, // 🔒 Lock: Attach active item ID to truck
-                currentMileage: mileage, // Update current truck mileage with ground truth fuel log
+                activeMaintenanceId: maintenanceRef.id,
+                currentMileage: mileage,
                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
             });
-            return { success: true, message: "Created PM Booking task successfully", created: true };
+            return logExit({ success: true, message: "Created PM Booking task successfully", created: true });
         }
-        // Just update truck mileage if not triggers alert
         await truckRef.update({
             currentMileage: mileage,
             updatedAt: admin.firestore.FieldValue.serverTimestamp()
         });
-        return { success: true, message: "Within safe threshold range. Mileage updated.", created: false };
+        return logExit({ success: true, message: "Within safe threshold range. Mileage updated.", created: false });
     }
     catch (err) {
         console.error("[checkMaintenanceAlert] Error:", err);

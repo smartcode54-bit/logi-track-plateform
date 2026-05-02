@@ -7,6 +7,7 @@ import {
     getVehicleExpensesForAudit,
     updateVehicleExpenseStatus,
     updateVehicleExpense,
+    batchUpdateVehicleExpenseStatuses,
     VehicleExpenseRow,
     VehicleExpenseStatus,
 } from "../actions.client";
@@ -16,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ClipboardCheck, Loader2, RefreshCw, Check, X, Fuel, Receipt, Save } from "lucide-react";
 import {
     ImageUrlPreviewView,
@@ -37,7 +39,10 @@ import {
 import {
     Select,
     SelectContent,
+    SelectGroup,
     SelectItem,
+    SelectLabel,
+    SelectSeparator,
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
@@ -62,11 +67,25 @@ const statusLabelKey: Record<VehicleExpenseStatus, string> = {
     REJECTED: "accounting.audit.statusRejected",
 };
 
+function rowMatchesExpenseTypeFilter(row: VehicleExpenseRow, filter: string): boolean {
+    if (filter === "all") return true;
+    if (filter === "fuel") return row.type === "fuel";
+    if (filter === "other:any") return row.type === "other";
+    if (filter === "other:_uncategorized") return row.type === "other" && !row.category;
+    if (filter.startsWith("other:")) {
+        const cat = filter.slice(6);
+        return row.type === "other" && row.category === cat;
+    }
+    return true;
+}
+
 export default function AccountingAuditPage() {
     const { t } = useLanguage();
     const [records, setRecords] = useState<VehicleExpenseRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [statusFilter, setStatusFilter] = useState<VehicleExpenseStatus | "all">("PENDING");
+    const [expenseTypeFilter, setExpenseTypeFilter] = useState("all");
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [detailRow, setDetailRow] = useState<VehicleExpenseRow | null>(null);
     const [actionRow, setActionRow] = useState<{ row: VehicleExpenseRow; action: "APPROVED" | "REJECTED" } | null>(null);
     const [adminNote, setAdminNote] = useState("");
@@ -87,6 +106,57 @@ export default function AccountingAuditPage() {
     useEffect(() => {
         loadData();
     }, [statusFilter]);
+
+    useEffect(() => {
+        setSelectedIds(new Set());
+    }, [statusFilter, expenseTypeFilter]);
+
+    const filteredRecords = useMemo(
+        () => records.filter((r) => rowMatchesExpenseTypeFilter(r, expenseTypeFilter)),
+        [records, expenseTypeFilter]
+    );
+
+    const pendingSelectable = useMemo(
+        () => filteredRecords.filter((r) => r.status === "PENDING"),
+        [filteredRecords]
+    );
+
+    const showBulkBar =
+        (statusFilter === "PENDING" || statusFilter === "all") && pendingSelectable.length > 0;
+
+    const selectedCountInPendingView = useMemo(
+        () => pendingSelectable.filter((r) => selectedIds.has(r.id)).length,
+        [pendingSelectable, selectedIds]
+    );
+
+    const headerCheckboxState: boolean | "indeterminate" =
+        pendingSelectable.length === 0
+            ? false
+            : selectedCountInPendingView === 0
+              ? false
+              : selectedCountInPendingView === pendingSelectable.length
+                ? true
+                : "indeterminate";
+
+    const handleSelectAllPending = () => {
+        setSelectedIds(new Set(pendingSelectable.map((r) => r.id)));
+    };
+
+    const handleClearSelection = () => setSelectedIds(new Set());
+
+    const toggleRowSelected = (id: string, checked: boolean) => {
+        setSelectedIds((prev) => {
+            const next = new Set(prev);
+            if (checked) next.add(id);
+            else next.delete(id);
+            return next;
+        });
+    };
+
+    const handleHeaderCheckbox = (v: boolean | "indeterminate") => {
+        if (v === true) handleSelectAllPending();
+        else handleClearSelection();
+    };
 
     const pendingCount = useMemo(() => {
         return records.filter((r) => r.status === "PENDING").length;
@@ -141,6 +211,36 @@ export default function AccountingAuditPage() {
             loadData();
         } catch (err) {
             console.error("Failed to approve expense:", err);
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const handleBulkApprove = async () => {
+        const toApprove = pendingSelectable.filter((r) => selectedIds.has(r.id));
+        if (toApprove.length === 0) return;
+        setSubmitting(true);
+        try {
+            await batchUpdateVehicleExpenseStatuses(
+                toApprove.map((r) => ({ id: r.id, status: "APPROVED" as const }))
+            );
+            const { httpsCallable } = await import("firebase/functions");
+            const { functions } = await import("@/firebase/client");
+            const checkPM = httpsCallable(functions, "checkMaintenanceAlert");
+            for (const row of toApprove) {
+                if (row.type === "fuel" && row.truckId && row.odometer) {
+                    try {
+                        await checkPM({ truckId: row.truckId, mileage: row.odometer });
+                    } catch (e) {
+                        console.error("Smart PM Trigger Error after bulk Approval:", e);
+                    }
+                }
+            }
+            setSelectedIds(new Set());
+            setDetailRow(null);
+            loadData();
+        } catch (err) {
+            console.error("Bulk approve failed:", err);
         } finally {
             setSubmitting(false);
         }
@@ -275,7 +375,7 @@ export default function AccountingAuditPage() {
                     </h1>
                     <p className="text-muted-foreground mt-1">{t("accounting.audit.subtitle")}</p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                     <Select
                         value={statusFilter}
                         onValueChange={(v) => setStatusFilter(v as VehicleExpenseStatus | "all")}
@@ -293,6 +393,30 @@ export default function AccountingAuditPage() {
                             <SelectItem value="REJECTED">{t("accounting.audit.statusRejected")}</SelectItem>
                         </SelectContent>
                     </Select>
+                    <Select value={expenseTypeFilter} onValueChange={setExpenseTypeFilter}>
+                        <SelectTrigger className="w-[200px] sm:w-[220px]">
+                            <SelectValue placeholder={t("accounting.audit.typeFilter")} />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectGroup>
+                                <SelectItem value="all">{t("accounting.audit.typeAll")}</SelectItem>
+                                <SelectItem value="fuel">{t("accounting.audit.typeFuel")}</SelectItem>
+                                <SelectItem value="other:any">{t("accounting.audit.typeOtherAll")}</SelectItem>
+                                <SelectItem value="other:_uncategorized">
+                                    {t("accounting.audit.typeUncategorized")}
+                                </SelectItem>
+                            </SelectGroup>
+                            <SelectSeparator />
+                            <SelectGroup>
+                                <SelectLabel>{t("accounting.audit.typeFilterSubcategories")}</SelectLabel>
+                                {Object.entries(categoryKeys).map(([key, labelKey]) => (
+                                    <SelectItem key={key} value={`other:${key}`}>
+                                        {t(labelKey)}
+                                    </SelectItem>
+                                ))}
+                            </SelectGroup>
+                        </SelectContent>
+                    </Select>
                     <Button variant="outline" size="sm" onClick={loadData} disabled={loading}>
                         <RefreshCw className={cn("h-4 w-4 mr-2", loading && "animate-spin")} />
                         {t("common.refresh")}
@@ -305,9 +429,56 @@ export default function AccountingAuditPage() {
                     <CardTitle>{t("accounting.audit.title")}</CardTitle>
                 </CardHeader>
                 <CardContent>
+                    {showBulkBar && (
+                        <div className="flex flex-wrap items-center gap-2 pb-4 mb-2 border-b border-border">
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                onClick={handleSelectAllPending}
+                                disabled={submitting}
+                            >
+                                {t("accounting.audit.selectAll")}
+                            </Button>
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={handleClearSelection}
+                                disabled={submitting || selectedCountInPendingView === 0}
+                            >
+                                {t("accounting.audit.clearSelection")}
+                            </Button>
+                            <Button
+                                type="button"
+                                size="sm"
+                                className="gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                                onClick={handleBulkApprove}
+                                disabled={submitting || selectedCountInPendingView === 0}
+                            >
+                                {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                                <Check className="h-3.5 w-3.5" />
+                                {t("accounting.audit.approveSelected")}
+                            </Button>
+                            <span className="text-sm text-muted-foreground sm:ml-auto w-full sm:w-auto">
+                                {t("accounting.audit.selectedCount", {
+                                    count: selectedCountInPendingView,
+                                })}
+                            </span>
+                        </div>
+                    )}
                     <Table>
                         <TableHeader>
                             <TableRow>
+                                <TableHead className="w-10 align-middle">
+                                    {showBulkBar ? (
+                                        <Checkbox
+                                            checked={headerCheckboxState}
+                                            onCheckedChange={handleHeaderCheckbox}
+                                            aria-label={t("accounting.audit.selectAll")}
+                                        />
+                                    ) : null}
+                                </TableHead>
                                 <TableHead>{t("accounting.table.date")}</TableHead>
                                 <TableHead>{t("accounting.table.driver")}</TableHead>
                                 <TableHead>{t("accounting.table.licensePlate")}</TableHead>
@@ -318,12 +489,24 @@ export default function AccountingAuditPage() {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {records.map((row) => (
+                            {filteredRecords.map((row) => (
                                 <TableRow
                                     key={row.id}
                                     className="cursor-pointer hover:bg-muted/50 transition-colors"
                                     onClick={() => setDetailRow(row)}
                                 >
+                                    <TableCell
+                                        className="w-10 align-middle"
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        {row.status === "PENDING" && showBulkBar ? (
+                                            <Checkbox
+                                                checked={selectedIds.has(row.id)}
+                                                onCheckedChange={(v) => toggleRowSelected(row.id, v === true)}
+                                                aria-label={`${row.driverName ?? row.driverId ?? ""} · ${row.amount}`}
+                                            />
+                                        ) : null}
+                                    </TableCell>
                                     <TableCell className="whitespace-nowrap font-mono text-xs">
                                         {format(row.date, "dd MMM yyyy HH:mm:ss")}
                                     </TableCell>
@@ -391,9 +574,9 @@ export default function AccountingAuditPage() {
                                     </TableCell>
                                 </TableRow>
                             ))}
-                            {records.length === 0 && (
+                            {filteredRecords.length === 0 && (
                                 <TableRow>
-                                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                                    <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
                                         {t("accounting.noRecords")}
                                     </TableCell>
                                 </TableRow>

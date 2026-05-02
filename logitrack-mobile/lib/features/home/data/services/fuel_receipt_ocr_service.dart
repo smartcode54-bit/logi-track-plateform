@@ -313,6 +313,17 @@ String? _extractTotalAmount(String text) {
   return null;
 }
 
+/// เลขไมล์สะสมจากใบเติม: ต้องยาว 5–8 หลัก และอยู่ในช่วงที่สมเหตุผล (กัน OCR ดึงเลขทะเบียน 3–4 หลัก)
+bool _isPlausibleOdometerReading(String digitsOnly) {
+  if (digitsOnly.isEmpty) return false;
+  if (digitsOnly.length < 5 || digitsOnly.length > 8) return false;
+  final v = int.tryParse(digitsOnly);
+  if (v == null) return false;
+  if (v < 10000) return false;
+  if (v > 9999999) return false;
+  return true;
+}
+
 String? _extractOdometer(String text) {
   String? fixOdometerPadding(String? raw) {
     if (raw == null || raw.isEmpty) return null;
@@ -338,16 +349,30 @@ String? _extractOdometer(String text) {
   ).firstMatch(text);
 
   if (odoMatch != null) {
-    return fixOdometerPadding(normalizeOcrDigits(odoMatch.group(1)));
+    final patched = fixOdometerPadding(normalizeOcrDigits(odoMatch.group(1)));
+    final digits =
+        patched?.replaceAll(RegExp(r'\D'), '') ?? '';
+    if (digits.isNotEmpty && _isPlausibleOdometerReading(digits)) {
+      return digits;
+    }
+    return null;
   }
 
+  // fallback: บรรทัด กม./KM เท่านั้น — อย่างน้อย 5 หลัก (ไม่จับเลขทะเบียนสั้นๆ)
   final fallbackKMMatch = RegExp(
-    '\\b(?:KM|กม\\.?)\\s*[:\\s]*($kDigitOrConfusable{4,9})\\b',
+    '\\b(?:KM|กม\\.?)\\s*[:\\s]*($kDigitOrConfusable{5,9})\\b',
     caseSensitive: false,
   ).firstMatch(text);
 
   if (fallbackKMMatch != null) {
-    return fixOdometerPadding(normalizeOcrDigits(fallbackKMMatch.group(1)));
+    final patched = fixOdometerPadding(
+      normalizeOcrDigits(fallbackKMMatch.group(1)),
+    );
+    final digits =
+        patched?.replaceAll(RegExp(r'\D'), '') ?? '';
+    if (digits.isNotEmpty && _isPlausibleOdometerReading(digits)) {
+      return digits;
+    }
   }
 
   return null;

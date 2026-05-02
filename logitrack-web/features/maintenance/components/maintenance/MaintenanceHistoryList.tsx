@@ -6,7 +6,7 @@ import { MaintenanceData } from "@/validate/maintenanceSchema";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { History, Wrench, AlertTriangle, MoreHorizontal, Pencil, Plus, ExternalLink, Eye } from "lucide-react";
+import { History, Wrench, AlertTriangle, MoreHorizontal, Pencil, Plus, Eye } from "lucide-react";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -15,6 +15,7 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { buildMaintenanceGalleryUrls } from "@/features/maintenance/utils/buildMaintenanceGalleryUrls";
+import { maintenanceDisplayCost } from "@/features/maintenance/utils/maintenanceDisplayCost";
 import {
     MaintenanceImagePreviewDialog,
     type MaintenancePreviewGallery,
@@ -41,9 +42,6 @@ export function MaintenanceHistoryList({ history, onNewClick, onEditClick }: Mai
         setPreviewGallery({ urls, startIndex });
     };
 
-    const primaryAttachmentUrl = (record: MaintenanceData) =>
-        record.invoiceUrl?.trim() || buildMaintenanceGalleryUrls(record)[0] || "";
-
     if (history.length === 0) {
         return (
             <div className="text-center py-12 bg-muted/10 rounded-xl border border-dashed">
@@ -66,7 +64,6 @@ export function MaintenanceHistoryList({ history, onNewClick, onEditClick }: Mai
                     gallery={previewGallery}
                     onClose={() => setPreviewGallery(null)}
                     title={t("maintenance.history.previewTitle")}
-                    openInNewTabLabel={t("maintenance.history.openInNewTab")}
                     zoomInLabel={t("maintenance.preview.zoomIn")}
                     zoomOutLabel={t("maintenance.preview.zoomOut")}
                     resetZoomLabel={t("maintenance.preview.resetZoom")}
@@ -79,6 +76,7 @@ export function MaintenanceHistoryList({ history, onNewClick, onEditClick }: Mai
                     {history.map((record) => {
                         const galleryUrls = buildMaintenanceGalleryUrls(record);
                         const hasAttachments = galleryUrls.length > 0;
+                        const displayTotal = maintenanceDisplayCost(record);
                         return (
                         <div
                             key={record.id}
@@ -123,15 +121,6 @@ export function MaintenanceHistoryList({ history, onNewClick, onEditClick }: Mai
                                                     ? t("maintenance.history.viewDriverFile")
                                                     : t("maintenance.preview.viewReceipts")}
                                             </Button>
-                                            <Button variant="ghost" size="sm" className="h-8 px-2" asChild>
-                                                <a
-                                                    href={primaryAttachmentUrl(record)}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                >
-                                                    <ExternalLink className="h-3.5 w-3.5" />
-                                                </a>
-                                            </Button>
                                             {typeof record.invoiceAmount === "number" && !Number.isNaN(record.invoiceAmount) ? (
                                                 <span className="text-sm text-muted-foreground">
                                                     {t("maintenance.history.driverInvoiceAmount")}: ฿
@@ -144,7 +133,7 @@ export function MaintenanceHistoryList({ history, onNewClick, onEditClick }: Mai
                             </div>
                             <div className="flex items-center gap-4">
                                 <div className="text-right">
-                                    <p className="font-bold text-lg">฿{record.totalCost?.toLocaleString() || "0"}</p>
+                                    <p className="font-bold text-lg">฿{displayTotal.toLocaleString()}</p>
                                     <p className="text-xs text-muted-foreground">
                                         {t("maintenance.history.labor")}: {record.costLabor || 0} | {t("maintenance.history.parts")}: {record.costParts || 0}
                                     </p>

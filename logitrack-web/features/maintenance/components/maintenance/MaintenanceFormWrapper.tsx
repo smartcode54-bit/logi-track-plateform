@@ -42,6 +42,7 @@ export function MaintenanceFormWrapper({ onSuccess, onCancel }: MaintenanceFormW
     const [currentMileage, setCurrentMileage] = useState<string>("");
     const [nextServiceMileage, setNextServiceMileage] = useState<string>("");
     const [provider, setProvider] = useState<string>("");
+    const [providerMapPos, setProviderMapPos] = useState<{ lat: number; lng: number } | null>(null);
     const [notes, setNotes] = useState<string>("");
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
@@ -102,6 +103,11 @@ export function MaintenanceFormWrapper({ onSuccess, onCancel }: MaintenanceFormW
                 notes
             };
 
+            if (providerMapPos) {
+                payload.providerLat = providerMapPos.lat;
+                payload.providerLng = providerMapPos.lng;
+            }
+
             await saveMaintenanceRecord(payload, currentUser.uid);
             onSuccess();
         } catch (error) {
@@ -113,7 +119,7 @@ export function MaintenanceFormWrapper({ onSuccess, onCancel }: MaintenanceFormW
 
     return (
         <div className="space-y-4">
-            <Button variant="ghost" onClick={onCancel} className="flex items-center gap-2">
+            <Button variant="ghost" onClick={() => { setProviderMapPos(null); onCancel(); }} className="flex items-center gap-2">
                 <ArrowLeft className="h-4 w-4" /> Back to List
             </Button>
             <MaintenanceForm
@@ -127,6 +133,8 @@ export function MaintenanceFormWrapper({ onSuccess, onCancel }: MaintenanceFormW
                 setCustomServiceType={setCustomServiceType}
                 provider={provider}
                 setProvider={setProvider}
+                providerMapPosition={providerMapPos}
+                onProviderMapPositionChange={setProviderMapPos}
                 paymentMethod={paymentMethod}
                 setPaymentMethod={setPaymentMethod}
                 status={status}

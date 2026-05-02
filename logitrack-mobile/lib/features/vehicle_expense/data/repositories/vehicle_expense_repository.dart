@@ -55,6 +55,10 @@ Future<String?> saveVehicleExpense(
         expense.id!.isNotEmpty &&
         !expense.id!.startsWith('pending_')) {
       docId = expense.id;
+      final note = expense.adminNote;
+      if (note == null || note.trim().isEmpty) {
+        data['adminNote'] = FieldValue.delete();
+      }
       await col.doc(docId).set(data, SetOptions(merge: true));
     } else {
       final ref = await col.add(data);

@@ -2,7 +2,6 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/utils/maps_navigation.dart';
-import '../../data/repositories/checkin_repository.dart';
 import '../../data/repositories/hubs_repository.dart';
 
 enum _HubFilter { all, hub, soc }
@@ -106,36 +105,6 @@ class _HubsReferencePageState extends State<HubsReferencePage> {
     }
   }
 
-  Future<void> _navigateHere(HubDoc h) async {
-    if (!h.hasCoordinates) return;
-    double? oLat;
-    double? oLng;
-    try {
-      final pos = await getCurrentPosition();
-      oLat = pos.latitude;
-      oLng = pos.longitude;
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('hubs_reference_navigate_no_gps'.tr())),
-      );
-      await _openPlace(h);
-      return;
-    }
-    final ok = await openGoogleMapsDrivingDirections(
-      originLat: oLat,
-      originLng: oLng,
-      destLat: h.latitude,
-      destLng: h.longitude,
-    );
-    if (!mounted) return;
-    if (!ok) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('hubs_reference_open_maps_failed'.tr())),
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -224,7 +193,6 @@ class _HubsReferencePageState extends State<HubsReferencePage> {
                                   hub: h,
                                   displayName: _displayName(h),
                                   onOpenMaps: () => _openPlace(h),
-                                  onNavigate: () => _navigateHere(h),
                                 );
                               },
                             ),
@@ -241,13 +209,11 @@ class _HubRow extends StatelessWidget {
     required this.hub,
     required this.displayName,
     required this.onOpenMaps,
-    required this.onNavigate,
   });
 
   final HubDoc hub;
   final String displayName;
   final VoidCallback onOpenMaps;
-  final VoidCallback onNavigate;
 
   @override
   Widget build(BuildContext context) {
@@ -302,21 +268,13 @@ class _HubRow extends StatelessWidget {
             ],
             if (hasCoords) ...[
               const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  OutlinedButton.icon(
-                    onPressed: onOpenMaps,
-                    icon: const Icon(Icons.map_outlined, size: 18),
-                    label: Text('hubs_reference_open_maps'.tr()),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: onNavigate,
-                    icon: const Icon(Icons.directions, size: 18),
-                    label: Text('hubs_reference_navigate'.tr()),
-                  ),
-                ],
+              OutlinedButton.icon(
+                onPressed: onOpenMaps,
+                icon: const Icon(Icons.map_outlined, size: 18),
+                label: Text('hubs_reference_open_maps'.tr()),
+                style: OutlinedButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                ),
               ),
             ],
           ],

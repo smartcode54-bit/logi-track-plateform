@@ -3,14 +3,16 @@
  * สำหรับรันตรรกะ Odometer ทริกเกอร์ระบบแจ้งเตือน Smart PM
  */
 
+/** เกณฑ์เตือน PM (กม.) — ต้อง sync กับ logitrack-web/lib/maintenancePm.ts */
+export const PM_ALERT_THRESHOLD_KM = 2000;
+
 /**
- * ตรวจสอบว่าครบรอบการแจ้งเตือนเช็คระยะ (Threshold <= 2,000 กม.) หรือไม่
- * @param mileage เลขไมล์ปัจจุบัน (จากฟอร์มเติมน้ำมัน)
- * @param nextServiceMileage เลขไมล์รอบเช็คระยะถัดไป
+ * ตรวจสอบว่าควรสร้างงาน PM Booking หรือไม่: เหลือไม่เกิน threshold กม. ถึงรอบ หรือเลยกำหนดแล้ว
  */
 export function isMaintenanceDue(mileage: number, nextServiceMileage: number): boolean {
-    const distanceLeft = nextServiceMileage - mileage;
-    
-    // ตรวจสอบระยะห่าง <= 2,000 กม. และ ยังไม่เลยกำหนดขับขี่ ( distanceLeft >= 0 )
-    return distanceLeft <= 2000 && distanceLeft >= 0;
+    const m = Number(mileage);
+    const next = Number(nextServiceMileage);
+    if (!Number.isFinite(m) || !Number.isFinite(next)) return false;
+    const distanceLeft = next - m;
+    return distanceLeft <= PM_ALERT_THRESHOLD_KM;
 }

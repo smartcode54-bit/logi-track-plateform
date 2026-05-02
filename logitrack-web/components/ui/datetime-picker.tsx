@@ -11,7 +11,6 @@ import {
     PopoverContent,
     PopoverTrigger,
 } from "@/components/ui/popover";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface DateTimePickerProps {
     value?: Date;
@@ -61,22 +60,31 @@ export function DateTimePicker({
         }
     };
 
-    const handleTimeChange = (type: 'hour' | 'minute', val: string) => {
-        if (type === 'hour') setHour(val);
+    const handleTimeChange = (type: "hour" | "minute", val: string) => {
+        const nextHour = type === "hour" ? val : hour;
+        const nextMinute = type === "minute" ? val : minute;
+        if (type === "hour") setHour(val);
         else setMinute(val);
 
-        if (selectedDate) {
-            const newDate = new Date(selectedDate);
-            newDate.setHours(type === 'hour' ? parseInt(val) : parseInt(hour), type === 'minute' ? parseInt(val) : parseInt(minute), 0, 0);
-            onChange(newDate);
-        }
+        const base =
+            selectedDate ??
+            value ??
+            (() => {
+                const d = new Date();
+                d.setHours(0, 0, 0, 0);
+                return d;
+            })();
+        const newDate = new Date(base);
+        newDate.setHours(parseInt(nextHour, 10), parseInt(nextMinute, 10), 0, 0);
+        if (!selectedDate) setSelectedDate(newDate);
+        onChange(newDate);
     };
 
     const hours = Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0'));
-    const minutes = ["00", "30"];
+    const minutes = Array.from({ length: 60 }, (_, i) => i.toString().padStart(2, "0"));
 
     return (
-        <Popover open={open} onOpenChange={setOpen}>
+        <Popover modal={false} open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
                 <Button
                     variant={"outline"}

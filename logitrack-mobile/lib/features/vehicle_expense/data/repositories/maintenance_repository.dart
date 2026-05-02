@@ -82,17 +82,33 @@ class MaintenanceRepository {
   }
 
   /// พขร. แจ้งซ่อมเสร็จสิ้น (รอแอดมินตรวจสอบปิดรอบ)
+  /// [invoiceUrls] อย่างน้อย 1 รูป — รูปแรกเก็บที่ `invoiceUrl` ที่เหลือที่ `receipts`
   Future<void> submitMaintenanceCompletion(
     String taskId, {
-    required String invoiceUrl,
+    required List<String> invoiceUrls,
     required double invoiceAmount,
   }) async {
+    if (invoiceUrls.isEmpty) {
+      throw ArgumentError('invoiceUrls must not be empty');
+    }
+    final first = invoiceUrls.first.trim();
+    if (first.isEmpty) {
+      throw ArgumentError('invoiceUrls[0] is empty');
+    }
+    final extras = invoiceUrls
+        .skip(1)
+        .map((u) => u.trim())
+        .where((u) => u.isNotEmpty)
+        .toList();
+
     await _db.collection('maintenance').doc(taskId).update({
       'status': 'In-Progress', // หรือ 'Submitted' เพื่อให้แอดมินเห็นว่าคนขับส่งงานแล้ว
       'driverSubmitted': true,
       'checkOutAt': FieldValue.serverTimestamp(),
-      'invoiceUrl': invoiceUrl,
+      'invoiceUrl': first,
       'invoiceAmount': invoiceAmount,
+      if (extras.isNotEmpty) 'receipts': extras,
+      if (extras.isEmpty) 'receipts': FieldValue.delete(),
       'updatedAt': FieldValue.serverTimestamp(),
     });
   }

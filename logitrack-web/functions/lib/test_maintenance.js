@@ -9,11 +9,9 @@ function checkMaintenanceAlertLogic(mileage, nextServiceMileage, lastAlertMileag
         return { shouldAlert: false, reason: "ระงับการยิงซ้ำ (Already Alerted)" };
     }
     const distanceLeft = nextServiceMileage - mileage;
-    if (distanceLeft <= 2000 && distanceLeft >= 0) {
-        return { shouldAlert: true, reason: `เข้าเงื่อนไขแจ้งเตือน (เหลืออีก ${distanceLeft} กม.)` };
-    }
-    if (distanceLeft < 0) {
-        return { shouldAlert: false, reason: "เกินระยะเช็คไปแล้ว (Overdue)" };
+    if (distanceLeft <= 2000) {
+        const label = distanceLeft < 0 ? "เลยกำหนด — ยังต้องเปิด PM Booking" : `เข้าเงื่อนไขแจ้งเตือน (เหลืออีก ${distanceLeft} กม.)`;
+        return { shouldAlert: true, reason: label };
     }
     return { shouldAlert: false, reason: `ปลอดภัย (เหลืออีก ${distanceLeft} กม.)` };
 }
@@ -56,7 +54,7 @@ function runTests() {
             mileage: 40500,
             nextServiceMileage: 40000,
             lastAlert: 0,
-            expected: false // สภาพนี้ในระบบคือ Overdue (แยก flow จอดซ่อม CM)
+            expected: true // overdue → ต้องสร้าง PM Booking
         }
     ];
     let passedCount = 0;

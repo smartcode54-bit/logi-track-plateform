@@ -530,6 +530,35 @@ export async function updateVehicleExpenseStatus(
     });
 }
 
+const BATCH_STATUS_CHUNK = 450;
+
+/** อัปเดตสถานะหลายรายการพร้อมกัน (สูงสุด ~450 รายการต่อ commit ตามขีดจำกัด batch ของ Firestore) */
+export async function batchUpdateVehicleExpenseStatuses(
+    items: { id: string; status: VehicleExpenseStatus; adminNote?: string }[]
+): Promise<void> {
+    if (items.length === 0) return;
+    for (let i = 0; i < items.length; i += BATCH_STATUS_CHUNK) {
+        const chunk = items.slice(i, i + BATCH_STATUS_CHUNK);
+        const batch = writeBatch(db);
+        let ops = 0;
+        for (const u of chunk) {
+            const normalizedId = u.id.trim();
+            if (!normalizedId) continue;
+            const ref = doc(db, COLLECTIONS.VEHICLE_EXPENSES, normalizedId);
+            const payload: Record<string, unknown> = {
+                status: u.status,
+                updatedAt: serverTimestamp(),
+            };
+            if (u.adminNote != null && u.adminNote.trim() !== "") {
+                payload.adminNote = u.adminNote.trim();
+            }
+            batch.update(ref, payload);
+            ops += 1;
+        }
+        if (ops > 0) await batch.commit();
+    }
+}
+
 /** อัปเดตรายการค่าใช้จ่าย (ทุก field ที่แก้ได้) */
 export async function updateVehicleExpense(
     id: string,

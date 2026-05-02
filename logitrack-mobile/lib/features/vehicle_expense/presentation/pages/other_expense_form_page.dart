@@ -4,7 +4,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:intl/intl.dart' as intl;
 import '../../../home/data/repositories/checkin_repository.dart';
 import '../../../home/data/services/image_compression_service.dart';
 import '../../data/models/vehicle_expense.dart';
@@ -16,7 +15,10 @@ final DateFormat _dateTimeFormat = DateFormat('dd/MM/yyyy HH:mm:ss');
 /// หน้าบันทึกค่าใช้จ่ายอื่นๆ: วันที่เวลา, ประเภท, ยอดเงิน, ถ่ายภาพใบเสร็จ (template overlay), สถานที่ lat,lng
 /// ไม่มีรายละเอียด/หมายเหตุ; ก่อนบันทึกมี Preview; ตอน Save disable ทุก input + spinning + กำลังบันทึก...
 class OtherExpenseFormPage extends StatefulWidget {
-  const OtherExpenseFormPage({super.key});
+  const OtherExpenseFormPage({super.key, this.initialData});
+
+  /// เติมจากรายการที่แอดมินปฏิเสธ — merge doc เดิม สถานะกลับเป็น PENDING
+  final VehicleExpense? initialData;
 
   @override
   State<OtherExpenseFormPage> createState() => _OtherExpenseFormPageState();
@@ -36,11 +38,33 @@ class _OtherExpenseFormPageState extends State<OtherExpenseFormPage> {
   bool _saving = false;
   String? _saveError;
 
+  bool get _isResubmit =>
+      widget.initialData != null &&
+      widget.initialData!.isOther &&
+      widget.initialData!.status.toUpperCase() == 'REJECTED';
+
   @override
   void initState() {
     super.initState();
+    final init = widget.initialData;
+    if (init != null && init.isOther) {
+      _selectedDateTime = init.date;
+      if (init.amount > 0) {
+        _amountController.text = init.amount == init.amount.roundToDouble()
+            ? init.amount.toStringAsFixed(0)
+            : init.amount.toStringAsFixed(2);
+      }
+      _category = init.category ?? OtherExpenseCategory.other;
+      if (init.refillLocation != null && init.refillLocation!.isNotEmpty) {
+        _refillLocation = init.refillLocation;
+      }
+    }
     _updateDateTimeDisplay();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _getLocation());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_refillLocation == null || _refillLocation!.isEmpty) {
+        _getLocation();
+      }
+    });
   }
 
   void _updateDateTimeDisplay() {
@@ -179,14 +203,20 @@ class _OtherExpenseFormPageState extends State<OtherExpenseFormPage> {
     try {
       final amount = double.tryParse(_amountController.text.trim()) ?? 0;
       final expense = VehicleExpense(
+        id: widget.initialData?.id,
         driverId: driverId,
         type: VehicleExpenseType.other,
         date: _selectedDateTime,
         amount: amount,
         category: _category,
         refillLocation: _refillLocation,
-        description: null,
-        note: null,
+        description: widget.initialData?.description,
+        note: widget.initialData?.note,
+        receiptPhotoUrl: widget.initialData?.receiptPhotoUrl,
+        status: 'PENDING',
+        adminNote: null,
+        createdAt: widget.initialData?.createdAt,
+        updatedAt: DateTime.now(),
       );
       await saveVehicleExpense(
         expense,
@@ -221,7 +251,11 @@ class _OtherExpenseFormPageState extends State<OtherExpenseFormPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('vehicle_expense_other'.tr()),
+        title: Text(
+          _isResubmit
+              ? 'vehicle_expense_other_resubmit'.tr()
+              : 'vehicle_expense_other'.tr(),
+        ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => Navigator.of(context).pop(),
@@ -244,6 +278,40 @@ class _OtherExpenseFormPageState extends State<OtherExpenseFormPage> {
                       ).colorScheme.onSurface.withOpacity(0.7),
                     ),
                   ),
+                  if (_isResubmit) ...[
+                    const SizedBox(height: 16),
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .errorContainer
+                            .withOpacity(0.35),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'vehicle_expense_resubmit_banner'.tr(),
+                              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                            if (widget.initialData?.adminNote != null &&
+                                widget.initialData!.adminNote!.trim().isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              Text(widget.initialData!.adminNote!.trim()),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 20),
                   // วันที่เวลา — เหมือนหน้าเติมน้ำมัน
                   Text(
@@ -378,6 +446,45 @@ class _OtherExpenseFormPageState extends State<OtherExpenseFormPage> {
                         height: 160,
                         width: double.infinity,
                         fit: BoxFit.cover,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ] else if (widget.initialData?.receiptPhotoUrl != null &&
+                      widget.initialData!.receiptPhotoUrl!.isNotEmpty) ...[
+                    Text(
+                      'vehicle_expense_existing_receipt'.tr(),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontStyle: FontStyle.italic,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withOpacity(0.7),
+                          ),
+                    ),
+                    const SizedBox(height: 6),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.network(
+                        widget.initialData!.receiptPhotoUrl!,
+                        height: 160,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, _, _) => Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Text(
+                            'vehicle_expense_existing_receipt_error'.tr(),
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                          ),
+                        ),
+                        loadingBuilder: (context, child, progress) {
+                          if (progress == null) return child;
+                          return const SizedBox(
+                            height: 160,
+                            child: Center(child: CircularProgressIndicator()),
+                          );
+                        },
                       ),
                     ),
                     const SizedBox(height: 8),

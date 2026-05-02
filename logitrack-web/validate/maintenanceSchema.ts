@@ -32,8 +32,14 @@ export const maintenanceSchema = z.object({
     startDate: z.string().min(1, "Start date is required"),
     endDate: z.string().optional(),
 
-    // Status
-    status: z.enum(["in_progress", "completed", "cancelled", "PM Booking"]).default("in_progress"),
+    // Status — Scheduled = แอดมินกำหนดวันเวลา/อู่แล้ว รอคนขับเข้าซ่อม
+    status: z.enum(["in_progress", "completed", "cancelled", "PM Booking", "Scheduled"]).default("in_progress"),
+
+    /** เวลานัด (HH:mm) ใช้คู่กับ startDate เมื่อ status Scheduled */
+    appointmentTime: z.string().optional(),
+
+    /** วันเวลานัดรับรถ (local ISO แบบ yyyy-MM-dd'T'HH:mm:ss) — ฟอร์มแอดมิน */
+    pickupAppointment: z.string().optional(),
 
     // Costs
     costLabor: optionalNumber(0, 1000000, "Labor Cost"),
@@ -41,6 +47,9 @@ export const maintenanceSchema = z.object({
     totalCost: optionalNumber(0, 2000000, "Total Cost"),
 
     provider: z.string().optional(),
+    /** พิกัดอู่/ผู้ให้บริการ สำหรับนำทางในแอปคนขับ */
+    providerLat: z.number().min(-90).max(90).optional(),
+    providerLng: z.number().min(-180).max(180).optional(),
     paymentMethod: z.enum(["cash", "credit_card", "billing", "transfer", "insurance_claim"]).optional(),
 
     currentMileage: optionalNumber(0, 2000000, "Current Mileage"),

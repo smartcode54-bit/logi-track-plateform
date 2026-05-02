@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
+import dynamic from "next/dynamic";
 import { useLanguage } from "@/context/language";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -19,7 +20,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { format } from "date-fns";
-import { CheckCircle2, Loader2, Clock, Check, ChevronsUpDown, ExternalLink, Eye } from "lucide-react";
+import { CheckCircle2, Loader2, Clock, Check, ChevronsUpDown, Eye } from "lucide-react";
 import { looksLikeImageUrl } from "@/features/maintenance/utils/looksLikeImageUrl";
 import {
     MaintenanceImagePreviewDialog,
@@ -29,6 +30,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import type { MaintenanceData } from "@/validate/maintenanceSchema";
 import { DEFAULT_PM_INTERVAL_KM } from "@/features/trucks/constants";
+
+const LocationPicker = dynamic(() => import("@/components/map/LocationPicker"), { ssr: false });
 
 const SERVICE_TYPES_PM = [
     { value: "periodic_check", label: "Periodic Maintenance" },
@@ -47,6 +50,9 @@ interface MaintenanceFormProps {
     setCustomServiceType: (v: string) => void;
     provider: string;
     setProvider: (v: string) => void;
+    /** พิกัดอู่สำหรับนำทางคนขับ — แสดงแผนที่เมื่อมี [onProviderMapPositionChange] */
+    providerMapPosition?: { lat: number; lng: number } | null;
+    onProviderMapPositionChange?: (pos: { lat: number; lng: number } | null) => void;
     paymentMethod: string;
     setPaymentMethod: (v: string) => void;
     status: MaintenanceData["status"];
@@ -79,7 +85,9 @@ interface MaintenanceFormProps {
     pmIntervalKm?: number;
     /** URLs already stored on this maintenance doc (admin uploads). */
     existingReceiptUrls?: string[];
-    /** Driver-submitted invoice image URL (mobile app). */
+    /** ใบเสร็จจากคนขับ — หลายไฟล์ (invoiceUrl + receipts จากแอป) */
+    driverReceiptUrls?: string[];
+    /** รองรับเคสลิสต์ยังไม่ถูกส่ง — URL ใบเสร็จหลักใบเดียว */
     driverReceiptUrl?: string | null;
     driverReceiptAmount?: number | null;
 }
@@ -94,11 +102,17 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
     const formRef = useRef<HTMLFormElement>(null);
 
     const savedUrls = (props.existingReceiptUrls ?? []).filter((u): u is string => typeof u === "string" && u.length > 0);
-    const driverUrl = props.driverReceiptUrl?.trim() ? props.driverReceiptUrl : null;
+    const driverUrls = useMemo(() => {
+        const list = (props.driverReceiptUrls ?? [])
+            .map((u) => (typeof u === "string" ? u.trim() : ""))
+            .filter((u): u is string => u.length > 0);
+        if (list.length > 0) return list;
+        const one = props.driverReceiptUrl?.trim();
+        return one ? [one] : [];
+    }, [props.driverReceiptUrls, props.driverReceiptUrl]);
 
     const openReceiptPreview = (clickedUrl: string) => {
-        const merged: string[] = [...savedUrls];
-        if (driverUrl) merged.push(driverUrl);
+        const merged: string[] = [...savedUrls, ...driverUrls];
         const urls = [...new Set(merged.filter(Boolean))];
         if (urls.length === 0) return;
         const startIndex = Math.max(0, urls.indexOf(clickedUrl));
@@ -220,6 +234,27 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                         </div>
                     </div>
 
+                    {props.onProviderMapPositionChange ? (
+                        <div className="space-y-2">
+                            <Label>{t("maintenance.form.providerMapTitle")}</Label>
+                            <p className="text-xs text-muted-foreground">{t("maintenance.form.providerMapHint")}</p>
+                            <LocationPicker
+                                value={props.providerMapPosition ?? undefined}
+                                onChange={(pos) => props.onProviderMapPositionChange?.({ lat: pos.lat, lng: pos.lng })}
+                            />
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="w-full sm:w-auto"
+                                disabled={!props.providerMapPosition}
+                                onClick={() => props.onProviderMapPositionChange?.(null)}
+                            >
+                                {t("maintenance.form.clearMapPin")}
+                            </Button>
+                        </div>
+                    ) : null}
+
                     <div className="space-y-2">
                         <Label>{t("maintenance.form.paymentMethod")}</Label>
                         <Select value={props.paymentMethod} onValueChange={props.setPaymentMethod}>
@@ -313,7 +348,6 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                             gallery={previewGallery}
                             onClose={() => setPreviewGallery(null)}
                             title={t("maintenance.form.receiptPreviewTitle")}
-                            openInNewTabLabel={t("maintenance.history.openInNewTab")}
                             zoomInLabel={t("maintenance.preview.zoomIn")}
                             zoomOutLabel={t("maintenance.preview.zoomOut")}
                             resetZoomLabel={t("maintenance.preview.resetZoom")}
@@ -323,7 +357,7 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                             printLabel={t("maintenance.preview.print")}
                         />
 
-                        {(savedUrls.length > 0 || driverUrl) && (
+                        {(savedUrls.length > 0 || driverUrls.length > 0) && (
                             <div className="space-y-4 rounded-lg border bg-muted/10 p-4">
                                 {savedUrls.length > 0 && (
                                     <div className="space-y-2">
@@ -356,7 +390,7 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                                     </div>
                                 )}
 
-                                {driverUrl && (
+                                {driverUrls.length > 0 && (
                                     <div className="space-y-2 border-t border-dashed pt-4">
                                         <div className="flex flex-wrap items-center gap-2">
                                             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
@@ -370,30 +404,28 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                                                 </Badge>
                                             ) : null}
                                         </div>
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <button
-                                                type="button"
-                                                onClick={() => openReceiptPreview(driverUrl)}
-                                                className="group relative flex h-28 w-28 shrink-0 overflow-hidden rounded-md border bg-amber-500/5 ring-amber-500/30 ring-offset-background transition hover:ring-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                            >
-                                                {looksLikeImageUrl(driverUrl) ? (
-                                                    /* eslint-disable-next-line @next/next/no-img-element */
-                                                    <img src={driverUrl} alt="" className="h-full w-full object-cover" />
-                                                ) : (
-                                                    <span className="flex h-full w-full items-center justify-center p-2 text-center text-xs text-muted-foreground">
-                                                        {t("maintenance.history.viewDriverFile")}
+                                        <div className="flex flex-wrap gap-3">
+                                            {driverUrls.map((url, idx) => (
+                                                <button
+                                                    key={`${url}-${idx}`}
+                                                    type="button"
+                                                    onClick={() => openReceiptPreview(url)}
+                                                    className="group relative flex h-28 w-28 shrink-0 overflow-hidden rounded-md border bg-amber-500/5 ring-amber-500/30 ring-offset-background transition hover:ring-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                                    title={t("maintenance.form.clickToPreview")}
+                                                >
+                                                    {looksLikeImageUrl(url) ? (
+                                                        /* eslint-disable-next-line @next/next/no-img-element */
+                                                        <img src={url} alt="" className="h-full w-full object-cover" />
+                                                    ) : (
+                                                        <span className="flex h-full w-full items-center justify-center p-2 text-center text-xs text-muted-foreground">
+                                                            {t("maintenance.history.viewDriverFile")}
+                                                        </span>
+                                                    )}
+                                                    <span className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition group-hover:opacity-100">
+                                                        <Eye className="h-7 w-7 text-white" />
                                                     </span>
-                                                )}
-                                                <span className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition group-hover:opacity-100">
-                                                    <Eye className="h-7 w-7 text-white" />
-                                                </span>
-                                            </button>
-                                            <Button variant="outline" size="sm" asChild>
-                                                <a href={driverUrl} target="_blank" rel="noopener noreferrer">
-                                                    <ExternalLink className="mr-2 h-4 w-4" />
-                                                    {t("maintenance.history.openInNewTab")}
-                                                </a>
-                                            </Button>
+                                                </button>
+                                            ))}
                                         </div>
                                     </div>
                                 )}

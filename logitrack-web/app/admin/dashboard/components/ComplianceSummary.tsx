@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AlertTriangle, CalendarDays, CheckCircle2, ShieldAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
+import { PM_ALERT_THRESHOLD_KM } from "@/lib/maintenancePm";
 
 interface ComplianceItem {
     id: string;
@@ -35,7 +36,7 @@ export function ComplianceSummary() {
                 const complianceList: ComplianceItem[] = [];
                 const now = new Date();
                 const warningThresholdDays = 30; // Days
-                const warningThresholdKm = 1000; // Kilometers
+                const warningThresholdKm = PM_ALERT_THRESHOLD_KM;
 
                 snapshot.forEach((doc) => {
                     const data = doc.data();

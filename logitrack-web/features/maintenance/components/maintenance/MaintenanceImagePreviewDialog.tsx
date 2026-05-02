@@ -9,7 +9,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { ExternalLink, Printer } from "lucide-react";
+import { Printer } from "lucide-react";
 import { looksLikeImageUrl } from "@/features/maintenance/utils/looksLikeImageUrl";
 import { printImageUrl } from "@/lib/print-image-url";
 import {
@@ -26,7 +26,6 @@ interface MaintenanceImagePreviewDialogProps {
     gallery: MaintenancePreviewGallery;
     onClose: () => void;
     title: string;
-    openInNewTabLabel: string;
     zoomInLabel: string;
     zoomOutLabel: string;
     resetZoomLabel: string;
@@ -40,7 +39,6 @@ export function MaintenanceImagePreviewDialog({
     gallery,
     onClose,
     title,
-    openInNewTabLabel,
     zoomInLabel,
     zoomOutLabel,
     resetZoomLabel,
@@ -105,14 +103,6 @@ export function MaintenanceImagePreviewDialog({
                         >
                             <Printer className="mr-2 h-4 w-4" />
                             {printLabel}
-                        </Button>
-                    ) : null}
-                    {footerUrl ? (
-                        <Button variant="outline" asChild>
-                            <a href={footerUrl} target="_blank" rel="noopener noreferrer">
-                                <ExternalLink className="mr-2 h-4 w-4" />
-                                {openInNewTabLabel}
-                            </a>
                         </Button>
                     ) : null}
                 </DialogFooter>

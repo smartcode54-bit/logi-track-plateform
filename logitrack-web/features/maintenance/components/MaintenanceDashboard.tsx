@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { format } from "date-fns";
 import { useLanguage } from "@/context/language";
 import { getTruckByIdClient, uploadTruckFile, TruckData } from "@/features/trucks/services/truckService";
 import { saveMaintenanceRecord, getMaintenanceHistory, updateMaintenanceRecord } from "@/features/maintenance/api/maintenance";
@@ -17,6 +18,20 @@ import { DEFAULT_PM_INTERVAL_KM } from "@/features/trucks/constants";
 import { MaintenanceStats } from "./maintenance/MaintenanceStats";
 import { MaintenanceHistoryList } from "./maintenance/MaintenanceHistoryList";
 import { MaintenanceForm } from "./maintenance/MaintenanceForm";
+import { buildDriverReceiptUrls } from "@/features/maintenance/utils/buildMaintenanceGalleryUrls";
+import { maintenanceDisplayCost } from "@/features/maintenance/utils/maintenanceDisplayCost";
+
+function pickupAppointmentFromRecord(record: MaintenanceData): string {
+    const ext = record as MaintenanceData & { pickupAppointment?: string };
+    if (ext.pickupAppointment?.trim()) return ext.pickupAppointment.trim();
+    const t = record.appointmentTime?.trim();
+    if (t && record.startDate) {
+        const day = record.startDate.includes("T") ? record.startDate.slice(0, 10) : record.startDate;
+        const hhmm = t.length === 5 ? `${t}:00` : t;
+        return `${day}T${hhmm}`;
+    }
+    return "";
+}
 
 export default function MaintenanceDashboard() {
     const { t } = useLanguage();
@@ -33,8 +48,8 @@ export default function MaintenanceDashboard() {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
 
-    const totalPMCost = history.filter(h => h.type === 'PM').reduce((sum, h) => sum + (h.totalCost || 0), 0);
-    const totalCMCost = history.filter(h => h.type === 'CM').reduce((sum, h) => sum + (h.totalCost || 0), 0);
+    const totalPMCost = history.filter(h => h.type === 'PM').reduce((sum, h) => sum + maintenanceDisplayCost(h), 0);
+    const totalCMCost = history.filter(h => h.type === 'CM').reduce((sum, h) => sum + maintenanceDisplayCost(h), 0);
 
     const [type, setType] = useState<"PM" | "CM">("PM");
     const [status, setStatus] = useState<MaintenanceData["status"]>("in_progress");
@@ -42,6 +57,7 @@ export default function MaintenanceDashboard() {
     const [customServiceType, setCustomServiceType] = useState<string>(""); 
     const [startDate, setStartDate] = useState<string>("");
     const [endDate, setEndDate] = useState<string>("");
+    const [pickupAppointment, setPickupAppointment] = useState<string>("");
     const [paymentMethod, setPaymentMethod] = useState<string>("cash");
 
     const [costLabor, setCostLabor] = useState<string>("");
@@ -51,10 +67,11 @@ export default function MaintenanceDashboard() {
     const [nextServiceMileage, setNextServiceMileage] = useState<string>("");
 
     const [provider, setProvider] = useState<string>("");
+    const [providerMapPos, setProviderMapPos] = useState<{ lat: number; lng: number } | null>(null);
     const [notes, setNotes] = useState<string>("");
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [existingReceiptUrls, setExistingReceiptUrls] = useState<string[]>([]);
-    const [driverReceiptUrl, setDriverReceiptUrl] = useState<string | null>(null);
+    const [driverReceiptUrls, setDriverReceiptUrls] = useState<string[]>([]);
     const [driverReceiptAmount, setDriverReceiptAmount] = useState<number | null>(null);
 
     useEffect(() => {
@@ -105,6 +122,16 @@ export default function MaintenanceDashboard() {
                 type,
                 serviceType: finalServiceType,
                 startDate,
+                pickupAppointment: pickupAppointment || undefined,
+                appointmentTime: pickupAppointment
+                    ? (() => {
+                          try {
+                              return format(new Date(pickupAppointment), "HH:mm");
+                          } catch {
+                              return undefined;
+                          }
+                      })()
+                    : undefined,
                 endDate: status === 'completed' ? endDate : undefined,
                 status,
                 costLabor: labor > 0 ? labor : undefined,
@@ -116,6 +143,11 @@ export default function MaintenanceDashboard() {
                 paymentMethod,
                 notes
             };
+
+            if (providerMapPos) {
+                payload.providerLat = providerMapPos.lat;
+                payload.providerLng = providerMapPos.lng;
+            }
 
             if (selectedRecordId) {
                 if (imageUrl) {
@@ -165,9 +197,11 @@ export default function MaintenanceDashboard() {
         setSelectedFile(null);
         setPaymentMethod("cash");
         setNotes("");
+        setPickupAppointment("");
         setExistingReceiptUrls([]);
-        setDriverReceiptUrl(null);
+        setDriverReceiptUrls([]);
         setDriverReceiptAmount(null);
+        setProviderMapPos(null);
         if (truck) {
             setCurrentMileage(truck.currentMileage?.toString() || "");
         }
@@ -183,18 +217,24 @@ export default function MaintenanceDashboard() {
             setCustomServiceType(record.serviceType);
         }
         setStartDate(record.startDate);
+        setPickupAppointment(pickupAppointmentFromRecord(record));
         setEndDate(record.endDate || "");
         setCostLabor(record.costLabor?.toString() || "");
         setCostParts(record.costParts?.toString() || "");
         setCurrentMileage(record.currentMileage?.toString() || "");
         setNextServiceMileage(record.nextServiceMileage?.toString() || "");
         setProvider(record.provider || "");
+        setProviderMapPos(
+            typeof record.providerLat === "number" && typeof record.providerLng === "number"
+                ? { lat: record.providerLat, lng: record.providerLng }
+                : null
+        );
         setPaymentMethod(record.paymentMethod || "cash");
         setNotes(record.notes || "");
         setExistingReceiptUrls(
             Array.isArray(record.images) ? record.images.filter((u): u is string => typeof u === "string" && u.length > 0) : []
         );
-        setDriverReceiptUrl(record.invoiceUrl?.trim() ? record.invoiceUrl : null);
+        setDriverReceiptUrls(buildDriverReceiptUrls(record));
         setDriverReceiptAmount(
             typeof record.invoiceAmount === "number" && !Number.isNaN(record.invoiceAmount) ? record.invoiceAmount : null
         );
@@ -249,12 +289,16 @@ export default function MaintenanceDashboard() {
                     setCustomServiceType={setCustomServiceType}
                     provider={provider}
                     setProvider={setProvider}
+                    providerMapPosition={providerMapPos}
+                    onProviderMapPositionChange={setProviderMapPos}
                     paymentMethod={paymentMethod}
                     setPaymentMethod={setPaymentMethod}
                     status={status}
                     setStatus={setStatus}
                     startDate={startDate}
                     setStartDate={setStartDate}
+                    pickupAppointment={pickupAppointment}
+                    setPickupAppointment={setPickupAppointment}
                     endDate={endDate}
                     setEndDate={setEndDate}
                     costLabor={costLabor}
@@ -273,7 +317,7 @@ export default function MaintenanceDashboard() {
                     handleSave={handleSave}
                     setView={setView}
                     existingReceiptUrls={existingReceiptUrls}
-                    driverReceiptUrl={driverReceiptUrl}
+                    driverReceiptUrls={driverReceiptUrls}
                     driverReceiptAmount={driverReceiptAmount}
                 />
             )}
