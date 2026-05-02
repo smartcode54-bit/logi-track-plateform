@@ -20,7 +20,10 @@ import {
     RefreshCw,
     Download,
     Calendar as CalendarIcon,
+    Clipboard,
+    Copy,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { useLanguage } from "@/context/language";
 import { useAuth } from "@/context/auth";
@@ -77,6 +80,8 @@ import {
     effectivePartnerCode,
     isExportRangeCoveredByLoaded,
 } from "../hooks/useDriverMonitor";
+import { buildTripDeliveryShareTextAsync } from "@/lib/tripLineShare";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { TRIP_STATUS_ENUM } from "@/validate/tripRecordSchema";
 import type { TripRecord } from "@/validate/tripRecordSchema";
 
@@ -123,6 +128,9 @@ export default function DriverMonitorDashboard() {
 
     const [exportOpen, setExportOpen] = useState(false);
     const [exportLoading, setExportLoading] = useState(false);
+    const [shareLinePreviewOpen, setShareLinePreviewOpen] = useState(false);
+    const [shareLinePreviewText, setShareLinePreviewText] = useState("");
+    const [shareLinePreviewLoading, setShareLinePreviewLoading] = useState(false);
     const initExportFilters = (): ExportFilterCriteria => {
         const dr = defaultDateRange();
         return {
@@ -178,6 +186,13 @@ export default function DriverMonitorDashboard() {
         trips,
         getBillingForTrip,
     } = useDriverMonitor();
+
+    useEffect(() => {
+        if (!detailTrip) {
+            setShareLinePreviewOpen(false);
+            setShareLinePreviewText("");
+        }
+    }, [detailTrip]);
 
     const [tripPreviewCurrentUrl, setTripPreviewCurrentUrl] = useState("");
     const [tripPreviewCaption, setTripPreviewCaption] = useState("");
@@ -307,6 +322,43 @@ export default function DriverMonitorDashboard() {
         if (!driverId) return "-";
         const driver = getDriver(driverId);
         return driver?.currentAssignment?.truckPlate ?? "-";
+    };
+
+    const openShareLinePreview = async () => {
+        if (!detailTrip) return;
+        setShareLinePreviewOpen(true);
+        setShareLinePreviewLoading(true);
+        setShareLinePreviewText("");
+        try {
+            const driver = getDriver(detailTrip.driverId ?? "") ?? null;
+            const incident = detailTrip.id ? incidentReportsByTripId[detailTrip.id] : undefined;
+            const text = await buildTripDeliveryShareTextAsync({
+                trip: detailTrip,
+                driver,
+                originLabel: getSourceDisplayName(detailTrip.origin),
+                destLabel: getSourceDisplayName(detailTrip.destination),
+                partnerLine: effectivePartnerCode(detailTrip) || "-",
+                incidentNote: incident?.description ?? null,
+            });
+            setShareLinePreviewText(text);
+        } catch {
+            toast.error(t("driverMonitor.detail.shareLineFailed"));
+            setShareLinePreviewOpen(false);
+        } finally {
+            setShareLinePreviewLoading(false);
+        }
+    };
+
+    const copyShareLineTextToClipboard = async () => {
+        const text = shareLinePreviewText.trim();
+        if (!text) return;
+        try {
+            await navigator.clipboard.writeText(text);
+            toast.success(t("driverMonitor.detail.shareLineCopySuccess"));
+            setShareLinePreviewOpen(false);
+        } catch {
+            toast.error(t("driverMonitor.detail.shareLineCopyFailed"));
+        }
     };
 
     const formatTimestamp = (val: any) => {
@@ -1157,9 +1209,78 @@ export default function DriverMonitorDashboard() {
                             )}
                         </div>
                     )}
-                    <DialogFooter className="gap-2 sm:gap-0">
+                    <DialogFooter className="gap-2 flex-col sm:flex-row sm:justify-end sm:gap-0">
+                        <Button
+                            type="button"
+                            variant="secondary"
+                            className="w-full sm:w-auto gap-2"
+                            disabled={shareLinePreviewLoading || !detailTrip}
+                            onClick={() => void openShareLinePreview()}
+                        >
+                            {shareLinePreviewLoading ? (
+                                <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                            ) : (
+                                <Clipboard className="h-4 w-4 shrink-0" />
+                            )}
+                            {t("driverMonitor.detail.shareLine")}
+                        </Button>
                         <Button variant="outline" onClick={() => setDetailTrip(null)} className="w-full sm:w-auto">
                             {t("driverMonitor.detail.close")}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* ตัวอย่างข้อความก่อนแชร์ LINE */}
+            <Dialog
+                open={shareLinePreviewOpen}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setShareLinePreviewOpen(false);
+                        setShareLinePreviewText("");
+                    }
+                }}
+            >
+                <DialogContent className="max-w-lg max-h-[90vh] flex flex-col gap-4">
+                    <DialogHeader>
+                        <DialogTitle>{t("driverMonitor.detail.shareLinePreviewTitle")}</DialogTitle>
+                        <DialogDescription>{t("driverMonitor.detail.shareLinePreviewDescription")}</DialogDescription>
+                    </DialogHeader>
+                    {shareLinePreviewLoading ? (
+                        <div className="flex justify-center py-12">
+                            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                        </div>
+                    ) : (
+                        <>
+                            {detailTrip != null && (detailTrip.photos?.length ?? 0) > 0 ? (
+                                <p className="text-sm text-muted-foreground">
+                                    {t("driverMonitor.detail.shareLinePreviewPhotoHint")}
+                                </p>
+                            ) : null}
+                            <ScrollArea className="h-[min(50vh,360px)] rounded-md border border-border">
+                                <pre className="whitespace-pre-wrap break-words p-3 text-sm font-sans leading-relaxed">
+                                    {shareLinePreviewText}
+                                </pre>
+                            </ScrollArea>
+                        </>
+                    )}
+                    <DialogFooter className="gap-2 flex-col sm:flex-row sm:justify-end sm:gap-0">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setShareLinePreviewOpen(false)}
+                            className="w-full sm:w-auto"
+                        >
+                            {t("driverMonitor.detail.shareLinePreviewCancel")}
+                        </Button>
+                        <Button
+                            type="button"
+                            className="w-full sm:w-auto gap-2"
+                            onClick={() => void copyShareLineTextToClipboard()}
+                            disabled={shareLinePreviewLoading || !shareLinePreviewText.trim()}
+                        >
+                            <Copy className="h-4 w-4 shrink-0" />
+                            {t("driverMonitor.detail.shareLinePreviewCopy")}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

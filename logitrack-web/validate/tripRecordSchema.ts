@@ -81,6 +81,11 @@ export const tripRecordSchema = z.object({
     deliveredLat: z.number().optional(),
     deliveredLng: z.number().optional(),
 
+    /** Actual departure / arrival timeline (Firestore Timestamp from mobile; client coerces to Date). */
+    std: z.any().optional(),
+    sta: z.any().optional(),
+    ata: z.any().optional(),
+
     // Billing snapshot fields (optional)
     billingEstimateThb: z.number().optional(),
     billingBaseRateThb: z.number().optional(),

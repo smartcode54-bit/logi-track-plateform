@@ -98,6 +98,9 @@ function mapTripDoc(d: QueryDocumentSnapshot<DocumentData>): TripRecord {
         createdAt: toDate(data.createdAt),
         updatedAt: toDate(data.updatedAt),
         deliveredTimestamp: toDate(data.deliveredTimestamp),
+        std: toDate(data.std) ?? undefined,
+        sta: toDate(data.sta) ?? undefined,
+        ata: toDate(data.ata) ?? undefined,
     } as TripRecord;
 }
 
