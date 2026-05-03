@@ -26,6 +26,8 @@ class HubDoc {
   final String stationType; // HUB | SOC
   final String? linkedCustomerId;
   final String? customerLinkKind; // customer | partner
+  /// Denormalized at save in Admin Hub dialog; drivers cannot read `customers`.
+  final String? linkedCustomerName;
 
   HubDoc({
     this.id,
@@ -37,6 +39,7 @@ class HubDoc {
     this.stationType = stationTypeHub,
     this.linkedCustomerId,
     this.customerLinkKind,
+    this.linkedCustomerName,
   });
 
   factory HubDoc.fromFirestore(Map<String, dynamic> data, [String? docId]) {
@@ -70,6 +73,8 @@ class HubDoc {
     // Match web `normalizeStationType`: RETURN_CENTER → SOC
     final linkedCustomerId = (data['linkedCustomerId'] ?? '').toString().trim();
     final customerLinkKind = (data['customerLinkKind'] ?? '').toString().trim();
+    final linkedCustomerName =
+        (data['linkedCustomerName'] ?? '').toString().trim();
     return HubDoc(
       id: docId,
       sourceId: sourceId,
@@ -83,6 +88,7 @@ class HubDoc {
               : stationTypeHub,
       linkedCustomerId: linkedCustomerId.isEmpty ? null : linkedCustomerId,
       customerLinkKind: customerLinkKind.isEmpty ? null : customerLinkKind,
+      linkedCustomerName: linkedCustomerName.isEmpty ? null : linkedCustomerName,
     );
   }
 
@@ -101,15 +107,22 @@ bool hubSourceIdHasSpxSuffix(String sourceIdOrHubCode) {
   return s.endsWith('-SPX') || s.endsWith('_SPX') || s.endsWith('.SPX');
 }
 
-/// ฟิลด์เหมือน Admin ใส่บน `tasks` จากคู่ hub ที่คนขับเลือก (manual check-in).
-///
-/// ชื่อจาก `customers` ไม่ดึงบนมือถือได้ (rules) — `*LinkedCustomerName` ว่าง;
-/// ให้เห็น partner/customer จาก `*CustomerLinkKind` + รหัส SPX (เมื่อมี suffix) แทน.
+/// ฟิลด์บน `tasks` จากคู่ hub ที่คนขับเลือก — ชื่อลูกค้าใช้จาก `hubs.linkedCustomerName`
+/// (แอดมินบันทึกตอนแก้ Hub) ถ้าไม่มีให้ fallback เป็นชื่อสถานี EN/TH
 Map<String, dynamic> taskFieldsFromHubDocsForManualCreate({
   required HubDoc? originHub,
   required HubDoc? destHub,
 }) {
   final out = <String, dynamic>{};
+
+  String displayLinkedName(HubDoc h) {
+    final n = h.linkedCustomerName?.trim();
+    if (n != null && n.isNotEmpty) return n;
+    final en = h.sourceNameEn.trim();
+    if (en.isNotEmpty) return en;
+    return h.sourceNameTh.trim();
+  }
+
   void source(HubDoc? h) {
     if (h == null) return;
     final id = h.linkedCustomerId?.trim();
@@ -121,7 +134,7 @@ Map<String, dynamic> taskFieldsFromHubDocsForManualCreate({
     if (hubSourceIdHasSpxSuffix(h.sourceId)) {
       out['sourceHubLinkedCustomerCode'] = 'SPX';
     }
-    out['sourceHubLinkedCustomerName'] = '';
+    out['sourceHubLinkedCustomerName'] = displayLinkedName(h);
   }
 
   void dest(HubDoc? h) {
@@ -135,7 +148,7 @@ Map<String, dynamic> taskFieldsFromHubDocsForManualCreate({
     if (hubSourceIdHasSpxSuffix(h.sourceId)) {
       out['destinationLinkedCustomerCode'] = 'SPX';
     }
-    out['destinationLinkedCustomerName'] = '';
+    out['destinationLinkedCustomerName'] = displayLinkedName(h);
   }
 
   source(originHub);

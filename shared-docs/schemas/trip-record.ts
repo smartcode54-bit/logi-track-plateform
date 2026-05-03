@@ -95,6 +95,7 @@ export const tripRecordSchema = z.object({
     billingRateMultiplier: z.number().optional(),
     billingAddThbPerTrip: z.number().optional(),
     billingEffectiveFromDateStr: z.string().optional(),
+    billingCustomerId: z.string().optional(),
 
     // Audit
     createdAt: z.date().optional(),

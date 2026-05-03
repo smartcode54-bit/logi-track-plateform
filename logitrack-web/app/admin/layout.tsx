@@ -34,6 +34,7 @@ import Link from "next/link"; // Ensure Link is imported
 
 function DynamicBreadcrumb({ pathname }: { pathname: string }) {
     const { customLastItem } = useBreadcrumb();
+    const { t } = useLanguage();
 
     // Split path and filter out empty strings and 'admin' (since Home covers it)
     const segments = pathname.split('/').filter(Boolean).filter(seg => seg !== 'admin');
@@ -58,8 +59,10 @@ function DynamicBreadcrumb({ pathname }: { pathname: string }) {
                     // Format segment name: "maintenance-logs" -> "Maintenance Logs"
                     const name = segment.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 
+                    const navLabel = segment === "income" ? t("nav.income") : name;
+
                     // Use customLastItem if it's the last item and value is set
-                    const displayName = (isLast && customLastItem) ? customLastItem : name;
+                    const displayName = (isLast && customLastItem) ? customLastItem : navLabel;
 
                     return (
                         <div key={href} className="flex items-center">

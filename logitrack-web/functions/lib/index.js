@@ -59,4 +59,5 @@ __exportStar(require("./securityEvents"), exports);
 __exportStar(require("./bangchakOilPrice"), exports);
 __exportStar(require("./monthlyFuelPriceSnapshot"), exports);
 __exportStar(require("./syncBangchakFuelMonthlySnapshot"), exports);
+__exportStar(require("./tripBillingOnDelivered"), exports);
 //# sourceMappingURL=index.js.map

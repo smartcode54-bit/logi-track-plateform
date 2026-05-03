@@ -37,7 +37,7 @@ export default {
     "nav.other": "อื่นๆ",
     "nav.auditExpense": "ตรวจสอบค่าใช้จ่าย",
     "nav.rateCard": "เรทการวางบิล",
-    "nav.income": "รายได้ (ประมาณการ)",
+    "nav.income": "การวางบิล",
     "nav.operations": "ปฏิบัติการ",
     "nav.firstMileTasks": "งาน First Mile",
     "nav.sourceManagement": "จัดการจุดรับงาน",
@@ -62,6 +62,8 @@ export default {
     "common.delete": "ลบ",
     "common.refresh": "รีเฟรช",
     "common.actions": "การกระทำ",
+    "common.show": "แสดง",
+    "common.hide": "ซ่อน",
     "common.joinedAt": "วันที่เข้าร่วม",
     "common.email": "อีเมล",
 

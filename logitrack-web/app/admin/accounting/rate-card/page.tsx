@@ -46,10 +46,12 @@ import {
     createCustomerFuelRateAdjustment,
     createCustomerRateEntry,
     deleteCustomerFuelRateAdjustment,
+    deleteCustomerRateEntry,
     getCustomerFuelRateAdjustments,
     getCustomerRateEntries,
     getFuelMonthlySnapshots,
     updateCustomerFuelRateAdjustment,
+    updateCustomerRateEntry,
     type CustomerFuelRateAdjustmentRow,
     type CustomerRateEntryRow,
     type FuelMonthlySnapshotRow,
@@ -64,6 +66,11 @@ import {
     pickFleetBangchakDieselReference,
 } from "@/lib/bangchakFleetReferenceFuel";
 import { SOC_DESTINATIONS } from "@/validate/taskSchema";
+import {
+    computeFinalRateThb,
+    selectFuelAdjustmentForBillingDate,
+    type FuelRateAdjustment,
+} from "@/lib/billingCompute";
 
 interface HubOption {
     id: string;
@@ -85,40 +92,20 @@ function formatMultiplierTimes(multiplier: number): string {
     return `*${multiplier.toFixed(2)}`;
 }
 
-/** Rounded THB change vs base when applying multiplier (before addThbPerTrip). */
-function deltaThbFromMultiplier(rateThb: number, multiplier: number): number {
-    return Math.round(rateThb * (multiplier - 1));
+function fuelRowsToAdjustments(rows: CustomerFuelRateAdjustmentRow[]): FuelRateAdjustment[] {
+    return rows.map((r) => ({
+        id: r.id,
+        customerId: r.customerId,
+        effectiveFromMs: r.effectiveFrom.getTime(),
+        rateMultiplier: r.rateMultiplier,
+        addThbPerTrip: r.addThbPerTrip ?? 0,
+    }));
 }
 
-function formatDeltaThbSigned(rateThb: number, multiplier: number): string {
-    const d = deltaThbFromMultiplier(rateThb, multiplier);
+function formatSignedThbDelta(base: number, finalRate: number): string {
+    const d = Math.round((finalRate - base) * 100) / 100;
     if (d === 0) return "±฿0";
     return d > 0 ? `+฿${d.toLocaleString()}` : `-฿${Math.abs(d).toLocaleString()}`;
-}
-
-function ruleEffectiveDateKey(d: Date): string {
-    return format(d, "yyyy-MM-dd");
-}
-
-/** Latest fuel rule for the customer in effect on or before `asOf` (date-only, yyyy-MM-dd). */
-function pickFuelRuleAsOf(
-    customerId: string,
-    asOf: Date,
-    byCustomer: Map<string, CustomerFuelRateAdjustmentRow[]>
-): CustomerFuelRateAdjustmentRow | null {
-    const id = customerId.trim();
-    const list = byCustomer.get(id);
-    if (!list?.length) return null;
-    const cutoff = ruleEffectiveDateKey(asOf);
-    for (const rule of list) {
-        if (ruleEffectiveDateKey(rule.effectiveFrom) <= cutoff) return rule;
-    }
-    return null;
-}
-
-function computedRateAfterRule(rateThb: number, rule: CustomerFuelRateAdjustmentRow): number {
-    const deltaVsBase = rateThb * (rule.rateMultiplier - 1);
-    return Math.round(rateThb + deltaVsBase + (rule.addThbPerTrip ?? 0));
 }
 
 function parseMonthKeyDate(monthKey: string): Date | null {
@@ -190,6 +177,7 @@ export default function AccountingRateCardPage() {
     const [entriesPage, setEntriesPage] = useState(1);
     const [entriesPerPage, setEntriesPerPage] = useState(15);
     const [showRateCalPreview, setShowRateCalPreview] = useState(false);
+    const [rateCalAsOfStr, setRateCalAsOfStr] = useState(() => format(new Date(), "yyyy-MM-dd"));
     const [adjustmentError, setAdjustmentError] = useState<string | null>(null);
     const [savingAdjustment, setSavingAdjustment] = useState(false);
     const [deletingAdjustmentId, setDeletingAdjustmentId] = useState<string | null>(null);
@@ -209,9 +197,20 @@ export default function AccountingRateCardPage() {
         customerId: "",
         effectiveFrom: "",
         ratePercent: "0",
+        addThbPerTrip: "0",
         referenceFuelPrice: "",
         announcementNote: "",
     });
+    // Rate entry edit/delete state
+    const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+    const [editEntryForm, setEditEntryForm] = useState({
+        rateThb: "",
+        distanceKm: "",
+        vehicleClass: "",
+        effectiveFrom: "",
+    });
+    const [savingEntry, setSavingEntry] = useState(false);
+    const [deletingEntryId, setDeletingEntryId] = useState<string | null>(null);
 
     const customerNameById = useMemo(() => {
         const map = new Map<string, string>();
@@ -401,9 +400,6 @@ export default function AccountingRateCardPage() {
         [fuelSnapshots]
     );
 
-    /** Cal column: rule must have started on or before this day (today, local calendar). */
-    const rateCalPreviewAsOf = new Date();
-
     useEffect(() => {
         setEntriesPage(1);
     }, [filterCustomerId, filterSourceHubId, filterDestinationCode, filterVehicleClass, filterSearch, entriesPerPage]);
@@ -448,13 +444,15 @@ export default function AccountingRateCardPage() {
             ? Number(adjustmentForm.referenceFuelPrice)
             : undefined;
         const rateMultiplier = 1 + ratePercent / 100;
+        const addThbPerTrip = Number(adjustmentForm.addThbPerTrip);
 
         if (
             !customerId ||
             !effectiveFrom ||
             !Number.isFinite(ratePercent) ||
             !Number.isFinite(rateMultiplier) ||
-            rateMultiplier <= 0
+            rateMultiplier <= 0 ||
+            !Number.isFinite(addThbPerTrip)
         ) {
             setAdjustmentError(t("accounting.rateCard.fuelAdjustments.form.invalid"));
             return;
@@ -465,7 +463,7 @@ export default function AccountingRateCardPage() {
                 customerId,
                 effectiveFrom,
                 rateMultiplier,
-                addThbPerTrip: 0,
+                addThbPerTrip,
                 referenceFuelPriceThbPerLitre: referenceFuelPrice,
                 announcementNote: adjustmentForm.announcementNote,
             };
@@ -510,6 +508,7 @@ export default function AccountingRateCardPage() {
             customerId: row.customerId,
             effectiveFrom,
             ratePercent,
+            addThbPerTrip: row.addThbPerTrip != null ? String(row.addThbPerTrip) : "0",
             referenceFuelPrice:
                 latest != null
                     ? String(latest.price)
@@ -528,6 +527,7 @@ export default function AccountingRateCardPage() {
             customerId: "",
             effectiveFrom: "",
             ratePercent: "0",
+            addThbPerTrip: "0",
             referenceFuelPrice: "",
             announcementNote: "",
         });
@@ -678,6 +678,82 @@ export default function AccountingRateCardPage() {
         }
     };
 
+    const handleDeleteEntry = async (id: string) => {
+        if (!confirm(t("accounting.rateCard.entry.confirmDelete"))) return;
+        setDeletingEntryId(id);
+        try {
+            await deleteCustomerRateEntry(id);
+            await loadData();
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setDeletingEntryId(null);
+        }
+    };
+
+    const handleStartEditEntry = (entry: CustomerRateEntryRow) => {
+        setEditingEntryId(entry.id);
+        setEditEntryForm({
+            rateThb: String(entry.rateThb),
+            distanceKm: entry.distanceKm != null ? String(entry.distanceKm) : "",
+            vehicleClass: entry.vehicleClass,
+            effectiveFrom: format(entry.effectiveFrom, "yyyy-MM-dd"),
+        });
+    };
+
+    const handleSaveEntry = async () => {
+        if (!editingEntryId) return;
+        setSavingEntry(true);
+        try {
+            await updateCustomerRateEntry(editingEntryId, {
+                rateThb: Number(editEntryForm.rateThb),
+                distanceKm: editEntryForm.distanceKm ? Number(editEntryForm.distanceKm) : undefined,
+                vehicleClass: editEntryForm.vehicleClass,
+                effectiveFrom: parseDateInput(editEntryForm.effectiveFrom) ?? undefined,
+            });
+            setEditingEntryId(null);
+            await loadData();
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setSavingEntry(false);
+        }
+    };
+
+    const handleExportData = () => {
+        const exportRows = filteredEntries.map((row) => ({
+            [t("accounting.rateCard.table.customer")]: customerOnlyNameById.get(row.customerId) ?? row.customerId,
+            [t("accounting.rateCard.export.customerCode")]: customers.find((c) => c.id === row.customerId)?.code ?? "",
+            [t("accounting.rateCard.table.hubId")]: row.hubId,
+            [t("accounting.rateCard.export.hubName")]: formatSource(row.hubId),
+            [t("accounting.rateCard.table.destination")]: row.destinationCode,
+            [t("accounting.rateCard.export.destinationName")]: formatDestination(row.destinationCode),
+            [t("accounting.rateCard.table.vehicleClass")]: row.vehicleClass,
+            [t("accounting.rateCard.table.rateThb")]: row.rateThb,
+            [t("accounting.rateCard.table.distanceKm")]: row.distanceKm ?? "",
+            [t("accounting.rateCard.table.effectiveFrom")]: format(row.effectiveFrom, "dd/MM/yyyy"),
+            [t("accounting.rateCard.table.importId")]: row.importId,
+        }));
+        const ws = XLSX.utils.json_to_sheet(exportRows);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Rate Card");
+        const dateStr = format(new Date(), "yyyyMMdd_HHmmss");
+        XLSX.writeFile(wb, `rate_card_export_${dateStr}.xlsx`);
+    };
+
+    // Stats summary
+    const entriesStats = useMemo(() => {
+        const byCustomer = new Map<string, number>();
+        entries.forEach((e) => {
+            byCustomer.set(e.customerId, (byCustomer.get(e.customerId) ?? 0) + 1);
+        });
+        return {
+            total: entries.length,
+            customerCount: byCustomer.size,
+            filtered: filteredEntries.length,
+        };
+    }, [entries, filteredEntries]);
+
     if (loading) {
         return (
             <div className="flex h-64 items-center justify-center">
@@ -694,6 +770,14 @@ export default function AccountingRateCardPage() {
                     <p className="text-muted-foreground mt-1">{t("accounting.rateCard.subtitle")}</p>
                 </div>
                 <div className="flex items-center gap-2">
+                    <Button
+                        variant="outline"
+                        onClick={handleExportData}
+                        disabled={filteredEntries.length === 0}
+                    >
+                        <Download className="h-4 w-4 mr-2" />
+                        {t("accounting.rateCard.exportData")}
+                    </Button>
                     <Button variant="outline" onClick={handleExportTemplate}>
                         <Download className="h-4 w-4 mr-2" />
                         {t("accounting.rateCard.exportTemplate")}
@@ -709,6 +793,43 @@ export default function AccountingRateCardPage() {
                         </Button>
                     )}
                 </div>
+            </div>
+
+            {/* Stats Summary */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Card>
+                    <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium">{t("accounting.rateCard.stats.total")}</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">{entriesStats.total.toLocaleString()}</div>
+                        <p className="text-xs text-muted-foreground">
+                            {t("accounting.rateCard.stats.entries")}
+                        </p>
+                    </CardContent>
+                </Card>
+                <Card>
+                    <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium">{t("accounting.rateCard.stats.customers")}</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">{entriesStats.customerCount.toLocaleString()}</div>
+                        <p className="text-xs text-muted-foreground">
+                            {t("accounting.rateCard.stats.customersWithRates")}
+                        </p>
+                    </CardContent>
+                </Card>
+                <Card>
+                    <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium">{t("accounting.rateCard.stats.filtered")}</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">{entriesStats.filtered.toLocaleString()}</div>
+                        <p className="text-xs text-muted-foreground">
+                            {t("accounting.rateCard.stats.matchingFilter")}
+                        </p>
+                    </CardContent>
+                </Card>
             </div>
 
             {canEdit && (
@@ -827,16 +948,40 @@ export default function AccountingRateCardPage() {
             <Card>
                 <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-center sm:justify-between">
                     <CardTitle>{t("accounting.rateCard.title")}</CardTitle>
-                    <Button
-                        type="button"
-                        variant={showRateCalPreview ? "default" : "outline"}
-                        size="sm"
-                        className="shrink-0"
-                        onClick={() => setShowRateCalPreview((v) => !v)}
-                    >
-                        <Calculator className="h-4 w-4 mr-2" />
-                        {t("accounting.rateCard.calcPreview.button")}
-                    </Button>
+                    <div className="flex flex-wrap items-end gap-3">
+                        {showRateCalPreview && (
+                            <div className="flex flex-col gap-1.5">
+                                <Label className="text-xs">{t("accounting.rateCard.calcPreview.asOfLabel")}</Label>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <Input
+                                        type="date"
+                                        className="h-9 w-[160px]"
+                                        value={rateCalAsOfStr}
+                                        onChange={(e) => setRateCalAsOfStr(e.target.value)}
+                                    />
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-9"
+                                        onClick={() => setRateCalAsOfStr(format(new Date(), "yyyy-MM-dd"))}
+                                    >
+                                        {t("accounting.rateCard.calcPreview.today")}
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
+                        <Button
+                            type="button"
+                            variant={showRateCalPreview ? "default" : "outline"}
+                            size="sm"
+                            className="shrink-0"
+                            onClick={() => setShowRateCalPreview((v) => !v)}
+                        >
+                            <Calculator className="h-4 w-4 mr-2" />
+                            {t("accounting.rateCard.calcPreview.button")}
+                        </Button>
+                    </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
                     <div className="rounded-lg border p-4">
@@ -922,13 +1067,30 @@ export default function AccountingRateCardPage() {
                                 <TableHead className="text-right">{t("accounting.rateCard.table.distanceKm")}</TableHead>
                                 <TableHead>{t("accounting.rateCard.table.effectiveFrom")}</TableHead>
                                 <TableHead>{t("accounting.rateCard.table.importId")}</TableHead>
+                                {canEdit && <TableHead className="w-[60px]">{t("accounting.table.actions")}</TableHead>}
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {paginatedEntries.map((row) => {
-                                const rule = pickFuelRuleAsOf(row.customerId, rateCalPreviewAsOf, adjustmentsByCustomer);
+                                const asOfDate = parseDateInput(rateCalAsOfStr) ?? new Date();
+                                const noon = new Date(asOfDate);
+                                noon.setHours(12, 0, 0, 0);
+                                const fuelAdjList = fuelRowsToAdjustments(
+                                    adjustmentsByCustomer.get(row.customerId) ?? []
+                                );
+                                const ruleDoc = selectFuelAdjustmentForBillingDate(
+                                    row.customerId,
+                                    noon.getTime(),
+                                    fuelAdjList
+                                );
                                 const newRate =
-                                    rule != null ? computedRateAfterRule(row.rateThb, rule) : null;
+                                    ruleDoc != null
+                                        ? computeFinalRateThb(
+                                              row.rateThb,
+                                              ruleDoc.rateMultiplier,
+                                              ruleDoc.addThbPerTrip
+                                          )
+                                        : null;
                                 return (
                                 <TableRow key={row.id}>
                                     <TableCell>{customerNameById.get(row.customerId) ?? row.customerId}</TableCell>
@@ -938,12 +1100,12 @@ export default function AccountingRateCardPage() {
                                     <TableCell className="text-right">฿{row.rateThb.toLocaleString()}</TableCell>
                                     {showRateCalPreview && (
                                         <TableCell className="text-right">
-                                            {newRate != null && rule != null ? (
+                                            {newRate != null && ruleDoc != null ? (
                                                 <span
                                                     title={t("accounting.rateCard.calcPreview.rowTooltip", {
-                                                        times: formatMultiplierTimes(rule.rateMultiplier),
-                                                        percent: multiplierToPercentText(rule.rateMultiplier),
-                                                        delta: formatDeltaThbSigned(row.rateThb, rule.rateMultiplier),
+                                                        times: formatMultiplierTimes(ruleDoc.rateMultiplier),
+                                                        percent: multiplierToPercentText(ruleDoc.rateMultiplier),
+                                                        delta: formatSignedThbDelta(row.rateThb, newRate),
                                                     })}
                                                 >
                                                     ฿{newRate.toLocaleString()}
@@ -963,13 +1125,46 @@ export default function AccountingRateCardPage() {
                                     </TableCell>
                                     <TableCell>{format(row.effectiveFrom, "dd/MM/yyyy")}</TableCell>
                                     <TableCell className="font-mono text-xs">{row.importId}</TableCell>
+                                    {canEdit && (
+                                        <TableCell>
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-8 w-8"
+                                                        disabled={deletingEntryId === row.id}
+                                                    >
+                                                        {deletingEntryId === row.id ? (
+                                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                                        ) : (
+                                                            <MoreHorizontal className="h-4 w-4" />
+                                                        )}
+                                                    </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                    <DropdownMenuItem onClick={() => handleStartEditEntry(row)}>
+                                                        <Pencil className="h-4 w-4 mr-2" />
+                                                        {t("accounting.rateCard.entry.edit")}
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuItem
+                                                        onClick={() => void handleDeleteEntry(row.id)}
+                                                        className="text-destructive focus:text-destructive"
+                                                    >
+                                                        <Trash2 className="h-4 w-4 mr-2" />
+                                                        {t("accounting.rateCard.entry.delete")}
+                                                    </DropdownMenuItem>
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                        </TableCell>
+                                    )}
                                 </TableRow>
                                 );
                             })}
                             {paginatedEntries.length === 0 && (
                                 <TableRow>
                                     <TableCell
-                                        colSpan={showRateCalPreview ? 9 : 8}
+                                        colSpan={showRateCalPreview ? (canEdit ? 10 : 9) : (canEdit ? 9 : 8)}
                                         className="h-24 text-center text-muted-foreground"
                                     >
                                         {t("accounting.rateCard.noEntries")}
@@ -1048,6 +1243,7 @@ export default function AccountingRateCardPage() {
                                     customerId: "",
                                     effectiveFrom: "",
                                     ratePercent: "0",
+                                    addThbPerTrip: "0",
                                     referenceFuelPrice: latest != null ? String(latest.price) : "",
                                     announcementNote: "",
                                 });
@@ -1133,6 +1329,20 @@ export default function AccountingRateCardPage() {
                                         placeholder={t(
                                             "accounting.rateCard.fuelAdjustments.form.multiplierPlaceholder"
                                         )}
+                                    />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <Label>{t("accounting.rateCard.fuelAdjustments.form.addPerTrip")}</Label>
+                                    <Input
+                                        type="number"
+                                        step="0.01"
+                                        value={adjustmentForm.addThbPerTrip}
+                                        onChange={(e) =>
+                                            setAdjustmentForm((prev) => ({
+                                                ...prev,
+                                                addThbPerTrip: e.target.value,
+                                            }))
+                                        }
                                     />
                                 </div>
                                 <div className="space-y-1.5">
@@ -1439,6 +1649,71 @@ export default function AccountingRateCardPage() {
                 knownHubIds={hubs.map((h) => h.id)}
                 onImported={() => void loadData()}
             />
+
+            {/* Edit Entry Dialog */}
+            <Dialog open={editingEntryId !== null} onOpenChange={(open) => !open && setEditingEntryId(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>{t("accounting.rateCard.entry.editTitle")}</DialogTitle>
+                        <DialogDescription>{t("accounting.rateCard.entry.editDescription")}</DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                                <Label>{t("accounting.rateCard.table.rateThb")}</Label>
+                                <Input
+                                    type="number"
+                                    value={editEntryForm.rateThb}
+                                    onChange={(e) => setEditEntryForm((p) => ({ ...p, rateThb: e.target.value }))}
+                                />
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label>{t("accounting.rateCard.table.distanceKm")}</Label>
+                                <Input
+                                    type="number"
+                                    value={editEntryForm.distanceKm}
+                                    onChange={(e) => setEditEntryForm((p) => ({ ...p, distanceKm: e.target.value }))}
+                                />
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                                <Label>{t("accounting.rateCard.table.vehicleClass")}</Label>
+                                <Select
+                                    value={editEntryForm.vehicleClass}
+                                    onValueChange={(v) => setEditEntryForm((p) => ({ ...p, vehicleClass: v }))}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {manualVehicleClassOptions.map((vc) => (
+                                            <SelectItem key={vc} value={vc}>{vc}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label>{t("accounting.rateCard.table.effectiveFrom")}</Label>
+                                <Input
+                                    type="date"
+                                    value={editEntryForm.effectiveFrom}
+                                    onChange={(e) => setEditEntryForm((p) => ({ ...p, effectiveFrom: e.target.value }))}
+                                />
+                            </div>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setEditingEntryId(null)}>
+                            {t("accounting.detail.close")}
+                        </Button>
+                        <Button onClick={() => void handleSaveEntry()} disabled={savingEntry}>
+                            {savingEntry && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                            {t("accounting.detail.save")}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

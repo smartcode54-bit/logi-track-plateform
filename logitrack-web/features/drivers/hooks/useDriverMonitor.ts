@@ -477,6 +477,7 @@ export function useDriverMonitor() {
                         billingRateMultiplier: computed.rateMultiplier,
                         billingAddThbPerTrip: computed.addThbPerTrip,
                         billingEffectiveFromDateStr: computed.effectiveFromDateStr || null,
+                        billingCustomerId: computed.customerId,
                         updatedAt: serverTimestamp(),
                     });
                 });

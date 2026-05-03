@@ -96,6 +96,8 @@ export const tripRecordSchema = z.object({
     billingRateMultiplier: z.number().optional(),
     billingAddThbPerTrip: z.number().optional(),
     billingEffectiveFromDateStr: z.string().optional(),
+    /** Customer id used for billing lookup (matches task linked customer). */
+    billingCustomerId: z.string().optional(),
 
     createdAt: z.any().optional(),
     updatedAt: z.any().optional(),

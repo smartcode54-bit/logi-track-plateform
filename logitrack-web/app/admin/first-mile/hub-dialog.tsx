@@ -31,7 +31,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { hubSchema, Hub, STATION_TYPE_ENUM, CUSTOMER_LINK_KIND_ENUM } from "@/validate/hubSchema";
-import { collection, addDoc, doc, updateDoc, query, where, getDocs } from "firebase/firestore";
+import { collection, addDoc, doc, updateDoc, query, where, getDocs, deleteField } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import SimpleMap from "@/components/map/SimpleMap";
 import { useLanguage } from "@/context/language";
@@ -125,6 +125,13 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
                 return;
             }
 
+            const selectedCustomer = customers.find((c) => c.id === linkedCustomerId);
+            const linkedCustomerName = selectedCustomer
+                ? `${String(selectedCustomer.code ?? "").trim()} — ${String(selectedCustomer.name ?? "").trim()}`.trim()
+                : "";
+            const linkedCustomerNameField =
+                linkedCustomerName.length > 0 ? linkedCustomerName : deleteField();
+
             // เช็ครหัสซ้ำ (ยกเว้นเอกสารที่กำลังแก้ไข)
             const q = query(
                 collection(db, "hubs"),
@@ -141,6 +148,7 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
             const payload = {
                 ...values,
                 linkedCustomerId,
+                linkedCustomerName: linkedCustomerNameField,
                 customerLinkKind: values.customerLinkKind ?? "customer",
                 updatedAt: new Date(),
             };

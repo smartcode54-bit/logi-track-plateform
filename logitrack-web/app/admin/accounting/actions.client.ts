@@ -16,6 +16,7 @@ import {
     where,
 } from "firebase/firestore";
 import { COLLECTIONS } from "@/lib/collections";
+import { normalizeDestinationCode } from "@/lib/billingCompute";
 
 export type VehicleExpenseType = "fuel" | "other";
 
@@ -346,7 +347,7 @@ export async function batchCreateCustomerRateEntries(
         const batch = writeBatch(db);
         for (const row of chunk) {
             const hubId = normalizeCode(row.hubId);
-            const destinationCode = normalizeCode(row.destinationCode);
+            const destinationCode = normalizeDestinationCode(row.destinationCode);
             const vehicleClass = normalizeCode(row.vehicleClass || "4WJ");
             const ref = doc(colRef);
             batch.set(ref, {
@@ -378,7 +379,7 @@ export async function createCustomerRateEntry(
     const normalizedCustomerId = customerId.trim();
     if (!normalizedCustomerId) throw new Error("Customer is required");
     const hubId = normalizeCode(row.hubId);
-    const destinationCode = normalizeCode(row.destinationCode);
+    const destinationCode = normalizeDestinationCode(row.destinationCode);
     const vehicleClass = normalizeCode(row.vehicleClass || "4WJ");
     if (!hubId || !destinationCode) throw new Error("hubId and destinationCode are required");
     if (!Number.isFinite(row.rateThb)) throw new Error("rateThb is required");
@@ -432,6 +433,34 @@ export async function getCustomerRateEntries(customerId?: string): Promise<Custo
         if (byDate !== 0) return byDate;
         return b.importId.localeCompare(a.importId);
     });
+}
+
+export async function deleteCustomerRateEntry(id: string): Promise<void> {
+    const ref = doc(db, COLLECTIONS.CUSTOMER_RATE_ENTRIES, id);
+    await deleteDoc(ref);
+}
+
+export async function updateCustomerRateEntry(
+    id: string,
+    updates: Partial<Pick<CustomerRateEntryInput, "rateThb" | "distanceKm" | "vehicleClass">> & {
+        effectiveFrom?: Date;
+    }
+): Promise<void> {
+    const ref = doc(db, COLLECTIONS.CUSTOMER_RATE_ENTRIES, id);
+    const payload: Record<string, unknown> = { updatedAt: serverTimestamp() };
+    if (updates.rateThb != null && Number.isFinite(updates.rateThb)) {
+        payload.rateThb = Number(updates.rateThb);
+    }
+    if (updates.distanceKm != null && Number.isFinite(updates.distanceKm)) {
+        payload.distanceKm = Number(updates.distanceKm);
+    }
+    if (updates.vehicleClass?.trim()) {
+        payload.vehicleClass = normalizeCode(updates.vehicleClass);
+    }
+    if (updates.effectiveFrom) {
+        payload.effectiveFrom = Timestamp.fromDate(parseDateOnly(updates.effectiveFrom));
+    }
+    await updateDoc(ref, payload);
 }
 
 export async function createCustomerFuelRateAdjustment(

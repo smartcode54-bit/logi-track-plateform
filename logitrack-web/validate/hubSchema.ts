@@ -20,6 +20,8 @@ export const hubSchema = z.object({
     station_type: z.enum(STATION_TYPE_ENUM).default("HUB"),
     /** Selected customer document id from customers collection */
     linkedCustomerId: z.string().optional(),
+    /** Denormalized display name for mobile/drivers (customers collection is admin-read only). */
+    linkedCustomerName: z.string().optional(),
     /** Business relationship type for selected customer */
     customerLinkKind: z.enum(CUSTOMER_LINK_KIND_ENUM).optional(),
     createdAt: z.any().optional(),

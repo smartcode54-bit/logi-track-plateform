@@ -24,3 +24,4 @@ export * from "./securityEvents";
 export * from "./bangchakOilPrice";
 export * from "./monthlyFuelPriceSnapshot";
 export * from "./syncBangchakFuelMonthlySnapshot";
+export * from "./tripBillingOnDelivered";

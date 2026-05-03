@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../../../../core/services/cloud_functions_service.dart';
 import '../../../../core/services/mobile_client_heartbeat_service.dart';
 import '../../../home/data/models/trip_record.dart';
 import '../../../home/data/repositories/trip_records_repository.dart';
@@ -87,6 +88,16 @@ Future<void> submitDeliveryPhaseRecord({
   };
 
   await ref.set(updateData, SetOptions(merge: true));
+
+  // Compute billing snapshot via callable (best-effort; failure does not block delivery)
+  try {
+    await CloudFunctionsService.instance.call(
+      'computeTripBillingSnapshot',
+      data: {'tripId': tripId},
+    );
+  } catch (_) {
+    // Billing snapshot will be computed later by Driver Monitor backfill if this fails
+  }
 
   if (taskId != null && taskId.isNotEmpty) {
     try {
