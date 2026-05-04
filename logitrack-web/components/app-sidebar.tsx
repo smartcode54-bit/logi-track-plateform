@@ -22,6 +22,7 @@ import {
     MessageCircle,
     Mail,
     Calendar,
+    Wrench,
 } from "lucide-react"
 
 import {
@@ -242,6 +243,14 @@ export function AppSidebar() {
                                         <Link href="/admin/security-center" prefetch={false}>
                                             <Shield />
                                             <span>{t("nav.securityCenter")}</span>
+                                        </Link>
+                                    </SidebarMenuButton>
+                                </SidebarMenuItem>
+                                <SidebarMenuItem>
+                                    <SidebarMenuButton asChild tooltip="Utilities" isActive={pathname?.startsWith("/admin/utilities")}>
+                                        <Link href="/admin/utilities/backfill" prefetch={false}>
+                                            <Wrench className="h-4 w-4" />
+                                            <span>Utilities</span>
                                         </Link>
                                     </SidebarMenuButton>
                                 </SidebarMenuItem>

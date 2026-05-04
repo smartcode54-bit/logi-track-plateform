@@ -361,6 +361,7 @@ export default {
     "accounting.income.missing.noMissing": "ไม่มีเที่ยวที่รอ billing",
     "accounting.income.missing.canCompute": "พร้อมคำนวณ — รัน Backfill",
     "accounting.income.missing.filterStatus": "กรองตามสถานะ",
+    "accounting.income.missing.filterReason": "กรองตามสาเหตุ",
     "accounting.income.missing.estimatedValue": "มูลค่าประมาณ (แก้ได้)",
     "accounting.income.missing.export.status": "สถานะ",
     "accounting.income.missing.noTaskId": "เที่ยวไม่มี taskId",

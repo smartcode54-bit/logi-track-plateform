@@ -194,6 +194,7 @@ export default function AccountingIncomePage() {
     const [hubNameMap, setHubNameMap] = useState<HubNameMap>(new Map());
     // Missing billing tab state
     const [missingFilterStatus, setMissingFilterStatus] = useState<"all" | "canFix" | "needRateCard">("all");
+    const [missingFilterReason, setMissingFilterReason] = useState<string>("all");
     const [missingPage, setMissingPage] = useState(1);
     const [missingPageSize, setMissingPageSize] = useState(25);
 
@@ -450,12 +451,40 @@ export default function AccountingIncomePage() {
         [missingRows]
     );
 
+    // Extract unique failure reasons for filter dropdown
+    const missingReasons = useMemo(() => {
+        const reasons = new Set<string>();
+        missingRows.forEach((r) => {
+            if (r.failureReason) {
+                reasons.add(r.failureReason);
+            } else if (r.computedRate != null) {
+                reasons.add("canCompute");
+            }
+        });
+        return Array.from(reasons).sort();
+    }, [missingRows]);
+
     // Filtered missing rows based on status filter
     const filteredMissingRows = useMemo(() => {
-        if (missingFilterStatus === "canFix") return computableMissingRows;
-        if (missingFilterStatus === "needRateCard") return uncomputableMissingRows;
-        return missingRows;
-    }, [missingRows, computableMissingRows, uncomputableMissingRows, missingFilterStatus]);
+        let filtered = missingRows;
+
+        if (missingFilterStatus === "canFix") {
+            filtered = computableMissingRows;
+        } else if (missingFilterStatus === "needRateCard") {
+            filtered = uncomputableMissingRows;
+        }
+
+        if (missingFilterReason !== "all") {
+            filtered = filtered.filter((r) => {
+                if (missingFilterReason === "canCompute") {
+                    return r.computedRate != null && !r.failureReason;
+                }
+                return r.failureReason === missingFilterReason;
+            });
+        }
+
+        return filtered;
+    }, [missingRows, computableMissingRows, uncomputableMissingRows, missingFilterStatus, missingFilterReason]);
 
     // Paginated missing rows
     const missingTotalPages = Math.ceil(filteredMissingRows.length / missingPageSize);
@@ -467,7 +496,7 @@ export default function AccountingIncomePage() {
     // Reset missing page when filter changes
     useEffect(() => {
         setMissingPage(1);
-    }, [missingFilterStatus]);
+    }, [missingFilterStatus, missingFilterReason]);
 
     // Group missing rows by failure reason for stats
     const missingReasonStats = useMemo(() => {
@@ -1165,6 +1194,29 @@ export default function AccountingIncomePage() {
                                                     {t("accounting.income.backfill.needRateCard")} ({uncomputableMissingRows.length})
                                                 </span>
                                             </SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <Label className="text-sm">{t("accounting.income.missing.filterReason")}:</Label>
+                                    <Select
+                                        value={missingFilterReason}
+                                        onValueChange={setMissingFilterReason}
+                                    >
+                                        <SelectTrigger className="w-[280px] h-8">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="all">
+                                                {t("accounting.filter.all")}
+                                            </SelectItem>
+                                            {missingReasons.map((reason) => (
+                                                <SelectItem key={reason} value={reason}>
+                                                    {reason === "canCompute"
+                                                        ? t("accounting.income.missing.canCompute")
+                                                        : reason}
+                                                </SelectItem>
+                                            ))}
                                         </SelectContent>
                                     </Select>
                                 </div>

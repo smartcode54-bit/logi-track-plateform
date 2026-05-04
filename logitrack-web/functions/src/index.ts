@@ -25,3 +25,4 @@ export * from "./bangchakOilPrice";
 export * from "./monthlyFuelPriceSnapshot";
 export * from "./syncBangchakFuelMonthlySnapshot";
 export * from "./tripBillingOnDelivered";
+export * from "./backfillCustomerLinks";

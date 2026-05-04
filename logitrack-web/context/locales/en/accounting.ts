@@ -361,6 +361,7 @@ export default {
     "accounting.income.missing.noMissing": "No trips pending billing",
     "accounting.income.missing.canCompute": "Ready to compute — run Backfill",
     "accounting.income.missing.filterStatus": "Filter by status",
+    "accounting.income.missing.filterReason": "Filter by reason",
     "accounting.income.missing.estimatedValue": "Est. value (fixable)",
     "accounting.income.missing.export.status": "Status",
     "accounting.income.missing.noTaskId": "Trip has no taskId",
