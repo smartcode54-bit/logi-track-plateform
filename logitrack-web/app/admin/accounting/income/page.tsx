@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { endOfDay, format, isWithinInterval, startOfDay, subDays } from "date-fns";
-import { collection, doc, getDoc, getDocs, limit, orderBy, query, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, limit, orderBy, query, where, documentId } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import * as XLSX from "xlsx";
 import {
@@ -157,6 +157,20 @@ function parseLocalDateOnly(dateStr: string): Date | null {
     return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function chunkArray<T>(arr: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+    for (let i = 0; i < arr.length; i += size) {
+        chunks.push(arr.slice(i, i + size));
+    }
+    return chunks;
+}
+
+let _hubNameCache: HubNameMap | null = null;
+
+function clearHubCache() {
+    _hubNameCache = null;
+}
+
 export default function AccountingIncomePage() {
     const { t } = useLanguage();
     const auth = useAuth();
@@ -183,11 +197,6 @@ export default function AccountingIncomePage() {
     const [missingPage, setMissingPage] = useState(1);
     const [missingPageSize, setMissingPageSize] = useState(25);
 
-    const loadCustomers = useCallback(async () => {
-        const list = await getCustomers();
-        setCustomers(list as (Customer & { id: string })[]);
-    }, []);
-
     const loadData = async () => {
         setLoading(true);
         try {
@@ -196,24 +205,28 @@ export default function AccountingIncomePage() {
             const customerMap = new Map<string, Customer & { id: string }>();
             (customerList as (Customer & { id: string })[]).forEach((c) => customerMap.set(c.id, c));
 
-            const hubsSnap = await getDocs(collection(db, COLLECTIONS.HUBS));
-            const hubNames = new Map<string, string>();
-            hubsSnap.docs.forEach((hubDoc) => {
-                const hd = hubDoc.data() as Record<string, unknown>;
-                const sourceId = String(hd.source_id ?? hd.hubId ?? hd.hubCode ?? "").trim();
-                if (!sourceId) return;
-                const label = primaryHubLabelFromFirestoreData(hd);
-                const displayName = label.trim() || sourceId;
-                const keys = new Set<string>();
-                keys.add(sourceId);
-                keys.add(sourceId.toUpperCase());
-                for (const extra of extraDestinationLookupKeys(sourceId)) {
-                    keys.add(extra);
-                }
-                for (const k of keys) {
-                    if (k) hubNames.set(k, displayName);
-                }
-            });
+            let hubNames = _hubNameCache;
+            if (!hubNames) {
+                const hubsSnap = await getDocs(collection(db, COLLECTIONS.HUBS));
+                hubNames = new Map<string, string>();
+                hubsSnap.docs.forEach((hubDoc) => {
+                    const hd = hubDoc.data() as Record<string, unknown>;
+                    const sourceId = String(hd.source_id ?? hd.hubId ?? hd.hubCode ?? "").trim();
+                    if (!sourceId) return;
+                    const label = primaryHubLabelFromFirestoreData(hd);
+                    const displayName = label.trim() || sourceId;
+                    const keys = new Set<string>();
+                    keys.add(sourceId);
+                    keys.add(sourceId.toUpperCase());
+                    for (const extra of extraDestinationLookupKeys(sourceId)) {
+                        keys.add(extra);
+                    }
+                    for (const k of keys) {
+                        if (k) hubNames!.set(k, displayName);
+                    }
+                });
+                _hubNameCache = hubNames;
+            }
             setHubNameMap(hubNames);
 
             const snap = await getDocs(
@@ -266,15 +279,18 @@ export default function AccountingIncomePage() {
                 const uniqueTaskIds = [...new Set(taskIds)];
 
                 const taskMap = new Map<string, Task>();
-                for (const taskId of uniqueTaskIds) {
-                    try {
-                        const taskSnap = await getDoc(doc(db, COLLECTIONS.TASKS, taskId));
-                        if (taskSnap.exists()) {
-                            taskMap.set(taskId, taskSnap.data() as Task);
-                        }
-                    } catch {
-                        // ignore
-                    }
+                if (uniqueTaskIds.length > 0) {
+                    const taskChunks = chunkArray(uniqueTaskIds, 30);
+                    const taskSnapshots = await Promise.all(
+                        taskChunks.map(chunk =>
+                            getDocs(query(collection(db, COLLECTIONS.TASKS), where(documentId(), "in", chunk)))
+                        )
+                    );
+                    taskSnapshots.forEach(snap => {
+                        snap.docs.forEach(d => {
+                            taskMap.set(d.id, d.data() as Task);
+                        });
+                    });
                 }
 
                 const customerIdsFromTasks = new Set<string>();
@@ -694,7 +710,10 @@ export default function AccountingIncomePage() {
                         <Download className="h-4 w-4 mr-2" />
                         {t("accounting.income.export")}
                     </Button>
-                    <Button variant="outline" onClick={() => void loadData()}>
+                    <Button variant="outline" onClick={() => {
+                        clearHubCache();
+                        void loadData();
+                    }}>
                         <RefreshCw className="h-4 w-4 mr-2" />
                         {t("common.refresh")}
                     </Button>

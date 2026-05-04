@@ -71,16 +71,21 @@ export async function fetchRateEntriesForCustomers(
 ): Promise<BillingRateEntry[]> {
     const ids = Array.from(new Set(customerIds.map((id) => id.trim()).filter(Boolean)));
     if (!ids.length) return [];
-    const all: BillingRateEntry[] = [];
-    for (const customerId of ids) {
-        const snap = await getDocs(
-            query(
-                collection(db, COLLECTIONS.CUSTOMER_RATE_ENTRIES),
-                where("customerId", "==", customerId)
+    const snaps = await Promise.all(
+        ids.map((customerId) =>
+            getDocs(
+                query(
+                    collection(db, COLLECTIONS.CUSTOMER_RATE_ENTRIES),
+                    where("customerId", "==", customerId)
+                )
             )
-        );
+        )
+    );
+    const all: BillingRateEntry[] = [];
+    snaps.forEach((snap) => {
         snap.docs.forEach((docSnap) => {
             const d = docSnap.data();
+            const customerId = String(d.customerId ?? "");
             all.push({
                 id: docSnap.id,
                 customerId,
@@ -92,7 +97,7 @@ export async function fetchRateEntriesForCustomers(
                 effectiveFromMs: toMillis(d.effectiveFrom),
             });
         });
-    }
+    });
     return all;
 }
 
@@ -106,16 +111,21 @@ export async function fetchFuelAdjustmentsForCustomers(
 ): Promise<FuelRateAdjustment[]> {
     const ids = Array.from(new Set(customerIds.map((id) => id.trim()).filter(Boolean)));
     if (!ids.length) return [];
-    const all: FuelRateAdjustment[] = [];
-    for (const customerId of ids) {
-        const snap = await getDocs(
-            query(
-                collection(db, COLLECTIONS.CUSTOMER_FUEL_RATE_ADJUSTMENTS),
-                where("customerId", "==", customerId)
+    const snaps = await Promise.all(
+        ids.map((customerId) =>
+            getDocs(
+                query(
+                    collection(db, COLLECTIONS.CUSTOMER_FUEL_RATE_ADJUSTMENTS),
+                    where("customerId", "==", customerId)
+                )
             )
-        );
+        )
+    );
+    const all: FuelRateAdjustment[] = [];
+    snaps.forEach((snap) => {
         snap.docs.forEach((docSnap) => {
             const d = docSnap.data();
+            const customerId = String(d.customerId ?? "");
             all.push({
                 id: docSnap.id,
                 customerId,
@@ -124,6 +134,6 @@ export async function fetchFuelAdjustmentsForCustomers(
                 addThbPerTrip: Number(d.addThbPerTrip ?? 0),
             });
         });
-    }
+    });
     return all;
 }
