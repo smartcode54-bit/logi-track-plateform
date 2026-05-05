@@ -29,6 +29,24 @@ export function normalizeSocIdToKey(sourceId: string): string {
 export const TASK_STATUS_ENUM = ["Pending", "Assigned", "Checked in", "In-Transit", "Completed", "Cancelled"] as const;
 export const TASK_TYPE_ENUM = ["FIRST_MILE", "LINE_HAUL"] as const;
 
+// Multi-delivery support
+export const deliveryStopSchema = z.object({
+    index: z.number().int().min(1),
+    destination: z.string().min(1, "Destination is required"),
+    destinationLinkedCustomerId: z.string().optional(),
+    destinationLinkedCustomerName: z.string().optional(),
+    destinationLinkedCustomerCode: z.string().optional(),
+    destinationCustomerLinkKind: z.enum(["customer", "partner"]).optional(),
+    status: z.enum(["pending", "delivered", "failed"]).optional().default("pending"),
+    deliveredAt: z.any().optional(),
+    deliveredLat: z.number().optional(),
+    deliveredLng: z.number().optional(),
+    estimatedRateThb: z.number().optional(),
+    dropFeeThb: z.number().optional(),
+});
+
+export type DeliveryStop = z.infer<typeof deliveryStopSchema>;
+
 export const taskSchema = z.object({
     id: z.string().optional(),
 
@@ -72,9 +90,32 @@ export const taskSchema = z.object({
     checkInLat: z.number().optional(),
     checkInLng: z.number().optional(),
 
+    // Multi-delivery support (backward compatible)
+    isMultiDelivery: z.boolean().optional().default(false),
+    deliveryStops: z.array(deliveryStopSchema).optional(), // Only set if isMultiDelivery === true
+
     createdAt: z.coerce.date().optional(),
     updatedAt: z.coerce.date().optional(),
-});
+}).refine(
+    (data) => {
+        // If multi-delivery, require 2+ stops
+        if (data.isMultiDelivery) {
+            return data.deliveryStops && data.deliveryStops.length >= 2;
+        }
+        return true;
+    },
+    { message: "Multi-delivery task requires 2 or more delivery stops", path: ["deliveryStops"] }
+).refine(
+    (data) => {
+        // No duplicate destinations within stops
+        if (data.isMultiDelivery && data.deliveryStops) {
+            const dests = data.deliveryStops.map((s) => s.destination);
+            return new Set(dests).size === dests.length;
+        }
+        return true;
+    },
+    { message: "Duplicate destinations in delivery stops", path: ["deliveryStops"] }
+);
 
 export type Task = z.infer<typeof taskSchema>;
 

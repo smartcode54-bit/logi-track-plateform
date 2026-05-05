@@ -73,7 +73,7 @@ export function getMultiDeliveryProgressLabel(trip: Partial<TripRecord>): string
  * Build HTML badge display for multi-delivery stops (visual indicators).
  * E.g., "✓ SOC-E  ✓ SOC-N  ◯ SOC-W"
  */
-export function buildMultiDeliveryStopBadges(progress: MultiDeliveryProgressInfo): Array<{ destination: string; status: "pending" | "delivered" }> {
+export function buildMultiDeliveryStopBadges(progress: MultiDeliveryProgressInfo): Array<{ destination: string; status: "pending" | "delivered" | "failed" }> {
     return progress.stops.map((stop) => ({
         destination: stop.destination,
         status: stop.status,

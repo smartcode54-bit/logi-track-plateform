@@ -41,7 +41,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/context/language";
 import { useLineHaulTask } from "../hooks/useLineHaulTask";
-import { DeliveryStopsEditor } from "./DeliveryStopsEditor";
+import DeliveryStopsEditor from "./DeliveryStopsEditor";
 import { Task as FirstMileTask } from "@/validate/taskSchema";
 
 export interface LineHaulTaskDialogProps {
@@ -357,10 +357,8 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
 
                         {form.watch("isMultiDelivery") && (
                             <DeliveryStopsEditor
-                                form={form}
-                                destinations={socOptions.map(s => ({ code: s.source_id, name: s.name }))}
-                                customers={customerOptions}
-                                t={t}
+                                socOptions={socOptions}
+                                customerOptions={customerOptions}
                             />
                         )}
 

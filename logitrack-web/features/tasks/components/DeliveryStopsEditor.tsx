@@ -20,7 +20,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { useLanguage } from "@/context/language";
 import { useFormContext } from "react-hook-form";
-import type { DeliveryStop } from "@/lib/../shared-docs/schemas/taskSchema";
+import type { DeliveryStop } from "@/validate/taskSchema";
 
 interface DeliveryStopsEditorProps {
     socOptions: Array<{ source_id: string; name: string }>;
