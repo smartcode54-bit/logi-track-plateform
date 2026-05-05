@@ -61,4 +61,6 @@ __exportStar(require("./monthlyFuelPriceSnapshot"), exports);
 __exportStar(require("./syncBangchakFuelMonthlySnapshot"), exports);
 __exportStar(require("./tripBillingOnDelivered"), exports);
 __exportStar(require("./backfillCustomerLinks"), exports);
+__exportStar(require("./tasks"), exports);
+__exportStar(require("./multiDeliveryTrips"), exports);
 //# sourceMappingURL=index.js.map

@@ -6,7 +6,6 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { logger } from "firebase-functions";
 
 const COL_TASKS = "tasks";
-const COL_DRIVERS = "drivers";
 
 interface DeliveryStopPayload {
     index: number;

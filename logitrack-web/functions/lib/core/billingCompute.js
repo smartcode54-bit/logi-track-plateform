@@ -12,6 +12,7 @@ exports.resolveTaskCustomerId = resolveTaskCustomerId;
 exports.selectBillingRateEntry = selectBillingRateEntry;
 exports.selectFuelAdjustmentForBillingDate = selectFuelAdjustmentForBillingDate;
 exports.computeFinalRateThb = computeFinalRateThb;
+exports.computeMultiDeliveryBilling = computeMultiDeliveryBilling;
 exports.computeTripBillingFromParts = computeTripBillingFromParts;
 function normalizeCode(v) {
     return (v ?? "").trim().toUpperCase();
@@ -96,6 +97,47 @@ function selectFuelAdjustmentForBillingDate(customerId, billDateMs, fuelAdjustme
 /** Final trip rate in THB, rounded to 2 decimal places (same as legacy billing snapshot). */
 function computeFinalRateThb(baseRateThb, rateMultiplier, addThbPerTrip) {
     return Math.round((baseRateThb * rateMultiplier + addThbPerTrip) * 100) / 100;
+}
+/** Compute billing for multi-delivery task: per-stop rates + drop fees. */
+function computeMultiDeliveryBilling(trip, task, deliveryStops, vehicleClass, dropFeeThb, rateEntries, fuelAdjustments) {
+    if (!task || deliveryStops.length < 2)
+        return null;
+    const customerId = resolveTaskCustomerId(task);
+    if (!customerId)
+        return null;
+    const hubId = extractHubId(task.sourceHub);
+    const normalizedVehicleClass = normalizeCode(vehicleClass || "4WJ");
+    const billDateMs = getTripBillingDateMs(trip);
+    const matchedAdjustment = selectFuelAdjustmentForBillingDate(customerId, billDateMs, fuelAdjustments);
+    const rateMultiplier = matchedAdjustment?.rateMultiplier ?? 1;
+    const stopBreakdown = [];
+    let totalBillingThb = 0;
+    deliveryStops.forEach((stop, idx) => {
+        const destination = normalizeDestinationCode(stop.destination);
+        const matchedRate = selectBillingRateEntry(customerId, hubId, destination, normalizedVehicleClass, billDateMs, rateEntries);
+        if (matchedRate) {
+            const baseRateThb = matchedRate.rateThb;
+            const fee = idx === 0 ? 0 : dropFeeThb;
+            const finalRate = computeFinalRateThb(baseRateThb + fee, rateMultiplier, 0);
+            stopBreakdown.push({
+                stopIndex: idx + 1,
+                destination,
+                baseRateThb,
+                dropFeeThb: fee,
+                finalRateThb: finalRate,
+            });
+            totalBillingThb += finalRate;
+        }
+    });
+    if (stopBreakdown.length === 0)
+        return null;
+    return {
+        customerId,
+        totalBillingThb,
+        stopBreakdown,
+        rateMultiplier,
+        fuelAdjustmentId: matchedAdjustment?.id,
+    };
 }
 function computeTripBillingFromParts(trip, task, rateEntries, fuelAdjustments) {
     if (!task)

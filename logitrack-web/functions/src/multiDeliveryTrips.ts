@@ -194,28 +194,12 @@ export const submitDeliveryStopProgress = onCall(
                     totalStops,
                 });
 
-                // Trigger billing computation asynchronously (non-blocking)
-                // Fetch updated trip and compute billing
-                try {
-                    const billingRef = db.collection(COL_TRIP_RECORDS).doc(data.tripId);
-                    const billingTrip = await billingRef.get();
-                    if (billingTrip.exists) {
-                        const billingData = billingTrip.data() as Record<string, unknown>;
-                        if (billingData.status === "delivered" && typeof billingData.billingEstimateThb !== "number") {
-                            // Call the billing computation function via admin SDK
-                            const billingComputation = require("./tripBillingOnDelivered");
-                            // Since we can't directly invoke Cloud Functions from another function,
-                            // we'll write a helper that can be reused
-                            // For now, logging that billing should be computed
-                            logger.info("[submitDeliveryStopProgress] Billing should be computed for trip", {
-                                tripId: data.tripId,
-                            });
-                        }
-                    }
-                } catch (billingErr) {
-                    logger.warn("[submitDeliveryStopProgress] Error triggering billing", billingErr);
-                    // Don't fail the overall operation if billing fails
-                }
+                // Billing will be computed via:
+                // 1. Mobile app calling computeTripBillingSnapshot() after delivery complete
+                // 2. Admin backfill function backfillTripBillingSnapshots() for missed trips
+                logger.info("[submitDeliveryStopProgress] All stops delivered, billing should be computed separately", {
+                    tripId: data.tripId,
+                });
             }
 
             return {
