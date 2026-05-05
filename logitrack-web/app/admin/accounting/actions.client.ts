@@ -685,3 +685,52 @@ export async function updateVehicleExpense(
     if (data.tollSourceType !== undefined) payload.tollSourceType = data.tollSourceType;
     await updateDoc(ref, payload);
 }
+
+export interface WriteTripBillingInput {
+    tripId: string;
+    billingEstimateThb: number;
+    billingBaseRateThb: number;
+    billingRateImportId: string;
+    billingLookupHubId: string;
+    billingLookupDestination: string;
+    billingFuelAdjustmentId?: string | null;
+    billingRateMultiplier: number;
+    billingAddThbPerTrip: number;
+    billingEffectiveFromDateStr?: string | null;
+    billingCustomerId: string;
+    billingManualOverride?: boolean;
+}
+
+export async function writeTripBillingSnapshot(input: WriteTripBillingInput): Promise<void> {
+    const ref = doc(db, COLLECTIONS.TRIP_RECORDS, input.tripId);
+    const payload: Record<string, unknown> = {
+        billingEstimateThb: input.billingEstimateThb,
+        billingBaseRateThb: input.billingBaseRateThb,
+        billingRateImportId: input.billingRateImportId,
+        billingLookupHubId: input.billingLookupHubId,
+        billingLookupDestination: input.billingLookupDestination,
+        billingFuelAdjustmentId: input.billingFuelAdjustmentId ?? null,
+        billingRateMultiplier: input.billingRateMultiplier,
+        billingAddThbPerTrip: input.billingAddThbPerTrip,
+        billingEffectiveFromDateStr: input.billingEffectiveFromDateStr ?? null,
+        billingCustomerId: input.billingCustomerId,
+        updatedAt: serverTimestamp(),
+    };
+    if (input.billingManualOverride) {
+        payload.billingManualOverride = true;
+    }
+    await updateDoc(ref, payload);
+}
+
+export async function updateTaskBillingFields(
+    taskId: string,
+    fields: { sourceHub: string; destination: string; truckType: string }
+): Promise<void> {
+    const ref = doc(db, COLLECTIONS.TASKS, taskId);
+    await updateDoc(ref, {
+        sourceHub: fields.sourceHub,
+        destination: fields.destination,
+        truckType: fields.truckType,
+        updatedAt: serverTimestamp(),
+    });
+}

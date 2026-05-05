@@ -4,6 +4,7 @@ import { useState } from "react";
 import { format } from "date-fns";
 import { CalendarIcon, Loader2, Check, ChevronsUpDown, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
     Dialog,
     DialogContent,
@@ -40,6 +41,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/context/language";
 import { useLineHaulTask } from "../hooks/useLineHaulTask";
+import { DeliveryStopsEditor } from "./DeliveryStopsEditor";
 import { Task as FirstMileTask } from "@/validate/taskSchema";
 
 export interface LineHaulTaskDialogProps {
@@ -73,7 +75,8 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
         activeTaskDriverIds,
         watchedTruckType,
         onSubmit,
-        normalizeSocIdToKey
+        normalizeSocIdToKey,
+        customerOptions
     } = useLineHaulTask({ mode, task, isOpen, setIsOpen, onSuccess });
 
     return (
@@ -331,6 +334,35 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                 }}
                             />
                         </div>
+
+                        {/* Multi-Delivery Toggle */}
+                        <FormField
+                            control={form.control}
+                            name="isMultiDelivery"
+                            render={({ field }) => (
+                                <FormItem className="flex items-center gap-3 rounded-lg border p-4">
+                                    <FormControl>
+                                        <Checkbox
+                                            checked={field.value ?? false}
+                                            onCheckedChange={field.onChange}
+                                        />
+                                    </FormControl>
+                                    <div className="flex-1">
+                                        <FormLabel className="cursor-pointer font-medium">{t("firstMile.multiDelivery.isMultiDelivery", "Multi-Delivery Task")}</FormLabel>
+                                        <p className="text-sm text-muted-foreground mt-1">{t("firstMile.multiDelivery.description", "One pickup point, multiple delivery stops")}</p>
+                                    </div>
+                                </FormItem>
+                            )}
+                        />
+
+                        {form.watch("isMultiDelivery") && (
+                            <DeliveryStopsEditor
+                                form={form}
+                                destinations={socOptions.map(s => ({ code: s.source_id, name: s.name }))}
+                                customers={customerOptions}
+                                t={t}
+                            />
+                        )}
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {/* Truck Type */}

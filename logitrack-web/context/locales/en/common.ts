@@ -232,4 +232,9 @@ export default {
     "chat.dateToday": "Today",
     "chat.dateYesterday": "Yesterday",
     "chat.unreadDivider": "New messages",
+
+    "common.cancel": "Cancel",
+    "common.save": "Save",
+    "common.ok": "OK",
+    "common.close": "Close",
 };

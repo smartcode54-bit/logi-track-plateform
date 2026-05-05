@@ -4,6 +4,7 @@ import { useState } from "react";
 import { format } from "date-fns";
 import { CalendarIcon, Loader2, Check, ChevronsUpDown, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
     Dialog,
     DialogContent,
@@ -41,6 +42,7 @@ import { cn } from "@/lib/utils";
 import { useLanguage } from "@/context/language";
 import { useFirstMileTask } from "../hooks/useFirstMileTask";
 import { Task as FirstMileTask } from "@/validate/taskSchema";
+import DeliveryStopsEditor from "./DeliveryStopsEditor";
 
 export interface FirstMileTaskDialogProps {
     mode: "create" | "edit";
@@ -62,6 +64,7 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
         loading,
         hubOptions,
         socOptions,
+        customerOptions,
         trucks,
         drivers,
         hubDropdownOpen,
@@ -331,6 +334,41 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
                                 )}
                             />
                         </div>
+
+                        {/* Multi-Delivery Toggle */}
+                        <FormField
+                            control={form.control}
+                            name="isMultiDelivery"
+                            render={({ field }) => (
+                                <FormItem className="flex items-center gap-2">
+                                    <FormControl>
+                                        <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                                    </FormControl>
+                                    <div className="flex-1">
+                                        <FormLabel className="cursor-pointer">
+                                            {t("firstMile.task.isMultiDelivery")}
+                                        </FormLabel>
+                                        <p className="text-xs text-muted-foreground">
+                                            {t("firstMile.task.isMultiDeliveryHint")}
+                                        </p>
+                                    </div>
+                                </FormItem>
+                            )}
+                        />
+
+                        {/* Delivery Stops (show if multi-delivery enabled) */}
+                        {form.watch("isMultiDelivery") && (
+                            <FormItem>
+                                <FormLabel>{t("firstMile.task.deliveryStops")}</FormLabel>
+                                <p className="text-xs text-muted-foreground mb-3">
+                                    {t("firstMile.task.deliveryStopsHint")}
+                                </p>
+                                <DeliveryStopsEditor
+                                    socOptions={socOptions}
+                                    customerOptions={customerOptions}
+                                />
+                            </FormItem>
+                        )}
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {/* Truck Type */}

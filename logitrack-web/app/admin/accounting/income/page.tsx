@@ -13,6 +13,7 @@ import {
     Download,
     Hash,
     Loader2,
+    Pencil,
     RefreshCw,
     TrendingUp,
     Wand2,
@@ -44,6 +45,7 @@ import {
 import type { Task } from "@/validate/taskSchema";
 import type { TripRecord } from "@/validate/tripRecordSchema";
 import { primaryHubLabelFromFirestoreData } from "@/lib/hubDisplay";
+import { EditBillingDialog } from "./edit-billing-dialog";
 
 type HubNameMap = Map<string, string>;
 
@@ -70,7 +72,7 @@ interface IncomeRow {
     deliveredTimestamp?: Date;
 }
 
-interface MissingBillingRow {
+export interface MissingBillingRow {
     id: string;
     spxTripId?: string;
     taskId?: string;
@@ -197,6 +199,7 @@ export default function AccountingIncomePage() {
     const [missingFilterReason, setMissingFilterReason] = useState<string>("all");
     const [missingPage, setMissingPage] = useState(1);
     const [missingPageSize, setMissingPageSize] = useState(25);
+    const [editBillingRow, setEditBillingRow] = useState<MissingBillingRow | null>(null);
 
     const loadData = async () => {
         setLoading(true);
@@ -1267,6 +1270,7 @@ export default function AccountingIncomePage() {
                                         <TableHead>{t("accounting.income.table.deliveredAt")}</TableHead>
                                         <TableHead>{t("accounting.income.missing.table.computedRate")}</TableHead>
                                         <TableHead>{t("accounting.income.missing.table.reason")}</TableHead>
+                                        <TableHead className="w-12">{t("common.actions")}</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -1310,11 +1314,22 @@ export default function AccountingIncomePage() {
                                                     "—"
                                                 )}
                                             </TableCell>
+                                            <TableCell>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="h-8 w-8 p-0"
+                                                    onClick={() => setEditBillingRow(row)}
+                                                    title={t("accounting.income.editBilling.action") || "Edit billing"}
+                                                >
+                                                    <Pencil className="h-4 w-4" />
+                                                </Button>
+                                            </TableCell>
                                         </TableRow>
                                     ))}
                                     {filteredMissingRows.length === 0 && (
                                         <TableRow>
-                                            <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                                            <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
                                                 {t("accounting.income.missing.noMissing")}
                                             </TableCell>
                                         </TableRow>
@@ -1380,6 +1395,22 @@ export default function AccountingIncomePage() {
                             )}
                         </TabsContent>
                     </Tabs>
+
+                    {/* Edit Billing Dialog */}
+                    {editBillingRow && (
+                        <EditBillingDialog
+                            open={editBillingRow !== null}
+                            onOpenChange={(open) => {
+                                if (!open) setEditBillingRow(null);
+                            }}
+                            row={editBillingRow}
+                            hubNameMap={hubNameMap}
+                            onSaved={(tripId) => {
+                                setMissingRows((prev) => prev.filter((r) => r.id !== tripId));
+                                setEditBillingRow(null);
+                            }}
+                        />
+                    )}
                 </CardContent>
             </Card>
         </div>

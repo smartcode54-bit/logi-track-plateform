@@ -219,4 +219,22 @@ export default {
     "firstMile.sourcesImport.table.linkedId": "Linked Customer ID",
     "firstMile.sourcesImport.table.linkKind": "Link kind",
     "firstMile.sourcesImport.invalidCustomerCode": "Unknown customer code",
+
+    // ========================
+    // Multi-Delivery Task
+    // ========================
+    "firstMile.task.isMultiDelivery": "Multi-Delivery Task",
+    "firstMile.task.isMultiDeliveryHint": "Enable to deliver to multiple SOC/Hub points in one trip",
+    "firstMile.task.deliveryStops": "Delivery Stops",
+    "firstMile.task.deliveryStopsHint": "Add 2 or more delivery destinations",
+    "firstMile.task.addStop": "Add Stop",
+    "firstMile.task.removeStop": "Remove Stop",
+    "firstMile.task.stopIndex": "Stop {index}",
+    "firstMile.task.stopDestination": "Destination",
+    "firstMile.task.stopCustomer": "Customer/Partner",
+    "firstMile.task.noStops": "No delivery stops added",
+    "firstMile.task.minStopsError": "Multi-delivery requires at least 2 stops",
+    "firstMile.task.duplicateDestError": "Duplicate destination - select different SOC/Hub",
+    "firstMile.task.primaryDestination": "Primary Destination (Stop 1)",
 };
+

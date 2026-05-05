@@ -16,6 +16,7 @@ import '../../../home/data/services/image_compression_service.dart';
 import '../../../home/data/services/ocr_screenshot_service.dart';
 import '../../../home/presentation/pages/main_layout_scope.dart';
 import 'incident_report_page.dart';
+import 'delivery_phase_page_multi.dart';
 
 /// ขั้นตอนรูป Delivery (ถ่ายภาพเหมือนการรับงาน)
 const List<String> _deliveryPhotoStepKeys = [
@@ -125,11 +126,29 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
     if (tripId == null || tripId.isEmpty) return;
     setState(() => _loadingTrip = true);
     try {
-      await FirebaseFirestore.instance
+      final tripSnap = await FirebaseFirestore.instance
           .collection(tripRecordsCollection)
           .doc(tripId)
           .get();
-    } catch (_) {}
+
+      final tripData = tripSnap.data() as Map<String, dynamic>?;
+      if (tripData != null && tripData['isMultiDelivery'] == true) {
+        // Switch to multi-delivery flow
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (ctx) => DeliveryPhasePageMulti(
+                savedTripSummary: widget.savedTripSummary,
+              ),
+            ),
+          );
+        }
+        return;
+      }
+    } catch (e) {
+      debugPrint('Error fetching trip: $e');
+    }
     if (mounted) setState(() => _loadingTrip = false);
   }
 

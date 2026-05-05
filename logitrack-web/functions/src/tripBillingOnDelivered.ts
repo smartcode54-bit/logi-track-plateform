@@ -3,6 +3,7 @@ import { logger } from "firebase-functions";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import {
     computeTripBillingFromParts,
+    computeMultiDeliveryBilling,
     extractHubId,
     getTripBillingDateMs,
     normalizeDestinationCode,
@@ -11,6 +12,7 @@ import {
     type FuelRateAdjustment,
     type TaskBillingInput,
     type TripBillingTimestamps,
+    type DeliveryStopForBilling,
 } from "./core/billingCompute";
 
 const COL_TASKS = "tasks";
@@ -120,42 +122,107 @@ async function tryWriteBillingSnapshotFromTripData(
         createdAt: data.createdAt,
     };
 
-    const computed = computeTripBillingFromParts(tripParts, taskInput, rateEntries, fuelAdjustments);
-    if (!computed) {
-        const hubId = extractHubId(taskInput.sourceHub);
-        const destination = normalizeDestinationCode(taskInput.destination);
-        const vehicleClass = normalizeStoredCode(taskInput.truckType || "4WJ");
-        const billDateMs = getTripBillingDateMs(tripParts);
-        logger.warn("[billingSnapshot] could not compute billing (no matching rate row)", {
-            tripId,
-            taskId,
-            customerId,
-            hubId,
-            destination,
-            vehicleClass,
-            billDateMs,
-            rateRowsForCustomer: rateEntries.length,
-            rawTaskSourceHub: taskInput.sourceHub,
-            rawTaskDestination: taskInput.destination,
+    // Check if this is a multi-delivery trip
+    const isMultiDelivery = data.isMultiDelivery === true;
+    const deliveryStopsProgress = Array.isArray(data.deliveryStopsProgress) ? data.deliveryStopsProgress : [];
+
+    if (isMultiDelivery && deliveryStopsProgress.length >= 2) {
+        // Multi-delivery billing: per-stop rates with drop fees
+        const stops: DeliveryStopForBilling[] = deliveryStopsProgress
+            .filter((stop: any) => stop.destination && stop.status === "delivered")
+            .map((stop: any) => ({
+                index: typeof stop.index === "number" ? stop.index : 1,
+                destination: String(stop.destination ?? ""),
+            }));
+
+        if (stops.length < 2) {
+            logger.warn("[billingSnapshot] multi-delivery trip has < 2 delivered stops", {
+                tripId,
+                taskId,
+                delivered: stops.length,
+            });
+            return { ok: false, error: "Multi-delivery trip has < 2 delivered stops" };
+        }
+
+        // TODO: get dropFeeThb from customer config or hardcoded constant
+        const dropFeeThb = 50; // Default drop fee: 50 THB per stop
+
+        const multiComputed = computeMultiDeliveryBilling(
+            tripParts,
+            taskInput,
+            stops,
+            normalizeStoredCode(taskInput.truckType || "4WJ"),
+            dropFeeThb,
+            rateEntries,
+            fuelAdjustments
+        );
+
+        if (!multiComputed) {
+            logger.warn("[billingSnapshot] could not compute multi-delivery billing", {
+                tripId,
+                taskId,
+                customerId,
+                stops: stops.length,
+            });
+            return { ok: false, error: "Could not compute multi-delivery billing" };
+        }
+
+        await tripRef.update({
+            billingEstimateThb: multiComputed.totalBillingThb,
+            billingIsMultiDelivery: true,
+            billingMultiDeliveryBreakdown: multiComputed.stopBreakdown.map((stop) => ({
+                stopIndex: stop.stopIndex,
+                destination: stop.destination,
+                baseRateThb: stop.baseRateThb,
+                dropFeeThb: stop.dropFeeThb,
+                finalRateThb: stop.finalRateThb,
+            })),
+            billingFuelAdjustmentId: multiComputed.fuelAdjustmentId ?? null,
+            billingRateMultiplier: multiComputed.rateMultiplier,
+            billingCustomerId: multiComputed.customerId,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
-        return { ok: false, error: "No matching rate entry found" };
+
+        return { ok: true, billingEstimateThb: multiComputed.totalBillingThb };
+    } else {
+        // Single-delivery billing (existing logic)
+        const computed = computeTripBillingFromParts(tripParts, taskInput, rateEntries, fuelAdjustments);
+        if (!computed) {
+            const hubId = extractHubId(taskInput.sourceHub);
+            const destination = normalizeDestinationCode(taskInput.destination);
+            const vehicleClass = normalizeStoredCode(taskInput.truckType || "4WJ");
+            const billDateMs = getTripBillingDateMs(tripParts);
+            logger.warn("[billingSnapshot] could not compute billing (no matching rate row)", {
+                tripId,
+                taskId,
+                customerId,
+                hubId,
+                destination,
+                vehicleClass,
+                billDateMs,
+                rateRowsForCustomer: rateEntries.length,
+                rawTaskSourceHub: taskInput.sourceHub,
+                rawTaskDestination: taskInput.destination,
+            });
+            return { ok: false, error: "No matching rate entry found" };
+        }
+
+        await tripRef.update({
+            billingEstimateThb: computed.finalRateThb,
+            billingBaseRateThb: computed.baseRateThb,
+            billingRateImportId: computed.rateImportId,
+            billingLookupHubId: computed.lookupHubId,
+            billingLookupDestination: computed.lookupDestination,
+            billingFuelAdjustmentId: computed.fuelAdjustmentId ?? null,
+            billingRateMultiplier: computed.rateMultiplier,
+            billingAddThbPerTrip: computed.addThbPerTrip,
+            billingEffectiveFromDateStr: computed.effectiveFromDateStr ?? null,
+            billingCustomerId: computed.customerId,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        return { ok: true, billingEstimateThb: computed.finalRateThb };
     }
-
-    await tripRef.update({
-        billingEstimateThb: computed.finalRateThb,
-        billingBaseRateThb: computed.baseRateThb,
-        billingRateImportId: computed.rateImportId,
-        billingLookupHubId: computed.lookupHubId,
-        billingLookupDestination: computed.lookupDestination,
-        billingFuelAdjustmentId: computed.fuelAdjustmentId ?? null,
-        billingRateMultiplier: computed.rateMultiplier,
-        billingAddThbPerTrip: computed.addThbPerTrip,
-        billingEffectiveFromDateStr: computed.effectiveFromDateStr ?? null,
-        billingCustomerId: computed.customerId,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    return { ok: true, billingEstimateThb: computed.finalRateThb };
 }
 
 interface ComputeBillingRequest {

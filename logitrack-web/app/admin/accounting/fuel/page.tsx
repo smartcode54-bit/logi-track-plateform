@@ -605,7 +605,6 @@ export default function AccountingFuelPage() {
                                         type="number"
                                         inputMode="decimal"
                                         min={0}
-                                        step={0.1}
                                         placeholder="Min"
                                         className="w-[80px]"
                                         value={filterKmMin}
@@ -616,7 +615,6 @@ export default function AccountingFuelPage() {
                                         type="number"
                                         inputMode="decimal"
                                         min={0}
-                                        step={0.1}
                                         placeholder="Max"
                                         className="w-[80px]"
                                         value={filterKmMax}
@@ -782,7 +780,6 @@ export default function AccountingFuelPage() {
                                         {canEdit ? (
                                             <Input
                                                 type="number"
-                                                step="0.01"
                                                 value={editForm.volumeLiters ?? ""}
                                                 onChange={(e) => setEditForm({ ...editForm, volumeLiters: e.target.value === "" ? undefined : Number(e.target.value) })}
                                                 className="h-9"
@@ -795,12 +792,8 @@ export default function AccountingFuelPage() {
                                         {canEdit ? (
                                             <Input
                                                 type="number"
-                                                step="0.01"
-                                                value={editForm.pricePerLiter != null && typeof editForm.pricePerLiter === "number" && !isNaN(editForm.pricePerLiter) ? editForm.pricePerLiter.toFixed(2) : ""}
-                                                onChange={(e) => {
-                                                    const val = e.target.value === "" ? undefined : parseFloat(e.target.value);
-                                                    setEditForm({ ...editForm, pricePerLiter: val });
-                                                }}
+                                                value={editForm.pricePerLiter ?? ""}
+                                                onChange={(e) => setEditForm({ ...editForm, pricePerLiter: e.target.value === "" ? undefined : Number(e.target.value) })}
                                                 className="h-9"
                                             />
                                         ) : (

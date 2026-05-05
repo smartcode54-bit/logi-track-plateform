@@ -28,6 +28,7 @@ import { toast } from "sonner";
 import { useLanguage } from "@/context/language";
 import { useAuth } from "@/context/auth";
 import { canEditTripDetails } from "@/lib/permissions";
+import { getMultiDeliveryProgress, getMultiDeliveryProgressLabel } from "../utils/multiDeliveryProgress";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -776,11 +777,39 @@ export default function DriverMonitorDashboard() {
                                                 </span>
                                             </TableCell>
                                             <TableCell>
-                                                <div className="flex items-center gap-2">
-                                                    <Badge variant="secondary" className={cn("font-medium border", STATUS_COLOR[trip.status] || "bg-gray-500/10 text-gray-500")}>
-                                                        <span className="w-1.5 h-1.5 rounded-full bg-current mr-1.5" />
-                                                        {t(`driverMonitor.status.${trip.status}` as any)}
-                                                    </Badge>
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    {/* Multi-delivery progress or single status */}
+                                                    {(() => {
+                                                        const multiProgress = getMultiDeliveryProgress(trip);
+                                                        if (multiProgress) {
+                                                            const progressLabel = getMultiDeliveryProgressLabel(trip);
+                                                            return (
+                                                                <div className="flex items-center gap-1 flex-wrap">
+                                                                    {multiProgress.stops.map((stop) => (
+                                                                        <Badge
+                                                                            key={stop.index}
+                                                                            variant="outline"
+                                                                            className={cn(
+                                                                                "text-xs font-medium",
+                                                                                stop.status === "delivered"
+                                                                                    ? "bg-green-50 text-green-700 border-green-200"
+                                                                                    : "bg-gray-50 text-gray-600 border-gray-200"
+                                                                            )}
+                                                                        >
+                                                                            {stop.status === "delivered" ? "✓" : "◯"} {stop.destination}
+                                                                        </Badge>
+                                                                    ))}
+                                                                </div>
+                                                            );
+                                                        }
+                                                        // Single-delivery: show status badge
+                                                        return (
+                                                            <Badge variant="secondary" className={cn("font-medium border", STATUS_COLOR[trip.status] || "bg-gray-500/10 text-gray-500")}>
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-current mr-1.5" />
+                                                                {t(`driverMonitor.status.${trip.status}` as any)}
+                                                            </Badge>
+                                                        );
+                                                    })()}
                                                     {trip.id && incidentReportsByTripId[trip.id] && (
                                                         <img src="/exclamation_8848378.png" alt="incident" className="w-4 h-4 object-contain" title="Incident Reported" />
                                                     )}

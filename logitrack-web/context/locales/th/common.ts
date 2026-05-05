@@ -232,4 +232,9 @@ export default {
     "chat.dateToday": "วันนี้",
     "chat.dateYesterday": "เมื่อวาน",
     "chat.unreadDivider": "ข้อความใหม่",
+
+    "common.cancel": "ยกเลิก",
+    "common.save": "บันทึก",
+    "common.ok": "ตกลง",
+    "common.close": "ปิด",
 };

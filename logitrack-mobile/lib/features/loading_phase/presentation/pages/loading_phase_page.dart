@@ -175,6 +175,8 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       final taskType = data?['taskType'] as String?;
       final sourceHub = data?['sourceHub'] as String?;
       final destination = data?['destination'] as String?;
+      final isMultiDelivery = data?['isMultiDelivery'] as bool? ?? false;
+      final deliveryStops = data?['deliveryStops'] as List? ?? [];
 
       if (mounted) {
         setState(() {
@@ -190,7 +192,18 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
               _originController.text.isEmpty) {
             _originController.text = sourceHub;
           }
-          if (destination != null &&
+
+          // Handle multi-delivery vs single-delivery
+          if (isMultiDelivery && deliveryStops.isNotEmpty) {
+            // For multi-delivery, use first stop's destination
+            final firstStop = deliveryStops[0] as Map<String, dynamic>?;
+            final firstStopDest = firstStop?['destination'] as String?;
+            if (firstStopDest != null &&
+                firstStopDest.isNotEmpty &&
+                _destinationController.text.isEmpty) {
+              _destinationController.text = firstStopDest;
+            }
+          } else if (destination != null &&
               destination.isNotEmpty &&
               _destinationController.text.isEmpty) {
             _destinationController.text = destination;

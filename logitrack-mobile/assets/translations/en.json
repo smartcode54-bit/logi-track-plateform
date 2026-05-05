@@ -528,5 +528,13 @@
             "stationType": "Station Type",
             "actions": "Actions"
         }
-    }
+    },
+    "delivery_multi_title": "Multi-Stop Delivery",
+    "delivery_progress": "{} / {} stops delivered",
+    "delivery_stop_confirmed": "Stop delivery confirmed successfully",
+    "delivery_all_stops_complete": "All stops delivered! Trip complete.",
+    "delivery_submit_error": "Failed to submit delivery: {}",
+    "delivery_location_error": "Could not get location",
+    "delivery_photo_error": "Failed to capture photo",
+    "delivery_phase": "Delivery Phase"
 }

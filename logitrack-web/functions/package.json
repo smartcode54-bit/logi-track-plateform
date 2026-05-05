@@ -1,6 +1,6 @@
 {
-    "name": "logi-truck-functions",
-    "version": "2.2.0",
+    "name": "logi-track-functions",
+    "version": "2.2.1",
     "description": "Cloud Functions for Logi Truck app",
     "scripts": {
         "prebuild": "node scripts/clean-lib.js",

@@ -25,6 +25,8 @@ export const TRIP_PHOTO_TYPE_ENUM = [
     "opening",
     "empty_container",
     "runsheet_received",
+    // Multi-delivery photo types (per-stop): stop_{index}_pre_open, stop_{index}_opening, etc.
+    // Pattern: stop_{index}_(pre_open|opening|empty_container|runsheet_received)
 ] as const;
 
 export const tripPhotoGeocodingSchema = z.object({
@@ -45,6 +47,17 @@ export const tripOcrDataSchema = z.object({
     sealCode: z.string().optional(),
     routeInfo: z.string().optional(),
     partnerCode: z.string().optional(),
+});
+
+// Multi-delivery stop progress schema
+export const deliveryStopProgressSchema = z.object({
+    index: z.number().min(1),
+    destination: z.string(),
+    status: z.enum(["pending", "delivered", "failed"]).default("pending"),
+    deliveredAt: z.any().optional(), // Firestore Timestamp
+    deliveredLat: z.number().optional(),
+    deliveredLng: z.number().optional(),
+    photos: z.array(tripPhotoSchema).optional().default([]),
 });
 
 export const tripRecordSchema = z.object({
@@ -86,6 +99,11 @@ export const tripRecordSchema = z.object({
     sta: z.any().optional(),
     ata: z.any().optional(),
 
+    // Multi-delivery support (backward compatible)
+    isMultiDelivery: z.boolean().optional().default(false),
+    deliveryStopsProgress: z.array(deliveryStopProgressSchema).optional(), // Only set if isMultiDelivery === true
+    totalDeliveryStops: z.number().optional(), // Total stops for this trip (cached for queries)
+
     // Billing snapshot fields (optional)
     billingEstimateThb: z.number().optional(),
     billingBaseRateThb: z.number().optional(),
@@ -109,4 +127,5 @@ export type TripPhotoType = (typeof TRIP_PHOTO_TYPE_ENUM)[number];
 export type TripPhotoGeocoding = z.infer<typeof tripPhotoGeocodingSchema>;
 export type TripPhoto = z.infer<typeof tripPhotoSchema>;
 export type TripOcrData = z.infer<typeof tripOcrDataSchema>;
+export type DeliveryStopProgress = z.infer<typeof deliveryStopProgressSchema>;
 export type TripRecord = z.infer<typeof tripRecordSchema>;

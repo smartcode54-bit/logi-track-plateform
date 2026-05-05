@@ -220,4 +220,21 @@ export default {
     "firstMile.sourcesImport.table.linkedId": "Linked Customer ID",
     "firstMile.sourcesImport.table.linkKind": "การผูก",
     "firstMile.sourcesImport.invalidCustomerCode": "ไม่พบรหัสลูกค้า",
+
+    // ========================
+    // Multi-Delivery Task
+    // ========================
+    "firstMile.task.isMultiDelivery": "งานพ่วง (Multi-Delivery)",
+    "firstMile.task.isMultiDeliveryHint": "เปิดใช้เพื่อส่งไปยังจุดรับส่งหลายจุดในเที่ยวเดียว",
+    "firstMile.task.deliveryStops": "จุดการจัดส่ง",
+    "firstMile.task.deliveryStopsHint": "เพิ่มจุดปลายทาง 2 จุดขึ้นไป",
+    "firstMile.task.addStop": "เพิ่มจุด",
+    "firstMile.task.removeStop": "ลบจุด",
+    "firstMile.task.stopIndex": "จุดที่ {index}",
+    "firstMile.task.stopDestination": "ปลายทาง",
+    "firstMile.task.stopCustomer": "ลูกค้า/ตัวแทน",
+    "firstMile.task.noStops": "ยังไม่ได้เพิ่มจุดการจัดส่ง",
+    "firstMile.task.minStopsError": "งานพ่วงต้องมีอย่างน้อย 2 จุด",
+    "firstMile.task.duplicateDestError": "ปลายทางซ้ำกัน - เลือก SOC/Hub อื่น",
+    "firstMile.task.primaryDestination": "ปลายทางหลัก (จุดที่ 1)",
 };

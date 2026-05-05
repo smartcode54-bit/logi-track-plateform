@@ -528,5 +528,13 @@
             "stationType": "ประเภทสถานี",
             "actions": "การดำเนินการ"
         }
-    }
+    },
+    "delivery_multi_title": "การส่งงานหลายจุด",
+    "delivery_progress": "ส่งแล้ว {} / {} จุด",
+    "delivery_stop_confirmed": "ยืนยันการส่งจุดสำเร็จแล้ว",
+    "delivery_all_stops_complete": "ส่งทั้งหมดเรียบร้อย เที่ยวเสร็จสิ้น",
+    "delivery_submit_error": "ส่งการส่งไม่สำเร็จ: {}",
+    "delivery_location_error": "ไม่สามารถดึงตำแหน่ง",
+    "delivery_photo_error": "ถ่ายภาพไม่สำเร็จ",
+    "delivery_phase": "ขั้นตอนการส่งงาน"
 }

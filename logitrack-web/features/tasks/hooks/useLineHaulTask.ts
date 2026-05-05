@@ -53,6 +53,8 @@ export function useLineHaulTask({
             licensePlate: "",
             status: "Pending" as const,
             taskType: "LINE_HAUL" as const,
+            isMultiDelivery: false,
+            deliveryStops: undefined,
         },
     });
 
@@ -122,7 +124,9 @@ export function useLineHaulTask({
                     time: task.time || "",
                     sourceHub: task.sourceHub || "",
                     destination: (task.destination as string) || "",
-                    status: (task.status as FirstMileTask["status"]) || "Pending"
+                    status: (task.status as FirstMileTask["status"]) || "Pending",
+                    isMultiDelivery: task.isMultiDelivery || false,
+                    deliveryStops: task.deliveryStops || undefined
                 } as FirstMileTask);
             } else {
                 form.reset({
@@ -136,7 +140,9 @@ export function useLineHaulTask({
                     driverPhone: "",
                     licensePlate: "",
                     status: "Pending",
-                    taskType: "LINE_HAUL"
+                    taskType: "LINE_HAUL",
+                    isMultiDelivery: false,
+                    deliveryStops: undefined
                 });
             }
         }
@@ -211,7 +217,57 @@ export function useLineHaulTask({
     const onSubmit = async (values: FirstMileTask) => {
         setLoading(true);
         try {
-            if (mode === "create") {
+            if (values.isMultiDelivery && values.deliveryStops && values.deliveryStops.length >= 2) {
+                // Use Cloud Function for multi-delivery tasks
+                const callable = httpsCallable<any, { id: string }>(functions, "createOrUpdateTask");
+                const dateStr = values.date ? format(values.date, "ddMMyyyy") : "";
+                const runOrder = values.driverId
+                    ? await taskService.getNextRunOrderForDriver(values.driverId)
+                    : undefined;
+
+                const payload = {
+                    taskId: mode === "edit" ? task?.id : undefined,
+                    date: values.date,
+                    dateStr,
+                    time: values.time,
+                    sourceHub: values.sourceHub,
+                    truckType: values.truckType,
+                    taskType: values.taskType,
+                    driverId: values.driverId || undefined,
+                    driverName: values.driverName || undefined,
+                    driverPhone: values.driverPhone || undefined,
+                    licensePlate: values.licensePlate || undefined,
+                    status: values.status,
+                    isMultiDelivery: true,
+                    deliveryStops: values.deliveryStops.map((stop) => ({
+                        index: stop.index,
+                        destination: stop.destination,
+                        destinationLinkedCustomerId: stop.destinationLinkedCustomerId,
+                        destinationLinkedCustomerName: stop.destinationLinkedCustomerName,
+                        destinationLinkedCustomerCode: stop.destinationLinkedCustomerCode,
+                        destinationCustomerLinkKind: stop.destinationCustomerLinkKind,
+                    })),
+                    ...(runOrder != null ? { runOrder } : {}),
+                };
+
+                const result = await callable(payload);
+                try {
+                    const notify = httpsCallable<{ taskId: string; oldDriverId?: string; newDriverId?: string; status?: string; sourceHub?: string; destination?: string; date?: string; time?: string; taskType: string }, { ok: boolean }>(functions, "notifyTaskUpdate");
+                    await notify({
+                        taskId: result.data.id,
+                        taskType: values.taskType,
+                        oldDriverId: mode === "edit" ? task?.driverId : undefined,
+                        newDriverId: values.driverId || undefined,
+                        status: values.status,
+                        sourceHub: values.sourceHub,
+                        destination: values.deliveryStops?.[0]?.destination,
+                        date: values.date ? format(values.date, "yyyy-MM-dd") : undefined,
+                        time: values.time,
+                    });
+                } catch (fcmErr) {
+                    console.warn("FCM notify:", fcmErr);
+                }
+            } else if (mode === "create") {
                 const dateStr = values.date ? format(values.date, "ddMMyyyy") : "";
                 const runOrder = values.driverId
                     ? await taskService.getNextRunOrderForDriver(values.driverId)
@@ -292,6 +348,8 @@ export function useLineHaulTask({
         }
     };
 
+    const customerOptions = Array.from(customersById.values());
+
     return {
         form,
         loading,
@@ -309,6 +367,7 @@ export function useLineHaulTask({
         activeTaskDriverIds,
         watchedTruckType,
         onSubmit,
-        normalizeSocIdToKey
+        normalizeSocIdToKey,
+        customerOptions
     };
 }

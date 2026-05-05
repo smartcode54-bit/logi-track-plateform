@@ -53,6 +53,8 @@ export function useFirstMileTask({
             licensePlate: "",
             status: "Pending" as const,
             taskType: "FIRST_MILE" as const,
+            isMultiDelivery: false,
+            deliveryStops: undefined,
         },
     });
 
@@ -211,77 +213,130 @@ export function useFirstMileTask({
     const onSubmit = async (values: FirstMileTask) => {
         setLoading(true);
         try {
-            if (mode === "create") {
-                const dateStr = values.date ? format(values.date, "ddMMyyyy") : "";
-                const runOrder = values.driverId
-                    ? await taskService.getNextRunOrderForDriver(values.driverId)
-                    : undefined;
-                const hubLinkFields = buildHubLinkFields(values, false);
-                const rawCreate = {
-                    ...values,
-                    ...hubLinkFields,
-                    dateStr,
-                    ...(runOrder != null ? { runOrder } : {}),
-                    createdAt: new Date(),
-                    updatedAt: new Date(),
-                };
-                const createPayload = Object.fromEntries(
-                    Object.entries(rawCreate).filter(([, v]) => v !== undefined)
+            // Use Cloud Function for multi-delivery tasks; direct write for single-delivery
+            if (values.isMultiDelivery && Array.isArray(values.deliveryStops) && values.deliveryStops.length >= 2) {
+                // Multi-delivery: use Cloud Function
+                const createOrUpdateTaskFn = httpsCallable<any, { id: string; isMultiDelivery: boolean; deliveryStopsCount?: number }>(
+                    functions,
+                    "createOrUpdateTask"
                 );
-                const ref = await addDoc(collection(db, COLLECTIONS.TASKS), createPayload as FirstMileTask);
-                try {
-                    const notify = httpsCallable<{ taskId: string; oldDriverId?: string; newDriverId?: string; status?: string; sourceHub?: string; destination?: string; date?: string; time?: string, taskType: string }, { ok: boolean }>(functions, "notifyTaskUpdate");
-                    await notify({
-                        taskId: ref.id,
-                        taskType: values.taskType,
-                        newDriverId: values.driverId || undefined,
-                        status: values.status,
-                        sourceHub: values.sourceHub,
-                        destination: values.destination,
-                        date: values.date ? format(values.date, "yyyy-MM-dd") : undefined,
-                        time: values.time,
-                    });
-                } catch (fcmErr) {
-                    console.warn("FCM notify after create:", fcmErr);
-                }
-            } else if (mode === "edit" && task?.id) {
-                const payload: Record<string, unknown> = {
-                    ...values,
-                    ...buildHubLinkFields(values, true),
-                    updatedAt: new Date(),
+
+                const payload = {
+                    id: mode === "edit" ? task?.id : undefined,
+                    sourceHub: values.sourceHub,
+                    destination: values.destination,
+                    date: values.date ? format(values.date, "yyyy-MM-dd") : new Date().toISOString(),
+                    time: values.time,
+                    taskType: values.taskType,
+                    truckType: values.truckType,
+                    driverId: values.driverId,
+                    isMultiDelivery: true,
+                    deliveryStops: values.deliveryStops.map((stop) => ({
+                        index: stop.index,
+                        destination: stop.destination,
+                        destinationLinkedCustomerId: stop.destinationLinkedCustomerId,
+                        destinationLinkedCustomerName: stop.destinationLinkedCustomerName,
+                        destinationLinkedCustomerCode: stop.destinationLinkedCustomerCode,
+                        destinationCustomerLinkKind: stop.destinationCustomerLinkKind,
+                    })),
+                    ...buildHubLinkFields(values, false),
                 };
-                if (task.status === "Cancelled" && values.driverId) {
-                    payload.status = "Assigned";
+
+                const result = await createOrUpdateTaskFn(payload);
+                if (result.data?.id) {
+                    try {
+                        const notify = httpsCallable<any, { ok: boolean }>(functions, "notifyTaskUpdate");
+                        await notify({
+                            taskId: result.data.id,
+                            taskType: values.taskType,
+                            newDriverId: values.driverId || undefined,
+                            status: values.status,
+                            sourceHub: values.sourceHub,
+                            destination: values.destination,
+                            date: values.date ? format(values.date, "yyyy-MM-dd") : undefined,
+                            time: values.time,
+                        });
+                    } catch (fcmErr) {
+                        console.warn("FCM notify after multi-delivery task:", fcmErr);
+                    }
                 }
-                if (newCheckInPhotoFile) {
-                    const photoUrl = await uploadCheckInPhoto(task.id, newCheckInPhotoFile);
-                    payload.checkInPhotoUrl = photoUrl;
-                }
-                const clean = Object.fromEntries(
-                    Object.entries(payload).filter(([, v]) => v !== undefined)
-                );
-                const dateStr = values.date ? format(values.date, "ddMMyyyy") : "";
-                await updateDoc(doc(db, COLLECTIONS.TASKS, task.id), {
-                    ...clean as any,
-                    dateStr,
-                });
-                try {
-                    const notify = httpsCallable<{ taskId: string; oldDriverId?: string; newDriverId?: string; status?: string; sourceHub?: string; destination?: string; date?: string; time?: string, taskType: string }, { ok: boolean }>(functions, "notifyTaskUpdate");
-                    await notify({
-                        taskId: task.id,
-                        taskType: values.taskType,
-                        oldDriverId: task.driverId || undefined,
-                        newDriverId: values.driverId || undefined,
-                        status: (clean.status as string) ?? values.status,
-                        sourceHub: values.sourceHub,
-                        destination: values.destination,
-                        date: values.date ? format(values.date, "yyyy-MM-dd") : undefined,
-                        time: values.time,
+            } else {
+                // Single-delivery: use direct Firestore write (backward compatible)
+                if (mode === "create") {
+                    const dateStr = values.date ? format(values.date, "ddMMyyyy") : "";
+                    const runOrder = values.driverId
+                        ? await taskService.getNextRunOrderForDriver(values.driverId)
+                        : undefined;
+                    const hubLinkFields = buildHubLinkFields(values, false);
+                    const rawCreate = {
+                        ...values,
+                        ...hubLinkFields,
+                        dateStr,
+                        ...(runOrder != null ? { runOrder } : {}),
+                        isMultiDelivery: false,
+                        createdAt: new Date(),
+                        updatedAt: new Date(),
+                    };
+                    const createPayload = Object.fromEntries(
+                        Object.entries(rawCreate).filter(([, v]) => v !== undefined)
+                    );
+                    const ref = await addDoc(collection(db, COLLECTIONS.TASKS), createPayload as FirstMileTask);
+                    try {
+                        const notify = httpsCallable<any, { ok: boolean }>(functions, "notifyTaskUpdate");
+                        await notify({
+                            taskId: ref.id,
+                            taskType: values.taskType,
+                            newDriverId: values.driverId || undefined,
+                            status: values.status,
+                            sourceHub: values.sourceHub,
+                            destination: values.destination,
+                            date: values.date ? format(values.date, "yyyy-MM-dd") : undefined,
+                            time: values.time,
+                        });
+                    } catch (fcmErr) {
+                        console.warn("FCM notify after create:", fcmErr);
+                    }
+                } else if (mode === "edit" && task?.id) {
+                    const payload: Record<string, unknown> = {
+                        ...values,
+                        ...buildHubLinkFields(values, true),
+                        isMultiDelivery: false,
+                        updatedAt: new Date(),
+                    };
+                    if (task.status === "Cancelled" && values.driverId) {
+                        payload.status = "Assigned";
+                    }
+                    if (newCheckInPhotoFile) {
+                        const photoUrl = await uploadCheckInPhoto(task.id, newCheckInPhotoFile);
+                        payload.checkInPhotoUrl = photoUrl;
+                    }
+                    const clean = Object.fromEntries(
+                        Object.entries(payload).filter(([, v]) => v !== undefined)
+                    );
+                    const dateStr = values.date ? format(values.date, "ddMMyyyy") : "";
+                    await updateDoc(doc(db, COLLECTIONS.TASKS, task.id), {
+                        ...clean as any,
+                        dateStr,
                     });
-                } catch (fcmErr) {
-                    console.warn("FCM notify after update:", fcmErr);
+                    try {
+                        const notify = httpsCallable<any, { ok: boolean }>(functions, "notifyTaskUpdate");
+                        await notify({
+                            taskId: task.id,
+                            taskType: values.taskType,
+                            oldDriverId: task.driverId || undefined,
+                            newDriverId: values.driverId || undefined,
+                            status: (clean.status as string) ?? values.status,
+                            sourceHub: values.sourceHub,
+                            destination: values.destination,
+                            date: values.date ? format(values.date, "yyyy-MM-dd") : undefined,
+                            time: values.time,
+                        });
+                    } catch (fcmErr) {
+                        console.warn("FCM notify after update:", fcmErr);
+                    }
                 }
             }
+
             form.reset();
             setIsOpen(false);
             if (onSuccess) onSuccess();
@@ -292,6 +347,12 @@ export function useFirstMileTask({
         }
     };
 
+    const customerOptions = Array.from(customersById.values()).map((customer) => ({
+        id: customer.id,
+        name: customer.name,
+        code: customer.code,
+    }));
+
     return {
         form,
         loading,
@@ -300,6 +361,7 @@ export function useFirstMileTask({
         socOptions,
         trucks,
         drivers,
+        customerOptions,
         hubDropdownOpen,
         setHubDropdownOpen,
         hubSearch,
