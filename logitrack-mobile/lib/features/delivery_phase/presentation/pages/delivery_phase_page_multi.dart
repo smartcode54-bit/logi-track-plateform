@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
-import 'package:firebase_functions/firebase_functions.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -13,6 +13,7 @@ import '../../../home/data/services/image_compression_service.dart';
 import '../../../home/presentation/pages/main_layout_scope.dart';
 import '../../../../core/utils/maps_navigation.dart';
 import 'incident_report_page.dart';
+import 'delivery_phase_page.dart';
 
 /// Multi-delivery phase — driver delivers to multiple stops in one trip
 class DeliveryPhasePageMulti extends StatefulWidget {
@@ -67,33 +68,63 @@ class _DeliveryPhasePageMultiState extends State<DeliveryPhasePageMulti> {
     _parseDeliveryStops();
   }
 
-  /// Extract delivery stops from trip record
+  /// Extract delivery stops from task via Firestore
   void _parseDeliveryStops() {
-    final stops = widget.savedTripSummary?.additionalData?['deliveryStops'] as List?;
-    if (stops == null || stops.isEmpty) {
+    final taskId = widget.savedTripSummary?.taskId;
+    if (taskId == null || taskId.isEmpty) {
       Navigator.pop(context);
       return;
     }
 
-    setState(() {
-      _stops = [];
-      for (int i = 0; i < stops.length; i++) {
-        final stop = stops[i] as Map<String, dynamic>;
-        _stops.add(DeliveryStop(
-          index: i + 1,
-          destination: stop['destination'] ?? 'Unknown',
-        ));
-      }
-      // Start with first stop
-      if (_stops.isNotEmpty) {
-        _currentStopIndex = 0;
-      }
-    });
+    FirebaseFirestore.instance
+        .collection('tasks')
+        .doc(taskId)
+        .get()
+        .then((snapshot) {
+          if (!snapshot.exists) {
+            if (mounted) Navigator.pop(context);
+            return;
+          }
+
+          final data = snapshot.data() as Map<String, dynamic>?;
+          final stops = data?['deliveryStops'] as List?;
+
+          if (stops == null || stops.isEmpty) {
+            if (mounted) Navigator.pop(context);
+            return;
+          }
+
+          if (mounted) {
+            setState(() {
+              _stops = [];
+              for (int i = 0; i < stops.length; i++) {
+                final stop = stops[i] as Map<String, dynamic>;
+                _stops.add(DeliveryStop(
+                  index: i + 1,
+                  destination: stop['destination'] ?? 'Unknown',
+                ));
+              }
+              // Start with first stop
+              if (_stops.isNotEmpty) {
+                _currentStopIndex = 0;
+              }
+            });
+          }
+        })
+        .catchError((e) {
+          if (mounted) {
+            Navigator.pop(context);
+          }
+        });
   }
 
   Future<void> _loadLocation() async {
     try {
-      final pos = await getCurrentPosition();
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
+      );
       if (mounted) {
         setState(() {
           _lat = pos.latitude;
@@ -119,10 +150,14 @@ class _DeliveryPhasePageMultiState extends State<DeliveryPhasePageMulti> {
   }
 
   HubDoc? _getStopHub(String destination) {
-    return _hubs.firstWhere(
-      (h) => h.name?.toUpperCase() == destination.toUpperCase(),
-      orElse: () => HubDoc(),
-    );
+    try {
+      return _hubs.firstWhere(
+        (h) => h.sourceNameEn.toUpperCase() == destination.toUpperCase() ||
+               h.sourceNameTh.toUpperCase() == destination.toUpperCase(),
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> _capturePhoto(String photoType) async {
@@ -481,26 +516,26 @@ class _DeliveryPhasePageMultiState extends State<DeliveryPhasePageMulti> {
     );
   }
 
-  Future<void> _openNavigationToStop(HubDoc hub) async {
+  Future<void> _openNavigationToStop(HubDoc? hub) async {
     if (_lat == null || _lng == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Location not available'.tr())),
+        SnackBar(content: Text('delivery_location_error'.tr())),
       );
       return;
     }
 
     try {
-      final useCoords = hub.hasCoordinates;
+      final hasCoords = hub?.latitude != null && hub?.longitude != null;
       await openGoogleMapsDrivingDirections(
         originLat: _lat!,
         originLng: _lng!,
-        destLat: useCoords ? hub.latitude : null,
-        destLng: useCoords ? hub.longitude : null,
-        destName: _currentStop!.destination,
+        destLat: hasCoords ? hub!.latitude : null,
+        destLng: hasCoords ? hub!.longitude : null,
+        destinationPlaceName: _currentStop!.destination,
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Navigation error'.tr(args: [e.toString()]))),
+        SnackBar(content: Text('delivery_submit_error'.tr(args: [e.toString()]))),
       );
     }
   }
