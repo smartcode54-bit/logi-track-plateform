@@ -27,6 +27,7 @@ Future<void> submitLoadingPhaseRecord({
   double? lng,
   required Map<String, StampedPhotoInput> stepPhotos,
   TripOcrData? ocrData,
+  bool isMultiDelivery = false,
 }) async {
   final photoFutures = stepPhotos.entries.map((entry) async {
     final type = entry.key;
@@ -111,6 +112,9 @@ Future<void> submitLoadingPhaseRecord({
     map['deliveredTimestamp'] = Timestamp.fromDate(
       map['deliveredTimestamp'] as DateTime,
     );
+  }
+  if (isMultiDelivery) {
+    map['isMultiDelivery'] = true;
   }
   await FirebaseFirestore.instance
       .collection(tripRecordsCollection)

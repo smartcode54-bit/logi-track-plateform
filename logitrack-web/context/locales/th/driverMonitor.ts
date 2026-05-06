@@ -102,6 +102,7 @@ export default {
     "driverMonitor.detail.ocrRoute": "ข้อมูลเส้นทางจาก OCR",
     "driverMonitor.detail.photos": "รูปภาพ",
     "driverMonitor.detail.delivery": "การจัดส่ง",
+    "driverMonitor.detail.deliveryStops": "จุดส่งมอบ",
     "driverMonitor.detail.deliveredAt": "ส่งเมื่อ",
     "driverMonitor.detail.deliveryLocation": "ตำแหน่งส่ง",
     "driverMonitor.detail.createdAt": "สร้างเมื่อ",

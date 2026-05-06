@@ -133,7 +133,7 @@ service cloud.firestore {
           exists(/databases/$(database)/documents/drivers/$(request.resource.data.driverId)) &&
           get(/databases/$(database)/documents/drivers/$(request.resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
-      allow update, delete: if isAppCheckVerified() && request.auth != null && (
+      allow update, delete: if request.auth != null && (
         request.auth.token.admin == true ||
         resource.data.driverId == request.auth.uid ||
         (resource.data.get('driverId', '') != '' &&

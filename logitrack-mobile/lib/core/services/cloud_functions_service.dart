@@ -13,9 +13,16 @@ class CloudFunctionsService {
 
   static final CloudFunctionsService instance = CloudFunctionsService._();
 
-  /// Functions are deployed in asia-southeast1; use this instance to call them.
+  /// Must match `setGlobalOptions({ region })` in `logitrack-web/functions`.
+  static const String deployedRegion = 'asia-southeast1';
+
+  /// Use for [HttpsCallable] when not using [call].
+  static FirebaseFunctions get regional =>
+      FirebaseFunctions.instanceFor(region: deployedRegion);
+
+  /// Functions are deployed in [deployedRegion]; use this instance to call them.
   FirebaseFunctions get _functions =>
-      FirebaseFunctions.instanceFor(region: 'asia-southeast1');
+      FirebaseFunctions.instanceFor(region: deployedRegion);
 
   /// Call a callable Cloud Function by name.
   ///

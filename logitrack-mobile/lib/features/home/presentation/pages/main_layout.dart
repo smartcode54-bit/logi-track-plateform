@@ -20,6 +20,7 @@ import 'home_page.dart';
 import '../../../loading_phase/presentation/pages/loading_phase_page.dart';
 import 'main_layout_scope.dart';
 import '../../../delivery_phase/presentation/pages/delivery_phase_page.dart';
+import '../../../delivery_phase/presentation/pages/delivery_phase_page_multi.dart';
 
 class MainLayout extends StatefulWidget {
   const MainLayout({
@@ -342,10 +343,60 @@ class _MainLayoutState extends State<MainLayout> with RouteAware, WidgetsBinding
     _savePendingDeliverySummary(null); // เคลียร์งานค้างจาก storage
   }
 
+  /// โหลด multi-stop delivery จากแท็บไม่สำเร็จ — ห้าม Navigator.pop เด็ดขาด (จะ pop ทั้ง MainLayout เหลือจอว่างสีดำ)
+  void _onEmbeddedMultiDeliveryAbort(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+    setState(() {
+      _savedTripSummary = null;
+      _currentIndex = 0;
+    });
+    _savePendingDeliverySummary(null);
+  }
+
+  /// Build delivery page — single vs multi based on task
+  Widget _buildDeliveryPage() {
+    final summary = _savedTripSummary;
+
+    // If no task, show single delivery
+    if (summary?.taskId == null) {
+      return DeliveryPhasePage(savedTripSummary: summary);
+    }
+
+    // Check task for isMultiDelivery flag
+    return FutureBuilder<DocumentSnapshot>(
+      future: FirebaseFirestore.instance
+          .collection('tasks')
+          .doc(summary!.taskId)
+          .get(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData || !snapshot.data!.exists) {
+          return DeliveryPhasePage(savedTripSummary: summary);
+        }
+
+        final taskData = snapshot.data!.data() as Map<String, dynamic>?;
+        final isMulti = taskData?['isMultiDelivery'] == true;
+        final deliveryStops = taskData?['deliveryStops'] as List?;
+        final hasMultiStops = (deliveryStops?.length ?? 0) > 1;
+
+        if (isMulti || hasMultiStops) {
+          return DeliveryPhasePageMulti(
+            savedTripSummary: summary,
+            embeddedInBottomNav: true,
+          );
+        }
+
+        return DeliveryPhasePage(savedTripSummary: summary);
+      },
+    );
+  }
+
   List<Widget> get _screens => [
     const HomePage(),
     const LoadingPhasePage(),
-    DeliveryPhasePage(savedTripSummary: _savedTripSummary),
+    _buildDeliveryPage(),
   ];
 
   Future<void> _onItemTapped(int index) async {
@@ -406,6 +457,7 @@ class _MainLayoutState extends State<MainLayout> with RouteAware, WidgetsBinding
     return MainLayoutScope(
       goToDeliveryTab: _goToDeliveryTab,
       onDeliveryCompleted: _onDeliveryCompleted,
+      onEmbeddedMultiDeliveryAbort: _onEmbeddedMultiDeliveryAbort,
       child: Scaffold(
         body: IndexedStack(index: _currentIndex, children: _screens),
       bottomNavigationBar: BottomNavigationBar(

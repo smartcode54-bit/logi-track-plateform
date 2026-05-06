@@ -2,13 +2,22 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../../../home/data/models/trip_record.dart';
+import '../../../home/data/models/trip_record.dart' show TripRecord, DeliveryStopProgress;
 import '../../../home/data/repositories/driver_repository.dart';
 import '../../../home/data/repositories/hubs_repository.dart';
 import '../../../home/data/repositories/trip_records_repository.dart';
 
 const String _tripPartnerFilterAll = '__ALL__';
 const String _tripPartnerFilterUnspecified = '__NONE__';
+
+/// Get numbered circle emoji for stop index (1-9)
+String _getNumberedCircle(int index) {
+  const circles = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨'];
+  if (index > 0 && index <= circles.length) {
+    return circles[index - 1];
+  }
+  return '$index';
+}
 
 class TripHistoryPage extends StatefulWidget {
   const TripHistoryPage({super.key});
@@ -72,7 +81,11 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
         final name = h.sourceNameTh.isNotEmpty
             ? h.sourceNameTh
             : h.sourceNameEn;
-        map[id] = name.isNotEmpty ? name : id;
+        // Display as "code - name" format
+        final displayName = name.isNotEmpty && name.toUpperCase() != id.toUpperCase()
+            ? '$id - $name'
+            : id;
+        map[id] = displayName;
       }
       if (mounted) {
         setState(() {
@@ -459,24 +472,52 @@ class _SectionCard extends StatelessWidget {
                 separatorBuilder: (_, __) => const Divider(height: 1),
                 itemBuilder: (context, i) {
                   final t = trips[i];
-                  final date = t.createdAt != null
+                  final tripCreateDate = t.createdAt != null
                       ? DateFormat('dd/MM/yy HH:mm').format(t.createdAt!)
                       : '–';
-                  final originLabel = 'checkin_origin'.tr();
-                  final destLabel = 'trip_history_dest'.tr();
-                  final originName = getSourceDisplayName(t.origin);
-                  final destName = getSourceDisplayName(t.destination);
                   final tripId =
                       t.spxTripId ??
                       (t.id != null && t.id!.length > 12
                           ? t.id!.substring(0, 12)
                           : t.id) ??
                       '–';
-                  final pc = t.partnerCode?.trim();
-                  final partnerLine = (pc != null && pc.isNotEmpty)
-                      ? pc
-                      : 'trip_history_partner_unspecified'.tr();
-                  final partnerLabel = 'trip_history_partner'.tr();
+
+                  // Multi-delivery: show all stops
+                  final isMultiDelivery = t.deliveryStopsProgress != null &&
+                      t.deliveryStopsProgress!.isNotEmpty;
+
+                  final subtitleParts = <String>[tripCreateDate];
+
+                  if (isMultiDelivery) {
+                    // Show origin once (code - name format)
+                    final originDisplay = t.origin != null ? getSourceDisplayName(t.origin) : '–';
+                    subtitleParts.add('From: $originDisplay');
+                    subtitleParts.add('');
+
+                    // Show all stops with numbers and delivery time (name only)
+                    for (int stopIdx = 0; stopIdx < t.deliveryStopsProgress!.length; stopIdx++) {
+                      final stop = t.deliveryStopsProgress![stopIdx];
+                      final stopNum = _getNumberedCircle(stopIdx + 1);
+                      // Use destination name from mapping (same as single delivery)
+                      final stopName = getSourceDisplayName(stop.destination);
+                      final stopDeliveryTime = stop.deliveredAt != null
+                          ? DateFormat('HH:mm').format(stop.deliveredAt!)
+                          : '–';
+                      subtitleParts.add('$stopNum $stopName @ $stopDeliveryTime');
+                    }
+                  } else {
+                    // Single delivery: show origin + destination + delivery time
+                    final originLabel = 'checkin_origin'.tr();
+                    final destLabel = 'trip_history_dest'.tr();
+                    final originName = getSourceDisplayName(t.origin);
+                    final destName = getSourceDisplayName(t.destination);
+                    final deliveryTime = t.deliveredTimestamp != null
+                        ? DateFormat('HH:mm').format(t.deliveredTimestamp!)
+                        : '–';
+                    subtitleParts.add('$originLabel : $originName');
+                    subtitleParts.add('$destLabel : $destName @ $deliveryTime');
+                  }
+
                   return ListTile(
                     title: Text(
                       tripId,
@@ -486,9 +527,9 @@ class _SectionCard extends StatelessWidget {
                       ),
                     ),
                     subtitle: Text(
-                      '$date\n$originLabel : $originName\n$destLabel : $destName\n$partnerLabel: $partnerLine',
+                      subtitleParts.join('\n'),
                       style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                      maxLines: 4,
+                      maxLines: 15,
                       overflow: TextOverflow.ellipsis,
                     ),
                     trailing: _StatusChip(status: t.status, trip: t),

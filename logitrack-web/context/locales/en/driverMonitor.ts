@@ -102,6 +102,7 @@ export default {
     "driverMonitor.detail.ocrRoute": "OCR Route Info",
     "driverMonitor.detail.photos": "Photos",
     "driverMonitor.detail.delivery": "Delivery",
+    "driverMonitor.detail.deliveryStops": "Delivery Stops",
     "driverMonitor.detail.deliveredAt": "Delivered At",
     "driverMonitor.detail.deliveryLocation": "Delivery Location",
     "driverMonitor.detail.createdAt": "Created At",

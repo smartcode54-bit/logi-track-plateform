@@ -265,6 +265,7 @@ flutter build apk --flavor dev --dart-define=FLAVOR=dev --split-per-abi
 ```bash
 # Dev → ใช้ Firebase Dev + Web Client ID ของ Dev
 flutter run --flavor dev --dart-define=FLAVOR=dev
+
 ```
 ```bash
 # Prod → ใช้ Firebase Prod + Web Client ID ของ Prod

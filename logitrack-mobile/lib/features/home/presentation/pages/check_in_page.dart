@@ -968,6 +968,9 @@ class _TaskCheckInPageState extends State<TaskCheckInPage> {
             ),
           ),
 
+          // Delivery stops section (if multi-delivery)
+          _buildDeliveryStopsSection(),
+
           const SizedBox(height: 24),
 
           // Action buttons
@@ -1050,6 +1053,103 @@ class _TaskCheckInPageState extends State<TaskCheckInPage> {
                 ),
               ),
             ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDeliveryStopsSection() {
+    final deliveryStops = widget.taskData['deliveryStops'] as List<dynamic>? ?? [];
+
+    if (deliveryStops.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 16),
+        Card(
+          color: Colors.blue.shade50,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.local_shipping,
+                      size: 20,
+                      color: Colors.blue.shade700,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'checkin_delivery_stops'.tr(args: ['${deliveryStops.length}']),
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue.shade800,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                ...deliveryStops.asMap().entries.map((e) {
+                  final idx = e.key + 1;
+                  final stop = e.value as Map<String, dynamic>;
+                  final destination = stop['destination'] as String? ?? 'Unknown';
+                  final isCustom = stop['isCustom'] as bool? ?? false;
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 24,
+                          height: 24,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.blue.shade600,
+                          ),
+                          child: Center(
+                            child: Text(
+                              '$idx',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                destination,
+                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              if (isCustom)
+                                Text(
+                                  'custom_stop_note'.tr(),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.orange.shade700,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ],
+            ),
           ),
         ),
       ],

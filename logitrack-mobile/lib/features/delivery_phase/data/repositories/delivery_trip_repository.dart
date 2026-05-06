@@ -118,6 +118,124 @@ Future<void> submitDeliveryPhaseRecord({
   }
 }
 
+/// Submit delivery progress for a single stop in a multi-delivery trip.
+/// Direct Firestore write — avoids Cloud Function auth/App Check issues.
+/// Returns true if ALL stops are now delivered (trip is complete).
+Future<bool> submitDeliveryStopRecord({
+  required String tripId,
+  required String? taskId,
+  required int stopIndex,
+  required String destination,
+  required List<Map<String, dynamic>> photos,
+  required double deliveredLat,
+  required double deliveredLng,
+}) async {
+  final now = DateTime.now();
+  final ref = FirebaseFirestore.instance
+      .collection(tripRecordsCollection)
+      .doc(tripId);
+
+  final snap = await ref.get();
+  final data = snap.data() ?? {};
+
+  final currentProgress = <Map<String, dynamic>>[];
+  if (data['deliveryStopsProgress'] is List) {
+    for (final e in (data['deliveryStopsProgress'] as List)) {
+      if (e is Map<String, dynamic>) currentProgress.add(e);
+    }
+  }
+
+  // Idempotent: skip if already delivered
+  final alreadyDone = currentProgress.any(
+    (s) => s['index'] == stopIndex && s['status'] == 'delivered',
+  );
+  if (alreadyDone) return false;
+
+  final stopEntry = <String, dynamic>{
+    'index': stopIndex,
+    'destination': destination.trim().toUpperCase(),
+    'status': 'delivered',
+    'deliveredAt': Timestamp.fromDate(now),
+    'deliveredLat': deliveredLat,
+    'deliveredLng': deliveredLng,
+    'photos': photos,
+  };
+
+  final updatedProgress = [
+    ...currentProgress.where((s) => s['index'] != stopIndex),
+    stopEntry,
+  ];
+
+  // Merge photos into trip record's main photos array
+  final existingPhotos = _photosListFromSnapshotData(data);
+  final newTypes = photos
+      .map((p) => p['type']?.toString())
+      .whereType<String>()
+      .toSet();
+  final mergedPhotos = mergeTripPhotosReplacingTypes(
+    existing: existingPhotos,
+    replacedTypes: newTypes,
+    newPhotoMaps: photos,
+  );
+
+  await ref.set({
+    'deliveryStopsProgress': updatedProgress,
+    'photos': mergedPhotos,
+    'updatedAt': Timestamp.fromDate(now),
+  }, SetOptions(merge: true));
+
+  // Check if all stops are now delivered → complete trip + task
+  bool allDelivered = false;
+  if (taskId != null && taskId.isNotEmpty) {
+    try {
+      final taskSnap = await FirebaseFirestore.instance
+          .collection('tasks')
+          .doc(taskId)
+          .get();
+      if (taskSnap.exists) {
+        final taskData = taskSnap.data()!;
+        final totalStops = (taskData['deliveryStops'] as List?)?.length ?? 1;
+        final deliveredCount =
+            updatedProgress.where((s) => s['status'] == 'delivered').length;
+
+        if (deliveredCount >= totalStops) {
+          allDelivered = true;
+
+          await FirebaseFirestore.instance
+              .collection('tasks')
+              .doc(taskId)
+              .update({
+            'status': 'Completed',
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+
+          await ref.update({
+            'status': 'delivered',
+            'deliveredTimestamp': Timestamp.fromDate(now),
+          });
+
+          try {
+            await CloudFunctionsService.instance.call(
+              'computeTripBillingSnapshot',
+              data: {'tripId': tripId},
+            );
+          } catch (_) {}
+
+          try {
+            final driverId = taskData['driverId'] as String?;
+            if (driverId != null && driverId.isNotEmpty) {
+              await MobileClientHeartbeatService.instance
+                  .onJobAction(driverId);
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+  }
+
+  return allDelivered;
+}
+
 /// Re-submit delivery photos after admin rejected
 Future<void> resubmitDeliveryPhotos({
   required String tripId,

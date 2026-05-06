@@ -49,6 +49,7 @@ class MainLayoutScope extends InheritedWidget {
     super.key,
     required this.goToDeliveryTab,
     this.onDeliveryCompleted,
+    this.onEmbeddedMultiDeliveryAbort,
     required super.child,
   });
 
@@ -57,12 +58,20 @@ class MainLayoutScope extends InheritedWidget {
   /// เรียกเมื่อส่งงาน (Delivery) บันทึกเสร็จแล้ว เพื่อเคลียร์ active trip และปลดล็อกแท็บ Pick up
   final void Function()? onDeliveryCompleted;
 
+  /// Multi-stop อยู่ในแท็บ [IndexedStack] — ถ้าโหลดงานแล้ว error อย่าใช้ Navigator.pop เพราะจะ pop ทั้ง [MainLayout] เป็นมืดว่าง
+  final void Function(String message)? onEmbeddedMultiDeliveryAbort;
+
   static MainLayoutScope? of(BuildContext context) {
     return context.dependOnInheritedWidgetOfExactType<MainLayoutScope>();
+  }
+
+  static MainLayoutScope? maybeOf(BuildContext context) {
+    return context.findAncestorWidgetOfExactType<MainLayoutScope>();
   }
 
   @override
   bool updateShouldNotify(MainLayoutScope old) =>
       goToDeliveryTab != old.goToDeliveryTab ||
-      onDeliveryCompleted != old.onDeliveryCompleted;
+      onDeliveryCompleted != old.onDeliveryCompleted ||
+      onEmbeddedMultiDeliveryAbort != old.onEmbeddedMultiDeliveryAbort;
 }

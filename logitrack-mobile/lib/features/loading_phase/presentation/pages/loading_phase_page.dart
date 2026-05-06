@@ -23,6 +23,8 @@ import '../../../home/presentation/pages/main_layout_scope.dart';
 import '../../../home/presentation/pages/qr_scan_page.dart';
 import '../../data/repositories/loading_trip_repository.dart';
 import '../../../../core/presentation/widgets/searchable_hub_picker.dart';
+import '../../../../core/services/cloud_functions_service.dart';
+import '../../../delivery_phase/presentation/dialogs/add_delivery_stop_dialog.dart';
 
 /// ขั้นตอนรูป Loading (ไม่รวม runsheet ที่ย้ายขึ้นไปข้างบน)
 const List<String> _cameraPhotoStepKeys = ['pre_close', 'closing', 'seal'];
@@ -80,6 +82,10 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
   final GlobalKey _runsheetSectionKey = GlobalKey();
 
   List<HubDoc> _allHubs = [];
+
+  /// Additional delivery stops (for multi-stop deliveries)
+  /// Each entry: {destination, sourceId?, isCustom}
+  final List<Map<String, dynamic>> _additionalDeliveryStops = [];
 
   /// SOC standby (รหัส 0XXX) ไม่แสดงใน dropdown ต้นทาง/ปลายทาง
   static bool _isSocStandby(HubDoc h) =>
@@ -928,6 +934,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         ).format(DateTime.now()),
         runsheetPhotos: List<Uint8List>.from(_runsheetPhotos),
         stepPhotos: _stepPhotos,
+        deliveryStops: [], // No delivery stops on loading phase - they're added in delivery phase
       ),
     );
 
@@ -1121,8 +1128,53 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       _tripIdDuplicateError = null;
       _sealCodeDuplicateError = null;
       _lastDuplicateDebug = null;
+      _additionalDeliveryStops.clear();
     });
     DraftStorageService.instance.clearLoadingDraft();
+  }
+
+  Future<void> _showAddDeliveryStopDialog() async {
+    final result = await showDialog<AddDeliveryStopResult>(
+      context: context,
+      builder: (ctx) => AddDeliveryStopDialog(
+        availableHubs: _allHubs,
+      ),
+    );
+
+    if (result != null && mounted) {
+      // Check for duplicate destination
+      final isDuplicate = _additionalDeliveryStops.any(
+        (stop) => stop['destination'] == result.destination,
+      );
+
+      if (isDuplicate) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${result.destination} already added'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      setState(() {
+        _additionalDeliveryStops.add({
+          'destination': result.destination,
+          'sourceId': result.sourceId,
+          'isCustom': result.isCustom,
+          if (result.destinationLinkedCustomerId != null)
+            'destinationLinkedCustomerId': result.destinationLinkedCustomerId,
+          if (result.destinationLinkedCustomerName != null)
+            'destinationLinkedCustomerName': result.destinationLinkedCustomerName,
+          if (result.destinationCustomerLinkKind != null)
+            'destinationCustomerLinkKind': result.destinationCustomerLinkKind,
+        });
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${result.destination} added')),
+      );
+    }
   }
 
   /// Save ช้าเพราะ: (1) getCurrentPosition (2) fetchOverlayContext (3) วน overlay 3 รูป (4) อัปโหลด 4 รูป + บันทึก Firestore
@@ -1251,6 +1303,65 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       final sealSourceTrimmed = _ocrSealSource?.trim();
       final secondarySealTrimmed = _ocrSecondarySealCode?.trim();
 
+      // Persist extra stops on the task first (callable upgrades single-stop tasks when needed).
+      // Then set trip_records.isMultiDelivery so delivery opens multi-stop UI.
+      var isTripMulti = false;
+      if (activeTaskId != null && activeTaskId.isNotEmpty) {
+        if (_additionalDeliveryStops.isNotEmpty) {
+          // Check Firebase Auth before calling cloud function
+          final currentUser = FirebaseAuth.instance.currentUser;
+          if (currentUser == null) {
+            throw Exception('User not authenticated. Please login again.');
+          }
+
+          final callable =
+              CloudFunctionsService.regional.httpsCallable('addDeliveryStop');
+          for (final stop in _additionalDeliveryStops) {
+            try {
+              final resp = await callable.call(<String, dynamic>{
+                'taskId': activeTaskId,
+                'destination': stop['destination'],
+                'sourceId': stop['sourceId'],
+                'isCustom': stop['isCustom'] ?? false,
+                if (stop['destinationLinkedCustomerId'] != null)
+                  'destinationLinkedCustomerId': stop['destinationLinkedCustomerId'],
+                if (stop['destinationLinkedCustomerName'] != null)
+                  'destinationLinkedCustomerName': stop['destinationLinkedCustomerName'],
+                if (stop['destinationCustomerLinkKind'] != null)
+                  'destinationCustomerLinkKind': stop['destinationCustomerLinkKind'],
+              });
+              final raw = resp.data;
+              final data = raw is Map
+                  ? Map<String, dynamic>.from(raw as Map<dynamic, dynamic>)
+                  : <String, dynamic>{};
+              if (data['ok'] != true) {
+                throw Exception(
+                  data['message']?.toString() ?? 'addDeliveryStop failed',
+                );
+              }
+            } catch (e) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Add stop failed: $e'),
+                  backgroundColor: Colors.orange,
+                  duration: const Duration(seconds: 5),
+                ),
+              );
+              // Continue with loading submit even if add stop fails
+            }
+          }
+        }
+        final taskDoc = await FirebaseFirestore.instance
+            .collection('tasks')
+            .doc(activeTaskId)
+            .get();
+        final tdata = taskDoc.data();
+        final stopsLen = (tdata?['deliveryStops'] as List?)?.length ?? 0;
+        isTripMulti =
+            tdata != null &&
+            (tdata['isMultiDelivery'] == true || stopsLen >= 2);
+      }
+
       await submitLoadingPhaseRecord(
         tripId: tripId,
         jobType: _jobType ?? jobTypeFirstMile,
@@ -1296,6 +1407,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
               : null,
           ocrProfile: _isZxTripId(tripId) ? 'zx_waybill' : 'spx_runsheet',
         ),
+        isMultiDelivery: isTripMulti,
       );
       if (!mounted) return;
       final origin = _originController.text.trim();
@@ -1303,6 +1415,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       final jobType = _jobType ?? jobTypeFirstMile;
 
       setState(() => _saving = false);
+
       _clearForm();
 
       final summary = SavedTripSummary(
@@ -1776,7 +1889,97 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                       ),
                       const SizedBox(height: 24),
 
-                      // ========== STEP 5: ถ่ายรูป 3 ขั้นตอน ==========
+                      // ========== STEP 5: Additional Delivery Stops ==========
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              // Title
+                              Text(
+                                'additional_delivery_stops'.tr(),
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              const SizedBox(height: 12),
+
+                              // ปลายทาง section: empty state or list
+                              if (_additionalDeliveryStops.isEmpty)
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.blue.shade50,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    'no_additional_stops'.tr(),
+                                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                )
+                              else
+                                Column(
+                                  children: [
+                                    ..._additionalDeliveryStops.asMap().entries.map((e) {
+                                      final stop = e.value;
+                                      final index = e.key;
+                                      return Padding(
+                                        padding: const EdgeInsets.only(bottom: 8.0),
+                                        child: Card(
+                                          color: Colors.blue.shade50,
+                                          child: ListTile(
+                                            title: Text(
+                                              'Stop ${index + 1}: ${stop['destination'] ?? 'Unknown'}',
+                                              style: const TextStyle(
+                                                color: Colors.black87,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                            trailing: IconButton(
+                                              icon: const Icon(Icons.close),
+                                              onPressed: () {
+                                                setState(() {
+                                                  _additionalDeliveryStops.removeAt(index);
+                                                });
+                                              },
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    }).toList(),
+                                    Text(
+                                      'Delivery order: Main destination → Stop 1 → Stop 2...',
+                                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                        color: Colors.orange.shade700,
+                                        fontStyle: FontStyle.italic,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              const SizedBox(height: 12),
+
+                              // เพิ่มจุดรับ button — full width, below the list
+                              ElevatedButton.icon(
+                                onPressed: _showAddDeliveryStopDialog,
+                                icon: const Icon(Icons.add, size: 18),
+                                label: Text('add_stop'.tr()),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.green.shade600,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                    horizontal: 12,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+
+                      // ========== STEP 6: ถ่ายรูป 3 ขั้นตอน ==========
                       _sectionTitle('loading_phase_photos_step_title'.tr()),
                       Text(
                         'loading_phase_photos_step_subtitle'.tr(),
@@ -1838,7 +2041,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                       }),
                       const SizedBox(height: 24),
 
-                      // ========== STEP 6: Preview & Submit ==========
+                      // ========== STEP 7: Preview & Submit ==========
                       FilledButton.icon(
                         onPressed: (_saving || _hasDuplicateError)
                             ? null
@@ -1948,6 +2151,7 @@ class _PreviewSheet extends StatelessWidget {
   final String timestamp;
   final List<Uint8List> runsheetPhotos;
   final Map<String, Uint8List> stepPhotos;
+  final List<Map<String, dynamic>> deliveryStops;
 
   const _PreviewSheet({
     required this.jobType,
@@ -1964,6 +2168,7 @@ class _PreviewSheet extends StatelessWidget {
     required this.timestamp,
     required this.runsheetPhotos,
     required this.stepPhotos,
+    required this.deliveryStops,
   });
 
   @override
@@ -2144,7 +2349,7 @@ class _PreviewSheet extends StatelessWidget {
 
   /// Build data rows, skipping empty values
   List<Widget> _buildRows() {
-    return [
+    final rows = <Widget>[
       _row(
         'loading_phase_job_type'.tr(),
         jobType == jobTypeFirstMile ? 'First Mile' : 'Line Haul',
@@ -2161,6 +2366,59 @@ class _PreviewSheet extends StatelessWidget {
       _row('loading_phase_coordination'.tr(), coordination),
       _row('loading_phase_timestamp'.tr(), timestamp),
     ];
+
+    // Add delivery stops if any
+    if (deliveryStops.isNotEmpty) {
+      rows.add(const SizedBox(height: 8));
+      rows.add(
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Text(
+            'delivery_stops'.tr(),
+            style: const TextStyle(
+              fontWeight: FontWeight.w600,
+              color: Colors.blue,
+            ),
+          ),
+        ),
+      );
+      for (int i = 0; i < deliveryStops.length; i++) {
+        final stop = deliveryStops[i];
+        final sourceId = (stop['sourceId'] as String?) ?? '';
+        final destination = (stop['destination'] as String?) ?? 'Unknown';
+        final displayText = sourceId.isNotEmpty
+            ? '$sourceId - $destination'
+            : destination;
+        rows.add(
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: 120,
+                  child: Text(
+                    'Stop ${i + 1}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w500,
+                      color: Colors.grey,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Text(
+                    displayText,
+                    style: const TextStyle(fontWeight: FontWeight.w500),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    }
+
+    return rows;
   }
 
   Widget _row(String label, String value) {

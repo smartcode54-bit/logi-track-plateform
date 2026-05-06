@@ -64,6 +64,24 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
     return findHubByDestinationLabel(_hubs, label);
   }
 
+  /// Format location display as "code - name" or just code if name not found
+  String _formatLocationDisplay(String? code) {
+    if (code == null || code.trim().isEmpty) return '-';
+    final trimmed = code.trim();
+
+    // Try to find in hubs list by sourceId or destination
+    try {
+      final hub = _hubs.firstWhere(
+        (h) => h.sourceId.toUpperCase() == trimmed.toUpperCase() ||
+               h.sourceNameEn.toUpperCase() == trimmed.toUpperCase(),
+      );
+      return '${hub.sourceId} - ${hub.sourceNameEn}';
+    } catch (_) {
+      // Hub not found, return code as-is
+      return trimmed;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -132,19 +150,55 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
           .get();
 
       final tripData = tripSnap.data() as Map<String, dynamic>?;
-      if (tripData != null && tripData['isMultiDelivery'] == true) {
-        // Switch to multi-delivery flow
-        if (mounted) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (ctx) => DeliveryPhasePageMulti(
-                savedTripSummary: widget.savedTripSummary,
-              ),
+
+      void goMulti() {
+        if (!mounted) return;
+        Navigator.push<void>(
+          context,
+          MaterialPageRoute<void>(
+            builder: (ctx) => DeliveryPhasePageMulti(
+              savedTripSummary: widget.savedTripSummary,
+              embeddedInBottomNav: false,
             ),
-          );
-        }
+          ),
+        );
+      }
+
+      if (tripData != null && tripData['isMultiDelivery'] == true) {
+        goMulti();
         return;
+      }
+
+      String? taskIdLookup;
+      final tid = tripData?['taskId'];
+      if (tid is String && tid.trim().isNotEmpty) {
+        taskIdLookup = tid.trim();
+      } else {
+        final s = widget.savedTripSummary?.taskId?.trim();
+        if (s != null && s.isNotEmpty) taskIdLookup = s;
+      }
+
+      if (taskIdLookup != null && taskIdLookup.isNotEmpty) {
+        final taskSnap = await FirebaseFirestore.instance
+            .collection('tasks')
+            .doc(taskIdLookup)
+            .get();
+        final td = taskSnap.data();
+        final stopsN = (td?['deliveryStops'] as List?)?.length ?? 0;
+        if (td != null && (td['isMultiDelivery'] == true || stopsN >= 2)) {
+          await FirebaseFirestore.instance
+              .collection(tripRecordsCollection)
+              .doc(tripId)
+              .set(
+                {
+                  'isMultiDelivery': true,
+                  'updatedAt': FieldValue.serverTimestamp(),
+                },
+                SetOptions(merge: true),
+              );
+          goMulti();
+          return;
+        }
       }
     } catch (e) {
       debugPrint('Error fetching trip: $e');
@@ -620,7 +674,7 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
                                   ),
                                   const SizedBox(height: 16),
                                   Text(
-                                    '${'loading_phase_origin'.tr()}  ${widget.savedTripSummary?.origin?.trim().isNotEmpty == true ? widget.savedTripSummary!.origin! : '-'}',
+                                    '${'loading_phase_origin'.tr()}  ${_formatLocationDisplay(widget.savedTripSummary?.origin)}',
                                     style: const TextStyle(
                                       color: Colors.white70,
                                       fontSize: 14,
@@ -630,7 +684,7 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
                                   ),
                                   const SizedBox(height: 6),
                                   Text(
-                                    '${'loading_phase_destination'.tr()}  ${widget.savedTripSummary?.destination?.trim().isNotEmpty == true ? widget.savedTripSummary!.destination! : '-'}',
+                                    '${'loading_phase_destination'.tr()}  ${_formatLocationDisplay(widget.savedTripSummary?.destination)}',
                                     style: const TextStyle(
                                       color: Colors.white,
                                       fontSize: 15,

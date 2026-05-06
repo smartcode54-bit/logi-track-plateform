@@ -1,5 +1,43 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+/// Single delivery stop progress (for multi-delivery trips)
+class DeliveryStopProgress {
+  final int index;
+  final String destination;
+  final String? sourceId;
+  final String status; // 'pending' | 'delivered'
+  final DateTime? deliveredAt;
+
+  const DeliveryStopProgress({
+    required this.index,
+    required this.destination,
+    this.sourceId,
+    required this.status,
+    this.deliveredAt,
+  });
+
+  factory DeliveryStopProgress.fromMap(Map<String, dynamic> map) {
+    DateTime? deliveredAt;
+    final dt = map['deliveredAt'];
+    if (dt != null) {
+      if (dt is DateTime) {
+        deliveredAt = dt;
+      } else if (dt is Timestamp) {
+        deliveredAt = dt.toDate();
+      } else if (dt is String) {
+        deliveredAt = DateTime.tryParse(dt);
+      }
+    }
+    return DeliveryStopProgress(
+      index: (map['index'] as num?)?.toInt() ?? 0,
+      destination: map['destination'] as String? ?? '',
+      sourceId: map['sourceId'] as String?,
+      status: map['status'] as String? ?? 'pending',
+      deliveredAt: deliveredAt,
+    );
+  }
+}
+
 /// โมเดลตาม shared-docs/schemas/trip-record.ts (TripRecords collection)
 /// ใช้สำหรับบันทึกรับงาน (Loading Phase) และสถานะ trip อื่นๆ
 class TripRecord {
@@ -24,6 +62,7 @@ class TripRecord {
   final DateTime? deliveredTimestamp;
   final double? deliveredLat;
   final double? deliveredLng;
+  final List<DeliveryStopProgress>? deliveryStopsProgress;
 
   /// STD = Scheduled Time of Departure (CreateAt / บันทึกเมื่อ)
   final DateTime? std;
@@ -92,6 +131,20 @@ class TripRecord {
         ocrProfile: ocr['ocrProfile'] as String?,
       );
     }
+    List<DeliveryStopProgress>? deliveryStopsProgress;
+    final progress = map['deliveryStopsProgress'];
+    if (progress is List) {
+      deliveryStopsProgress = progress.map((e) {
+        if (e is Map<String, dynamic>) {
+          return DeliveryStopProgress.fromMap(e);
+        }
+        return const DeliveryStopProgress(
+          index: 0,
+          destination: '',
+          status: 'pending',
+        );
+      }).toList();
+    }
     return TripRecord(
       id: id ?? map['id'] as String?,
       status: (map['status'] as String?) ?? 'loading',
@@ -114,6 +167,7 @@ class TripRecord {
       deliveredTimestamp: _parseDate(map['deliveredTimestamp']),
       deliveredLat: (map['deliveredLat'] as num?)?.toDouble(),
       deliveredLng: (map['deliveredLng'] as num?)?.toDouble(),
+      deliveryStopsProgress: deliveryStopsProgress,
       std: _parseDate(map['std']),
       sta: _parseDate(map['sta']),
       ata: _parseDate(map['ata']),
@@ -149,6 +203,7 @@ class TripRecord {
     this.deliveredTimestamp,
     this.deliveredLat,
     this.deliveredLng,
+    this.deliveryStopsProgress,
     this.std,
     this.sta,
     this.ata,
