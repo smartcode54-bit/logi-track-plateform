@@ -11,6 +11,7 @@ import {
     extractHubId,
     getTripBillingDateMs as getTripBillingDateMsFromTimestamps,
     normalizeDestinationCode,
+    normalizeVehicleClass,
     resolveTaskCustomerId as resolveTaskCustomerFromTaskInput,
     timestampLikeToMillis,
     type BillingRateEntry,
@@ -92,7 +93,7 @@ export async function fetchRateEntriesForCustomers(
                 importId: String(d.importId ?? ""),
                 hubId: normalizeCode(String(d.hubId ?? "")),
                 destinationCode: normalizeDestinationCode(String(d.destinationCode ?? "")),
-                vehicleClass: normalizeCode(String(d.vehicleClass ?? "4WJ")),
+                vehicleClass: normalizeVehicleClass(String(d.vehicleClass ?? "4WJ")),
                 rateThb: Number(d.rateThb ?? 0),
                 effectiveFromMs: toMillis(d.effectiveFrom),
             });

@@ -7,6 +7,7 @@ import {
     extractHubId,
     getTripBillingDateMs,
     normalizeDestinationCode,
+    normalizeVehicleClass,
     timestampLikeToMillis,
     type BillingRateEntry,
     type FuelRateAdjustment,
@@ -144,14 +145,14 @@ async function tryWriteBillingSnapshotFromTripData(
             return { ok: false, error: "Multi-delivery trip has < 2 delivered stops" };
         }
 
-        // TODO: get dropFeeThb from customer config or hardcoded constant
-        const dropFeeThb = 50; // Default drop fee: 50 THB per stop
+        // Extra stop surcharge: 100 THB per stop (stops 2+)
+        const dropFeeThb = 100;
 
         const multiComputed = computeMultiDeliveryBilling(
             tripParts,
             taskInput,
             stops,
-            normalizeStoredCode(taskInput.truckType || "4WJ"),
+            normalizeVehicleClass(taskInput.truckType || "4WJ"),
             dropFeeThb,
             rateEntries,
             fuelAdjustments
@@ -373,6 +374,79 @@ export const backfillTripBillingSnapshots = onCall<BackfillBillingRequest, Promi
             failed,
             failures,
             capped: eligible > attempted,
+        };
+    }
+);
+
+interface NormalizeVehicleClassRequest {
+    /** Max customer_rate_entries to scan. Default 5000, max 10000. */
+    maxScan?: number;
+    /** Max updates per invocation. Default 500, max 1000. */
+    maxUpdate?: number;
+}
+
+interface NormalizeVehicleClassResponse {
+    scanned: number;
+    /** Entries with non-standard vehicle class requiring normalization */
+    needsUpdate: number;
+    /** Successfully updated entries */
+    updated: number;
+    /** List of updates performed (format, old→new) */
+    samples: Array<{ docId: string; old: string; new: string }>;
+    /** true if needsUpdate > updated (more work may remain) */
+    capped: boolean;
+}
+
+/**
+ * Admin-only: normalize vehicle class values in all customer_rate_entries.
+ * Converts full names (e.g., "4 WHEELS JUMBO") to short codes (e.g., "4WJ").
+ */
+export const normalizeRateEntryVehicleClasses = onCall<
+    NormalizeVehicleClassRequest,
+    Promise<NormalizeVehicleClassResponse>
+>(
+    {
+        region: "asia-southeast1",
+        enforceAppCheck: false,
+    },
+    async (request): Promise<NormalizeVehicleClassResponse> => {
+        if (request.auth?.token?.admin !== true) {
+            throw new HttpsError("permission-denied", "Admin only");
+        }
+
+        const maxScan = Math.min(Math.max(1, request.data?.maxScan ?? 5000), 10000);
+        const maxUpdate = Math.min(Math.max(1, request.data?.maxUpdate ?? 500), 1000);
+
+        const db = admin.firestore();
+        const snap = await db.collection(COL_RATE_ENTRIES).limit(maxScan).get();
+
+        let needsUpdate = 0;
+        let updated = 0;
+        const samples: Array<{ docId: string; old: string; new: string }> = [];
+
+        for (const doc of snap.docs) {
+            const data = doc.data() as Record<string, unknown>;
+            const old = String(data.vehicleClass ?? "4WJ").trim().toUpperCase();
+            const normalized = normalizeVehicleClass(old);
+
+            if (old !== normalized) {
+                needsUpdate++;
+                if (updated < maxUpdate) {
+                    await doc.ref.update({ vehicleClass: normalized });
+                    updated++;
+                    if (samples.length < 10) {
+                        samples.push({ docId: doc.id, old, new: normalized });
+                    }
+                }
+            }
+        }
+
+        return {
+            scanned: snap.size,
+            needsUpdate,
+            updated,
+            samples,
+            capped: needsUpdate > updated,
         };
     }
 );

@@ -73,6 +73,19 @@ export function normalizeDestinationCode(destination: string | null | undefined)
     return u;
 }
 
+export function normalizeVehicleClass(vehicleClass: string | null | undefined): string {
+    const u = normalizeCode(vehicleClass || "4WJ");
+    if (!u) return "4WJ";
+    // Map full truck type names to short codes
+    const mapping: Record<string, string> = {
+        "4 WHEELS JUMBO": "4WJ",
+        "6 WHEELS": "6W",
+        "10 WHEELS": "10W",
+        "2 WHEELS": "2W",
+    };
+    return mapping[u] ?? u;
+}
+
 /** Milliseconds from Firestore Timestamp, Date, number, or similar. */
 export function timestampLikeToMillis(val: unknown): number {
     if (!val) return 0;
@@ -183,7 +196,7 @@ export function computeMultiDeliveryBilling(
     if (!customerId) return null;
 
     const hubId = extractHubId(task.sourceHub);
-    const normalizedVehicleClass = normalizeCode(vehicleClass || "4WJ");
+    const normalizedVehicleClass = normalizeVehicleClass(vehicleClass || "4WJ");
     const billDateMs = getTripBillingDateMs(trip);
     const matchedAdjustment = selectFuelAdjustmentForBillingDate(customerId, billDateMs, fuelAdjustments);
     const rateMultiplier = matchedAdjustment?.rateMultiplier ?? 1;
@@ -240,7 +253,7 @@ export function computeTripBillingFromParts(
 
     const hubId = extractHubId(task.sourceHub);
     const destination = normalizeDestinationCode(task.destination);
-    const vehicleClass = normalizeCode(task.truckType || "4WJ");
+    const vehicleClass = normalizeVehicleClass(task.truckType || "4WJ");
     const billDateMs = getTripBillingDateMs(trip);
 
     const matchedRate = selectBillingRateEntry(
