@@ -34,6 +34,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
+import { ChevronDown } from "lucide-react";
 import {
     Select,
     SelectContent,
@@ -771,15 +773,31 @@ export default function DriverMonitorDashboard() {
                                             <TableCell className="text-sm"><span className="font-medium">{getSourceDisplayName(trip.origin)}</span></TableCell>
                                             <TableCell className="text-sm">
                                                 {trip.isMultiDelivery && (trip.deliveryStopsProgress?.length ?? 0) > 0 ? (
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            setDetailTrip(trip);
-                                                        }}
-                                                        className="inline-flex items-center text-xs px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200 border border-blue-200 font-medium cursor-pointer transition-colors"
-                                                    >
-                                                        {trip.deliveryStopsProgress?.length ?? trip.totalDeliveryStops} stops
-                                                    </button>
+                                                    <Collapsible>
+                                                        <CollapsibleTrigger
+                                                            onClick={(e) => e.stopPropagation()}
+                                                            className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200 border border-blue-200 font-medium cursor-pointer transition-colors"
+                                                        >
+                                                            {trip.deliveryStopsProgress?.length ?? trip.totalDeliveryStops} stops
+                                                            <ChevronDown className="h-3 w-3" />
+                                                        </CollapsibleTrigger>
+                                                        <CollapsibleContent className="mt-2 space-y-1 w-max">
+                                                            {trip.deliveryStopsProgress?.map((stop) => (
+                                                                <Badge
+                                                                    key={stop.index}
+                                                                    variant="outline"
+                                                                    className={cn(
+                                                                        "text-xs font-medium block",
+                                                                        stop.status === "delivered"
+                                                                            ? "bg-green-50 text-green-700 border-green-200"
+                                                                            : "bg-gray-50 text-gray-600 border-gray-200"
+                                                                    )}
+                                                                >
+                                                                    {stop.status === "delivered" ? "✓" : "◯"} {getSourceDisplayName(stop.destination)}
+                                                                </Badge>
+                                                            ))}
+                                                        </CollapsibleContent>
+                                                    </Collapsible>
                                                 ) : (
                                                     <span className="font-medium">{getSourceDisplayName(trip.destination)}</span>
                                                 )}
