@@ -1193,17 +1193,45 @@ export default function DriverMonitorDashboard() {
                                     <MapPin className="h-4 w-4" />
                                     {t("driverMonitor.detail.routeInfo")}
                                 </h4>
-                                <div className="flex items-center gap-4 bg-muted/30 rounded-lg p-4">
-                                    <div className="flex-1 text-center">
-                                        <p className="text-xs text-muted-foreground mb-1">{t("driverMonitor.detail.origin")}</p>
-                                        <p className="font-semibold">{getSourceDisplayName(detailTrip.origin)}</p>
+                                {detailTrip.isMultiDelivery && (detailTrip.deliveryStopsProgress?.length ?? 0) > 0 ? (
+                                    <div className="bg-muted/30 rounded-lg p-4 space-y-3">
+                                        <div className="text-center">
+                                            <p className="text-xs text-muted-foreground mb-1">{t("driverMonitor.detail.origin")}</p>
+                                            <p className="font-semibold">{getSourceDisplayName(detailTrip.origin)}</p>
+                                        </div>
+                                        <div className="border-t border-border/50 pt-3">
+                                            <p className="text-xs text-muted-foreground mb-2">{t("driverMonitor.detail.deliveryStops")}</p>
+                                            <div className="space-y-2">
+                                                {detailTrip.deliveryStopsProgress?.map((stop) => (
+                                                    <div key={stop.index} className="flex items-center gap-2 p-2 rounded border border-border/50">
+                                                        <span className={cn(
+                                                            "flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold",
+                                                            stop.status === "delivered" ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-500"
+                                                        )}>
+                                                            {stop.index}
+                                                        </span>
+                                                        <span className="flex-1">{getSourceDisplayName(stop.destination)}</span>
+                                                        <span className={stop.status === "delivered" ? "text-emerald-600 text-xs" : "text-gray-400 text-xs"}>
+                                                            {stop.status === "delivered" ? "✓" : "◯"}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
                                     </div>
-                                    <ArrowRight className="h-5 w-5 text-muted-foreground shrink-0" />
-                                    <div className="flex-1 text-center">
-                                        <p className="text-xs text-muted-foreground mb-1">{t("driverMonitor.detail.destination")}</p>
-                                        <p className="font-semibold">{getSourceDisplayName(detailTrip.destination)}</p>
+                                ) : (
+                                    <div className="flex items-center gap-4 bg-muted/30 rounded-lg p-4">
+                                        <div className="flex-1 text-center">
+                                            <p className="text-xs text-muted-foreground mb-1">{t("driverMonitor.detail.origin")}</p>
+                                            <p className="font-semibold">{getSourceDisplayName(detailTrip.origin)}</p>
+                                        </div>
+                                        <ArrowRight className="h-5 w-5 text-muted-foreground shrink-0" />
+                                        <div className="flex-1 text-center">
+                                            <p className="text-xs text-muted-foreground mb-1">{t("driverMonitor.detail.destination")}</p>
+                                            <p className="font-semibold">{getSourceDisplayName(detailTrip.destination)}</p>
+                                        </div>
                                     </div>
-                                </div>
+                                )}
                             </div>
 
                             <div className="space-y-3">
