@@ -139,7 +139,7 @@ async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef) {
         }
         // Extra stop surcharge: 100 THB per stop (stops 2+)
         const dropFeeThb = 100;
-        const multiComputed = (0, billingCompute_1.computeMultiDeliveryBilling)(tripParts, taskInput, stops, normalizeStoredCode(taskInput.truckType || "4WJ"), dropFeeThb, rateEntries, fuelAdjustments);
+        const multiComputed = (0, billingCompute_1.computeMultiDeliveryBilling)(tripParts, taskInput, stops, (0, billingCompute_1.normalizeVehicleClass)(taskInput.truckType || "4WJ"), dropFeeThb, rateEntries, fuelAdjustments);
         if (!multiComputed) {
             firebase_functions_1.logger.warn("[billingSnapshot] could not compute multi-delivery billing", {
                 tripId,

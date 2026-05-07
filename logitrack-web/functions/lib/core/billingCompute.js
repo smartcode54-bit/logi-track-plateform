@@ -120,7 +120,7 @@ function computeMultiDeliveryBilling(trip, task, deliveryStops, vehicleClass, dr
     if (!customerId)
         return null;
     const hubId = extractHubId(task.sourceHub);
-    const normalizedVehicleClass = normalizeCode(vehicleClass || "4WJ");
+    const normalizedVehicleClass = normalizeVehicleClass(vehicleClass || "4WJ");
     const billDateMs = getTripBillingDateMs(trip);
     const matchedAdjustment = selectFuelAdjustmentForBillingDate(customerId, billDateMs, fuelAdjustments);
     const rateMultiplier = matchedAdjustment?.rateMultiplier ?? 1;
@@ -161,7 +161,7 @@ function computeTripBillingFromParts(trip, task, rateEntries, fuelAdjustments) {
         return null;
     const hubId = extractHubId(task.sourceHub);
     const destination = normalizeDestinationCode(task.destination);
-    const vehicleClass = normalizeCode(task.truckType || "4WJ");
+    const vehicleClass = normalizeVehicleClass(task.truckType || "4WJ");
     const billDateMs = getTripBillingDateMs(trip);
     const matchedRate = selectBillingRateEntry(customerId, hubId, destination, vehicleClass, billDateMs, rateEntries);
     if (!matchedRate)
