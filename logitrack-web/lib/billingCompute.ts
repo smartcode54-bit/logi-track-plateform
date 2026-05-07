@@ -169,7 +169,6 @@ export interface MultiDeliveryStopBilling {
     stopIndex: number;
     destination: string;
     baseRateThb: number;
-    dropFeeThb: number;
     finalRateThb: number;
 }
 
@@ -181,17 +180,16 @@ export interface MultiDeliveryBillingResult {
     fuelAdjustmentId?: string;
 }
 
-/** Compute billing for multi-delivery task: per-stop rates + drop fees. */
+/** Compute billing for multi-delivery task: charge stop 3+ only (A → each destination). */
 export function computeMultiDeliveryBilling(
     trip: TripBillingTimestamps,
     task: TaskBillingInput | null | undefined,
     deliveryStops: DeliveryStopForBilling[],
     vehicleClass: string,
-    dropFeeThb: number,
     rateEntries: BillingRateEntry[],
     fuelAdjustments: FuelRateAdjustment[]
 ): MultiDeliveryBillingResult | null {
-    if (!task || deliveryStops.length < 2) return null;
+    if (!task || deliveryStops.length < 3) return null;
     const customerId = resolveTaskCustomerId(task);
     if (!customerId) return null;
 
@@ -200,11 +198,15 @@ export function computeMultiDeliveryBilling(
     const billDateMs = getTripBillingDateMs(trip);
     const matchedAdjustment = selectFuelAdjustmentForBillingDate(customerId, billDateMs, fuelAdjustments);
     const rateMultiplier = matchedAdjustment?.rateMultiplier ?? 1;
+    const addThbPerTrip = matchedAdjustment?.addThbPerTrip ?? 0;
 
     const stopBreakdown: MultiDeliveryStopBilling[] = [];
     let totalBillingThb = 0;
 
     deliveryStops.forEach((stop, idx) => {
+        // Stop 1 (idx=0) and Stop 2 (idx=1) are free; charge from Stop 3 (idx >= 2) onwards
+        if (idx < 2) return;
+
         const destination = normalizeDestinationCode(stop.destination);
         const matchedRate = selectBillingRateEntry(
             customerId,
@@ -217,13 +219,11 @@ export function computeMultiDeliveryBilling(
 
         if (matchedRate) {
             const baseRateThb = matchedRate.rateThb;
-            const fee = idx === 0 ? 0 : dropFeeThb;
-            const finalRate = computeFinalRateThb(baseRateThb + fee, rateMultiplier, 0);
+            const finalRate = computeFinalRateThb(baseRateThb, rateMultiplier, addThbPerTrip);
             stopBreakdown.push({
                 stopIndex: idx + 1,
                 destination,
                 baseRateThb,
-                dropFeeThb: fee,
                 finalRateThb: finalRate,
             });
             totalBillingThb += finalRate;

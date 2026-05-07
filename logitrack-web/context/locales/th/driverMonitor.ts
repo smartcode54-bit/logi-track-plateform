@@ -132,6 +132,8 @@ export default {
     "driverMonitor.detail.distance": "ระยะทาง",
     "driverMonitor.detail.parcelCount": "จำนวนพัสดุ",
     "driverMonitor.detail.weight": "น้ำหนักรวม",
+    "driverMonitor.detail.billingPerStop": "ค่าบริการต่อจุด",
+    "driverMonitor.detail.total": "รวมทั้งสิ้น",
 
     "driverMonitor.preview.downloadCurrent": "ดาวน์โหลดรูปนี้",
     "driverMonitor.preview.downloadAllZip": "ดาวน์โหลดทั้งหมด (ZIP)",

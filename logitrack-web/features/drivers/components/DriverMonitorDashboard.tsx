@@ -1218,6 +1218,23 @@ export default function DriverMonitorDashboard() {
                                                 ))}
                                             </div>
                                         </div>
+                                        {detailTrip.billingIsMultiDelivery && detailTrip.billingMultiDeliveryBreakdown && detailTrip.billingMultiDeliveryBreakdown.length > 0 && (
+                                            <div className="border-t border-border/50 pt-3 mt-3">
+                                                <p className="text-xs text-muted-foreground mb-2">{t("driverMonitor.detail.billingPerStop") || "Billing per stop"}</p>
+                                                <div className="space-y-1">
+                                                    {detailTrip.billingMultiDeliveryBreakdown.map((stop) => (
+                                                        <div key={stop.stopIndex} className="flex justify-between text-sm">
+                                                            <span>Stop {stop.stopIndex}: {getSourceDisplayName(stop.destination)}</span>
+                                                            <span className="font-medium">฿{stop.finalRateThb.toLocaleString()}</span>
+                                                        </div>
+                                                    ))}
+                                                    <div className="flex justify-between text-sm font-semibold border-t pt-1">
+                                                        <span>{t("driverMonitor.detail.total") || "Total"}</span>
+                                                        <span>฿{(detailTrip.billingEstimateThb ?? 0).toLocaleString()}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 ) : (
                                     <div className="flex items-center gap-4 bg-muted/30 rounded-lg p-4">

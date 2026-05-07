@@ -116,6 +116,14 @@ export const tripRecordSchema = z.object({
     billingEffectiveFromDateStr: z.string().optional(),
     /** Customer id used for billing lookup (matches task linked customer). */
     billingCustomerId: z.string().optional(),
+    // Multi-delivery billing snapshot (optional, only set when isMultiDelivery=true)
+    billingIsMultiDelivery: z.boolean().optional(),
+    billingMultiDeliveryBreakdown: z.array(z.object({
+        stopIndex: z.number(),
+        destination: z.string(),
+        baseRateThb: z.number(),
+        finalRateThb: z.number(),
+    })).optional(),
 
     createdAt: z.any().optional(),
     updatedAt: z.any().optional(),

@@ -127,8 +127,8 @@ async function tryWriteBillingSnapshotFromTripData(
     const isMultiDelivery = data.isMultiDelivery === true;
     const deliveryStopsProgress = Array.isArray(data.deliveryStopsProgress) ? data.deliveryStopsProgress : [];
 
-    if (isMultiDelivery && deliveryStopsProgress.length >= 2) {
-        // Multi-delivery billing: per-stop rates with drop fees
+    if (isMultiDelivery && deliveryStopsProgress.length >= 3) {
+        // Multi-delivery billing: charge stop 3+ only
         const stops: DeliveryStopForBilling[] = deliveryStopsProgress
             .filter((stop: any) => stop.destination && stop.status === "delivered")
             .map((stop: any) => ({
@@ -136,24 +136,20 @@ async function tryWriteBillingSnapshotFromTripData(
                 destination: String(stop.destination ?? ""),
             }));
 
-        if (stops.length < 2) {
-            logger.warn("[billingSnapshot] multi-delivery trip has < 2 delivered stops", {
+        if (stops.length < 3) {
+            logger.warn("[billingSnapshot] multi-delivery trip has < 3 delivered stops", {
                 tripId,
                 taskId,
                 delivered: stops.length,
             });
-            return { ok: false, error: "Multi-delivery trip has < 2 delivered stops" };
+            return { ok: false, error: "Multi-delivery trip has < 3 delivered stops" };
         }
-
-        // Extra stop surcharge: 100 THB per stop (stops 2+)
-        const dropFeeThb = 100;
 
         const multiComputed = computeMultiDeliveryBilling(
             tripParts,
             taskInput,
             stops,
             normalizeVehicleClass(taskInput.truckType || "4WJ"),
-            dropFeeThb,
             rateEntries,
             fuelAdjustments
         );
@@ -175,7 +171,6 @@ async function tryWriteBillingSnapshotFromTripData(
                 stopIndex: stop.stopIndex,
                 destination: stop.destination,
                 baseRateThb: stop.baseRateThb,
-                dropFeeThb: stop.dropFeeThb,
                 finalRateThb: stop.finalRateThb,
             })),
             billingFuelAdjustmentId: multiComputed.fuelAdjustmentId ?? null,
