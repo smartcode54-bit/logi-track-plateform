@@ -576,6 +576,14 @@
     "delivery_photo_cabinet_empty": "ตู้ว่าง",
     "photo_captured": "ถ่ายภาพแล้ว",
     "photo_required": "ต้องการภาพ",
+    "delivery_no_stops_found": "ไม่พบจุดส่ง",
+    "delivery_all_stops_done": "ส่งของครบทุกจุดแล้ว!",
+    "delivery_stop_progress": "{} / {} รูป",
+    "delivery_reorder_hint": "กดค้างเพื่อเรียงลำดับใหม่",
+    "delivery_stop_done": "สำเร็จ",
+    "delivery_photo_source_camera": "ถ่ายรูป",
+    "delivery_photo_source_gallery": "เลือกจากแกลเลอรี",
+    "delivery_stop_select_photos": "ถ่ายรูปหลักฐาน",
     "cancel": "ยกเลิก",
     "add": "เพิ่ม"
 }

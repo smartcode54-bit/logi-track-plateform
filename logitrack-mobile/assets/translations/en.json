@@ -576,6 +576,14 @@
     "delivery_photo_cabinet_empty": "Empty Container",
     "photo_captured": "Photo captured",
     "photo_required": "Photo required",
+    "delivery_no_stops_found": "No delivery stops found",
+    "delivery_all_stops_done": "All stops delivered! Trip complete.",
+    "delivery_stop_progress": "{} / {} photos",
+    "delivery_reorder_hint": "Hold and drag to reorder",
+    "delivery_stop_done": "Done",
+    "delivery_photo_source_camera": "Take Photo",
+    "delivery_photo_source_gallery": "Choose from Gallery",
+    "delivery_stop_select_photos": "Capture evidence",
     "cancel": "Cancel",
     "add": "Add"
 }

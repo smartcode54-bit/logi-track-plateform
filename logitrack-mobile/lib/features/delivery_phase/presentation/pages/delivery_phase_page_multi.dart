@@ -5,10 +5,11 @@ import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart'
     show FirebaseFirestore, GetOptions, Source;
+import '../../../home/data/repositories/checkin_repository.dart';
 import '../../../home/data/repositories/trip_records_repository.dart';
 import '../../../home/data/repositories/hubs_repository.dart';
+import '../../../home/data/services/photo_overlay_service.dart';
 import '../../data/repositories/delivery_trip_repository.dart';
-import '../../../home/data/services/image_compression_service.dart';
 import '../../../home/presentation/pages/main_layout_scope.dart';
 import '../../../../core/utils/maps_navigation.dart';
 import 'incident_report_page.dart';
@@ -55,18 +56,21 @@ class DeliveryStop {
 
 class _DeliveryPhasePageMultiState extends State<DeliveryPhasePageMulti> {
   List<DeliveryStop> _stops = [];
-  int _currentStopIndex = -1;
-  double? _lat;
-  double? _lng;
+  Position? _currentPosition;
+  OverlayContext? _cachedOverlayContext;
   bool _locationLoading = true;
   bool _saving = false;
   List<HubDoc> _hubs = [];
 
-  /// Current stop being captured
-  DeliveryStop? get _currentStop =>
-      _currentStopIndex >= 0 && _currentStopIndex < _stops.length
-          ? _stops[_currentStopIndex]
-          : null;
+  List<DeliveryStop> get _undeliveredStops =>
+      _stops.where((s) => !s.isDelivered).toList()
+        ..sort((a, b) => a.sequence.compareTo(b.sequence));
+
+  List<DeliveryStop> get _deliveredStops =>
+      _stops.where((s) => s.isDelivered).toList()
+        ..sort((a, b) => a.sequence.compareTo(b.sequence));
+
+  bool get _allStopsDelivered => _stops.every((s) => s.isDelivered);
 
   /// Photo types for last stop: before opening, during opening, cabinet empty
   static const List<String> _lastStopPhotoTypes = [
@@ -82,6 +86,29 @@ class _DeliveryPhasePageMultiState extends State<DeliveryPhasePageMulti> {
     'close_container',
   ];
 
+  List<String> _photoTypesFor(DeliveryStop stop) =>
+      stop.isLastStop(_stops.length) ? _lastStopPhotoTypes : _nonLastStopPhotoTypes;
+
+  bool _isStopComplete(DeliveryStop stop) {
+    final required = _photoTypesFor(stop);
+    return required.every((t) => stop.photos.containsKey('stop_${stop.index}_$t'));
+  }
+
+  int _capturedPhotoCount(DeliveryStop stop) {
+    final required = _photoTypesFor(stop);
+    return required.where((t) => stop.photos.containsKey('stop_${stop.index}_$t')).length;
+  }
+
+  String _photoLabel(String type) {
+    const labels = {
+      'before_open': 'delivery_photo_before_opening',
+      'during_open': 'delivery_photo_during_opening',
+      'close_container': 'delivery_photo_closing_cabinet',
+      'empty_container': 'delivery_photo_cabinet_empty',
+    };
+    return labels[type]?.tr() ?? type;
+  }
+
   /// Get numbered circle emoji for stop index (1-9)
   String _getNumberedCircle(int index) {
     const circles = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨'];
@@ -91,52 +118,25 @@ class _DeliveryPhasePageMultiState extends State<DeliveryPhasePageMulti> {
     return '$index';
   }
 
-  /// Move stop up (-1) or down (+1) in the list
-  void _moveStop(int listIndex, int direction) {
-    final targetIndex = listIndex + direction;
-
-    // Boundary check
-    if (targetIndex < 0 || targetIndex >= _stops.length) return;
-
-    // Don't move if stop or target is delivered
-    if (_stops[listIndex].isDelivered || _stops[targetIndex].isDelivered) return;
+  void _reorderStop(int oldIndex, int newIndex) {
+    if (newIndex > oldIndex) newIndex -= 1;
+    final undelivered = _undeliveredStops;
+    if (oldIndex < 0 || oldIndex >= undelivered.length) return;
+    if (newIndex < 0 || newIndex >= undelivered.length) return;
 
     setState(() {
-      // Swap stops
-      final temp = _stops[listIndex];
-      _stops[listIndex] = _stops[targetIndex];
-      _stops[targetIndex] = temp;
-
-      // Reassign sequence based on new position
-      for (int i = 0; i < _stops.length; i++) {
-        _stops[i].sequence = i;
+      final moved = undelivered.removeAt(oldIndex);
+      undelivered.insert(newIndex, moved);
+      for (int i = 0; i < undelivered.length; i++) {
+        undelivered[i].sequence = i;
       }
-
-      // Update active stop index if needed
-      if (_currentStopIndex == listIndex) {
-        _currentStopIndex = targetIndex;
-      } else if (_currentStopIndex == targetIndex) {
-        _currentStopIndex = listIndex;
+      int seq = undelivered.length;
+      for (final s in _deliveredStops) {
+        s.sequence = seq++;
       }
     });
   }
 
-  List<String> _getPhotoTypesForStop() {
-    if (_currentStop == null) return [];
-    final totalStops = _stops.length;
-    final isLast = _currentStop!.isLastStop(totalStops);
-    return isLast ? _lastStopPhotoTypes : _nonLastStopPhotoTypes;
-  }
-
-  bool get _currentStopComplete {
-    if (_currentStop == null) return false;
-    final requiredPhotos = _getPhotoTypesForStop();
-    return _currentStop!.photos.length == requiredPhotos.length;
-  }
-
-  bool get _allStopsDelivered => _stops.every((s) => s.isDelivered);
-
-  /// When embedded in [MainLayout]'s [IndexedStack], never [Navigator.pop] — it pops the shell route → blank screen.
   void _abortOpeningMultiDelivery(String messageKey) {
     if (!mounted) return;
     final msg = messageKey.tr();
@@ -249,7 +249,6 @@ class _DeliveryPhasePageMultiState extends State<DeliveryPhasePageMulti> {
           }
           _stops.add(ds);
         }
-        _currentStopIndex = -1;
       });
     } catch (e) {
       if (mounted) {
@@ -266,15 +265,10 @@ class _DeliveryPhasePageMultiState extends State<DeliveryPhasePageMulti> {
 
   Future<void> _loadLocation() async {
     try {
-      final pos = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-        ),
-      );
+      final pos = await getCurrentPosition();
       if (mounted) {
         setState(() {
-          _lat = pos.latitude;
-          _lng = pos.longitude;
+          _currentPosition = pos;
           _locationLoading = false;
         });
       }
@@ -300,56 +294,328 @@ class _DeliveryPhasePageMultiState extends State<DeliveryPhasePageMulti> {
     if (d.isEmpty) return null;
     try {
       return _hubs.firstWhere(
-        (h) =>
-            h.sourceId.trim().toUpperCase() == d ||
-            h.sourceNameEn.trim().toUpperCase() == d ||
-            h.sourceNameTh.trim().toUpperCase() == d,
+        (hub) {
+          final code = (hub.sourceId ?? '').trim().toUpperCase();
+          return code == d;
+        },
+        orElse: () => HubDoc(sourceId: d, sourceNameTh: d, sourceNameEn: d),
       );
     } catch (_) {
-      return null;
+      return HubDoc(sourceId: d, sourceNameTh: d, sourceNameEn: d);
     }
   }
 
-  /// "รหัส - ชื่อ" ถ้า resolve ได้ ถ้าไม่ได้แสดง destination ตรง ๆ
   String _stopDisplayLabel(DeliveryStop stop) {
     final hub = _getStopHub(stop.destination);
-    if (hub != null) {
-      final code = hub.sourceId;
-      final name = hub.sourceNameTh.isNotEmpty ? hub.sourceNameTh : hub.sourceNameEn;
-      if (code.isNotEmpty && name.isNotEmpty && code.toUpperCase() != name.toUpperCase()) {
-        return '$code - $name';
-      }
-      return name.isNotEmpty ? name : code;
-    }
-    return stop.destination;
+    if (hub == null) return stop.destination;
+    return hub.sourceNameTh ?? hub.sourceNameEn ?? hub.sourceId ?? stop.destination;
   }
 
-  Future<void> _capturePhoto(String photoType) async {
-    if (_currentStop == null) return;
+  Future<void> _capturePhotoForStop(DeliveryStop stop, String photoType) async {
+    // Show camera/gallery picker
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: Text('delivery_photo_source_camera'.tr()),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: Text('delivery_photo_source_gallery'.tr()),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null || !mounted) return;
 
     try {
       final picker = ImagePicker();
-      final file = await picker.pickImage(source: ImageSource.camera);
-      if (file == null) return;
+      final xfile = await picker.pickImage(source: source, imageQuality: 85);
+      if (xfile == null || !mounted) return;
+      final bytes = await xfile.readAsBytes();
 
-      final bytes = await file.readAsBytes();
-      final compressed = await compressImageForUpload(bytes);
+      // Fetch/reuse overlay context for GPS stamp
+      if (_cachedOverlayContext == null && _currentPosition != null) {
+        try {
+          _cachedOverlayContext = await fetchOverlayContext(
+            _currentPosition!.latitude,
+            _currentPosition!.longitude,
+          );
+        } catch (_) {}
+      }
+
+      final stamped = await stampOverlayAndCompressForEvidence(
+        bytes.toList(),
+        position: _currentPosition,
+        overlayContext: _cachedOverlayContext,
+      );
 
       if (mounted) {
         setState(() {
-          final photoKey = 'stop_${_currentStop!.index}_$photoType';
-          _currentStop!.photos[photoKey] = compressed;
+          stop.photos['stop_${stop.index}_$photoType'] = stamped;
         });
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('delivery_photo_error'.tr())),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('delivery_photo_error'.tr())),
+        );
+      }
     }
   }
 
-  Future<void> _confirmStopDelivery() async {
-    if (_currentStop == null || !_currentStopComplete) return;
+  Future<void> _openStopBottomSheet(DeliveryStop stop) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) {
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.9,
+          maxChildSize: 0.95,
+          minChildSize: 0.5,
+          builder: (_, scrollController) {
+            return StatefulBuilder(
+              builder: (bsCtx, setSheetState) {
+                final photoTypes = _photoTypesFor(stop);
+                final allCaptured = _isStopComplete(stop);
+
+                return Column(
+                  children: [
+                    // Drag handle
+                    Center(
+                      child: Container(
+                        margin: const EdgeInsets.only(top: 10, bottom: 4),
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+
+                    // Sheet header
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 32, height: 32,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFF2563EB),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Center(
+                                  child: Text('${stop.index}',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  _stopDisplayLabel(stop),
+                                  style: Theme.of(bsCtx).textTheme.titleMedium
+                                      ?.copyWith(fontWeight: FontWeight.bold),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Padding(
+                            padding: const EdgeInsets.only(left: 44),
+                            child: Text(
+                              'delivery_stop_progress'.tr(args: [
+                                '${_capturedPhotoCount(stop)}',
+                                '${photoTypes.length}',
+                              ]),
+                              style: TextStyle(
+                                color: Colors.grey.shade600, fontSize: 13),
+                            ),
+                          ),
+                          const Divider(height: 24),
+                        ],
+                      ),
+                    ),
+
+                    // Scrollable photo tile list
+                    Expanded(
+                      child: ListView.separated(
+                        controller: scrollController,
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                        itemCount: photoTypes.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        itemBuilder: (_, i) {
+                          final type = photoTypes[i];
+                          final photoKey = 'stop_${stop.index}_$type';
+                          final bytes = stop.photos[photoKey];
+                          final captured = bytes != null;
+                          final label = _photoLabel(type);
+
+                          return InkWell(
+                            onTap: () async {
+                              await _capturePhotoForStop(stop, type);
+                              setSheetState(() {});
+                              if (mounted) setState(() {});
+                            },
+                            borderRadius: BorderRadius.circular(12),
+                            child: Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: captured
+                                    ? Colors.green.withOpacity(0.05)
+                                    : Theme.of(bsCtx).cardColor,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: captured
+                                      ? Colors.green
+                                      : Colors.grey.shade300,
+                                  width: 1.5,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  // Thumbnail or placeholder
+                                  if (captured)
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Image.memory(
+                                        bytes,
+                                        height: 56, width: 56,
+                                        fit: BoxFit.cover,
+                                      ),
+                                    )
+                                  else
+                                    Container(
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: Colors.blueAccent.withOpacity(0.1),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(Icons.camera_alt,
+                                          color: Colors.blueAccent),
+                                    ),
+                                  const SizedBox(width: 16),
+
+                                  // Label column
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(label,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          captured
+                                              ? 'photo_captured'.tr()
+                                              : 'photo_required'.tr(),
+                                          style: TextStyle(
+                                            color: captured
+                                                ? Colors.green.shade600
+                                                : Colors.grey.shade500,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+
+                                  // Status icon
+                                  if (captured)
+                                    const Icon(Icons.check_circle,
+                                        color: Colors.green, size: 26)
+                                  else
+                                    Icon(Icons.camera_alt,
+                                        color: Colors.grey.shade400, size: 24),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+
+                    // Pinned footer: Confirm button
+                    SafeArea(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: (allCaptured && !_saving)
+                                ? () async {
+                                    Navigator.of(sheetCtx).pop();
+                                    await _confirmStopDelivery(stop);
+                                  }
+                                : null,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green.shade600,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              disabledBackgroundColor: Colors.grey.shade300,
+                            ),
+                            child: _saving
+                                ? const SizedBox(
+                                    height: 20, width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : Text(
+                                    stop.isLastStop(_stops.length)
+                                        ? 'delivery_confirm_last'
+                                            .tr(args: ['${stop.index}'])
+                                        : 'delivery_confirm_stop'
+                                            .tr(args: ['${stop.index}']),
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _confirmStopDelivery(DeliveryStop stop) async {
+    if (!_isStopComplete(stop)) return;
 
     try {
       setState(() => _saving = true);
@@ -359,7 +625,7 @@ class _DeliveryPhasePageMultiState extends State<DeliveryPhasePageMulti> {
 
       // Upload photos to Firebase Storage
       final uploadedPhotos = <Map<String, dynamic>>[];
-      for (final entry in _currentStop!.photos.entries) {
+      for (final entry in stop.photos.entries) {
         final url = await uploadTripPhoto(
           tripId: tripId,
           photoType: entry.key,
@@ -369,34 +635,28 @@ class _DeliveryPhasePageMultiState extends State<DeliveryPhasePageMulti> {
           'url': url,
           'type': entry.key,
           'geocoding': {
-            'lat': _lat,
-            'lng': _lng,
+            'lat': _currentPosition?.latitude,
+            'lng': _currentPosition?.longitude,
             'timestamp': DateTime.now().toIso8601String(),
           },
         });
       }
 
-      // Write directly to Firestore (no Cloud Function needed)
+      // Write to Firestore (returns true if all stops delivered)
       final allDone = await submitDeliveryStopRecord(
         tripId: tripId,
         taskId: widget.savedTripSummary?.taskId,
-        stopIndex: _currentStop!.index,
-        destination: _currentStop!.destination,
+        stopIndex: stop.index,
+        destination: stop.destination,
         photos: uploadedPhotos,
-        deliveredLat: _lat ?? 0,
-        deliveredLng: _lng ?? 0,
+        deliveredLat: _currentPosition?.latitude ?? 0,
+        deliveredLng: _currentPosition?.longitude ?? 0,
       );
 
       if (mounted) {
         setState(() {
-          _currentStop!.isDelivered = true;
+          stop.isDelivered = true;
           _saving = false;
-
-          // Move to next undelivered stop
-          final nextIndex = _stops.indexWhere((s) => !s.isDelivered);
-          if (nextIndex >= 0) {
-            _currentStopIndex = nextIndex;
-          }
         });
 
         ScaffoldMessenger.of(context).showSnackBar(
@@ -405,117 +665,325 @@ class _DeliveryPhasePageMultiState extends State<DeliveryPhasePageMulti> {
 
         if (allDone) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('delivery_all_stops_complete'.tr())),
+            SnackBar(content: Text('delivery_all_stops_done'.tr())),
           );
           _completeMultiTripSuccess();
         }
       }
     } catch (e) {
-      if (mounted) setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('delivery_submit_error'.tr(args: [e.toString()]))),
-      );
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(
+              'delivery_submit_error'.tr(args: [e.toString()]))),
+        );
+      }
     }
   }
-
-  Future<void> _completeAllDeliveries() async {
-    if (!_allStopsDelivered) return;
-
-    // At this point, Cloud Function automatically:
-    // 1. Checked all stops are delivered
-    // 2. Marked task as "Completed"
-    // 3. Set trip status to "delivered"
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('delivery_all_stops_complete'.tr())),
-      );
-      _completeMultiTripSuccess();
-    }
-  }
-
 
   @override
   Widget build(BuildContext context) {
-    if (_stops.isEmpty) {
-      return Scaffold(
-        appBar: AppBar(title: Text('delivery_phase'.tr())),
-        body: Center(child: Text('No delivery stops found'.tr())),
-      );
-    }
-
-    final delivered = _stops.where((s) => s.isDelivered).length;
-    final total = _stops.length;
+    const darkNavy = Color(0xFF0F172A);
+    final undelivered = _undeliveredStops;
+    final delivered = _deliveredStops;
 
     return Scaffold(
       appBar: AppBar(
         title: Text('delivery_multi_title'.tr()),
-        elevation: 0,
-        backgroundColor: Colors.blue.shade600,
+        backgroundColor: darkNavy,
         foregroundColor: Colors.white,
+        elevation: 0,
         actions: [
           TextButton.icon(
-            onPressed: _saving
-                ? null
-                : () async {
-                    await Navigator.of(context).push<bool>(
-                      MaterialPageRoute<bool>(
-                        builder: (context) => IncidentReportPage(
-                          savedTripSummary: widget.savedTripSummary,
-                        ),
-                      ),
-                    );
-                  },
-            icon: const Icon(
-              Icons.warning_amber_rounded,
-              color: Colors.orange,
+            onPressed: _saving ? null : () => Navigator.of(context).push(
+              MaterialPageRoute<bool>(
+                builder: (context) => IncidentReportPage(
+                  savedTripSummary: widget.savedTripSummary,
+                ),
+              ),
             ),
-            label: Text(
-              'report_incident'.tr(),
-              style: const TextStyle(color: Colors.white),
+            icon: const Icon(Icons.warning_amber_rounded, color: Colors.orange),
+            label: Text('report_incident'.tr(),
+                style: const TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          _buildProgressBar(),
+          Expanded(
+            child: _stops.isEmpty
+                ? const Center(child: CircularProgressIndicator())
+                : _buildStopsList(undelivered, delivered),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProgressBar() {
+    const darkNavy = Color(0xFF0F172A);
+    final delivered = _deliveredStops.length;
+    final total = _stops.length;
+    final fraction = total == 0 ? 0.0 : delivered / total;
+    final pct = (fraction * 100).round();
+
+    return Container(
+      color: darkNavy,
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'delivery_progress'.tr(args: ['$delivered', '$total']),
+                style: const TextStyle(color: Colors.white70, fontSize: 13),
+              ),
+              Text(
+                '$pct%',
+                style: TextStyle(
+                  color: fraction == 1.0 ? Colors.greenAccent : Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: fraction,
+              minHeight: 8,
+              backgroundColor: Colors.white24,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                fraction == 1.0 ? Colors.greenAccent : const Color(0xFF2563EB),
+              ),
             ),
           ),
         ],
       ),
-      body: SingleChildScrollView(
+    );
+  }
+
+  Widget _buildStopsList(
+      List<DeliveryStop> undelivered, List<DeliveryStop> delivered) {
+    final showDragHint = undelivered.length >= 2;
+
+    return ReorderableListView(
+      padding: const EdgeInsets.only(top: 8, bottom: 16),
+      onReorder: _reorderStop,
+      footer: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (showDragHint)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Text(
+                'delivery_reorder_hint'.tr(),
+                style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+              ),
+            ),
+          if (delivered.isNotEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                'delivery_stop_done'.tr().toUpperCase(),
+                style: TextStyle(
+                  color: Colors.grey.shade500,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.8,
+                ),
+              ),
+            ),
+            ...delivered.map((s) => _buildStopCard(s, reorderable: false)),
+          ],
+          if (_allStopsDelivered) _buildCompleteTripBanner(),
+        ],
+      ),
+      children: [
+        for (final stop in undelivered)
+          _buildStopCard(stop, reorderable: true,
+              key: ValueKey('stop_${stop.index}')),
+      ],
+    );
+  }
+
+  Widget _buildStopCard(DeliveryStop stop,
+      {bool reorderable = true, Key? key}) {
+    final hub = _getStopHub(stop.destination);
+    final label = _stopDisplayLabel(stop);
+    final captured = _capturedPhotoCount(stop);
+    final required = _photoTypesFor(stop).length;
+    final complete = captured == required;
+
+    // Photo progress badge color
+    final badgeColor = stop.isDelivered
+        ? Colors.green.shade600
+        : complete
+            ? Colors.green.shade600
+            : captured > 0
+                ? Colors.orange.shade600
+                : Colors.red.shade400;
+
+    final badgeText = stop.isDelivered
+        ? '$required/$required ✓'
+        : '$captured/$required';
+
+    return Card(
+      key: key,
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      elevation: stop.isDelivered ? 0 : 2,
+      color: stop.isDelivered
+          ? Colors.grey.shade100
+          : Theme.of(context).cardColor,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                // Numbered chip
+                Container(
+                  width: 32, height: 32,
+                  decoration: BoxDecoration(
+                    color: stop.isDelivered
+                        ? Colors.grey.shade400
+                        : const Color(0xFF2563EB),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Center(
+                    child: Text(
+                      '${stop.index}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+
+                // Destination label
+                Expanded(
+                  child: Text(
+                    label,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: stop.isDelivered ? Colors.grey : Colors.black87,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
+
+                // Photo progress badge
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: badgeColor.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: badgeColor, width: 1),
+                  ),
+                  child: Text(
+                    badgeText,
+                    style: TextStyle(
+                      color: badgeColor,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+
+                // Drag handle (reorderable stops only)
+                if (reorderable)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4),
+                    child: Icon(Icons.drag_handle,
+                        color: Colors.grey.shade400, size: 22),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+
+            // Action buttons row — 2 buttons, no up/down
+            Row(
+              children: [
+                // Navigate button
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _openNavigationToStop(hub, stop),
+                    icon: const Icon(Icons.navigation_outlined, size: 18),
+                    label: Text('delivery_navigate'.tr()),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+
+                // Select / Done button
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: stop.isDelivered
+                        ? null
+                        : () => _openStopBottomSheet(stop),
+                    icon: Icon(
+                      stop.isDelivered
+                          ? Icons.check_circle
+                          : Icons.camera_alt_outlined,
+                      size: 18,
+                    ),
+                    label: Text(
+                      stop.isDelivered
+                          ? 'delivery_stop_done'.tr()
+                          : 'delivery_stop_select_photos'.tr(),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: stop.isDelivered
+                          ? Colors.grey.shade400
+                          : const Color(0xFF2563EB),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCompleteTripBanner() {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Card(
+        color: Colors.green.shade50,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         child: Padding(
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.all(16),
           child: Column(
             children: [
-              // Progress header: "Sent X / Y"
-              _buildProgressHeader(delivered, total),
-              const SizedBox(height: 16),
-
-              // Stop list with navigate buttons
-              _buildStopsListWithNavigation(),
-              const SizedBox(height: 24),
-
-              // Divider
-              const Divider(thickness: 2),
-              const SizedBox(height: 16),
-
-              // Evidence section for selected stop
-              if (_currentStop != null) ...[
-                Text(
-                  'delivery_evidence'.tr(),
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+              const Icon(Icons.check_circle, color: Colors.green, size: 48),
+              const SizedBox(height: 12),
+              Text(
+                'delivery_all_stops_done'.tr(),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.green,
                 ),
-                const SizedBox(height: 12),
-                _buildPhotoSection(),
-                const SizedBox(height: 16),
-                _buildConfirmButton(),
-              ] else if (_allStopsDelivered)
-                Center(
-                  child: Text('All stops delivered!'.tr(),
-                      style: Theme.of(context).textTheme.titleLarge),
-                )
-              else
-                Center(
-                  child: Text('delivery_select_stop'.tr(),
-                      style: Theme.of(context).textTheme.titleMedium),
-                ),
+              ),
             ],
           ),
         ),
@@ -523,321 +991,8 @@ class _DeliveryPhasePageMultiState extends State<DeliveryPhasePageMulti> {
     );
   }
 
-  Widget _buildProgressHeader(int delivered, int total) {
-    return Card(
-      color: Colors.blue.shade50,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Center(
-          child: Text(
-            'delivery_sent'.tr(args: ['$delivered', '$total']),
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.blue.shade900,
-                ),
-          ),
-        ),
-      ),
-    );
-  }
-
-
-  Widget _buildPhotoSection() {
-    final stop = _currentStop!;
-    final requiredPhotos = _getPhotoTypesForStop();
-    final totalStops = _stops.length;
-    final isLastStop = stop.isLastStop(totalStops);
-
-    String _getPhotoLabel(String type) {
-      final labels = <String, String>{
-        'before_open': 'delivery_photo_before_opening',
-        'during_open': 'delivery_photo_during_opening',
-        'close_container': 'delivery_photo_closing_cabinet',
-        'empty_container': 'delivery_photo_cabinet_empty',
-      };
-      return labels[type]?.tr() ?? type;
-    }
-
-    return Column(
-      children: requiredPhotos.map((type) {
-        final photoKey = 'stop_${stop.index}_$type';
-        final hasPhoto = stop.photos.containsKey(photoKey);
-        final label = _getPhotoLabel(type);
-
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 12.0),
-          child: GestureDetector(
-            onTap: () => _capturePhoto(type),
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                border: Border.all(
-                  color: hasPhoto ? Colors.green.shade400 : Colors.red.shade300,
-                  width: 2,
-                ),
-                borderRadius: BorderRadius.circular(8),
-                color: hasPhoto ? Colors.green.shade50 : Colors.red.shade50,
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          label,
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                fontWeight: FontWeight.w700,
-                                color: Colors.black87,
-                              ),
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            if (!hasPhoto)
-                              Container(
-                                width: 20,
-                                height: 20,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: Colors.red.shade400,
-                                ),
-                                child: const Center(
-                                  child: Text(
-                                    '!',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            if (!hasPhoto) const SizedBox(width: 6),
-                            Text(
-                              hasPhoto ? 'photo_captured'.tr() : 'photo_required'.tr(),
-                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: hasPhoto ? Colors.green.shade700 : Colors.red.shade700,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: hasPhoto ? Colors.green.shade100 : Colors.red.shade100,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: hasPhoto ? Colors.green.shade300 : Colors.red.shade300,
-                        width: 1,
-                      ),
-                    ),
-                    child: Center(
-                      child: hasPhoto
-                          ? const Icon(Icons.check_circle, color: Colors.green, size: 28)
-                          : Icon(Icons.camera_alt, color: Colors.red.shade500, size: 24),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  Widget _buildConfirmButton() {
-    final stop = _currentStop!;
-    final totalStops = _stops.length;
-    final isLastStop = stop.isLastStop(totalStops);
-    final confirmText = isLastStop
-        ? 'delivery_confirm_last'.tr(args: ['${stop.index}'])
-        : 'delivery_confirm_stop'.tr(args: ['${stop.index}']);
-
-    return Column(
-      children: [
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            onPressed: _currentStopComplete && !_saving ? _confirmStopDelivery : null,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green.shade600,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-            ),
-            child: _saving
-                ? const SizedBox(
-                    height: 20,
-                    width: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                    ),
-                  )
-                : Text(confirmText),
-          ),
-        ),
-        if (_allStopsDelivered) ...[
-          const SizedBox(height: 8),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _completeAllDeliveries,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue.shade600,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-              ),
-              child: Text('delivery_complete_trip'.tr()),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildStopsListWithNavigation() {
-    // Sort stops by sequence (ascending: 1, 2, 3...)
-    final sortedStopsWithIndex = _stops.asMap().entries.toList()
-      ..sort((a, b) => a.value.sequence.compareTo(b.value.sequence));
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: sortedStopsWithIndex.map((e) {
-        final originalIndex = e.key;
-        final stop = e.value;
-        final isActive = _currentStopIndex == originalIndex;
-        final isLastStop = stop.isLastStop(_stops.length);
-        final hub = _getStopHub(stop.destination);
-
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 12.0),
-          child: Card(
-            color: isActive ? Colors.blue.shade100 : Colors.white,
-            child: Padding(
-              padding: const EdgeInsets.all(12.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Text(
-                                  _getNumberedCircle(stop.index),
-                                  style: TextStyle(
-                                    fontSize: 28,
-                                    color: !isActive ? Colors.black54 : Colors.black87,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    _stopDisplayLabel(stop),
-                                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                          color: Colors.black87,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (stop.isDelivered)
-                        const Icon(Icons.check_circle, color: Colors.green, size: 24),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      // Up button
-                      SizedBox(
-                        width: 50,
-                        child: IconButton(
-                          onPressed: (originalIndex > 0 && !stop.isDelivered)
-                              ? () => _moveStop(originalIndex, -1)
-                              : null,
-                          icon: const Icon(Icons.arrow_upward),
-                          tooltip: 'delivery_move_up'.tr(),
-                          style: IconButton.styleFrom(
-                            side: BorderSide(
-                              color: (originalIndex > 0 && !stop.isDelivered)
-                                  ? Colors.grey.shade400
-                                  : Colors.grey.shade300,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      // Down button
-                      SizedBox(
-                        width: 50,
-                        child: IconButton(
-                          onPressed: (originalIndex < _stops.length - 1 && !stop.isDelivered)
-                              ? () => _moveStop(originalIndex, 1)
-                              : null,
-                          icon: const Icon(Icons.arrow_downward),
-                          tooltip: 'delivery_move_down'.tr(),
-                          style: IconButton.styleFrom(
-                            side: BorderSide(
-                              color: (originalIndex < _stops.length - 1 && !stop.isDelivered)
-                                  ? Colors.grey.shade400
-                                  : Colors.grey.shade300,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => _openNavigationToStop(hub),
-                          icon: const Icon(Icons.navigation, size: 18),
-                          label: Text('delivery_navigate'.tr()),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: stop.isDelivered
-                              ? null
-                              : () {
-                                  setState(() => _currentStopIndex = originalIndex);
-                                },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: isActive ? Colors.blue.shade600 : Colors.grey.shade400,
-                          ),
-                          child: Text(
-                            stop.isDelivered ? 'delivery_sent'.tr() : 'delivery_select'.tr(),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  Future<void> _openNavigationToStop(HubDoc? hub) async {
-    if (_lat == null || _lng == null) {
+  Future<void> _openNavigationToStop(HubDoc? hub, [DeliveryStop? stop]) async {
+    if (_currentPosition == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('delivery_location_error'.tr())),
       );
@@ -847,11 +1002,11 @@ class _DeliveryPhasePageMultiState extends State<DeliveryPhasePageMulti> {
     try {
       final hasCoords = hub?.latitude != null && hub?.longitude != null;
       await openGoogleMapsDrivingDirections(
-        originLat: _lat!,
-        originLng: _lng!,
+        originLat: _currentPosition!.latitude,
+        originLng: _currentPosition!.longitude,
         destLat: hasCoords ? hub!.latitude : null,
         destLng: hasCoords ? hub!.longitude : null,
-        destinationPlaceName: _currentStop!.destination,
+        destinationPlaceName: stop?.destination,
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
