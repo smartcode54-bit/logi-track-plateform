@@ -25,10 +25,15 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { getDoc, doc } from "firebase/firestore";
+
 import { useLanguage } from "@/context/language";
 import { useAuth } from "@/context/auth";
 import { canEditTripDetails } from "@/lib/permissions";
 import { getMultiDeliveryProgress, getMultiDeliveryProgressLabel } from "../utils/multiDeliveryProgress";
+import { SOC_KEYS } from "@/validate/taskSchema";
+import { COLLECTIONS } from "@/lib/collections";
+import { db } from "@/firebase/client";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -182,6 +187,7 @@ export default function DriverMonitorDashboard() {
         getDriver,
         getSourceDisplayName,
         fetchHubs,
+        hubs,
         itemsPerPage,
         setItemsPerPage,
         getTripsForExport,
@@ -451,6 +457,40 @@ export default function DriverMonitorDashboard() {
         const plate = driver.currentAssignment?.truckPlate ?? "-";
         return `${driver.firstName} ${driver.lastName} - ${plate}`;
     };
+
+    // Destination options for delivery stops editor
+    const destinationOptions = useMemo(() => {
+        const socOpts: Array<{
+            value: string;
+            label: string;
+            type: "soc" | "hub";
+            linkedCustomerId?: string;
+            linkedCustomerName?: string;
+            linkedCustomerKind?: string;
+        }> = SOC_KEYS.map((k) => ({
+            value: k,
+            label: getSourceDisplayName(k),
+            type: "soc",
+        }));
+        const hubOpts: Array<{
+            value: string;
+            label: string;
+            type: "soc" | "hub";
+            linkedCustomerId?: string;
+            linkedCustomerName?: string;
+            linkedCustomerKind?: string;
+        }> = hubs
+            .filter((h) => h.source_id)
+            .map((h) => ({
+                value: h.source_id,
+                label: getSourceDisplayName(h.source_id),
+                type: "hub",
+                linkedCustomerId: h.linkedCustomerId,
+                linkedCustomerName: h.linkedCustomerName,
+                linkedCustomerKind: h.customerLinkKind ?? "customer",
+            }));
+        return [...socOpts, ...hubOpts];
+    }, [hubs, getSourceDisplayName]);
 
     return (
         <div className="container mx-auto p-6 space-y-6 max-w-[1600px]">
@@ -1467,7 +1507,32 @@ export default function DriverMonitorDashboard() {
                     onOpenChange={setEditTripDialogOpen}
                     trip={detailTrip}
                     getSourceDisplayName={getSourceDisplayName}
-                    onSuccess={() => setEditTripDialogOpen(false)}
+                    onSuccess={async () => {
+                        setEditTripDialogOpen(false);
+                        // Refetch trip to show updated delivery stops
+                        if (detailTrip.id) {
+                            try {
+                                const docSnap = await getDoc(
+                                    doc(db, COLLECTIONS.TRIP_RECORDS, detailTrip.id)
+                                );
+                                if (docSnap.exists()) {
+                                    const updated = docSnap.data();
+                                    setDetailTrip({
+                                        ...detailTrip,
+                                        deliveryStopsProgress: updated.deliveryStopsProgress ?? [],
+                                        isMultiDelivery: updated.isMultiDelivery ?? false,
+                                        totalDeliveryStops: updated.totalDeliveryStops,
+                                        billingEstimateThb: updated.billingEstimateThb,
+                                        billingIsMultiDelivery: updated.billingIsMultiDelivery,
+                                        billingMultiDeliveryBreakdown: updated.billingMultiDeliveryBreakdown,
+                                    } as TripRecord);
+                                }
+                            } catch (e) {
+                                console.error("Failed to refetch trip:", e);
+                            }
+                        }
+                    }}
+                    destinationOptions={destinationOptions}
                 />
             )}
         </div>

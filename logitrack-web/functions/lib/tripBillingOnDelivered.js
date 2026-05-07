@@ -121,25 +121,23 @@ async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef) {
     // Check if this is a multi-delivery trip
     const isMultiDelivery = data.isMultiDelivery === true;
     const deliveryStopsProgress = Array.isArray(data.deliveryStopsProgress) ? data.deliveryStopsProgress : [];
-    if (isMultiDelivery && deliveryStopsProgress.length >= 2) {
-        // Multi-delivery billing: per-stop rates with drop fees
+    if (isMultiDelivery && deliveryStopsProgress.length >= 3) {
+        // Multi-delivery billing: charge stop 3+ only
         const stops = deliveryStopsProgress
             .filter((stop) => stop.destination && stop.status === "delivered")
             .map((stop) => ({
             index: typeof stop.index === "number" ? stop.index : 1,
             destination: String(stop.destination ?? ""),
         }));
-        if (stops.length < 2) {
-            firebase_functions_1.logger.warn("[billingSnapshot] multi-delivery trip has < 2 delivered stops", {
+        if (stops.length < 3) {
+            firebase_functions_1.logger.warn("[billingSnapshot] multi-delivery trip has < 3 delivered stops", {
                 tripId,
                 taskId,
                 delivered: stops.length,
             });
-            return { ok: false, error: "Multi-delivery trip has < 2 delivered stops" };
+            return { ok: false, error: "Multi-delivery trip has < 3 delivered stops" };
         }
-        // Extra stop surcharge: 100 THB per stop (stops 2+)
-        const dropFeeThb = 100;
-        const multiComputed = (0, billingCompute_1.computeMultiDeliveryBilling)(tripParts, taskInput, stops, (0, billingCompute_1.normalizeVehicleClass)(taskInput.truckType || "4WJ"), dropFeeThb, rateEntries, fuelAdjustments);
+        const multiComputed = (0, billingCompute_1.computeMultiDeliveryBilling)(tripParts, taskInput, stops, (0, billingCompute_1.normalizeVehicleClass)(taskInput.truckType || "4WJ"), rateEntries, fuelAdjustments);
         if (!multiComputed) {
             firebase_functions_1.logger.warn("[billingSnapshot] could not compute multi-delivery billing", {
                 tripId,
@@ -151,12 +149,13 @@ async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef) {
         }
         await tripRef.update({
             billingEstimateThb: multiComputed.totalBillingThb,
+            billingBaseRateThb: multiComputed.baseRateThb,
+            billingStopChargeThb: multiComputed.stopChargeThb,
             billingIsMultiDelivery: true,
             billingMultiDeliveryBreakdown: multiComputed.stopBreakdown.map((stop) => ({
                 stopIndex: stop.stopIndex,
                 destination: stop.destination,
                 baseRateThb: stop.baseRateThb,
-                dropFeeThb: stop.dropFeeThb,
                 finalRateThb: stop.finalRateThb,
             })),
             billingFuelAdjustmentId: multiComputed.fuelAdjustmentId ?? null,

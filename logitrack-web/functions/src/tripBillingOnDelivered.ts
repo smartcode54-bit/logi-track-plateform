@@ -166,6 +166,8 @@ async function tryWriteBillingSnapshotFromTripData(
 
         await tripRef.update({
             billingEstimateThb: multiComputed.totalBillingThb,
+            billingBaseRateThb: multiComputed.baseRateThb,
+            billingStopChargeThb: multiComputed.stopChargeThb,
             billingIsMultiDelivery: true,
             billingMultiDeliveryBreakdown: multiComputed.stopBreakdown.map((stop) => ({
                 stopIndex: stop.stopIndex,

@@ -135,6 +135,16 @@ export default {
     "driverMonitor.detail.billingPerStop": "ค่าบริการต่อจุด",
     "driverMonitor.detail.total": "รวมทั้งสิ้น",
 
+    // Edit Trip Dialog - Delivery Stops
+    "driverMonitor.editTrip.deliveryStopsSection": "จุดส่งมอบ",
+    "driverMonitor.editTrip.addStop": "เพิ่มจุดส่ง",
+    "driverMonitor.editTrip.removeStop": "ลบ",
+    "driverMonitor.editTrip.stopN": "จุดที่ {n}",
+    "driverMonitor.editTrip.selectDestination": "เลือกปลายทาง",
+    "driverMonitor.editTrip.stopLocked": "ส่งแล้วโดยคนขับ",
+    "driverMonitor.editTrip.billingWillRecompute": "ระบบจะคำนวณค่าบิลใหม่หลังบันทึก",
+    "driverMonitor.editTrip.stopDestinationRequired": "ทุกจุดต้องเลือกปลายทาง",
+
     "driverMonitor.preview.downloadCurrent": "ดาวน์โหลดรูปนี้",
     "driverMonitor.preview.downloadAllZip": "ดาวน์โหลดทั้งหมด (ZIP)",
     "driverMonitor.preview.downloadCurrentLoading": "กำลังดาวน์โหลด…",

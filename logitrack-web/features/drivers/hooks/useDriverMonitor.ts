@@ -242,7 +242,14 @@ export function useDriverMonitor() {
     const [drivers, setDrivers] = useState<Record<string, Driver>>({});
     const [tasks, setTasks] = useState<Task[]>([]);
     const [hubs, setHubs] = useState<
-        { source_id: string; source_name_en?: string; source_name_th?: string }[]
+        {
+            source_id: string;
+            source_name_en?: string;
+            source_name_th?: string;
+            linkedCustomerId?: string;
+            linkedCustomerName?: string;
+            customerLinkKind?: string;
+        }[]
     >([]);
     const [loading, setLoading] = useState(true);
     const [incidentReportsByTripId, setIncidentReportsByTripId] = useState<
@@ -340,6 +347,9 @@ export function useDriverMonitor() {
                 source_name_th:
                     (data.source_name_th ?? data.hubTHName ?? data.hub_th_name ?? "").toString().trim() ||
                     undefined,
+                linkedCustomerId: data.linkedCustomerId,
+                linkedCustomerName: data.linkedCustomerName,
+                customerLinkKind: data.customerLinkKind,
             };
         });
         setHubs(list);
@@ -623,6 +633,7 @@ export function useDriverMonitor() {
         getDriver,
         getSourceDisplayName,
         fetchHubs,
+        hubs,
         itemsPerPage,
         setItemsPerPage,
         getTripsForExport,

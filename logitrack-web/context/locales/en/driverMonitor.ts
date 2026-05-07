@@ -135,6 +135,16 @@ export default {
     "driverMonitor.detail.billingPerStop": "Billing per stop",
     "driverMonitor.detail.total": "Total",
 
+    // Edit Trip Dialog - Delivery Stops
+    "driverMonitor.editTrip.deliveryStopsSection": "Delivery Stops",
+    "driverMonitor.editTrip.addStop": "Add Delivery Stop",
+    "driverMonitor.editTrip.removeStop": "Remove",
+    "driverMonitor.editTrip.stopN": "Stop {n}",
+    "driverMonitor.editTrip.selectDestination": "Select destination",
+    "driverMonitor.editTrip.stopLocked": "Delivered by driver",
+    "driverMonitor.editTrip.billingWillRecompute": "Billing will be re-computed after save",
+    "driverMonitor.editTrip.stopDestinationRequired": "All stops must have a destination",
+
     "driverMonitor.preview.downloadCurrent": "Download this image",
     "driverMonitor.preview.downloadAllZip": "Download all as ZIP",
     "driverMonitor.preview.downloadCurrentLoading": "Downloading…",

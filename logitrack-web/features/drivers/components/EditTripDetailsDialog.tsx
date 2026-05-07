@@ -11,17 +11,21 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Camera, Loader2, ExternalLink, ImagePlus } from "lucide-react";
+import { Camera, Loader2, ExternalLink, ImagePlus, Lock, Plus, Trash2 } from "lucide-react";
 import { doc, updateDoc, serverTimestamp, getDocs, collection, query, where, limit, deleteField } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
 import { db } from "@/firebase/client";
+import { functions } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { uploadTripPhoto } from "@/lib/uploadTripPhoto";
 import { dedupeTripPhotosByTypeLastWins } from "@/lib/trip-photo-utils";
-import { TRIP_PHOTO_TYPE_ENUM, type TripRecord, type TripPhoto } from "@/validate/tripRecordSchema";
+import { TRIP_PHOTO_TYPE_ENUM, type TripRecord, type TripPhoto, type DeliveryStopProgress } from "@/validate/tripRecordSchema";
 import { useLanguage } from "@/context/language";
 import { effectivePartnerCode } from "@/features/drivers/hooks/useDriverMonitor";
 import { ReportIncidentModal } from "@/app/admin/chat/components/ReportIncidentModal";
 import { ImagePreviewGallery } from "@/components/accounting/ImagePreviewGallery";
+import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
+import { toast } from "sonner";
 
 interface EditTripDetailsDialogProps {
     open: boolean;
@@ -29,6 +33,14 @@ interface EditTripDetailsDialogProps {
     trip: TripRecord;
     getSourceDisplayName?: (code: string | null | undefined) => string;
     onSuccess?: () => void;
+    destinationOptions?: Array<{
+        value: string;
+        label: string;
+        type?: "soc" | "hub";
+        linkedCustomerId?: string;
+        linkedCustomerName?: string;
+        linkedCustomerKind?: string;
+    }>;
 }
 
 const PHOTO_TYPE_LABELS: Record<string, string> = {
@@ -62,6 +74,7 @@ export function EditTripDetailsDialog({
     trip,
     getSourceDisplayName,
     onSuccess,
+    destinationOptions = [],
 }: EditTripDetailsDialogProps) {
     const { t } = useLanguage();
     const [loading, setLoading] = useState(false);
@@ -69,6 +82,9 @@ export function EditTripDetailsDialog({
     const [spxTripId, setSpxTripId] = useState(trip.spxTripId ?? "");
     const [sealCode, setSealCode] = useState(trip.sealCode ?? "");
     const [partnerCode, setPartnerCode] = useState("");
+    const [localStops, setLocalStops] = useState<DeliveryStopProgress[]>(trip.deliveryStopsProgress ?? []);
+    const originalStopCountRef = useRef(trip.deliveryStopsProgress?.length ?? 0);
+    const stopMetadataRef = useRef<Record<number, { linkedCustomerId?: string; linkedCustomerName?: string; linkedCustomerKind?: string }>>({});
     const initialPartnerEffectiveRef = useRef("");
     const [incidentReport, setIncidentReport] = useState<{
         description: string;
@@ -81,6 +97,9 @@ export function EditTripDetailsDialog({
     const [isReportModalOpen, setIsReportModalOpen] = useState(false);
     const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
     const dialogWasOpenRef = useRef(false);
+
+    const hasStopsChanged =
+        JSON.stringify(localStops) !== JSON.stringify(trip.deliveryStopsProgress ?? []);
 
     const photos = trip.photos ?? [];
     const photoByType = new Map(photos.map((photo) => [photo.type, photo]));
@@ -117,6 +136,8 @@ export function EditTripDetailsDialog({
             initialPartnerEffectiveRef.current = eff;
             setPartnerCode(eff || "");
             setReplaceByType({});
+            setLocalStops(trip.deliveryStopsProgress ?? []);
+            originalStopCountRef.current = trip.deliveryStopsProgress?.length ?? 0;
             if (trip.id) {
                 fetchIncidentReport(trip.id);
             } else {
@@ -125,6 +146,51 @@ export function EditTripDetailsDialog({
         }
         dialogWasOpenRef.current = open;
     }, [open, trip]);
+
+    const addStop = () => {
+        setLocalStops((prev) => [
+            ...prev,
+            {
+                index: prev.length + 1,
+                destination: "",
+                status: "delivered",
+                deliveredAt: null,
+                deliveredLat: undefined,
+                deliveredLng: undefined,
+                photos: [],
+            } as DeliveryStopProgress,
+        ]);
+    };
+
+    const removeStop = (stopIndex: number) => {
+        const newIndex = localStops[stopIndex].index;
+        delete stopMetadataRef.current[newIndex];
+        setLocalStops((prev) =>
+            prev
+                .filter((_, i) => i !== stopIndex)
+                .map((s, i) => ({ ...s, index: i + 1 }))
+        );
+    };
+
+    const updateStopDestination = (stopIndex: number, dest: string) => {
+        const option = destinationOptions.find((o) => o.value === dest);
+        const newIndex = localStops[stopIndex].index;
+
+        // Store metadata for this stop if it's a hub with linkedCustomerId
+        if (option && option.type === "hub" && option.linkedCustomerId) {
+            stopMetadataRef.current[newIndex] = {
+                linkedCustomerId: option.linkedCustomerId,
+                linkedCustomerName: option.linkedCustomerName,
+                linkedCustomerKind: option.linkedCustomerKind,
+            };
+        } else {
+            delete stopMetadataRef.current[newIndex];
+        }
+
+        setLocalStops((prev) =>
+            prev.map((s, i) => (i === stopIndex ? { ...s, destination: dest } : s))
+        );
+    };
 
     const handleFileSelect = (photoType: string, e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -137,6 +203,15 @@ export function EditTripDetailsDialog({
     const handleSave = async () => {
         if (!trip.id) return;
 
+        // Validation for delivery stops
+        if (hasStopsChanged) {
+            const emptyStop = localStops.some((s) => !s.destination.trim());
+            if (emptyStop) {
+                toast.error(t("driverMonitor.editTrip.stopDestinationRequired"));
+                return;
+            }
+        }
+
         const hasPhotoChanges = Object.keys(replaceByType).length > 0;
         const partnerTrim = partnerCode.trim();
         const partnerChanged = partnerTrim !== initialPartnerEffectiveRef.current.trim();
@@ -144,7 +219,7 @@ export function EditTripDetailsDialog({
             spxTripId !== (trip.spxTripId ?? "") ||
             sealCode !== (trip.sealCode ?? "") ||
             partnerChanged;
-        if (!hasPhotoChanges && !hasMetaChanges) {
+        if (!hasPhotoChanges && !hasMetaChanges && !hasStopsChanged) {
             onOpenChange(false);
             if (onSuccess) onSuccess();
             return;
@@ -192,7 +267,62 @@ export function EditTripDetailsDialog({
                     updateData.partnerCode = partnerTrim ? partnerTrim : deleteField();
                 }
             }
+            if (hasStopsChanged) {
+                updateData.deliveryStopsProgress = localStops.map((s) => ({
+                    index: s.index,
+                    destination: s.destination.trim().toUpperCase(),
+                    status: s.status,
+                    deliveredAt: s.deliveredAt ?? null,
+                    deliveredLat: s.deliveredLat ?? null,
+                    deliveredLng: s.deliveredLng ?? null,
+                    photos: s.photos ?? [],
+                }));
+                updateData.isMultiDelivery = localStops.length > 1;
+                updateData.totalDeliveryStops = localStops.length;
+            }
             await updateDoc(doc(db, COLLECTIONS.TRIP_RECORDS, trip.id), updateData);
+
+            // Update task.deliveryStops if task exists
+            if (hasStopsChanged && trip.taskId) {
+                try {
+                    const taskDeliveryStops = localStops.map((s) => ({
+                        index: s.index,
+                        destination: s.destination.trim().toUpperCase(),
+                        destinationLinkedCustomerId: stopMetadataRef.current[s.index]?.linkedCustomerId,
+                        destinationLinkedCustomerName: stopMetadataRef.current[s.index]?.linkedCustomerName,
+                        destinationCustomerLinkKind: stopMetadataRef.current[s.index]?.linkedCustomerKind,
+                        status: s.status,
+                        deliveredAt: s.deliveredAt ?? null,
+                        deliveredLat: s.deliveredLat ?? null,
+                        deliveredLng: s.deliveredLng ?? null,
+                    }));
+                    await updateDoc(doc(db, COLLECTIONS.TASKS, trip.taskId), {
+                        deliveryStops: taskDeliveryStops,
+                        isMultiDelivery: localStops.length > 1,
+                        updatedAt: serverTimestamp(),
+                    });
+                } catch (e) {
+                    console.error("Failed to update task delivery stops:", e);
+                }
+            }
+
+            // Trigger billing recompute if stops changed and >= 3 delivered
+            if (hasStopsChanged) {
+                const deliveredCount = localStops.filter(
+                    (s) => s.status === "delivered" && s.destination.trim()
+                ).length;
+                if (deliveredCount >= 3) {
+                    try {
+                        const fn = httpsCallable<
+                            { tripId: string },
+                            { ok: boolean; billingEstimateThb?: number; error?: string }
+                        >(functions, "computeTripBillingSnapshot");
+                        await fn({ tripId: trip.id });
+                    } catch (_) {
+                        // Fail silently — admin can backfill from Income page
+                    }
+                }
+            }
 
             setReplaceByType({});
             onOpenChange(false);
@@ -208,7 +338,8 @@ export function EditTripDetailsDialog({
         Object.keys(replaceByType).length > 0 ||
         spxTripId !== (trip.spxTripId ?? "") ||
         sealCode !== (trip.sealCode ?? "") ||
-        partnerCode.trim() !== initialPartnerEffectiveRef.current.trim();
+        partnerCode.trim() !== initialPartnerEffectiveRef.current.trim() ||
+        hasStopsChanged;
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -257,6 +388,58 @@ export function EditTripDetailsDialog({
                             <span className="text-muted-foreground">{t("driverMonitor.detail.destination")}</span>
                             <span>{getSourceDisplayName ? getSourceDisplayName(trip.destination) : (trip.destination || "-")}</span>
                         </div>
+                    </div>
+
+                    {/* Delivery Stops */}
+                    <div className="space-y-3">
+                        <h3 className="text-sm font-semibold">{t("driverMonitor.editTrip.deliveryStopsSection")}</h3>
+                        <div className="space-y-2">
+                            {localStops.map((stop, i) => {
+                                const isLocked = i < originalStopCountRef.current;
+                                return (
+                                    <div key={i} className="flex items-center gap-2">
+                                        <span className="text-xs text-muted-foreground w-16">
+                                            {t("driverMonitor.editTrip.stopN", { n: stop.index })}
+                                        </span>
+                                        {isLocked ? (
+                                            <span className="flex-1 text-sm font-medium">
+                                                {getSourceDisplayName?.(stop.destination) ?? stop.destination}
+                                                <Lock className="inline ml-1 h-3 w-3 text-muted-foreground" />
+                                            </span>
+                                        ) : (
+                                            <>
+                                                <Combobox
+                                                    options={destinationOptions}
+                                                    value={stop.destination}
+                                                    onSelect={(v) => updateStopDestination(i, v)}
+                                                    placeholder={t("driverMonitor.editTrip.selectDestination")}
+                                                    searchPlaceholder={t("driverMonitor.editTrip.selectDestination")}
+                                                    className="flex-1"
+                                                />
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    onClick={() => removeStop(i)}
+                                                >
+                                                    <Trash2 className="h-4 w-4 text-destructive" />
+                                                </Button>
+                                            </>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        <Button type="button" variant="outline" size="sm" onClick={addStop}>
+                            <Plus className="h-4 w-4 mr-1" />
+                            {t("driverMonitor.editTrip.addStop")}
+                        </Button>
+                        {hasStopsChanged &&
+                            localStops.filter((s) => s.status === "delivered").length >= 3 && (
+                                <p className="text-xs text-muted-foreground">
+                                    {t("driverMonitor.editTrip.billingWillRecompute")}
+                                </p>
+                            )}
                     </div>
 
                     {incidentReport ? (

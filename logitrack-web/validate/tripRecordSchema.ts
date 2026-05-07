@@ -107,6 +107,7 @@ export const tripRecordSchema = z.object({
     // Billing snapshot fields (optional)
     billingEstimateThb: z.number().optional(),
     billingBaseRateThb: z.number().optional(),
+    billingStopChargeThb: z.number().optional(), // Multi-delivery stop surcharge (stops 3+)
     billingRateImportId: z.string().optional(),
     billingLookupHubId: z.string().optional(),
     billingLookupDestination: z.string().optional(),

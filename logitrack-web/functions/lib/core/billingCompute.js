@@ -112,9 +112,9 @@ function selectFuelAdjustmentForBillingDate(customerId, billDateMs, fuelAdjustme
 function computeFinalRateThb(baseRateThb, rateMultiplier, addThbPerTrip) {
     return Math.round((baseRateThb * rateMultiplier + addThbPerTrip) * 100) / 100;
 }
-/** Compute billing for multi-delivery task: per-stop rates + drop fees. */
-function computeMultiDeliveryBilling(trip, task, deliveryStops, vehicleClass, dropFeeThb, rateEntries, fuelAdjustments) {
-    if (!task || deliveryStops.length < 2)
+/** Compute billing for multi-delivery task: charge stop 3+ only (A → each destination). */
+function computeMultiDeliveryBilling(trip, task, deliveryStops, vehicleClass, rateEntries, fuelAdjustments) {
+    if (!task || deliveryStops.length < 3)
         return null;
     const customerId = resolveTaskCustomerId(task);
     if (!customerId)
@@ -124,30 +124,45 @@ function computeMultiDeliveryBilling(trip, task, deliveryStops, vehicleClass, dr
     const billDateMs = getTripBillingDateMs(trip);
     const matchedAdjustment = selectFuelAdjustmentForBillingDate(customerId, billDateMs, fuelAdjustments);
     const rateMultiplier = matchedAdjustment?.rateMultiplier ?? 1;
+    const addThbPerTrip = matchedAdjustment?.addThbPerTrip ?? 0;
+    let baseRateThb = 0;
+    let stopChargeThb = 0;
     const stopBreakdown = [];
-    let totalBillingThb = 0;
     deliveryStops.forEach((stop, idx) => {
         const destination = normalizeDestinationCode(stop.destination);
         const matchedRate = selectBillingRateEntry(customerId, hubId, destination, normalizedVehicleClass, billDateMs, rateEntries);
-        if (matchedRate) {
-            const baseRateThb = matchedRate.rateThb;
-            const fee = idx === 0 ? 0 : dropFeeThb;
-            const finalRate = computeFinalRateThb(baseRateThb + fee, rateMultiplier, 0);
+        if (!matchedRate)
+            return;
+        const baseRate = matchedRate.rateThb;
+        const finalRate = computeFinalRateThb(baseRate, rateMultiplier, addThbPerTrip);
+        if (idx === 0) {
+            // Stop 1: set baseRateThb
+            baseRateThb = finalRate;
+            stopBreakdown.push({
+                stopIndex: 1,
+                destination,
+                baseRateThb: baseRate,
+                finalRateThb: finalRate,
+            });
+        }
+        else if (idx >= 2) {
+            // Stop 3+: add to stopChargeThb
+            stopChargeThb += finalRate;
             stopBreakdown.push({
                 stopIndex: idx + 1,
                 destination,
-                baseRateThb,
-                dropFeeThb: fee,
+                baseRateThb: baseRate,
                 finalRateThb: finalRate,
             });
-            totalBillingThb += finalRate;
         }
     });
-    if (stopBreakdown.length === 0)
+    if (baseRateThb === 0 || stopBreakdown.length === 0)
         return null;
     return {
         customerId,
-        totalBillingThb,
+        baseRateThb,
+        stopChargeThb,
+        totalBillingThb: baseRateThb + stopChargeThb,
         stopBreakdown,
         rateMultiplier,
         fuelAdjustmentId: matchedAdjustment?.id,
