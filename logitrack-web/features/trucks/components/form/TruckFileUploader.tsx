@@ -76,7 +76,7 @@ export default function TruckFileUploader({ label, folder, onUploadComplete, cur
             // Extract the path from the URL (Firebase Storage usually has /o/Path%2To%2File)
             const pathStartIndex = decodedUrl.indexOf("/o/") + 3;
             const pathEndIndex = decodedUrl.indexOf("?");
-            let fullPath = decodedUrl;
+            const fullPath = decodedUrl;
 
             // Get just the filename
             const basename = fullPath.split('/').pop() || fullPath;

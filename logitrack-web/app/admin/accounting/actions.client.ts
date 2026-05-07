@@ -15,6 +15,8 @@ import {
     writeBatch,
     where,
 } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
+import { functions } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { normalizeDestinationCode } from "@/lib/billingCompute";
 
@@ -733,4 +735,137 @@ export async function updateTaskBillingFields(
         truckType: fields.truckType,
         updatedAt: serverTimestamp(),
     });
+}
+
+export type ServiceFeeType = "extra_stop" | "waiting_time" | "special_handling" | "service_charge" | "custom";
+export type ServiceFeeUnit = "per_trip" | "per_stop";
+
+export interface CustomerServiceFeeInput {
+    customerId: string;
+    feeType: ServiceFeeType;
+    customTypeName?: string;
+    amountThb: number;
+    unit: ServiceFeeUnit;
+    note?: string;
+}
+
+export interface CustomerServiceFeeRow extends CustomerServiceFeeInput {
+    id: string;
+    createdAt?: Date;
+}
+
+export async function createCustomerServiceFee(input: CustomerServiceFeeInput): Promise<void> {
+    const customerId = input.customerId.trim();
+    if (!customerId) throw new Error("Customer is required");
+    if (!Number.isFinite(input.amountThb) || input.amountThb < 0) {
+        throw new Error("Amount must be >= 0");
+    }
+    if (input.feeType === "custom" && !input.customTypeName?.trim()) {
+        throw new Error("Custom type name is required when fee type is custom");
+    }
+
+    const colRef = collection(db, COLLECTIONS.CUSTOMER_SERVICE_FEES);
+    const ref = doc(colRef);
+    const batch = writeBatch(db);
+    const payload: Record<string, unknown> = {
+        customerId,
+        feeType: input.feeType,
+        amountThb: Number(input.amountThb),
+        unit: input.unit,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+    };
+    if (input.feeType === "custom" && input.customTypeName?.trim()) {
+        payload.customTypeName = input.customTypeName.trim();
+    }
+    if (input.note?.trim()) {
+        payload.note = input.note.trim();
+    }
+    batch.set(ref, payload);
+    await batch.commit();
+}
+
+export async function getCustomerServiceFees(customerId?: string): Promise<CustomerServiceFeeRow[]> {
+    const colRef = collection(db, COLLECTIONS.CUSTOMER_SERVICE_FEES);
+    const useCustomer = customerId?.trim();
+    const q = useCustomer
+        ? query(colRef, where("customerId", "==", useCustomer), orderBy("createdAt", "desc"))
+        : query(colRef, orderBy("createdAt", "desc"));
+    const snap = await getDocs(q);
+    return snap.docs.map((docSnap) => {
+        const d = docSnap.data();
+        return {
+            id: docSnap.id,
+            customerId: String(d.customerId ?? ""),
+            feeType: (d.feeType as ServiceFeeType) ?? "extra_stop",
+            customTypeName: d.customTypeName != null ? String(d.customTypeName) : undefined,
+            amountThb: Number(d.amountThb ?? 0),
+            unit: (d.unit as ServiceFeeUnit) ?? "per_trip",
+            note: d.note != null ? String(d.note) : undefined,
+            createdAt: parseDate(d.createdAt),
+        };
+    });
+}
+
+export async function updateCustomerServiceFee(
+    id: string,
+    input: CustomerServiceFeeInput
+): Promise<void> {
+    const normalizedId = id.trim();
+    const customerId = input.customerId.trim();
+    if (!normalizedId) throw new Error("Service fee id is required");
+    if (!customerId) throw new Error("Customer is required");
+    if (!Number.isFinite(input.amountThb) || input.amountThb < 0) {
+        throw new Error("Amount must be >= 0");
+    }
+    if (input.feeType === "custom" && !input.customTypeName?.trim()) {
+        throw new Error("Custom type name is required when fee type is custom");
+    }
+
+    const ref = doc(db, COLLECTIONS.CUSTOMER_SERVICE_FEES, normalizedId);
+    const payload: Record<string, unknown> = {
+        customerId,
+        feeType: input.feeType,
+        amountThb: Number(input.amountThb),
+        unit: input.unit,
+        updatedAt: serverTimestamp(),
+    };
+    if (input.feeType === "custom" && input.customTypeName?.trim()) {
+        payload.customTypeName = input.customTypeName.trim();
+    } else if (input.feeType !== "custom") {
+        payload.customTypeName = null;
+    }
+    if (input.note?.trim()) {
+        payload.note = input.note.trim();
+    } else {
+        payload.note = null;
+    }
+    await updateDoc(ref, payload);
+}
+
+export async function deleteCustomerServiceFee(id: string): Promise<void> {
+    const normalizedId = id.trim();
+    if (!normalizedId) throw new Error("Service fee id is required");
+    await deleteDoc(doc(db, COLLECTIONS.CUSTOMER_SERVICE_FEES, normalizedId));
+}
+
+export interface NormalizeVehicleClassResponse {
+    scanned: number;
+    needsUpdate: number;
+    updated: number;
+    samples: Array<{ docId: string; old: string; new: string }>;
+    capped: boolean;
+}
+
+export async function normalizeRateEntryVehicleClasses(
+    maxScan?: number,
+    maxUpdate?: number
+): Promise<NormalizeVehicleClassResponse> {
+    const callable = httpsCallable<
+        { maxScan?: number; maxUpdate?: number },
+        NormalizeVehicleClassResponse
+    >(functions, "normalizeRateEntryVehicleClasses");
+
+    const result = await callable({ maxScan, maxUpdate });
+    return result.data;
 }

@@ -56,6 +56,14 @@ interface CustomerSummary {
     totalIncome: number;
 }
 
+interface MultiDeliveryBreakdownItem {
+    stopIndex: number;
+    destination: string;
+    baseRateThb: number;
+    dropFeeThb: number;
+    finalRateThb: number;
+}
+
 interface IncomeRow {
     id: string;
     spxTripId?: string;
@@ -70,6 +78,9 @@ interface IncomeRow {
     billingEffectiveFromDateStr?: string;
     billingCustomerId?: string;
     deliveredTimestamp?: Date;
+    billingIsMultiDelivery?: boolean;
+    totalDeliveryStops?: number;
+    billingMultiDeliveryBreakdown?: MultiDeliveryBreakdownItem[];
 }
 
 export interface MissingBillingRow {
@@ -248,6 +259,15 @@ export default function AccountingIncomePage() {
             snap.docs.forEach((docSnap) => {
                 const d = docSnap.data();
                 if (typeof d.billingEstimateThb === "number") {
+                    const breakdown = Array.isArray(d.billingMultiDeliveryBreakdown)
+                        ? (d.billingMultiDeliveryBreakdown as Array<unknown>).map((item: any) => ({
+                              stopIndex: Number(item.stopIndex ?? 0),
+                              destination: String(item.destination ?? ""),
+                              baseRateThb: Number(item.baseRateThb ?? 0),
+                              dropFeeThb: Number(item.dropFeeThb ?? 0),
+                              finalRateThb: Number(item.finalRateThb ?? 0),
+                          }))
+                        : undefined;
                     withBilling.push({
                         id: docSnap.id,
                         spxTripId: d.spxTripId ? String(d.spxTripId) : undefined,
@@ -268,6 +288,9 @@ export default function AccountingIncomePage() {
                             : undefined,
                         billingCustomerId: d.billingCustomerId ? String(d.billingCustomerId) : undefined,
                         deliveredTimestamp: toDate(d.deliveredTimestamp),
+                        billingIsMultiDelivery: d.billingIsMultiDelivery === true,
+                        totalDeliveryStops: typeof d.totalDeliveryStops === "number" ? d.totalDeliveryStops : undefined,
+                        billingMultiDeliveryBreakdown: breakdown,
                     });
                 } else {
                     withoutBilling.push({ tripDoc: { id: docSnap.id, data: d as Record<string, unknown> } });

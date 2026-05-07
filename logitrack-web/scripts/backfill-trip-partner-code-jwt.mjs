@@ -142,7 +142,7 @@ async function main() {
         return;
     }
 
-    // eslint-disable-next-line no-constant-condition
+     
     outer: while (true) {
         let q = col.orderBy(FieldPath.documentId()).limit(500);
         if (lastDoc) q = q.startAfter(lastDoc);

@@ -6,6 +6,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.extractHubId = extractHubId;
 exports.normalizeDestinationCode = normalizeDestinationCode;
+exports.normalizeVehicleClass = normalizeVehicleClass;
 exports.timestampLikeToMillis = timestampLikeToMillis;
 exports.getTripBillingDateMs = getTripBillingDateMs;
 exports.resolveTaskCustomerId = resolveTaskCustomerId;
@@ -40,6 +41,19 @@ function normalizeDestinationCode(destination) {
         return u.slice(0, dashIdx);
     }
     return u;
+}
+function normalizeVehicleClass(vehicleClass) {
+    const u = normalizeCode(vehicleClass || "4WJ");
+    if (!u)
+        return "4WJ";
+    // Map full truck type names to short codes
+    const mapping = {
+        "4 WHEELS JUMBO": "4WJ",
+        "6 WHEELS": "6W",
+        "10 WHEELS": "10W",
+        "2 WHEELS": "2W",
+    };
+    return mapping[u] ?? u;
 }
 /** Milliseconds from Firestore Timestamp, Date, number, or similar. */
 function timestampLikeToMillis(val) {

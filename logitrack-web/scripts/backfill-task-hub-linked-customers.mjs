@@ -403,7 +403,7 @@ async function main() {
         return;
     }
 
-    // eslint-disable-next-line no-constant-condition
+     
     outer: while (true) {
         if (stoppedByLimit) break;
         let q = db.collection("tasks").orderBy(FieldPath.documentId()).limit(300);

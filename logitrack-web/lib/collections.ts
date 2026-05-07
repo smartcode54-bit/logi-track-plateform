@@ -49,6 +49,9 @@ export const COLLECTIONS = {
     /** Customer fuel-linked billing adjustments by effective date */
     CUSTOMER_FUEL_RATE_ADJUSTMENTS: "customer_fuel_rate_adjustments",
 
+    /** Customer service fees (extra stop, waiting time, special handling, etc.) */
+    CUSTOMER_SERVICE_FEES: "customer_service_fees",
+
     /** Bangchak retail fuel snapshots (doc id yyyy-MM Bangkok; refreshed daily + manual sync) */
     FUEL_MONTHLY_SNAPSHOTS: "fuel_monthly_snapshots",
 

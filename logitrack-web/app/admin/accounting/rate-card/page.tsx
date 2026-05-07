@@ -52,9 +52,18 @@ import {
     getFuelMonthlySnapshots,
     updateCustomerFuelRateAdjustment,
     updateCustomerRateEntry,
+    createCustomerServiceFee,
+    deleteCustomerServiceFee,
+    getCustomerServiceFees,
+    updateCustomerServiceFee,
+    normalizeRateEntryVehicleClasses,
     type CustomerFuelRateAdjustmentRow,
     type CustomerRateEntryRow,
     type FuelMonthlySnapshotRow,
+    type CustomerServiceFeeRow,
+    type ServiceFeeType,
+    type ServiceFeeUnit,
+    type NormalizeVehicleClassResponse,
 } from "../actions.client";
 import { RateCardImportDialog, type RateCardCustomerOption } from "../rate-card-import-dialog";
 import { db, functions } from "@/firebase/client";
@@ -154,6 +163,16 @@ function fuelSnapshotSourceLabel(source: string, t: (key: string) => string): st
     return source.trim();
 }
 
+function displayVehicleTypeCode(fullName: string): string {
+    const mapping: Record<string, string> = {
+        "4 Wheels Jumbo": "4WJ",
+        "6 Wheels": "6W",
+        "10 Wheels": "10W",
+        "2 Wheels": "2W",
+    };
+    return mapping[fullName.trim()] ?? fullName.trim();
+}
+
 export default function AccountingRateCardPage() {
     const { t, language } = useLanguage();
     const { hasPermission: canEdit } = usePermission(CAPABILITIES.accounting_edit_rate_card);
@@ -211,6 +230,25 @@ export default function AccountingRateCardPage() {
     });
     const [savingEntry, setSavingEntry] = useState(false);
     const [deletingEntryId, setDeletingEntryId] = useState<string | null>(null);
+    // Service Fees state
+    const [serviceFees, setServiceFees] = useState<CustomerServiceFeeRow[]>([]);
+    const [serviceFeeDialogOpen, setServiceFeeDialogOpen] = useState(false);
+    const [serviceFeeForm, setServiceFeeForm] = useState({
+        customerId: "",
+        feeType: "extra_stop" as ServiceFeeType,
+        customTypeName: "",
+        amountThb: "",
+        unit: "per_stop" as ServiceFeeUnit,
+        note: "",
+    });
+    const [editingServiceFeeId, setEditingServiceFeeId] = useState<string | null>(null);
+    const [savingServiceFee, setSavingServiceFee] = useState(false);
+    const [deletingServiceFeeId, setDeletingServiceFeeId] = useState<string | null>(null);
+    const [serviceFeeError, setServiceFeeError] = useState<string | null>(null);
+    // Vehicle class normalization state
+    const [normalizeInProgress, setNormalizeInProgress] = useState(false);
+    const [normalizeResult, setNormalizeResult] = useState<NormalizeVehicleClassResponse | null>(null);
+    const [normalizeError, setNormalizeError] = useState<string | null>(null);
 
     const customerNameById = useMemo(() => {
         const map = new Map<string, string>();
@@ -248,13 +286,14 @@ export default function AccountingRateCardPage() {
     const loadData = async () => {
         setLoading(true);
         try {
-            const [customerRows, entryRows, fuelRows, snapshotRows, hubRows, truckRows] = await Promise.all([
+            const [customerRows, entryRows, fuelRows, snapshotRows, hubRows, truckRows, serviceFeeRows] = await Promise.all([
                 getCustomers(),
                 getCustomerRateEntries(),
                 getCustomerFuelRateAdjustments(),
                 getFuelMonthlySnapshots(36),
                 getDocs(collection(db, COLLECTIONS.HUBS)),
                 getDocs(collection(db, COLLECTIONS.TRUCKS)),
+                getCustomerServiceFees(),
             ]);
             const mappedCustomers: RateCardCustomerOption[] = (customerRows as (Customer & { id: string })[]).map((c) => ({
                 id: c.id,
@@ -265,6 +304,7 @@ export default function AccountingRateCardPage() {
             setEntries(entryRows);
             setFuelAdjustments(fuelRows);
             setFuelMonthlySnapshots(snapshotRows);
+            setServiceFees(serviceFeeRows);
             setHubs(
                 hubRows.docs.map((d) => {
                     const data = d.data();
@@ -323,29 +363,29 @@ export default function AccountingRateCardPage() {
         const fromEntries = entries.map((e) => e.hubId);
         return Array.from(new Set([...fromHubs, ...fromEntries])).sort((a, b) => a.localeCompare(b));
     }, [hubs, entries]);
-    /** When a customer is chosen: only hubId / destinationCode seen for that customer; if none yet, full master list. */
+    /** When a customer is chosen: show all locations (master list) + customer's existing locations. */
     const manualLocationOptions = useMemo(() => {
         const cid = manualRateForm.customerId.trim();
         if (!cid) return rateCardLocationOptions;
-        const scoped = new Set<string>();
+        // Always include full master list + customer-specific ones
+        const merged = new Set<string>([...rateCardLocationOptions]);
         for (const e of entries) {
             if (e.customerId !== cid) continue;
-            scoped.add(e.hubId);
-            scoped.add(e.destinationCode);
+            merged.add(e.hubId);
+            merged.add(e.destinationCode);
         }
-        if (scoped.size === 0) return rateCardLocationOptions;
-        return Array.from(scoped).sort((a, b) => a.localeCompare(b));
+        return Array.from(merged).sort((a, b) => a.localeCompare(b));
     }, [manualRateForm.customerId, entries, rateCardLocationOptions]);
     const filterLocationOptions = useMemo(() => {
         if (filterCustomerId === "all") return rateCardLocationOptions;
-        const scoped = new Set<string>();
+        // Always include full master list + customer-specific ones
+        const merged = new Set<string>([...rateCardLocationOptions]);
         for (const e of entries) {
             if (e.customerId !== filterCustomerId) continue;
-            scoped.add(e.hubId);
-            scoped.add(e.destinationCode);
+            merged.add(e.hubId);
+            merged.add(e.destinationCode);
         }
-        if (scoped.size === 0) return rateCardLocationOptions;
-        return Array.from(scoped).sort((a, b) => a.localeCompare(b));
+        return Array.from(merged).sort((a, b) => a.localeCompare(b));
     }, [filterCustomerId, entries, rateCardLocationOptions]);
     const manualLocationComboboxOptions = useMemo<ComboboxOption[]>(
         () => manualLocationOptions.map((code) => ({ value: code, label: formatSource(code) })),
@@ -372,6 +412,25 @@ export default function AccountingRateCardPage() {
         const start = (entriesPage - 1) * entriesPerPage;
         return filteredEntries.slice(start, start + entriesPerPage);
     }, [filteredEntries, entriesPage, entriesPerPage]);
+
+    const editVehicleClassOptions = useMemo(() => {
+        const options = new Set<string>();
+        // Add all truck types
+        if (truckTypes.length > 0) {
+            truckTypes.forEach((t) => options.add(t));
+        }
+        // Add all vehicle options from entries
+        vehicleOptions.forEach((v) => options.add(v));
+        // Add current value if not empty
+        if (editEntryForm.vehicleClass?.trim()) {
+            options.add(editEntryForm.vehicleClass.trim());
+        }
+        // Always have at least 4WJ
+        if (options.size === 0) {
+            options.add("4WJ");
+        }
+        return Array.from(options).sort((a, b) => a.localeCompare(b));
+    }, [truckTypes, vehicleOptions, editEntryForm.vehicleClass]);
     const entriesRangeStart = filteredEntries.length === 0 ? 0 : (entriesPage - 1) * entriesPerPage + 1;
     const entriesRangeEnd = Math.min(entriesPage * entriesPerPage, filteredEntries.length);
 
@@ -741,6 +800,131 @@ export default function AccountingRateCardPage() {
         XLSX.writeFile(wb, `rate_card_export_${dateStr}.xlsx`);
     };
 
+    // Service Fees handlers
+    const handleCreateServiceFee = async () => {
+        setServiceFeeError(null);
+        const customerId = serviceFeeForm.customerId.trim();
+        const amountThb = Number(serviceFeeForm.amountThb);
+
+        if (!customerId || !Number.isFinite(amountThb) || (serviceFeeForm.feeType === "custom" && !serviceFeeForm.customTypeName.trim())) {
+            setServiceFeeError(t("accounting.serviceFees.form.invalid"));
+            return;
+        }
+
+        setSavingServiceFee(true);
+        try {
+            if (editingServiceFeeId) {
+                await updateCustomerServiceFee(editingServiceFeeId, {
+                    customerId,
+                    feeType: serviceFeeForm.feeType,
+                    customTypeName: serviceFeeForm.feeType === "custom" ? serviceFeeForm.customTypeName.trim() : undefined,
+                    amountThb,
+                    unit: serviceFeeForm.unit,
+                    note: serviceFeeForm.note.trim() || undefined,
+                });
+            } else {
+                await createCustomerServiceFee({
+                    customerId,
+                    feeType: serviceFeeForm.feeType,
+                    customTypeName: serviceFeeForm.feeType === "custom" ? serviceFeeForm.customTypeName.trim() : undefined,
+                    amountThb,
+                    unit: serviceFeeForm.unit,
+                    note: serviceFeeForm.note.trim() || undefined,
+                });
+            }
+            setServiceFeeForm({
+                customerId: "",
+                feeType: "extra_stop",
+                customTypeName: "",
+                amountThb: "",
+                unit: "per_stop",
+                note: "",
+            });
+            setEditingServiceFeeId(null);
+            setServiceFeeDialogOpen(false);
+            await loadData();
+        } catch (err) {
+            console.error(err);
+            setServiceFeeError(t("accounting.serviceFees.form.error"));
+        } finally {
+            setSavingServiceFee(false);
+        }
+    };
+
+    const handleDeleteServiceFee = async (id: string) => {
+        if (!confirm(t("accounting.serviceFees.confirmDelete"))) return;
+        setDeletingServiceFeeId(id);
+        try {
+            await deleteCustomerServiceFee(id);
+            await loadData();
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setDeletingServiceFeeId(null);
+        }
+    };
+
+    const handleEditServiceFee = (fee: CustomerServiceFeeRow) => {
+        setEditingServiceFeeId(fee.id);
+        setServiceFeeForm({
+            customerId: fee.customerId,
+            feeType: fee.feeType,
+            customTypeName: fee.customTypeName ?? "",
+            amountThb: String(fee.amountThb),
+            unit: fee.unit,
+            note: fee.note ?? "",
+        });
+        setServiceFeeError(null);
+        setServiceFeeDialogOpen(true);
+    };
+
+    const handleCancelEditServiceFee = () => {
+        setEditingServiceFeeId(null);
+        setServiceFeeForm({
+            customerId: "",
+            feeType: "extra_stop",
+            customTypeName: "",
+            amountThb: "",
+            unit: "per_stop",
+            note: "",
+        });
+        setServiceFeeError(null);
+    };
+
+    const filteredServiceFees = useMemo(() => {
+        if (filterCustomerId === "all") return serviceFees;
+        return serviceFees.filter((f) => f.customerId === filterCustomerId);
+    }, [serviceFees, filterCustomerId]);
+
+    const getServiceFeeTypeLabel = (feeType: ServiceFeeType, customTypeName?: string) => {
+        if (feeType === "custom" && customTypeName?.trim()) {
+            return customTypeName.trim();
+        }
+        const key = `accounting.serviceFees.type.${feeType}`;
+        return t(key);
+    };
+
+    const handleNormalizeVehicleClasses = async () => {
+        if (!confirm("Normalize vehicle class values in all rate entries? This will convert full names (e.g., '4 WHEELS JUMBO') to short codes (e.g., '4WJ').")) {
+            return;
+        }
+        setNormalizeInProgress(true);
+        setNormalizeError(null);
+        setNormalizeResult(null);
+        try {
+            const result = await normalizeRateEntryVehicleClasses(5000, 500);
+            setNormalizeResult(result);
+            if (result.updated > 0) {
+                await loadData();
+            }
+        } catch (err) {
+            console.error(err);
+            setNormalizeError(err instanceof Error ? err.message : "Unknown error during normalization");
+        } finally {
+            setNormalizeInProgress(false);
+        }
+    };
+
     // Stats summary
     const entriesStats = useMemo(() => {
         const byCustomer = new Map<string, number>();
@@ -782,15 +966,33 @@ export default function AccountingRateCardPage() {
                         <Download className="h-4 w-4 mr-2" />
                         {t("accounting.rateCard.exportTemplate")}
                     </Button>
-                    <Button variant="outline" onClick={() => void loadData()}>
+                    <Button variant="outline" onClick={() => void loadData()} disabled={normalizeInProgress}>
                         <RefreshCw className="h-4 w-4 mr-2" />
                         {t("common.refresh")}
                     </Button>
                     {canEdit && (
-                        <Button onClick={() => setImportOpen(true)}>
-                            <Upload className="h-4 w-4 mr-2" />
-                            {t("accounting.rateCard.importButton")}
-                        </Button>
+                        <>
+                            <Button
+                                variant="outline"
+                                onClick={() => void handleNormalizeVehicleClasses()}
+                                disabled={normalizeInProgress || entries.length === 0}
+                                title="Normalize vehicle class values (e.g., 4 WHEELS JUMBO → 4WJ)"
+                            >
+                                <Calculator className="h-4 w-4 mr-2" />
+                                {normalizeInProgress ? (
+                                    <>
+                                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                        Normalizing...
+                                    </>
+                                ) : (
+                                    "Normalize Vehicle Classes"
+                                )}
+                            </Button>
+                            <Button onClick={() => setImportOpen(true)}>
+                                <Upload className="h-4 w-4 mr-2" />
+                                {t("accounting.rateCard.importButton")}
+                            </Button>
+                        </>
                     )}
                 </div>
             </div>
@@ -831,6 +1033,54 @@ export default function AccountingRateCardPage() {
                     </CardContent>
                 </Card>
             </div>
+
+            {/* Normalization Result Alert */}
+            {normalizeError && (
+                <div className="bg-red-50 border border-red-200 rounded p-4">
+                    <h3 className="font-semibold text-red-900">Normalization Error</h3>
+                    <p className="text-red-800 mt-1">{normalizeError}</p>
+                </div>
+            )}
+
+            {normalizeResult && (
+                <div className="bg-blue-50 border border-blue-200 rounded p-4">
+                    <h3 className="font-semibold text-blue-900">Vehicle Class Normalization Results</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-3">
+                        <div>
+                            <p className="text-xs text-muted-foreground">Scanned</p>
+                            <p className="text-lg font-bold">{normalizeResult.scanned}</p>
+                        </div>
+                        <div>
+                            <p className="text-xs text-muted-foreground">Needs Update</p>
+                            <p className="text-lg font-bold">{normalizeResult.needsUpdate}</p>
+                        </div>
+                        <div>
+                            <p className="text-xs text-muted-foreground">Updated</p>
+                            <p className="text-lg font-bold text-green-600">{normalizeResult.updated}</p>
+                        </div>
+                        <div>
+                            <p className="text-xs text-muted-foreground">Status</p>
+                            <p className="text-sm mt-1">
+                                {normalizeResult.capped ? "More work may remain" : "Complete"}
+                            </p>
+                        </div>
+                    </div>
+                    {normalizeResult.samples.length > 0 && (
+                        <div className="mt-3 pt-3 border-t border-blue-200">
+                            <p className="text-xs font-semibold text-blue-900 mb-2">Sample updates:</p>
+                            <div className="space-y-1 text-xs">
+                                {normalizeResult.samples.map((s) => (
+                                    <div key={s.docId} className="text-blue-800">
+                                        <code className="bg-white px-2 py-1 rounded">
+                                            {s.old} → {s.new}
+                                        </code>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
 
             {canEdit && (
                 <Card>
@@ -894,7 +1144,7 @@ export default function AccountingRateCardPage() {
                                 <SelectContent>
                                     {manualVehicleClassOptions.map((vehicleClass) => (
                                         <SelectItem key={vehicleClass} value={vehicleClass}>
-                                            {vehicleClass}
+                                            {displayVehicleTypeCode(vehicleClass)}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>
@@ -1037,7 +1287,7 @@ export default function AccountingRateCardPage() {
                                         <SelectItem value="all">{t("accounting.filter.all")}</SelectItem>
                                         {vehicleOptions.map((vehicleClass) => (
                                             <SelectItem key={vehicleClass} value={vehicleClass}>
-                                                {vehicleClass}
+                                                {displayVehicleTypeCode(vehicleClass)}
                                             </SelectItem>
                                         ))}
                                     </SelectContent>
@@ -1096,7 +1346,7 @@ export default function AccountingRateCardPage() {
                                     <TableCell>{customerNameById.get(row.customerId) ?? row.customerId}</TableCell>
                                     <TableCell>{formatSource(row.hubId)}</TableCell>
                                     <TableCell>{formatDestination(row.destinationCode)}</TableCell>
-                                    <TableCell className="font-mono text-xs">{row.vehicleClass}</TableCell>
+                                    <TableCell className="font-mono text-xs">{displayVehicleTypeCode(row.vehicleClass)}</TableCell>
                                     <TableCell className="text-right">฿{row.rateThb.toLocaleString()}</TableCell>
                                     {showRateCalPreview && (
                                         <TableCell className="text-right">
@@ -1521,6 +1771,261 @@ export default function AccountingRateCardPage() {
             </Card>
 
             <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0">
+                    <div>
+                        <CardTitle>{t("accounting.serviceFees.title")}</CardTitle>
+                        <p className="text-sm text-muted-foreground mt-1">
+                            {t("accounting.serviceFees.subtitle")}
+                        </p>
+                    </div>
+                    {canEdit && (
+                        <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => {
+                                setEditingServiceFeeId(null);
+                                setServiceFeeError(null);
+                                setServiceFeeForm({
+                                    customerId: "",
+                                    feeType: "extra_stop",
+                                    customTypeName: "",
+                                    amountThb: "",
+                                    unit: "per_stop",
+                                    note: "",
+                                });
+                                setServiceFeeDialogOpen(true);
+                            }}
+                        >
+                            <Plus className="h-4 w-4 mr-2" />
+                            {t("accounting.serviceFees.addButton")}
+                        </Button>
+                    )}
+                </CardHeader>
+                <CardContent>
+                    {canEdit && (
+                        <Dialog
+                            open={serviceFeeDialogOpen}
+                            onOpenChange={(open) => {
+                                setServiceFeeDialogOpen(open);
+                                if (!open) {
+                                    handleCancelEditServiceFee();
+                                }
+                            }}
+                        >
+                            <DialogContent className="sm:max-w-md">
+                                <DialogHeader>
+                                    <DialogTitle>
+                                        {editingServiceFeeId
+                                            ? t("accounting.serviceFees.dialog.edit")
+                                            : t("accounting.serviceFees.dialog.create")}
+                                    </DialogTitle>
+                                </DialogHeader>
+                                <div className="grid grid-cols-1 gap-3 py-2">
+                                    <div className="space-y-1.5">
+                                        <Label>{t("accounting.serviceFees.form.customer")}</Label>
+                                        <Select
+                                            value={serviceFeeForm.customerId}
+                                            onValueChange={(v) =>
+                                                setServiceFeeForm((prev) => ({ ...prev, customerId: v }))
+                                            }
+                                        >
+                                            <SelectTrigger>
+                                                <SelectValue placeholder={t("accounting.rateCard.import.selectCustomerPlaceholder")} />
+                                            </SelectTrigger>
+                                            <SelectContent className="z-[1005]" position="popper">
+                                                {customers.map((c) => (
+                                                    <SelectItem key={c.id} value={c.id}>
+                                                        {c.code} - {c.name}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label>{t("accounting.serviceFees.form.feeType")}</Label>
+                                        <Select
+                                            value={serviceFeeForm.feeType}
+                                            onValueChange={(v) =>
+                                                setServiceFeeForm((prev) => ({ ...prev, feeType: v as ServiceFeeType }))
+                                            }
+                                        >
+                                            <SelectTrigger>
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent className="z-[1005]" position="popper">
+                                                <SelectItem value="extra_stop">{t("accounting.serviceFees.type.extra_stop")}</SelectItem>
+                                                <SelectItem value="waiting_time">{t("accounting.serviceFees.type.waiting_time")}</SelectItem>
+                                                <SelectItem value="special_handling">{t("accounting.serviceFees.type.special_handling")}</SelectItem>
+                                                <SelectItem value="service_charge">{t("accounting.serviceFees.type.service_charge")}</SelectItem>
+                                                <SelectItem value="custom">{t("accounting.serviceFees.type.custom")}</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    {serviceFeeForm.feeType === "custom" && (
+                                        <div className="space-y-1.5">
+                                            <Label>{t("accounting.serviceFees.form.customTypeName")}</Label>
+                                            <Input
+                                                value={serviceFeeForm.customTypeName}
+                                                onChange={(e) =>
+                                                    setServiceFeeForm((prev) => ({
+                                                        ...prev,
+                                                        customTypeName: e.target.value,
+                                                    }))
+                                                }
+                                                placeholder={t("accounting.serviceFees.form.customTypeName")}
+                                            />
+                                        </div>
+                                    )}
+                                    <div className="space-y-1.5">
+                                        <Label>{t("accounting.serviceFees.form.amount")}</Label>
+                                        <Input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            value={serviceFeeForm.amountThb}
+                                            onChange={(e) =>
+                                                setServiceFeeForm((prev) => ({
+                                                    ...prev,
+                                                    amountThb: e.target.value,
+                                                }))
+                                            }
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label>{t("accounting.serviceFees.form.unit")}</Label>
+                                        <Select
+                                            value={serviceFeeForm.unit}
+                                            onValueChange={(v) =>
+                                                setServiceFeeForm((prev) => ({ ...prev, unit: v as ServiceFeeUnit }))
+                                            }
+                                        >
+                                            <SelectTrigger>
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent className="z-[1005]" position="popper">
+                                                <SelectItem value="per_trip">{t("accounting.serviceFees.unit.per_trip")}</SelectItem>
+                                                <SelectItem value="per_stop">{t("accounting.serviceFees.unit.per_stop")}</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label>{t("accounting.serviceFees.form.note")}</Label>
+                                        <Input
+                                            value={serviceFeeForm.note}
+                                            onChange={(e) =>
+                                                setServiceFeeForm((prev) => ({
+                                                    ...prev,
+                                                    note: e.target.value,
+                                                }))
+                                            }
+                                            placeholder={t("accounting.serviceFees.form.note")}
+                                        />
+                                    </div>
+                                    {serviceFeeError && (
+                                        <p className="text-sm text-destructive">{serviceFeeError}</p>
+                                    )}
+                                </div>
+                                <DialogFooter>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={() => setServiceFeeDialogOpen(false)}
+                                        disabled={savingServiceFee}
+                                    >
+                                        {t("accounting.serviceFees.form.cancel")}
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        onClick={() => void handleCreateServiceFee()}
+                                        disabled={savingServiceFee}
+                                    >
+                                        {savingServiceFee ? (
+                                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                        ) : editingServiceFeeId ? (
+                                            <Pencil className="h-4 w-4 mr-2" />
+                                        ) : (
+                                            <Plus className="h-4 w-4 mr-2" />
+                                        )}
+                                        {savingServiceFee
+                                            ? t("accounting.serviceFees.form.saving")
+                                            : editingServiceFeeId
+                                              ? t("accounting.serviceFees.form.update")
+                                              : t("accounting.serviceFees.form.save")}
+                                    </Button>
+                                </DialogFooter>
+                            </DialogContent>
+                        </Dialog>
+                    )}
+
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>{t("accounting.serviceFees.table.customer")}</TableHead>
+                                <TableHead>{t("accounting.serviceFees.table.feeType")}</TableHead>
+                                <TableHead>{t("accounting.serviceFees.table.unit")}</TableHead>
+                                <TableHead className="text-right">{t("accounting.serviceFees.table.amount")}</TableHead>
+                                <TableHead>{t("accounting.serviceFees.table.note")}</TableHead>
+                                {canEdit && (
+                                    <TableHead className="text-right">{t("accounting.serviceFees.table.actions")}</TableHead>
+                                )}
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {filteredServiceFees.map((row) => (
+                                <TableRow key={row.id}>
+                                    <TableCell>{customerOnlyNameById.get(row.customerId) ?? row.customerId}</TableCell>
+                                    <TableCell>{getServiceFeeTypeLabel(row.feeType, row.customTypeName)}</TableCell>
+                                    <TableCell>{t(`accounting.serviceFees.unit.${row.unit}`)}</TableCell>
+                                    <TableCell className="text-right">฿{row.amountThb.toLocaleString()}</TableCell>
+                                    <TableCell>{row.note || "—"}</TableCell>
+                                    {canEdit && (
+                                        <TableCell className="text-right">
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button
+                                                        type="button"
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        disabled={deletingServiceFeeId === row.id}
+                                                    >
+                                                        {deletingServiceFeeId === row.id ? (
+                                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                                        ) : (
+                                                            <MoreHorizontal className="h-4 w-4" />
+                                                        )}
+                                                    </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                    <DropdownMenuItem onClick={() => handleEditServiceFee(row)}>
+                                                        <Pencil className="h-4 w-4 mr-2" />
+                                                        {t("accounting.serviceFees.table.edit")}
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuItem
+                                                        className="text-destructive focus:text-destructive"
+                                                        onClick={() => void handleDeleteServiceFee(row.id)}
+                                                    >
+                                                        <Trash2 className="h-4 w-4 mr-2" />
+                                                        {t("accounting.serviceFees.table.delete")}
+                                                    </DropdownMenuItem>
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                        </TableCell>
+                                    )}
+                                </TableRow>
+                            ))}
+                            {filteredServiceFees.length === 0 && (
+                                <TableRow>
+                                    <TableCell colSpan={canEdit ? 6 : 5} className="h-20 text-center text-muted-foreground">
+                                        {t("accounting.serviceFees.noRows")}
+                                    </TableCell>
+                                </TableRow>
+                            )}
+                        </TableBody>
+                    </Table>
+                </CardContent>
+            </Card>
+
+            <Card>
                 <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-start sm:justify-between">
                     <div className="space-y-1">
                         <CardTitle>{t("accounting.rateCard.fuelMonthly.title")}</CardTitle>
@@ -1687,8 +2192,8 @@ export default function AccountingRateCardPage() {
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {manualVehicleClassOptions.map((vc) => (
-                                            <SelectItem key={vc} value={vc}>{vc}</SelectItem>
+                                        {editVehicleClassOptions.map((vc) => (
+                                            <SelectItem key={vc} value={vc}>{displayVehicleTypeCode(vc)}</SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>

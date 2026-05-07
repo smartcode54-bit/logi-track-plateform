@@ -117,6 +117,16 @@ service cloud.firestore {
       allow write: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
     }
 
+    // Customer service fees (extra stop, waiting time, special handling, etc.).
+    match /customer_service_fees/{docId} {
+      allow read: if request.auth != null && request.auth.token.admin == true;
+      allow create, update: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true
+        && request.resource.data.customerId is string
+        && request.resource.data.amountThb is number
+        && request.resource.data.amountThb >= 0;
+      allow delete: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+    }
+
     // Monthly retail fuel snapshots (written by Cloud Functions only).
     match /fuel_monthly_snapshots/{docId} {
       allow read: if request.auth != null && request.auth.token.admin == true;

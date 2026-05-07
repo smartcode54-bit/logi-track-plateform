@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.backfillTripBillingSnapshots = exports.computeTripBillingSnapshot = void 0;
+exports.normalizeRateEntryVehicleClasses = exports.backfillTripBillingSnapshots = exports.computeTripBillingSnapshot = void 0;
 const admin = __importStar(require("firebase-admin"));
 const firebase_functions_1 = require("firebase-functions");
 const https_1 = require("firebase-functions/v2/https");
@@ -137,8 +137,8 @@ async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef) {
             });
             return { ok: false, error: "Multi-delivery trip has < 2 delivered stops" };
         }
-        // TODO: get dropFeeThb from customer config or hardcoded constant
-        const dropFeeThb = 50; // Default drop fee: 50 THB per stop
+        // Extra stop surcharge: 100 THB per stop (stops 2+)
+        const dropFeeThb = 100;
         const multiComputed = (0, billingCompute_1.computeMultiDeliveryBilling)(tripParts, taskInput, stops, normalizeStoredCode(taskInput.truckType || "4WJ"), dropFeeThb, rateEntries, fuelAdjustments);
         if (!multiComputed) {
             firebase_functions_1.logger.warn("[billingSnapshot] could not compute multi-delivery billing", {
@@ -304,6 +304,47 @@ exports.backfillTripBillingSnapshots = (0, https_1.onCall)({
         failed,
         failures,
         capped: eligible > attempted,
+    };
+});
+/**
+ * Admin-only: normalize vehicle class values in all customer_rate_entries.
+ * Converts full names (e.g., "4 WHEELS JUMBO") to short codes (e.g., "4WJ").
+ */
+exports.normalizeRateEntryVehicleClasses = (0, https_1.onCall)({
+    region: "asia-southeast1",
+    enforceAppCheck: false,
+}, async (request) => {
+    if (request.auth?.token?.admin !== true) {
+        throw new https_1.HttpsError("permission-denied", "Admin only");
+    }
+    const maxScan = Math.min(Math.max(1, request.data?.maxScan ?? 5000), 10000);
+    const maxUpdate = Math.min(Math.max(1, request.data?.maxUpdate ?? 500), 1000);
+    const db = admin.firestore();
+    const snap = await db.collection(COL_RATE_ENTRIES).limit(maxScan).get();
+    let needsUpdate = 0;
+    let updated = 0;
+    const samples = [];
+    for (const doc of snap.docs) {
+        const data = doc.data();
+        const old = String(data.vehicleClass ?? "4WJ").trim().toUpperCase();
+        const normalized = (0, billingCompute_1.normalizeVehicleClass)(old);
+        if (old !== normalized) {
+            needsUpdate++;
+            if (updated < maxUpdate) {
+                await doc.ref.update({ vehicleClass: normalized });
+                updated++;
+                if (samples.length < 10) {
+                    samples.push({ docId: doc.id, old, new: normalized });
+                }
+            }
+        }
+    }
+    return {
+        scanned: snap.size,
+        needsUpdate,
+        updated,
+        samples,
+        capped: needsUpdate > updated,
     };
 });
 //# sourceMappingURL=tripBillingOnDelivered.js.map
