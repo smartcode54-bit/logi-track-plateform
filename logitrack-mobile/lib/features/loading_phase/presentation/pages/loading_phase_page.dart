@@ -1889,96 +1889,101 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                       ),
                       const SizedBox(height: 24),
 
-                      // ========== STEP 5: Additional Delivery Stops ==========
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              // Title
-                              Text(
-                                'additional_delivery_stops'.tr(),
-                                style: Theme.of(context).textTheme.titleMedium,
-                              ),
-                              const SizedBox(height: 12),
-
-                              // ปลายทาง section: empty state or list
-                              if (_additionalDeliveryStops.isEmpty)
-                                Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: Colors.blue.shade50,
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text(
-                                    'no_additional_stops'.tr(),
-                                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: Colors.black87,
-                                    ),
-                                  ),
-                                )
-                              else
-                                Column(
+                      // ========== STEP 5: Additional Delivery Stops (J&T only) ==========
+                      if (_ocrPartnerCode == zxPartnerCode)
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Card(
+                              child: Padding(
+                                padding: const EdgeInsets.all(16.0),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
                                   children: [
-                                    ..._additionalDeliveryStops.asMap().entries.map((e) {
-                                      final stop = e.value;
-                                      final index = e.key;
-                                      return Padding(
-                                        padding: const EdgeInsets.only(bottom: 8.0),
-                                        child: Card(
+                                    // Title
+                                    Text(
+                                      'additional_delivery_stops'.tr(),
+                                      style: Theme.of(context).textTheme.titleMedium,
+                                    ),
+                                    const SizedBox(height: 12),
+
+                                    // ปลายทาง section: empty state or list
+                                    if (_additionalDeliveryStops.isEmpty)
+                                      Container(
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
                                           color: Colors.blue.shade50,
-                                          child: ListTile(
-                                            title: Text(
-                                              'Stop ${index + 1}: ${stop['destination'] ?? 'Unknown'}',
-                                              style: const TextStyle(
-                                                color: Colors.black87,
-                                                fontWeight: FontWeight.w500,
-                                              ),
-                                            ),
-                                            trailing: IconButton(
-                                              icon: const Icon(Icons.close),
-                                              onPressed: () {
-                                                setState(() {
-                                                  _additionalDeliveryStops.removeAt(index);
-                                                });
-                                              },
-                                            ),
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: Text(
+                                          'no_additional_stops'.tr(),
+                                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                            color: Colors.black87,
                                           ),
                                         ),
-                                      );
-                                    }).toList(),
-                                    Text(
-                                      'Delivery order: Main destination → Stop 1 → Stop 2...',
-                                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                        color: Colors.orange.shade700,
-                                        fontStyle: FontStyle.italic,
+                                      )
+                                    else
+                                      Column(
+                                        children: [
+                                          ..._additionalDeliveryStops.asMap().entries.map((e) {
+                                            final stop = e.value;
+                                            final index = e.key;
+                                            return Padding(
+                                              padding: const EdgeInsets.only(bottom: 8.0),
+                                              child: Card(
+                                                color: Colors.blue.shade50,
+                                                child: ListTile(
+                                                  title: Text(
+                                                    'Stop ${index + 1}: ${stop['destination'] ?? 'Unknown'}',
+                                                    style: const TextStyle(
+                                                      color: Colors.black87,
+                                                      fontWeight: FontWeight.w500,
+                                                    ),
+                                                  ),
+                                                  trailing: IconButton(
+                                                    icon: const Icon(Icons.close),
+                                                    onPressed: () {
+                                                      setState(() {
+                                                        _additionalDeliveryStops.removeAt(index);
+                                                      });
+                                                    },
+                                                  ),
+                                                ),
+                                              ),
+                                            );
+                                          }).toList(),
+                                          Text(
+                                            'Delivery order: Main destination → Stop 1 → Stop 2...',
+                                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                              color: Colors.orange.shade700,
+                                              fontStyle: FontStyle.italic,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    const SizedBox(height: 12),
+
+                                    // เพิ่มจุดรับ button
+                                    ElevatedButton.icon(
+                                      onPressed: _showAddDeliveryStopDialog,
+                                      icon: const Icon(Icons.add, size: 18),
+                                      label: Text('add_stop'.tr()),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.green.shade600,
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 12,
+                                          horizontal: 12,
+                                        ),
                                       ),
                                     ),
                                   ],
                                 ),
-                              const SizedBox(height: 12),
-
-                              // เพิ่มจุดรับ button — เฉพาะ J&T เท่านั้น
-                              if (_ocrPartnerCode == zxPartnerCode)
-                                ElevatedButton.icon(
-                                  onPressed: _showAddDeliveryStopDialog,
-                                  icon: const Icon(Icons.add, size: 18),
-                                  label: Text('add_stop'.tr()),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.green.shade600,
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 12,
-                                      horizontal: 12,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                          ],
                         ),
-                      ),
-                      const SizedBox(height: 24),
 
                       // ========== STEP 6: ถ่ายรูป 3 ขั้นตอน ==========
                       _sectionTitle('loading_phase_photos_step_title'.tr()),
