@@ -1245,64 +1245,67 @@ export default function DriverMonitorDashboard() {
                                 </div>
                             </div>
 
-                            {detailTrip.isMultiDelivery && (detailTrip.deliveryStopsProgress?.length ?? 0) > 0 ? (
-                                detailTrip.deliveryStopsProgress?.some((stop) => stop.photos && stop.photos.length > 0) && (
-                                    <div className="space-y-3">
-                                        <h4 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
-                                            <Camera className="h-4 w-4" />
-                                            {t("driverMonitor.detail.photos")}
-                                        </h4>
-                                        <div className="space-y-4">
-                                            {detailTrip.deliveryStopsProgress?.map((stop) => (
-                                                stop.photos && stop.photos.length > 0 && (
-                                                    <div key={stop.index} className="border border-border/50 rounded-lg p-4">
-                                                        <p className="text-sm font-semibold mb-3">
-                                                            Stop {stop.index}: {getSourceDisplayName(stop.destination)}
-                                                        </p>
-                                                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                                                            {stop.photos.map((photo, idx) => (
-                                                                <button
-                                                                    key={`${stop.index}-${idx}`}
-                                                                    type="button"
-                                                                    onClick={() => setPhotoPreviewStartIndex(idx)}
-                                                                    className="group relative block rounded-lg overflow-hidden border border-border/50 aspect-square bg-muted/50 hover:border-primary/50 transition-colors text-left w-full"
-                                                                >
-                                                                    <img src={photo.url} alt={photo.type} className="object-cover w-full h-full" />
-                                                                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2">
-                                                                        <p className="text-white text-xs font-medium">{photo.type.replace(/_/g, " ")}</p>
-                                                                    </div>
-                                                                </button>
-                                                            ))}
-                                                        </div>
-                                                    </div>
-                                                )
-                                            ))}
-                                        </div>
-                                    </div>
-                                )
-                            ) : detailTrip.photos && detailTrip.photos.length > 0 && (
+                            {(detailTrip.photos && detailTrip.photos.length > 0) || (detailTrip.isMultiDelivery && detailTrip.deliveryStopsProgress?.some((stop) => stop.photos && stop.photos.length > 0)) ? (
                                 <div className="space-y-3">
                                     <h4 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
                                         <Camera className="h-4 w-4" />
-                                        {t("driverMonitor.detail.photos")} ({detailTrip.photos.length})
+                                        {t("driverMonitor.detail.photos")}
                                     </h4>
-                                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                                        {detailTrip.photos.map((photo, idx) => (
-                                            <button
-                                                key={idx}
-                                                type="button"
-                                                onClick={() => setPhotoPreviewStartIndex(idx)}
-                                                className="group relative block rounded-lg overflow-hidden border border-border/50 aspect-square bg-muted/50 hover:border-primary/50 transition-colors text-left w-full"
-                                            >
-                                                <img src={photo.url} alt={photo.type} className="object-cover w-full h-full" />
-                                                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2">
-                                                    <p className="text-white text-xs font-medium">{photo.type.replace(/_/g, " ")}</p>
+                                    <div className="space-y-4">
+                                        {/* Loading Phase Photos */}
+                                        {detailTrip.photos && detailTrip.photos.length > 0 && (
+                                            <div className="border border-border/50 rounded-lg p-4">
+                                                <p className="text-sm font-semibold mb-3">Loading Phase</p>
+                                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                                    {detailTrip.photos.map((photo, idx) => (
+                                                        <button
+                                                            key={`loading-${idx}`}
+                                                            type="button"
+                                                            onClick={() => setPhotoPreviewStartIndex(idx)}
+                                                            className="group relative block rounded-lg overflow-hidden border border-border/50 aspect-square bg-muted/50 hover:border-primary/50 transition-colors text-left w-full"
+                                                        >
+                                                            <img src={photo.url} alt={photo.type} className="object-cover w-full h-full" />
+                                                            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2">
+                                                                <p className="text-white text-xs font-medium">{photo.type.replace(/_/g, " ")}</p>
+                                                            </div>
+                                                        </button>
+                                                    ))}
                                                 </div>
-                                            </button>
-                                        ))}
+                                            </div>
+                                        )}
+
+                                        {/* Delivery Stop Photos (Multi-delivery only) */}
+                                        {detailTrip.isMultiDelivery && (detailTrip.deliveryStopsProgress?.length ?? 0) > 0 && (
+                                            <>
+                                                {detailTrip.deliveryStopsProgress?.map((stop) => (
+                                                    stop.photos && stop.photos.length > 0 && (
+                                                        <div key={stop.index} className="border border-border/50 rounded-lg p-4">
+                                                            <p className="text-sm font-semibold mb-3">
+                                                                Stop {stop.index}: {getSourceDisplayName(stop.destination)}
+                                                            </p>
+                                                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                                                {stop.photos.map((photo, idx) => (
+                                                                    <button
+                                                                        key={`${stop.index}-${idx}`}
+                                                                        type="button"
+                                                                        onClick={() => setPhotoPreviewStartIndex(idx)}
+                                                                        className="group relative block rounded-lg overflow-hidden border border-border/50 aspect-square bg-muted/50 hover:border-primary/50 transition-colors text-left w-full"
+                                                                    >
+                                                                        <img src={photo.url} alt={photo.type} className="object-cover w-full h-full" />
+                                                                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2">
+                                                                            <p className="text-white text-xs font-medium">{photo.type.replace(/_/g, " ")}</p>
+                                                                        </div>
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )
+                                                ))}
+                                            </>
+                                        )}
                                     </div>
                                 </div>
-                            )}
+                            ) : null}
                         </div>
                     )}
                     <DialogFooter className="gap-2 flex-col sm:flex-row sm:justify-end sm:gap-0">
