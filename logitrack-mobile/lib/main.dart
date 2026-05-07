@@ -119,7 +119,7 @@ class MyApp extends StatelessWidget {
           // builder: DevicePreview.appBuilder,
           localizationsDelegates: context.localizationDelegates,
           supportedLocales: context.supportedLocales,
-          title: 'LogiTrack Driver',
+          title: 'LogiTrack - Drive',
           themeMode: themeMode,
           theme: ThemeData(
             brightness: Brightness.light,
