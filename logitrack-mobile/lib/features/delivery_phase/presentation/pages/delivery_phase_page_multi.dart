@@ -833,12 +833,17 @@ class _DeliveryPhasePageMultiState extends State<DeliveryPhasePageMulti> {
         ? '$required/$required ✓'
         : '$captured/$required';
 
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final textColor = stop.isDelivered
+        ? (isDarkMode ? Colors.grey.shade500 : Colors.grey.shade600)
+        : (isDarkMode ? Colors.white : Colors.black87);
+
     return Card(
       key: key,
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
       elevation: stop.isDelivered ? 0 : 2,
       color: stop.isDelivered
-          ? Colors.grey.shade100
+          ? (isDarkMode ? Colors.grey.shade800 : Colors.grey.shade100)
           : Theme.of(context).cardColor,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
@@ -853,7 +858,7 @@ class _DeliveryPhasePageMultiState extends State<DeliveryPhasePageMulti> {
                   width: 32, height: 32,
                   decoration: BoxDecoration(
                     color: stop.isDelivered
-                        ? Colors.grey.shade400
+                        ? (isDarkMode ? Colors.grey.shade600 : Colors.grey.shade400)
                         : const Color(0xFF2563EB),
                     shape: BoxShape.circle,
                   ),
@@ -876,7 +881,7 @@ class _DeliveryPhasePageMultiState extends State<DeliveryPhasePageMulti> {
                     label,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       fontWeight: FontWeight.w600,
-                      color: stop.isDelivered ? Colors.grey : Colors.black87,
+                      color: textColor,
                     ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
