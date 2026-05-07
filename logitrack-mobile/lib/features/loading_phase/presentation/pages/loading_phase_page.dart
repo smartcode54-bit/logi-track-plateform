@@ -1959,20 +1959,21 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                                 ),
                               const SizedBox(height: 12),
 
-                              // เพิ่มจุดรับ button — full width, below the list
-                              ElevatedButton.icon(
-                                onPressed: _showAddDeliveryStopDialog,
-                                icon: const Icon(Icons.add, size: 18),
-                                label: Text('add_stop'.tr()),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.green.shade600,
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 12,
-                                    horizontal: 12,
+                              // เพิ่มจุดรับ button — เฉพาะ J&T เท่านั้น
+                              if (_ocrPartnerCode == zxPartnerCode)
+                                ElevatedButton.icon(
+                                  onPressed: _showAddDeliveryStopDialog,
+                                  icon: const Icon(Icons.add, size: 18),
+                                  label: Text('add_stop'.tr()),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.green.shade600,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 12,
+                                      horizontal: 12,
+                                    ),
                                   ),
                                 ),
-                              ),
                             ],
                           ),
                         ),
