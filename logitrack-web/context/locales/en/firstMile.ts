@@ -87,6 +87,7 @@ export default {
     "firstMile.task.driverInfo": "Driver Info",
     "firstMile.task.driverName": "Name",
     "firstMile.task.selectDriver": "Select Driver",
+    "firstMile.task.driverOnRun": "On run",
     "firstMile.task.phone": "Phone",
     "firstMile.task.licensePlate": "License Plate",
     "firstMile.task.cancel": "Cancel",

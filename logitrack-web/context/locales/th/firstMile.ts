@@ -87,6 +87,7 @@ export default {
     "firstMile.task.driverInfo": "ข้อมูลคนขับ",
     "firstMile.task.driverName": "ชื่อ",
     "firstMile.task.selectDriver": "เลือกคนขับ",
+    "firstMile.task.driverOnRun": "กำลังวิ่งอยู่",
     "firstMile.task.phone": "เบอร์โทร",
     "firstMile.task.licensePlate": "ทะเบียนรถ",
     "firstMile.task.cancel": "ยกเลิก",

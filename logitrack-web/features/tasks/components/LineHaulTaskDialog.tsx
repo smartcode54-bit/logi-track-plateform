@@ -458,12 +458,6 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                                             return fmType;
                                                         };
                                                         const filtered = drivers.filter(driver => {
-                                                            if (mode === "edit" && driver.id === task?.driverId) {
-                                                                // keep current
-                                                            } else if (driver.id && activeTaskDriverIds.has(driver.id)) {
-                                                                return false;
-                                                            }
-
                                                             if (!watchedTruckType) return true;
                                                             const targetType = getMappedTruckType(watchedTruckType);
                                                             const assignedTruckId = driver.currentAssignment?.truckId;
@@ -476,11 +470,21 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                                             return truck.type === targetType;
                                                         });
                                                         const list = mode === "edit" && filtered.length === 0 ? drivers : filtered;
-                                                        return list.map((driver) => (
-                                                            <SelectItem key={driver.id} value={driver.id || "unknown"}>
-                                                                {driver.firstName} {driver.lastName}
-                                                            </SelectItem>
-                                                        ));
+                                                        return list.map((driver) => {
+                                                            const isActive = driver.id ? activeTaskDriverIds.has(driver.id) : false;
+                                                            return (
+                                                                <SelectItem key={driver.id} value={driver.id || "unknown"}>
+                                                                    <span className="flex items-center gap-2">
+                                                                        {driver.firstName} {driver.lastName}
+                                                                        {isActive && (
+                                                                            <span className="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full font-medium">
+                                                                                {t("firstMile.task.driverOnRun")}
+                                                                            </span>
+                                                                        )}
+                                                                    </span>
+                                                                </SelectItem>
+                                                            );
+                                                        });
                                                     })()}
                                                 </SelectContent>
                                             </Select>
