@@ -76,7 +76,7 @@ exports.updateUserRole = (0, https_1.onCall)(async (request) => {
     if (request.auth.token.admin !== true) {
         throw new https_1.HttpsError("permission-denied", "Only admins can modify user roles");
     }
-    const { targetUid, role, isAdmin, partnerScopeId } = request.data;
+    const { targetUid, role, isAdmin, partnerScopeId, customerScopeId } = request.data;
     if (!targetUid) {
         throw new https_1.HttpsError("invalid-argument", "Target UID is required");
     }
@@ -110,6 +110,20 @@ exports.updateUserRole = (0, https_1.onCall)(async (request) => {
         else {
             delete nextClaims.partnerScopeId;
         }
+        if (newRole === 'customer') {
+            if (typeof customerScopeId === 'string' && customerScopeId.trim() !== '') {
+                nextClaims.customerScopeId = customerScopeId.trim();
+            }
+            else if (typeof currentClaims.customerScopeId === 'string' && String(currentClaims.customerScopeId).trim() !== '') {
+                nextClaims.customerScopeId = currentClaims.customerScopeId;
+            }
+            else {
+                delete nextClaims.customerScopeId;
+            }
+        }
+        else {
+            delete nextClaims.customerScopeId;
+        }
         await admin.auth().setCustomUserClaims(targetUid, nextClaims);
         // Sync to Firestore
         try {
@@ -119,6 +133,12 @@ exports.updateUserRole = (0, https_1.onCall)(async (request) => {
             }
             else if (newRole !== 'partner') {
                 userDoc.partnerScopeId = admin.firestore.FieldValue.delete();
+            }
+            if (newRole === 'customer' && typeof nextClaims.customerScopeId === 'string' && String(nextClaims.customerScopeId).trim() !== '') {
+                userDoc.customerScopeId = nextClaims.customerScopeId;
+            }
+            else if (newRole !== 'customer') {
+                userDoc.customerScopeId = admin.firestore.FieldValue.delete();
             }
             await admin.firestore().collection("users").doc(targetUid).set(userDoc, { merge: true });
         }
@@ -163,7 +183,7 @@ exports.createUser = (0, https_1.onCall)(async (request) => {
     if (request.auth.token.admin !== true) {
         throw new https_1.HttpsError("permission-denied", "Only admins can create users");
     }
-    const { email, password, displayName, role, partnerScopeId } = request.data;
+    const { email, password, displayName, role, partnerScopeId, customerScopeId } = request.data;
     if (!email || !password || !displayName) {
         throw new https_1.HttpsError("invalid-argument", "Email, password, and display name are required");
     }
@@ -182,11 +202,17 @@ exports.createUser = (0, https_1.onCall)(async (request) => {
         if (userRole === 'partner' && typeof partnerScopeId === 'string' && partnerScopeId.trim() !== '') {
             claims.partnerScopeId = partnerScopeId.trim();
         }
+        if (userRole === 'customer' && typeof customerScopeId === 'string' && customerScopeId.trim() !== '') {
+            claims.customerScopeId = customerScopeId.trim();
+        }
         await admin.auth().setCustomUserClaims(userRecord.uid, claims);
         try {
             const userDoc = { role: userRole };
             if (userRole === 'partner' && typeof claims.partnerScopeId === 'string') {
                 userDoc.partnerScopeId = claims.partnerScopeId;
+            }
+            if (userRole === 'customer' && typeof claims.customerScopeId === 'string') {
+                userDoc.customerScopeId = claims.customerScopeId;
             }
             await admin.firestore().collection("users").doc(userRecord.uid).set(userDoc, { merge: true });
         }
