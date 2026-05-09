@@ -25,6 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useLanguage } from "@/context/language";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
 type UserData = {
@@ -474,6 +475,27 @@ export default function AdminUsersPage() {
         }
     };
 
+    const [togglingUid, setTogglingUid] = useState<string | null>(null);
+
+    const handleToggleDisabled = async (user: UserData, nextDisabled: boolean) => {
+        if (currentUser?.uid === user.uid) {
+            toast.error(t("users.disable.cannotDisableSelf"));
+            return;
+        }
+        try {
+            setTogglingUid(user.uid);
+            const setUserDisabled = httpsCallable(functions, "setUserDisabled");
+            await setUserDisabled({ targetUid: user.uid, disabled: nextDisabled });
+            toast.success(nextDisabled ? t("users.disable.disabledSuccess") : t("users.disable.enabledSuccess"));
+            fetchUsers();
+        } catch (error: any) {
+            console.error("Error toggling disabled:", error);
+            toast.error(`${t("users.disable.failed")}: ${error?.message || ""}`);
+        } finally {
+            setTogglingUid(null);
+        }
+    };
+
     const confirmRevokeSessions = async () => {
         if (!revokeTarget) return;
         setIsRevoking(true);
@@ -822,6 +844,13 @@ export default function AdminUsersPage() {
                                             </div>
                                         </TableHead>
                                         {canManageUsers && !manageUsersPermLoading ? (
+                                            <TableHead className="h-11 w-[100px] text-center">
+                                                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                                    {t("users.table.enabled")}
+                                                </span>
+                                            </TableHead>
+                                        ) : null}
+                                        {canManageUsers && !manageUsersPermLoading ? (
                                             <TableHead className="h-11 w-[52px] text-right">
                                                 <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                                                     {t("users.table.actions")}
@@ -882,6 +911,18 @@ export default function AdminUsersPage() {
                                                         {user.metadata.lastSignInTime ? new Date(user.metadata.lastSignInTime).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : "-"}
                                                     </div>
                                                 </TableCell>
+                                                {canManageUsers && !manageUsersPermLoading ? (
+                                                    <TableCell className="text-center py-2">
+                                                        <div className="flex items-center justify-center">
+                                                            <Switch
+                                                                checked={!user.disabled}
+                                                                onCheckedChange={(checked) => handleToggleDisabled(user, !checked)}
+                                                                disabled={isCurrentUser || togglingUid === user.uid}
+                                                                aria-label={t("users.disable.toggle")}
+                                                            />
+                                                        </div>
+                                                    </TableCell>
+                                                ) : null}
                                                 {canManageUsers && !manageUsersPermLoading ? (
                                                     <TableCell className="text-right py-2">
                                                         <DropdownMenu>
