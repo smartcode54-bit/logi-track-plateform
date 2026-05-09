@@ -114,7 +114,7 @@ function EditUserDialog({
     const { t } = useLanguage();
     const auth = useAuth();
     const currentUser = auth?.currentUser;
-    const refreshClaims = auth?.refreshClaims;
+    const logout = auth?.logout;
 
     const [role, setRole] = useState("user");
     const [partnerScopeId, setPartnerScopeId] = useState("");
@@ -146,15 +146,18 @@ function EditUserDialog({
             const result = await updateUserRole(payload);
             console.log(`[EditUserDialog] updateUserRole response:`, result);
 
-            // If editing self, force refresh ID token so new claims take effect immediately
-            if (currentUser?.uid === user.uid && refreshClaims) {
-                console.log("[EditUserDialog] Editing self - refreshing claims");
-                await refreshClaims();
-            }
-
             toast.success(t("users.toast.roleUpdated"));
             onOpenChange(false);
             onSaveSuccess?.();
+
+            // Cloud Function revokes refresh tokens after role change.
+            // If editing self, force logout so user must re-login with new role.
+            if (currentUser?.uid === user.uid && logout) {
+                console.log("[EditUserDialog] Editing self - forcing logout to apply new role");
+                setTimeout(() => {
+                    logout();
+                }, 1500);
+            }
         } catch (error) {
             console.error("Error updating user:", error);
             toast.error(t("users.toast.roleUpdateFailed"));
