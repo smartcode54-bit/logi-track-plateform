@@ -1,6 +1,4 @@
 "use client";
-import { PagePermissionGuard } from "@/components/page-permission-guard"
-import { CAPABILITIES } from "@/lib/capabilities"
 
 import { useEffect, useMemo, useState } from "react";
 import { format, isValid, parseISO } from "date-fns";
@@ -973,9 +971,8 @@ export default function AccountingRateCardPage() {
     }
 
     return (
-        <PagePermissionGuard capability={CAPABILITIES.accounting_view_rate_card}>
-            <div className="container mx-auto p-6 space-y-6 max-w-[1600px]">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="container mx-auto p-6 space-y-6 max-w-[1600px]">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">{t("accounting.rateCard.title")}</h1>
                     <p className="text-muted-foreground mt-1">{t("accounting.rateCard.subtitle")}</p>
@@ -2373,7 +2370,6 @@ export default function AccountingRateCardPage() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-            </div>
-        </PagePermissionGuard>
+        </div>
     );
 }
