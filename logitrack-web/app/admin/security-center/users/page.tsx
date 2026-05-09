@@ -130,14 +130,18 @@ function EditUserDialog({
     const save = async () => {
         if (!user) return;
         setSaving(true);
+        console.log(`[EditUserDialog] Saving user ${user.uid}. Current role state: "${role}"`);
         try {
             const updateUserRole = httpsCallable(functionsInstance, "updateUserRole");
-            await updateUserRole({
+            const payload = {
                 targetUid: user.uid,
                 role,
                 partnerScopeId: role === "partner" ? partnerScopeId.trim() : undefined,
                 customerScopeId: role === "customer" ? customerScopeId.trim() : undefined,
-            });
+            };
+            console.log(`[EditUserDialog] Calling updateUserRole with payload:`, payload);
+            const result = await updateUserRole(payload);
+            console.log(`[EditUserDialog] updateUserRole response:`, result);
             toast.success(t("users.toast.roleUpdated"));
             onOpenChange(false);
             onSaveSuccess?.();

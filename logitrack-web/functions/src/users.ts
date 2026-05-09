@@ -102,7 +102,14 @@ export const updateUserRole = onCall(async (request) => {
             delete nextClaims.customerScopeId;
         }
 
-        await admin.auth().setCustomUserClaims(targetUid, nextClaims as { [key: string]: unknown });
+        console.log(`[updateUserRole] Setting custom claims for ${targetUid}:`, nextClaims);
+        try {
+            await admin.auth().setCustomUserClaims(targetUid, nextClaims as { [key: string]: unknown });
+            console.log(`[updateUserRole] Custom claims set successfully for ${targetUid}`);
+        } catch (authError: any) {
+            console.error(`[updateUserRole] FAILED to set custom claims for ${targetUid}:`, authError?.message || authError);
+            throw new HttpsError("internal", `Failed to set custom claims: ${authError?.message || authError}`);
+        }
 
         // Sync to Firestore
         try {

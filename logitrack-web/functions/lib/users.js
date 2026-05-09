@@ -124,7 +124,9 @@ exports.updateUserRole = (0, https_1.onCall)(async (request) => {
         else {
             delete nextClaims.customerScopeId;
         }
+        console.log(`[updateUserRole] Setting custom claims for ${targetUid}:`, nextClaims);
         await admin.auth().setCustomUserClaims(targetUid, nextClaims);
+        console.log(`[updateUserRole] Custom claims set successfully for ${targetUid}`);
         // Sync to Firestore
         try {
             const userDoc = { role: newRole };
