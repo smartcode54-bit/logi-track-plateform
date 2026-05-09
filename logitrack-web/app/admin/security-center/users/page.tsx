@@ -217,7 +217,6 @@ function EditUserDialog({
                                     <SelectValue placeholder={t("users.customerScopePlaceholder")} />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="">-</SelectItem>
                                     {customers.map((customer) => (
                                         <SelectItem key={customer.id} value={customer.id}>
                                             {customer.name} ({customer.code})
