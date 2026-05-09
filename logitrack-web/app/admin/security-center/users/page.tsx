@@ -342,10 +342,28 @@ export default function AdminUsersPage() {
         loadCustomers();
     }, []);
 
-    // Legacy Cloud Function fetch (kept for reference or full sync)
+    // Refresh users from Cloud Function (calls getUsers which fetches from Firebase Auth)
     const fetchUsers = async () => {
-        // Only used for manual refresh if needed, but onSnapshot handles it.
-        // We can keep the Cloud Function for "Sync" but not for display.
+        try {
+            const getUsers = httpsCallable(functions, 'getUsers');
+            const result = await getUsers({}) as { data: { users: UserData[] } };
+            const usersData = result.data.users.map(user => ({
+                ...user,
+                customClaims: {
+                    role: user.customClaims?.role || (user.customClaims?.admin ? "admin" : "user"),
+                    admin: user.customClaims?.admin || false,
+                    ...(typeof user.customClaims?.partnerScopeId === "string" ? { partnerScopeId: user.customClaims.partnerScopeId } : {}),
+                    ...(typeof user.customClaims?.customerScopeId === "string" ? { customerScopeId: user.customClaims.customerScopeId } : {}),
+                },
+                metadata: {
+                    lastSignInTime: user.metadata?.lastSignInTime || null,
+                    creationTime: user.metadata?.creationTime || null,
+                },
+            })) as UserData[];
+            setUsers(usersData);
+        } catch (err) {
+            console.error("Error refreshing users:", err);
+        }
     };
 
     const handleCreateUser = async (e: React.FormEvent) => {
