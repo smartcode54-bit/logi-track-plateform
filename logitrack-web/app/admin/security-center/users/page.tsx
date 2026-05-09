@@ -171,7 +171,7 @@ function EditUserDialog({
                             <SelectTrigger id="edit-role">
                                 <SelectValue />
                             </SelectTrigger>
-                            <SelectContent>
+                            <SelectContent position="popper" className="z-[1005]">
                                 {ROLE_IDS.map((roleId) => (
                                     <SelectItem key={roleId} value={roleId}>
                                         {t(`users.role.${roleId}`)}
@@ -203,7 +203,7 @@ function EditUserDialog({
                                 <SelectTrigger id="customer-scope">
                                     <SelectValue placeholder={t("users.customerScopePlaceholder")} />
                                 </SelectTrigger>
-                                <SelectContent>
+                                <SelectContent position="popper" className="z-[1005]">
                                     {customers.map((customer) => (
                                         <SelectItem key={customer.id} value={customer.id}>
                                             {customer.name} ({customer.code})
@@ -827,25 +827,7 @@ export default function AdminUsersPage() {
                                                     </div>
                                                 </TableCell>
                                                 <TableCell>
-                                                    <Select
-                                                        defaultValue={role}
-                                                        onValueChange={(val) => {
-                                                            setEditRoleUser(user);
-                                                            setEditRoleValue(val);
-                                                            handleEditRoleSpecific(user, val);
-                                                        }}
-                                                    >
-                                                        <SelectTrigger className="h-8 w-[130px] bg-background border-input text-xs font-medium shadow-sm focus:ring-1 focus:ring-primary/20">
-                                                            <SelectValue />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            {ROLE_IDS.map((roleId) => (
-                                                                <SelectItem key={roleId} value={roleId}>
-                                                                    {t(`users.role.${roleId}`)}
-                                                                </SelectItem>
-                                                            ))}
-                                                        </SelectContent>
-                                                    </Select>
+                                                    {getRoleBadge(user)}
                                                 </TableCell>
                                                 <TableCell className="align-top py-3">
                                                     {role === "partner" && user.customClaims?.partnerScopeId ? (
