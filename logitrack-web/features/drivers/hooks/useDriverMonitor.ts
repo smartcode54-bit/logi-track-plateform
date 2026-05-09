@@ -30,6 +30,7 @@ import {
     type TripBillingComputed,
     resolveTaskCustomerId,
 } from "@/lib/billingRates";
+import { useCustomerScope } from "@/hooks/useCustomerScope";
 
 /**
  * Driver monitor trip_records loading:
@@ -127,8 +128,14 @@ function tripMatchesClientFilters(
     partnerFilter: string,
     searchQuery: string,
     incidentReportsByTripId: Record<string, { description: string; delayCause: string | null; createdAt: Date | null }>,
-    getDriver: (driverId?: string) => Driver | null
+    getDriver: (driverId?: string) => Driver | null,
+    customerScopeId?: string | null
 ): boolean {
+    // Customer scope: only show trips for their customer
+    if (customerScopeId && trip.billingCustomerId !== customerScopeId) {
+        return false;
+    }
+
     if (statusFilter !== "all") {
         if (statusFilter === "incident") {
             if ((!trip.id || !incidentReportsByTripId[trip.id]) && trip.status !== "incident") return false;
@@ -179,7 +186,8 @@ function tripMatchesExportCriteria(
     trip: TripRecord,
     criteria: ExportFilterCriteria,
     incidentReportsByTripId: Record<string, { description: string; delayCause: string | null; createdAt: Date | null }>,
-    getDriver: (driverId?: string) => Driver | null
+    getDriver: (driverId?: string) => Driver | null,
+    customerScopeId?: string | null
 ): boolean {
     if (criteria.dateFrom && criteria.dateTo && !tripInDateRange(trip, criteria.dateFrom, criteria.dateTo)) {
         return false;
@@ -192,7 +200,8 @@ function tripMatchesExportCriteria(
         criteria.partnerFilter,
         criteria.searchQuery,
         incidentReportsByTripId,
-        getDriver
+        getDriver,
+        customerScopeId
     );
 }
 
@@ -238,6 +247,8 @@ export async function fetchTripsForDateRange(from: Date, to: Date): Promise<Trip
 }
 
 export function useDriverMonitor() {
+    const { customerScopeId, isCustomer } = useCustomerScope();
+
     const [trips, setTrips] = useState<TripRecord[]>([]);
     const [drivers, setDrivers] = useState<Record<string, Driver>>({});
     const [tasks, setTasks] = useState<Task[]>([]);
@@ -526,15 +537,16 @@ export function useDriverMonitor() {
                 partnerFilter,
                 searchQuery,
                 incidentReportsByTripId,
-                getDriver
+                getDriver,
+                customerScopeId
             )
         );
-    }, [trips, driverFilter, statusFilter, jobTypeFilter, partnerFilter, searchQuery, incidentReportsByTripId, getDriver]);
+    }, [trips, driverFilter, statusFilter, jobTypeFilter, partnerFilter, searchQuery, incidentReportsByTripId, getDriver, customerScopeId]);
 
     const getTripsForExport = useCallback(
         (criteria: ExportFilterCriteria): TripRecord[] => {
             return trips.filter((trip) =>
-                tripMatchesExportCriteria(trip, criteria, incidentReportsByTripId, getDriver)
+                tripMatchesExportCriteria(trip, criteria, incidentReportsByTripId, getDriver, customerScopeId)
             );
         },
         [trips, incidentReportsByTripId, getDriver]

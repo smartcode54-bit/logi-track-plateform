@@ -94,6 +94,55 @@ function PartnerScopeCell({
     );
 }
 
+function CustomerScopeCell({
+    user,
+    functions: functionsInstance,
+}: {
+    user: UserData;
+    functions: Functions;
+}) {
+    const { t } = useLanguage();
+    const initial =
+        typeof user.customClaims?.customerScopeId === "string" ? user.customClaims.customerScopeId : "";
+    const [value, setValue] = useState(initial);
+
+    useEffect(() => {
+        setValue(typeof user.customClaims?.customerScopeId === "string" ? user.customClaims.customerScopeId : "");
+    }, [user.uid, user.customClaims?.customerScopeId]);
+
+    const [saving, setSaving] = useState(false);
+    const save = async () => {
+        setSaving(true);
+        try {
+            const updateUserRole = httpsCallable(functionsInstance, "updateUserRole");
+            await updateUserRole({
+                targetUid: user.uid,
+                role: "customer",
+                customerScopeId: value.trim(),
+            });
+            toast.success(t("users.customerScopeSaved"));
+        } catch {
+            toast.error(t("users.customerScopeSaveFailed"));
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div className="flex flex-col gap-1 min-w-[160px]">
+            <Input
+                className="h-8 text-xs"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                placeholder={t("users.customerScopePlaceholder")}
+            />
+            <Button type="button" size="sm" className="h-7 text-xs w-fit" onClick={save} disabled={saving}>
+                {t("users.customerScopeSave")}
+            </Button>
+        </div>
+    );
+}
+
 export default function AdminUsersPage() {
     const { t } = useLanguage();
     const [users, setUsers] = useState<UserData[]>([]);
@@ -112,6 +161,7 @@ export default function AdminUsersPage() {
     const [newUserDisplayName, setNewUserDisplayName] = useState("");
     const [newUserRole, setNewUserRole] = useState("user");
     const [newUserPartnerScopeId, setNewUserPartnerScopeId] = useState("");
+    const [newUserCustomerScopeId, setNewUserCustomerScopeId] = useState("");
 
     // Sorting State
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
@@ -166,6 +216,9 @@ export default function AdminUsersPage() {
                         ...(typeof data.partnerScopeId === "string" && data.partnerScopeId.trim()
                             ? { partnerScopeId: data.partnerScopeId.trim() }
                             : {}),
+                        ...(typeof data.customerScopeId === "string" && data.customerScopeId.trim()
+                            ? { customerScopeId: data.customerScopeId.trim() }
+                            : {}),
                     },
                     metadata: {
                         lastSignInTime: data.lastLogin || null,
@@ -211,6 +264,9 @@ export default function AdminUsersPage() {
                 ...(newUserRole === "partner" && newUserPartnerScopeId.trim()
                     ? { partnerScopeId: newUserPartnerScopeId.trim() }
                     : {}),
+                ...(newUserRole === "customer" && newUserCustomerScopeId.trim()
+                    ? { customerScopeId: newUserCustomerScopeId.trim() }
+                    : {}),
             });
 
             toast.success(t("users.toast.created"));
@@ -222,6 +278,7 @@ export default function AdminUsersPage() {
             setNewUserDisplayName("");
             setNewUserRole("user");
             setNewUserPartnerScopeId("");
+            setNewUserCustomerScopeId("");
 
             // Refresh list
             fetchUsers();
@@ -505,6 +562,17 @@ export default function AdminUsersPage() {
                                         />
                                     </div>
                                 )}
+                                {newUserRole === "customer" && (
+                                    <div className="space-y-2">
+                                        <Label htmlFor="customerScope">{t("users.customerScope")}</Label>
+                                        <Input
+                                            id="customerScope"
+                                            value={newUserCustomerScopeId}
+                                            onChange={(e) => setNewUserCustomerScopeId(e.target.value)}
+                                            placeholder={t("users.customerScopePlaceholder")}
+                                        />
+                                    </div>
+                                )}
                                 <DialogFooter>
                                     <Button type="button" variant="outline" onClick={() => setIsCreateOpen(false)}>
                                         {t("users.form.cancel")}
@@ -604,7 +672,7 @@ export default function AdminUsersPage() {
                                         </TableHead>
                                         <TableHead className="h-11 min-w-[180px]">
                                             <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                                {t("users.partnerScope")}
+                                                {t("users.scope")}
                                             </div>
                                         </TableHead>
                                         <TableHead className="h-11">
@@ -670,6 +738,8 @@ export default function AdminUsersPage() {
                                                 <TableCell className="align-top py-3">
                                                     {role === "partner" ? (
                                                         <PartnerScopeCell user={user} functions={functions} />
+                                                    ) : role === "customer" ? (
+                                                        <CustomerScopeCell user={user} functions={functions} />
                                                     ) : (
                                                         <span className="text-xs text-muted-foreground">—</span>
                                                     )}

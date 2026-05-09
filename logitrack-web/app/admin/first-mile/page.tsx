@@ -7,6 +7,7 @@ import { Calendar as CalendarIcon, Plus } from "lucide-react";
 import { FirstMileImportDialog } from "./import-dialog";
 import { FirstMileTaskDialog } from "./task-dialog";
 import { useLanguage } from "@/context/language";
+import { useCustomerScope } from "@/hooks/useCustomerScope";
 
 
 
@@ -69,6 +70,7 @@ function toDate(val: unknown): Date | null {
 
 export default function FirstMilePage() {
     const { t } = useLanguage();
+    const { customerScopeId, isCustomer } = useCustomerScope();
     const [date, setDate] = useState<Date | undefined>(new Date());
     const [tasks, setTasks] = useState<FirstMileTask[]>([]);
     const [hubs, setHubs] = useState<Record<string, any>[]>([]);
@@ -220,6 +222,16 @@ export default function FirstMilePage() {
 
     // Filter Logic
     const filteredTasks = tasks.filter(task => {
+        // Customer scope: if customer role, only show tasks linked to their customer
+        if (isCustomer && customerScopeId) {
+            const isSourceMatch = task.sourceHubLinkedCustomerId === customerScopeId;
+            const isDestinationMatch = task.destinationLinkedCustomerId === customerScopeId;
+            const isDeliveryStopMatch = task.deliveryStops?.some(
+                (stop) => stop.destinationLinkedCustomerId === customerScopeId
+            ) ?? false;
+            if (!isSourceMatch && !isDestinationMatch && !isDeliveryStopMatch) return false;
+        }
+
         // Date match (compare dd/MM/yyyy)
         if (date) {
             const filterStr = format(date, "dd/MM/yyyy");
@@ -247,13 +259,15 @@ export default function FirstMilePage() {
                     <Button variant="outline" size="icon" onClick={() => fetchHubs()} aria-label={t("firstMile.sources.refresh")}>
                         <RefreshCw className="h-4 w-4" />
                     </Button>
-                    <div className="flex gap-3">
-                        <FirstMileImportDialog onSuccess={() => { }} />
-                        <Button onClick={handleCreate}>
-                            <Plus className="mr-2 h-4 w-4" />
-                            {t("firstMile.newAssignment")}
-                        </Button>
-                    </div>
+                    {!isCustomer && (
+                        <div className="flex gap-3">
+                            <FirstMileImportDialog onSuccess={() => { }} />
+                            <Button onClick={handleCreate}>
+                                <Plus className="mr-2 h-4 w-4" />
+                                {t("firstMile.newAssignment")}
+                            </Button>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -407,31 +421,33 @@ export default function FirstMilePage() {
                                             <span className="text-muted-foreground">-</span>
                                         )}
                                     </TableCell>
-                                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                                        <DropdownMenu>
-                                            <DropdownMenuTrigger asChild>
-                                                <Button variant="ghost" size="icon" className="h-8 w-8">
-                                                    <MoreHorizontal className="h-4 w-4" />
-                                                </Button>
-                                            </DropdownMenuTrigger>
-                                            <DropdownMenuContent align="end">
-                                                <DropdownMenuItem onClick={() => handleEdit(task)}>
-                                                    {t("firstMile.table.edit")}
-                                                </DropdownMenuItem>
-                                                <DropdownMenuItem onClick={() => handleEdit(task)}>
-                                                    {t("firstMile.table.assign", "Assign")}
-                                                </DropdownMenuItem>
-                                                {task.status !== "Cancelled" && (
-                                                    <DropdownMenuItem
-                                                        className="text-destructive focus:text-destructive"
-                                                        onClick={() => setCancelTask(task)}
-                                                    >
-                                                        {t("firstMile.table.cancel", "Cancel")}
+                                    {!isCustomer && (
+                                        <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                                                        <MoreHorizontal className="h-4 w-4" />
+                                                    </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                    <DropdownMenuItem onClick={() => handleEdit(task)}>
+                                                        {t("firstMile.table.edit")}
                                                     </DropdownMenuItem>
-                                                )}
-                                            </DropdownMenuContent>
-                                        </DropdownMenu>
-                                    </TableCell>
+                                                    <DropdownMenuItem onClick={() => handleEdit(task)}>
+                                                        {t("firstMile.table.assign", "Assign")}
+                                                    </DropdownMenuItem>
+                                                    {task.status !== "Cancelled" && (
+                                                        <DropdownMenuItem
+                                                            className="text-destructive focus:text-destructive"
+                                                            onClick={() => setCancelTask(task)}
+                                                        >
+                                                            {t("firstMile.table.cancel", "Cancel")}
+                                                        </DropdownMenuItem>
+                                                    )}
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                        </TableCell>
+                                    )}
                                 </TableRow>
                             ))
                         )}

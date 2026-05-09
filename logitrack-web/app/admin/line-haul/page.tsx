@@ -7,6 +7,7 @@ import { Calendar as CalendarIcon, Plus } from "lucide-react";
 import { LineHaulImportDialog } from "./import-dialog";
 import { LineHaulTaskDialog } from "./task-dialog";
 import { useLanguage } from "@/context/language";
+import { useCustomerScope } from "@/hooks/useCustomerScope";
 
 
 
@@ -69,6 +70,7 @@ function toDate(val: unknown): Date | null {
 
 export default function LineHaulPage() {
     const { t } = useLanguage();
+    const { customerScopeId, isCustomer } = useCustomerScope();
     const [date, setDate] = useState<Date | undefined>(new Date());
     const [tasks, setTasks] = useState<FirstMileTask[]>([]);
     const [hubs, setHubs] = useState<Record<string, any>[]>([]);
@@ -220,6 +222,16 @@ export default function LineHaulPage() {
 
     // Filter Logic
     const filteredTasks = tasks.filter(task => {
+        // Customer scope: if customer role, only show tasks linked to their customer
+        if (isCustomer && customerScopeId) {
+            const isSourceMatch = task.sourceHubLinkedCustomerId === customerScopeId;
+            const isDestinationMatch = task.destinationLinkedCustomerId === customerScopeId;
+            const isDeliveryStopMatch = task.deliveryStops?.some(
+                (stop) => stop.destinationLinkedCustomerId === customerScopeId
+            ) ?? false;
+            if (!isSourceMatch && !isDestinationMatch && !isDeliveryStopMatch) return false;
+        }
+
         // Date match (compare dd/MM/yyyy)
         if (date) {
             const filterStr = format(date, "dd/MM/yyyy");
@@ -247,13 +259,17 @@ export default function LineHaulPage() {
                     <Button variant="outline" size="icon" onClick={() => fetchHubs()} aria-label="Refresh">
                         <RefreshCw className="h-4 w-4" />
                     </Button>
-                    <LineHaulImportDialog onSuccess={() => { }} />
-                    <div className="flex gap-3">
-                        <Button onClick={handleCreate}>
-                            <Plus className="mr-2 h-4 w-4" />
-                            {t("lineHaul.newAssignment")}
-                        </Button>
-                    </div>
+                    {!isCustomer && (
+                        <>
+                            <LineHaulImportDialog onSuccess={() => { }} />
+                            <div className="flex gap-3">
+                                <Button onClick={handleCreate}>
+                                    <Plus className="mr-2 h-4 w-4" />
+                                    {t("lineHaul.newAssignment")}
+                                </Button>
+                            </div>
+                        </>
+                    )}
                 </div>
             </div>
 
@@ -407,31 +423,33 @@ export default function LineHaulPage() {
                                             <span className="text-muted-foreground">-</span>
                                         )}
                                     </TableCell>
-                                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                                        <DropdownMenu>
-                                            <DropdownMenuTrigger asChild>
-                                                <Button variant="ghost" size="icon" className="h-8 w-8">
-                                                    <MoreHorizontal className="h-4 w-4" />
-                                                </Button>
-                                            </DropdownMenuTrigger>
-                                            <DropdownMenuContent align="end">
-                                                <DropdownMenuItem onClick={() => handleEdit(task)}>
-                                                    {t("lineHaul.actions.edit")}
-                                                </DropdownMenuItem>
-                                                <DropdownMenuItem onClick={() => handleEdit(task)}>
-                                                    {t("lineHaul.actions.assign")}
-                                                </DropdownMenuItem>
-                                                {task.status !== "Cancelled" && (
-                                                    <DropdownMenuItem
-                                                        className="text-destructive focus:text-destructive"
-                                                        onClick={() => setCancelTask(task)}
-                                                    >
-                                                        {t("lineHaul.actions.cancel")}
+                                    {!isCustomer && (
+                                        <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                                                        <MoreHorizontal className="h-4 w-4" />
+                                                    </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                    <DropdownMenuItem onClick={() => handleEdit(task)}>
+                                                        {t("lineHaul.actions.edit")}
                                                     </DropdownMenuItem>
-                                                )}
-                                            </DropdownMenuContent>
-                                        </DropdownMenu>
-                                    </TableCell>
+                                                    <DropdownMenuItem onClick={() => handleEdit(task)}>
+                                                        {t("lineHaul.actions.assign")}
+                                                    </DropdownMenuItem>
+                                                    {task.status !== "Cancelled" && (
+                                                        <DropdownMenuItem
+                                                            className="text-destructive focus:text-destructive"
+                                                            onClick={() => setCancelTask(task)}
+                                                        >
+                                                            {t("lineHaul.actions.cancel")}
+                                                        </DropdownMenuItem>
+                                                    )}
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                        </TableCell>
+                                    )}
                                 </TableRow>
                             ))
                         )}

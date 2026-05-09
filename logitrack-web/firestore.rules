@@ -14,6 +14,12 @@ service cloud.firestore {
       return request.auth.token.admin == true || request.auth.token.get('role', '') == 'admin';
     }
 
+    // Customer role with a linked customer ID
+    function isCustomer() {
+      return request.auth.token.get('role', '') == 'customer'
+        && request.auth.token.get('customerScopeId', '') != '';
+    }
+
     // Role matrix stores capability keys as matrix row ids, e.g. security_view_audit (see capabilities.ts / roles UI).
     function canReadSecurityEvents() {
       return isWebAdmin() || (
@@ -75,10 +81,11 @@ service cloud.firestore {
       }
     }
 
-    // Incident reports: drivers create/read own only (driverId = auth UID or driver doc id); admins full.
+    // Incident reports: drivers create/read own only (driverId = auth UID or driver doc id); admins full; customers can read all.
     match /incidentReport/{reportId} {
       allow read: if request.auth != null && (
         request.auth.token.admin == true ||
+        isCustomer() ||
         resource.data.driverId == request.auth.uid ||
         (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );

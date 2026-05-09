@@ -111,6 +111,9 @@ export const DEFAULT_ROLE_CAPABILITIES: Record<
   ],
   customer: [
     CAPABILITIES.operations_view_driver_monitor,
+    CAPABILITIES.operations_view_first_mile,
+    CAPABILITIES.operations_view_line_haul,
+    CAPABILITIES.operations_view_incidents,
   ],
   partner: [
     CAPABILITIES.operations_view_driver_monitor,

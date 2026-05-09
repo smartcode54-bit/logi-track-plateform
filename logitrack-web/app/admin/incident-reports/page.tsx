@@ -1,11 +1,12 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
-import { collection, onSnapshot, query, orderBy, limit, getDocs } from "firebase/firestore"
+import { collection, onSnapshot, query, orderBy, limit, getDocs, where } from "firebase/firestore"
 import { db } from "@/firebase/client"
 import { COLLECTIONS } from "@/lib/collections"
 import { useLanguage } from "@/context/language"
 import { useAuth } from "@/context/auth"
+import { useCustomerScope } from "@/hooks/useCustomerScope"
 import { format } from "date-fns"
 import {
     AlertTriangle,
@@ -75,10 +76,12 @@ function toDate(val: any): Date | null {
 export default function IncidentReportsPage() {
     const { t } = useLanguage()
     const auth = useAuth()
+    const { customerScopeId, isCustomer } = useCustomerScope()
 
     const [reports, setReports] = useState<IncidentReport[]>([])
     const [drivers, setDrivers] = useState<Record<string, Driver>>({})
     const [loading, setLoading] = useState(true)
+    const [customerTripIds, setCustomerTripIds] = useState<Set<string>>(new Set())
 
     // Filters
     const [date, setDate] = useState<Date | undefined>(undefined)
@@ -117,6 +120,29 @@ export default function IncidentReportsPage() {
         return unsub
     }
 
+    // Fetch customer's trip IDs for filtering incidents
+    useEffect(() => {
+        if (!isCustomer || !customerScopeId) {
+            setCustomerTripIds(new Set())
+            return
+        }
+
+        const q = query(
+            collection(db, COLLECTIONS.TRIP_RECORDS),
+            where("billingCustomerId", "==", customerScopeId),
+            limit(500)
+        )
+        const unsub = getDocs(q).then((snap) => {
+            const tripIds = new Set(snap.docs.map((d) => d.id))
+            setCustomerTripIds(tripIds)
+        }).catch((err) => {
+            console.error("Error fetching customer trips:", err)
+            setCustomerTripIds(new Set())
+        })
+
+        return () => { }
+    }, [isCustomer, customerScopeId])
+
     useEffect(() => {
         const unsub = fetchIncidentReports()
         return () => unsub()
@@ -153,6 +179,13 @@ export default function IncidentReportsPage() {
 
     const filteredReports = useMemo(() => {
         return reports.filter(report => {
+            // Customer scope: only show incidents from their trips
+            if (isCustomer && customerTripIds.size > 0) {
+                if (!report.tripId || !customerTripIds.has(report.tripId)) {
+                    return false
+                }
+            }
+
             if (date) {
                 const reportDate = report.createdAt
                 if (reportDate) {
@@ -177,7 +210,7 @@ export default function IncidentReportsPage() {
             }
             return true
         })
-    }, [reports, date, searchQuery, drivers, driversByAuthId])
+    }, [reports, date, searchQuery, drivers, driversByAuthId, isCustomer, customerTripIds])
 
     const paginatedReports = filteredReports.slice(
         (currentPage - 1) * itemsPerPage,
