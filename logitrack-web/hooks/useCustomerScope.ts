@@ -5,12 +5,12 @@ import { useAuth } from "@/context/auth";
  * Returns { customerScopeId, isCustomer }
  */
 export function useCustomerScope() {
-  const { customClaims } = useAuth();
+  const auth = useAuth();
 
-  const isCustomer = customClaims?.role === "customer";
+  const isCustomer = auth?.customClaims?.role === "customer";
   const customerScopeId =
-    typeof customClaims?.customerScopeId === "string"
-      ? customClaims.customerScopeId
+    typeof auth?.customClaims?.customerScopeId === "string"
+      ? auth.customClaims.customerScopeId
       : null;
 
   return { customerScopeId, isCustomer };
