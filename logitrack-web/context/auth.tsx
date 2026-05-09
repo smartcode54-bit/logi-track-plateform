@@ -18,6 +18,7 @@ type AuthContextType = {
   login: (email: string, pass: string) => Promise<void>;
   customClaims: ParsedTokenResult | null;
   loading: boolean;
+  refreshClaims: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -88,8 +89,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   };
 
+  const refreshClaims = async () => {
+    if (!auth.currentUser) return;
+    try {
+      console.log("[Auth] Force refreshing ID token to get updated claims...");
+      await getIdToken(auth.currentUser, true); // force refresh
+      const updatedTokenResult = await getIdTokenResult(auth.currentUser);
+      setCustomClaims(updatedTokenResult.claims ?? null);
+      console.log("[Auth] Claims refreshed:", updatedTokenResult.claims);
+    } catch (error) {
+      console.error("[Auth] Error refreshing claims:", error);
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ currentUser, logout, login, customClaims, loading }}>
+    <AuthContext.Provider value={{ currentUser, logout, login, customClaims, loading, refreshClaims }}>
       {children}
     </AuthContext.Provider>
   );

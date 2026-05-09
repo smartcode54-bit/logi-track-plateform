@@ -102,12 +102,21 @@ export const updateUserRole = onCall(async (request) => {
             delete nextClaims.customerScopeId;
         }
 
-        console.log(`[updateUserRole] Setting custom claims for ${targetUid}:`, nextClaims);
+        console.log(`[updateUserRole] Setting custom claims for ${targetUid}:`, JSON.stringify(nextClaims));
         try {
+            console.log(`[updateUserRole] About to call setCustomUserClaims for ${targetUid}`);
             await admin.auth().setCustomUserClaims(targetUid, nextClaims as { [key: string]: unknown });
             console.log(`[updateUserRole] Custom claims set successfully for ${targetUid}`);
+
+            // Verify that claims were actually set
+            const updatedUser = await admin.auth().getUser(targetUid);
+            console.log(`[updateUserRole] Verification - Updated user custom claims:`, JSON.stringify(updatedUser.customClaims));
         } catch (authError: any) {
-            console.error(`[updateUserRole] FAILED to set custom claims for ${targetUid}:`, authError?.message || authError);
+            console.error(`[updateUserRole] FAILED to set custom claims for ${targetUid}:`, {
+                message: authError?.message,
+                code: authError?.code,
+                fullError: String(authError)
+            });
             throw new HttpsError("internal", `Failed to set custom claims: ${authError?.message || authError}`);
         }
 

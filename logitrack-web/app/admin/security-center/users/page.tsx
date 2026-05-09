@@ -112,6 +112,9 @@ function EditUserDialog({
     onSaveSuccess?: () => void;
 }) {
     const { t } = useLanguage();
+    const auth = useAuth();
+    const currentUser = auth?.currentUser;
+    const refreshClaims = auth?.refreshClaims;
 
     const [role, setRole] = useState("user");
     const [partnerScopeId, setPartnerScopeId] = useState("");
@@ -142,6 +145,13 @@ function EditUserDialog({
             console.log(`[EditUserDialog] Calling updateUserRole with payload:`, payload);
             const result = await updateUserRole(payload);
             console.log(`[EditUserDialog] updateUserRole response:`, result);
+
+            // If editing self, force refresh ID token so new claims take effect immediately
+            if (currentUser?.uid === user.uid && refreshClaims) {
+                console.log("[EditUserDialog] Editing self - refreshing claims");
+                await refreshClaims();
+            }
+
             toast.success(t("users.toast.roleUpdated"));
             onOpenChange(false);
             onSaveSuccess?.();
