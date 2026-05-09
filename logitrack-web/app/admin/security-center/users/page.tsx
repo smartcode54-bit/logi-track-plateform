@@ -101,12 +101,14 @@ function EditUserDialog({
     open,
     onOpenChange,
     functions: functionsInstance,
+    customers,
     onSaveSuccess,
 }: {
     user: UserData | null;
     open: boolean;
     onOpenChange: (open: boolean) => void;
     functions: Functions;
+    customers: CustomerData[];
     onSaveSuccess?: () => void;
 }) {
     const { t } = useLanguage();
@@ -114,8 +116,6 @@ function EditUserDialog({
     const [role, setRole] = useState("user");
     const [partnerScopeId, setPartnerScopeId] = useState("");
     const [customerScopeId, setCustomerScopeId] = useState("");
-    const [customers, setCustomers] = useState<CustomerData[]>([]);
-    const [loadingCustomers, setLoadingCustomers] = useState(true);
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
@@ -124,19 +124,6 @@ function EditUserDialog({
             setRole(currentRole);
             setPartnerScopeId(typeof user.customClaims?.partnerScopeId === "string" ? user.customClaims.partnerScopeId : "");
             setCustomerScopeId(typeof user.customClaims?.customerScopeId === "string" ? user.customClaims.customerScopeId : "");
-
-            setLoadingCustomers(true);
-            const loadCustomers = async () => {
-                try {
-                    const data = await getCustomers();
-                    setCustomers(data);
-                } catch (error) {
-                    console.error("Error loading customers:", error);
-                } finally {
-                    setLoadingCustomers(false);
-                }
-            };
-            loadCustomers();
         }
     }, [open, user]);
 
@@ -212,7 +199,7 @@ function EditUserDialog({
                     {role === "customer" && (
                         <div className="space-y-2">
                             <Label htmlFor="customer-scope">{t("users.customerScope")}</Label>
-                            <Select value={customerScopeId} onValueChange={setCustomerScopeId} disabled={loadingCustomers || saving}>
+                            <Select value={customerScopeId} onValueChange={setCustomerScopeId} disabled={saving}>
                                 <SelectTrigger id="customer-scope">
                                     <SelectValue placeholder={t("users.customerScopePlaceholder")} />
                                 </SelectTrigger>
@@ -232,7 +219,7 @@ function EditUserDialog({
                     <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
                         {t("users.form.cancel")}
                     </Button>
-                    <Button type="button" onClick={save} disabled={saving || loadingCustomers}>
+                    <Button type="button" onClick={save} disabled={saving}>
                         {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                         {t("users.form.save")}
                     </Button>
@@ -732,6 +719,7 @@ export default function AdminUsersPage() {
                         open={!!editUser}
                         onOpenChange={(open) => !open && setEditUser(null)}
                         functions={functions}
+                        customers={customers}
                         onSaveSuccess={() => fetchUsers()}
                     />
                 </div>
