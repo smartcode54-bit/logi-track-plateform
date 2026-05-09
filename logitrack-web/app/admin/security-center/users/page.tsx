@@ -96,30 +96,41 @@ function PartnerScopeCell({
     );
 }
 
-function CustomerScopeEditDialog({
+function EditUserDialog({
     user,
     open,
     onOpenChange,
     functions: functionsInstance,
     onSaveSuccess,
 }: {
-    user: UserData;
+    user: UserData | null;
     open: boolean;
     onOpenChange: (open: boolean) => void;
     functions: Functions;
     onSaveSuccess?: () => void;
 }) {
     const { t } = useLanguage();
-    const initial =
-        typeof user.customClaims?.customerScopeId === "string" ? user.customClaims.customerScopeId : "";
-    const [value, setValue] = useState(initial);
+    if (!user) return null;
+
+    const currentRole = user.customClaims?.role || (user.customClaims?.admin ? "admin" : "user");
+
+    const [role, setRole] = useState(currentRole);
+    const [partnerScopeId, setPartnerScopeId] = useState(
+        typeof user.customClaims?.partnerScopeId === "string" ? user.customClaims.partnerScopeId : ""
+    );
+    const [customerScopeId, setCustomerScopeId] = useState(
+        typeof user.customClaims?.customerScopeId === "string" ? user.customClaims.customerScopeId : ""
+    );
     const [customers, setCustomers] = useState<CustomerData[]>([]);
     const [loadingCustomers, setLoadingCustomers] = useState(true);
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
-        if (open) {
-            setValue(typeof user.customClaims?.customerScopeId === "string" ? user.customClaims.customerScopeId : "");
+        if (open && user) {
+            setRole(user.customClaims?.role || (user.customClaims?.admin ? "admin" : "user"));
+            setPartnerScopeId(typeof user.customClaims?.partnerScopeId === "string" ? user.customClaims.partnerScopeId : "");
+            setCustomerScopeId(typeof user.customClaims?.customerScopeId === "string" ? user.customClaims.customerScopeId : "");
+
             setLoadingCustomers(true);
             const loadCustomers = async () => {
                 try {
@@ -133,7 +144,7 @@ function CustomerScopeEditDialog({
             };
             loadCustomers();
         }
-    }, [open, user.customClaims?.customerScopeId]);
+    }, [open, user]);
 
     const save = async () => {
         setSaving(true);
@@ -141,56 +152,93 @@ function CustomerScopeEditDialog({
             const updateUserRole = httpsCallable(functionsInstance, "updateUserRole");
             await updateUserRole({
                 targetUid: user.uid,
-                role: "customer",
-                customerScopeId: value.trim(),
+                role,
+                partnerScopeId: role === "partner" ? partnerScopeId.trim() : undefined,
+                customerScopeId: role === "customer" ? customerScopeId.trim() : undefined,
             });
-            toast.success(t("users.customerScopeSaved"));
+            toast.success(t("users.toast.roleUpdated"));
             onOpenChange(false);
             onSaveSuccess?.();
-        } catch {
-            toast.error(t("users.customerScopeSaveFailed"));
+        } catch (error) {
+            console.error("Error updating user:", error);
+            toast.error(t("users.toast.roleUpdateFailed"));
         } finally {
             setSaving(false);
         }
     };
 
-    const selectedCustomer = customers.find(c => c.id === value);
-    const displayValue = selectedCustomer ? `${selectedCustomer.name} (${selectedCustomer.code})` : "-";
-
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[400px]">
+            <DialogContent className="sm:max-w-[500px]">
                 <DialogHeader>
-                    <DialogTitle>{t("users.customerScope")}</DialogTitle>
+                    <DialogTitle>{t("users.editRole")}</DialogTitle>
                     <DialogDescription>
                         {t("users.form.displayName")}: <span className="font-medium text-foreground">{user.displayName}</span>
+                        <br />
+                        {t("users.form.email")}: <span className="font-medium text-foreground">{user.email}</span>
                     </DialogDescription>
                 </DialogHeader>
+
                 <div className="space-y-4 py-4">
+                    {/* Role */}
                     <div className="space-y-2">
-                        <Label>{t("users.customerScope")}</Label>
-                        <Select value={value} onValueChange={setValue} disabled={loadingCustomers || saving}>
-                            <SelectTrigger>
-                                <SelectValue placeholder={t("users.customerScopePlaceholder")} />
+                        <Label htmlFor="edit-role">{t("users.form.role")}</Label>
+                        <Select value={role} onValueChange={setRole} disabled={saving}>
+                            <SelectTrigger id="edit-role">
+                                <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="">-</SelectItem>
-                                {customers.map((customer) => (
-                                    <SelectItem key={customer.id} value={customer.id}>
-                                        {customer.name} ({customer.code})
+                                {ROLE_IDS.map((roleId) => (
+                                    <SelectItem key={roleId} value={roleId}>
+                                        {t(`users.role.${roleId}`)}
                                     </SelectItem>
                                 ))}
                             </SelectContent>
                         </Select>
                     </div>
+
+                    {/* Partner Scope */}
+                    {role === "partner" && (
+                        <div className="space-y-2">
+                            <Label htmlFor="partner-scope">{t("users.partnerScope")}</Label>
+                            <Input
+                                id="partner-scope"
+                                value={partnerScopeId}
+                                onChange={(e) => setPartnerScopeId(e.target.value)}
+                                placeholder={t("users.partnerScopePlaceholder")}
+                                disabled={saving}
+                            />
+                        </div>
+                    )}
+
+                    {/* Customer Scope */}
+                    {role === "customer" && (
+                        <div className="space-y-2">
+                            <Label htmlFor="customer-scope">{t("users.customerScope")}</Label>
+                            <Select value={customerScopeId} onValueChange={setCustomerScopeId} disabled={loadingCustomers || saving}>
+                                <SelectTrigger id="customer-scope">
+                                    <SelectValue placeholder={t("users.customerScopePlaceholder")} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="">-</SelectItem>
+                                    {customers.map((customer) => (
+                                        <SelectItem key={customer.id} value={customer.id}>
+                                            {customer.name} ({customer.code})
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
                 </div>
+
                 <DialogFooter>
                     <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
                         {t("users.form.cancel")}
                     </Button>
                     <Button type="button" onClick={save} disabled={saving || loadingCustomers}>
                         {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        {t("users.customerScopeSave")}
+                        {t("users.form.save")}
                     </Button>
                 </DialogFooter>
             </DialogContent>
@@ -210,8 +258,8 @@ export default function AdminUsersPage() {
     const [editRoleValue, setEditRoleValue] = useState("");
     const [isEditRoleLoading, setIsEditRoleLoading] = useState(false);
 
-    // Edit Customer Scope State
-    const [editCustomerScopeUser, setEditCustomerScopeUser] = useState<UserData | null>(null);
+    // Edit User State
+    const [editUser, setEditUser] = useState<UserData | null>(null);
 
     // Form state
     const [newUserEmail, setNewUserEmail] = useState("");
@@ -239,6 +287,7 @@ export default function AdminUsersPage() {
     const [searchQuery, setSearchQuery] = useState("");
     const [roleFilter, setRoleFilter] = useState<string>("all");
     const [statusFilter, setStatusFilter] = useState<string>("all");
+    const [customers, setCustomers] = useState<CustomerData[]>([]);
 
     // Status Logic - returns "active" | "inactive" for translation
     const calculateStatus = (lastSignInTime: string | null): "active" | "inactive" => {
@@ -296,6 +345,19 @@ export default function AdminUsersPage() {
 
         return () => unsubscribe();
     }, [currentUser, limitCount]);
+
+    // Load customers for dropdown displays
+    useEffect(() => {
+        const loadCustomers = async () => {
+            try {
+                const data = await getCustomers();
+                setCustomers(data);
+            } catch (error) {
+                console.error("Error loading customers:", error);
+            }
+        };
+        loadCustomers();
+    }, []);
 
     // Legacy Cloud Function fetch (kept for reference or full sync)
     const fetchUsers = async () => {
@@ -669,15 +731,13 @@ export default function AdminUsersPage() {
                         </DialogContent>
                     </Dialog>
 
-                    {editCustomerScopeUser && (
-                        <CustomerScopeEditDialog
-                            user={editCustomerScopeUser}
-                            open={!!editCustomerScopeUser}
-                            onOpenChange={(open) => !open && setEditCustomerScopeUser(null)}
-                            functions={functions}
-                            onSaveSuccess={() => fetchUsers()}
-                        />
-                    )}
+                    <EditUserDialog
+                        user={editUser}
+                        open={!!editUser}
+                        onOpenChange={(open) => !open && setEditUser(null)}
+                        functions={functions}
+                        onSaveSuccess={() => fetchUsers()}
+                    />
                 </div>
             </div>
 
@@ -804,19 +864,12 @@ export default function AdminUsersPage() {
                                                     </Select>
                                                 </TableCell>
                                                 <TableCell className="align-top py-3">
-                                                    {role === "partner" ? (
-                                                        <PartnerScopeCell user={user} functions={functions} />
-                                                    ) : role === "customer" ? (
-                                                        <Button
-                                                            type="button"
-                                                            variant="outline"
-                                                            size="sm"
-                                                            className="h-7 text-xs"
-                                                            onClick={() => setEditCustomerScopeUser(user)}
-                                                        >
-                                                            <Edit className="h-3 w-3 mr-1" />
-                                                            {t("users.editRole")}
-                                                        </Button>
+                                                    {role === "partner" && user.customClaims?.partnerScopeId ? (
+                                                        <span className="text-xs font-medium text-foreground">{user.customClaims.partnerScopeId}</span>
+                                                    ) : role === "customer" && user.customClaims?.customerScopeId ? (
+                                                        <span className="text-xs font-medium text-foreground">
+                                                            {customers.find((c) => c.id === user.customClaims?.customerScopeId)?.name || user.customClaims.customerScopeId}
+                                                        </span>
                                                     ) : (
                                                         <span className="text-xs text-muted-foreground">—</span>
                                                     )}
@@ -846,6 +899,12 @@ export default function AdminUsersPage() {
                                                                 </Button>
                                                             </DropdownMenuTrigger>
                                                             <DropdownMenuContent align="end">
+                                                                <DropdownMenuItem
+                                                                    onSelect={() => setEditUser(user)}
+                                                                >
+                                                                    <Edit className="mr-2 h-4 w-4" />
+                                                                    {t("users.editRole")}
+                                                                </DropdownMenuItem>
                                                                 <DropdownMenuItem
                                                                     disabled={isCurrentUser}
                                                                     title={isCurrentUser ? t("users.revokeSessionsSelf") : undefined}
