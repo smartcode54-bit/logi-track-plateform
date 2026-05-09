@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.syncExistingUsers = exports.createUser = exports.updateUserRole = exports.getUsers = void 0;
+exports.syncExistingUsers = exports.setUserDisabled = exports.createUser = exports.updateUserRole = exports.getUsers = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const securityEvents_1 = require("./securityEvents");
@@ -58,6 +58,7 @@ exports.getUsers = (0, https_1.onCall)(async (request) => {
             customClaims: userRecord.customClaims,
             metadata: userRecord.metadata,
             providerData: userRecord.providerData.map((p) => p.providerId),
+            disabled: userRecord.disabled,
         }));
         return { users };
     }
@@ -266,6 +267,70 @@ exports.createUser = (0, https_1.onCall)(async (request) => {
     catch (error) {
         console.error(`[createUser] Error creating user:`, error);
         throw new https_1.HttpsError("internal", `Failed to create user: ${error.message || error}`);
+    }
+});
+/**
+ * Cloud Function to enable/disable a user (Admin only).
+ * Disabling: blocks future sign-ins, revokes refresh tokens, and sets forceLogoutAt
+ * so the client kicks the user out of any active session immediately.
+ */
+exports.setUserDisabled = (0, https_1.onCall)(async (request) => {
+    if (!request.auth) {
+        throw new https_1.HttpsError("unauthenticated", "User must be authenticated");
+    }
+    if (request.auth.token.admin !== true) {
+        throw new https_1.HttpsError("permission-denied", "Only admins can disable users");
+    }
+    const { targetUid, disabled } = request.data;
+    if (!targetUid) {
+        throw new https_1.HttpsError("invalid-argument", "Target UID is required");
+    }
+    if (typeof disabled !== "boolean") {
+        throw new https_1.HttpsError("invalid-argument", "disabled must be a boolean");
+    }
+    if (targetUid === request.auth.uid) {
+        throw new https_1.HttpsError("failed-precondition", "Cannot disable your own account");
+    }
+    try {
+        await admin.auth().updateUser(targetUid, { disabled });
+        console.log(`[setUserDisabled] ${targetUid} disabled=${disabled}`);
+        if (disabled) {
+            // Force the user out of any active session immediately
+            await admin.auth().revokeRefreshTokens(targetUid);
+        }
+        // Sync to Firestore. forceLogoutAt makes the client-side Firestore listener
+        // sign the user out instantly (works for both disable and re-enable triggering).
+        try {
+            const userDoc = {
+                disabled,
+            };
+            if (disabled) {
+                userDoc.forceLogoutAt = admin.firestore.FieldValue.serverTimestamp();
+            }
+            await admin.firestore().collection("users").doc(targetUid).set(userDoc, { merge: true });
+        }
+        catch (dbError) {
+            console.error(`[setUserDisabled] Failed to sync to Firestore:`, dbError);
+        }
+        try {
+            const actorEmail = request.auth.token.email;
+            await (0, securityEvents_1.appendSecurityEvent)({
+                type: disabled ? "user_disabled" : "user_enabled",
+                severity: "info",
+                summary: disabled ? `User disabled` : `User enabled`,
+                details: { targetUid, disabled },
+                actorUid: request.auth.uid,
+                actorEmail: typeof actorEmail === "string" ? actorEmail : null,
+            });
+        }
+        catch (logErr) {
+            console.error("[setUserDisabled] security_events append:", logErr);
+        }
+        return { success: true, disabled };
+    }
+    catch (error) {
+        console.error(`[setUserDisabled] Error:`, error);
+        throw new https_1.HttpsError("internal", `Failed to update disabled state: ${error?.message || error}`);
     }
 });
 /**

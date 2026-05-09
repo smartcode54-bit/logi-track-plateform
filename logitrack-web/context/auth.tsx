@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { User, signOut, signInWithEmailAndPassword } from "firebase/auth";
 import { auth, db } from "@/firebase/client";
 import { resolveLoginGeoForClient, updateUserLastLogin } from "@/lib/updateUserLastLogin";
@@ -37,16 +37,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [customClaims, setCustomClaims] = useState<ParsedTokenResult | null>(null);
   const [loading, setLoading] = useState(true);
-  // Track when current session started so we can detect forceLogoutAt set after login
-  const sessionStartTimeRef = useRef<number | null>(null);
 
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user ? user : null);
       if (user) {
-        // Record session start time (when this user authenticated in current tab)
-        sessionStartTimeRef.current = Date.now();
         try {
           const tokenResult = await getIdTokenResult(user);
           setCustomClaims(tokenResult.claims ?? null);
@@ -69,7 +65,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           setLoading(false);
         }
       } else {
-        sessionStartTimeRef.current = null;
         setCustomClaims(null);
         setLoading(false);
       }
@@ -77,18 +72,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return () => unsubscribe();
   }, []);
 
-  // Force logout listener: when admin updates user role, Cloud Function writes
-  // forceLogoutAt timestamp on user doc. If it's after our session start, log out.
+  // Force logout listener: log out only when forceLogoutAt CHANGES to a new value
+  // after the listener has already seen an initial value. We don't compare against
+  // wall-clock time (client clocks can drift relative to Firestore server time).
   useEffect(() => {
     if (!currentUser?.uid) return;
     const userDocRef = doc(db, "users", currentUser.uid);
+    let initialForceLogoutMs: number | null = null;
+    let initialized = false;
     const unsubscribe = onSnapshot(userDocRef, async (snapshot) => {
       const data = snapshot.data();
       const forceLogoutAt = data?.forceLogoutAt as Timestamp | undefined;
-      if (!forceLogoutAt || !sessionStartTimeRef.current) return;
-      const forceLogoutMs = forceLogoutAt.toMillis();
-      if (forceLogoutMs > sessionStartTimeRef.current) {
-        console.log("[Auth] forceLogoutAt detected after session start - logging out");
+      const currentMs = forceLogoutAt ? forceLogoutAt.toMillis() : null;
+      if (!initialized) {
+        // First snapshot after subscribing: record baseline, never log out from it.
+        initialForceLogoutMs = currentMs;
+        initialized = true;
+        return;
+      }
+      if (currentMs !== null && currentMs !== initialForceLogoutMs) {
+        console.log("[Auth] forceLogoutAt changed after subscription - logging out");
         try {
           await signOut(auth);
         } catch (err) {
