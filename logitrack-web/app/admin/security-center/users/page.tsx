@@ -10,6 +10,8 @@ import { CAPABILITIES } from "@/lib/capabilities";
 import { COLLECTIONS } from "@/lib/collections";
 import { ROLE_IDS } from "@/lib/roles";
 import { useAuth } from "@/context/auth";
+import { getCustomers } from "@/features/customers/api/customers";
+import type { CustomerData } from "@/features/customers/api/customers";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -105,10 +107,26 @@ function CustomerScopeCell({
     const initial =
         typeof user.customClaims?.customerScopeId === "string" ? user.customClaims.customerScopeId : "";
     const [value, setValue] = useState(initial);
+    const [customers, setCustomers] = useState<CustomerData[]>([]);
+    const [loadingCustomers, setLoadingCustomers] = useState(true);
 
     useEffect(() => {
         setValue(typeof user.customClaims?.customerScopeId === "string" ? user.customClaims.customerScopeId : "");
     }, [user.uid, user.customClaims?.customerScopeId]);
+
+    useEffect(() => {
+        const loadCustomers = async () => {
+            try {
+                const data = await getCustomers();
+                setCustomers(data);
+            } catch (error) {
+                console.error("Error loading customers:", error);
+            } finally {
+                setLoadingCustomers(false);
+            }
+        };
+        loadCustomers();
+    }, []);
 
     const [saving, setSaving] = useState(false);
     const save = async () => {
@@ -129,14 +147,21 @@ function CustomerScopeCell({
     };
 
     return (
-        <div className="flex flex-col gap-1 min-w-[160px]">
-            <Input
-                className="h-8 text-xs"
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                placeholder={t("users.customerScopePlaceholder")}
-            />
-            <Button type="button" size="sm" className="h-7 text-xs w-fit" onClick={save} disabled={saving}>
+        <div className="flex flex-col gap-1 min-w-[200px]">
+            <Select value={value} onValueChange={setValue}>
+                <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder={t("users.customerScopePlaceholder")} />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="">-</SelectItem>
+                    {customers.map((customer) => (
+                        <SelectItem key={customer.id} value={customer.id}>
+                            {customer.name} ({customer.code})
+                        </SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+            <Button type="button" size="sm" className="h-7 text-xs w-fit" onClick={save} disabled={saving || loadingCustomers}>
                 {t("users.customerScopeSave")}
             </Button>
         </div>
