@@ -106,11 +106,15 @@ export interface CustomerFuelRateAdjustmentInput {
     addThbPerTrip?: number;
     referenceFuelPriceThbPerLitre?: number;
     announcementNote?: string;
+    fuelBandEnabled?: boolean;
+    fuelBandBaselineFuelFloor?: number;
+    fuelBandThbPerBaht?: number;
 }
 
 export interface CustomerFuelRateAdjustmentRow extends CustomerFuelRateAdjustmentInput {
     id: string;
     createdAt?: Date;
+    updatedAt?: Date;
 }
 
 export interface FuelMonthlySnapshotItem {
@@ -486,6 +490,9 @@ export async function createCustomerFuelRateAdjustment(
                 ? Number(input.referenceFuelPriceThbPerLitre)
                 : null,
         announcementNote: input.announcementNote?.trim() || "",
+        fuelBandEnabled: input.fuelBandEnabled ?? false,
+        fuelBandBaselineFuelFloor: input.fuelBandBaselineFuelFloor ?? null,
+        fuelBandThbPerBaht: input.fuelBandThbPerBaht ?? null,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
     });
@@ -514,7 +521,11 @@ export async function getCustomerFuelRateAdjustments(
                     ? Number(d.referenceFuelPriceThbPerLitre)
                     : undefined,
             announcementNote: String(d.announcementNote ?? ""),
+            fuelBandEnabled: Boolean(d.fuelBandEnabled ?? false),
+            fuelBandBaselineFuelFloor: d.fuelBandBaselineFuelFloor != null ? Number(d.fuelBandBaselineFuelFloor) : undefined,
+            fuelBandThbPerBaht: d.fuelBandThbPerBaht != null ? Number(d.fuelBandThbPerBaht) : undefined,
             createdAt: parseDate(d.createdAt),
+            updatedAt: parseDate(d.updatedAt),
         };
     }).sort((a, b) => b.effectiveFrom.getTime() - a.effectiveFrom.getTime());
 }
@@ -576,6 +587,9 @@ export async function updateCustomerFuelRateAdjustment(
                 ? Number(input.referenceFuelPriceThbPerLitre)
                 : null,
         announcementNote: input.announcementNote?.trim() || "",
+        fuelBandEnabled: input.fuelBandEnabled ?? false,
+        fuelBandBaselineFuelFloor: input.fuelBandBaselineFuelFloor ?? null,
+        fuelBandThbPerBaht: input.fuelBandThbPerBaht ?? null,
         updatedAt: serverTimestamp(),
     });
 }

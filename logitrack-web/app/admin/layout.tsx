@@ -2,7 +2,7 @@
 
 import { useAuth } from "@/context/auth";
 import { useRouter, usePathname } from "next/navigation";
-import { canAccessRoute } from "@/lib/permissions";
+import { canAccessRoute, getDefaultRouteForRole } from "@/lib/permissions";
 import { useEffect, useState, useRef } from "react";
 import Navigation from "@/components/navigation";
 import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/sidebar";
@@ -132,15 +132,18 @@ export default function AdminLayout({
         };
     }, [currentUser, authContext?.loading, router]);
 
-    // Route permission guard — redirect to dashboard if no access
+    // Route permission guard — redirect to appropriate page if no access
     useEffect(() => {
         if (!authContext?.loading && currentUser && pathname) {
             const allowed = canAccessRoute(authContext.customClaims ?? null, pathname);
+            console.debug("Route guard check:", { pathname, allowed, role: authContext.customClaims?.role });
             if (!allowed) {
-                router.replace("/admin/dashboard");
+                const defaultRoute = getDefaultRouteForRole(authContext.customClaims ?? null);
+                console.warn("Access denied to:", pathname, "redirecting to:", defaultRoute);
+                router.replace(defaultRoute);
             }
         }
-    }, [currentUser, authContext?.loading, authContext?.customClaims, pathname, router]);
+    }, [currentUser, authContext?.loading, authContext?.customClaims?.role, pathname, router]);
 
     const toggleTheme = () => {
         const newIsDark = !isDark;

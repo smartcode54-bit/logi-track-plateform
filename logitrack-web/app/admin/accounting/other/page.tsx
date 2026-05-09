@@ -1,4 +1,6 @@
 "use client";
+import { PagePermissionGuard } from "@/components/page-permission-guard"
+import { CAPABILITIES } from "@/lib/capabilities"
 
 import { useEffect, useState, useMemo } from "react";
 import { useLanguage } from "@/context/language";
@@ -229,8 +231,9 @@ export default function AccountingOtherPage() {
     }
 
     return (
-        <div className="container mx-auto p-6 space-y-8 max-w-[1600px]">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <PagePermissionGuard capability={CAPABILITIES.accounting_view_other}>
+            <div className="container mx-auto p-6 space-y-8 max-w-[1600px]">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">{t("accounting.other.title")}</h1>
                     <p className="text-muted-foreground mt-1">{t("accounting.other.subtitle")}</p>
@@ -636,6 +639,7 @@ export default function AccountingOtherPage() {
                     )}
                 </DialogContent>
             </Dialog>
-        </div>
+            </div>
+        </PagePermissionGuard>
     );
 }

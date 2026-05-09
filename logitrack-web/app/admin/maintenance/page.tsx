@@ -1,4 +1,6 @@
 "use client";
+import { PagePermissionGuard } from "@/components/page-permission-guard"
+import { CAPABILITIES } from "@/lib/capabilities"
 
 import dynamic from "next/dynamic";
 import { Loader2 } from "lucide-react";
@@ -14,5 +16,9 @@ const MaintenanceOverview = dynamic(() => import("@/features/maintenance/compone
 });
 
 export default function MaintenanceDashboardPage() {
-    return <MaintenanceOverview />;
+    return (
+        <PagePermissionGuard capability={CAPABILITIES.fleet_manage_maintenance}>
+            <MaintenanceOverview />
+        </PagePermissionGuard>
+    );
 }

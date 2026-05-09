@@ -8,6 +8,8 @@ import { useLanguage } from "@/context/language"
 import { useAuth } from "@/context/auth"
 import { useCustomerScope } from "@/hooks/useCustomerScope"
 import { format } from "date-fns"
+import { PagePermissionGuard } from "@/components/page-permission-guard"
+import { CAPABILITIES } from "@/lib/capabilities"
 import {
     AlertTriangle,
     Search,
@@ -228,7 +230,8 @@ export default function IncidentReportsPage() {
     }
 
     return (
-        <div className="container mx-auto p-6 space-y-6 max-w-[1600px]">
+        <PagePermissionGuard capability={CAPABILITIES.operations_view_incidents}>
+            <div className="container mx-auto p-6 space-y-6 max-w-[1600px]">
             {/* Header */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
@@ -499,6 +502,7 @@ export default function IncidentReportsPage() {
                     </ScrollArea>
                 </DialogContent>
             </Dialog>
-        </div>
+            </div>
+        </PagePermissionGuard>
     )
 }

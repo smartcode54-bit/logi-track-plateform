@@ -8,6 +8,8 @@ import { LineHaulImportDialog } from "./import-dialog";
 import { LineHaulTaskDialog } from "./task-dialog";
 import { useLanguage } from "@/context/language";
 import { useCustomerScope } from "@/hooks/useCustomerScope";
+import { PagePermissionGuard } from "@/components/page-permission-guard";
+import { CAPABILITIES } from "@/lib/capabilities";
 
 
 
@@ -247,7 +249,8 @@ export default function LineHaulPage() {
     });
 
     return (
-        <div className="flex-1 space-y-4 p-8 pt-6">
+        <PagePermissionGuard capability={CAPABILITIES.operations_view_line_haul}>
+            <div className="flex-1 space-y-4 p-8 pt-6">
             <div className="flex items-center justify-between space-y-2">
                 <div>
                     <h2 className="text-3xl font-bold tracking-tight">{t("lineHaul.title")}</h2>
@@ -565,6 +568,7 @@ export default function LineHaulPage() {
                     onSuccess={() => setEditTripDialogOpen(false)}
                 />
             )}
-        </div>
+            </div>
+        </PagePermissionGuard>
     );
 }

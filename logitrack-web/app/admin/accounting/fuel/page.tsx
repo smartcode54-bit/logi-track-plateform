@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { useLanguage } from "@/context/language";
+import { PagePermissionGuard } from "@/components/page-permission-guard";
+import { CAPABILITIES } from "@/lib/capabilities";
 import {
     getVehicleExpensesByType,
     getDriversForFilter,
@@ -358,7 +360,8 @@ export default function AccountingFuelPage() {
     }
 
     return (
-        <div className="container mx-auto p-6 space-y-8 max-w-[1600px]">
+        <PagePermissionGuard capability={CAPABILITIES.accounting_view_fuel}>
+            <div className="container mx-auto p-6 space-y-8 max-w-[1600px]">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">{t("accounting.fuel.title")}</h1>
@@ -921,6 +924,7 @@ export default function AccountingFuelPage() {
                     )}
                 </DialogContent>
             </Dialog>
-        </div>
+            </div>
+        </PagePermissionGuard>
     );
 }

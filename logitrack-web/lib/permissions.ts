@@ -40,6 +40,17 @@ export function can(claims: CustomClaims, capability: CapabilityId): boolean {
 /** Check if user can access a route (by pathname) */
 export function canAccessRoute(claims: CustomClaims, pathname: string): boolean {
   const path = pathname.replace(/\/$/, "") || "/";
+
+  // Dashboard — open to all authenticated users
+  if (path === "/admin/dashboard") {
+    return !!claims;
+  }
+
+  // Security center — admin only
+  if (path.startsWith("/admin/security-center")) {
+    return isAdmin(claims);
+  }
+
   let capability: CapabilityId | undefined = ROUTE_CAPABILITIES[path];
 
   if (!capability) {
@@ -53,7 +64,7 @@ export function canAccessRoute(claims: CustomClaims, pathname: string): boolean 
     }
   }
 
-  if (!capability) return true;
+  if (!capability) return false;
   return can(claims, capability);
 }
 
@@ -70,4 +81,21 @@ export function canEditTripDetails(claims: CustomClaims): boolean {
 /** Check if user is admin */
 export function isAdmin(claims: CustomClaims): boolean {
   return claims?.admin === true || getRole(claims) === "admin";
+}
+
+/** Get default redirect route for role (used when access denied) */
+export function getDefaultRouteForRole(claims: CustomClaims): string {
+  const role = getRole(claims);
+  switch (role) {
+    case "admin":
+    case "manager":
+    case "operation_staff":
+      return "/admin/dashboard";
+    case "customer":
+    case "operator":
+    case "partner":
+      return "/admin/driver-monitor";
+    default:
+      return "/admin/dashboard";
+  }
 }
