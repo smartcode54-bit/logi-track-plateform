@@ -143,7 +143,11 @@ exports.updateUserRole = (0, https_1.onCall)(async (request) => {
         }
         // Sync to Firestore
         try {
-            const userDoc = { role: newRole };
+            const userDoc = {
+                role: newRole,
+                // Set forceLogoutAt so the client's Firestore listener logs the user out immediately
+                forceLogoutAt: admin.firestore.FieldValue.serverTimestamp(),
+            };
             if (newRole === 'partner' && typeof nextClaims.partnerScopeId === 'string' && String(nextClaims.partnerScopeId).trim() !== '') {
                 userDoc.partnerScopeId = nextClaims.partnerScopeId;
             }

@@ -34,15 +34,28 @@ export const setAdminClaims = onCall(async (request) => {
                 };
             }
 
+            // BOOTSTRAP-ONLY: only auto-grant admin if the user has no role assigned yet.
+            // If an admin has explicitly set a different role (e.g. customer, partner),
+            // do NOT override it — the hardcoded email list is for first-time bootstrap only.
+            if (currentClaims.role && currentClaims.role !== "admin") {
+                console.log(`[setAdminClaims] User ${email} is in ADMIN_EMAILS but has explicit role "${currentClaims.role}". Skipping auto-admin.`);
+                return {
+                    success: true,
+                    admin: false,
+                    message: `User has explicit role: ${currentClaims.role}`,
+                };
+            }
+
             await admin.auth().setCustomUserClaims(uid, {
                 ...currentClaims,
+                role: "admin",
                 admin: true,
             });
 
             return {
                 success: true,
                 admin: true,
-                message: "Admin privileges granted",
+                message: "Admin privileges granted (bootstrap)",
             };
         } catch (error) {
             console.error(`[setAdminClaims] Error setting admin claim:`, error);
