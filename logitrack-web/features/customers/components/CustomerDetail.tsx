@@ -48,7 +48,7 @@ export default function CustomerDetail() {
             <div className="container py-12 text-center">
                 <h2 className="text-xl font-semibold mb-4">{t("customers.detail.notFound")}</h2>
                 <Button asChild variant="outline">
-                    <Link href="/admin/customers" prefetch={false}>{t("customers.detail.backToList")}</Link>
+                    <Link href="/app/customers" prefetch={false}>{t("customers.detail.backToList")}</Link>
                 </Button>
             </div>
         );
@@ -59,7 +59,7 @@ export default function CustomerDetail() {
             <div className="flex items-center justify-between gap-4 mb-6">
                 <div className="flex items-center gap-4">
                     <Button variant="ghost" size="icon" asChild>
-                        <Link href="/admin/customers" prefetch={false}>
+                        <Link href="/app/customers" prefetch={false}>
                             <ArrowLeft className="h-5 w-5" />
                         </Link>
                     </Button>
@@ -76,7 +76,7 @@ export default function CustomerDetail() {
                     </div>
                 </div>
                 <Button asChild>
-                    <Link href={`/admin/customers/${customer.id}/edit`} prefetch={false} className="gap-2">
+                    <Link href={`/app/customers/${customer.id}/edit`} prefetch={false} className="gap-2">
                         <Edit className="h-4 w-4" />
                         {t("customers.action.edit")}
                     </Link>

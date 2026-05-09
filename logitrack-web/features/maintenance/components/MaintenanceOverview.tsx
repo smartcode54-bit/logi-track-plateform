@@ -452,7 +452,7 @@ export default function MaintenanceOverview() {
                                                         variant="outline"
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            router.push(`/admin/trucks/maintenance?id=${record.truckId}`);
+                                                            router.push(`/app/trucks/maintenance?id=${record.truckId}`);
                                                         }}
                                                     >
                                                         <Wrench className="w-4 h-4 mr-1" /> {t("maintenance.manageUpdate")}
@@ -518,7 +518,7 @@ export default function MaintenanceOverview() {
                                 <TableRow
                                     key={record.id}
                                     className="cursor-pointer hover:bg-muted/50"
-                                    onClick={() => router.push(`/admin/trucks/maintenance?id=${record.truckId}`)}
+                                    onClick={() => router.push(`/app/trucks/maintenance?id=${record.truckId}`)}
                                 >
                                     <TableCell className="whitespace-nowrap font-mono text-xs">
                                         {format(rowDisplayDate(record), "dd MMM yyyy")}
@@ -572,7 +572,7 @@ export default function MaintenanceOverview() {
                                             <DropdownMenuContent align="end">
                                                 <DropdownMenuLabel>{t("maintenance.table.actions")}</DropdownMenuLabel>
                                                 <DropdownMenuItem asChild>
-                                                    <Link href={`/admin/trucks/maintenance?id=${record.truckId}`} prefetch={false} className="flex items-center cursor-pointer">
+                                                    <Link href={`/app/trucks/maintenance?id=${record.truckId}`} prefetch={false} className="flex items-center cursor-pointer">
                                                         <Wrench className="mr-2 h-4 w-4" />
                                                         {t("maintenance.manageUpdate")}
                                                     </Link>

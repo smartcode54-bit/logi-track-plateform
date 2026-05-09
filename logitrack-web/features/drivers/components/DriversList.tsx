@@ -146,7 +146,7 @@ export default function DriversList() {
                         {t("drivers.export")}
                     </Button>
                     <Button asChild>
-                        <Link href="/admin/drivers/new" prefetch={false}>
+                        <Link href="/app/drivers/new" prefetch={false}>
                             <Plus className="mr-2 h-4 w-4" />
                             {t("drivers.add")}
                         </Link>
@@ -273,7 +273,7 @@ export default function DriversList() {
                                 </TableRow>
                             ) : (
                                 paginatedDrivers.map((driver) => (
-                                    <TableRow key={driver.id} className="cursor-pointer hover:bg-muted/50 transition-colors border-b border-border/50" onClick={() => router.push(`/admin/drivers/view?id=${driver.id}`)}>
+                                    <TableRow key={driver.id} className="cursor-pointer hover:bg-muted/50 transition-colors border-b border-border/50" onClick={() => router.push(`/app/drivers/view?id=${driver.id}`)}>
                                         <TableCell>
                                             <div className="flex items-center gap-3">
                                                 <Avatar className="h-9 w-9 border border-border">
@@ -326,10 +326,10 @@ export default function DriversList() {
                                                 </DropdownMenuTrigger>
                                                 <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
                                                     <DropdownMenuLabel>{t("drivers.action.label")}</DropdownMenuLabel>
-                                                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); router.push(`/admin/drivers/view?id=${driver.id}`); }}>{t("drivers.action.viewProfile")}</DropdownMenuItem>
-                                                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); router.push(`/admin/drivers/edit?id=${driver.id}`); }}>{t("drivers.action.editDetails")}</DropdownMenuItem>
+                                                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); router.push(`/app/drivers/view?id=${driver.id}`); }}>{t("drivers.action.viewProfile")}</DropdownMenuItem>
+                                                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); router.push(`/app/drivers/edit?id=${driver.id}`); }}>{t("drivers.action.editDetails")}</DropdownMenuItem>
                                                     {(driver as { authId?: string }).authId && (
-                                                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); router.push(`/admin/chat/with-driver?authId=${(driver as { authId: string }).authId}`); }} className="gap-2">
+                                                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); router.push(`/app/chat/with-driver?authId=${(driver as { authId: string }).authId}`); }} className="gap-2">
                                                             <MessageCircle className="h-4 w-4" />
                                                             Chat
                                                         </DropdownMenuItem>

@@ -10,7 +10,7 @@ export default {
     "landing.hero.stat.realtime": "Real-time",
     "landing.hero.stat.security": "Security",
     "landing.hero.stat.enterprise": "Enterprise",
-    "landing.hero.login.title": "Admin Login",
+    "landing.hero.login.title": "Login",
     "landing.hero.login.subtitle": "Please sign in to manage your system",
     "landing.features.title": "Built for the Digital Logistics Age",
     "landing.features.description": "Our platform uses modern technology to provide unprecedented visibility and control over your global operations.",

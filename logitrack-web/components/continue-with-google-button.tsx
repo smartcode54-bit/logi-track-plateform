@@ -17,6 +17,9 @@ export default function ContinueWithGoogleButton() {
     try {
       setLoading(true);
       const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({
+        prompt: "select_account",
+      });
       const result = await signInWithPopup(auth, provider);
       const geo = await resolveLoginGeoForClient();
       await updateUserLastLogin(result.user, geo);
@@ -26,10 +29,15 @@ export default function ContinueWithGoogleButton() {
       tokenResult = await result.user.getIdTokenResult();
       const claims = tokenResult.claims;
 
-      if (claims?.admin === true) {
-        router.replace("/admin/dashboard");
+      // Route to the appropriate page based on user role
+      const role = claims?.role as string | undefined;
+      const isAdmin = claims?.admin === true;
+      if (isAdmin || role === "admin" || role === "manager" || role === "operation_staff") {
+        router.replace("/app/dashboard");
+      } else if (role === "customer" || role === "operator" || role === "partner") {
+        router.replace("/app/driver-monitor");
       } else {
-        router.replace("/");
+        router.replace("/app/dashboard");
       }
     } catch (error: any) {
       console.error("Error signing in:", error);

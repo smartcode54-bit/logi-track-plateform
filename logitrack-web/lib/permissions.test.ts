@@ -90,24 +90,24 @@ describe("permissions", () => {
     });
 
     it("admin can access all admin routes", () => {
-      expect(canAccessRoute({ admin: true }, "/admin/dashboard")).toBe(true);
-      expect(canAccessRoute({ admin: true }, "/admin/security-center/users")).toBe(true);
-      expect(canAccessRoute({ admin: true }, "/admin/trucks/new")).toBe(true);
+      expect(canAccessRoute({ admin: true }, "/app/dashboard")).toBe(true);
+      expect(canAccessRoute({ admin: true }, "/app/security-center/users")).toBe(true);
+      expect(canAccessRoute({ admin: true }, "/app/trucks/new")).toBe(true);
     });
 
     it("user with fleet_view_trucks can access /admin/dashboard and /admin/trucks", () => {
-      expect(canAccessRoute({ role: "user" }, "/admin/dashboard")).toBe(true);
-      expect(canAccessRoute({ role: "user" }, "/admin/trucks")).toBe(true);
-      expect(canAccessRoute({ role: "user" }, "/admin/trucks/new")).toBe(false);
+      expect(canAccessRoute({ role: "user" }, "/app/dashboard")).toBe(true);
+      expect(canAccessRoute({ role: "user" }, "/app/trucks")).toBe(true);
+      expect(canAccessRoute({ role: "user" }, "/app/trucks/new")).toBe(false);
     });
 
     it("normalizes trailing slash", () => {
-      expect(canAccessRoute({ admin: true }, "/admin/dashboard/")).toBe(true);
+      expect(canAccessRoute({ admin: true }, "/app/dashboard/")).toBe(true);
     });
 
     it("nested route uses parent capability", () => {
-      expect(canAccessRoute({ role: "customer" }, "/admin/driver-monitor")).toBe(true);
-      expect(canAccessRoute({ role: "driver" }, "/admin/drivers")).toBe(false);
+      expect(canAccessRoute({ role: "customer" }, "/app/driver-monitor")).toBe(true);
+      expect(canAccessRoute({ role: "driver" }, "/app/drivers")).toBe(false);
     });
   });
 

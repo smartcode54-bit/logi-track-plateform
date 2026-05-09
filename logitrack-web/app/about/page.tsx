@@ -164,11 +164,9 @@ export default function AboutPage() {
         {/* CTA */}
         <section className="py-12 border-t border-border/60">
           <div className="container max-w-3xl mx-auto px-4 text-center">
-            <Button asChild variant="outline" size="lg" className="gap-2">
-              <Link href="/" prefetch={false}>
-                <ArrowLeft className="h-4 w-4" />
-                {t("about.cta.back")}
-              </Link>
+            <Button variant="outline" size="lg" className="gap-2 cursor-pointer" onClick={() => window.history.back()}>
+              <ArrowLeft className="h-4 w-4" />
+              {t("about.cta.back")}
             </Button>
           </div>
         </section>

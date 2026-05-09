@@ -61,20 +61,20 @@
     ],
     "rewrites": [
       {
-        "source": "/admin/customers/*/edit",
-        "destination": "/admin/customers/placeholder/edit.html"
+        "source": "/app/customers/*/edit",
+        "destination": "/app/customers/placeholder/edit.html"
       },
       {
-        "source": "/admin/customers/*",
-        "destination": "/admin/customers/placeholder.html"
+        "source": "/app/customers/*",
+        "destination": "/app/customers/placeholder.html"
       },
       {
-        "source": "/admin/subcontractors/*/edit",
-        "destination": "/admin/subcontractors/placeholder/edit.html"
+        "source": "/app/subcontractors/*/edit",
+        "destination": "/app/subcontractors/placeholder/edit.html"
       },
       {
-        "source": "/admin/subcontractors/*",
-        "destination": "/admin/subcontractors/placeholder.html"
+        "source": "/app/subcontractors/*",
+        "destination": "/app/subcontractors/placeholder.html"
       }
     ]
   },

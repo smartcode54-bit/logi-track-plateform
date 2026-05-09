@@ -127,7 +127,7 @@ export default function TrucksListDashboard() {
                     </Button>
                     <TruckImportDialog />
                     <Button asChild className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
-                        <Link href="/admin/trucks/new" prefetch={false}>
+                        <Link href="/app/trucks/new" prefetch={false}>
                             <Plus className="h-4 w-4" />
                             {t('trucks.addTruck')}
                         </Link>
@@ -238,7 +238,7 @@ export default function TrucksListDashboard() {
                             </TableRow>
                         ) : (
                             paginatedTrucks.map((truck) => (
-                                <TableRow key={truck.id} className="cursor-pointer hover:bg-muted/50 transition-colors border-b border-border/50" onClick={() => router.push(`/admin/trucks/view?id=${truck.id}`)}>
+                                <TableRow key={truck.id} className="cursor-pointer hover:bg-muted/50 transition-colors border-b border-border/50" onClick={() => router.push(`/app/trucks/view?id=${truck.id}`)}>
                                     <TableCell className="font-mono text-sm text-muted-foreground">
                                         {truck.id.slice(0, 8).toUpperCase()}
                                     </TableCell>
@@ -323,7 +323,7 @@ export default function TrucksListDashboard() {
                                                         <TooltipProvider>
                                                             <Tooltip>
                                                                 <TooltipTrigger asChild>
-                                                                    <Link href={`/admin/trucks/maintenance?id=${truck.id}`} prefetch={false} onClick={(e) => e.stopPropagation()} className="hover:opacity-80 transition-opacity w-fit">
+                                                                    <Link href={`/app/trucks/maintenance?id=${truck.id}`} prefetch={false} onClick={(e) => e.stopPropagation()} className="hover:opacity-80 transition-opacity w-fit">
                                                                         {pmBadge}
                                                                     </Link>
                                                                 </TooltipTrigger>
@@ -360,13 +360,13 @@ export default function TrucksListDashboard() {
                                             <DropdownMenuContent align="end">
                                                 <DropdownMenuLabel>Actions</DropdownMenuLabel>
                                                 <DropdownMenuItem asChild>
-                                                    <Link href={`/admin/trucks/view?id=${truck.id}`} prefetch={false} className="flex items-center cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                                                    <Link href={`/app/trucks/view?id=${truck.id}`} prefetch={false} className="flex items-center cursor-pointer" onClick={(e) => e.stopPropagation()}>
                                                         <Eye className="mr-2 h-4 w-4" />
                                                         {t('trucks.action.view')}
                                                     </Link>
                                                 </DropdownMenuItem>
                                                 <DropdownMenuItem asChild>
-                                                    <Link href={`/admin/trucks/edit?id=${truck.id}`} prefetch={false} className="flex items-center cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                                                    <Link href={`/app/trucks/edit?id=${truck.id}`} prefetch={false} className="flex items-center cursor-pointer" onClick={(e) => e.stopPropagation()}>
                                                         <Edit className="mr-2 h-4 w-4" />
                                                         {t('trucks.action.edit')}
                                                     </Link>

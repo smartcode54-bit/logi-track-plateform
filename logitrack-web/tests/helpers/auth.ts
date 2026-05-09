@@ -19,7 +19,7 @@ export async function login(page: Page): Promise<void> {
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: /login|เข้าสู่ระบบ/i }).click();
 
-  await page.waitForURL("**/admin/**", { timeout: 60000 });
+  await page.waitForURL("**/app/**", { timeout: 60000 });
   await page.waitForTimeout(2000);
 }
 

@@ -174,7 +174,7 @@ export default function EditTruckForm() {
 
             toast.success(t("trucks.edit.success"));
             setTimeout(() => {
-                router.push(`/admin/trucks/view?id=${truckId}`);
+                router.push(`/app/trucks/view?id=${truckId}`);
             }, 1000);
 
         } catch (error) {
@@ -203,7 +203,7 @@ export default function EditTruckForm() {
                         <p className="text-muted-foreground mt-1">{t("trucks.edit.subtitle")}</p>
                     </div>
                     <Button variant="outline" asChild>
-                        <Link href={`/admin/trucks/view?id=${truckId}`} prefetch={false} className="flex items-center gap-2">
+                        <Link href={`/app/trucks/view?id=${truckId}`} prefetch={false} className="flex items-center gap-2">
                             <ArrowLeft className="h-4 w-4" />
                             {t("trucks.edit.backToDetails")}
                         </Link>
@@ -282,7 +282,7 @@ export default function EditTruckForm() {
 
                         <div className="flex justify-end gap-4">
                             <Button type="button" variant="outline" asChild>
-                                <Link href={`/admin/trucks/view?id=${truckId}`} prefetch={false}>{t("trucks.edit.cancel")}</Link>
+                                <Link href={`/app/trucks/view?id=${truckId}`} prefetch={false}>{t("trucks.edit.cancel")}</Link>
                             </Button>
                             <Button type="submit" className="flex items-center gap-2" disabled={isSubmitting}>
                                 {isSubmitting ? (

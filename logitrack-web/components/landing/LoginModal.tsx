@@ -48,7 +48,18 @@ export function LoginModal({ children, open, onOpenChange }: LoginModalProps) {
             // Close modal if successful
             if (onOpenChange) onOpenChange(false);
 
-            router.push("/admin/dashboard");
+            // Let the auth state listener in useLogin/layout handle role-based redirect
+            const tokenResult = await auth.currentUser?.getIdTokenResult();
+            const claims = tokenResult?.claims;
+            const role = claims?.role as string | undefined;
+            const isAdmin = claims?.admin === true;
+            if (isAdmin || role === "admin" || role === "manager" || role === "operation_staff") {
+                router.push("/app/dashboard");
+            } else if (role === "customer" || role === "operator" || role === "partner") {
+                router.push("/app/driver-monitor");
+            } else {
+                router.push("/app/dashboard");
+            }
             toast.success("Logged in successfully");
         } catch (error: any) {
             console.error("Login error:", error);

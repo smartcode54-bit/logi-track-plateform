@@ -132,7 +132,7 @@ export default function NewTruckWizard() {
             }
 
             await saveNewTruckToFirestoreClient(finalData as any, currentUser.uid);
-            router.push("/admin/trucks");
+            router.push("/app/trucks");
 
         } catch (error) {
             console.error(error);
@@ -145,7 +145,7 @@ export default function NewTruckWizard() {
             <div className="min-h-screen bg-background text-foreground flex flex-col">
                 <div className="flex items-center px-8 py-6 border-b bg-background sticky top-0 z-10">
                     <Button variant="ghost" size="icon" asChild className="mr-4">
-                        <Link href="/admin/trucks" prefetch={false}>
+                        <Link href="/app/trucks" prefetch={false}>
                             <ArrowLeft className="h-5 w-5" />
                         </Link>
                     </Button>
@@ -214,7 +214,7 @@ export default function NewTruckWizard() {
                             <Button
                                 type="button"
                                 variant="outline"
-                                onClick={currentStep === 1 ? () => router.push('/admin/trucks') : prevStep}
+                                onClick={currentStep === 1 ? () => router.push('/app/trucks') : prevStep}
                             >
                                 {currentStep === 1 ? t("trucks.wizard.cancel") : t("trucks.wizard.back")}
                             </Button>

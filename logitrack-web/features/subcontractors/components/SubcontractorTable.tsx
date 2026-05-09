@@ -117,7 +117,7 @@ export function SubcontractorTable(props: SubcontractorTableProps) {
                                             </Button>
                                         </DropdownMenuTrigger>
                                         <DropdownMenuContent align="end">
-                                            <DropdownMenuItem onClick={() => router.push(`/admin/subcontractors/${sub.id}`)}>
+                                            <DropdownMenuItem onClick={() => router.push(`/app/subcontractors/${sub.id}`)}>
                                                 {t("subcontractors.action.viewProfile")}
                                             </DropdownMenuItem>
                                             <DropdownMenuItem>{t("subcontractors.action.manageContracts")}</DropdownMenuItem>

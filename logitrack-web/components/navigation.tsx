@@ -164,7 +164,7 @@ export default function Navigation() {
                 {!!authContext?.customClaims?.admin && (
 
                   <DropdownMenuItem asChild>
-                    <Link href="/admin/dashboard" className="flex items-center cursor-pointer" prefetch={false}>
+                    <Link href="/app/dashboard" className="flex items-center cursor-pointer" prefetch={false}>
                       <LayoutDashboard className="mr-2 h-4 w-4" />
                       <span>{t('nav.adminDashboard')}</span>
                     </Link>

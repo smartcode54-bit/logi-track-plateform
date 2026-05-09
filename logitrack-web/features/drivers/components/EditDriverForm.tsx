@@ -81,7 +81,7 @@ export default function EditDriverForm() {
         const fetchDriver = async () => {
             if (!driverId) {
                 toast.error(t("drivers.toast.noId"));
-                router.push('/admin/drivers');
+                router.push('/app/drivers');
                 return;
             }
             try {
@@ -112,7 +112,7 @@ export default function EditDriverForm() {
                     if (driver.truckLicenseImage) setExistingTruckLicenseImage(driver.truckLicenseImage);
                 } else {
                     toast.error(t("drivers.toast.notFound"));
-                    router.push('/admin/drivers');
+                    router.push('/app/drivers');
                 }
             } catch (error) {
                 console.error(error);
@@ -184,7 +184,7 @@ export default function EditDriverForm() {
             await updateDriver(driverId, cleaned, Object.keys(files).length > 0 ? files : undefined);
 
             toast.success(t("drivers.toast.updateSuccess"));
-            router.push(`/admin/drivers/view?id=${driverId}`);
+            router.push(`/app/drivers/view?id=${driverId}`);
         } catch (error) {
             console.error(error);
             toast.error(t("drivers.toast.updateError"));
@@ -217,7 +217,7 @@ export default function EditDriverForm() {
                         </p>
                     </div>
                     <Button variant="outline" asChild>
-                        <Link href={`/admin/drivers/view?id=${driverId}`} prefetch={false} className="flex items-center gap-2">
+                        <Link href={`/app/drivers/view?id=${driverId}`} prefetch={false} className="flex items-center gap-2">
                             <ArrowLeft className="h-4 w-4" />
                             {t("drivers.edit.backToDetails")}
                         </Link>
@@ -496,7 +496,7 @@ export default function EditDriverForm() {
 
                         <div className="flex justify-end gap-4">
                             <Button type="button" variant="outline" asChild>
-                                <Link href={`/admin/drivers/view?id=${driverId}`} prefetch={false}>{t("drivers.form.cancel")}</Link>
+                                <Link href={`/app/drivers/view?id=${driverId}`} prefetch={false}>{t("drivers.form.cancel")}</Link>
                             </Button>
                             <Button
                                 type="submit"

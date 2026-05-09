@@ -22,7 +22,7 @@ import { dedupeTripPhotosByTypeLastWins } from "@/lib/trip-photo-utils";
 import { TRIP_PHOTO_TYPE_ENUM, type TripRecord, type TripPhoto, type DeliveryStopProgress } from "@/validate/tripRecordSchema";
 import { useLanguage } from "@/context/language";
 import { effectivePartnerCode } from "@/features/drivers/hooks/useDriverMonitor";
-import { ReportIncidentModal } from "@/app/admin/chat/components/ReportIncidentModal";
+import { ReportIncidentModal } from "@/app/app/chat/components/ReportIncidentModal";
 import { ImagePreviewGallery } from "@/components/accounting/ImagePreviewGallery";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { toast } from "sonner";

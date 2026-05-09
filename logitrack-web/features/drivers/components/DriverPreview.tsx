@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Image from "next/image";
 import { getDriverByIdClient } from "@/features/drivers/api/drivers";
-import { getDriverAssignmentHistory, AssignmentData } from "@/app/admin/truck-assignment/actions.client";
+import { getDriverAssignmentHistory, AssignmentData } from "@/app/app/truck-assignment/actions.client";
 import { Driver } from "@/validate/driverSchema";
 import { FileViewer } from "@/components/ui/file-viewer";
 import {
@@ -123,7 +123,7 @@ export default function DriverPreview() {
                         {error || t("drivers.detail.notFound")}
                     </h2>
                     <Button asChild>
-                        <Link href="/admin/drivers" prefetch={false}>{t("drivers.detail.backToDrivers")}</Link>
+                        <Link href="/app/drivers" prefetch={false}>{t("drivers.detail.backToDrivers")}</Link>
                     </Button>
                 </div>
             </div>
@@ -156,7 +156,7 @@ export default function DriverPreview() {
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div className="flex items-center gap-4">
                     <Button variant="ghost" size="icon" asChild className="-ml-2">
-                        <Link href="/admin/drivers" prefetch={false}>
+                        <Link href="/app/drivers" prefetch={false}>
                             <ArrowLeft className="h-5 w-5" />
                         </Link>
                     </Button>
@@ -177,7 +177,7 @@ export default function DriverPreview() {
                 </div>
                 <div className="flex items-center gap-3">
                     <Button asChild className="gap-2 bg-blue-600 hover:bg-blue-700 text-white">
-                        <Link href={`/admin/drivers/edit?id=${driver?.id}`} prefetch={false}>
+                        <Link href={`/app/drivers/edit?id=${driver?.id}`} prefetch={false}>
                             <Edit className="h-4 w-4" />
                             {t("drivers.detail.editProfile")}
                         </Link>
@@ -404,7 +404,7 @@ export default function DriverPreview() {
                             </CardTitle>
                             {!driver.currentAssignment && (
                                 <Button size="sm" className="h-8 gap-2" variant="outline" asChild>
-                                    <Link href="/admin/truck-assignment" prefetch={false}>
+                                    <Link href="/app/truck-assignment" prefetch={false}>
                                         <Plus className="h-3.5 w-3.5" />
                                         {t("drivers.detail.assign")}
                                     </Link>

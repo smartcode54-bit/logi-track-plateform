@@ -66,7 +66,7 @@ export default function NewCustomerForm() {
             setIsSubmitting(true);
             const id = await createCustomer(data, logoFile ?? undefined);
             toast.success(t("customers.toast.createSuccess"));
-            router.push(`/admin/customers/${id}`);
+            router.push(`/app/customers/${id}`);
         } catch (error) {
             console.error(error);
             toast.error(t("customers.toast.createError"));
@@ -79,7 +79,7 @@ export default function NewCustomerForm() {
         <div className="container max-w-2xl py-8">
             <div className="flex items-center gap-4 mb-6">
                 <Button variant="ghost" size="icon" asChild>
-                    <Link href="/admin/customers" prefetch={false}>
+                    <Link href="/app/customers" prefetch={false}>
                         <ArrowLeft className="h-5 w-5" />
                     </Link>
                 </Button>
@@ -217,7 +217,7 @@ export default function NewCustomerForm() {
 
                     <div className="flex gap-4">
                         <Button type="button" variant="outline" asChild>
-                            <Link href="/admin/customers" prefetch={false}>{t("customers.form.cancel")}</Link>
+                            <Link href="/app/customers" prefetch={false}>{t("customers.form.cancel")}</Link>
                         </Button>
                         <Button type="submit" disabled={isSubmitting}>
                             {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}

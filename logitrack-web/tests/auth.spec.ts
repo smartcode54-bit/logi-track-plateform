@@ -17,13 +17,13 @@ test.describe("Auth", () => {
       await page.getByRole("button", { name: /login|เข้าสู่ระบบ/i }).click();
       // Wait for login attempt to finish; should stay on login, not redirect to admin
       await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
-      await expect(page).not.toHaveURL(/\/admin\//);
+      await expect(page).not.toHaveURL(/\/app\//);
     });
 
     test("redirects to admin dashboard on success when credentials are set", async ({ page }) => {
       test.skip(!hasTestCredentials(), "No PLAYWRIGHT_TEST_USER_EMAIL / PASSWORD set");
       await login(page);
-      await expect(page).toHaveURL(/\/admin\//);
+      await expect(page).toHaveURL(/\/app\//);
     });
   });
 
@@ -44,13 +44,13 @@ test.describe("Auth", () => {
   });
 
   test.describe("Protected routes", () => {
-    test("accessing /admin redirects to login when not authenticated", async ({ page, context }) => {
+    test("accessing /app redirects to login when not authenticated", async ({ page, context }) => {
       // Run only in CI (clean auth state); locally Firebase persistence can keep user
       test.skip(!process.env.CI, "Run in CI with clean auth state");
       await context.clearCookies();
       await page.goto("/");
       await page.evaluate(() => localStorage.clear());
-      await page.goto("/admin/dashboard");
+      await page.goto("/app/dashboard");
       await expect(page).toHaveURL(/\/login/, { timeout: 15000 });
     });
   });

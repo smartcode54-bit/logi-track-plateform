@@ -10,7 +10,7 @@ export default {
     "landing.hero.stat.realtime": "เรียลไทม์",
     "landing.hero.stat.security": "ความปลอดภัย",
     "landing.hero.stat.enterprise": "องค์กร",
-    "landing.hero.login.title": "เข้าสู่ระบบผู้ดูแล",
+    "landing.hero.login.title": "เข้าสู่ระบบ",
     "landing.hero.login.subtitle": "กรุณาเข้าสู่ระบบเพื่อจัดการระบบของคุณ",
     "landing.features.title": "สร้างขึ้นเพื่อยุคโลจิสติกส์ดิจิทัล",
     "landing.features.description": "แพลตฟอร์มของเราใช้เทคโนโลยีที่ทันสมัยเพื่อให้การมองเห็นและการควบคุมการดำเนินงานทั่วโลกของคุณอย่างที่ไม่เคยมีมาก่อน",

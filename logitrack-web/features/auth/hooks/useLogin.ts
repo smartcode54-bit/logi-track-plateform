@@ -3,6 +3,7 @@ import { useLanguage } from "@/context/language";
 import { useAuth } from "@/context/auth";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { getDefaultRouteForRole } from "@/lib/permissions";
 
 export function useLogin() {
   const { t } = useLanguage();
@@ -14,8 +15,8 @@ export function useLogin() {
 
   useEffect(() => {
     if (!auth?.loading && auth?.currentUser) {
-      const isAdmin = auth.customClaims?.admin === true;
-      router.replace(isAdmin ? "/admin/dashboard" : "/");
+      const defaultRoute = getDefaultRouteForRole(auth.customClaims ?? null);
+      router.replace(defaultRoute);
     }
   }, [auth?.loading, auth?.currentUser, auth?.customClaims, router]);
 
@@ -28,7 +29,7 @@ export function useLogin() {
         throw new Error("Auth context not initialized");
       }
       await auth.login(email, password);
-      router.push("/admin/dashboard");
+      // Redirect will be handled by the useEffect above after auth state updates
       toast.success("Logged in successfully");
     } catch (error: any) {
       console.error("Login error:", error);

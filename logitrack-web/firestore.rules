@@ -32,23 +32,23 @@ service cloud.firestore {
     // Hub→SOC distances (Google Distance Matrix cache). Read by web map & admin; write by admin/API.
     match /hub_soc_distances/{docId} {
       allow read: if request.auth != null;
-      allow write: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+      allow write: if isAppCheckVerified() && request.auth != null && isWebAdmin();
     }
     // SOC→Hub distances (Google Distance Matrix cache). Read by web map & admin; write by admin/API.
     match /soc_hub_distances/{docId} {
       allow read: if request.auth != null;
-      allow write: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+      allow write: if isAppCheckVerified() && request.auth != null && isWebAdmin();
     }
 
     // Users: own doc read/write for profile/fcmTokens; admins can read/write all (e.g. Security Center User Management).
     match /users/{uid} {
       allow read: if request.auth != null && (
         request.auth.uid == uid ||
-        request.auth.token.admin == true
+        isWebAdmin()
       );
       allow write: if isAppCheckVerified() && request.auth != null && (
         request.auth.uid == uid ||
-        request.auth.token.admin == true
+        isWebAdmin()
       );
     }
 
@@ -56,26 +56,26 @@ service cloud.firestore {
     // status, assignedAdminId, priority, lastReadByAdmin (Map), lastMessage, lastMessageAt.
     match /chats/{chatId} {
       allow read: if request.auth != null && (
-        request.auth.token.admin == true ||
+        isWebAdmin() ||
         resource.data.driverId == request.auth.uid
       );
       allow create: if isAppCheckVerified() && request.auth != null && (
-        request.auth.token.admin == true ||
+        isWebAdmin() ||
         (request.resource.data.driverId == request.auth.uid && request.resource.data.assignedAdminId == null)
       );
       allow update, delete: if isAppCheckVerified() && request.auth != null && (
-        request.auth.token.admin == true ||
+        isWebAdmin() ||
         resource.data.driverId == request.auth.uid
       );
 
       // Messages subcollection: same visibility as parent chat.
       match /messages/{messageId} {
         allow read: if request.auth != null && (
-          request.auth.token.admin == true ||
+          isWebAdmin() ||
           get(/databases/$(database)/documents/chats/$(chatId)).data.driverId == request.auth.uid
         );
         allow write: if isAppCheckVerified() && request.auth != null && (
-          request.auth.token.admin == true ||
+          isWebAdmin() ||
           get(/databases/$(database)/documents/chats/$(chatId)).data.driverId == request.auth.uid
         );
       }
@@ -84,7 +84,7 @@ service cloud.firestore {
     // Incident reports: drivers create/read own only (driverId = auth UID or driver doc id); admins full; customers can read all.
     match /incidentReport/{reportId} {
       allow read: if request.auth != null && (
-        request.auth.token.admin == true ||
+        isWebAdmin() ||
         isCustomer() ||
         resource.data.driverId == request.auth.uid ||
         (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
@@ -94,7 +94,7 @@ service cloud.firestore {
         (request.resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(request.resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
       allow update, delete: if isAppCheckVerified() && request.auth != null && (
-        request.auth.token.admin == true ||
+        isWebAdmin() ||
         resource.data.driverId == request.auth.uid ||
         (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
@@ -103,40 +103,40 @@ service cloud.firestore {
     // Broadcasts: history of sent broadcasts. Drivers can read (for Broadcast list); only admins can write.
     match /broadcasts/{broadcastId} {
       allow read: if request.auth != null;
-      allow write: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+      allow write: if isAppCheckVerified() && request.auth != null && isWebAdmin();
     }
 
     // Customers / LSP profiles (for billing, driver IDs). Admin only.
     match /customers/{customerId} {
-      allow read: if request.auth != null && request.auth.token.admin == true;
-      allow write: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+      allow read: if request.auth != null && isWebAdmin();
+      allow write: if isAppCheckVerified() && request.auth != null && isWebAdmin();
     }
 
     // Customer-specific route rate cards for billing estimates.
     match /customer_rate_entries/{docId} {
-      allow read: if request.auth != null && request.auth.token.admin == true;
-      allow write: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+      allow read: if request.auth != null && isWebAdmin();
+      allow write: if isAppCheckVerified() && request.auth != null && isWebAdmin();
     }
 
     // Customer fuel-price-linked billing adjustments by effective date.
     match /customer_fuel_rate_adjustments/{docId} {
-      allow read: if request.auth != null && request.auth.token.admin == true;
-      allow write: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+      allow read: if request.auth != null && isWebAdmin();
+      allow write: if isAppCheckVerified() && request.auth != null && isWebAdmin();
     }
 
     // Customer service fees (extra stop, waiting time, special handling, etc.).
     match /customer_service_fees/{docId} {
-      allow read: if request.auth != null && request.auth.token.admin == true;
-      allow create, update: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true
+      allow read: if request.auth != null && isWebAdmin();
+      allow create, update: if isAppCheckVerified() && request.auth != null && isWebAdmin()
         && request.resource.data.customerId is string
         && request.resource.data.amountThb is number
         && request.resource.data.amountThb >= 0;
-      allow delete: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+      allow delete: if isAppCheckVerified() && request.auth != null && isWebAdmin();
     }
 
     // Monthly retail fuel snapshots (written by Cloud Functions only).
     match /fuel_monthly_snapshots/{docId} {
-      allow read: if request.auth != null && request.auth.token.admin == true;
+      allow read: if request.auth != null && isWebAdmin();
       allow write: if false;
     }
 
@@ -145,13 +145,13 @@ service cloud.firestore {
     match /tasks/{taskId} {
       allow read: if request.auth != null;
       allow create: if isAppCheckVerified() && request.auth != null && (
-        request.auth.token.admin == true ||
+        isWebAdmin() ||
         (request.resource.data.get('driverId', '') != '' &&
           exists(/databases/$(database)/documents/drivers/$(request.resource.data.driverId)) &&
           get(/databases/$(database)/documents/drivers/$(request.resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
       allow update, delete: if request.auth != null && (
-        request.auth.token.admin == true ||
+        isWebAdmin() ||
         resource.data.driverId == request.auth.uid ||
         (resource.data.get('driverId', '') != '' &&
           exists(/databases/$(database)/documents/drivers/$(resource.data.driverId)) &&
@@ -162,12 +162,12 @@ service cloud.firestore {
     // Unified Check-in records: Drivers create/read own; Admins read all.
     match /checkin/{checkinId} {
       allow read: if request.auth != null && (
-        request.auth.token.admin == true ||
+        isWebAdmin() ||
         resource.data.driverId == request.auth.uid
       );
       allow create: if isAppCheckVerified() && request.auth != null;
       allow update, delete: if isAppCheckVerified() && request.auth != null && (
-        request.auth.token.admin == true ||
+        isWebAdmin() ||
         resource.data.driverId == request.auth.uid
       );
     }
@@ -175,16 +175,16 @@ service cloud.firestore {
     // Role-permission config: admin full; each signed-in user may read their own role doc (for capability UI).
     match /permissions_config/{roleId} {
       allow read: if request.auth != null && (
-        request.auth.token.admin == true ||
+        isWebAdmin() ||
         roleId == request.auth.token.get('role', '')
       );
-      allow write: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+      allow write: if isAppCheckVerified() && request.auth != null && isWebAdmin();
     }
 
     // App-wide settings (e.g. mobile min version). Authenticated read; admin write.
     match /settings/{docId} {
       allow read: if request.auth != null;
-      allow write: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+      allow write: if isAppCheckVerified() && request.auth != null && isWebAdmin();
     }
 
     function driverAuthId(driverId) {
@@ -207,9 +207,9 @@ service cloud.firestore {
     // Drivers: any authenticated read (dashboard counts); admin or own doc for write.
     match /drivers/{driverId} {
       allow read: if request.auth != null;
-      allow create: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+      allow create: if isAppCheckVerified() && request.auth != null && isWebAdmin();
       allow update, delete: if isAppCheckVerified() && request.auth != null && (
-        request.auth.token.admin == true ||
+        isWebAdmin() ||
         resource.data.authId == request.auth.uid
       );
 
@@ -242,7 +242,7 @@ service cloud.firestore {
         (request.resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(request.resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
       allow update, delete: if isAppCheckVerified() && request.auth != null && (
-        request.auth.token.admin == true ||
+        isWebAdmin() ||
         resource.data.driverId == request.auth.uid ||
         (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
@@ -251,48 +251,48 @@ service cloud.firestore {
     // Vehicle locations (Cartrack sync): admin read for dashboard map; write by Cloud Function only.
     match /vehicle_locations/{locId} {
       allow read: if request.auth != null;
-      allow write: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+      allow write: if isAppCheckVerified() && request.auth != null && isWebAdmin();
     }
 
     // Trucks: any authenticated read (Driver app reads truck for assignment history); admin write.
     match /trucks/{truckId} {
       allow read: if request.auth != null;
-      allow write: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+      allow write: if isAppCheckVerified() && request.auth != null && isWebAdmin();
     }
 
     // Truck assignments: Admin write; Drivers read own (driverId in doc = driver doc id).
     match /truckAssignment/{assignmentId} {
       allow read: if request.auth != null && (
-        request.auth.token.admin == true ||
+        isWebAdmin() ||
         (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
-      allow write: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+      allow write: if isAppCheckVerified() && request.auth != null && isWebAdmin();
     }
 
     // Waitlist: anyone can create (signup); admin read/delete.
     match /waitlist/{docId} {
       allow create: if isAppCheckVerified();
-      allow read, delete: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
-      allow update: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+      allow read, delete: if isAppCheckVerified() && request.auth != null && isWebAdmin();
+      allow update: if isAppCheckVerified() && request.auth != null && isWebAdmin();
     }
 
     // Subcontractors: admin only.
     match /subcontractors/{docId} {
-      allow read: if request.auth != null && request.auth.token.admin == true;
-      allow write: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+      allow read: if request.auth != null && isWebAdmin();
+      allow write: if isAppCheckVerified() && request.auth != null && isWebAdmin();
     }
 
     // Hubs: authenticated read; drivers can create (add new Hub/SOC from Manual Check-in); admin update/delete.
     match /hubs/{hubId} {
       allow read: if request.auth != null;
       allow create: if isAppCheckVerified() && request.auth != null;
-      allow update, delete: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+      allow update, delete: if isAppCheckVerified() && request.auth != null && isWebAdmin();
     }
 
     // System metadata: admin read/write.
     match /metadata/{docId} {
-      allow read: if request.auth != null && request.auth.token.admin == true;
-      allow write: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+      allow read: if request.auth != null && isWebAdmin();
+      allow write: if isAppCheckVerified() && request.auth != null && isWebAdmin();
     }
 
     // Required shape for admin-created vehicle expenses (import / backfill).
@@ -311,17 +311,17 @@ service cloud.firestore {
     // Vehicle expenses: admin full; drivers create/read/update own only (driverId = auth UID or driver doc id).
     match /vehicle_expenses/{docId} {
       allow read: if request.auth != null && (
-        request.auth.token.admin == true ||
+        isWebAdmin() ||
         resource.data.driverId == request.auth.uid ||
         (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
       allow create: if isAppCheckVerified() && request.auth != null && (
-        (request.auth.token.admin == true && vehicleExpenseAdminCreateValid()) ||
+        (isWebAdmin() && vehicleExpenseAdminCreateValid()) ||
         request.resource.data.driverId == request.auth.uid ||
         (request.resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(request.resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
       allow update, delete: if isAppCheckVerified() && request.auth != null && (
-        request.auth.token.admin == true ||
+        isWebAdmin() ||
         resource.data.driverId == request.auth.uid ||
         (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
@@ -347,57 +347,57 @@ service cloud.firestore {
 
     match /maintenance/{docId} {
       allow read: if request.auth != null && (
-        request.auth.token.admin == true ||
+        isWebAdmin() ||
         maintenanceVisibleToAssignedDriver(resource.data.truckId)
       );
-      allow create: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+      allow create: if isAppCheckVerified() && request.auth != null && isWebAdmin();
       allow update: if isAppCheckVerified() && request.auth != null && (
-        request.auth.token.admin == true ||
+        isWebAdmin() ||
         maintenanceVisibleToAssignedDriver(resource.data.truckId)
       );
-      allow delete: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+      allow delete: if isAppCheckVerified() && request.auth != null && isWebAdmin();
     }
 
     // Transactions (tax, insurance, etc.): admin only.
     match /transactions/{docId} {
-      allow read: if request.auth != null && request.auth.token.admin == true;
-      allow write: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+      allow read: if request.auth != null && isWebAdmin();
+      allow write: if isAppCheckVerified() && request.auth != null && isWebAdmin();
     }
 
     // Holidays: authenticated read; admin write.
     match /holidays/{holidayId} {
       allow read: if request.auth != null;
-      allow write: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+      allow write: if isAppCheckVerified() && request.auth != null && isWebAdmin();
     }
 
     // Leave Requests: Drivers read/create/update own; Admin read/update all.
     match /leave_requests/{requestId} {
       allow read: if request.auth != null && (
-        request.auth.token.admin == true ||
+        isWebAdmin() ||
         resource.data.driverId == request.auth.uid ||
         (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
       allow create: if isAppCheckVerified() && request.auth != null && (
-        request.auth.token.admin == true ||
+        isWebAdmin() ||
         (request.resource.data.get('driverId', '') != '' &&
           get(/databases/$(database)/documents/drivers/$(request.resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
       allow update: if isAppCheckVerified() && request.auth != null && (
-        request.auth.token.admin == true ||
+        isWebAdmin() ||
         resource.data.driverId == request.auth.uid ||
         (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
-      allow delete: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+      allow delete: if isAppCheckVerified() && request.auth != null && isWebAdmin();
     }
 
     // Payroll: Drivers read own; Admin full access.
     match /payroll/{payrollId} {
       allow read: if request.auth != null && (
-        request.auth.token.admin == true ||
+        isWebAdmin() ||
         resource.data.driverId == request.auth.uid ||
         (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
-      allow write: if isAppCheckVerified() && request.auth != null && request.auth.token.admin == true;
+      allow write: if isAppCheckVerified() && request.auth != null && isWebAdmin();
     }
 
     // Security audit stream: read for Security Center (admin or explicit audit capability); writes only via Admin SDK (Cloud Functions).

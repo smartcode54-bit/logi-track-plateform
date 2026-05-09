@@ -75,33 +75,65 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   // Force logout listener: log out only when forceLogoutAt CHANGES to a new value
   // after the listener has already seen an initial value. We don't compare against
   // wall-clock time (client clocks can drift relative to Firestore server time).
+  //
+  // NOTE: The listener may fail with "permission-denied" if the user's token
+  // claims haven't propagated yet or the user doc doesn't exist. We retry
+  // with exponential back-off up to a few times before giving up silently.
   useEffect(() => {
     if (!currentUser?.uid) return;
-    const userDocRef = doc(db, "users", currentUser.uid);
-    let initialForceLogoutMs: number | null = null;
-    let initialized = false;
-    const unsubscribe = onSnapshot(userDocRef, async (snapshot) => {
-      const data = snapshot.data();
-      const forceLogoutAt = data?.forceLogoutAt as Timestamp | undefined;
-      const currentMs = forceLogoutAt ? forceLogoutAt.toMillis() : null;
-      if (!initialized) {
-        // First snapshot after subscribing: record baseline, never log out from it.
-        initialForceLogoutMs = currentMs;
-        initialized = true;
-        return;
-      }
-      if (currentMs !== null && currentMs !== initialForceLogoutMs) {
-        console.log("[Auth] forceLogoutAt changed after subscription - logging out");
-        try {
-          await signOut(auth);
-        } catch (err) {
-          console.error("[Auth] Error during forced logout:", err);
+    let cancelled = false;
+    let unsubscribe: (() => void) | null = null;
+    let retryCount = 0;
+    const MAX_RETRIES = 3;
+
+    function subscribe() {
+      if (cancelled) return;
+      const userDocRef = doc(db, "users", currentUser!.uid);
+      let initialForceLogoutMs: number | null = null;
+      let initialized = false;
+
+      unsubscribe = onSnapshot(userDocRef, async (snapshot) => {
+        retryCount = 0; // reset on success
+        const data = snapshot.data();
+        const forceLogoutAt = data?.forceLogoutAt as Timestamp | undefined;
+        const currentMs = forceLogoutAt ? forceLogoutAt.toMillis() : null;
+        if (!initialized) {
+          // First snapshot after subscribing: record baseline, never log out from it.
+          initialForceLogoutMs = currentMs;
+          initialized = true;
+          return;
         }
-      }
-    }, (err) => {
-      console.error("[Auth] forceLogout listener error:", err);
-    });
-    return () => unsubscribe();
+        if (currentMs !== null && currentMs !== initialForceLogoutMs) {
+          console.log("[Auth] forceLogoutAt changed after subscription - logging out");
+          try {
+            await signOut(auth);
+          } catch (err) {
+            console.error("[Auth] Error during forced logout:", err);
+          }
+        }
+      }, (err: any) => {
+        // Gracefully handle permission-denied (claims not ready, doc missing, etc.)
+        const code = err?.code || "";
+        if (code === "permission-denied" || code === "PERMISSION_DENIED") {
+          if (retryCount < MAX_RETRIES) {
+            retryCount++;
+            const delayMs = Math.min(2000 * Math.pow(2, retryCount - 1), 10000);
+            console.debug(`[Auth] forceLogout listener permission-denied, retrying in ${delayMs}ms (${retryCount}/${MAX_RETRIES})`);
+            setTimeout(subscribe, delayMs);
+          } else {
+            console.debug("[Auth] forceLogout listener: giving up after max retries (permission-denied)");
+          }
+        } else {
+          console.error("[Auth] forceLogout listener error:", err);
+        }
+      });
+    }
+
+    subscribe();
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
   }, [currentUser?.uid]);
 
   const logout = async () => {

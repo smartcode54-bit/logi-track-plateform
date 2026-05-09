@@ -7,7 +7,7 @@ test.describe('Truck Management', () => {
         test.beforeEach(async ({ page }) => {
             // Login first since this is a protected route
             await login(page);
-            await page.goto('/admin/trucks/new');
+            await page.goto('/app/trucks/new');
         });
 
         test('should display the multi-step form', async ({ page }) => {
@@ -62,7 +62,7 @@ test.describe('Truck Management', () => {
 
         test.skip('should load existing truck data', async ({ page }) => {
             await login(page);
-            await page.goto(`/admin/trucks/edit?id=${testTruckId}`);
+            await page.goto(`/app/trucks/edit?id=${testTruckId}`);
 
             // Check that the page loaded
             await expect(page.locator('h1')).toContainText('Edit Truck');
@@ -74,7 +74,7 @@ test.describe('Truck Management', () => {
 
         test.skip('should save changes successfully', async ({ page }) => {
             await login(page);
-            await page.goto(`/admin/trucks/edit?id=${testTruckId}`);
+            await page.goto(`/app/trucks/edit?id=${testTruckId}`);
 
             // Wait for form to load
             await page.waitForSelector('form');

@@ -33,13 +33,13 @@ import { can } from "@/lib/permissions"
 import { CAPABILITIES } from "@/lib/capabilities"
 
 const securityItems = [
-    { titleKey: "securityCenter.overviewSoon", url: "/admin/security-center", icon: LayoutDashboard, capability: CAPABILITIES.security_view_overview },
-    { titleKey: "securityCenter.userManagement", url: "/admin/security-center/users", icon: Users, capability: CAPABILITIES.security_manage_users },
-    { titleKey: "securityCenter.rolePermissionMatrix", url: "/admin/security-center/roles", icon: Layers, capability: CAPABILITIES.security_manage_roles },
-    { titleKey: "securityCenter.securityAudit", url: "/admin/security-center/audit", icon: Shield, capability: CAPABILITIES.security_view_audit },
-    { titleKey: "securityCenter.apiKeys", url: "/admin/security-center/api-keys", icon: Key, capability: CAPABILITIES.security_manage_api_keys },
-    { titleKey: "securityCenter.systemStatus", url: "/admin/security-center/status", icon: Server, capability: CAPABILITIES.security_view_status },
-    { titleKey: "securityCenter.mobileClients", url: "/admin/security-center/mobile-clients", icon: Smartphone, capability: CAPABILITIES.security_view_mobile_clients },
+    { titleKey: "securityCenter.overviewSoon", url: "/app/security-center", icon: LayoutDashboard, capability: CAPABILITIES.security_view_overview },
+    { titleKey: "securityCenter.userManagement", url: "/app/security-center/users", icon: Users, capability: CAPABILITIES.security_manage_users },
+    { titleKey: "securityCenter.rolePermissionMatrix", url: "/app/security-center/roles", icon: Layers, capability: CAPABILITIES.security_manage_roles },
+    { titleKey: "securityCenter.securityAudit", url: "/app/security-center/audit", icon: Shield, capability: CAPABILITIES.security_view_audit },
+    { titleKey: "securityCenter.apiKeys", url: "/app/security-center/api-keys", icon: Key, capability: CAPABILITIES.security_manage_api_keys },
+    { titleKey: "securityCenter.systemStatus", url: "/app/security-center/status", icon: Server, capability: CAPABILITIES.security_view_status },
+    { titleKey: "securityCenter.mobileClients", url: "/app/security-center/mobile-clients", icon: Smartphone, capability: CAPABILITIES.security_view_mobile_clients },
 ]
 
 export function SecurityCenterSidebar() {
@@ -59,7 +59,7 @@ export function SecurityCenterSidebar() {
                 <SidebarMenu>
                     <SidebarMenuItem>
                         <SidebarMenuButton size="lg" asChild>
-                            <Link href="/admin/security-center" prefetch={false}>
+                            <Link href="/app/security-center" prefetch={false}>
                                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-indigo-600 text-primary-foreground">
                                     <ShieldCheck className="size-4 text-white" />
                                 </div>
@@ -99,7 +99,7 @@ export function SecurityCenterSidebar() {
                 <SidebarMenu>
                     <SidebarMenuItem>
                         <SidebarMenuButton asChild tooltip={t("securityCenter.backToAdmin")}>
-                            <Link href="/admin/dashboard" prefetch={false}>
+                            <Link href="/app/dashboard" prefetch={false}>
                                 <LayoutDashboard />
                                 <span>{t("securityCenter.backToAdmin")}</span>
                             </Link>

@@ -77,7 +77,7 @@ export default function TruckPreview() {
                         {error || t("trucks.detail.notFound")}
                     </h2>
                     <Button asChild>
-                        <Link href="/admin/trucks" prefetch={false}>{t("trucks.wizard.back")}</Link>
+                        <Link href="/app/trucks" prefetch={false}>{t("trucks.wizard.back")}</Link>
                     </Button>
                 </div>
             </div>
@@ -104,13 +104,13 @@ export default function TruckPreview() {
                 </div>
                 <div className="flex items-center gap-3">
                     <Button asChild variant="outline" className="gap-2 bg-yellow-600 hover:bg-yellow-700 text-white">
-                        <Link href={`/admin/trucks/maintenance?id=${truck.id}`} prefetch={false}>
+                        <Link href={`/app/trucks/maintenance?id=${truck.id}`} prefetch={false}>
                             <Wrench className="h-4 w-4" />
                             {t("trucks.detail.maintenance")}
                         </Link>
                     </Button>
                     <Button asChild className="gap-2 bg-blue-600 hover:bg-blue-700 text-white">
-                        <Link href={`/admin/trucks/edit?id=${truck.id}`} prefetch={false}>
+                        <Link href={`/app/trucks/edit?id=${truck.id}`} prefetch={false}>
                             <Edit className="h-4 w-4" />
                             {t("trucks.detail.editDetails")}
                         </Link>
@@ -362,12 +362,12 @@ export default function TruckPreview() {
 
                                                         <div className="grid grid-cols-2 gap-3 w-full">
                                                             <Button variant="outline" className="w-full text-xs h-9" asChild>
-                                                                <Link href={`/admin/drivers/view?id=${assignment.driverId}`} prefetch={false}>
+                                                                <Link href={`/app/drivers/view?id=${assignment.driverId}`} prefetch={false}>
                                                                     {t("trucks.detail.viewProfile")}
                                                                 </Link>
                                                             </Button>
                                                             <Button className="w-full text-xs h-9 bg-red-50 text-red-600 hover:bg-red-100 border-red-100 shadow-none" asChild>
-                                                                <Link href="/admin/truck-assignment" prefetch={false}>
+                                                                <Link href="/app/truck-assignment" prefetch={false}>
                                                                     {t("trucks.detail.manage")}
                                                                 </Link>
                                                             </Button>
@@ -387,7 +387,7 @@ export default function TruckPreview() {
                                                             </div>
                                                         </div>
                                                         <Button variant="ghost" size="sm" asChild className="h-8 w-8 p-0">
-                                                            <Link href={`/admin/drivers/view?id=${assignment.driverId}`} prefetch={false}>
+                                                            <Link href={`/app/drivers/view?id=${assignment.driverId}`} prefetch={false}>
                                                                 <User className="h-4 w-4 text-muted-foreground" />
                                                             </Link>
                                                         </Button>
@@ -399,7 +399,7 @@ export default function TruckPreview() {
                                         {uniqueAssignments.length > 1 && (
                                             <div className="pt-2">
                                                 <Button className="w-full text-xs h-9 bg-blue-600 hover:bg-blue-700 text-white" asChild>
-                                                    <Link href="/admin/truck-assignment" prefetch={false}>
+                                                    <Link href="/app/truck-assignment" prefetch={false}>
                                                         {t("trucks.detail.manageAssignments")}
                                                     </Link>
                                                 </Button>
@@ -414,7 +414,7 @@ export default function TruckPreview() {
                                         <p className="text-sm font-medium mb-1">{t("trucks.detail.noDriver")}</p>
                                         <p className="text-xs text-muted-foreground mb-4">{t("trucks.detail.assignDriverDesc")}</p>
                                         <Button className="w-full gap-2 bg-blue-600 hover:bg-blue-700 text-white" asChild>
-                                            <Link href="/admin/truck-assignment" prefetch={false}>
+                                            <Link href="/app/truck-assignment" prefetch={false}>
                                                 <Plus className="h-4 w-4" />
                                                 {t("trucks.detail.assignDriver")}
                                             </Link>

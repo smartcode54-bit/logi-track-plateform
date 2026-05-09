@@ -196,7 +196,7 @@ export function RenewalForm({ type, truck, onSuccess }: RenewalFormProps) {
             if (nextStatus === 'completed') {
                 toast.success(type === 'tax' ? t("renewals.form.toast.successTax") : t("renewals.form.toast.successInsurance"));
                 onSuccess();
-                router.push(`/admin/trucks/view?id=${truck.id}`);
+                router.push(`/app/trucks/view?id=${truck.id}`);
             } else {
                 toast.success(t("renewals.form.toast.successSave"));
                 onSuccess();

@@ -155,7 +155,7 @@ export function buildTripDeliveryShareText(p: BuildTripShareTextInput): string {
         `รหัส : ${code}`,
         `ทะเบียนรถ : ${plate}`,
         `เบอร์โทร : ${phone}`,
-        `ช่องทาง/พาร์ทเนอร์ : ${partner}`,
+        `ช่องทาง : ${partner}`,
         `ประเภทรถ : ${truckTypeLine}`,
         `จำนวนสินค้า : ${parcels}`,
         `เช็คอิน : ${checkInHm}`,

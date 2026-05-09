@@ -42,12 +42,12 @@ export function canAccessRoute(claims: CustomClaims, pathname: string): boolean 
   const path = pathname.replace(/\/$/, "") || "/";
 
   // Dashboard — open to all authenticated users
-  if (path === "/admin/dashboard") {
+  if (path === "/app/dashboard") {
     return !!claims;
   }
 
   // Security center — admin only
-  if (path.startsWith("/admin/security-center")) {
+  if (path.startsWith("/app/security-center")) {
     return isAdmin(claims);
   }
 
@@ -90,12 +90,12 @@ export function getDefaultRouteForRole(claims: CustomClaims): string {
     case "admin":
     case "manager":
     case "operation_staff":
-      return "/admin/dashboard";
+      return "/app/dashboard";
     case "customer":
     case "operator":
     case "partner":
-      return "/admin/driver-monitor";
+      return "/app/driver-monitor";
     default:
-      return "/admin/dashboard";
+      return "/app/dashboard";
   }
 }

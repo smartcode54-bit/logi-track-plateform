@@ -121,7 +121,7 @@ export default function SubcontractorsListDashboard() {
                     </p>
                 </div>
                 <Button asChild className="bg-blue-600 hover:bg-blue-700 text-white gap-2 shadow-lg shadow-blue-900/20">
-                    <Link href="/admin/subcontractors/new" prefetch={false}>
+                    <Link href="/app/subcontractors/new" prefetch={false}>
                         <Plus className="h-4 w-4" />
                         {t("subcontractors.add")}
                     </Link>

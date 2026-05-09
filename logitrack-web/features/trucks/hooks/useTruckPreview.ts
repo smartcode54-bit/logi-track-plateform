@@ -3,7 +3,7 @@ import { useSearchParams } from "next/navigation";
 import { useBreadcrumb } from "@/context/breadcrumb";
 import { useLanguage } from "@/context/language";
 import { getTruckByIdClient, TruckData } from "../services/truckService";
-import { getTruckAssignmentHistory, AssignmentData } from "@/app/admin/truck-assignment/actions.client";
+import { getTruckAssignmentHistory, AssignmentData } from "@/app/app/truck-assignment/actions.client";
 import { getSubcontractors } from "@/features/subcontractors/services/subcontractorService";
 
 export function useTruckPreview() {

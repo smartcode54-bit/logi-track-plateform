@@ -60,7 +60,7 @@ export default function SubcontractorDetail() {
             <div className="container mx-auto py-12 text-center">
                 <h2 className="text-xl font-semibold mb-4 text-slate-800">{t("subcontractors.detail.notFound")}</h2>
                 <Button asChild variant="outline">
-                    <Link href="/admin/subcontractors" prefetch={false}>{t("subcontractors.detail.backToList")}</Link>
+                    <Link href="/app/subcontractors" prefetch={false}>{t("subcontractors.detail.backToList")}</Link>
                 </Button>
             </div>
         );
@@ -85,9 +85,9 @@ export default function SubcontractorDetail() {
             <div className="max-w-7xl mx-auto space-y-6">
                 {/* Breadcrumbs */}
                 <div className="flex items-center gap-2 text-sm text-slate-500 mb-2">
-                    <Link href="/admin/subcontractors" className="hover:text-slate-900 transition-colors" prefetch={false}>{t("subcontractors.detail.partners")}</Link>
+                    <Link href="/app/subcontractors" className="hover:text-slate-900 transition-colors" prefetch={false}>{t("subcontractors.detail.partners")}</Link>
                     <span>/</span>
-                    <Link href="/admin/subcontractors" className="hover:text-slate-900 transition-colors" prefetch={false}>{t("subcontractors.detail.subcontractors")}</Link>
+                    <Link href="/app/subcontractors" className="hover:text-slate-900 transition-colors" prefetch={false}>{t("subcontractors.detail.subcontractors")}</Link>
                     <span>/</span>
                     <span className="font-medium text-slate-900 dark:text-slate-100">{subcontractor.name}</span>
                 </div>
@@ -163,7 +163,7 @@ export default function SubcontractorDetail() {
                                             <MessageSquare className="h-4 w-4" /> {t("subcontractors.detail.message")}
                                         </Button>
                                         <Button className="flex-1 md:flex-none gap-2 bg-blue-600 hover:bg-blue-700 text-white" asChild>
-                                            <Link href={`/admin/subcontractors/${subcontractor.id}/edit`} prefetch={false}>
+                                            <Link href={`/app/subcontractors/${subcontractor.id}/edit`} prefetch={false}>
                                                 <Edit className="h-4 w-4" /> {t("subcontractors.detail.editProfile")}
                                             </Link>
                                         </Button>

@@ -124,7 +124,7 @@ export default function NewDriverForm() {
             await createDriver(data, files);
 
             toast.success(`${t("drivers.word.driver")} ${data.firstName} ${data.lastName} ${t("drivers.toast.registerSuccess")}`);
-            router.push("/admin/drivers");
+            router.push("/app/drivers");
         } catch (error) {
             console.error(error);
             toast.error(t("drivers.toast.registerError"));
@@ -156,7 +156,7 @@ export default function NewDriverForm() {
             {/* Header */}
             <div className="flex items-center px-8 py-6 border-b bg-background sticky top-0 z-10">
                 <Button variant="ghost" size="icon" asChild className="mr-4">
-                    <Link href="/admin/drivers" prefetch={false}>
+                    <Link href="/app/drivers" prefetch={false}>
                         <ArrowLeft className="h-5 w-5" />
                     </Link>
                 </Button>
@@ -438,7 +438,7 @@ export default function NewDriverForm() {
 
                     {/* Footer */}
                     <div className="absolute bottom-0 right-0 left-0 p-4 border-t bg-background/80 backdrop-blur-sm flex justify-between items-center z-20">
-                        <Button type="button" variant="outline" onClick={currentStep === 1 ? () => router.push('/admin/drivers') : prevStep} className="bg-background">
+                        <Button type="button" variant="outline" onClick={currentStep === 1 ? () => router.push('/app/drivers') : prevStep} className="bg-background">
                             {currentStep === 1 ? t("drivers.form.cancel") : t("drivers.form.back")}
                         </Button>
                         <Button type="button" className="bg-blue-600 hover:bg-blue-700 text-white min-w-[140px]" onClick={currentStep === 4 ? form.handleSubmit(onSubmit) : nextStep} disabled={isSubmitting}>

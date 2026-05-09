@@ -22,14 +22,13 @@ export default function SupportPage() {
       <Navigation />
       <main className="flex-1 container max-w-3xl mx-auto px-4 py-12">
         <div className="mb-8">
-          <Link
-            href={isAdmin ? "/admin/dashboard" : "/"}
-            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-            prefetch={false}
+          <button
+            onClick={() => window.history.back()}
+            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
           >
             <ArrowLeft className="h-4 w-4" />
-            {isAdmin ? "Back to Admin" : "Back to Home"}
-          </Link>
+            Go Back
+          </button>
         </div>
 
         <div className="flex items-center gap-3 mb-2">
@@ -57,10 +56,12 @@ export default function SupportPage() {
             </CardHeader>
             <CardContent>
               <a
-                href="mailto:support@logisticspro.com"
+                href="https://mail.google.com/mail/?view=cm&fs=1&to=smartcode54@gmail.com&su=แจ้งปัญหาระบบ Logitrack web/mobile"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="text-primary hover:underline font-medium"
               >
-                support@logisticspro.com
+                smartcode54@gmail.com
               </a>
             </CardContent>
           </Card>
@@ -78,7 +79,7 @@ export default function SupportPage() {
             <CardContent>
               {isAdmin ? (
                 <Button asChild variant="outline" size="sm">
-                  <Link href="/admin/chat" prefetch={false}>
+                  <Link href="/app/chat" prefetch={false}>
                     Open Admin Chat
                   </Link>
                 </Button>

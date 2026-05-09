@@ -46,7 +46,7 @@ import { useLanguage } from "@/context/language"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useAuth } from "@/context/auth"
-import { can } from "@/lib/permissions"
+import { can, getRole } from "@/lib/permissions"
 import { CAPABILITIES } from "@/lib/capabilities"
 import { WEB_APP_VERSION } from "@/lib/app-version"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -64,6 +64,11 @@ export function AppSidebar() {
         if (!can(claims, CAPABILITIES.waitlist_view)) return
         const unsub = onSnapshot(collection(db, COLLECTIONS.WAITLIST), (snap) => {
             setWaitlistCount(snap.size)
+        }, (err: any) => {
+            // Silently handle permission-denied (claims may not be ready yet)
+            if (err?.code !== "permission-denied" && err?.code !== "PERMISSION_DENIED") {
+                console.error("[Sidebar] waitlist listener error:", err)
+            }
         })
         return () => unsub()
     }, [claims])
@@ -72,47 +77,47 @@ export function AppSidebar() {
     const allItems = [
         {
             title: t("nav.dashboard"),
-            url: "/admin/dashboard",
+            url: "/app/dashboard",
             icon: LayoutDashboard,
-            capability: CAPABILITIES.fleet_view_trucks,
+            capability: null as any, // Dashboard is open to all authenticated users
         },
         {
             title: t("nav.fleets"),
             icon: Truck,
             items: [
-                { title: t("nav.truckManagement"), url: "/admin/trucks", capability: CAPABILITIES.fleet_view_trucks },
-                { title: t("nav.truckAssignment"), url: "/admin/truck-assignment", capability: CAPABILITIES.fleet_view_assignments },
-                { title: t("nav.truckRenewals"), url: "/admin/renewals", capability: CAPABILITIES.fleet_view_renewals },
-                { title: t("nav.maintenanceCosts"), url: "/admin/maintenance", capability: CAPABILITIES.fleet_manage_maintenance },
+                { title: t("nav.truckManagement"), url: "/app/trucks", capability: CAPABILITIES.fleet_view_trucks },
+                { title: t("nav.truckAssignment"), url: "/app/truck-assignment", capability: CAPABILITIES.fleet_view_assignments },
+                { title: t("nav.truckRenewals"), url: "/app/renewals", capability: CAPABILITIES.fleet_view_renewals },
+                { title: t("nav.maintenanceCosts"), url: "/app/maintenance", capability: CAPABILITIES.fleet_manage_maintenance },
             ],
         },
         {
             title: t("nav.customers"),
-            url: "/admin/customers",
+            url: "/app/customers",
             icon: Building2,
             capability: CAPABILITIES.fleet_manage_customers,
         },
         {
             title: t("nav.manageSubcontractors"),
-            url: "/admin/subcontractors",
+            url: "/app/subcontractors",
             icon: Briefcase,
             capability: CAPABILITIES.fleet_manage_subcontractors,
         },
         {
             title: t("nav.driverManagement"),
-            url: "/admin/drivers",
+            url: "/app/drivers",
             icon: User,
             capability: CAPABILITIES.drivers_view,
         },
         {
             title: t("nav.chat") || "Chat",
-            url: "/admin/chat",
+            url: "/app/chat",
             icon: MessageCircle,
             capability: CAPABILITIES.chat_view,
         },
         {
             title: t("nav.waitlist"),
-            url: "/admin/waitlist",
+            url: "/app/waitlist",
             icon: Mail,
             capability: CAPABILITIES.waitlist_view,
         },
@@ -120,31 +125,31 @@ export function AppSidebar() {
             title: t("nav.accounting"),
             icon: Calculator,
             items: [
-                { title: t("nav.fuel"), url: "/admin/accounting/fuel", capability: CAPABILITIES.accounting_view_fuel },
-                { title: t("nav.other"), url: "/admin/accounting/other", capability: CAPABILITIES.accounting_view_other },
-                { title: t("nav.auditExpense"), url: "/admin/accounting/audit", capability: CAPABILITIES.accounting_audit_expense },
-                { title: t("nav.rateCard"), url: "/admin/accounting/rate-card", capability: CAPABILITIES.accounting_view_rate_card },
-                { title: t("nav.income"), url: "/admin/accounting/income", capability: CAPABILITIES.accounting_view_income },
+                { title: t("nav.fuel"), url: "/app/accounting/fuel", capability: CAPABILITIES.accounting_view_fuel },
+                { title: t("nav.other"), url: "/app/accounting/other", capability: CAPABILITIES.accounting_view_other },
+                { title: t("nav.auditExpense"), url: "/app/accounting/audit", capability: CAPABILITIES.accounting_audit_expense },
+                { title: t("nav.rateCard"), url: "/app/accounting/rate-card", capability: CAPABILITIES.accounting_view_rate_card },
+                { title: t("nav.income"), url: "/app/accounting/income", capability: CAPABILITIES.accounting_view_income },
             ],
         },
         {
             title: t("nav.operations"),
             icon: MapPin,
             items: [
-                { title: t("nav.firstMileTasks"), url: "/admin/first-mile", capability: CAPABILITIES.operations_view_first_mile },
-                { title: t("nav.lineHaulTasks"), url: "/admin/line-haul", capability: CAPABILITIES.operations_view_line_haul },
-                { title: t("nav.sourceManagement"), url: "/admin/sources", capability: CAPABILITIES.operations_manage_sources },
-                { title: t("nav.driverMonitor"), url: "/admin/driver-monitor", capability: CAPABILITIES.operations_view_driver_monitor },
-                { title: t("nav.incidentReports"), url: "/admin/incident-reports", capability: CAPABILITIES.operations_view_incidents },
+                { title: t("nav.firstMileTasks"), url: "/app/first-mile", capability: CAPABILITIES.operations_view_first_mile },
+                { title: t("nav.lineHaulTasks"), url: "/app/line-haul", capability: CAPABILITIES.operations_view_line_haul },
+                { title: t("nav.sourceManagement"), url: "/app/sources", capability: CAPABILITIES.operations_manage_sources },
+                { title: t("nav.driverMonitor"), url: "/app/driver-monitor", capability: CAPABILITIES.operations_view_driver_monitor },
+                { title: t("nav.incidentReports"), url: "/app/incident-reports", capability: CAPABILITIES.operations_view_incidents },
             ],
         },
         {
             title: t("nav.hr"),
             icon: Users,
             items: [
-                { title: t("nav.payroll"), url: "/admin/payroll", capability: CAPABILITIES.hr_view_payroll },
-                { title: t("nav.leaveRequests"), url: "/admin/leave-requests", capability: CAPABILITIES.hr_view_leave },
-                { title: t("nav.holidays"), url: "/admin/holidays", capability: CAPABILITIES.hr_manage_holidays },
+                { title: t("nav.payroll"), url: "/app/payroll", capability: CAPABILITIES.hr_view_payroll },
+                { title: t("nav.leaveRequests"), url: "/app/leave-requests", capability: CAPABILITIES.hr_view_leave },
+                { title: t("nav.holidays"), url: "/app/holidays", capability: CAPABILITIES.hr_manage_holidays },
             ],
         },
     ]
@@ -156,7 +161,8 @@ export function AppSidebar() {
                 if (filteredSub.length === 0) return null
                 return { ...item, items: filteredSub }
             }
-            return can(claims, item.capability) ? item : null
+            // Items with no capability requirement (e.g. Dashboard) are always visible
+            return !item.capability || can(claims, item.capability) ? item : null
         })
         .filter(Boolean) as typeof allItems
 
@@ -173,13 +179,15 @@ export function AppSidebar() {
                 <SidebarMenu>
                     <SidebarMenuItem>
                         <SidebarMenuButton size="lg" asChild>
-                            <Link href="/admin/dashboard" prefetch={false}>
+                            <Link href="/app/dashboard" prefetch={false}>
                                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-blue-600 text-primary-foreground">
                                     <Truck className="size-4 text-white" />
                                 </div>
                                 <div className="grid flex-1 text-left text-sm leading-tight">
                                     <span className="truncate font-semibold text-base">Logistics Pro</span>
-                                    <span className="truncate text-xs text-muted-foreground">Enterprise Admin</span>
+                                    <span className="truncate text-xs text-muted-foreground capitalize">
+                                        {(getRole(claims) || "user").replace(/_/g, " ")}
+                                    </span>
                                     <span className="truncate text-[11px] text-muted-foreground/90">
                                         {t("nav.appVersion", { version: WEB_APP_VERSION })}
                                     </span>
@@ -220,10 +228,10 @@ export function AppSidebar() {
                                             </CollapsibleContent>
                                         </Collapsible>
                                     ) : (
-                                        <SidebarMenuButton asChild tooltip={item.url === "/admin/waitlist" && waitlistCount > 0 ? `${item.title} (${waitlistCount})` : item.title} isActive={pathname === item.url}>
+                                        <SidebarMenuButton asChild tooltip={item.url === "/app/waitlist" && waitlistCount > 0 ? `${item.title} (${waitlistCount})` : item.title} isActive={pathname === item.url}>
                                             <Link href={item.url} prefetch={false}>
                                                 {item.icon && <item.icon />}
-                                                <span>{item.title}{item.url === "/admin/waitlist" && waitlistCount > 0 ? ` (${waitlistCount})` : ""}</span>
+                                                <span>{item.title}{item.url === "/app/waitlist" && waitlistCount > 0 ? ` (${waitlistCount})` : ""}</span>
                                             </Link>
                                         </SidebarMenuButton>
                                     )}
@@ -239,16 +247,16 @@ export function AppSidebar() {
                         <SidebarGroupContent>
                             <SidebarMenu>
                                 <SidebarMenuItem>
-                                    <SidebarMenuButton asChild tooltip={t("nav.securityCenter")} isActive={pathname?.startsWith("/admin/security-center")}>
-                                        <Link href="/admin/security-center" prefetch={false}>
+                                    <SidebarMenuButton asChild tooltip={t("nav.securityCenter")} isActive={pathname?.startsWith("/app/security-center")}>
+                                        <Link href="/app/security-center" prefetch={false}>
                                             <Shield />
                                             <span>{t("nav.securityCenter")}</span>
                                         </Link>
                                     </SidebarMenuButton>
                                 </SidebarMenuItem>
                                 <SidebarMenuItem>
-                                    <SidebarMenuButton asChild tooltip="Utilities" isActive={pathname?.startsWith("/admin/utilities")}>
-                                        <Link href="/admin/utilities/backfill" prefetch={false}>
+                                    <SidebarMenuButton asChild tooltip="Utilities" isActive={pathname?.startsWith("/app/utilities")}>
+                                        <Link href="/app/utilities/backfill" prefetch={false}>
                                             <Wrench className="h-4 w-4" />
                                             <span>Utilities</span>
                                         </Link>
