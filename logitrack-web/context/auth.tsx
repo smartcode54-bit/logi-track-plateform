@@ -1,12 +1,13 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { User, signOut, signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "@/firebase/client";
+import { auth, db } from "@/firebase/client";
 import { resolveLoginGeoForClient, updateUserLastLogin } from "@/lib/updateUserLastLogin";
 import { onAuthStateChanged } from "firebase/auth";
 import { getIdTokenResult, getIdToken } from "firebase/auth";
 import { getFunctions, httpsCallable, connectFunctionsEmulator } from "firebase/functions";
+import { doc, onSnapshot, Timestamp } from "firebase/firestore";
 
 type ParsedTokenResult = {
   [key: string]: any;
@@ -36,12 +37,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [customClaims, setCustomClaims] = useState<ParsedTokenResult | null>(null);
   const [loading, setLoading] = useState(true);
+  // Track when current session started so we can detect forceLogoutAt set after login
+  const sessionStartTimeRef = useRef<number | null>(null);
 
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user ? user : null);
       if (user) {
+        // Record session start time (when this user authenticated in current tab)
+        sessionStartTimeRef.current = Date.now();
         try {
           const tokenResult = await getIdTokenResult(user);
           setCustomClaims(tokenResult.claims ?? null);
@@ -64,12 +69,37 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           setLoading(false);
         }
       } else {
+        sessionStartTimeRef.current = null;
         setCustomClaims(null);
         setLoading(false);
       }
     });
     return () => unsubscribe();
   }, []);
+
+  // Force logout listener: when admin updates user role, Cloud Function writes
+  // forceLogoutAt timestamp on user doc. If it's after our session start, log out.
+  useEffect(() => {
+    if (!currentUser?.uid) return;
+    const userDocRef = doc(db, "users", currentUser.uid);
+    const unsubscribe = onSnapshot(userDocRef, async (snapshot) => {
+      const data = snapshot.data();
+      const forceLogoutAt = data?.forceLogoutAt as Timestamp | undefined;
+      if (!forceLogoutAt || !sessionStartTimeRef.current) return;
+      const forceLogoutMs = forceLogoutAt.toMillis();
+      if (forceLogoutMs > sessionStartTimeRef.current) {
+        console.log("[Auth] forceLogoutAt detected after session start - logging out");
+        try {
+          await signOut(auth);
+        } catch (err) {
+          console.error("[Auth] Error during forced logout:", err);
+        }
+      }
+    }, (err) => {
+      console.error("[Auth] forceLogout listener error:", err);
+    });
+    return () => unsubscribe();
+  }, [currentUser?.uid]);
 
   const logout = async () => {
     try {

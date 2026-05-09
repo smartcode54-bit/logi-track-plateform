@@ -112,9 +112,6 @@ function EditUserDialog({
     onSaveSuccess?: () => void;
 }) {
     const { t } = useLanguage();
-    const auth = useAuth();
-    const currentUser = auth?.currentUser;
-    const logout = auth?.logout;
 
     const [role, setRole] = useState("user");
     const [partnerScopeId, setPartnerScopeId] = useState("");
@@ -149,15 +146,9 @@ function EditUserDialog({
             toast.success(t("users.toast.roleUpdated"));
             onOpenChange(false);
             onSaveSuccess?.();
-
-            // Cloud Function revokes refresh tokens after role change.
-            // If editing self, force logout so user must re-login with new role.
-            if (currentUser?.uid === user.uid && logout) {
-                console.log("[EditUserDialog] Editing self - forcing logout to apply new role");
-                setTimeout(() => {
-                    logout();
-                }, 1500);
-            }
+            // Cloud Function writes forceLogoutAt on the user doc.
+            // Firestore listener in AuthContext will auto-logout the affected user
+            // (including the admin if they edited their own account).
         } catch (error) {
             console.error("Error updating user:", error);
             toast.error(t("users.toast.roleUpdateFailed"));

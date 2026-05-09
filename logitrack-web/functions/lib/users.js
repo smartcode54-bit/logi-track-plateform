@@ -126,12 +126,12 @@ exports.updateUserRole = (0, https_1.onCall)(async (request) => {
         }
         console.log(`[updateUserRole] Setting custom claims for ${targetUid}:`, JSON.stringify(nextClaims));
         try {
-            console.log(`[updateUserRole] About to call setCustomUserClaims for ${targetUid}`);
             await admin.auth().setCustomUserClaims(targetUid, nextClaims);
             console.log(`[updateUserRole] Custom claims set successfully for ${targetUid}`);
-            // Verify that claims were actually set
-            const updatedUser = await admin.auth().getUser(targetUid);
-            console.log(`[updateUserRole] Verification - Updated user custom claims:`, JSON.stringify(updatedUser.customClaims));
+            // Force user to re-login by revoking refresh tokens
+            // This ensures the new role takes effect immediately on next login
+            await admin.auth().revokeRefreshTokens(targetUid);
+            console.log(`[updateUserRole] Revoked refresh tokens for ${targetUid} - user must re-login`);
         }
         catch (authError) {
             console.error(`[updateUserRole] FAILED to set custom claims for ${targetUid}:`, {
