@@ -3,9 +3,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 
 // Admin emails - hardcoded for now
 const ADMIN_EMAILS = [
-    "radchada67@gmail.com",
     "smartcode54@gmail.com",
-    "admin-test@example.com",
 ];
 
 /**
