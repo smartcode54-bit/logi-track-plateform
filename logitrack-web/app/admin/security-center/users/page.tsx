@@ -110,24 +110,18 @@ function EditUserDialog({
     onSaveSuccess?: () => void;
 }) {
     const { t } = useLanguage();
-    if (!user) return null;
 
-    const currentRole = user.customClaims?.role || (user.customClaims?.admin ? "admin" : "user");
-
-    const [role, setRole] = useState(currentRole);
-    const [partnerScopeId, setPartnerScopeId] = useState(
-        typeof user.customClaims?.partnerScopeId === "string" ? user.customClaims.partnerScopeId : ""
-    );
-    const [customerScopeId, setCustomerScopeId] = useState(
-        typeof user.customClaims?.customerScopeId === "string" ? user.customClaims.customerScopeId : ""
-    );
+    const [role, setRole] = useState("user");
+    const [partnerScopeId, setPartnerScopeId] = useState("");
+    const [customerScopeId, setCustomerScopeId] = useState("");
     const [customers, setCustomers] = useState<CustomerData[]>([]);
     const [loadingCustomers, setLoadingCustomers] = useState(true);
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
         if (open && user) {
-            setRole(user.customClaims?.role || (user.customClaims?.admin ? "admin" : "user"));
+            const currentRole = user.customClaims?.role || (user.customClaims?.admin ? "admin" : "user");
+            setRole(currentRole);
             setPartnerScopeId(typeof user.customClaims?.partnerScopeId === "string" ? user.customClaims.partnerScopeId : "");
             setCustomerScopeId(typeof user.customClaims?.customerScopeId === "string" ? user.customClaims.customerScopeId : "");
 
@@ -147,6 +141,7 @@ function EditUserDialog({
     }, [open, user]);
 
     const save = async () => {
+        if (!user) return;
         setSaving(true);
         try {
             const updateUserRole = httpsCallable(functionsInstance, "updateUserRole");
@@ -166,6 +161,8 @@ function EditUserDialog({
             setSaving(false);
         }
     };
+
+    if (!user) return null;
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
