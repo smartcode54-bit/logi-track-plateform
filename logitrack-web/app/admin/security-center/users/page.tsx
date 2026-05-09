@@ -96,12 +96,18 @@ function PartnerScopeCell({
     );
 }
 
-function CustomerScopeCell({
+function CustomerScopeEditDialog({
     user,
+    open,
+    onOpenChange,
     functions: functionsInstance,
+    onSaveSuccess,
 }: {
     user: UserData;
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
     functions: Functions;
+    onSaveSuccess?: () => void;
 }) {
     const { t } = useLanguage();
     const initial =
@@ -109,26 +115,26 @@ function CustomerScopeCell({
     const [value, setValue] = useState(initial);
     const [customers, setCustomers] = useState<CustomerData[]>([]);
     const [loadingCustomers, setLoadingCustomers] = useState(true);
-
-    useEffect(() => {
-        setValue(typeof user.customClaims?.customerScopeId === "string" ? user.customClaims.customerScopeId : "");
-    }, [user.uid, user.customClaims?.customerScopeId]);
-
-    useEffect(() => {
-        const loadCustomers = async () => {
-            try {
-                const data = await getCustomers();
-                setCustomers(data);
-            } catch (error) {
-                console.error("Error loading customers:", error);
-            } finally {
-                setLoadingCustomers(false);
-            }
-        };
-        loadCustomers();
-    }, []);
-
     const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+        if (open) {
+            setValue(typeof user.customClaims?.customerScopeId === "string" ? user.customClaims.customerScopeId : "");
+            setLoadingCustomers(true);
+            const loadCustomers = async () => {
+                try {
+                    const data = await getCustomers();
+                    setCustomers(data);
+                } catch (error) {
+                    console.error("Error loading customers:", error);
+                } finally {
+                    setLoadingCustomers(false);
+                }
+            };
+            loadCustomers();
+        }
+    }, [open, user.customClaims?.customerScopeId]);
+
     const save = async () => {
         setSaving(true);
         try {
@@ -139,6 +145,8 @@ function CustomerScopeCell({
                 customerScopeId: value.trim(),
             });
             toast.success(t("users.customerScopeSaved"));
+            onOpenChange(false);
+            onSaveSuccess?.();
         } catch {
             toast.error(t("users.customerScopeSaveFailed"));
         } finally {
@@ -146,25 +154,47 @@ function CustomerScopeCell({
         }
     };
 
+    const selectedCustomer = customers.find(c => c.id === value);
+    const displayValue = selectedCustomer ? `${selectedCustomer.name} (${selectedCustomer.code})` : "-";
+
     return (
-        <div className="flex flex-col gap-1 min-w-[200px]">
-            <Select value={value} onValueChange={setValue}>
-                <SelectTrigger className="h-8 text-xs">
-                    <SelectValue placeholder={t("users.customerScopePlaceholder")} />
-                </SelectTrigger>
-                <SelectContent>
-                    <SelectItem value="">-</SelectItem>
-                    {customers.map((customer) => (
-                        <SelectItem key={customer.id} value={customer.id}>
-                            {customer.name} ({customer.code})
-                        </SelectItem>
-                    ))}
-                </SelectContent>
-            </Select>
-            <Button type="button" size="sm" className="h-7 text-xs w-fit" onClick={save} disabled={saving || loadingCustomers}>
-                {t("users.customerScopeSave")}
-            </Button>
-        </div>
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="sm:max-w-[400px]">
+                <DialogHeader>
+                    <DialogTitle>{t("users.customerScope")}</DialogTitle>
+                    <DialogDescription>
+                        {t("users.form.displayName")}: <span className="font-medium text-foreground">{user.displayName}</span>
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                    <div className="space-y-2">
+                        <Label>{t("users.customerScope")}</Label>
+                        <Select value={value} onValueChange={setValue} disabled={loadingCustomers || saving}>
+                            <SelectTrigger>
+                                <SelectValue placeholder={t("users.customerScopePlaceholder")} />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="">-</SelectItem>
+                                {customers.map((customer) => (
+                                    <SelectItem key={customer.id} value={customer.id}>
+                                        {customer.name} ({customer.code})
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                </div>
+                <DialogFooter>
+                    <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+                        {t("users.form.cancel")}
+                    </Button>
+                    <Button type="button" onClick={save} disabled={saving || loadingCustomers}>
+                        {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        {t("users.customerScopeSave")}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     );
 }
 
@@ -179,6 +209,9 @@ export default function AdminUsersPage() {
     const [editRoleUser, setEditRoleUser] = useState<UserData | null>(null);
     const [editRoleValue, setEditRoleValue] = useState("");
     const [isEditRoleLoading, setIsEditRoleLoading] = useState(false);
+
+    // Edit Customer Scope State
+    const [editCustomerScopeUser, setEditCustomerScopeUser] = useState<UserData | null>(null);
 
     // Form state
     const [newUserEmail, setNewUserEmail] = useState("");
@@ -635,6 +668,16 @@ export default function AdminUsersPage() {
                             </DialogFooter>
                         </DialogContent>
                     </Dialog>
+
+                    {editCustomerScopeUser && (
+                        <CustomerScopeEditDialog
+                            user={editCustomerScopeUser}
+                            open={!!editCustomerScopeUser}
+                            onOpenChange={(open) => !open && setEditCustomerScopeUser(null)}
+                            functions={functions}
+                            onSaveSuccess={() => fetchUsers()}
+                        />
+                    )}
                 </div>
             </div>
 
@@ -764,7 +807,16 @@ export default function AdminUsersPage() {
                                                     {role === "partner" ? (
                                                         <PartnerScopeCell user={user} functions={functions} />
                                                     ) : role === "customer" ? (
-                                                        <CustomerScopeCell user={user} functions={functions} />
+                                                        <Button
+                                                            type="button"
+                                                            variant="outline"
+                                                            size="sm"
+                                                            className="h-7 text-xs"
+                                                            onClick={() => setEditCustomerScopeUser(user)}
+                                                        >
+                                                            <Edit className="h-3 w-3 mr-1" />
+                                                            {t("users.editRole")}
+                                                        </Button>
                                                     ) : (
                                                         <span className="text-xs text-muted-foreground">—</span>
                                                     )}
