@@ -237,4 +237,11 @@ export default {
     "common.save": "บันทึก",
     "common.ok": "ตกลง",
     "common.close": "ปิด",
+
+    // Unauthorized page
+    "unauthorized.title": "ไม่มีสิทธิ์เข้าถึง",
+    "unauthorized.description": "คุณไม่มีสิทธิ์ดูหน้านี้ กรุณาติดต่อผู้ดูแลระบบหากคิดว่าเป็นข้อผิดพลาด",
+    "unauthorized.goBack": "ย้อนกลับ",
+    "unauthorized.goHome": "ไปหน้าหลักของฉัน",
+    "unauthorized.roleHint": "เข้าสู่ระบบในฐานะ: {role}",
 };

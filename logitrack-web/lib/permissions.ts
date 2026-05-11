@@ -41,6 +41,11 @@ export function can(claims: CustomClaims, capability: CapabilityId): boolean {
 export function canAccessRoute(claims: CustomClaims, pathname: string): boolean {
   const path = pathname.replace(/\/$/, "") || "/";
 
+  // Unauthorized page — always accessible to authenticated users (avoids redirect loop)
+  if (path === "/app/unauthorized") {
+    return !!claims;
+  }
+
   // Dashboard — open to all authenticated users
   if (path === "/app/dashboard") {
     return !!claims;

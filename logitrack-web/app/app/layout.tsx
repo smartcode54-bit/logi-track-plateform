@@ -131,15 +131,12 @@ export default function AdminLayout({
         };
     }, [currentUser, authContext?.loading, router]);
 
-    // Route permission guard — redirect to appropriate page if no access
+    // Route permission guard — redirect to /app/unauthorized if no access
     useEffect(() => {
         if (!authContext?.loading && currentUser && pathname) {
             const allowed = canAccessRoute(authContext.customClaims ?? null, pathname);
-            console.debug("Route guard check:", { pathname, allowed, role: authContext.customClaims?.role });
             if (!allowed) {
-                const defaultRoute = getDefaultRouteForRole(authContext.customClaims ?? null);
-                console.warn("Access denied to:", pathname, "redirecting to:", defaultRoute);
-                router.replace(defaultRoute);
+                router.replace(`/app/unauthorized?from=${encodeURIComponent(pathname)}`);
             }
         }
     }, [currentUser, authContext?.loading, authContext?.customClaims?.role, pathname, router]);

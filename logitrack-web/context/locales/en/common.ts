@@ -237,4 +237,11 @@ export default {
     "common.save": "Save",
     "common.ok": "OK",
     "common.close": "Close",
+
+    // Unauthorized page
+    "unauthorized.title": "Access Denied",
+    "unauthorized.description": "You don't have permission to view this page. Contact your administrator if you believe this is a mistake.",
+    "unauthorized.goBack": "Go Back",
+    "unauthorized.goHome": "Go to My Home Page",
+    "unauthorized.roleHint": "Logged in as: {role}",
 };
