@@ -100,6 +100,18 @@ service cloud.firestore {
       );
     }
 
+    // Standby records: drivers create/read own records; admins full access.
+    match /standby_records/{recordId} {
+      allow read: if request.auth != null && (
+        isWebAdmin() ||
+        resource.data.driverId == request.auth.uid
+      );
+      allow create: if isAppCheckVerified() && request.auth != null && (
+        request.resource.data.driverId == request.auth.uid
+      );
+      allow update, delete: if isWebAdmin();
+    }
+
     // Broadcasts: history of sent broadcasts. Drivers can read (for Broadcast list); only admins can write.
     match /broadcasts/{broadcastId} {
       allow read: if request.auth != null;

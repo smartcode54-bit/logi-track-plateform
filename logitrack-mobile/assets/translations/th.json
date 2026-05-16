@@ -45,8 +45,10 @@
     "trip_history_total": "เที่ยวทั้งหมด",
     "trip_history_first_mile": "First Mile",
     "trip_history_line_haul": "Line Haul",
+    "trip_history_standby": "งาน Standby",
     "trip_history_card_first_mile": "First Mile",
     "trip_history_card_line_haul": "Line Haul",
+    "trip_history_card_standby": "Standby",
     "trip_history_no_trips": "ไม่พบเที่ยวในเดือนนี้",
     "trip_history_status_loading": "กำลังโหลด",
     "trip_history_status_departure": "ออกเดินทาง",
@@ -585,5 +587,21 @@
     "delivery_photo_source_gallery": "เลือกจากแกลเลอรี",
     "delivery_stop_select_photos": "ถ่ายรูปหลักฐาน",
     "cancel": "ยกเลิก",
-    "add": "เพิ่ม"
+    "add": "เพิ่ม",
+
+    "standby_title": "Standby งานหมด",
+    "standby_worksheet_photo": "ใบงานลูกค้า",
+    "standby_worksheet_photo_desc": "ถ่ายรูปใบงาน / เอกสารที่ได้รับจากลูกค้า",
+    "standby_site_photo": "รูปหน้างาน",
+    "standby_site_photo_desc": "รูปถ่ายหลักฐานสถานที่ที่ไม่มีงานจัดส่ง",
+    "standby_add_photo": "แตะเพื่อเพิ่มรูป",
+    "standby_take_photo": "ถ่ายภาพ",
+    "standby_attach_photo": "แนบรูปจากแกลเลอรี",
+    "standby_note_label": "หมายเหตุ",
+    "standby_note_hint": "หมายเหตุเพิ่มเติม (ถ้ามี)",
+    "standby_checked_in_at": "เวลาเช็คอิน",
+    "standby_submit": "บันทึก Standby",
+    "standby_saving": "กำลังบันทึก...",
+    "standby_saved": "บันทึก Standby เรียบร้อยแล้ว",
+    "standby_save_failed": "บันทึก Standby ไม่สำเร็จ:"
 }

@@ -69,6 +69,7 @@ export default {
     "driverMonitor.status.in_transit": "In Transit",
     "driverMonitor.status.incident": "Incident",
     "driverMonitor.status.delivered": "Delivered",
+    "driverMonitor.status.standby": "Standby",
 
     // Table States
     "driverMonitor.table.noTrips": "No trips found.",

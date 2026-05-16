@@ -61,6 +61,12 @@ service firebase.storage {
       allow write: if isAppCheckVerified() && request.auth != null;
     }
 
+    // Standby records (ถ่ายรูปเมื่อ driver เช็คอินแล้วไม่มีงาน — ใบงานลูกค้า + รูปที่งาน)
+    match /standby_records/{recordId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAppCheckVerified() && request.auth != null;
+    }
+
     // Leave request evidence (รูปหลักฐานคำขอลาจากแอปคนขับ)
     // Path: leave_evidence/{userId}/{timestamp}_{index}.jpg
     match /leave_evidence/{userId}/{allPaths=**} {

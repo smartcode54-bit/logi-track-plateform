@@ -45,8 +45,10 @@
     "trip_history_total": "Total",
     "trip_history_first_mile": "First Mile",
     "trip_history_line_haul": "Line Haul",
+    "trip_history_standby": "Standby",
     "trip_history_card_first_mile": "First Mile",
     "trip_history_card_line_haul": "Line Haul",
+    "trip_history_card_standby": "Standby Records",
     "trip_history_no_trips": "No trips this month",
     "trip_history_status_loading": "Loading",
     "trip_history_status_departure": "Departure",
@@ -585,5 +587,21 @@
     "delivery_photo_source_gallery": "Choose from Gallery",
     "delivery_stop_select_photos": "Capture evidence",
     "cancel": "Cancel",
-    "add": "Add"
+    "add": "Add",
+
+    "standby_title": "Standby (No Jobs)",
+    "standby_worksheet_photo": "Customer Worksheet",
+    "standby_worksheet_photo_desc": "Photo of the worksheet / document received from the customer",
+    "standby_site_photo": "Site Photo",
+    "standby_site_photo_desc": "Photo evidence of the location with no delivery jobs",
+    "standby_add_photo": "Tap to add photo",
+    "standby_take_photo": "Take Photo",
+    "standby_attach_photo": "Attach from Gallery",
+    "standby_note_label": "Note",
+    "standby_note_hint": "Additional note (optional)",
+    "standby_checked_in_at": "Checked in at",
+    "standby_submit": "Submit Standby",
+    "standby_saving": "Saving...",
+    "standby_saved": "Standby record saved successfully",
+    "standby_save_failed": "Failed to save Standby:"
 }

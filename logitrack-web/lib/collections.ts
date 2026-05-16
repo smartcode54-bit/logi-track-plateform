@@ -73,6 +73,9 @@ export const COLLECTIONS = {
     /** Incident reports (delivery delay / problem reports from driver or admin) */
     INCIDENT_REPORTS: "incidentReport",
 
+    /** Standby records (driver checked-in but no delivery jobs available) */
+    STANDBY_RECORDS: "standby_records",
+
     /**
      * Broadcast history (admin sends; drivers read).
      * Field list: `lib/broadcastFirestore.ts` (`BroadcastFirestoreDoc`).

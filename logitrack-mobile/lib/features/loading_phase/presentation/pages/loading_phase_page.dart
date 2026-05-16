@@ -22,6 +22,8 @@ import '../../../home/data/services/ocr_screenshot_service.dart';
 import '../../../home/presentation/pages/main_layout_scope.dart';
 import '../../../home/presentation/pages/qr_scan_page.dart';
 import '../../data/repositories/loading_trip_repository.dart';
+import '../../data/repositories/standby_repository.dart';
+import '../pages/standby_page.dart';
 import '../../../../core/presentation/widgets/searchable_hub_picker.dart';
 import '../../../../core/services/cloud_functions_service.dart';
 import '../../../delivery_phase/presentation/dialogs/add_delivery_stop_dialog.dart';
@@ -111,6 +113,10 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
   Position? _cachedOverlayPosition;
   OverlayContext? _cachedOverlayContext;
 
+  /// เก็บ task ID + เวลาเช็คอิน สำหรับส่งต่อไปยัง StandbyPage
+  String? _activeTaskId;
+  DateTime? _taskCheckedInAt;
+
   Timer? _draftSaveTimer;
   static const Duration _draftDebounce = Duration(milliseconds: 800);
 
@@ -183,9 +189,14 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       final destination = data?['destination'] as String?;
       final isMultiDelivery = data?['isMultiDelivery'] as bool? ?? false;
       final deliveryStops = data?['deliveryStops'] as List? ?? [];
+      final checkInAt = data?['checkInAt'] as Timestamp?;
 
       if (mounted) {
         setState(() {
+          _activeTaskId = activeTaskId;
+          if (checkInAt != null) {
+            _taskCheckedInAt = checkInAt.toDate();
+          }
           if (taskType != null) {
             _jobType = (taskType == 'LINE_HAUL')
                 ? jobTypeLineHaul
@@ -2046,6 +2057,36 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                         );
                       }),
                       const SizedBox(height: 24),
+
+                      // ========== STEP 7a: Standby (งานหมด) ==========
+                      OutlinedButton.icon(
+                        onPressed: _saving
+                            ? null
+                            : () => Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => StandbyPage(
+                                      taskId: _activeTaskId,
+                                      tripId: _tripIdController.text.trim().isEmpty
+                                          ? null
+                                          : _tripIdController.text.trim(),
+                                      origin: _originController.text,
+                                      destination:
+                                          _destinationController.text,
+                                      startedAt:
+                                          _taskCheckedInAt ?? DateTime.now(),
+                                    ),
+                                  ),
+                                ),
+                        icon: const Icon(Icons.pause_circle_outline),
+                        label: Text('standby_title'.tr()),
+                        style: OutlinedButton.styleFrom(
+                          padding:
+                              const EdgeInsets.symmetric(vertical: 14),
+                          foregroundColor: Colors.orange.shade700,
+                          side: BorderSide(color: Colors.orange.shade400),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
 
                       // ========== STEP 7: Preview & Submit ==========
                       FilledButton.icon(

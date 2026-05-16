@@ -69,6 +69,7 @@ export default {
     "driverMonitor.status.in_transit": "กำลังขนส่ง",
     "driverMonitor.status.incident": "เหตุการณ์ผิดปกติ",
     "driverMonitor.status.delivered": "ส่งแล้ว",
+    "driverMonitor.status.standby": "Standby งานหมด",
 
     // Table States
     "driverMonitor.table.noTrips": "ไม่พบเที่ยวงาน",

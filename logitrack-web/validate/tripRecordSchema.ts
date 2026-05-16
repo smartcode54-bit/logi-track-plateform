@@ -7,6 +7,7 @@ export const TRIP_STATUS_ENUM = [
     "in_transit",
     "incident",
     "delivered",
+    "standby",
 ] as const;
 
 // --- Job Type (auto-detected from origin: Hub = first_mile, SOC = line_haul) ---

@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -28,12 +29,14 @@ class TripHistoryPage extends StatefulWidget {
 
 class _TripHistoryPageState extends State<TripHistoryPage> {
   List<TripRecord> _allTrips = [];
+  List<Map<String, dynamic>> _standbyRecords = [];
   Map<String, String> _sourceIdToName = {};
   bool _loading = true;
   late int _selectedYear;
   late int _selectedMonth; // 1–12
   bool _firstMileExpanded = false;
   bool _lineHaulExpanded = false;
+  bool _standbyExpanded = false;
 
   /// Client-side filter by `partnerCode` (OCR); `__ALL__` = ทั้งหมด, `__NONE__` = ไม่ระบุ
   String _partnerFilter = _tripPartnerFilterAll;
@@ -73,6 +76,25 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
           } catch (_) {}
         }
       }
+
+      // Load standby records — no orderBy to avoid composite index requirement; sort client-side
+      List<Map<String, dynamic>> standbyList = [];
+      try {
+        final snapshot = await FirebaseFirestore.instance
+            .collection('standby_records')
+            .where('driverId', isEqualTo: uid)
+            .get();
+        standbyList = snapshot.docs.map((doc) => doc.data()).toList();
+        standbyList.sort((a, b) {
+          final aMs = (a['createdAt'] as Timestamp?)?.millisecondsSinceEpoch ?? 0;
+          final bMs = (b['createdAt'] as Timestamp?)?.millisecondsSinceEpoch ?? 0;
+          return bMs.compareTo(aMs);
+        });
+        debugPrint('✅ Standby records loaded: ${standbyList.length} records for driverId=$uid');
+      } catch (e) {
+        debugPrint('❌ Error loading standby records: $e');
+      }
+
       final hubs = await fetchAllHubs();
       final map = <String, String>{};
       for (final h in hubs) {
@@ -90,6 +112,7 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
       if (mounted) {
         setState(() {
           _allTrips = list;
+          _standbyRecords = standbyList;
           _sourceIdToName = map;
           _loading = false;
         });
@@ -97,6 +120,18 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  /// Filter standby records by selected month
+  List<Map<String, dynamic>> _standbyInSelectedMonth() {
+    return _standbyRecords.where((record) {
+      final createdAt = record['createdAt'];
+      if (createdAt is Timestamp) {
+        final dt = createdAt.toDate();
+        return dt.year == _selectedYear && dt.month == _selectedMonth;
+      }
+      return false;
+    }).toList();
   }
 
   String _getSourceDisplayName(String? code) {
@@ -169,6 +204,7 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
         _filteredByPartner(_tripsInSelectedMonth());
     final firstMile = inMonth.where((t) => t.jobType == 'first_mile').toList();
     final lineHaul = inMonth.where((t) => t.jobType == 'line_haul').toList();
+    final standbyInMonth = _standbyInSelectedMonth();
     final partnerCodesSorted = _distinctPartnerCodesInMonth().toList()..sort();
 
     return Scaffold(
@@ -328,6 +364,19 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
                         () => _lineHaulExpanded = !_lineHaulExpanded,
                       ),
                     ),
+                    const SizedBox(height: 16),
+
+                    // Standby card
+                    if (standbyInMonth.isNotEmpty)
+                      _StandbyCard(
+                        title: 'trip_history_card_standby'.tr(),
+                        count: standbyInMonth.length,
+                        standbyRecords: standbyInMonth,
+                        expanded: _standbyExpanded,
+                        onTap: () => setState(
+                          () => _standbyExpanded = !_standbyExpanded,
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -574,6 +623,125 @@ class _StatusChip extends StatelessWidget {
       backgroundColor: _color.withOpacity(0.15),
       padding: EdgeInsets.zero,
       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
+  }
+}
+
+class _StandbyCard extends StatelessWidget {
+  const _StandbyCard({
+    required this.title,
+    required this.count,
+    required this.standbyRecords,
+    required this.expanded,
+    required this.onTap,
+  });
+
+  final String title;
+  final int count;
+  final List<Map<String, dynamic>> standbyRecords;
+  final bool expanded;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    const color = Colors.teal;
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: Colors.teal, width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // ส่วนยอดสรุป – คลิกเพื่อขยาย/ย่อ
+          InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Container(
+                    width: 8,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      color: color,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  Chip(
+                    label: Text('$count'),
+                    backgroundColor: color.withOpacity(0.15),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(
+                    expanded ? Icons.expand_less : Icons.expand_more,
+                    color: Colors.grey[600],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          // รายการและรายละเอียด – แสดงเมื่อขยายแล้ว
+          if (expanded) ...[
+            const Divider(height: 1),
+            if (standbyRecords.isEmpty)
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  'trip_history_no_trips'.tr(),
+                  style: TextStyle(color: Colors.grey[600]),
+                  textAlign: TextAlign.center,
+                ),
+              )
+            else
+              ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: standbyRecords.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (context, i) {
+                  final record = standbyRecords[i];
+                  final createdAt = record['createdAt'];
+                  final recordDate = createdAt is Timestamp
+                      ? DateFormat('dd/MM/yy HH:mm').format(createdAt.toDate())
+                      : '–';
+                  final startLoc = record['startLocation'] as String? ?? '–';
+                  final endLoc = record['endLocation'] as String? ?? '–';
+                  final durationMin = record['durationMinutes'] as int? ?? 0;
+                  final note = record['note'] as String?;
+
+                  return ListTile(
+                    title: Text(
+                      '$startLoc → $endLoc',
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    subtitle: Text(
+                      '$recordDate · ${durationMin} min${note != null && note.isNotEmpty ? '\n$note' : ''}',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  );
+                },
+              ),
+          ],
+        ],
+      ),
     );
   }
 }
