@@ -426,7 +426,7 @@ export default function DriverMonitorDashboard() {
 
             const stops = trip.deliveryStopsProgress ?? [];
 
-            if (trip.isMultiDelivery && stops.length > 0) {
+            if (stops.length > 0) {
                 const totalBilling = billing ? billing.finalRateThb : trip.billingEstimateThb;
                 const lastStopIndex = Math.max(...stops.map((s) => s.index));
                 stops.forEach((stop) => {
@@ -865,7 +865,7 @@ export default function DriverMonitorDashboard() {
                                             </TableCell>
                                             <TableCell className="text-sm"><span className="font-medium">{getSourceDisplayName(trip.origin)}</span></TableCell>
                                             <TableCell className="text-sm">
-                                                {trip.isMultiDelivery && (trip.deliveryStopsProgress?.length ?? 0) > 0 ? (
+                                                {(trip.deliveryStopsProgress?.length ?? 0) > 0 ? (
                                                     <Collapsible>
                                                         <CollapsibleTrigger
                                                             onClick={(e) => e.stopPropagation()}
@@ -1286,7 +1286,7 @@ export default function DriverMonitorDashboard() {
                                     <MapPin className="h-4 w-4" />
                                     {t("driverMonitor.detail.routeInfo")}
                                 </h4>
-                                {detailTrip.isMultiDelivery && (detailTrip.deliveryStopsProgress?.length ?? 0) > 0 ? (
+                                {(detailTrip.deliveryStopsProgress?.length ?? 0) > 0 ? (
                                     <div className="bg-muted/30 rounded-lg p-4 space-y-3">
                                         <div className="text-center">
                                             <p className="text-xs text-muted-foreground mb-1">{t("driverMonitor.detail.origin")}</p>
@@ -1376,7 +1376,7 @@ export default function DriverMonitorDashboard() {
                                 </div>
                             </div>
 
-                            {(detailTrip.photos && detailTrip.photos.length > 0) || (detailTrip.isMultiDelivery && detailTrip.deliveryStopsProgress?.some((stop) => stop.photos && stop.photos.length > 0)) ? (
+                            {(detailTrip.photos && detailTrip.photos.length > 0) || (detailTrip.deliveryStopsProgress?.some((stop) => stop.photos && stop.photos.length > 0)) ? (
                                 <div className="space-y-3">
                                     <h4 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
                                         <Camera className="h-4 w-4" />
@@ -1406,7 +1406,7 @@ export default function DriverMonitorDashboard() {
                                         )}
 
                                         {/* Delivery Stop Photos (Multi-delivery only) */}
-                                        {detailTrip.isMultiDelivery && (detailTrip.deliveryStopsProgress?.length ?? 0) > 0 && (
+                                        {(detailTrip.deliveryStopsProgress?.length ?? 0) > 0 && (
                                             <>
                                                 {detailTrip.deliveryStopsProgress?.map((stop) => (
                                                     stop.photos && stop.photos.length > 0 && (
