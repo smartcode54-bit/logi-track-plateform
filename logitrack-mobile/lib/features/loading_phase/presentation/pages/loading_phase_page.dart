@@ -2059,33 +2059,41 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                       const SizedBox(height: 24),
 
                       // ========== STEP 7a: Standby (งานหมด) ==========
-                      OutlinedButton.icon(
-                        onPressed: _saving
-                            ? null
-                            : () => Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => StandbyPage(
-                                      taskId: _activeTaskId,
-                                      tripId: _tripIdController.text.trim().isEmpty
-                                          ? null
-                                          : _tripIdController.text.trim(),
-                                      origin: _originController.text,
-                                      destination:
-                                          _destinationController.text,
-                                      startedAt:
-                                          _taskCheckedInAt ?? DateTime.now(),
+                      Builder(builder: (context) {
+                        final originText = _originController.text.trim();
+                        final destText = _destinationController.text.trim();
+                        final canStandby = !_saving &&
+                            originText.isNotEmpty &&
+                            destText.isNotEmpty;
+                        return OutlinedButton.icon(
+                          onPressed: canStandby
+                              ? () => Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => StandbyPage(
+                                        taskId: _activeTaskId,
+                                        tripId: _tripIdController.text
+                                                .trim()
+                                                .isEmpty
+                                            ? null
+                                            : _tripIdController.text.trim(),
+                                        origin: originText,
+                                        destination: destText,
+                                        startedAt: _taskCheckedInAt ??
+                                            DateTime.now(),
+                                      ),
                                     ),
-                                  ),
-                                ),
-                        icon: const Icon(Icons.pause_circle_outline),
-                        label: Text('standby_title'.tr()),
-                        style: OutlinedButton.styleFrom(
-                          padding:
-                              const EdgeInsets.symmetric(vertical: 14),
-                          foregroundColor: Colors.orange.shade700,
-                          side: BorderSide(color: Colors.orange.shade400),
-                        ),
-                      ),
+                                  )
+                              : null,
+                          icon: const Icon(Icons.pause_circle_outline),
+                          label: Text('standby_title'.tr()),
+                          style: OutlinedButton.styleFrom(
+                            padding:
+                                const EdgeInsets.symmetric(vertical: 14),
+                            foregroundColor: Colors.orange.shade700,
+                            side: BorderSide(color: Colors.orange.shade400),
+                          ),
+                        );
+                      }),
                       const SizedBox(height: 12),
 
                       // ========== STEP 7: Preview & Submit ==========

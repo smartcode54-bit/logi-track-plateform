@@ -55,6 +55,7 @@
     "trip_history_status_in_transit": "กำลังขนส่ง",
     "trip_history_status_incident": "เหตุการณ์",
     "trip_history_status_delivered": "ส่งแล้ว",
+    "trip_history_status_standby": "Standby",
     "trip_history_dest": "ปลายทาง",
     "trip_history_filter_partner": "ช่องทาง / พาร์ทเนอร์",
     "trip_history_partner_all": "ทั้งหมด",

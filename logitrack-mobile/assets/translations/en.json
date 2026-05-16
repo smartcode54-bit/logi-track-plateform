@@ -55,6 +55,7 @@
     "trip_history_status_in_transit": "In Transit",
     "trip_history_status_incident": "Incident",
     "trip_history_status_delivered": "Delivered",
+    "trip_history_status_standby": "Standby",
     "trip_history_dest": "Dest.",
     "trip_history_filter_partner": "Partner channel",
     "trip_history_partner_all": "All channels",

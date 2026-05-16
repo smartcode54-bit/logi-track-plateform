@@ -8,6 +8,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 // import 'package:device_preview/device_preview.dart';
 import 'core/auth_session_listener.dart';
 import 'core/route_observer.dart';
+import 'core/theme/app_theme.dart';
 import 'core/theme/theme_controller.dart';
 import 'core/services/fcm_service.dart';
 import 'core/services/notification_service.dart';
@@ -121,94 +122,8 @@ class MyApp extends StatelessWidget {
           supportedLocales: context.supportedLocales,
           title: 'LogiTrack - Drive',
           themeMode: themeMode,
-          theme: ThemeData(
-            brightness: Brightness.light,
-            scaffoldBackgroundColor: Colors.white,
-            colorScheme: const ColorScheme.light(
-              primary: Color(0xFF2563EB),
-              surface: Colors.white,
-              onPrimary: Colors.white,
-              onSurface: Colors.black,
-            ),
-            useMaterial3: true,
-            fontFamily: 'Inter',
-            inputDecorationTheme: InputDecorationTheme(
-              filled: true,
-              fillColor: Colors.grey[100],
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(color: Colors.grey[300]!),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(color: Colors.grey[300]!),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(color: Color(0xFF2563EB)),
-              ),
-              labelStyle: TextStyle(color: Colors.grey[600]),
-              hintStyle: TextStyle(color: Colors.grey[400]),
-            ),
-            elevatedButtonTheme: ElevatedButtonThemeData(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2563EB),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                textStyle: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ),
-          darkTheme: ThemeData(
-            brightness: Brightness.dark,
-            scaffoldBackgroundColor: const Color(0xFF111827),
-            colorScheme: const ColorScheme.dark(
-              primary: Color(0xFF2563EB),
-              surface: Color(0xFF1F2937),
-              onPrimary: Colors.white,
-              onSurface: Colors.white,
-            ),
-            useMaterial3: true,
-            fontFamily: 'Inter',
-            inputDecorationTheme: InputDecorationTheme(
-              filled: true,
-              fillColor: const Color(0xFF1F2937),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(color: Color(0xFF374151)),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(color: Color(0xFF374151)),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(color: Color(0xFF2563EB)),
-              ),
-              labelStyle: const TextStyle(color: Color(0xFF9CA3AF)),
-              hintStyle: const TextStyle(color: Color(0xFF6B7280)),
-            ),
-            elevatedButtonTheme: ElevatedButtonThemeData(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2563EB),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                textStyle: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ),
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
           home: const LoginPage(),
           routes: {
             '/home': (context) {

@@ -202,8 +202,12 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
   Widget build(BuildContext context) {
     final inMonth =
         _filteredByPartner(_tripsInSelectedMonth());
-    final firstMile = inMonth.where((t) => t.jobType == 'first_mile').toList();
-    final lineHaul = inMonth.where((t) => t.jobType == 'line_haul').toList();
+    final firstMile = inMonth
+        .where((t) => t.jobType == 'first_mile' && t.status != 'standby')
+        .toList();
+    final lineHaul = inMonth
+        .where((t) => t.jobType == 'line_haul' && t.status != 'standby')
+        .toList();
     final standbyInMonth = _standbyInSelectedMonth();
     final partnerCodesSorted = _distinctPartnerCodesInMonth().toList()..sort();
 
@@ -606,6 +610,8 @@ class _StatusChip extends StatelessWidget {
         return Colors.amber;
       case 'loading':
         return Colors.grey;
+      case 'standby':
+        return Colors.teal;
       default:
         return Colors.blueGrey;
     }

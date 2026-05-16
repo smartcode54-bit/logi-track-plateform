@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -24,6 +26,7 @@ class _LoginPageState extends State<LoginPage> {
   bool _isPasswordVisible = false;
   final _authRepository = AuthRepository();
   bool _isLoading = false;
+  String _versionNumber = '';
   String _versionDisplay = '';
 
   @override
@@ -36,6 +39,7 @@ class _LoginPageState extends State<LoginPage> {
     final info = await PackageInfo.fromPlatform();
     final envLabel = _appFlavor == 'prod' ? 'Release' : 'Dev';
     setState(() {
+      _versionNumber = 'v${info.version}';
       _versionDisplay =
           'LOGI-TRACK $envLabel v${info.version} (DRIVER EDITION)';
     });
@@ -50,15 +54,12 @@ class _LoginPageState extends State<LoginPage> {
 
   void _loginWithGoogle() async {
     setState(() => _isLoading = true);
-
     try {
       final user = await _authRepository.signInWithGoogle();
-
       if (mounted && user != null) {
         saveFcmTokenToUser(user.uid);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('login_success'.tr())));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('login_success'.tr())));
         await _navigateToHome();
       }
     } catch (e) {
@@ -68,20 +69,19 @@ class _LoginPageState extends State<LoginPage> {
             content: Text(
               '${'error'.tr()}: ${e.toString().replaceAll("Exception: ", "")}',
             ),
-            backgroundColor: Colors.red,
+            backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );
       }
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   Future<void> _navigateToHome() async {
     if (!mounted) return;
-    final allowed = await MobileAppVersionService.instance.ensureAllowedToRun(context);
+    final allowed =
+        await MobileAppVersionService.instance.ensureAllowedToRun(context);
     if (!allowed || !mounted) return;
 
     final draft = await DraftStorageService.instance.loadDeliveryDraft();
@@ -103,18 +103,15 @@ class _LoginPageState extends State<LoginPage> {
   void _login() async {
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
-
       try {
         final user = await _authRepository.signInWithEmail(
           _emailController.text.trim(),
           _passwordController.text,
         );
-
         if (mounted && user != null) {
           saveFcmTokenToUser(user.uid);
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('login_success'.tr())));
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text('login_success'.tr())));
           await _navigateToHome();
         }
       } catch (e) {
@@ -124,295 +121,726 @@ class _LoginPageState extends State<LoginPage> {
               content: Text(
                 '${'error'.tr()}: ${e.toString().replaceAll("Exception: ", "")}',
               ),
-              backgroundColor: Colors.red,
+              backgroundColor: Theme.of(context).colorScheme.error,
             ),
           );
         }
       } finally {
-        if (mounted) {
-          setState(() => _isLoading = false);
-        }
+        if (mounted) setState(() => _isLoading = false);
       }
     }
   }
 
+  void _onForgotPassword() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('${'need_help'.tr()} ${'contact_dispatch'.tr()}'),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+
     return Scaffold(
-      body: SafeArea(
-        child: Stack(
-          children: [
-            Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24.0),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // Header Logo
-                      Icon(
-                        Icons.local_shipping,
-                        size: 64,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Logi-Track Driver',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                      ),
-                      const SizedBox(height: 48),
+      backgroundColor: scheme.surface,
+      body: Stack(
+        children: [
+          // Subtle blurred gradient orbs
+          const _BackgroundOrbs(),
 
-                      // Welcome Text
-                      Text(
-                        'welcome_back'.tr(),
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
+          // Main content
+          SafeArea(
+            child: Column(
+              children: [
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(20, 32, 20, 24),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 400),
+                      child: Form(
+                        key: _formKey,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const _BrandHeader(),
+                            const SizedBox(height: 24),
 
-                      // Email Field
-                      _buildLabel('email'.tr()),
-                      const SizedBox(height: 8),
-                      TextFormField(
-                        controller: _emailController,
-                        keyboardType: TextInputType.emailAddress,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                        decoration: InputDecoration(
-                          prefixIcon: Icon(
-                            Icons.email_outlined,
-                            color: Theme.of(
-                              context,
-                            ).inputDecorationTheme.hintStyle?.color,
-                          ),
-                          hintText: 'email'.tr(),
-                        ),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'email_required'.tr();
-                          }
-                          if (!RegExp(
-                            r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
-                          ).hasMatch(value)) {
-                            return 'email_invalid'.tr();
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 24),
-
-                      // Password Field
-                      _buildLabel('password'.tr()),
-                      const SizedBox(height: 8),
-                      TextFormField(
-                        controller: _passwordController,
-                        obscureText: !_isPasswordVisible,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                        decoration: InputDecoration(
-                          prefixIcon: Icon(
-                            Icons.lock_outline,
-                            color: Theme.of(
-                              context,
-                            ).inputDecorationTheme.hintStyle?.color,
-                          ),
-                          hintText: 'password'.tr(),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _isPasswordVisible
-                                  ? Icons.visibility_off
-                                  : Icons.visibility,
-                              color: Theme.of(
-                                context,
-                              ).inputDecorationTheme.hintStyle?.color,
+                            // Email
+                            _FieldLabel(text: 'email_label'.tr()),
+                            const SizedBox(height: 6),
+                            _StitchTextField(
+                              controller: _emailController,
+                              hintText: 'email_hint'.tr(),
+                              icon: Icons.person_outline,
+                              keyboardType: TextInputType.emailAddress,
+                              textInputAction: TextInputAction.next,
+                              validator: (value) {
+                                if (value == null || value.isEmpty) {
+                                  return 'email_required'.tr();
+                                }
+                                if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$')
+                                    .hasMatch(value)) {
+                                  return 'email_invalid'.tr();
+                                }
+                                return null;
+                              },
                             ),
-                            onPressed: () => setState(
-                              () => _isPasswordVisible = !_isPasswordVisible,
-                            ),
-                          ),
-                        ),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'password_required'.tr();
-                          }
-                          return null;
-                        },
-                      ),
+                            const SizedBox(height: 16),
 
-                      const SizedBox(height: 48),
-
-                      // Login Button
-                      ElevatedButton(
-                        onPressed: _isLoading ? null : _login,
-                        child: _isLoading
-                            ? SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.onPrimary,
+                            // Password
+                            Row(
+                              children: [
+                                Expanded(
+                                  child:
+                                      _FieldLabel(text: 'password_label'.tr()),
                                 ),
-                              )
-                            : Text('login'.tr()),
-                      ),
-                      const SizedBox(height: 16),
+                                _ForgotPasswordLink(onTap: _onForgotPassword),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            _StitchTextField(
+                              controller: _passwordController,
+                              hintText: 'password_hint'.tr(),
+                              icon: Icons.lock_outline,
+                              obscureText: !_isPasswordVisible,
+                              textInputAction: TextInputAction.done,
+                              onFieldSubmitted: (_) =>
+                                  _isLoading ? null : _login(),
+                              suffixIcon: IconButton(
+                                splashRadius: 20,
+                                icon: Icon(
+                                  _isPasswordVisible
+                                      ? Icons.visibility_off_outlined
+                                      : Icons.visibility_outlined,
+                                  size: 20,
+                                  color: scheme.outline,
+                                ),
+                                onPressed: () => setState(() =>
+                                    _isPasswordVisible = !_isPasswordVisible),
+                              ),
+                              validator: (value) {
+                                if (value == null || value.isEmpty) {
+                                  return 'password_required'.tr();
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 20),
 
-                      Row(
-                        children: [
-                          const Expanded(child: Divider()),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: Text(
-                              'or'.tr(),
-                              style: TextStyle(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurface.withValues(alpha: 0.6),
-                                fontWeight: FontWeight.bold,
+                            // Login button
+                            _PrimaryLoginButton(
+                              isLoading: _isLoading,
+                              onPressed: _isLoading ? null : _login,
+                            ),
+                            const SizedBox(height: 16),
+
+                            const _OrDivider(),
+                            const SizedBox(height: 16),
+
+                            // Google sign-in
+                            _GoogleSignInButton(
+                              onPressed: _isLoading ? null : _loginWithGoogle,
+                            ),
+                            const SizedBox(height: 28),
+
+                            // Contact dispatch pill
+                            Center(
+                              child: _ContactDispatchPill(
+                                onTap: _onForgotPassword,
                               ),
                             ),
-                          ),
-                          const Expanded(child: Divider()),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.g_mobiledata, size: 28),
-                        onPressed: _isLoading ? null : _loginWithGoogle,
-                        label: Text('sign_in_google'.tr()),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
+                            const SizedBox(height: 24),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 24),
-
-                      // Language Toggle
-                      Center(
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color:
-                                Theme.of(context).brightness == Brightness.dark
-                                ? const Color(0xFF1F2937)
-                                : Colors.grey[200],
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              _buildLanguageOption(context, 'en', 'English'),
-                              _buildLanguageOption(context, 'th', 'ภาษาไทย'),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-
-                      // Footer
-                      TextButton.icon(
-                        onPressed: () {
-                          // Contact Dispatch Action
-                        },
-                        icon: Icon(
-                          Icons.headset_mic,
-                          size: 16,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                        label: Text(
-                          '${'need_help'.tr()} ${'contact_dispatch'.tr()}',
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        _versionDisplay,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.onSurface.withValues(alpha: 0.6),
-                          fontSize: 10,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
-              ),
-            ),
-            Positioned(
-              top: 16,
-              right: 16,
-              child: IconButton(
-                icon: Icon(
-                  Theme.of(context).brightness == Brightness.dark
-                      ? Icons.light_mode
-                      : Icons.dark_mode,
-                  color: Theme.of(context).colorScheme.onSurface,
+
+                // Footer
+                _FooterControls(
+                  versionNumber: _versionNumber,
+                  versionDisplay: _versionDisplay,
                 ),
-                onPressed: () {
-                  ThemeController().toggleTheme();
-                },
-              ),
+              ],
             ),
+          ),
+
+          // Theme switcher pinned top-right
+          Positioned(
+            top: 12,
+            right: 12,
+            child: SafeArea(
+              child: _ThemeToggleButton(isDark: isDark),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// =================== sub-widgets ===================
+
+class _BrandHeader extends StatelessWidget {
+  const _BrandHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: scheme.primaryContainer,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: scheme.primaryContainer.withValues(alpha: 0.35),
+                blurRadius: 20,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Icon(
+            Icons.local_shipping,
+            size: 36,
+            color: scheme.onPrimaryContainer,
+          ),
+        ),
+        const SizedBox(height: 14),
+        Text(
+          'LogiTrack',
+          style: theme.textTheme.headlineSmall?.copyWith(
+            color: scheme.primary,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.3,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          'welcome_back'.tr(),
+          style: theme.textTheme.titleMedium?.copyWith(
+            color: scheme.onSurface,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          'welcome_subtitle'.tr(),
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _FieldLabel extends StatelessWidget {
+  const _FieldLabel({required this.text});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(left: 4),
+      child: Text(
+        text,
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: scheme.onSurfaceVariant,
+              fontWeight: FontWeight.w500,
+              letterSpacing: 0.5,
+            ),
+      ),
+    );
+  }
+}
+
+class _ForgotPasswordLink extends StatelessWidget {
+  const _ForgotPasswordLink({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+        child: Text(
+          'forgot_password'.tr(),
+          style: TextStyle(
+            color: scheme.primary,
+            fontWeight: FontWeight.w500,
+            fontSize: 12,
+            letterSpacing: 0.5,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StitchTextField extends StatelessWidget {
+  const _StitchTextField({
+    required this.controller,
+    required this.hintText,
+    required this.icon,
+    this.obscureText = false,
+    this.keyboardType,
+    this.textInputAction,
+    this.onFieldSubmitted,
+    this.validator,
+    this.suffixIcon,
+  });
+
+  final TextEditingController controller;
+  final String hintText;
+  final IconData icon;
+  final bool obscureText;
+  final TextInputType? keyboardType;
+  final TextInputAction? textInputAction;
+  final ValueChanged<String>? onFieldSubmitted;
+  final FormFieldValidator<String>? validator;
+  final Widget? suffixIcon;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return TextFormField(
+      controller: controller,
+      obscureText: obscureText,
+      keyboardType: keyboardType,
+      textInputAction: textInputAction,
+      onFieldSubmitted: onFieldSubmitted,
+      autocorrect: false,
+      style: TextStyle(
+        color: scheme.onSurface,
+        fontSize: 16,
+        letterSpacing: 0.5,
+      ),
+      decoration: InputDecoration(
+        filled: true,
+        fillColor: scheme.surfaceContainer,
+        prefixIcon: Padding(
+          padding: const EdgeInsets.only(left: 14, right: 8),
+          child: Icon(icon, size: 20, color: scheme.outline),
+        ),
+        prefixIconConstraints: const BoxConstraints(minWidth: 42),
+        suffixIcon: suffixIcon,
+        hintText: hintText,
+        hintStyle: TextStyle(
+          color: scheme.outline,
+          fontSize: 16,
+          letterSpacing: 0.5,
+        ),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: scheme.outlineVariant),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: scheme.outlineVariant),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: scheme.primary, width: 1.5),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: scheme.error),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: scheme.error, width: 1.5),
+        ),
+      ),
+      validator: validator,
+    );
+  }
+}
+
+class _PrimaryLoginButton extends StatelessWidget {
+  const _PrimaryLoginButton({required this.isLoading, required this.onPressed});
+
+  final bool isLoading;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: 48,
+      child: ElevatedButton(
+        onPressed: onPressed,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: scheme.primaryContainer,
+          foregroundColor: scheme.onPrimaryContainer,
+          disabledBackgroundColor:
+              scheme.primaryContainer.withValues(alpha: 0.4),
+          disabledForegroundColor:
+              scheme.onPrimaryContainer.withValues(alpha: 0.6),
+          elevation: 4,
+          shadowColor: scheme.primaryContainer.withValues(alpha: 0.5),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+          textStyle: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.15,
+          ),
+        ),
+        child: isLoading
+            ? SizedBox(
+                height: 20,
+                width: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.2,
+                  color: scheme.onPrimaryContainer,
+                ),
+              )
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text('login'.tr()),
+                  const SizedBox(width: 8),
+                  const Icon(Icons.login, size: 20),
+                ],
+              ),
+      ),
+    );
+  }
+}
+
+class _OrDivider extends StatelessWidget {
+  const _OrDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        Expanded(child: Divider(color: scheme.outlineVariant, height: 1)),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: Text(
+            'or'.tr(),
+            style: TextStyle(
+              color: scheme.outline,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ),
+        Expanded(child: Divider(color: scheme.outlineVariant, height: 1)),
+      ],
+    );
+  }
+}
+
+class _GoogleSignInButton extends StatelessWidget {
+  const _GoogleSignInButton({required this.onPressed});
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: 48,
+      child: OutlinedButton(
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          backgroundColor: scheme.surfaceContainerHigh,
+          foregroundColor: scheme.onSurface,
+          side: BorderSide(color: scheme.outlineVariant),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+          textStyle: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.15,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const _GoogleLogo(),
+            const SizedBox(width: 12),
+            Text('sign_in_google'.tr()),
           ],
         ),
       ),
     );
   }
+}
 
-  Widget _buildLabel(String text) {
-    return Text(
-      text,
-      style: TextStyle(
-        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-        fontSize: 12,
-        fontWeight: FontWeight.bold,
-        letterSpacing: 1.0,
+class _GoogleLogo extends StatelessWidget {
+  const _GoogleLogo();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 22,
+      height: 22,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        shape: BoxShape.circle,
+      ),
+      alignment: Alignment.center,
+      child: const Text(
+        'G',
+        style: TextStyle(
+          color: Color(0xFF4285F4),
+          fontWeight: FontWeight.w700,
+          fontSize: 14,
+          height: 1.0,
+        ),
       ),
     );
   }
+}
 
-  Widget _buildLanguageOption(BuildContext context, String code, String label) {
-    bool isSelected = context.locale.languageCode == code;
+class _ContactDispatchPill extends StatelessWidget {
+  const _ContactDispatchPill({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(999),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: scheme.outlineVariant),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.headset_mic_outlined,
+                size: 18,
+                color: scheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                '${'need_help'.tr()} ${'contact_dispatch'.tr()}',
+                style: TextStyle(
+                  color: scheme.onSurfaceVariant,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ThemeToggleButton extends StatelessWidget {
+  const _ThemeToggleButton({required this.isDark});
+  final bool isDark;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surfaceContainerHigh,
+      shape: const CircleBorder(),
+      elevation: 4,
+      shadowColor: Colors.black.withValues(alpha: 0.3),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: () => ThemeController().toggleTheme(),
+        child: Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: scheme.outlineVariant),
+          ),
+          child: Icon(
+            isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+            size: 22,
+            color: scheme.onSurface,
+            semanticLabel: 'theme_toggle_tooltip'.tr(),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FooterControls extends StatelessWidget {
+  const _FooterControls({
+    required this.versionNumber,
+    required this.versionDisplay,
+  });
+
+  final String versionNumber;
+  final String versionDisplay;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      color: scheme.surfaceContainerLowest,
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+      child: Column(
+        children: [
+          // Language pill
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainer,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: scheme.outlineVariant),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: const [
+                _LanguageOption(code: 'en', label: 'EN'),
+                SizedBox(width: 4),
+                _LanguageOption(code: 'th', label: 'TH'),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (versionNumber.isNotEmpty)
+            Text(
+              '$versionNumber  •  LogiTrack Kinetic Systems',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: scheme.outline,
+                fontSize: 12,
+                letterSpacing: 0.4,
+              ),
+            ),
+          const SizedBox(height: 2),
+          Text(
+            versionDisplay,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: scheme.outline.withValues(alpha: 0.6),
+              fontSize: 10,
+              letterSpacing: 0.3,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LanguageOption extends StatelessWidget {
+  const _LanguageOption({required this.code, required this.label});
+  final String code;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final isSelected = context.locale.languageCode == code;
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: () async {
         await context.setLocale(Locale(code));
-        setState(() {}); // Force rebuild
       },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
         decoration: BoxDecoration(
-          color: isSelected
-              ? Theme.of(context).colorScheme.primary
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
+          color: isSelected ? scheme.secondaryContainer : Colors.transparent,
+          borderRadius: BorderRadius.circular(999),
         ),
         child: Text(
           label,
           style: TextStyle(
             color: isSelected
-                ? Theme.of(context).colorScheme.onPrimary
-                : Theme.of(
-                    context,
-                  ).colorScheme.onSurface.withValues(alpha: 0.6),
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                ? scheme.onSecondary
+                : scheme.onSurfaceVariant.withValues(alpha: 0.85),
+            fontWeight: FontWeight.w600,
+            fontSize: 12,
+            letterSpacing: 0.8,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BackgroundOrbs extends StatelessWidget {
+  const _BackgroundOrbs();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return IgnorePointer(
+      child: Stack(
+        children: [
+          Positioned(
+            top: -100,
+            left: -120,
+            child: _Orb(color: scheme.secondary, size: 300, sigma: 100),
+          ),
+          Positioned(
+            bottom: -180,
+            right: -160,
+            child: _Orb(color: scheme.primary, size: 500, sigma: 120),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Orb extends StatelessWidget {
+  const _Orb({
+    required this.color,
+    required this.size,
+    required this.sigma,
+  });
+
+  final Color color;
+  final double size;
+  final double sigma;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: ImageFiltered(
+        imageFilter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
+        child: Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: color.withValues(alpha: 0.10),
           ),
         ),
       ),

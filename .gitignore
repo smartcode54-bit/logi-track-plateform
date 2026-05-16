@@ -27,3 +27,6 @@ logitrack-mobile/android/.cxx/
 
 # Local sample import files
 file example/
+
+# MCP server config (contains API keys)
+.mcp.json

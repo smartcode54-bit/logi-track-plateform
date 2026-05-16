@@ -4,5 +4,9 @@
       "Bash(netstat -ano)",
       "Bash(findstr \":3000\")"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "stitch"
+  ],
+  "enableAllProjectMcpServers": true
 }
