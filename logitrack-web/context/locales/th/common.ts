@@ -49,6 +49,7 @@ export default {
     "nav.payroll": "เงินเดือน",
     "nav.leaveRequests": "รายการลา",
     "nav.incidentReports": "รายงานปัญหาการจัดส่ง",
+    "nav.customStopsReview": "ตรวจสอบจุดส่งเพิ่ม",
     "nav.lineHaulTasks": "งาน Line Haul",
     "nav.holidays": "วันหยุด",
 
@@ -140,6 +141,26 @@ export default {
     "incidentReports.detail.locationSnapshot": "ภาพตำแหน่ง",
     "incidentReports.detail.situation1": "สถานการณ์ 1",
     "incidentReports.detail.situation2": "สถานการณ์ 2",
+
+    // Custom Stops Review (admin)
+    "customStops.title": "ตรวจสอบจุดส่งเพิ่ม",
+    "customStops.subtitle": "รีวิวจุดส่งที่คนขับเพิ่มระหว่างทริป",
+    "customStops.stats.total": "จุดส่งเพิ่มทั้งหมด",
+    "customStops.filter.pickDate": "เลือกวันที่",
+    "customStops.filter.search": "ค้นหาคนขับ ปลายทาง เที่ยวงาน...",
+    "customStops.filter.status": "สถานะ",
+    "customStops.filter.allStatuses": "ทุกสถานะ",
+    "customStops.table.tripId": "เที่ยวงาน",
+    "customStops.table.addedAt": "เวลาที่เพิ่ม",
+    "customStops.table.driver": "คนขับ",
+    "customStops.table.destination": "ปลายทาง",
+    "customStops.table.status": "สถานะการส่ง",
+    "customStops.table.deliveredAt": "เวลาส่งสำเร็จ",
+    "customStops.table.loading": "กำลังโหลด...",
+    "customStops.table.noStops": "ไม่พบจุดส่งเพิ่มเติม",
+    "customStops.status.pending": "รอดำเนินการ",
+    "customStops.status.delivered": "ส่งแล้ว",
+    "customStops.status.failed": "ล้มเหลว",
 
     // Line Haul (admin)
     "lineHaul.title": "งาน Line Haul",

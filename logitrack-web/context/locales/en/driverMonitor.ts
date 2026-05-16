@@ -56,6 +56,12 @@ export default {
     "driverMonitor.table.estimatedRevenue": "Estimated revenue",
     "driverMonitor.table.time": "Time",
     "driverMonitor.table.actions": "Actions",
+    "driverMonitor.table.multiDrop": "Multi-Drop",
+    "driverMonitor.table.stopNumber": "Stop #",
+    "driverMonitor.table.stopStatus": "Stop Status",
+    "driverMonitor.table.stopDeliveredTime": "Stop Delivered",
+    "driverMonitor.table.multiDropYes": "Yes",
+    "driverMonitor.table.multiDropNo": "No",
 
     // Status Labels
     "driverMonitor.status.loading": "Loading",

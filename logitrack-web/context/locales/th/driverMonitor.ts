@@ -56,6 +56,12 @@ export default {
     "driverMonitor.table.estimatedRevenue": "ประมาณการรายได้",
     "driverMonitor.table.time": "เวลา",
     "driverMonitor.table.actions": "การดำเนินการ",
+    "driverMonitor.table.multiDrop": "หลายจุด",
+    "driverMonitor.table.stopNumber": "จุดที่",
+    "driverMonitor.table.stopStatus": "สถานะจุดส่ง",
+    "driverMonitor.table.stopDeliveredTime": "ส่งจุดนี้เมื่อ",
+    "driverMonitor.table.multiDropYes": "ใช่",
+    "driverMonitor.table.multiDropNo": "ไม่",
 
     // Status Labels
     "driverMonitor.status.loading": "กำลังโหลดของ",

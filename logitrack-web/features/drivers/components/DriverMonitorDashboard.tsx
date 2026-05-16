@@ -389,32 +389,85 @@ export default function DriverMonitorDashboard() {
             t("driverMonitor.table.sealCode"),
             t("driverMonitor.table.partnerCode"),
             t("driverMonitor.table.status"),
-            t("driverMonitor.table.deliveredTime"),
-            t("driverMonitor.table.estimatedRevenue"),
+            t("nav.income"),
+            t("driverMonitor.table.multiDrop"),
+            t("driverMonitor.table.stopNumber"),
+            t("driverMonitor.table.stopStatus"),
+            t("driverMonitor.table.stopDeliveredTime"),
         ];
-        const rows = list.map((trip) => {
+
+        const formatStopStatus = (status: string) => {
+            if (status === "delivered") return t("driverMonitor.status.delivered");
+            if (status === "failed") return t("customStops.status.failed");
+            return t("customStops.status.pending");
+        };
+
+        const rows: (string | number | null | undefined)[][] = [];
+
+        for (const trip of list) {
             const created = toDateLocal((trip.id && checkInAtByTaskId[trip.id]) || trip.createdAt);
-            const delivered = toDateLocal(
-                trip.status === "delivered" && trip.deliveredTimestamp ? trip.deliveredTimestamp : trip.updatedAt
-            );
             const jobLabel = JOB_TYPE_LABEL[trip.jobType] || trip.jobType;
             const statusLabel = t(`driverMonitor.status.${trip.status}` as any);
             const billing = getBillingForTrip(trip.id);
-            return [
+
+            const baseRow: (string | number | null | undefined)[] = [
                 trip.spxTripId || trip.id?.slice(0, 10) || "",
                 created ? format(created, "dd/MM/yyyy HH:mm") : "",
                 getDriverName(trip.driverId),
                 getLicensePlate(trip.driverId),
                 jobLabel,
                 getSourceDisplayName(trip.origin),
-                getSourceDisplayName(trip.destination),
+                "", // destination — filled per stop below
                 trip.sealCode || "",
                 effectivePartnerCode(trip),
                 statusLabel,
-                delivered ? format(delivered, "dd/MM/yyyy HH:mm") : "",
-                billing ? billing.finalRateThb : trip.billingEstimateThb,
+                null, // revenue — filled per stop below
             ];
-        });
+
+            const stops = trip.deliveryStopsProgress ?? [];
+
+            if (trip.isMultiDelivery && stops.length > 0) {
+                const totalBilling = billing ? billing.finalRateThb : trip.billingEstimateThb;
+                const lastStopIndex = Math.max(...stops.map((s) => s.index));
+                stops.forEach((stop) => {
+                    let stopDeliveredStr = "";
+                    if (stop.index === lastStopIndex) {
+                        const emptyContainerPhoto = stop.photos?.find((p) => p.type === "empty_container");
+                        const ts = emptyContainerPhoto?.geocoding?.timestamp;
+                        const d = ts ? toDateLocal(ts) : null;
+                        stopDeliveredStr = d ? format(d, "dd/MM/yyyy HH:mm") : "";
+                    } else {
+                        const d = toDateLocal(stop.deliveredAt);
+                        stopDeliveredStr = d ? format(d, "dd/MM/yyyy HH:mm") : "";
+                    }
+                    const row: (string | number | null | undefined)[] = [...baseRow];
+                    row[6] = getSourceDisplayName(stop.destination);
+                    row[10] = stop.index === 1 ? (totalBilling ?? null) : null;
+                    row.push(
+                        t("driverMonitor.table.multiDropYes"),
+                        stop.index,
+                        formatStopStatus(stop.status),
+                        stopDeliveredStr,
+                    );
+                    rows.push(row);
+                });
+            } else {
+                const tripDelivered = toDateLocal(
+                    trip.status === "delivered" && trip.deliveredTimestamp ? trip.deliveredTimestamp : trip.updatedAt
+                );
+                const row: (string | number | null | undefined)[] = [...baseRow];
+                row[6] = getSourceDisplayName(trip.destination);
+                row[10] = billing ? billing.finalRateThb : trip.billingEstimateThb;
+                row.push(
+                    t("driverMonitor.table.multiDropNo"),
+                    1,
+                    "",
+                    tripDelivered ? format(tripDelivered, "dd/MM/yyyy HH:mm") : "",
+                );
+                rows.push(row);
+            }
+        }
+
         return { headers, rows };
     };
 
@@ -1242,20 +1295,41 @@ export default function DriverMonitorDashboard() {
                                         <div className="border-t border-border/50 pt-3">
                                             <p className="text-xs text-muted-foreground mb-2">{t("driverMonitor.detail.deliveryStops")}</p>
                                             <div className="space-y-2">
-                                                {detailTrip.deliveryStopsProgress?.map((stop) => (
-                                                    <div key={stop.index} className="flex items-center gap-2 p-2 rounded border border-border/50">
-                                                        <span className={cn(
-                                                            "flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold",
-                                                            stop.status === "delivered" ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-500"
-                                                        )}>
-                                                            {stop.index}
-                                                        </span>
-                                                        <span className="flex-1">{getSourceDisplayName(stop.destination)}</span>
-                                                        <span className={stop.status === "delivered" ? "text-emerald-600 text-xs" : "text-gray-400 text-xs"}>
-                                                            {stop.status === "delivered" ? "✓" : "◯"}
-                                                        </span>
-                                                    </div>
-                                                ))}
+                                                {(() => {
+                                                    const allStops = detailTrip.deliveryStopsProgress ?? [];
+                                                    const lastIdx = allStops.length > 0 ? Math.max(...allStops.map((s) => s.index)) : -1;
+                                                    return allStops.map((stop) => {
+                                                        let deliveredTimeStr = "";
+                                                        if (stop.status === "delivered") {
+                                                            if (stop.index === lastIdx) {
+                                                                const emptyPhoto = stop.photos?.find((p) => p.type === "empty_container");
+                                                                const ts = emptyPhoto?.geocoding?.timestamp;
+                                                                const d = ts ? toDateLocal(ts) : null;
+                                                                deliveredTimeStr = d ? format(d, "dd/MM/yy HH:mm") : "";
+                                                            } else {
+                                                                const d = toDateLocal(stop.deliveredAt);
+                                                                deliveredTimeStr = d ? format(d, "dd/MM/yy HH:mm") : "";
+                                                            }
+                                                        }
+                                                        return (
+                                                            <div key={stop.index} className="flex items-center gap-2 p-2 rounded border border-border/50">
+                                                                <span className={cn(
+                                                                    "flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold",
+                                                                    stop.status === "delivered" ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-500"
+                                                                )}>
+                                                                    {stop.index}
+                                                                </span>
+                                                                <span className="flex-1">{getSourceDisplayName(stop.destination)}</span>
+                                                                {deliveredTimeStr && (
+                                                                    <span className="text-emerald-600 text-xs">{deliveredTimeStr}</span>
+                                                                )}
+                                                                <span className={stop.status === "delivered" ? "text-emerald-600 text-xs" : "text-gray-400 text-xs"}>
+                                                                    {stop.status === "delivered" ? "✓" : "◯"}
+                                                                </span>
+                                                            </div>
+                                                        );
+                                                    });
+                                                })()}
                                             </div>
                                         </div>
                                         {detailTrip.billingIsMultiDelivery && detailTrip.billingMultiDeliveryBreakdown && detailTrip.billingMultiDeliveryBreakdown.length > 0 && (

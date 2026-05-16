@@ -33,6 +33,7 @@ export const CAPABILITIES = {
   operations_view_driver_monitor: "operations:view_driver_monitor",
   operations_edit_trip_details: "operations:edit_trip_details",
   operations_view_incidents: "operations:view_incidents",
+  operations_view_custom_stops: "operations:view_custom_stops",
 
   // Security
   security_view_overview: "security:view_overview",
@@ -175,6 +176,11 @@ export const CAPABILITY_META: Record<
     description: "View and manage incident reports",
     module: "Operations",
   },
+  [CAPABILITIES.operations_view_custom_stops]: {
+    title: "View Custom Stops",
+    description: "Review driver-added custom delivery stops",
+    module: "Operations",
+  },
   [CAPABILITIES.security_view_overview]: {
     title: "Security Overview",
     description: "Security overview",
@@ -315,6 +321,7 @@ export const ROUTE_CAPABILITIES: Record<string, CapabilityId> = {
   "/app/sources": CAPABILITIES.operations_manage_sources,
   "/app/driver-monitor": CAPABILITIES.operations_view_driver_monitor,
   "/app/incident-reports": CAPABILITIES.operations_view_incidents,
+  "/app/custom-stops-review": CAPABILITIES.operations_view_custom_stops,
   "/app/security-center": CAPABILITIES.security_view_overview,
   "/app/security-center/users": CAPABILITIES.security_manage_users,
   "/app/security-center/roles": CAPABILITIES.security_manage_roles,

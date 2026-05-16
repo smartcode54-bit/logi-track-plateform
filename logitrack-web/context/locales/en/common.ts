@@ -49,6 +49,7 @@ export default {
     "nav.payroll": "Payroll",
     "nav.leaveRequests": "Leave Requests",
     "nav.incidentReports": "Incident Reports",
+    "nav.customStopsReview": "Custom Stops Review",
     "nav.lineHaulTasks": "Line Haul Tasks",
     "nav.holidays": "Holidays",
 
@@ -140,6 +141,26 @@ export default {
     "incidentReports.detail.locationSnapshot": "Location Snapshot",
     "incidentReports.detail.situation1": "Situation 1",
     "incidentReports.detail.situation2": "Situation 2",
+
+    // Custom Stops Review (admin)
+    "customStops.title": "Custom Stops Review",
+    "customStops.subtitle": "Review driver-added custom delivery stops",
+    "customStops.stats.total": "Total Custom Stops",
+    "customStops.filter.pickDate": "Pick a date",
+    "customStops.filter.search": "Search driver, destination, trip...",
+    "customStops.filter.status": "Status",
+    "customStops.filter.allStatuses": "All Statuses",
+    "customStops.table.tripId": "Trip ID",
+    "customStops.table.addedAt": "Added At",
+    "customStops.table.driver": "Driver",
+    "customStops.table.destination": "Destination",
+    "customStops.table.status": "Delivery Status",
+    "customStops.table.deliveredAt": "Delivered At",
+    "customStops.table.loading": "Loading...",
+    "customStops.table.noStops": "No custom delivery stops found.",
+    "customStops.status.pending": "Pending",
+    "customStops.status.delivered": "Delivered",
+    "customStops.status.failed": "Failed",
 
     // Line Haul (admin)
     "lineHaul.title": "Line Haul Tasks",
