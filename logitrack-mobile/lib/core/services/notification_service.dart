@@ -19,7 +19,7 @@ Future<void> initLocalNotifications(GlobalKey<NavigatorState>? navigatorKey) asy
   );
 
   await flutterLocalNotificationsPlugin.initialize(
-    initSettings,
+    settings: initSettings,
     onDidReceiveNotificationResponse: (NotificationResponse response) {
       final String? payload = response.payload;
       if (payload == null || payload.isEmpty) return;
@@ -50,10 +50,10 @@ Future<void> showChatNotification({
   );
 
   await flutterLocalNotificationsPlugin.show(
-    id,
-    title,
-    body,
-    details,
+    id: id,
+    title: title,
+    body: body,
+    notificationDetails: details,
     payload: chatId,
   );
 }

@@ -20,7 +20,6 @@ class _QrScanPageState extends State<QrScanPage> {
   final MobileScannerController _controller = MobileScannerController(
     detectionSpeed: DetectionSpeed.normal,
     facing: CameraFacing.back,
-    torchEnabled: false,
   );
   bool _scanned = false;
 
