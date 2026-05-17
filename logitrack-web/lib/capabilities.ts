@@ -34,6 +34,7 @@ export const CAPABILITIES = {
   operations_edit_trip_details: "operations:edit_trip_details",
   operations_view_incidents: "operations:view_incidents",
   operations_view_custom_stops: "operations:view_custom_stops",
+  operations_create_standby: "operations:create_standby",
 
   // Security
   security_view_overview: "security:view_overview",
@@ -179,6 +180,11 @@ export const CAPABILITY_META: Record<
   [CAPABILITIES.operations_view_custom_stops]: {
     title: "View Custom Stops",
     description: "Review driver-added custom delivery stops",
+    module: "Operations",
+  },
+  [CAPABILITIES.operations_create_standby]: {
+    title: "Backfill Standby Record",
+    description: "Manually create a standby record for past trips (Admin, Manager, Operation)",
     module: "Operations",
   },
   [CAPABILITIES.security_view_overview]: {

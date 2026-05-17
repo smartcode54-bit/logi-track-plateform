@@ -36,6 +36,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { ImagePreviewGallery } from "@/components/accounting/ImagePreviewGallery"
+import { StandbyBackfillDialog } from "./standby-backfill-dialog"
+import { usePermission } from "@/hooks/usePermission"
+import { Plus } from "lucide-react"
 
 // --- Types ---
 interface StandbyPhoto {
@@ -84,13 +87,16 @@ export default function StandbyRecordsPage() {
     const [drivers, setDrivers] = useState<Record<string, Driver>>({})
     const [loading, setLoading] = useState(true)
 
-    const [date, setDate] = useState<Date | undefined>(undefined)
+    const [dateFrom, setDateFrom] = useState<Date | undefined>(undefined)
+    const [dateTo, setDateTo] = useState<Date | undefined>(undefined)
     const [searchQuery, setSearchQuery] = useState("")
 
     const [currentPage, setCurrentPage] = useState(1)
     const itemsPerPage = 15
 
     const [detailRecord, setDetailRecord] = useState<StandbyRecord | null>(null)
+    const [backfillOpen, setBackfillOpen] = useState(false)
+    const { hasPermission: canCreateStandby } = usePermission(CAPABILITIES.operations_create_standby)
 
     const fetchRecords = () => {
         setLoading(true)
@@ -162,14 +168,15 @@ export default function StandbyRecordsPage() {
     }
 
     const filteredRecords = useMemo(() => {
+        const fromMs = dateFrom ? new Date(dateFrom.getFullYear(), dateFrom.getMonth(), dateFrom.getDate(), 0, 0, 0, 0).getTime() : null
+        const toMs = dateTo ? new Date(dateTo.getFullYear(), dateTo.getMonth(), dateTo.getDate(), 23, 59, 59, 999).getTime() : null
         return records.filter(rec => {
-            if (date) {
+            if (fromMs != null || toMs != null) {
                 const recDate = rec.createdAt
-                if (recDate) {
-                    if (format(date, "dd/MM/yyyy") !== format(recDate, "dd/MM/yyyy")) return false
-                } else {
-                    return false
-                }
+                if (!recDate) return false
+                const t = recDate.getTime()
+                if (fromMs != null && t < fromMs) return false
+                if (toMs != null && t > toMs) return false
             }
             if (searchQuery.trim()) {
                 const q = searchQuery.toLowerCase()
@@ -183,7 +190,7 @@ export default function StandbyRecordsPage() {
             }
             return true
         })
-    }, [records, date, searchQuery, driversByAuthId, drivers])
+    }, [records, dateFrom, dateTo, searchQuery, driversByAuthId, drivers])
 
     const paginatedRecords = filteredRecords.slice(
         (currentPage - 1) * itemsPerPage,
@@ -191,7 +198,7 @@ export default function StandbyRecordsPage() {
     )
     const totalPages = Math.ceil(filteredRecords.length / itemsPerPage)
 
-    useEffect(() => { setCurrentPage(1) }, [date, searchQuery])
+    useEffect(() => { setCurrentPage(1) }, [dateFrom, dateTo, searchQuery])
 
     const fmt = (val: unknown) => {
         const d = toDate(val)
@@ -211,9 +218,17 @@ export default function StandbyRecordsPage() {
                             {t("standbyRecords.subtitle", "Driver check-in records with no delivery jobs")}
                         </p>
                     </div>
-                    <Button variant="outline" size="icon" onClick={() => fetchRecords()}>
-                        <RefreshCw className="h-4 w-4" />
-                    </Button>
+                    <div className="flex items-center gap-2">
+                        {canCreateStandby && (
+                            <Button onClick={() => setBackfillOpen(true)} className="gap-2">
+                                <Plus className="h-4 w-4" />
+                                {t("standbyRecords.create.button", "Backfill Standby")}
+                            </Button>
+                        )}
+                        <Button variant="outline" size="icon" onClick={() => fetchRecords()}>
+                            <RefreshCw className="h-4 w-4" />
+                        </Button>
+                    </div>
                 </div>
 
                 {/* Stats */}
@@ -242,18 +257,46 @@ export default function StandbyRecordsPage() {
                                 size="sm"
                                 className={cn(
                                     "w-[180px] justify-start text-left font-normal",
-                                    !date && "text-muted-foreground"
+                                    !dateFrom && "text-muted-foreground"
                                 )}
                             >
                                 <CalendarIcon className="mr-2 h-4 w-4" />
-                                {date ? format(date, "dd/MM/yyyy") : t("standbyRecords.filter.pickDate", "Pick date")}
+                                {dateFrom
+                                    ? format(dateFrom, "dd/MM/yyyy")
+                                    : t("standbyRecords.filter.from", "From date")}
                             </Button>
                         </PopoverTrigger>
                         <PopoverContent className="w-auto p-0" align="start">
                             <Calendar
                                 mode="single"
-                                selected={date}
-                                onSelect={setDate}
+                                selected={dateFrom}
+                                onSelect={setDateFrom}
+                                initialFocus
+                            />
+                        </PopoverContent>
+                    </Popover>
+
+                    <Popover>
+                        <PopoverTrigger asChild>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className={cn(
+                                    "w-[180px] justify-start text-left font-normal",
+                                    !dateTo && "text-muted-foreground"
+                                )}
+                            >
+                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                {dateTo
+                                    ? format(dateTo, "dd/MM/yyyy")
+                                    : t("standbyRecords.filter.to", "To date")}
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                                mode="single"
+                                selected={dateTo}
+                                onSelect={setDateTo}
                                 initialFocus
                             />
                         </PopoverContent>
@@ -269,11 +312,14 @@ export default function StandbyRecordsPage() {
                         />
                     </div>
 
-                    {date && (
+                    {(dateFrom || dateTo) && (
                         <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => setDate(undefined)}
+                            onClick={() => {
+                                setDateFrom(undefined)
+                                setDateTo(undefined)
+                            }}
                             className="text-muted-foreground"
                         >
                             ✕
@@ -398,6 +444,15 @@ export default function StandbyRecordsPage() {
                         </div>
                     </div>
                 </div>
+
+                {/* Backfill Dialog (admin-only) */}
+                {canCreateStandby && (
+                    <StandbyBackfillDialog
+                        open={backfillOpen}
+                        onOpenChange={setBackfillOpen}
+                        onSaved={() => fetchRecords()}
+                    />
+                )}
 
                 {/* Detail Dialog */}
                 <Dialog open={!!detailRecord} onOpenChange={(open) => !open && setDetailRecord(null)}>

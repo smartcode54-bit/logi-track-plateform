@@ -20,6 +20,14 @@ service cloud.firestore {
         && request.auth.token.get('customerScopeId', '') != '';
     }
 
+    // Roles allowed to backfill standby records (capability operations_create_standby).
+    // Mirrors lib/roles.ts defaults; admins always allowed via isWebAdmin().
+    function canBackfillStandby() {
+      return isWebAdmin()
+        || request.auth.token.get('role', '') == 'manager'
+        || request.auth.token.get('role', '') == 'operation_staff';
+    }
+
     // Role matrix stores capability keys as matrix row ids, e.g. security_view_audit (see capabilities.ts / roles UI).
     function canReadSecurityEvents() {
       return isWebAdmin() || (
@@ -100,14 +108,15 @@ service cloud.firestore {
       );
     }
 
-    // Standby records: drivers create/read own records; admins full access.
+    // Standby records: drivers create/read own; admin/manager/operation_staff may backfill; admins update/delete.
     match /standby_records/{recordId} {
       allow read: if request.auth != null && (
         isWebAdmin() ||
         resource.data.driverId == request.auth.uid
       );
       allow create: if isAppCheckVerified() && request.auth != null && (
-        request.resource.data.driverId == request.auth.uid
+        request.resource.data.driverId == request.auth.uid ||
+        canBackfillStandby()
       );
       allow update, delete: if isWebAdmin();
     }
