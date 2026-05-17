@@ -66,7 +66,9 @@ Future<Position> getCurrentPosition() async {
       throw Exception('Location permission denied');
     }
   }
-  return Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+  return Geolocator.getCurrentPosition(
+    locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+  );
 }
 
 /// Upload stamped image to Storage and update tasks with check-in data.
