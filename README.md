@@ -66,3 +66,4 @@ logitrack-platform/
 ## 🏁 Summary
 
 **Web admins** configure fleet, tasks, and HR (including holidays and leave); **mobile drivers** execute FM/LH tasks with check-in, photos, OCR, expenses, chat, and leave requests. One Firebase backend keeps both apps in sync for transparent, accountable operations.
+test
