@@ -48,7 +48,6 @@ export function printImageUrl(url: string): void {
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
                 let cleaned = false;
-                let fallbackTimer: number;
                 const finish = () => {
                     if (cleaned) return;
                     cleaned = true;
@@ -56,7 +55,7 @@ export function printImageUrl(url: string): void {
                     win.removeEventListener("afterprint", finish);
                     cleanup();
                 };
-                fallbackTimer = window.setTimeout(finish, 30_000);
+                const fallbackTimer = window.setTimeout(finish, 30_000);
                 win.addEventListener("afterprint", finish);
                 try {
                     win.focus();
