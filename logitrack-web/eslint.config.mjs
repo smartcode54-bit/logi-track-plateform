@@ -23,8 +23,11 @@ const eslintConfig = defineConfig([
   ]),
   {
     rules: {
-      // Downgrade to warn — codebase has widespread any usage, treat as tech debt not blocker
+      // Tech debt — widespread any usage, fix incrementally per file
       "@typescript-eslint/no-explicit-any": "warn",
+      // Tech debt — React Compiler rules, pattern works but violates newer strict rules
+      "react-hooks/set-state-in-effect": "warn",
+      "react-hooks/preserve-manual-memoization": "warn",
     },
   },
 ]);

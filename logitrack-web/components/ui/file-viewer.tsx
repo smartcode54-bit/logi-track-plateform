@@ -23,17 +23,17 @@ export function FileViewer({ isOpen, onClose, files, initialIndex = 0 }: FileVie
 
     const containerRef = useRef<HTMLDivElement>(null);
 
+    const resetView = () => {
+        setScale(1);
+        setPosition({ x: 0, y: 0 });
+    };
+
     useEffect(() => {
         if (isOpen) {
             setCurrentIndex(initialIndex);
             resetView();
         }
     }, [isOpen, initialIndex]);
-
-    const resetView = () => {
-        setScale(1);
-        setPosition({ x: 0, y: 0 });
-    };
 
     const handleZoomIn = () => setScale(s => Math.min(s + 0.5, 4));
     const handleZoomOut = () => setScale(s => Math.max(s - 0.5, 0.5));

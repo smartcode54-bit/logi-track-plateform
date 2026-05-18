@@ -15,6 +15,32 @@ import { FileViewer } from "@/components/ui/file-viewer";
 import { isPdfUrl } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useTruckPreview } from "../hooks/useTruckPreview";
+import { useLanguage } from "@/context/language";
+
+function StatusBadge({ status }: { status: string }) {
+    const { t } = useLanguage();
+    const styles: Record<string, string> = {
+        active: "bg-green-100 text-green-800 hover:bg-green-100",
+        inactive: "bg-gray-100 text-gray-800 hover:bg-gray-100",
+        maintenance: "bg-yellow-100 text-yellow-800 hover:bg-yellow-100",
+        "insurance-claim": "bg-red-100 text-red-800 hover:bg-red-100",
+        sold: "bg-purple-100 text-purple-800 hover:bg-purple-100",
+    };
+    const labels: Record<string, string> = {
+        active: t("trucks.detail.status.available"),
+        inactive: t("trucks.detail.status.inactive"),
+        maintenance: t("trucks.detail.status.maintenance"),
+        "insurance-claim": t("trucks.detail.status.insuranceClaim"),
+        sold: t("trucks.detail.status.sold"),
+        [status]: status
+    };
+    const statusKey = status as keyof typeof styles;
+    return (
+        <Badge className={styles[statusKey] || styles.inactive} variant="outline">
+            {labels[statusKey] || status}
+        </Badge>
+    );
+}
 
 export default function TruckPreview() {
     const {
@@ -34,31 +60,6 @@ export default function TruckPreview() {
         language
     } = useTruckPreview();
 
-    const StatusBadge = ({ status }: { status: string }) => {
-        const styles: Record<string, string> = {
-            active: "bg-green-100 text-green-800 hover:bg-green-100",
-            inactive: "bg-gray-100 text-gray-800 hover:bg-gray-100",
-            maintenance: "bg-yellow-100 text-yellow-800 hover:bg-yellow-100",
-            "insurance-claim": "bg-red-100 text-red-800 hover:bg-red-100",
-            sold: "bg-purple-100 text-purple-800 hover:bg-purple-100",
-        };
-
-        const labels: Record<string, string> = {
-            active: t("trucks.detail.status.available"),
-            inactive: t("trucks.detail.status.inactive"),
-            maintenance: t("trucks.detail.status.maintenance"),
-            "insurance-claim": t("trucks.detail.status.insuranceClaim"),
-            sold: t("trucks.detail.status.sold"),
-            [status]: status
-        };
-
-        const statusKey = status as keyof typeof styles;
-        return (
-            <Badge className={styles[statusKey] || styles.inactive} variant="outline">
-                {labels[statusKey] || status}
-            </Badge>
-        );
-    };
 
     if (isLoading) {
         return (
