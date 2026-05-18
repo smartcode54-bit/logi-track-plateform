@@ -213,6 +213,7 @@ export default function AccountingRateCardPage() {
         effectiveFrom: "",
     });
     const [adjustmentForm, setAdjustmentForm] = useState({
+        adjustmentType: "percent" as "percent" | "fixed_thb",
         customerId: "",
         effectiveFrom: "",
         ratePercent: "0",
@@ -501,15 +502,17 @@ export default function AccountingRateCardPage() {
         setAdjustmentError(null);
         const customerId = adjustmentForm.customerId.trim();
         const effectiveFrom = parseDateInput(adjustmentForm.effectiveFrom);
-        const ratePercent = Number(adjustmentForm.ratePercent);
         const referenceFuelPrice = adjustmentForm.referenceFuelPrice
             ? Number(adjustmentForm.referenceFuelPrice)
             : undefined;
-        const rateMultiplier = 1 + ratePercent / 100;
-        let addThbPerTrip = Number(adjustmentForm.addThbPerTrip);
 
-        // Auto-calculate addThbPerTrip if fuel band mode is enabled
-        if (adjustmentForm.fuelBandEnabled && referenceFuelPrice != null) {
+        const isPercentMode = adjustmentForm.adjustmentType === "percent";
+        const ratePercent = isPercentMode ? Number(adjustmentForm.ratePercent) : 0;
+        const rateMultiplier = isPercentMode ? 1 + ratePercent / 100 : 1;
+        let addThbPerTrip = isPercentMode ? 0 : Number(adjustmentForm.addThbPerTrip);
+
+        // Auto-calculate addThbPerTrip from fuel band (fixed_thb mode only)
+        if (!isPercentMode && adjustmentForm.fuelBandEnabled && referenceFuelPrice != null) {
             const fuelBand = Math.floor(referenceFuelPrice);
             const baselineFloor = parseInt(adjustmentForm.fuelBandBaselineFuelFloor) || 41;
             const thbPerBaht = parseFloat(adjustmentForm.fuelBandThbPerBaht) || 10;
@@ -519,7 +522,7 @@ export default function AccountingRateCardPage() {
         if (
             !customerId ||
             !effectiveFrom ||
-            !Number.isFinite(ratePercent) ||
+            (isPercentMode && !Number.isFinite(ratePercent)) ||
             !Number.isFinite(rateMultiplier) ||
             rateMultiplier <= 0 ||
             !Number.isFinite(addThbPerTrip)
@@ -579,9 +582,15 @@ export default function AccountingRateCardPage() {
         const effectiveFrom = format(row.effectiveFrom, "yyyy-MM-dd");
         const ratePercent = ((row.rateMultiplier - 1) * 100).toFixed(2);
         const latest = latestFleetDieselFromMonthlySnapshots(fuelSnapshots);
+        // Detect adjustment type: if addThbPerTrip is set (non-zero) or fuelBand is enabled → fixed_thb mode
+        const adjustmentType: "percent" | "fixed_thb" =
+            (row.fuelBandEnabled || (row.addThbPerTrip != null && row.addThbPerTrip !== 0))
+                ? "fixed_thb"
+                : "percent";
         setEditingAdjustmentId(row.id);
         setAdjustmentError(null);
         setAdjustmentForm({
+            adjustmentType,
             customerId: row.customerId,
             effectiveFrom,
             ratePercent,
@@ -604,6 +613,7 @@ export default function AccountingRateCardPage() {
         setEditingAdjustmentId(null);
         setAdjustmentError(null);
         setAdjustmentForm({
+            adjustmentType: "percent",
             customerId: "",
             effectiveFrom: "",
             ratePercent: "0",
@@ -1376,11 +1386,18 @@ export default function AccountingRateCardPage() {
                                         <TableCell className="text-right">
                                             {newRate != null && ruleDoc != null ? (
                                                 <span
-                                                    title={t("accounting.rateCard.calcPreview.rowTooltip", {
-                                                        times: formatMultiplierTimes(ruleDoc.rateMultiplier),
-                                                        percent: multiplierToPercentText(ruleDoc.rateMultiplier),
-                                                        delta: formatSignedThbDelta(row.rateThb, newRate),
-                                                    })}
+                                                    title={
+                                                        ruleDoc.addThbPerTrip !== 0
+                                                            ? t("accounting.rateCard.calcPreview.rowTooltipFixed", {
+                                                                addPerTrip: `${ruleDoc.addThbPerTrip >= 0 ? "+" : ""}${ruleDoc.addThbPerTrip.toFixed(2)}`,
+                                                                delta: formatSignedThbDelta(row.rateThb, newRate),
+                                                            })
+                                                            : t("accounting.rateCard.calcPreview.rowTooltipPercent", {
+                                                                times: formatMultiplierTimes(ruleDoc.rateMultiplier),
+                                                                percent: multiplierToPercentText(ruleDoc.rateMultiplier),
+                                                                delta: formatSignedThbDelta(row.rateThb, newRate),
+                                                            })
+                                                    }
                                                 >
                                                     ฿{newRate.toLocaleString()}
                                                 </span>
@@ -1514,6 +1531,7 @@ export default function AccountingRateCardPage() {
                                 setEditingAdjustmentId(null);
                                 setAdjustmentError(null);
                                 setAdjustmentForm({
+                                    adjustmentType: "percent",
                                     customerId: "",
                                     effectiveFrom: "",
                                     ratePercent: "0",
@@ -1555,9 +1573,12 @@ export default function AccountingRateCardPage() {
                                     {t("accounting.rateCard.fuelAdjustments.dialog.description")}
                                 </DialogDescription>
                             </DialogHeader>
-                            <div className="grid grid-cols-1 gap-3 py-2 sm:grid-cols-2">
-                                <div className="space-y-1.5 sm:col-span-2">
-                                    <Label>{t("accounting.rateCard.fuelAdjustments.form.customer")}</Label>
+                            <div className="space-y-4 py-2">
+                                {/* ── STEP 1: Customer ── */}
+                                <div className="space-y-1.5">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                        {t("accounting.rateCard.fuelAdjustments.form.step1")}
+                                    </p>
                                     <Select
                                         value={adjustmentForm.customerId}
                                         onValueChange={(v) =>
@@ -1578,218 +1599,305 @@ export default function AccountingRateCardPage() {
                                         </SelectContent>
                                     </Select>
                                 </div>
-                                <div className="space-y-1.5">
-                                    <Label>{t("accounting.rateCard.fuelAdjustments.form.effectiveFrom")}</Label>
-                                    <Input
-                                        type="date"
-                                        value={adjustmentForm.effectiveFrom}
-                                        onChange={(e) =>
-                                            setAdjustmentForm((prev) => ({
-                                                ...prev,
-                                                effectiveFrom: e.target.value,
-                                            }))
-                                        }
-                                    />
+
+                                <div className="border-t" />
+
+                                {/* ── STEP 2: Adjustment mode ── */}
+                                <div className="space-y-2">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                        {t("accounting.rateCard.fuelAdjustments.form.step2")}
+                                    </p>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                setAdjustmentForm((prev) => ({
+                                                    ...prev,
+                                                    adjustmentType: "percent",
+                                                    addThbPerTrip: "0",
+                                                    fuelBandEnabled: false,
+                                                }))
+                                            }
+                                            className={`rounded-lg border-2 p-3 text-left transition-colors ${
+                                                adjustmentForm.adjustmentType === "percent"
+                                                    ? "border-primary bg-primary/5"
+                                                    : "border-border bg-background hover:border-muted-foreground/40"
+                                            }`}
+                                        >
+                                            <div className="font-semibold text-sm text-foreground">
+                                                {t("accounting.rateCard.fuelAdjustments.form.adjustmentTypePercent")}
+                                            </div>
+                                            <div className="text-xs text-muted-foreground mt-0.5 font-mono">
+                                                เรทใหม่ = เรทฐาน × (1 ± %)
+                                            </div>
+                                            <div className="text-xs text-muted-foreground mt-1">
+                                                {t("accounting.rateCard.fuelAdjustments.form.adjustmentTypePercentHint")}
+                                            </div>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                setAdjustmentForm((prev) => ({
+                                                    ...prev,
+                                                    adjustmentType: "fixed_thb",
+                                                    ratePercent: "0",
+                                                }))
+                                            }
+                                            className={`rounded-lg border-2 p-3 text-left transition-colors ${
+                                                adjustmentForm.adjustmentType === "fixed_thb"
+                                                    ? "border-primary bg-primary/5"
+                                                    : "border-border bg-background hover:border-muted-foreground/40"
+                                            }`}
+                                        >
+                                            <div className="font-semibold text-sm text-foreground">
+                                                {t("accounting.rateCard.fuelAdjustments.form.adjustmentTypeFixed")}
+                                            </div>
+                                            <div className="text-xs text-muted-foreground mt-0.5 font-mono">
+                                                เรทใหม่ = เรทฐาน ± ฿/เที่ยว
+                                            </div>
+                                            <div className="text-xs text-muted-foreground mt-1">
+                                                {t("accounting.rateCard.fuelAdjustments.form.adjustmentTypeFixedHint")}
+                                            </div>
+                                        </button>
+                                    </div>
                                 </div>
-                                <div className="space-y-1.5">
-                                    <Label>{t("accounting.rateCard.fuelAdjustments.form.multiplier")}</Label>
-                                    <Input
-                                        type="number"
-                                        step="0.01"
-                                        value={adjustmentForm.ratePercent}
-                                        onChange={(e) =>
-                                            setAdjustmentForm((prev) => ({
-                                                ...prev,
-                                                ratePercent: e.target.value,
-                                            }))
-                                        }
-                                        placeholder={t(
-                                            "accounting.rateCard.fuelAdjustments.form.multiplierPlaceholder"
-                                        )}
-                                    />
-                                </div>
-                                <div className="space-y-1.5">
-                                    <Label>{t("accounting.rateCard.fuelAdjustments.form.addPerTrip")}</Label>
-                                    <Input
-                                        type="number"
-                                        step="0.01"
-                                        value={adjustmentForm.addThbPerTrip}
-                                        disabled={adjustmentForm.fuelBandEnabled}
-                                        onChange={(e) =>
-                                            setAdjustmentForm((prev) => ({
-                                                ...prev,
-                                                addThbPerTrip: e.target.value,
-                                            }))
-                                        }
-                                    />
-                                </div>
-                                {/* Fuel Band Calculator */}
-                                <div className="space-y-1.5 sm:col-span-2 border-t pt-2">
-                                    <div className="flex items-center gap-2">
-                                        <input
-                                            type="checkbox"
-                                            checked={adjustmentForm.fuelBandEnabled}
+
+                                <div className="border-t" />
+
+                                {/* ── STEP 3: Date + Value ── */}
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-1.5">
+                                        <Label>{t("accounting.rateCard.fuelAdjustments.form.effectiveFrom")}</Label>
+                                        <Input
+                                            type="date"
+                                            value={adjustmentForm.effectiveFrom}
                                             onChange={(e) =>
                                                 setAdjustmentForm((prev) => ({
                                                     ...prev,
-                                                    fuelBandEnabled: e.target.checked,
+                                                    effectiveFrom: e.target.value,
                                                 }))
                                             }
-                                            className="h-4 w-4 rounded border-gray-300"
-                                            id="fuelBandToggle"
                                         />
-                                        <Label htmlFor="fuelBandToggle" className="mb-0 cursor-pointer">
-                                            {t("accounting.rateCard.fuelAdjustments.form.fuelBandToggle")}
-                                        </Label>
                                     </div>
-                                    {adjustmentForm.fuelBandEnabled && (
-                                        <div className="space-y-2 rounded-md bg-slate-50 p-2 mt-2">
-                                            <div className="grid grid-cols-2 gap-2">
-                                                <div>
-                                                    <Label className="text-xs" htmlFor="baselineFloor">
-                                                        {t("accounting.rateCard.fuelAdjustments.form.fuelBandBaseline")}
-                                                    </Label>
-                                                    <Input
-                                                        id="baselineFloor"
-                                                        type="number"
-                                                        step="1"
-                                                        value={adjustmentForm.fuelBandBaselineFuelFloor}
-                                                        onChange={(e) =>
-                                                            setAdjustmentForm((prev) => ({
-                                                                ...prev,
-                                                                fuelBandBaselineFuelFloor: e.target.value,
-                                                            }))
-                                                        }
-                                                        className="mt-1 text-sm"
-                                                    />
-                                                    <p className="text-xs text-muted-foreground mt-1">
-                                                        {t("accounting.rateCard.fuelAdjustments.form.fuelBandBaselineHint")}
-                                                    </p>
-                                                </div>
-                                                <div>
-                                                    <Label className="text-xs" htmlFor="thbPerBaht">
-                                                        {t("accounting.rateCard.fuelAdjustments.form.fuelBandThbPerBaht")}
-                                                    </Label>
-                                                    <Input
-                                                        id="thbPerBaht"
-                                                        type="number"
-                                                        step="0.5"
-                                                        value={adjustmentForm.fuelBandThbPerBaht}
-                                                        onChange={(e) =>
-                                                            setAdjustmentForm((prev) => ({
-                                                                ...prev,
-                                                                fuelBandThbPerBaht: e.target.value,
-                                                            }))
-                                                        }
-                                                        className="mt-1 text-sm"
-                                                    />
-                                                </div>
-                                            </div>
-                                            {/* Band Preview Table */}
-                                            {adjustmentForm.referenceFuelPrice && (
-                                                <div className="mt-2 text-xs">
-                                                    <p className="font-semibold mb-1">
-                                                        {t("accounting.rateCard.fuelAdjustments.form.fuelBandPreviewTitle")}
-                                                    </p>
-                                                    <div className="space-y-0 border rounded">
-                                                        {(() => {
-                                                            const refPrice = parseFloat(adjustmentForm.referenceFuelPrice);
-                                                            const baseline = parseInt(adjustmentForm.fuelBandBaselineFuelFloor) || 41;
-                                                            const thbPerBaht = parseFloat(adjustmentForm.fuelBandThbPerBaht) || 10;
-                                                            const currentBand = Math.floor(refPrice);
-                                                            const rows = [];
-                                                            for (let i = -2; i <= 2; i++) {
-                                                                const band = baseline + i;
-                                                                const adj = i * thbPerBaht;
-                                                                const isCurrent = band === currentBand;
-                                                                rows.push(
-                                                                    <div key={band} className={`flex justify-between px-2 py-1 border-b last:border-b-0 ${isCurrent ? "bg-blue-50" : ""}`}>
-                                                                        <span className={isCurrent ? "font-semibold text-blue-600" : ""}>
-                                                                            {band}.xx ฿/L
-                                                                        </span>
-                                                                        <span className={`${adj > 0 ? "text-green-600" : adj < 0 ? "text-red-600" : ""} ${isCurrent ? "font-semibold" : ""}`}>
-                                                                            {adj >= 0 ? "+" : ""}{adj} ฿
-                                                                        </span>
-                                                                        {i === 0 && (
-                                                                            <span className="text-muted-foreground text-xs">
-                                                                                ({t("accounting.rateCard.fuelAdjustments.form.fuelBandPreviewBaseline")})
-                                                                            </span>
-                                                                        )}
-                                                                        {isCurrent && (
-                                                                            <span className="text-blue-600 text-xs">
-                                                                                ({t("accounting.rateCard.fuelAdjustments.form.fuelBandPreviewCurrent")})
-                                                                            </span>
-                                                                        )}
-                                                                    </div>
-                                                                );
+                                    <div className="space-y-1.5">
+                                        {adjustmentForm.adjustmentType === "percent" ? (
+                                            <>
+                                                <Label>{t("accounting.rateCard.fuelAdjustments.form.multiplier")}</Label>
+                                                <Input
+                                                    type="number"
+                                                    step="0.01"
+                                                    value={adjustmentForm.ratePercent}
+                                                    onChange={(e) =>
+                                                        setAdjustmentForm((prev) => ({
+                                                            ...prev,
+                                                            ratePercent: e.target.value,
+                                                        }))
+                                                    }
+                                                    placeholder={t("accounting.rateCard.fuelAdjustments.form.multiplierPlaceholder")}
+                                                />
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Label>{t("accounting.rateCard.fuelAdjustments.form.addPerTrip")}</Label>
+                                                <Input
+                                                    type="number"
+                                                    step="0.01"
+                                                    value={adjustmentForm.addThbPerTrip}
+                                                    disabled={adjustmentForm.fuelBandEnabled}
+                                                    onChange={(e) =>
+                                                        setAdjustmentForm((prev) => ({
+                                                            ...prev,
+                                                            addThbPerTrip: e.target.value,
+                                                        }))
+                                                    }
+                                                />
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* ── Fuel Band Calculator (fixed mode only) ── */}
+                                {adjustmentForm.adjustmentType === "fixed_thb" && (
+                                    <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+                                        <div className="flex items-center gap-2">
+                                            <input
+                                                type="checkbox"
+                                                checked={adjustmentForm.fuelBandEnabled}
+                                                onChange={(e) =>
+                                                    setAdjustmentForm((prev) => ({
+                                                        ...prev,
+                                                        fuelBandEnabled: e.target.checked,
+                                                    }))
+                                                }
+                                                className="h-4 w-4 rounded border-border"
+                                                id="fuelBandToggle"
+                                            />
+                                            <Label htmlFor="fuelBandToggle" className="mb-0 cursor-pointer text-sm">
+                                                {t("accounting.rateCard.fuelAdjustments.form.fuelBandToggle")}
+                                            </Label>
+                                        </div>
+                                        <p className="text-xs text-muted-foreground">
+                                            {t("accounting.rateCard.fuelAdjustments.form.fuelBandHelperNote")}
+                                        </p>
+                                        {adjustmentForm.fuelBandEnabled && (
+                                            <div className="space-y-2 rounded-md border bg-background p-2 mt-1">
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <div>
+                                                        <Label className="text-xs text-foreground" htmlFor="baselineFloor">
+                                                            {t("accounting.rateCard.fuelAdjustments.form.fuelBandBaseline")}
+                                                        </Label>
+                                                        <Input
+                                                            id="baselineFloor"
+                                                            type="number"
+                                                            step="1"
+                                                            value={adjustmentForm.fuelBandBaselineFuelFloor}
+                                                            onChange={(e) =>
+                                                                setAdjustmentForm((prev) => ({
+                                                                    ...prev,
+                                                                    fuelBandBaselineFuelFloor: e.target.value,
+                                                                }))
                                                             }
-                                                            return rows;
-                                                        })()}
+                                                            className="mt-1 text-sm"
+                                                        />
+                                                        <p className="text-xs text-muted-foreground mt-1">
+                                                            {t("accounting.rateCard.fuelAdjustments.form.fuelBandBaselineHint")}
+                                                        </p>
+                                                    </div>
+                                                    <div>
+                                                        <Label className="text-xs text-foreground" htmlFor="thbPerBaht">
+                                                            {t("accounting.rateCard.fuelAdjustments.form.fuelBandThbPerBaht")}
+                                                        </Label>
+                                                        <Input
+                                                            id="thbPerBaht"
+                                                            type="number"
+                                                            step="0.5"
+                                                            value={adjustmentForm.fuelBandThbPerBaht}
+                                                            onChange={(e) =>
+                                                                setAdjustmentForm((prev) => ({
+                                                                    ...prev,
+                                                                    fuelBandThbPerBaht: e.target.value,
+                                                                }))
+                                                            }
+                                                            className="mt-1 text-sm"
+                                                        />
                                                     </div>
                                                 </div>
-                                            )}
+                                                {/* Band Preview Table */}
+                                                {adjustmentForm.referenceFuelPrice && (
+                                                    <div className="mt-2 text-xs">
+                                                        <p className="font-semibold mb-1 text-foreground">
+                                                            {t("accounting.rateCard.fuelAdjustments.form.fuelBandPreviewTitle")}
+                                                        </p>
+                                                        <div className="rounded border overflow-hidden">
+                                                            {(() => {
+                                                                const refPrice = parseFloat(adjustmentForm.referenceFuelPrice);
+                                                                const baseline = parseInt(adjustmentForm.fuelBandBaselineFuelFloor) || 41;
+                                                                const thbPerBaht = parseFloat(adjustmentForm.fuelBandThbPerBaht) || 10;
+                                                                const currentBand = Math.floor(refPrice);
+                                                                const rows = [];
+                                                                for (let i = -2; i <= 2; i++) {
+                                                                    const band = baseline + i;
+                                                                    const adj = i * thbPerBaht;
+                                                                    const isCurrent = band === currentBand;
+                                                                    rows.push(
+                                                                        <div
+                                                                            key={band}
+                                                                            className={`flex justify-between px-2 py-1 border-b last:border-b-0 ${
+                                                                                isCurrent
+                                                                                    ? "bg-blue-500/10 dark:bg-blue-500/20"
+                                                                                    : "bg-background"
+                                                                            }`}
+                                                                        >
+                                                                            <span className={`text-foreground ${isCurrent ? "font-semibold text-blue-600 dark:text-blue-400" : ""}`}>
+                                                                                {band}.xx ฿/L
+                                                                            </span>
+                                                                            <span className={`${
+                                                                                adj > 0 ? "text-green-600 dark:text-green-400" :
+                                                                                adj < 0 ? "text-red-600 dark:text-red-400" :
+                                                                                "text-foreground"
+                                                                            } ${isCurrent ? "font-semibold" : ""}`}>
+                                                                                {adj >= 0 ? "+" : ""}{adj} ฿
+                                                                            </span>
+                                                                            <span className="text-muted-foreground">
+                                                                                {i === 0 ? `(${t("accounting.rateCard.fuelAdjustments.form.fuelBandPreviewBaseline")})` : ""}
+                                                                                {isCurrent ? `(${t("accounting.rateCard.fuelAdjustments.form.fuelBandPreviewCurrent")})` : ""}
+                                                                            </span>
+                                                                        </div>
+                                                                    );
+                                                                }
+                                                                return rows;
+                                                            })()}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                <div className="border-t" />
+
+                                {/* ── Reference price + Note ── */}
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-1.5">
+                                        <div className="flex flex-wrap items-end justify-between gap-1">
+                                            <Label className="mb-0 text-sm">
+                                                {t("accounting.rateCard.fuelAdjustments.form.referenceFuelPrice")}
+                                            </Label>
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                className="h-auto shrink-0 px-2 py-0.5 text-xs text-muted-foreground"
+                                                disabled={latestSyncedFleetFuel == null}
+                                                onClick={() => {
+                                                    if (latestSyncedFleetFuel == null) return;
+                                                    setAdjustmentForm((prev) => ({
+                                                        ...prev,
+                                                        referenceFuelPrice: String(latestSyncedFleetFuel.price),
+                                                    }));
+                                                }}
+                                            >
+                                                {t("accounting.rateCard.fuelAdjustments.form.applyLatestSyncedPrice")}
+                                            </Button>
                                         </div>
-                                    )}
-                                </div>
-                                <div className="space-y-1.5">
-                                    <div className="flex flex-wrap items-end justify-between gap-2">
-                                        <Label className="mb-0">
-                                            {t("accounting.rateCard.fuelAdjustments.form.referenceFuelPrice")}
-                                        </Label>
-                                        <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="sm"
-                                            className="h-auto shrink-0 px-2 py-1 text-xs text-muted-foreground"
-                                            disabled={latestSyncedFleetFuel == null}
-                                            onClick={() => {
-                                                if (latestSyncedFleetFuel == null) return;
+                                        <Input
+                                            type="number"
+                                            step="0.01"
+                                            value={adjustmentForm.referenceFuelPrice}
+                                            onChange={(e) =>
                                                 setAdjustmentForm((prev) => ({
                                                     ...prev,
-                                                    referenceFuelPrice: String(latestSyncedFleetFuel.price),
-                                                }));
-                                            }}
-                                        >
-                                            {t("accounting.rateCard.fuelAdjustments.form.applyLatestSyncedPrice")}
-                                        </Button>
-                                    </div>
-                                    <Input
-                                        type="number"
-                                        step="0.01"
-                                        value={adjustmentForm.referenceFuelPrice}
-                                        onChange={(e) =>
-                                            setAdjustmentForm((prev) => ({
-                                                ...prev,
-                                                referenceFuelPrice: e.target.value,
-                                            }))
-                                        }
-                                    />
-                                    {latestSyncedFleetFuel != null && (
-                                        <p className="text-xs text-muted-foreground leading-snug">
-                                            {t("accounting.rateCard.fuelAdjustments.form.referenceLatestHint", {
-                                                monthKey: latestSyncedFleetFuel.monthKey,
-                                                price: latestSyncedFleetFuel.price.toLocaleString(),
-                                            })}
-                                        </p>
-                                    )}
-                                </div>
-                                <div className="space-y-1.5 sm:col-span-2">
-                                    <Label>{t("accounting.rateCard.fuelAdjustments.form.note")}</Label>
-                                    <Input
-                                        value={adjustmentForm.announcementNote}
-                                        onChange={(e) =>
-                                            setAdjustmentForm((prev) => ({
-                                                ...prev,
-                                                announcementNote: e.target.value,
-                                            }))
-                                        }
-                                        placeholder={t(
-                                            "accounting.rateCard.fuelAdjustments.form.notePlaceholder"
+                                                    referenceFuelPrice: e.target.value,
+                                                }))
+                                            }
+                                        />
+                                        {latestSyncedFleetFuel != null && (
+                                            <p className="text-xs text-muted-foreground leading-snug">
+                                                {t("accounting.rateCard.fuelAdjustments.form.referenceLatestHint", {
+                                                    monthKey: latestSyncedFleetFuel.monthKey,
+                                                    price: latestSyncedFleetFuel.price.toLocaleString(),
+                                                })}
+                                            </p>
                                         )}
-                                    />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label>{t("accounting.rateCard.fuelAdjustments.form.note")}</Label>
+                                        <Input
+                                            value={adjustmentForm.announcementNote}
+                                            onChange={(e) =>
+                                                setAdjustmentForm((prev) => ({
+                                                    ...prev,
+                                                    announcementNote: e.target.value,
+                                                }))
+                                            }
+                                            placeholder={t("accounting.rateCard.fuelAdjustments.form.notePlaceholder")}
+                                        />
+                                    </div>
                                 </div>
+
                                 {adjustmentError && (
-                                    <p className="sm:col-span-2 text-sm text-destructive">{adjustmentError}</p>
+                                    <p className="text-sm text-destructive">{adjustmentError}</p>
                                 )}
                             </div>
                             <DialogFooter>
