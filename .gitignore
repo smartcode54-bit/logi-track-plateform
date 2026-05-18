@@ -30,3 +30,7 @@ file example/
 
 # MCP server config (contains API keys)
 .mcp.json
+
+# Claude Code worktrees (local only, not for version control)
+.claude/worktrees/
+logitrack-mobile/.claude/worktrees/
