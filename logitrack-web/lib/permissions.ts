@@ -69,7 +69,7 @@ export function canAccessRoute(claims: CustomClaims, pathname: string): boolean 
     }
   }
 
-  if (!capability) return false;
+  if (!capability) return true;
   return can(claims, capability);
 }
 
