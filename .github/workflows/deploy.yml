@@ -1,0 +1,165 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'logitrack-web/**'
+      - 'shared-docs/**'
+      - 'pnpm-lock.yaml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - prod
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ─────────────────────────────────────────────
+  # Build shared between dev and prod
+  # ─────────────────────────────────────────────
+  build-dev:
+    name: Build (Dev)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.environment == 'dev')
+    defaults:
+      run:
+        working-directory: logitrack-web
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: .
+
+      - name: Write dev env
+        run: echo "${{ secrets.ENV_DEV_WEB }}" > .env.production
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-dev
+          path: logitrack-web/out
+          retention-days: 1
+
+  deploy-dev:
+    name: Deploy → DEV
+    needs: build-dev
+    runs-on: ubuntu-latest
+    environment:
+      name: development
+      url: https://logi-track-wrt-dev.web.app
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-dev
+          path: logitrack-web/out
+
+      - name: Deploy to Firebase DEV
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DEV }}
+          projectId: logi-track-wrt-dev
+          target: logitrack-web
+          entryPoint: logitrack-web
+
+  # ─────────────────────────────────────────────
+  # Production — manual trigger only
+  # ─────────────────────────────────────────────
+  build-prod:
+    name: Build (Prod)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.environment == 'prod'
+    defaults:
+      run:
+        working-directory: logitrack-web
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: .
+
+      - name: Write prod env
+        run: echo "${{ secrets.ENV_PROD_WEB }}" > .env.production
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-prod
+          path: logitrack-web/out
+          retention-days: 1
+
+  deploy-prod:
+    name: Deploy → PROD
+    needs: build-prod
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://logitrack-prod.web.app
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-prod
+          path: logitrack-web/out
+
+      - name: Deploy to Firebase PROD
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}
+          projectId: logitrack-prod
+          target: logitrack-web
+          entryPoint: logitrack-web
+          firebaseToolsVersion: latest
