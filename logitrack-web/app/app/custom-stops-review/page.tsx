@@ -58,7 +58,8 @@ interface Driver {
 
 function toDate(val: unknown): Date | null {
     if (!val) return null
-    if (typeof val.toDate === "function") return val.toDate()
+    if (typeof val === "object" && "toDate" in val && typeof (val as { toDate: unknown }).toDate === "function")
+        return (val as { toDate: () => Date }).toDate()
     if (val instanceof Date) return val
     if (typeof val === "number" || typeof val === "string") return new Date(val)
     return null
@@ -132,7 +133,7 @@ export default function CustomStopsReviewPage() {
                             driverId,
                             destination: String(prog.destination ?? "-"),
                             stopIndex: prog.index as number,
-                            status: String(prog.status ?? "pending"),
+                            status: (prog.status ?? "pending") as "pending" | "delivered" | "failed",
                             addedAt: addedAtByIndex[prog.index as number] ?? null,
                             deliveredAt: toDate(prog.deliveredAt),
                         })
