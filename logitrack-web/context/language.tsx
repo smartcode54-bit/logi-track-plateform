@@ -31,7 +31,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     };
 
     const t = (key: string, fallbackOrParams?: string | TParams): string => {
-        // @ts-ignore
+        // @ts-expect-error — dynamic key access on translations object
         const value: string = translations[language][key];
         const str = value !== undefined && value !== "" ? value : (typeof fallbackOrParams === "string" ? fallbackOrParams : key);
         if (typeof fallbackOrParams === "object" && fallbackOrParams !== null) {

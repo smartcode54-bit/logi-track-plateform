@@ -86,7 +86,7 @@ export default function LocationPicker({ value, onChange }: LocationPickerProps)
         return () => {
             const container = L.DomUtil.get(mapId);
             if (container) {
-                // @ts-ignore
+                // @ts-expect-error — leaflet internal property not in type definitions
                 container._leaflet_id = null;
             }
         };

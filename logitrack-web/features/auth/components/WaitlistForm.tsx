@@ -52,9 +52,9 @@ export default function WaitlistForm() {
           <div className="mx-auto w-12 h-12 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center mb-4">
             <Mail className="w-6 h-6 text-green-600 dark:text-green-300" />
           </div>
-          <CardTitle className="text-2xl">You're on the list!</CardTitle>
+          <CardTitle className="text-2xl">You&apos;re on the list!</CardTitle>
           <CardDescription>
-            Thank you for your interest. We'll verify your information and contact you at <strong>{email}</strong> when your account is ready.
+            Thank you for your interest. We&apos;ll verify your information and contact you at <strong>{email}</strong> when your account is ready.
           </CardDescription>
         </CardHeader>
         <CardContent>

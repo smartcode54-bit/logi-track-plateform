@@ -103,7 +103,7 @@ export function MaintenanceHistoryList({ history, onNewClick, onEditClick }: Mai
                                     <p className="text-sm text-muted-foreground">
                                         {record.startDate} {record.endDate ? ` - ${record.endDate}` : ''} • {record.provider}
                                     </p>
-                                    {record.notes && <p className="text-sm italic text-muted-foreground mt-1">"{record.notes}"</p>}
+                                    {record.notes && <p className="text-sm italic text-muted-foreground mt-1">&quot;{record.notes}&quot;</p>}
                                     {hasAttachments ? (
                                         <div
                                             className="mt-3 flex flex-wrap items-center gap-2"
