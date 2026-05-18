@@ -90,7 +90,7 @@ jobs:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DEV }}
           projectId: logi-track-wrt-dev
-          target: logitrack-web
+          channelId: live
           entryPoint: logitrack-web
 
   # ─────────────────────────────────────────────
@@ -160,6 +160,5 @@ jobs:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}
           projectId: logitrack-prod
-          target: logitrack-web
+          channelId: live
           entryPoint: logitrack-web
-          firebaseToolsVersion: latest
