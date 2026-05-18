@@ -56,7 +56,7 @@ interface Driver {
     lastName?: string
 }
 
-function toDate(val: any): Date | null {
+function toDate(val: unknown): Date | null {
     if (!val) return null
     if (typeof val.toDate === "function") return val.toDate()
     if (val instanceof Date) return val
@@ -98,7 +98,7 @@ export default function CustomStopsReviewPage() {
 
                 const taskId: string | null = tripData.taskId ?? null
                 const driverId: string | null = tripData.driverId ?? null
-                const progress: any[] = tripData.deliveryStopsProgress ?? []
+                const progress: unknown[] = tripData.deliveryStopsProgress ?? []
 
                 const fetchTask = async () => {
                     const customStopIndices = new Set<number>()
@@ -108,12 +108,13 @@ export default function CustomStopsReviewPage() {
                         try {
                             const taskDoc = await getDoc(firestoreDoc(db, COLLECTIONS.TASKS, taskId))
                             if (taskDoc.exists()) {
-                                const taskData = taskDoc.data() as Record<string, any>
-                                const stops: any[] = taskData.deliveryStops ?? []
-                                stops.forEach((s: any) => {
-                                    if (s.isCustom) {
-                                        customStopIndices.add(s.index)
-                                        addedAtByIndex[s.index] = toDate(s.addedAt)
+                                const taskData = taskDoc.data() as Record<string, unknown>
+                                const stops: unknown[] = (taskData.deliveryStops as unknown[] | undefined) ?? []
+                                stops.forEach((s: unknown) => {
+                                    const stop = s as Record<string, unknown>
+                                    if (stop.isCustom) {
+                                        customStopIndices.add(stop.index as number)
+                                        addedAtByIndex[stop.index as number] = toDate(stop.addedAt)
                                     }
                                 })
                             }
@@ -122,17 +123,18 @@ export default function CustomStopsReviewPage() {
                         }
                     }
 
-                    progress.forEach((p: any) => {
-                        if (!customStopIndices.has(p.index)) return
+                    progress.forEach((p: unknown) => {
+                        const prog = p as Record<string, unknown>
+                        if (!customStopIndices.has(prog.index as number)) return
                         allRows.push({
                             tripRecordId: doc.id,
                             taskId,
                             driverId,
-                            destination: p.destination ?? "-",
-                            stopIndex: p.index,
-                            status: p.status ?? "pending",
-                            addedAt: addedAtByIndex[p.index] ?? null,
-                            deliveredAt: toDate(p.deliveredAt),
+                            destination: String(prog.destination ?? "-"),
+                            stopIndex: prog.index as number,
+                            status: String(prog.status ?? "pending"),
+                            addedAt: addedAtByIndex[prog.index as number] ?? null,
+                            deliveredAt: toDate(prog.deliveredAt),
                         })
                     })
                 }

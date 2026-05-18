@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
-import { collection, getDocs, limit, query } from "firebase/firestore";
+import { collection, getDocs, limit, query, Timestamp } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { useLanguage } from "@/context/language";
@@ -16,7 +16,7 @@ interface VehiclePoint {
   lng: number;
   speed: number;
   engineOn: boolean;
-  updatedAt: any;
+  updatedAt: Timestamp | Date | null;
   hasIncident?: boolean;
   odometerKm?: number | null;
   fuelLevel?: number | null;

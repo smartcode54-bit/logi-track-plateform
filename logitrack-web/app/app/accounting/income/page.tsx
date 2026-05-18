@@ -262,13 +262,16 @@ export default function AccountingIncomePage() {
                 const d = docSnap.data();
                 if (typeof d.billingEstimateThb === "number") {
                     const breakdown = Array.isArray(d.billingMultiDeliveryBreakdown)
-                        ? (d.billingMultiDeliveryBreakdown as Array<unknown>).map((item: any) => ({
-                              stopIndex: Number(item.stopIndex ?? 0),
-                              destination: String(item.destination ?? ""),
-                              baseRateThb: Number(item.baseRateThb ?? 0),
-                              dropFeeThb: Number(item.dropFeeThb ?? 0),
-                              finalRateThb: Number(item.finalRateThb ?? 0),
-                          }))
+                        ? (d.billingMultiDeliveryBreakdown as Array<unknown>).map((item) => {
+                              const i = item as Record<string, unknown>;
+                              return {
+                                  stopIndex: Number(i.stopIndex ?? 0),
+                                  destination: String(i.destination ?? ""),
+                                  baseRateThb: Number(i.baseRateThb ?? 0),
+                                  dropFeeThb: Number(i.dropFeeThb ?? 0),
+                                  finalRateThb: Number(i.finalRateThb ?? 0),
+                              };
+                          })
                         : undefined;
                     withBilling.push({
                         id: docSnap.id,

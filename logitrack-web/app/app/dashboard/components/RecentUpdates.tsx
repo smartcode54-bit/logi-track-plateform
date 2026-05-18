@@ -22,7 +22,7 @@ interface FeedItem {
   link?: string;
 }
 
-function formatTimeAgo(d: Date, t: any): string {
+function formatTimeAgo(d: Date, t: (key: string, params?: Record<string, string | number>) => string): string {
   const now = new Date();
   const sec = Math.floor((now.getTime() - d.getTime()) / 1000);
   if (sec < 60) return t("dashboard.updates.time.justNow");
