@@ -16,6 +16,8 @@ const eslintConfig = defineConfig([
     "fix-imports.js",
     "refactor-paths.js",
     "scripts/**",
+    // Firebase Functions compiled output (not source)
+    "functions/lib/**",
   ]),
   {
     rules: {
