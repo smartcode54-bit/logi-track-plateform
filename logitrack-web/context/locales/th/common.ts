@@ -38,6 +38,7 @@ export default {
     "nav.auditExpense": "ตรวจสอบค่าใช้จ่าย",
     "nav.rateCard": "เรทการวางบิล",
     "nav.income": "การวางบิล",
+    "nav.billingDocument": "เอกสารวางบิล",
     "nav.operations": "ปฏิบัติการ",
     "nav.firstMileTasks": "งาน First Mile",
     "nav.sourceManagement": "จัดการจุดรับงาน",

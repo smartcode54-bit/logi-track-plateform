@@ -1,12 +1,10 @@
 name: Deploy
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [main]
-    paths:
-      - 'logitrack-web/**'
-      - 'shared-docs/**'
-      - 'pnpm-lock.yaml'
   workflow_dispatch:
     inputs:
       environment:
@@ -19,17 +17,22 @@ on:
           - prod
 
 concurrency:
-  group: deploy-${{ github.ref }}
+  group: deploy-${{ (github.event_name == 'workflow_run' && 'dev') || inputs.environment }}
   cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   # ─────────────────────────────────────────────
-  # Build shared between dev and prod
+  # DEV — auto after CI passes on main
   # ─────────────────────────────────────────────
   build-dev:
     name: Build (Dev)
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.environment == 'dev')
+    if: |
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'workflow_dispatch' && inputs.environment == 'dev')
     defaults:
       run:
         working-directory: logitrack-web
@@ -78,20 +81,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
           name: build-dev
           path: logitrack-web/out
 
-      - name: Deploy to Firebase DEV
-        uses: FirebaseExtended/action-hosting-deploy@v0
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
         with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DEV }}
-          projectId: logi-track-wrt-dev
-          channelId: live
-          entryPoint: logitrack-web
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DEV }}
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      - name: Deploy hosting + functions + Firestore rules (DEV)
+        working-directory: logitrack-web
+        run: firebase deploy --only hosting,functions,firestore --project logi-track-wrt-dev
 
   # ─────────────────────────────────────────────
   # Production — manual trigger only
@@ -148,17 +159,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
           name: build-prod
           path: logitrack-web/out
 
-      - name: Deploy to Firebase PROD
-        uses: FirebaseExtended/action-hosting-deploy@v0
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
         with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}
-          projectId: logitrack-prod
-          channelId: live
-          entryPoint: logitrack-web
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      - name: Deploy hosting + functions + Firestore rules (PROD)
+        working-directory: logitrack-web
+        run: firebase deploy --only hosting,functions,firestore --project logitrack-prod --config firebase.prod.json

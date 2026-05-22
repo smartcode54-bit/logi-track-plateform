@@ -54,6 +54,7 @@ export const CAPABILITIES = {
   accounting_view_rate_card: "accounting:view_rate_card",
   accounting_edit_rate_card: "accounting:edit_rate_card",
   accounting_view_income: "accounting:view_income",
+  accounting_billing_document: "accounting:billing_document",
 
   // Reporting
   reporting_view_analytics: "reporting:view_analytics",
@@ -262,6 +263,11 @@ export const CAPABILITY_META: Record<
     description: "View estimated income from delivered trips",
     module: "Accounting",
   },
+  [CAPABILITIES.accounting_billing_document]: {
+    title: "Billing Documents",
+    description: "Generate and download invoice / receipt / Excel billing packages",
+    module: "Accounting",
+  },
   [CAPABILITIES.reporting_view_analytics]: {
     title: "View Analytics",
     description: "Analytics",
@@ -343,6 +349,7 @@ export const ROUTE_CAPABILITIES: Record<string, CapabilityId> = {
   "/app/accounting/audit": CAPABILITIES.accounting_audit_expense,
   "/app/accounting/rate-card": CAPABILITIES.accounting_view_rate_card,
   "/app/accounting/income": CAPABILITIES.accounting_view_income,
+  "/app/accounting/billing-document": CAPABILITIES.accounting_billing_document,
   "/app/analytics": CAPABILITIES.reporting_view_analytics,
   "/app/payroll": CAPABILITIES.hr_view_payroll,
   "/app/leave-requests": CAPABILITIES.hr_view_leave,

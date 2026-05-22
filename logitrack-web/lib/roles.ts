@@ -71,6 +71,7 @@ export const DEFAULT_ROLE_CAPABILITIES: Record<
     CAPABILITIES.accounting_view_rate_card,
     CAPABILITIES.accounting_edit_rate_card,
     CAPABILITIES.accounting_view_income,
+    CAPABILITIES.accounting_billing_document,
     CAPABILITIES.reporting_view_analytics,
     CAPABILITIES.packages_view,
     CAPABILITIES.waitlist_view,

@@ -38,6 +38,7 @@ export default {
     "nav.auditExpense": "Audit expense",
     "nav.rateCard": "Rate Card",
     "nav.income": "Billing",
+    "nav.billingDocument": "Billing Documents",
     "nav.operations": "Operations",
     "nav.firstMileTasks": "First Mile Tasks",
     "nav.sourceManagement": "Pickup Location Management",

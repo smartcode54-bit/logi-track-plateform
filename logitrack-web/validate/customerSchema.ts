@@ -18,6 +18,12 @@ export const customerSchema = z.object({
         label: z.string().min(1),
     })).default([]),
 
+    // Billing / Invoice fields (added for invoice generation)
+    address: z.string().optional(),
+    taxId: z.string().optional(),
+    branchType: z.enum(["สำนักงานใหญ่", "สาขา"]).optional(),
+    branchNumber: z.string().optional(),
+
     createdAt: z.coerce.date().optional(),
     updatedAt: z.coerce.date().optional(),
 });
