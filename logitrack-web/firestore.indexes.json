@@ -169,6 +169,38 @@
       ]
     },
     {
+      "collectionGroup": "trip_records",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "deliveredTimestamp",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "trip_records",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "billingCustomerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "deliveredTimestamp",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
       "collectionGroup": "vehicle_expenses",
       "queryScope": "COLLECTION",
       "fields": [
