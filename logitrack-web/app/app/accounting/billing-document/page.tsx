@@ -18,6 +18,7 @@ import { getCustomers } from "@/features/customers/api/customers";
 import type { Customer } from "@/validate/customerSchema";
 import { primaryHubLabelFromFirestoreData } from "@/lib/hubDisplay";
 import { normalizeDestinationCode } from "@/lib/billingRates";
+import { getCustomerServiceFees } from "@/app/app/accounting/actions.client";
 import {
     downloadBillingZip,
     type BillingTripRow,
@@ -108,66 +109,101 @@ export default function BillingDocumentPage() {
             const start = new Date(selectedYear, selectedMonth - 1, 1);
             const end = new Date(selectedYear, selectedMonth, 1);
 
-            const constraints = [
+            // ── Load trip_records ──────────────────────────────────────────────
+            const tripConstraints = [
                 where("status", "==", "delivered"),
                 where("deliveredTimestamp", ">=", Timestamp.fromDate(start)),
                 where("deliveredTimestamp", "<", Timestamp.fromDate(end)),
             ];
             if (selectedCustomerId !== "all") {
-                constraints.push(where("billingCustomerId", "==", selectedCustomerId));
+                tripConstraints.push(where("billingCustomerId", "==", selectedCustomerId));
             }
+            const tripSnap = await getDocs(query(collection(db, COLLECTIONS.TRIP_RECORDS), ...tripConstraints));
 
-            const snap = await getDocs(query(collection(db, COLLECTIONS.TRIP_RECORDS), ...constraints));
+            // ── Load standby_records ───────────────────────────────────────────
+            const standbyConstraints = [
+                where("status", "==", "completed"),
+                where("startedAt", ">=", Timestamp.fromDate(start)),
+                where("startedAt", "<", Timestamp.fromDate(end)),
+            ];
+            const standbySnap = await getDocs(query(collection(db, COLLECTIONS.STANDBY_RECORDS), ...standbyConstraints));
 
-            // Collect taskIds for batch lookup
+            // ── Collect taskIds for batch lookup ──────────────────────────────
             const taskIds = new Set<string>();
-            snap.forEach((d) => { const tid = d.data().taskId; if (tid) taskIds.add(tid); });
+            tripSnap.forEach((d) => { const tid = d.data().taskId; if (tid) taskIds.add(tid); });
+            standbySnap.forEach((d) => { const tid = d.data().taskId; if (tid) taskIds.add(tid); });
 
-            // Fetch tasks (batch of up to 30 per getDocs)
-            const taskMap = new Map<string, { truckType?: string; driverName?: string; driverPhone?: string; truckLicensePlate?: string }>();
-            const taskIdArr = Array.from(taskIds).slice(0, 100);
-            await Promise.allSettled(taskIdArr.map(async (tid) => {
+            // ── Fetch tasks (driverName/licensePlate/customer denormalized) ────
+            type TaskInfo = { truckType?: string; driverName?: string; driverPhone?: string; truckLicensePlate?: string; billingCustomerId?: string };
+            const taskMap = new Map<string, TaskInfo>();
+            await Promise.allSettled(Array.from(taskIds).slice(0, 200).map(async (tid) => {
                 const taskSnap = await getDoc(doc(db, COLLECTIONS.TASKS, tid));
                 if (!taskSnap.exists()) return;
                 const t = taskSnap.data();
-                const info: { truckType?: string; driverName?: string; driverPhone?: string; truckLicensePlate?: string } = {
+                taskMap.set(tid, {
                     truckType: t.truckType,
-                };
-                // Load driver info
-                if (t.assignedDriverId) {
-                    const driverSnap = await getDoc(doc(db, COLLECTIONS.DRIVERS, t.assignedDriverId)).catch(() => null);
-                    if (driverSnap?.exists()) {
-                        const d = driverSnap.data();
-                        info.driverName = d.name ?? d.fullName;
-                        info.driverPhone = d.phone ?? d.phoneNumber;
-                    }
-                }
-                // Load truck license plate
-                if (t.assignedTruckId) {
-                    const truckSnap = await getDoc(doc(db, COLLECTIONS.TRUCKS, t.assignedTruckId)).catch(() => null);
-                    if (truckSnap?.exists()) {
-                        info.truckLicensePlate = truckSnap.data().licensePlate;
-                    }
-                }
-                taskMap.set(tid, info);
+                    driverName: t.driverName,
+                    driverPhone: t.driverPhone,
+                    truckLicensePlate: t.licensePlate,
+                    billingCustomerId: t.sourceHubLinkedCustomerId,
+                });
             }));
 
+            // ── Standby fee rate (per trip, per customer) ──────────────────────
+            const allServiceFees = await getCustomerServiceFees(selectedCustomerId !== "all" ? selectedCustomerId : undefined);
+            const standbyFeeMap = new Map<string, number>();
+            for (const fee of allServiceFees) {
+                if (fee.feeType === "standby" && fee.unit === "per_trip") {
+                    standbyFeeMap.set(fee.customerId, fee.amountThb);
+                }
+            }
+
             const rows: BillingTripRow[] = [];
-            snap.forEach((d) => {
+
+            // ── Build trip rows ────────────────────────────────────────────────
+            tripSnap.forEach((d) => {
                 const data = d.data();
-                const billingEstimateThb = Number(data.billingEstimateThb);
-                if (!billingEstimateThb) return; // skip trips without billing
+                if (!Number(data.billingEstimateThb)) return; // skip no-billing trips
 
                 const taskInfo = data.taskId ? taskMap.get(data.taskId) : undefined;
                 const hubId = data.billingLookupHubId ?? "";
-                const dest = data.billingLookupDestination ?? "";
 
+                // Multidrop: expand breakdown into one row per billed stop
+                if (data.billingIsMultiDelivery && Array.isArray(data.billingMultiDeliveryBreakdown) && data.billingMultiDeliveryBreakdown.length > 0) {
+                    for (const stop of data.billingMultiDeliveryBreakdown as { stopIndex: number; destination: string; baseRateThb: number; finalRateThb: number }[]) {
+                        if (!stop.finalRateThb) continue;
+                        const destCode = stop.destination ?? "";
+                        rows.push({
+                            id: `${d.id}_s${stop.stopIndex}`,
+                            taskId: data.taskId,
+                            spxTripId: data.spxTripId ? `${data.spxTripId}-s${stop.stopIndex}` : undefined,
+                            deliveredTimestamp: toDate(data.deliveredTimestamp),
+                            billingEstimateThb: stop.finalRateThb,
+                            billingBaseRateThb: stop.baseRateThb || undefined,
+                            billingLookupHubId: hubId,
+                            billingLookupDestination: destCode,
+                            billingCustomerId: data.billingCustomerId,
+                            vehicleClass: taskInfo?.truckType,
+                            driverName: taskInfo?.driverName,
+                            driverPhone: taskInfo?.driverPhone,
+                            truckLicensePlate: taskInfo?.truckLicensePlate,
+                            hubDisplayName: hubNameMap.get(hubId) ?? hubId,
+                            destinationDisplayName: hubNameMap.get(normalizeDestinationCode(destCode) ?? destCode) ?? destCode,
+                            rowType: "multidrop_stop",
+                            stopIndex: stop.stopIndex,
+                        });
+                    }
+                    return;
+                }
+
+                // Single-delivery trip
+                const dest = data.billingLookupDestination ?? "";
                 rows.push({
                     id: d.id,
                     taskId: data.taskId,
                     spxTripId: data.spxTripId,
                     deliveredTimestamp: toDate(data.deliveredTimestamp),
-                    billingEstimateThb,
+                    billingEstimateThb: Number(data.billingEstimateThb),
                     billingBaseRateThb: Number(data.billingBaseRateThb) || undefined,
                     billingLookupHubId: hubId,
                     billingLookupDestination: dest,
@@ -180,6 +216,36 @@ export default function BillingDocumentPage() {
                     truckLicensePlate: taskInfo?.truckLicensePlate,
                     hubDisplayName: hubNameMap.get(hubId) ?? hubId,
                     destinationDisplayName: hubNameMap.get(normalizeDestinationCode(dest) ?? dest) ?? dest,
+                    rowType: "trip",
+                });
+            });
+
+            // ── Build standby rows ─────────────────────────────────────────────
+            standbySnap.forEach((d) => {
+                const data = d.data();
+                const taskInfo = data.taskId ? taskMap.get(data.taskId) : undefined;
+                const recordCustomerId = taskInfo?.billingCustomerId;
+
+                // Filter by selected customer
+                if (selectedCustomerId !== "all" && recordCustomerId !== selectedCustomerId) return;
+
+                const effectiveCustomerId = recordCustomerId ?? selectedCustomerId;
+                const feeAmount = typeof effectiveCustomerId === "string" ? standbyFeeMap.get(effectiveCustomerId) : undefined;
+                if (!feeAmount) return; // no standby rate configured → skip
+
+                rows.push({
+                    id: d.id,
+                    taskId: data.taskId ?? undefined,
+                    deliveredTimestamp: toDate(data.endedAt) ?? toDate(data.startedAt) ?? undefined,
+                    billingEstimateThb: feeAmount,
+                    billingCustomerId: effectiveCustomerId !== "all" ? effectiveCustomerId : undefined,
+                    vehicleClass: taskInfo?.truckType,
+                    driverName: taskInfo?.driverName,
+                    driverPhone: taskInfo?.driverPhone,
+                    truckLicensePlate: taskInfo?.truckLicensePlate,
+                    hubDisplayName: data.startLocation ?? "-",
+                    destinationDisplayName: data.endLocation ?? "-",
+                    rowType: "standby",
                 });
             });
 
@@ -357,9 +423,14 @@ export default function BillingDocumentPage() {
                                 </TableHeader>
                                 <TableBody>
                                     {filteredTrips.map((trip) => (
-                                        <TableRow key={trip.id}>
+                                        <TableRow key={trip.id} className={trip.rowType === "standby" ? "bg-amber-950/20" : trip.rowType === "multidrop_stop" ? "bg-blue-950/10" : undefined}>
                                             <TableCell className="font-mono text-xs">
-                                                {trip.spxTripId ?? trip.id.slice(0, 8)}
+                                                {trip.rowType === "standby"
+                                                    ? <Badge variant="outline" className="text-amber-400 border-amber-600">จอดรอ</Badge>
+                                                    : trip.rowType === "multidrop_stop"
+                                                        ? <><span className="text-muted-foreground">stop {trip.stopIndex}</span></>
+                                                        : (trip.spxTripId ?? trip.id.slice(0, 8))
+                                                }
                                             </TableCell>
                                             <TableCell className="text-xs">
                                                 {trip.deliveredTimestamp ? format(trip.deliveredTimestamp, "dd/MM/yyyy HH:mm") : "-"}
@@ -368,7 +439,10 @@ export default function BillingDocumentPage() {
                                                 {[trip.hubDisplayName ?? trip.billingLookupHubId, trip.destinationDisplayName ?? trip.billingLookupDestination].filter(Boolean).join(" → ")}
                                             </TableCell>
                                             <TableCell>
-                                                {trip.vehicleClass ? <Badge variant="outline">{trip.vehicleClass}</Badge> : "-"}
+                                                {trip.rowType === "standby"
+                                                    ? <Badge variant="outline" className="text-amber-400 border-amber-600 text-xs">Standby</Badge>
+                                                    : trip.vehicleClass ? <Badge variant="outline">{trip.vehicleClass}</Badge> : "-"
+                                                }
                                             </TableCell>
                                             <TableCell className="text-xs">{trip.driverName ?? "-"}</TableCell>
                                             <TableCell className="text-right font-mono">

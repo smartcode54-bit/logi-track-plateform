@@ -340,6 +340,7 @@ export default {
     "accounting.serviceFees.type.waiting_time": "ค่ารอ",
     "accounting.serviceFees.type.special_handling": "ค่าจัดการพิเศษ",
     "accounting.serviceFees.type.service_charge": "ค่าบริการทั่วไป",
+    "accounting.serviceFees.type.standby": "ค่าจอดรอ (Standby)",
     "accounting.serviceFees.type.custom": "กำหนดเอง",
     "accounting.serviceFees.unit.per_trip": "ต่อเที่ยว",
     "accounting.serviceFees.unit.per_stop": "ต่อจุด",

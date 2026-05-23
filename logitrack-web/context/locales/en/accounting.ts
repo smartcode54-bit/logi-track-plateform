@@ -340,6 +340,7 @@ export default {
     "accounting.serviceFees.type.waiting_time": "Waiting Time",
     "accounting.serviceFees.type.special_handling": "Special Handling",
     "accounting.serviceFees.type.service_charge": "Service Charge",
+    "accounting.serviceFees.type.standby": "Standby",
     "accounting.serviceFees.type.custom": "Custom…",
     "accounting.serviceFees.unit.per_trip": "Per Trip",
     "accounting.serviceFees.unit.per_stop": "Per Stop",

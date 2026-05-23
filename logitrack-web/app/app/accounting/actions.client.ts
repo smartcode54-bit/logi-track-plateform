@@ -751,7 +751,7 @@ export async function updateTaskBillingFields(
     });
 }
 
-export type ServiceFeeType = "extra_stop" | "waiting_time" | "special_handling" | "service_charge" | "custom";
+export type ServiceFeeType = "extra_stop" | "waiting_time" | "special_handling" | "service_charge" | "standby" | "custom";
 export type ServiceFeeUnit = "per_trip" | "per_stop";
 
 export interface CustomerServiceFeeInput {

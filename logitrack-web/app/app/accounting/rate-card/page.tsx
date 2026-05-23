@@ -2116,6 +2116,7 @@ export default function AccountingRateCardPage() {
                                                 <SelectItem value="waiting_time">{t("accounting.serviceFees.type.waiting_time")}</SelectItem>
                                                 <SelectItem value="special_handling">{t("accounting.serviceFees.type.special_handling")}</SelectItem>
                                                 <SelectItem value="service_charge">{t("accounting.serviceFees.type.service_charge")}</SelectItem>
+                                                <SelectItem value="standby">{t("accounting.serviceFees.type.standby")}</SelectItem>
                                                 <SelectItem value="custom">{t("accounting.serviceFees.type.custom")}</SelectItem>
                                             </SelectContent>
                                         </Select>

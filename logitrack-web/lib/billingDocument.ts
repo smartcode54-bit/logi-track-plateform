@@ -34,6 +34,9 @@ export interface BillingTripRow {
   truckLicensePlate?: string;
   hubDisplayName?: string;
   destinationDisplayName?: string;
+  /** Row type for grouping/display: "trip" = normal, "multidrop_stop" = expanded stop, "standby" = จอดรอ */
+  rowType?: "trip" | "multidrop_stop" | "standby";
+  stopIndex?: number;
 }
 
 export interface BillingCustomer {
@@ -74,7 +77,7 @@ function invoiceNumber(period: BillingPeriod): string {
   return `INV-${period.year}${mm}-${seq}`;
 }
 
-/** Group trips by vehicleClass + route for the invoice body table */
+/** Group trips by vehicleClass + route for the invoice body table. Standby rows group separately. */
 function groupToLineItems(trips: BillingTripRow[]): {
   vehicleClass: string;
   route: string;
@@ -84,10 +87,13 @@ function groupToLineItems(trips: BillingTripRow[]): {
 }[] {
   const map = new Map<string, { vehicleClass: string; route: string; count: number; unitPrice: number; total: number }>();
   for (const t of trips) {
-    const vc = t.vehicleClass ?? "-";
-    const route = [t.hubDisplayName ?? t.billingLookupHubId ?? "-", t.destinationDisplayName ?? t.billingLookupDestination ?? "-"].join(" → ");
+    const isStandby = t.rowType === "standby";
+    const vc = isStandby ? "-" : (t.vehicleClass ?? "-");
+    const route = isStandby
+      ? `จอดรอ (Standby): ${t.hubDisplayName ?? "-"}`
+      : [t.hubDisplayName ?? t.billingLookupHubId ?? "-", t.destinationDisplayName ?? t.billingLookupDestination ?? "-"].join(" → ");
     const unitPrice = t.billingBaseRateThb ?? t.billingEstimateThb;
-    const key = `${vc}::${route}::${unitPrice}`;
+    const key = isStandby ? `standby::${t.billingEstimateThb}` : `${vc}::${route}::${unitPrice}`;
     const existing = map.get(key);
     if (existing) {
       existing.count += 1;
@@ -262,19 +268,27 @@ export function generateDetailExcelBuffer(
   period: BillingPeriod,
 ): Uint8Array {
   const mm = String(period.month).padStart(2, "0");
-  const rows = trips.map((t, i) => ({
-    "No.": i + 1,
-    "วันที่": t.deliveredTimestamp ? format(t.deliveredTimestamp, "dd/MM/yyyy") : "",
-    "เลขใบงาน": t.spxTripId ?? t.id,
-    "เส้นทาง": [t.hubDisplayName ?? t.billingLookupHubId ?? "-", t.destinationDisplayName ?? t.billingLookupDestination ?? "-"].join(" → "),
-    "ประเภทรถ": t.vehicleClass ?? "-",
-    "ทะเบียน": t.truckLicensePlate ?? "-",
-    "ชื่อคนขับ": t.driverName ?? "-",
-    "เบอร์โทร": t.driverPhone ?? "-",
-    "จำนวนรถ": 1,
-    "ราคาขนส่ง/เที่ยว": t.billingEstimateThb,
-    "หมายเหตุ": "",
-  }));
+  const rows = trips.map((t, i) => {
+    const isStandby = t.rowType === "standby";
+    const isStop = t.rowType === "multidrop_stop";
+    const route = isStandby
+      ? `จอดรอ (Standby): ${t.hubDisplayName ?? "-"}`
+      : [t.hubDisplayName ?? t.billingLookupHubId ?? "-", t.destinationDisplayName ?? t.billingLookupDestination ?? "-"].join(" → ");
+    const note = isStandby ? "จอดรอ" : isStop ? `Multidrop stop ${t.stopIndex ?? ""}` : "";
+    return {
+      "No.": i + 1,
+      "วันที่": t.deliveredTimestamp ? format(t.deliveredTimestamp, "dd/MM/yyyy") : "",
+      "เลขใบงาน": t.spxTripId ?? t.id,
+      "เส้นทาง": route,
+      "ประเภทรถ": isStandby ? "-" : (t.vehicleClass ?? "-"),
+      "ทะเบียน": t.truckLicensePlate ?? "-",
+      "ชื่อคนขับ": t.driverName ?? "-",
+      "เบอร์โทร": t.driverPhone ?? "-",
+      "จำนวนรถ": isStandby ? 0 : 1,
+      "ราคาขนส่ง/เที่ยว": t.billingEstimateThb,
+      "หมายเหตุ": note,
+    };
+  });
 
   const grandTotal = trips.reduce((s, t) => s + t.billingEstimateThb, 0);
   const withholdingTax = Math.round(grandTotal * WITHHOLDING_TAX_RATE * 100) / 100;
