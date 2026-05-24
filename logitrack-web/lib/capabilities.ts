@@ -55,6 +55,7 @@ export const CAPABILITIES = {
   accounting_edit_rate_card: "accounting:edit_rate_card",
   accounting_view_income: "accounting:view_income",
   accounting_billing_document: "accounting:billing_document",
+  accounting_billing_result: "accounting:billing_result",
 
   // Reporting
   reporting_view_analytics: "reporting:view_analytics",
@@ -268,6 +269,11 @@ export const CAPABILITY_META: Record<
     description: "Generate and download invoice / receipt / Excel billing packages",
     module: "Accounting",
   },
+  [CAPABILITIES.accounting_billing_result]: {
+    title: "Billing Statements",
+    description: "View invoice registry, track payment status (draft/sent/paid), and manage aging",
+    module: "Accounting",
+  },
   [CAPABILITIES.reporting_view_analytics]: {
     title: "View Analytics",
     description: "Analytics",
@@ -350,6 +356,7 @@ export const ROUTE_CAPABILITIES: Record<string, CapabilityId> = {
   "/app/accounting/rate-card": CAPABILITIES.accounting_view_rate_card,
   "/app/accounting/income": CAPABILITIES.accounting_view_income,
   "/app/accounting/billing-document": CAPABILITIES.accounting_billing_document,
+  "/app/accounting/billing-result": CAPABILITIES.accounting_billing_result,
   "/app/analytics": CAPABILITIES.reporting_view_analytics,
   "/app/payroll": CAPABILITIES.hr_view_payroll,
   "/app/leave-requests": CAPABILITIES.hr_view_leave,

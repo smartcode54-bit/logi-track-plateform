@@ -131,6 +131,7 @@ export function AppSidebar() {
                 { title: t("nav.rateCard"), url: "/app/accounting/rate-card", capability: CAPABILITIES.accounting_view_rate_card },
                 { title: t("nav.income"), url: "/app/accounting/income", capability: CAPABILITIES.accounting_view_income },
                 { title: t("nav.billingDocument"), url: "/app/accounting/billing-document", capability: CAPABILITIES.accounting_billing_document },
+                { title: t("nav.billingResult"), url: "/app/accounting/billing-result", capability: CAPABILITIES.accounting_billing_result },
             ],
         },
         {

@@ -6,9 +6,19 @@ import { getCustomerById, CustomerData } from "@/features/customers/api/customer
 import { getCustomerIdFromPathname } from "@/features/customers/utils/customerRouteId";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Building2, Loader2, Edit } from "lucide-react";
+import { ArrowLeft, Building2, Loader2, Edit, Mail, Phone, User, MapPin, CreditCard, Clock, FileText } from "lucide-react";
 import Link from "next/link";
 import { useLanguage } from "@/context/language";
+
+function InfoRow({ label, value }: { label: string; value?: string | number | null }) {
+    if (!value && value !== 0) return null;
+    return (
+        <div className="flex gap-3 py-2 border-b last:border-0">
+            <span className="text-sm text-muted-foreground w-40 shrink-0">{label}</span>
+            <span className="text-sm font-medium">{String(value)}</span>
+        </div>
+    );
+}
 
 export default function CustomerDetail() {
     const params = useParams();
@@ -54,9 +64,19 @@ export default function CustomerDetail() {
         );
     }
 
+    const hasBillingInfo = !!(
+        customer.taxId || customer.address || customer.branchType ||
+        customer.contactName || customer.contactPhone || customer.billingEmail ||
+        customer.paymentTermsDays != null || customer.invoiceNote
+    );
+
+    const branchLabel = customer.branchType
+        ? `${customer.branchType}${customer.branchNumber ? ` ${customer.branchNumber}` : ""}`
+        : undefined;
+
     return (
-        <div className="container max-w-3xl py-8">
-            <div className="flex items-center justify-between gap-4 mb-6">
+        <div className="container max-w-3xl py-8 space-y-6">
+            <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-4">
                     <Button variant="ghost" size="icon" asChild>
                         <Link href="/app/customers" prefetch={false}>
@@ -84,13 +104,93 @@ export default function CustomerDetail() {
             </div>
 
             {customer.description && (
-                <Card className="mb-6">
+                <Card>
                     <CardContent className="pt-6">
                         <p className="text-muted-foreground">{customer.description}</p>
                     </CardContent>
                 </Card>
             )}
 
+            {/* ── Billing Information ── */}
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                        <CreditCard className="h-4 w-4" />
+                        {t("customers.detail.billing.title")}
+                    </CardTitle>
+                </CardHeader>
+                <CardContent>
+                    {hasBillingInfo ? (
+                        <div className="space-y-1">
+                            {customer.taxId && (
+                                <div className="flex gap-3 py-2 border-b">
+                                    <span className="text-sm text-muted-foreground w-40 shrink-0">{t("customers.detail.billing.taxId")}</span>
+                                    <span className="text-sm font-mono font-medium">{customer.taxId}</span>
+                                </div>
+                            )}
+                            {branchLabel && (
+                                <InfoRow label={t("customers.detail.billing.branchType")} value={branchLabel} />
+                            )}
+                            {customer.address && (
+                                <div className="flex gap-3 py-2 border-b">
+                                    <span className="text-sm text-muted-foreground w-40 shrink-0 flex items-center gap-1">
+                                        <MapPin className="h-3 w-3" />{t("customers.detail.billing.address")}
+                                    </span>
+                                    <span className="text-sm whitespace-pre-wrap">{customer.address}</span>
+                                </div>
+                            )}
+                            {customer.contactName && (
+                                <div className="flex gap-3 py-2 border-b">
+                                    <span className="text-sm text-muted-foreground w-40 shrink-0 flex items-center gap-1">
+                                        <User className="h-3 w-3" />{t("customers.detail.billing.contactName")}
+                                    </span>
+                                    <span className="text-sm font-medium">{customer.contactName}</span>
+                                </div>
+                            )}
+                            {customer.contactPhone && (
+                                <div className="flex gap-3 py-2 border-b">
+                                    <span className="text-sm text-muted-foreground w-40 shrink-0 flex items-center gap-1">
+                                        <Phone className="h-3 w-3" />{t("customers.detail.billing.contactPhone")}
+                                    </span>
+                                    <span className="text-sm font-medium">{customer.contactPhone}</span>
+                                </div>
+                            )}
+                            {customer.billingEmail && (
+                                <div className="flex gap-3 py-2 border-b">
+                                    <span className="text-sm text-muted-foreground w-40 shrink-0 flex items-center gap-1">
+                                        <Mail className="h-3 w-3" />{t("customers.detail.billing.billingEmail")}
+                                    </span>
+                                    <a href={`mailto:${customer.billingEmail}`} className="text-sm font-medium text-blue-500 hover:underline">
+                                        {customer.billingEmail}
+                                    </a>
+                                </div>
+                            )}
+                            {customer.paymentTermsDays != null && (
+                                <div className="flex gap-3 py-2 border-b">
+                                    <span className="text-sm text-muted-foreground w-40 shrink-0 flex items-center gap-1">
+                                        <Clock className="h-3 w-3" />{t("customers.detail.billing.paymentTermsDays")}
+                                    </span>
+                                    <span className="text-sm font-medium">
+                                        {customer.paymentTermsDays} {t("customers.detail.billing.paymentTermsDaysSuffix")}
+                                    </span>
+                                </div>
+                            )}
+                            {customer.invoiceNote && (
+                                <div className="flex gap-3 py-2">
+                                    <span className="text-sm text-muted-foreground w-40 shrink-0 flex items-center gap-1">
+                                        <FileText className="h-3 w-3" />{t("customers.detail.billing.invoiceNote")}
+                                    </span>
+                                    <span className="text-sm whitespace-pre-wrap">{customer.invoiceNote}</span>
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <p className="text-sm text-muted-foreground">{t("customers.detail.billing.noInfo")}</p>
+                    )}
+                </CardContent>
+            </Card>
+
+            {/* ── Driver ID types ── */}
             <Card>
                 <CardHeader>
                     <CardTitle>{t("customers.form.driverIdTypes")}</CardTitle>

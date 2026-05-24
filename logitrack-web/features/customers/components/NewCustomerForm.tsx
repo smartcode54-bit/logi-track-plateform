@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createCustomer } from "@/features/customers/api/customers";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
     Form,
     FormControl,
@@ -14,12 +15,19 @@ import {
     FormMessage,
     FormDescription,
 } from "@/components/ui/form";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, Plus, Trash2, Loader2, Upload, X } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 import { toast } from "sonner";
-import { useForm, useFieldArray } from "react-hook-form";
+import { useForm, useFieldArray, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { customerSchema, type Customer } from "@/validate/customerSchema";
 import { useLanguage } from "@/context/language";
@@ -53,6 +61,15 @@ export default function NewCustomerForm() {
             name: "",
             description: "",
             driverIdTypes: [],
+            address: "",
+            taxId: "",
+            branchType: undefined,
+            branchNumber: "",
+            contactName: "",
+            contactPhone: "",
+            billingEmail: "",
+            paymentTermsDays: undefined,
+            invoiceNote: "",
         },
     });
 
@@ -60,6 +77,8 @@ export default function NewCustomerForm() {
         control: form.control,
         name: "driverIdTypes",
     });
+
+    const branchType = useWatch({ control: form.control, name: "branchType" });
 
     const onSubmit = async (data: Customer) => {
         try {
@@ -91,6 +110,7 @@ export default function NewCustomerForm() {
 
             <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                    {/* ── Basic info ── */}
                     <Card>
                         <CardHeader>
                             <CardTitle>{t("customers.form.name")}</CardTitle>
@@ -158,6 +178,7 @@ export default function NewCustomerForm() {
                         </CardContent>
                     </Card>
 
+                    {/* ── Driver ID types ── */}
                     <Card>
                         <CardHeader>
                             <CardTitle>{t("customers.form.driverIdTypes")}</CardTitle>
@@ -212,6 +233,185 @@ export default function NewCustomerForm() {
                                 <Plus className="h-4 w-4 mr-2" />
                                 {t("customers.form.addIdType")}
                             </Button>
+                        </CardContent>
+                    </Card>
+
+                    {/* ── Billing Information ── */}
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>{t("customers.form.billing.title")}</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                            {/* Tax & Legal */}
+                            <div className="space-y-3">
+                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                                    {t("customers.form.billing.taxSection")}
+                                </p>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <FormField
+                                        control={form.control}
+                                        name="taxId"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>{t("customers.form.taxId")}</FormLabel>
+                                                <FormControl>
+                                                    <Input placeholder={t("customers.form.taxId.placeholder")} {...field} value={field.value ?? ""} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <FormField
+                                        control={form.control}
+                                        name="branchType"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>{t("customers.form.branchType")}</FormLabel>
+                                                <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                                                    <FormControl>
+                                                        <SelectTrigger>
+                                                            <SelectValue placeholder="—" />
+                                                        </SelectTrigger>
+                                                    </FormControl>
+                                                    <SelectContent>
+                                                        <SelectItem value="สำนักงานใหญ่">{t("customers.form.branchType.hq")}</SelectItem>
+                                                        <SelectItem value="สาขา">{t("customers.form.branchType.branch")}</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                </div>
+                                {branchType === "สาขา" && (
+                                    <FormField
+                                        control={form.control}
+                                        name="branchNumber"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>{t("customers.form.branchNumber")}</FormLabel>
+                                                <FormControl>
+                                                    <Input placeholder={t("customers.form.branchNumber.placeholder")} {...field} value={field.value ?? ""} className="max-w-xs" />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                )}
+                                <FormField
+                                    control={form.control}
+                                    name="address"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>{t("customers.form.address")}</FormLabel>
+                                            <FormControl>
+                                                <Textarea
+                                                    placeholder={t("customers.form.address.placeholder")}
+                                                    rows={3}
+                                                    {...field}
+                                                    value={field.value ?? ""}
+                                                />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                            </div>
+
+                            {/* Contact */}
+                            <div className="space-y-3">
+                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                                    {t("customers.form.billing.contactSection")}
+                                </p>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <FormField
+                                        control={form.control}
+                                        name="contactName"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>{t("customers.form.contactName")}</FormLabel>
+                                                <FormControl>
+                                                    <Input placeholder={t("customers.form.contactName.placeholder")} {...field} value={field.value ?? ""} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <FormField
+                                        control={form.control}
+                                        name="contactPhone"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>{t("customers.form.contactPhone")}</FormLabel>
+                                                <FormControl>
+                                                    <Input placeholder={t("customers.form.contactPhone.placeholder")} {...field} value={field.value ?? ""} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                </div>
+                                <FormField
+                                    control={form.control}
+                                    name="billingEmail"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>{t("customers.form.billingEmail")}</FormLabel>
+                                            <FormControl>
+                                                <Input type="email" placeholder={t("customers.form.billingEmail.placeholder")} {...field} value={field.value ?? ""} />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                            </div>
+
+                            {/* Payment Terms */}
+                            <div className="space-y-3">
+                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                                    {t("customers.form.billing.paymentSection")}
+                                </p>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <FormField
+                                        control={form.control}
+                                        name="paymentTermsDays"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>{t("customers.form.paymentTermsDays")}</FormLabel>
+                                                <FormControl>
+                                                    <Input
+                                                        type="number"
+                                                        min={0}
+                                                        placeholder={t("customers.form.paymentTermsDays.placeholder")}
+                                                        {...field}
+                                                        value={field.value ?? ""}
+                                                        onChange={(e) => field.onChange(e.target.value === "" ? undefined : Number(e.target.value))}
+                                                    />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                </div>
+                                <FormField
+                                    control={form.control}
+                                    name="invoiceNote"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>{t("customers.form.invoiceNote")}</FormLabel>
+                                            <FormControl>
+                                                <Textarea
+                                                    placeholder={t("customers.form.invoiceNote.placeholder")}
+                                                    rows={2}
+                                                    {...field}
+                                                    value={field.value ?? ""}
+                                                />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                            </div>
                         </CardContent>
                     </Card>
 

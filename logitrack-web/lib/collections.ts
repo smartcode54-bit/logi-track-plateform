@@ -102,6 +102,12 @@ export const COLLECTIONS = {
 
     /** Security / audit events (append via Cloud Functions only; client read with audit capability) */
     SECURITY_EVENTS: "security_events",
+
+    /** Billing statements / invoice registry (one doc per invoice generated) */
+    BILLING_STATEMENTS: "billing_statements",
+
+    /** Sequential invoice counters (one doc per customer+period, e.g. "abc123_202606") */
+    BILLING_COUNTERS: "billing_counters",
 } as const;
 
 /** Type for collection names */

@@ -18,11 +18,29 @@ export const customerSchema = z.object({
         label: z.string().min(1),
     })).default([]),
 
-    // Billing / Invoice fields (added for invoice generation)
+    // ── Tax / Legal (ใช้ในเอกสารใบวางบิล) ─────────────────────────────────────
+    /** ที่อยู่เต็มตามนิติบุคคล (พิมพ์ในใบวางบิล) */
     address: z.string().optional(),
+    /** เลขประจำตัวผู้เสียภาษี 13 หลัก */
     taxId: z.string().optional(),
+    /** สำนักงานใหญ่ / สาขา */
     branchType: z.enum(["สำนักงานใหญ่", "สาขา"]).optional(),
+    /** เลขที่สาขา (กรณี branchType = "สาขา", เช่น 00001) */
     branchNumber: z.string().optional(),
+
+    // ── Billing contact ──────────────────────────────────────────────────────
+    /** ชื่อผู้ติดต่อสำหรับวางบิล */
+    contactName: z.string().optional(),
+    /** เบอร์โทรผู้ติดต่อ */
+    contactPhone: z.string().optional(),
+    /** อีเมลสำหรับส่งเอกสารวางบิล */
+    billingEmail: z.string().optional(),
+
+    // ── Payment / Invoice settings ───────────────────────────────────────────
+    /** ระยะเวลาชำระเงิน (วัน) เช่น 30, 45, 60 */
+    paymentTermsDays: z.coerce.number().int().nonnegative().optional(),
+    /** หมายเหตุที่พิมพ์ในใบวางบิล/ใบแจ้งหนี้ */
+    invoiceNote: z.string().optional(),
 
     createdAt: z.coerce.date().optional(),
     updatedAt: z.coerce.date().optional(),

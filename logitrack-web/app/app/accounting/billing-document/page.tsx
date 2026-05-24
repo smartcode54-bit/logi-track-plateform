@@ -10,6 +10,8 @@ import {
     Timestamp,
     getDoc,
     doc,
+    type QuerySnapshot,
+    type DocumentData,
 } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
@@ -25,6 +27,7 @@ import {
     type BillingCustomer,
     type BillingPeriod,
 } from "@/lib/billingDocument";
+import { saveBillingStatement } from "@/lib/billingStatement";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -34,6 +37,8 @@ import { Badge } from "@/components/ui/badge";
 import { Download, FileText, Loader2, RefreshCw } from "lucide-react";
 import { format } from "date-fns";
 import { WITHHOLDING_TAX_RATE } from "@/lib/billingConfig";
+import { toast } from "sonner";
+import { useAuth } from "@/context/auth";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -71,6 +76,7 @@ const MONTHS = [
 
 export default function BillingDocumentPage() {
     const { t } = useLanguage();
+    const auth = useAuth();
 
     const now = new Date();
     const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
@@ -120,18 +126,23 @@ export default function BillingDocumentPage() {
             }
             const tripSnap = await getDocs(query(collection(db, COLLECTIONS.TRIP_RECORDS), ...tripConstraints));
 
-            // ── Load standby_records ───────────────────────────────────────────
-            const standbyConstraints = [
-                where("status", "==", "completed"),
-                where("startedAt", ">=", Timestamp.fromDate(start)),
-                where("startedAt", "<", Timestamp.fromDate(end)),
-            ];
-            const standbySnap = await getDocs(query(collection(db, COLLECTIONS.STANDBY_RECORDS), ...standbyConstraints));
+            // ── Load standby_records (isolated — index may be building) ────────
+            let standbySnap: QuerySnapshot<DocumentData> | null = null;
+            try {
+                const standbyConstraints = [
+                    where("status", "==", "completed"),
+                    where("startedAt", ">=", Timestamp.fromDate(start)),
+                    where("startedAt", "<", Timestamp.fromDate(end)),
+                ];
+                standbySnap = await getDocs(query(collection(db, COLLECTIONS.STANDBY_RECORDS), ...standbyConstraints));
+            } catch (e) {
+                console.warn("[billing] standby_records query failed (index may be building):", e);
+            }
 
             // ── Collect taskIds for batch lookup ──────────────────────────────
             const taskIds = new Set<string>();
             tripSnap.forEach((d) => { const tid = d.data().taskId; if (tid) taskIds.add(tid); });
-            standbySnap.forEach((d) => { const tid = d.data().taskId; if (tid) taskIds.add(tid); });
+            standbySnap?.forEach((d) => { const tid = d.data().taskId; if (tid) taskIds.add(tid); });
 
             // ── Fetch tasks (driverName/licensePlate/customer denormalized) ────
             type TaskInfo = { truckType?: string; driverName?: string; driverPhone?: string; truckLicensePlate?: string; billingCustomerId?: string };
@@ -150,7 +161,14 @@ export default function BillingDocumentPage() {
             }));
 
             // ── Standby fee rate (per trip, per customer) ──────────────────────
-            const allServiceFees = await getCustomerServiceFees(selectedCustomerId !== "all" ? selectedCustomerId : undefined);
+            let allServiceFees: Awaited<ReturnType<typeof getCustomerServiceFees>> = [];
+            try {
+                allServiceFees = await getCustomerServiceFees(
+                    selectedCustomerId !== "all" ? selectedCustomerId : undefined
+                );
+            } catch (e) {
+                console.warn("[billing] getCustomerServiceFees failed:", e);
+            }
             const standbyFeeMap = new Map<string, number>();
             for (const fee of allServiceFees) {
                 if (fee.feeType === "standby" && fee.unit === "per_trip") {
@@ -221,7 +239,7 @@ export default function BillingDocumentPage() {
             });
 
             // ── Build standby rows ─────────────────────────────────────────────
-            standbySnap.forEach((d) => {
+            standbySnap?.forEach((d) => {
                 const data = d.data();
                 const taskInfo = data.taskId ? taskMap.get(data.taskId) : undefined;
                 const recordCustomerId = taskInfo?.billingCustomerId;
@@ -269,7 +287,18 @@ export default function BillingDocumentPage() {
         if (selectedCustomerId === "all") return null;
         const c = customers.find((c) => c.id === selectedCustomerId);
         if (!c) return null;
-        return { id: c.id!, name: c.name, address: c.address, taxId: c.taxId, branchType: c.branchType, branchNumber: c.branchNumber };
+        return {
+            id: c.id!,
+            name: c.name,
+            address: c.address,
+            taxId: c.taxId,
+            branchType: c.branchType,
+            branchNumber: c.branchNumber,
+            contactName: c.contactName,
+            contactPhone: c.contactPhone,
+            paymentTermsDays: c.paymentTermsDays,
+            invoiceNote: c.invoiceNote,
+        };
     }, [selectedCustomerId, customers]);
 
     async function handleDownload() {
@@ -277,7 +306,34 @@ export default function BillingDocumentPage() {
         setGenerating(true);
         try {
             const period: BillingPeriod = { month: selectedMonth, year: selectedYear };
-            await downloadBillingZip(filteredTrips, selectedCustomer, period);
+
+            // Save billing statement (registry) before download
+            const customerForStatement = customers.find((c) => c.id === selectedCustomer.id);
+            let invoiceNumber: string | undefined;
+            try {
+                toast.loading(t("accounting.billingDocument.save.saving"));
+                invoiceNumber = await saveBillingStatement({
+                    customerId: selectedCustomer.id,
+                    customerName: selectedCustomer.name,
+                    customerCode: customerForStatement?.code ?? selectedCustomer.id,
+                    period,
+                    totalAmount: grandTotal,
+                    withholdingTax,
+                    netAmount: totalNet,
+                    tripCount: filteredTrips.length,
+                    paymentTermsDays: selectedCustomer.paymentTermsDays,
+                    generatedBy: auth?.currentUser?.uid,
+                });
+                toast.dismiss();
+                toast.success(t("accounting.billingDocument.save.saved", { invoiceNumber }));
+            } catch (saveErr) {
+                toast.dismiss();
+                console.error("[billing] Failed to save statement:", saveErr);
+                toast.error(t("accounting.billingDocument.save.error"));
+                // Still proceed with download even if statement save fails
+            }
+
+            await downloadBillingZip(filteredTrips, selectedCustomer, period, invoiceNumber);
         } finally {
             setGenerating(false);
         }
@@ -291,16 +347,16 @@ export default function BillingDocumentPage() {
                 <div>
                     <h1 className="text-2xl font-bold">{t("nav.billingDocument")}</h1>
                     <p className="text-muted-foreground text-sm mt-1">
-                        สร้างเอกสารวางบิล (Invoice + Excel + ใบเสร็จ) เป็น ZIP สำหรับส่งให้ลูกค้า
+                        {t("accounting.billingDocument.subtitle")}
                     </p>
                 </div>
 
                 {/* ── Filters ── */}
                 <Card>
-                    <CardHeader><CardTitle className="text-base">เลือกช่วงเวลาและลูกค้า</CardTitle></CardHeader>
+                    <CardHeader><CardTitle className="text-base">{t("accounting.billingDocument.filters.title")}</CardTitle></CardHeader>
                     <CardContent className="flex flex-wrap gap-4 items-end">
                         <div className="space-y-1">
-                            <Label>เดือน</Label>
+                            <Label>{t("accounting.billingDocument.filters.month")}</Label>
                             <Select value={String(selectedMonth)} onValueChange={(v) => setSelectedMonth(Number(v))}>
                                 <SelectTrigger className="w-52">
                                     <SelectValue />
@@ -314,7 +370,7 @@ export default function BillingDocumentPage() {
                         </div>
 
                         <div className="space-y-1">
-                            <Label>ปี</Label>
+                            <Label>{t("accounting.billingDocument.filters.year")}</Label>
                             <Select value={String(selectedYear)} onValueChange={(v) => setSelectedYear(Number(v))}>
                                 <SelectTrigger className="w-32">
                                     <SelectValue />
@@ -328,13 +384,13 @@ export default function BillingDocumentPage() {
                         </div>
 
                         <div className="space-y-1">
-                            <Label>ลูกค้า</Label>
+                            <Label>{t("accounting.billingDocument.filters.customer")}</Label>
                             <Select value={selectedCustomerId} onValueChange={setSelectedCustomerId}>
                                 <SelectTrigger className="w-52">
-                                    <SelectValue placeholder="เลือกลูกค้า" />
+                                    <SelectValue placeholder={t("accounting.billingDocument.filters.customer")} />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="all">ทั้งหมด</SelectItem>
+                                    <SelectItem value="all">{t("accounting.billingDocument.filters.allCustomers")}</SelectItem>
                                     {customers.map((c) => (
                                         <SelectItem key={c.id} value={c.id!}>{c.name}</SelectItem>
                                     ))}
@@ -344,7 +400,7 @@ export default function BillingDocumentPage() {
 
                         <Button onClick={loadTrips} disabled={loading} variant="outline">
                             {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-                            โหลดข้อมูล
+                            {t("accounting.billingDocument.filters.load")}
                         </Button>
                     </CardContent>
                 </Card>
@@ -354,25 +410,25 @@ export default function BillingDocumentPage() {
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <Card>
                             <CardContent className="pt-4">
-                                <p className="text-xs text-muted-foreground">จำนวนเที่ยว</p>
+                                <p className="text-xs text-muted-foreground">{t("accounting.billingDocument.summary.tripCount")}</p>
                                 <p className="text-2xl font-bold">{filteredTrips.length}</p>
                             </CardContent>
                         </Card>
                         <Card>
                             <CardContent className="pt-4">
-                                <p className="text-xs text-muted-foreground">ยอดรวม (THB)</p>
+                                <p className="text-xs text-muted-foreground">{t("accounting.billingDocument.summary.total")}</p>
                                 <p className="text-2xl font-bold">{formatThb(grandTotal)}</p>
                             </CardContent>
                         </Card>
                         <Card>
                             <CardContent className="pt-4">
-                                <p className="text-xs text-muted-foreground">หัก ณ ที่จ่าย 1%</p>
+                                <p className="text-xs text-muted-foreground">{t("accounting.billingDocument.summary.withholdingTax")}</p>
                                 <p className="text-2xl font-bold text-red-600">-{formatThb(withholdingTax)}</p>
                             </CardContent>
                         </Card>
                         <Card>
                             <CardContent className="pt-4">
-                                <p className="text-xs text-muted-foreground">ยอดสุทธิ (THB)</p>
+                                <p className="text-xs text-muted-foreground">{t("accounting.billingDocument.summary.netTotal")}</p>
                                 <p className="text-2xl font-bold text-green-600">{formatThb(totalNet)}</p>
                             </CardContent>
                         </Card>
@@ -386,7 +442,7 @@ export default function BillingDocumentPage() {
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                 <FileText className="h-4 w-4" />
                                 <span>
-                                    ไฟล์ที่จะสร้าง: <code>invoice_summary.pdf</code>, <code>invoice_detail.xlsx</code>, <code>receipt.pdf</code>
+                                    {t("accounting.billingDocument.download.filesInfo")} <code>invoice_summary.pdf</code>, <code>invoice_detail.xlsx</code>, <code>receipt.pdf</code>
                                 </span>
                             </div>
                             <Button
@@ -399,7 +455,7 @@ export default function BillingDocumentPage() {
                         </CardContent>
                         {!canDownload && selectedCustomerId === "all" && (
                             <CardContent className="pt-0">
-                                <p className="text-xs text-amber-600">⚠ กรุณาเลือกลูกค้าเพื่อ generate เอกสาร (ต้องระบุลูกค้าสำหรับ invoice)</p>
+                                <p className="text-xs text-amber-600">{t("accounting.billingDocument.download.selectCustomerWarning")}</p>
                             </CardContent>
                         )}
                     </Card>
@@ -408,17 +464,17 @@ export default function BillingDocumentPage() {
                 {/* ── Trip preview table ── */}
                 {filteredTrips.length > 0 ? (
                     <Card>
-                        <CardHeader><CardTitle className="text-base">รายการเที่ยว ({filteredTrips.length})</CardTitle></CardHeader>
+                        <CardHeader><CardTitle className="text-base">{t("accounting.billingDocument.table.title", { count: filteredTrips.length })}</CardTitle></CardHeader>
                         <CardContent className="p-0">
                             <Table>
                                 <TableHeader>
                                     <TableRow>
-                                        <TableHead>เลขใบงาน</TableHead>
-                                        <TableHead>วันที่ส่ง</TableHead>
-                                        <TableHead>เส้นทาง</TableHead>
-                                        <TableHead>ประเภทรถ</TableHead>
-                                        <TableHead>คนขับ</TableHead>
-                                        <TableHead className="text-right">ยอดวางบิล</TableHead>
+                                        <TableHead>{t("accounting.billingDocument.table.tripNumber")}</TableHead>
+                                        <TableHead>{t("accounting.billingDocument.table.deliveredDate")}</TableHead>
+                                        <TableHead>{t("accounting.billingDocument.table.route")}</TableHead>
+                                        <TableHead>{t("accounting.billingDocument.table.vehicleType")}</TableHead>
+                                        <TableHead>{t("accounting.billingDocument.table.driver")}</TableHead>
+                                        <TableHead className="text-right">{t("accounting.billingDocument.table.billingAmount")}</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -426,9 +482,9 @@ export default function BillingDocumentPage() {
                                         <TableRow key={trip.id} className={trip.rowType === "standby" ? "bg-amber-950/20" : trip.rowType === "multidrop_stop" ? "bg-blue-950/10" : undefined}>
                                             <TableCell className="font-mono text-xs">
                                                 {trip.rowType === "standby"
-                                                    ? <Badge variant="outline" className="text-amber-400 border-amber-600">จอดรอ</Badge>
+                                                    ? <Badge variant="outline" className="text-amber-400 border-amber-600">{t("accounting.billingDocument.badge.standby")}</Badge>
                                                     : trip.rowType === "multidrop_stop"
-                                                        ? <><span className="text-muted-foreground">stop {trip.stopIndex}</span></>
+                                                        ? <span className="text-muted-foreground">{t("accounting.billingDocument.badge.stopN", { n: trip.stopIndex ?? 0 })}</span>
                                                         : (trip.spxTripId ?? trip.id.slice(0, 8))
                                                 }
                                             </TableCell>
@@ -440,7 +496,7 @@ export default function BillingDocumentPage() {
                                             </TableCell>
                                             <TableCell>
                                                 {trip.rowType === "standby"
-                                                    ? <Badge variant="outline" className="text-amber-400 border-amber-600 text-xs">Standby</Badge>
+                                                    ? <Badge variant="outline" className="text-amber-400 border-amber-600 text-xs">{t("accounting.billingDocument.badge.standby")}</Badge>
                                                     : trip.vehicleClass ? <Badge variant="outline">{trip.vehicleClass}</Badge> : "-"
                                                 }
                                             </TableCell>
@@ -457,7 +513,7 @@ export default function BillingDocumentPage() {
                 ) : !loading && (
                     <Card>
                         <CardContent className="pt-6 text-center text-muted-foreground text-sm">
-                            เลือกเดือน/ปี/ลูกค้า แล้วกด &quot;โหลดข้อมูล&quot;
+                            {t("accounting.billingDocument.empty")}
                         </CardContent>
                     </Card>
                 )}

@@ -39,6 +39,7 @@ export default {
     "nav.rateCard": "Rate Card",
     "nav.income": "Billing",
     "nav.billingDocument": "Billing Documents",
+    "nav.billingResult": "Billing Statements",
     "nav.operations": "Operations",
     "nav.firstMileTasks": "First Mile Tasks",
     "nav.sourceManagement": "Pickup Location Management",

@@ -39,6 +39,7 @@ export default {
     "nav.rateCard": "เรทการวางบิล",
     "nav.income": "การวางบิล",
     "nav.billingDocument": "เอกสารวางบิล",
+    "nav.billingResult": "ทะเบียนใบวางบิล",
     "nav.operations": "ปฏิบัติการ",
     "nav.firstMileTasks": "งาน First Mile",
     "nav.sourceManagement": "จัดการจุดรับงาน",

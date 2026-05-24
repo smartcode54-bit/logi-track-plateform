@@ -4,6 +4,9 @@
  * Produces Invoice PDF, Receipt PDF, and Excel detail sheet — bundled as ZIP.
  *
  * All functions run client-side in the browser.
+ *
+ * Thai font (Sarabun) is embedded at runtime by fetching /fonts/Sarabun-*.ttf
+ * from the public directory. helvetica cannot render Thai Unicode — never use it here.
  */
 
 import { jsPDF } from "jspdf";
@@ -46,12 +49,59 @@ export interface BillingCustomer {
   taxId?: string;
   branchType?: string;
   branchNumber?: string;
+  contactName?: string;
+  contactPhone?: string;
+  paymentTermsDays?: number;
+  invoiceNote?: string;
 }
 
 export interface BillingPeriod {
   /** 1-based month (1–12) */
   month: number;
   year: number;
+}
+
+// ─── Thai font loader ────────────────────────────────────────────────────────
+// Fonts live in public/fonts/ — fetched once per browser session then cached.
+
+let _fontCache: { regular: string; bold: string } | null = null;
+
+async function loadThaiFont(): Promise<{ regular: string; bold: string }> {
+  if (_fontCache) return _fontCache;
+
+  const toBase64 = async (url: string): Promise<string> => {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`[billingDocument] Font load failed (${resp.status}): ${url}`);
+    const buf = await resp.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    // Process in 8 KB chunks to stay well within the JS call-stack limit
+    let binary = "";
+    const CHUNK = 8192;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      const slice = bytes.subarray(i, i + CHUNK);
+      for (let j = 0; j < slice.length; j++) binary += String.fromCharCode(slice[j]);
+    }
+    return btoa(binary);
+  };
+
+  const [regular, bold] = await Promise.all([
+    toBase64("/fonts/Sarabun-Regular.ttf"),
+    toBase64("/fonts/Sarabun-Bold.ttf"),
+  ]);
+
+  _fontCache = { regular, bold };
+  return _fontCache;
+}
+
+/** Register Sarabun (normal + bold + italic-as-normal) on a fresh jsPDF instance. */
+function registerThaiFont(doc: jsPDF, font: { regular: string; bold: string }): void {
+  doc.addFileToVFS("Sarabun-Regular.ttf", font.regular);
+  doc.addFont("Sarabun-Regular.ttf", "Sarabun", "normal");
+  doc.addFileToVFS("Sarabun-Bold.ttf", font.bold);
+  doc.addFont("Sarabun-Bold.ttf", "Sarabun", "bold");
+  // Thai script has no italic convention; reuse regular so setFont("Sarabun","italic") doesn't crash
+  doc.addFileToVFS("Sarabun-Italic.ttf", font.regular);
+  doc.addFont("Sarabun-Italic.ttf", "Sarabun", "italic");
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -107,51 +157,58 @@ function groupToLineItems(trips: BillingTripRow[]): {
 
 // ─── PDF generation ─────────────────────────────────────────────────────────
 
-function buildInvoicePdf(
+async function buildInvoicePdf(
   trips: BillingTripRow[],
   customer: BillingCustomer,
   period: BillingPeriod,
   isReceipt = false,
-): jsPDF {
+  invoiceNumberOverride?: string,
+): Promise<jsPDF> {
+  // Load & embed Thai font first
+  const font = await loadThaiFont();
+
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  registerThaiFont(doc, font);
 
   const grandTotal = trips.reduce((s, t) => s + t.billingEstimateThb, 0);
   const withholdingTax = isReceipt ? 0 : Math.round(grandTotal * WITHHOLDING_TAX_RATE * 100) / 100;
   const totalNet = grandTotal - withholdingTax;
-  const invNumber = invoiceNumber(period);
+  const invNumber = invoiceNumberOverride ?? invoiceNumber(period);
   const issuedDate = format(new Date(), "dd/MM/yyyy");
 
   const docTitle = isReceipt ? "ใบเสร็จรับเงิน" : "ใบวางบิล / ใบแจ้งหนี้";
 
   // ── Title ──
-  doc.setFont("helvetica", "bold");
+  doc.setFont("Sarabun", "bold");
   doc.setFontSize(18);
   doc.text(docTitle, 105, 20, { align: "center" });
 
   // ── Provider block (left) ──
   doc.setFontSize(9);
-  doc.setFont("helvetica", "normal");
+  doc.setFont("Sarabun", "bold");
   let y = 32;
-  doc.setFont("helvetica", "bold");
   doc.text(BILLING_PROVIDER.name, 14, y);
-  doc.setFont("helvetica", "normal");
+  doc.setFont("Sarabun", "normal");
   y += 5;
   doc.text(BILLING_PROVIDER.address, 14, y);
   y += 5;
   doc.text(`Tax ID: ${BILLING_PROVIDER.taxId}`, 14, y);
 
   // ── Invoice meta (right) ──
-  doc.setFont("helvetica", "bold");
+  doc.setFont("Sarabun", "bold");
   doc.text(`เลขที่: ${invNumber}`, 196, 32, { align: "right" });
-  doc.setFont("helvetica", "normal");
+  doc.setFont("Sarabun", "normal");
   doc.text(`วันที่: ${issuedDate}`, 196, 37, { align: "right" });
   doc.text(`ประจำเดือน: ${periodLabel(period)}`, 196, 42, { align: "right" });
+  if (customer.paymentTermsDays != null) {
+    doc.text(`กำหนดชำระ: ${customer.paymentTermsDays} วัน`, 196, 47, { align: "right" });
+  }
 
   // ── Bill To ──
   y = 55;
-  doc.setFont("helvetica", "bold");
+  doc.setFont("Sarabun", "bold");
   doc.text("เรียน / Bill To:", 14, y);
-  doc.setFont("helvetica", "normal");
+  doc.setFont("Sarabun", "normal");
   y += 5;
   doc.text(customer.name, 14, y);
   if (customer.address) {
@@ -161,7 +218,15 @@ function buildInvoicePdf(
     y += lines.length * 5;
   }
   if (customer.taxId) {
-    doc.text(`Tax ID: ${customer.taxId}${customer.branchType ? ` (${customer.branchType})` : ""}`, 14, y);
+    const branchInfo = customer.branchType
+      ? ` (${customer.branchType}${customer.branchNumber ? ` ${customer.branchNumber}` : ""})`
+      : "";
+    doc.text(`Tax ID: ${customer.taxId}${branchInfo}`, 14, y);
+    y += 5;
+  }
+  if (customer.contactName || customer.contactPhone) {
+    const contactLine = [customer.contactName, customer.contactPhone].filter(Boolean).join("  |  ");
+    doc.text(`ผู้ติดต่อ: ${contactLine}`, 14, y);
     y += 5;
   }
 
@@ -179,8 +244,9 @@ function buildInvoicePdf(
       formatThb(item.total),
     ]),
     theme: "striped",
-    headStyles: { fillColor: [30, 80, 160], textColor: 255, fontSize: 9 },
-    bodyStyles: { fontSize: 9 },
+    styles: { font: "Sarabun", fontStyle: "normal", fontSize: 9 },
+    headStyles: { fillColor: [30, 80, 160], textColor: 255, fontSize: 9, font: "Sarabun", fontStyle: "bold" },
+    bodyStyles: { fontSize: 9, font: "Sarabun", fontStyle: "normal" },
     columnStyles: {
       0: { cellWidth: 12, halign: "center" },
       1: { cellWidth: 25 },
@@ -194,28 +260,28 @@ function buildInvoicePdf(
   const finalY: number = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
   const rx = 196;
 
-  doc.setFont("helvetica", "bold");
+  doc.setFont("Sarabun", "bold");
   doc.text("ยอดรวมทั้งสิ้น:", rx - 40, finalY);
   doc.text(formatThb(grandTotal), rx, finalY, { align: "right" });
 
-  doc.setFont("helvetica", "normal");
+  doc.setFont("Sarabun", "normal");
   if (isReceipt) {
     doc.text("ภาษีหัก ณ ที่จ่าย 1%:", rx - 40, finalY + 7);
     doc.text("-", rx, finalY + 7, { align: "right" });
-    doc.setFont("helvetica", "bold");
+    doc.setFont("Sarabun", "bold");
     doc.text("ยอดรวมสุทธิ:", rx - 40, finalY + 14);
     doc.text(formatThb(grandTotal), rx, finalY + 14, { align: "right" });
   } else {
     doc.text(`ภาษีหัก ณ ที่จ่าย 1% (${formatThb(grandTotal)})`, rx - 60, finalY + 7);
     doc.text(`- ${formatThb(withholdingTax)}`, rx, finalY + 7, { align: "right" });
-    doc.setFont("helvetica", "bold");
+    doc.setFont("Sarabun", "bold");
     doc.text("ยอดรวมสุทธิ:", rx - 40, finalY + 14);
     doc.text(formatThb(totalNet), rx, finalY + 14, { align: "right" });
   }
 
   // ── Thai baht text ──
   const textAmount = isReceipt ? grandTotal : totalNet;
-  doc.setFont("helvetica", "italic");
+  doc.setFont("Sarabun", "normal");
   doc.setFontSize(9);
   try {
     const bahtStr: string = bahttext(textAmount);
@@ -226,14 +292,26 @@ function buildInvoicePdf(
 
   // ── Bank info (invoice only) ──
   if (!isReceipt && BILLING_PROVIDER.bankName) {
-    doc.setFont("helvetica", "normal");
+    doc.setFont("Sarabun", "normal");
     doc.setFontSize(9);
-    doc.text(`ชำระโดย: ${BILLING_PROVIDER.bankName} เลขที่ ${BILLING_PROVIDER.accountNumber} ชื่อบัญชี: ${BILLING_PROVIDER.accountName}`, 14, finalY + 28);
+    doc.text(
+      `ชำระโดย: ${BILLING_PROVIDER.bankName} เลขที่ ${BILLING_PROVIDER.accountNumber} ชื่อบัญชี: ${BILLING_PROVIDER.accountName}`,
+      14,
+      finalY + 28,
+    );
+  }
+
+  // ── Invoice note ──
+  if (customer.invoiceNote) {
+    doc.setFont("Sarabun", "normal");
+    doc.setFontSize(8);
+    const noteLines = doc.splitTextToSize(`หมายเหตุ: ${customer.invoiceNote}`, 180);
+    doc.text(noteLines, 14, finalY + 35);
   }
 
   // ── Signature block ──
-  const sigY = finalY + 45;
-  doc.setFont("helvetica", "normal");
+  const sigY = finalY + (customer.invoiceNote ? 55 : 45);
+  doc.setFont("Sarabun", "normal");
   doc.setFontSize(9);
   const cols = [40, 105, 170];
   const labels = ["ผู้จัดทำวางบิล", "ตราประทับ", "ผู้รับวางบิล"];
@@ -247,20 +325,22 @@ function buildInvoicePdf(
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
-export function generateInvoiceBlob(
+export async function generateInvoiceBlob(
   trips: BillingTripRow[],
   customer: BillingCustomer,
   period: BillingPeriod,
-): Blob {
-  return buildInvoicePdf(trips, customer, period, false).output("blob") as Blob;
+  invoiceNumberOverride?: string,
+): Promise<Blob> {
+  return (await buildInvoicePdf(trips, customer, period, false, invoiceNumberOverride)).output("blob") as Blob;
 }
 
-export function generateReceiptBlob(
+export async function generateReceiptBlob(
   trips: BillingTripRow[],
   customer: BillingCustomer,
   period: BillingPeriod,
-): Blob {
-  return buildInvoicePdf(trips, customer, period, true).output("blob") as Blob;
+  invoiceNumberOverride?: string,
+): Promise<Blob> {
+  return (await buildInvoicePdf(trips, customer, period, true, invoiceNumberOverride)).output("blob") as Blob;
 }
 
 export function generateDetailExcelBuffer(
@@ -268,7 +348,20 @@ export function generateDetailExcelBuffer(
   period: BillingPeriod,
 ): Uint8Array {
   const mm = String(period.month).padStart(2, "0");
-  const rows = trips.map((t, i) => {
+  type ExcelRow = {
+    "No.": number | string;
+    "วันที่": string;
+    "เลขใบงาน": string;
+    "เส้นทาง": string;
+    "ประเภทรถ": string;
+    "ทะเบียน": string;
+    "ชื่อคนขับ": string;
+    "เบอร์โทร": string;
+    "จำนวนรถ": number | string;
+    "ราคาขนส่ง/เที่ยว": number | string;
+    "หมายเหตุ": string;
+  };
+  const rows: ExcelRow[] = trips.map((t, i) => {
     const isStandby = t.rowType === "standby";
     const isStop = t.rowType === "multidrop_stop";
     const route = isStandby
@@ -293,58 +386,26 @@ export function generateDetailExcelBuffer(
   const grandTotal = trips.reduce((s, t) => s + t.billingEstimateThb, 0);
   const withholdingTax = Math.round(grandTotal * WITHHOLDING_TAX_RATE * 100) / 100;
 
-  // Footer rows
+  // Footer rows — use "" for cells that should appear blank
   rows.push({
-    "No.": NaN,
-    "วันที่": "",
-    "เลขใบงาน": "",
-    "เส้นทาง": "",
-    "ประเภทรถ": "",
-    "ทะเบียน": "",
-    "ชื่อคนขับ": "",
-    "เบอร์โทร": "",
-    "จำนวนรถ": NaN,
-    "ราคาขนส่ง/เที่ยว": NaN,
-    "หมายเหตุ": "",
+    "No.": "", "วันที่": "", "เลขใบงาน": "", "เส้นทาง": "",
+    "ประเภทรถ": "", "ทะเบียน": "", "ชื่อคนขับ": "", "เบอร์โทร": "",
+    "จำนวนรถ": "", "ราคาขนส่ง/เที่ยว": "", "หมายเหตุ": "",
   });
   rows.push({
-    "No.": NaN,
-    "วันที่": "",
-    "เลขใบงาน": "",
-    "เส้นทาง": "",
-    "ประเภทรถ": "",
-    "ทะเบียน": "",
-    "ชื่อคนขับ": "ยอดรวมทั้งหมด",
-    "เบอร์โทร": "",
-    "จำนวนรถ": NaN,
-    "ราคาขนส่ง/เที่ยว": grandTotal,
-    "หมายเหตุ": "",
+    "No.": "", "วันที่": "", "เลขใบงาน": "", "เส้นทาง": "",
+    "ประเภทรถ": "", "ทะเบียน": "", "ชื่อคนขับ": "ยอดรวมทั้งหมด", "เบอร์โทร": "",
+    "จำนวนรถ": "", "ราคาขนส่ง/เที่ยว": grandTotal, "หมายเหตุ": "",
   });
   rows.push({
-    "No.": NaN,
-    "วันที่": "",
-    "เลขใบงาน": "",
-    "เส้นทาง": "",
-    "ประเภทรถ": "",
-    "ทะเบียน": "",
-    "ชื่อคนขับ": "ภาษีหัก ณ ที่จ่าย 1%",
-    "เบอร์โทร": "",
-    "จำนวนรถ": NaN,
-    "ราคาขนส่ง/เที่ยว": -withholdingTax,
-    "หมายเหตุ": "",
+    "No.": "", "วันที่": "", "เลขใบงาน": "", "เส้นทาง": "",
+    "ประเภทรถ": "", "ทะเบียน": "", "ชื่อคนขับ": "ภาษีหัก ณ ที่จ่าย 1%", "เบอร์โทร": "",
+    "จำนวนรถ": "", "ราคาขนส่ง/เที่ยว": -withholdingTax, "หมายเหตุ": "",
   });
   rows.push({
-    "No.": NaN,
-    "วันที่": "",
-    "เลขใบงาน": "",
-    "เส้นทาง": "",
-    "ประเภทรถ": "",
-    "ทะเบียน": "",
-    "ชื่อคนขับ": "ยอดสุทธิ",
-    "เบอร์โทร": "",
-    "จำนวนรถ": NaN,
-    "ราคาขนส่ง/เที่ยว": grandTotal - withholdingTax,
-    "หมายเหตุ": "",
+    "No.": "", "วันที่": "", "เลขใบงาน": "", "เส้นทาง": "",
+    "ประเภทรถ": "", "ทะเบียน": "", "ชื่อคนขับ": "ยอดสุทธิ", "เบอร์โทร": "",
+    "จำนวนรถ": "", "ราคาขนส่ง/เที่ยว": grandTotal - withholdingTax, "หมายเหตุ": "",
   });
 
   const wb = XLSX.utils.book_new();
@@ -364,15 +425,17 @@ export async function downloadBillingZip(
   trips: BillingTripRow[],
   customer: BillingCustomer,
   period: BillingPeriod,
+  invoiceNumberOverride?: string,
 ): Promise<void> {
   const mm = String(period.month).padStart(2, "0");
   const zipName = `invoice_CJSF_${period.year}${mm}.zip`;
 
-  const [invoiceBlob, receiptBlob, excelBuffer] = [
-    generateInvoiceBlob(trips, customer, period),
-    generateReceiptBlob(trips, customer, period),
-    generateDetailExcelBuffer(trips, period),
-  ];
+  // Generate invoice + receipt in parallel (font is cached after first load)
+  const [invoiceBlob, receiptBlob, excelBuffer] = await Promise.all([
+    generateInvoiceBlob(trips, customer, period, invoiceNumberOverride),
+    generateReceiptBlob(trips, customer, period, invoiceNumberOverride),
+    Promise.resolve(generateDetailExcelBuffer(trips, period)),
+  ]);
 
   const { default: JSZip } = await import("jszip");
   const zip = new JSZip();

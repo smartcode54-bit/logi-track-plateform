@@ -438,6 +438,34 @@ service cloud.firestore {
       );
     }
 
+    // Billing statements (invoice registry): admin/manager create + read + update status; no delete.
+    match /billing_statements/{docId} {
+      allow read: if request.auth != null && (
+        isWebAdmin() ||
+        request.auth.token.get('role', '') == 'manager'
+      );
+      allow create: if isAppCheckVerified() && request.auth != null && (
+        isWebAdmin() ||
+        request.auth.token.get('role', '') == 'manager'
+      )
+        && request.resource.data.invoiceNumber is string
+        && request.resource.data.customerId is string
+        && request.resource.data.totalAmount is number;
+      allow update: if isAppCheckVerified() && request.auth != null && (
+        isWebAdmin() ||
+        request.auth.token.get('role', '') == 'manager'
+      );
+      allow delete: if false;
+    }
+
+    // Billing counters (sequential invoice number state): admin/manager read+write.
+    match /billing_counters/{counterId} {
+      allow read, write: if isAppCheckVerified() && request.auth != null && (
+        isWebAdmin() ||
+        request.auth.token.get('role', '') == 'manager'
+      );
+    }
+
     // Fallback for any collection not yet explicitly listed (deny after migration).
     match /{document=**} {
       allow read, write: if false;
