@@ -26,8 +26,10 @@ import {
     type BillingTripRow,
     type BillingCustomer,
     type BillingPeriod,
+    type BillingProviderInfo,
 } from "@/lib/billingDocument";
 import { saveBillingStatement } from "@/lib/billingStatement";
+import { getOwnerCompany } from "@/features/companies/api/companies";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -89,10 +91,30 @@ export default function BillingDocumentPage() {
 
     const [loading, setLoading] = useState(false);
     const [generating, setGenerating] = useState(false);
+    const [ownerProvider, setOwnerProvider] = useState<BillingProviderInfo | undefined>(undefined);
 
-    // Load customers once
+    // Load customers + owner company once
     useEffect(() => {
         getCustomers().then(setCustomers).catch(console.error);
+        // Load owner company for PDF branding (stamp, signature, etc.)
+        getOwnerCompany()
+            .then((company) => {
+                if (company) {
+                    setOwnerProvider({
+                        name: company.nameTh,
+                        address: company.address,
+                        taxId: company.taxId,
+                        bankName: company.bankName,
+                        accountNumber: company.accountNumber,
+                        accountName: company.accountName,
+                        withholdingTaxRate: company.withholdingTaxRate,
+                        stampUrl: company.stampUrl,
+                        signatureUrl: company.signatureUrl,
+                        signatoryName: company.signatoryName,
+                    });
+                }
+            })
+            .catch((e) => console.warn("[billing] getOwnerCompany failed (using default provider):", e));
     }, []);
 
     // Load hub display names once
@@ -333,7 +355,7 @@ export default function BillingDocumentPage() {
                 // Still proceed with download even if statement save fails
             }
 
-            await downloadBillingZip(filteredTrips, selectedCustomer, period, invoiceNumber);
+            await downloadBillingZip(filteredTrips, selectedCustomer, period, invoiceNumber, ownerProvider);
         } finally {
             setGenerating(false);
         }

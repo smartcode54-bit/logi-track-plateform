@@ -60,6 +60,8 @@ export default {
     "nav.customers": "Customers",
     "nav.mainMenu": "MAIN MENU",
     "nav.system": "SYSTEM",
+    "nav.companies": "Companies",
+    "nav.companyProfile": "Company Profile",
 
     // Common
     "common.loading": "Loading...",

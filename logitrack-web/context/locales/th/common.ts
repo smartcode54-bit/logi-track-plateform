@@ -60,6 +60,8 @@ export default {
     "nav.customers": "ลูกค้า",
     "nav.mainMenu": "เมนูหลัก",
     "nav.system": "ระบบ",
+    "nav.companies": "บริษัท",
+    "nav.companyProfile": "โปรไฟล์บริษัท",
 
     // Common
     "common.loading": "กำลังโหลด...",

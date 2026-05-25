@@ -76,6 +76,8 @@ export const DEFAULT_ROLE_CAPABILITIES: Record<
     CAPABILITIES.reporting_view_analytics,
     CAPABILITIES.packages_view,
     CAPABILITIES.waitlist_view,
+    CAPABILITIES.company_view,
+    CAPABILITIES.company_manage,
   ],
   operation_staff: [
     CAPABILITIES.fleet_view_trucks,

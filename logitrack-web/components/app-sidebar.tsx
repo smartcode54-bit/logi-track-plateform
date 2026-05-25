@@ -266,6 +266,26 @@ export function AppSidebar() {
                                         </Link>
                                     </SidebarMenuButton>
                                 </SidebarMenuItem>
+                                {can(claims, CAPABILITIES.company_view) && (
+                                    <SidebarMenuItem>
+                                        <SidebarMenuButton asChild tooltip={t("nav.companies")} isActive={pathname?.startsWith("/app/companies")}>
+                                            <Link href="/app/companies" prefetch={false}>
+                                                <Building2 className="h-4 w-4" />
+                                                <span>{t("nav.companies")}</span>
+                                            </Link>
+                                        </SidebarMenuButton>
+                                    </SidebarMenuItem>
+                                )}
+                                {can(claims, CAPABILITIES.company_manage) && (
+                                    <SidebarMenuItem>
+                                        <SidebarMenuButton asChild tooltip={t("nav.companyProfile")} isActive={pathname?.startsWith("/app/settings/company-profile")}>
+                                            <Link href="/app/settings/company-profile" prefetch={false}>
+                                                <Building2 className="h-4 w-4" />
+                                                <span>{t("nav.companyProfile")}</span>
+                                            </Link>
+                                        </SidebarMenuButton>
+                                    </SidebarMenuItem>
+                                )}
                             </SidebarMenu>
                         </SidebarGroupContent>
                     </SidebarGroup>

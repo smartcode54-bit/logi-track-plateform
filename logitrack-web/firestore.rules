@@ -466,6 +466,27 @@ service cloud.firestore {
       );
     }
 
+    // Companies (multi-tenant company profiles).
+    // Owner company: admin/manager full CRUD; subcontractor users can read their own company.
+    // Delete is never allowed through client SDK.
+    match /companies/{companyId} {
+      allow read: if request.auth != null && (
+        isWebAdmin() ||
+        request.auth.token.get('role', '') == 'manager' ||
+        // Subcontractor users can read their own company doc
+        request.auth.token.get('companyId', '') == companyId
+      );
+      allow create: if isAppCheckVerified() && request.auth != null && (
+        isWebAdmin() ||
+        request.auth.token.get('role', '') == 'manager'
+      ) && request.resource.data.keys().hasAll(['nameTh', 'taxId', 'branchType', 'address', 'companyType', 'isActive']);
+      allow update: if isAppCheckVerified() && request.auth != null && (
+        isWebAdmin() ||
+        request.auth.token.get('role', '') == 'manager'
+      );
+      allow delete: if false;
+    }
+
     // Fallback for any collection not yet explicitly listed (deny after migration).
     match /{document=**} {
       allow read, write: if false;

@@ -108,6 +108,13 @@ export const COLLECTIONS = {
 
     /** Sequential invoice counters (one doc per customer+period, e.g. "abc123_202606") */
     BILLING_COUNTERS: "billing_counters",
+
+    /**
+     * Company profiles (one doc per legal entity).
+     * companyType = "owner"  → the logistics operator
+     * companyType = "subcontractor" → partner tenants
+     */
+    COMPANIES: "companies",
 } as const;
 
 /** Type for collection names */

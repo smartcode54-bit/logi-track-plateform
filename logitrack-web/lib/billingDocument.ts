@@ -17,6 +17,21 @@ import * as XLSX from "xlsx";
 import { format } from "date-fns";
 import { BILLING_PROVIDER, WITHHOLDING_TAX_RATE } from "./billingConfig";
 
+// ─── Provider type (extends BILLING_PROVIDER with optional stamp/signature) ──
+
+export interface BillingProviderInfo {
+  name: string;
+  address: string;
+  taxId: string;
+  bankName?: string;
+  accountNumber?: string;
+  accountName?: string;
+  withholdingTaxRate?: number; // 0–100 (%). Falls back to WITHHOLDING_TAX_RATE (1%)
+  stampUrl?: string;
+  signatureUrl?: string;
+  signatoryName?: string;
+}
+
 // ─── Data types ─────────────────────────────────────────────────────────────
 
 export interface BillingTripRow {
@@ -93,6 +108,34 @@ async function loadThaiFont(): Promise<{ regular: string; bold: string }> {
   return _fontCache;
 }
 
+/**
+ * Fetch a remote image URL and return it as a base64 data string (no data URI prefix).
+ * Uses the same 8 KB chunk approach as loadThaiFont.
+ * Returns null on any fetch error so callers can skip gracefully.
+ */
+async function fetchImageAsBase64(url: string): Promise<string | null> {
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) return null;
+    const buf = await resp.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let binary = "";
+    const CHUNK = 8192;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      const slice = bytes.subarray(i, i + CHUNK);
+      for (let j = 0; j < slice.length; j++) binary += String.fromCharCode(slice[j]);
+    }
+    return btoa(binary);
+  } catch {
+    return null;
+  }
+}
+
+/** Detect image type from URL extension. Defaults to PNG. */
+function imageFormat(url: string): "PNG" | "JPEG" {
+  return url.toLowerCase().includes(".jpg") || url.toLowerCase().includes(".jpeg") ? "JPEG" : "PNG";
+}
+
 /** Register Sarabun (normal + bold + italic-as-normal) on a fresh jsPDF instance. */
 function registerThaiFont(doc: jsPDF, font: { regular: string; bold: string }): void {
   doc.addFileToVFS("Sarabun-Regular.ttf", font.regular);
@@ -163,15 +206,24 @@ async function buildInvoicePdf(
   period: BillingPeriod,
   isReceipt = false,
   invoiceNumberOverride?: string,
+  provider?: BillingProviderInfo,
 ): Promise<jsPDF> {
-  // Load & embed Thai font first
-  const font = await loadThaiFont();
+  // Resolve provider — fall back to hardcoded BILLING_PROVIDER for backward compatibility
+  const prov: BillingProviderInfo = provider ?? BILLING_PROVIDER;
+  const withholdingRate = (prov.withholdingTaxRate != null ? prov.withholdingTaxRate / 100 : null) ?? WITHHOLDING_TAX_RATE;
+
+  // Load & embed Thai font + optionally prefetch stamp/signature in parallel
+  const [font, stampBase64, signatureBase64] = await Promise.all([
+    loadThaiFont(),
+    prov.stampUrl ? fetchImageAsBase64(prov.stampUrl) : Promise.resolve(null),
+    prov.signatureUrl ? fetchImageAsBase64(prov.signatureUrl) : Promise.resolve(null),
+  ]);
 
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   registerThaiFont(doc, font);
 
   const grandTotal = trips.reduce((s, t) => s + t.billingEstimateThb, 0);
-  const withholdingTax = isReceipt ? 0 : Math.round(grandTotal * WITHHOLDING_TAX_RATE * 100) / 100;
+  const withholdingTax = isReceipt ? 0 : Math.round(grandTotal * withholdingRate * 100) / 100;
   const totalNet = grandTotal - withholdingTax;
   const invNumber = invoiceNumberOverride ?? invoiceNumber(period);
   const issuedDate = format(new Date(), "dd/MM/yyyy");
@@ -187,12 +239,12 @@ async function buildInvoicePdf(
   doc.setFontSize(9);
   doc.setFont("Sarabun", "bold");
   let y = 32;
-  doc.text(BILLING_PROVIDER.name, 14, y);
+  doc.text(prov.name, 14, y);
   doc.setFont("Sarabun", "normal");
   y += 5;
-  doc.text(BILLING_PROVIDER.address, 14, y);
+  doc.text(prov.address, 14, y);
   y += 5;
-  doc.text(`Tax ID: ${BILLING_PROVIDER.taxId}`, 14, y);
+  doc.text(`Tax ID: ${prov.taxId}`, 14, y);
 
   // ── Invoice meta (right) ──
   doc.setFont("Sarabun", "bold");
@@ -291,11 +343,14 @@ async function buildInvoicePdf(
   }
 
   // ── Bank info (invoice only) ──
-  if (!isReceipt && BILLING_PROVIDER.bankName) {
+  const bankName = prov.bankName || BILLING_PROVIDER.bankName;
+  const accountNumber = prov.accountNumber || BILLING_PROVIDER.accountNumber;
+  const accountName = prov.accountName || BILLING_PROVIDER.accountName;
+  if (!isReceipt && bankName) {
     doc.setFont("Sarabun", "normal");
     doc.setFontSize(9);
     doc.text(
-      `ชำระโดย: ${BILLING_PROVIDER.bankName} เลขที่ ${BILLING_PROVIDER.accountNumber} ชื่อบัญชี: ${BILLING_PROVIDER.accountName}`,
+      `ชำระโดย: ${bankName} เลขที่ ${accountNumber} ชื่อบัญชี: ${accountName}`,
       14,
       finalY + 28,
     );
@@ -313,12 +368,42 @@ async function buildInvoicePdf(
   const sigY = finalY + (customer.invoiceNote ? 55 : 45);
   doc.setFont("Sarabun", "normal");
   doc.setFontSize(9);
-  const cols = [40, 105, 170];
-  const labels = ["ผู้จัดทำวางบิล", "ตราประทับ", "ผู้รับวางบิล"];
-  for (let i = 0; i < 3; i++) {
-    doc.line(cols[i] - 25, sigY, cols[i] + 25, sigY);
-    doc.text(labels[i], cols[i], sigY + 5, { align: "center" });
+
+  // Left column: issuer (stamp + signature)
+  const stampX = 40;
+  const sigX = 105;  // center
+  const receiverX = 170;
+
+  // Stamp image — centered in middle column
+  if (stampBase64) {
+    try {
+      const fmt = imageFormat(prov.stampUrl ?? "");
+      // Position stamp centered around the middle column (x=105), above signature line
+      doc.addImage(`data:image/${fmt === "JPEG" ? "jpeg" : "png"};base64,${stampBase64}`, fmt, sigX - 18, sigY - 32, 36, 36);
+    } catch {
+      // silently skip if image corrupt
+    }
   }
+
+  // Signature image — above issuer line (left column)
+  if (signatureBase64) {
+    try {
+      const fmt = imageFormat(prov.signatureUrl ?? "");
+      doc.addImage(`data:image/${fmt === "JPEG" ? "jpeg" : "png"};base64,${signatureBase64}`, fmt, stampX - 22, sigY - 20, 44, 16);
+    } catch {
+      // silently skip
+    }
+  }
+
+  // Signature lines
+  doc.line(stampX - 25, sigY, stampX + 25, sigY);
+  doc.text(prov.signatoryName ?? "ผู้จัดทำวางบิล", stampX, sigY + 5, { align: "center" });
+
+  doc.line(sigX - 25, sigY, sigX + 25, sigY);
+  doc.text("ตราประทับ", sigX, sigY + 5, { align: "center" });
+
+  doc.line(receiverX - 25, sigY, receiverX + 25, sigY);
+  doc.text("ผู้รับวางบิล", receiverX, sigY + 5, { align: "center" });
 
   return doc;
 }
@@ -330,8 +415,9 @@ export async function generateInvoiceBlob(
   customer: BillingCustomer,
   period: BillingPeriod,
   invoiceNumberOverride?: string,
+  provider?: BillingProviderInfo,
 ): Promise<Blob> {
-  return (await buildInvoicePdf(trips, customer, period, false, invoiceNumberOverride)).output("blob") as Blob;
+  return (await buildInvoicePdf(trips, customer, period, false, invoiceNumberOverride, provider)).output("blob") as Blob;
 }
 
 export async function generateReceiptBlob(
@@ -339,8 +425,9 @@ export async function generateReceiptBlob(
   customer: BillingCustomer,
   period: BillingPeriod,
   invoiceNumberOverride?: string,
+  provider?: BillingProviderInfo,
 ): Promise<Blob> {
-  return (await buildInvoicePdf(trips, customer, period, true, invoiceNumberOverride)).output("blob") as Blob;
+  return (await buildInvoicePdf(trips, customer, period, true, invoiceNumberOverride, provider)).output("blob") as Blob;
 }
 
 export function generateDetailExcelBuffer(
@@ -426,14 +513,15 @@ export async function downloadBillingZip(
   customer: BillingCustomer,
   period: BillingPeriod,
   invoiceNumberOverride?: string,
+  provider?: BillingProviderInfo,
 ): Promise<void> {
   const mm = String(period.month).padStart(2, "0");
   const zipName = `invoice_CJSF_${period.year}${mm}.zip`;
 
   // Generate invoice + receipt in parallel (font is cached after first load)
   const [invoiceBlob, receiptBlob, excelBuffer] = await Promise.all([
-    generateInvoiceBlob(trips, customer, period, invoiceNumberOverride),
-    generateReceiptBlob(trips, customer, period, invoiceNumberOverride),
+    generateInvoiceBlob(trips, customer, period, invoiceNumberOverride, provider),
+    generateReceiptBlob(trips, customer, period, invoiceNumberOverride, provider),
     Promise.resolve(generateDetailExcelBuffer(trips, period)),
   ]);
 

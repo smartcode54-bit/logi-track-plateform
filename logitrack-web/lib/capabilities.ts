@@ -67,6 +67,10 @@ export const CAPABILITIES = {
   hr_manage_leave: "hr:manage_leave",
   hr_manage_holidays: "hr:manage_holidays",
 
+  // Company
+  company_view: "company:view",
+  company_manage: "company:manage",
+
   // Other
   waitlist_view: "waitlist:view",
   packages_view: "packages:view",
@@ -314,6 +318,16 @@ export const CAPABILITY_META: Record<
     description: "Active shipments",
     module: "Other",
   },
+  [CAPABILITIES.company_view]: {
+    title: "View Companies",
+    description: "View company list and profiles",
+    module: "Company",
+  },
+  [CAPABILITIES.company_manage]: {
+    title: "Manage Company",
+    description: "Edit company profile, upload stamp/signature, manage tenant settings",
+    module: "Company",
+  },
 };
 
 /** Route to capability mapping for route guards */
@@ -357,6 +371,9 @@ export const ROUTE_CAPABILITIES: Record<string, CapabilityId> = {
   "/app/accounting/income": CAPABILITIES.accounting_view_income,
   "/app/accounting/billing-document": CAPABILITIES.accounting_billing_document,
   "/app/accounting/billing-result": CAPABILITIES.accounting_billing_result,
+  "/app/companies": CAPABILITIES.company_view,
+  "/app/companies/new": CAPABILITIES.company_manage,
+  "/app/settings/company-profile": CAPABILITIES.company_manage,
   "/app/analytics": CAPABILITIES.reporting_view_analytics,
   "/app/payroll": CAPABILITIES.hr_view_payroll,
   "/app/leave-requests": CAPABILITIES.hr_view_leave,
