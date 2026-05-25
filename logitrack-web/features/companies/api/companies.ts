@@ -21,6 +21,17 @@ import type { Company, CompanyFormValues } from "@/validate/companySchema";
 export type CompanyWithId = Company & { id: string };
 
 /**
+ * Remove `undefined` values from an object before writing to Firestore.
+ * Firestore throws "Unsupported field value: undefined" if any field is undefined.
+ * Fields with empty string ("") are kept — only true `undefined` is stripped.
+ */
+function stripUndefined<T extends Record<string, unknown>>(obj: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([, v]) => v !== undefined)
+  ) as Partial<T>;
+}
+
+/**
  * Fetch the OWNER company (the logistics operator's own company profile).
  * Returns null if no owner company document exists yet.
  */
@@ -66,7 +77,7 @@ export async function createCompany(
   data: CompanyFormValues
 ): Promise<string> {
   const docRef = await addDoc(collection(db, COLLECTIONS.COMPANIES), {
-    ...data,
+    ...stripUndefined(data as Record<string, unknown>),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
@@ -81,7 +92,7 @@ export async function updateCompany(
   data: Partial<CompanyFormValues>
 ): Promise<void> {
   await updateDoc(doc(db, COLLECTIONS.COMPANIES, id), {
-    ...data,
+    ...stripUndefined(data as Record<string, unknown>),
     updatedAt: serverTimestamp(),
   });
 }

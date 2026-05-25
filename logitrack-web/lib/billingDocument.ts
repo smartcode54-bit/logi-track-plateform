@@ -228,17 +228,24 @@ async function buildInvoicePdf(
   const invNumber = invoiceNumberOverride ?? invoiceNumber(period);
   const issuedDate = format(new Date(), "dd/MM/yyyy");
 
-  const docTitle = isReceipt ? "ใบเสร็จรับเงิน" : "ใบวางบิล / ใบแจ้งหนี้";
-
   // ── Title ──
   doc.setFont("Sarabun", "bold");
-  doc.setFontSize(18);
-  doc.text(docTitle, 105, 20, { align: "center" });
+  if (isReceipt) {
+    doc.setFontSize(18);
+    doc.text("ใบเสร็จรับเงิน", 105, 20, { align: "center" });
+  } else {
+    // Two-line title: main doc type + sub label, so they never overlap
+    doc.setFontSize(16);
+    doc.text("ใบวางบิล", 105, 18, { align: "center" });
+    doc.setFontSize(11);
+    doc.setFont("Sarabun", "normal");
+    doc.text("(ใบแจ้งหนี้)", 105, 26, { align: "center" });
+  }
 
   // ── Provider block (left) ──
   doc.setFontSize(9);
   doc.setFont("Sarabun", "bold");
-  let y = 32;
+  let y = 34;
   doc.text(prov.name, 14, y);
   doc.setFont("Sarabun", "normal");
   y += 5;

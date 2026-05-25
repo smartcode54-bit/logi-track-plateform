@@ -186,18 +186,16 @@ export default function CompanyProfilePage() {
     const state = assets[type];
     return (
       <div className="flex flex-col gap-2">
-        <Label>{label}</Label>
-        <div className="flex items-start gap-4">
-          {state.url ? (
-            <div className="relative w-32 h-20 border rounded-md overflow-hidden bg-gray-50">
+        <Label>
+          {label} <span className="text-muted-foreground font-normal text-xs">(ไม่บังคับ)</span>
+        </Label>
+        <div className="flex items-center gap-4">
+          {state.url && (
+            <div className="relative w-28 h-16 border rounded-md overflow-hidden bg-muted/40 shrink-0">
               <Image src={state.url} alt={label} fill style={{ objectFit: "contain" }} unoptimized />
             </div>
-          ) : (
-            <div className="w-32 h-20 border-2 border-dashed border-gray-200 rounded-md flex items-center justify-center bg-gray-50 text-gray-400 text-xs text-center p-2">
-              ยังไม่มีรูป
-            </div>
           )}
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-1.5">
             <Button
               type="button"
               variant="outline"
@@ -211,7 +209,7 @@ export default function CompanyProfilePage() {
                 <><Upload className="w-3 h-3 mr-1" />{state.url ? t("company.asset.change") : t("company.asset.upload")}</>
               )}
             </Button>
-            <p className="text-xs text-muted-foreground max-w-48">{hint}</p>
+            <p className="text-xs text-muted-foreground max-w-56">{hint}</p>
           </div>
         </div>
         <input
