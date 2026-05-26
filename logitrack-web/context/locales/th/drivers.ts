@@ -191,4 +191,23 @@ export default {
 
     // Driver word for toast
     "drivers.word.driver": "พนักงานขับรถ",
+
+    // Login account section (New + Edit forms)
+    "drivers.form.loginAccount": "บัญชีเข้าใช้งานแอปมือถือ",
+    "drivers.form.loginAccount.desc": "สร้างบัญชี Login สำหรับพนักงานขับรถเพื่อเข้าใช้งานแอปมือถือ",
+    "drivers.form.loginAccount.toggle": "สร้างบัญชี Login",
+    "drivers.form.loginAccount.emailLabel": "อีเมลที่ใช้ Login",
+    "drivers.form.loginAccount.emailMissing": "กรุณากรอกอีเมลในขั้นตอนที่ 1 ก่อน",
+    "drivers.form.loginAccount.password": "รหัสผ่านเริ่มต้น",
+    "drivers.form.loginAccount.password.placeholder": "ขั้นต่ำ 6 ตัวอักษร",
+    "drivers.form.loginAccount.password.hint": "ถ้าไม่กรอก จะใช้เบอร์โทรศัพท์เป็นรหัสผ่านตั้งต้น",
+    "drivers.form.loginAccount.linked": "มีบัญชีผูกอยู่แล้ว",
+    "drivers.form.loginAccount.linkedUid": "UID: {uid}",
+    "drivers.form.loginAccount.noAccount": "ยังไม่มีบัญชี Login",
+    "drivers.form.loginAccount.createBtn": "สร้างบัญชี",
+    "drivers.form.loginAccount.securityNote": "จัดการเพิ่มเติมได้ที่ Security Center → Users",
+
+    // Toast
+    "drivers.toast.accountCreated": "สร้างบัญชีและผูกกับข้อมูลคนขับสำเร็จ",
+    "drivers.toast.accountCreateError": "ไม่สามารถสร้างบัญชีได้",
 };

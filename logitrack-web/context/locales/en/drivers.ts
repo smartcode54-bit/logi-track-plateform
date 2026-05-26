@@ -191,4 +191,23 @@ export default {
 
     // Driver word for toast
     "drivers.word.driver": "Driver",
+
+    // Login account section (New + Edit forms)
+    "drivers.form.loginAccount": "Mobile App Login Account",
+    "drivers.form.loginAccount.desc": "Create login credentials for the driver to access the mobile app.",
+    "drivers.form.loginAccount.toggle": "Create login account",
+    "drivers.form.loginAccount.emailLabel": "Login email",
+    "drivers.form.loginAccount.emailMissing": "Enter email in Step 1 first",
+    "drivers.form.loginAccount.password": "Initial password",
+    "drivers.form.loginAccount.password.placeholder": "Min 6 characters",
+    "drivers.form.loginAccount.password.hint": "Leave blank to use mobile number as default password",
+    "drivers.form.loginAccount.linked": "Account linked",
+    "drivers.form.loginAccount.linkedUid": "UID: {uid}",
+    "drivers.form.loginAccount.noAccount": "No login account yet",
+    "drivers.form.loginAccount.createBtn": "Create account",
+    "drivers.form.loginAccount.securityNote": "Managed via Security Center → Users",
+
+    // Toast
+    "drivers.toast.accountCreated": "Login account created and linked successfully",
+    "drivers.toast.accountCreateError": "Failed to create login account",
 };

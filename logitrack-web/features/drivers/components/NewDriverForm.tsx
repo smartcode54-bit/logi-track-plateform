@@ -26,8 +26,9 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import {
     Loader2, ArrowLeft, CheckCircle2, Upload, User,
-    FileText, Truck, X
+    FileText, Truck, X, KeyRound, Eye, EyeOff,
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import Link from "next/link";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -50,6 +51,11 @@ export default function NewDriverForm() {
     ];
     const [currentStep, setCurrentStep] = useState(1);
     const [isSubmitting, setIsSubmitting] = useState(false);
+
+    // Login account section state
+    const [createLoginAccount, setCreateLoginAccount] = useState(false);
+    const [loginPassword, setLoginPassword] = useState("");
+    const [showPassword, setShowPassword] = useState(false);
 
     // File states
     const [selectedImage, setSelectedImage] = useState<File | null>(null);
@@ -76,6 +82,7 @@ export default function NewDriverForm() {
     });
 
     // Fetch subs
+    const watchedEmail = form.watch("email");
     const employmentType = form.watch("employmentType");
     useEffect(() => {
         const fetchSubcontractors = async () => {
@@ -121,7 +128,10 @@ export default function NewDriverForm() {
                 license: truckLicenseFile
             };
 
-            await createDriver(data, files);
+            await createDriver(data, files, {
+                createAccount: createLoginAccount,
+                password: loginPassword || undefined,
+            });
 
             toast.success(`${t("drivers.word.driver")} ${data.firstName} ${data.lastName} ${t("drivers.toast.registerSuccess")}`);
             router.push("/app/drivers");
@@ -401,6 +411,57 @@ export default function NewDriverForm() {
                                                     </FormItem>
                                                 )} />
                                             </CardContent>
+                                        </Card>
+
+                                        {/* Login Account Card */}
+                                        <Card className="border-none shadow-sm">
+                                            <CardHeader>
+                                                <CardTitle className="flex items-center justify-between text-base">
+                                                    <div className="flex items-center gap-2">
+                                                        <KeyRound className="h-4 w-4 text-primary" />
+                                                        {t("drivers.form.loginAccount")}
+                                                    </div>
+                                                    <Switch
+                                                        checked={createLoginAccount}
+                                                        onCheckedChange={setCreateLoginAccount}
+                                                    />
+                                                </CardTitle>
+                                                <CardDescription>{t("drivers.form.loginAccount.desc")}</CardDescription>
+                                            </CardHeader>
+                                            {createLoginAccount && (
+                                                <CardContent className="space-y-4">
+                                                    {watchedEmail ? (
+                                                        <div className="text-sm text-muted-foreground">
+                                                            <span>{t("drivers.form.loginAccount.emailLabel")}: </span>
+                                                            <span className="font-medium text-foreground">{watchedEmail}</span>
+                                                        </div>
+                                                    ) : (
+                                                        <p className="text-sm text-amber-600 flex items-center gap-1">
+                                                            ⚠ {t("drivers.form.loginAccount.emailMissing")}
+                                                        </p>
+                                                    )}
+                                                    <div className="space-y-1">
+                                                        <label className="text-sm font-medium">{t("drivers.form.loginAccount.password")}</label>
+                                                        <div className="relative">
+                                                            <Input
+                                                                type={showPassword ? "text" : "password"}
+                                                                placeholder={t("drivers.form.loginAccount.password.placeholder")}
+                                                                value={loginPassword}
+                                                                onChange={e => setLoginPassword(e.target.value)}
+                                                                className="pr-10"
+                                                            />
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setShowPassword(v => !v)}
+                                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                                            >
+                                                                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                                            </button>
+                                                        </div>
+                                                        <p className="text-xs text-muted-foreground">{t("drivers.form.loginAccount.password.hint")}</p>
+                                                    </div>
+                                                </CardContent>
+                                            )}
                                         </Card>
                                     </div>
                                 )}

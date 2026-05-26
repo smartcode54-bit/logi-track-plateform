@@ -48,26 +48,28 @@ interface DriverFiles {
     license: File | null;
 }
 
-export const createDriver = async (data: Driver, files: DriverFiles) => {
+export interface LoginAccountConfig {
+    createAccount: boolean;
+    password?: string;
+}
+
+export const createDriver = async (
+    data: Driver,
+    files: DriverFiles,
+    loginAccount?: LoginAccountConfig,
+): Promise<{ driverId?: string; authId?: string }> => {
     try {
-        // 1. Upload Files
-        let profileUrl = undefined;
-        let idCardUrl = undefined;
-        let licenseUrl = undefined;
-
         const timestamp = Date.now();
+        const profileUrl = files.profile
+            ? await uploadDriverFile(files.profile, `drivers/profile/${timestamp}_${files.profile.name}`)
+            : undefined;
+        const idCardUrl = files.idCard
+            ? await uploadDriverFile(files.idCard, `drivers/documents/${timestamp}_id_card_${files.idCard.name}`)
+            : undefined;
+        const licenseUrl = files.license
+            ? await uploadDriverFile(files.license, `drivers/documents/${timestamp}_license_${files.license.name}`)
+            : undefined;
 
-        if (files.profile) {
-            profileUrl = await uploadDriverFile(files.profile, `drivers/profile/${timestamp}_${files.profile.name}`);
-        }
-        if (files.idCard) {
-            idCardUrl = await uploadDriverFile(files.idCard, `drivers/documents/${timestamp}_id_card_${files.idCard.name}`);
-        }
-        if (files.license) {
-            licenseUrl = await uploadDriverFile(files.license, `drivers/documents/${timestamp}_license_${files.license.name}`);
-        }
-
-        // 2. Construct Final Data
         const finalData = removeUndefined({
             ...data,
             profileImage: profileUrl,
@@ -75,13 +77,16 @@ export const createDriver = async (data: Driver, files: DriverFiles) => {
             truckLicenseImage: licenseUrl,
         });
 
-        // 3. Call Cloud Function
-        const createDriverAccount = httpsCallable(functions, 'createDriverAccount');
-        const result = await createDriverAccount(finalData);
+        const callData: Record<string, unknown> = { ...finalData };
+        if (!loginAccount?.createAccount) {
+            callData.skipAuthCreation = true;
+        } else if (loginAccount.password) {
+            callData.loginPassword = loginAccount.password;
+        }
 
-        console.log("Driver created via Cloud Function:", result.data);
-
-        return true;
+        const createDriverAccountFn = httpsCallable(functions, 'createDriverAccount');
+        const result = await createDriverAccountFn(callData);
+        return (result.data ?? {}) as { driverId?: string; authId?: string };
     } catch (error) {
         console.error("Error creating driver:", error);
         throw error;

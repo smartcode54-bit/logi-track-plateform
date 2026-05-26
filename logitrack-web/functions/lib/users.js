@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.syncExistingUsers = exports.setUserDisabled = exports.createUser = exports.updateUserRole = exports.getUsers = void 0;
+exports.syncExistingUsers = exports.linkDriverToUser = exports.setUserDisabled = exports.createUser = exports.updateUserRole = exports.getUsers = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const securityEvents_1 = require("./securityEvents");
@@ -204,7 +204,7 @@ exports.createUser = (0, https_1.onCall)(async (request) => {
     if (request.auth.token.admin !== true) {
         throw new https_1.HttpsError("permission-denied", "Only admins can create users");
     }
-    const { email, password, displayName, role, partnerScopeId, customerScopeId } = request.data;
+    const { email, password, displayName, role, partnerScopeId, customerScopeId, driverDocId } = request.data;
     if (!email || !password || !displayName) {
         throw new https_1.HttpsError("invalid-argument", "Email, password, and display name are required");
     }
@@ -226,6 +226,11 @@ exports.createUser = (0, https_1.onCall)(async (request) => {
         if (userRole === 'customer' && typeof customerScopeId === 'string' && customerScopeId.trim() !== '') {
             claims.customerScopeId = customerScopeId.trim();
         }
+        // When creating a driver account linked to an existing driver doc, embed driverId in claims
+        // so the mobile app can resolve assigned tasks without an extra Firestore lookup.
+        if (userRole === 'driver' && typeof driverDocId === 'string' && driverDocId.trim() !== '') {
+            claims.driverId = driverDocId.trim();
+        }
         await admin.auth().setCustomUserClaims(userRecord.uid, claims);
         try {
             const userDoc = { role: userRole };
@@ -239,6 +244,19 @@ exports.createUser = (0, https_1.onCall)(async (request) => {
         }
         catch (dbErr) {
             console.error("[createUser] Firestore sync:", dbErr);
+        }
+        // Link to driver document if provided — writes authId so the mobile app can find tasks
+        if (typeof driverDocId === "string" && driverDocId.trim()) {
+            try {
+                await admin.firestore().collection("drivers").doc(driverDocId.trim()).update({
+                    authId: userRecord.uid,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+                console.log(`[createUser] Linked driver doc ${driverDocId} → uid ${userRecord.uid}`);
+            }
+            catch (linkErr) {
+                console.error("[createUser] Failed to link driver doc:", linkErr);
+            }
         }
         try {
             const actorEmail = request.auth.token.email;
@@ -332,6 +350,44 @@ exports.setUserDisabled = (0, https_1.onCall)(async (request) => {
         console.error(`[setUserDisabled] Error:`, error);
         throw new https_1.HttpsError("internal", `Failed to update disabled state: ${error?.message || error}`);
     }
+});
+/**
+ * Callable: Link (or unlink) a Firebase Auth user to a drivers/{driverDocId} document
+ * by writing authId into the driver doc. This lets the mobile app find assigned tasks.
+ * If driverDocId is empty, the existing link is cleared.
+ */
+exports.linkDriverToUser = (0, https_1.onCall)(async (request) => {
+    if (!request.auth || request.auth.token.admin !== true) {
+        throw new https_1.HttpsError("permission-denied", "Admin only");
+    }
+    const { targetUid, driverDocId } = request.data;
+    if (!targetUid)
+        throw new https_1.HttpsError("invalid-argument", "targetUid is required");
+    const firestore = admin.firestore();
+    // Remove authId from any driver doc currently linked to this UID
+    try {
+        const existing = await firestore.collection("drivers")
+            .where("authId", "==", targetUid)
+            .limit(1)
+            .get();
+        if (!existing.empty) {
+            await existing.docs[0].ref.update({
+                authId: admin.firestore.FieldValue.delete(),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+        }
+    }
+    catch (err) {
+        console.error("[linkDriverToUser] Failed to clear old link:", err);
+    }
+    if (typeof driverDocId === "string" && driverDocId.trim()) {
+        await firestore.collection("drivers").doc(driverDocId.trim()).update({
+            authId: targetUid,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        console.log(`[linkDriverToUser] Linked driver doc ${driverDocId} → uid ${targetUid}`);
+    }
+    return { success: true };
 });
 /**
  * Callable: Utility to sync existing users to Firestore (Admin only)

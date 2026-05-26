@@ -217,6 +217,11 @@ export const createUser = onCall(async (request) => {
         if (userRole === 'customer' && typeof customerScopeId === 'string' && customerScopeId.trim() !== '') {
             claims.customerScopeId = customerScopeId.trim();
         }
+        // When creating a driver account linked to an existing driver doc, embed driverId in claims
+        // so the mobile app can resolve assigned tasks without an extra Firestore lookup.
+        if (userRole === 'driver' && typeof driverDocId === 'string' && driverDocId.trim() !== '') {
+            claims.driverId = driverDocId.trim();
+        }
 
         await admin.auth().setCustomUserClaims(userRecord.uid, claims as { [key: string]: unknown });
 

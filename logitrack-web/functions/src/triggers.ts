@@ -50,56 +50,47 @@ export const createDriverAccount = onCall(
         region: "asia-southeast1",
     },
     async (request) => {
-        // Ensure the user calling this is an admin (optional but recommended)
-        // if (!request.auth || request.auth.token.role !== 'admin') {
-        //     throw new HttpsError('permission-denied', 'Only admins can create drivers.');
-        // }
-
         const data = request.data;
-        const { email, mobile, firstName, lastName } = data;
+        const { email, mobile, firstName, lastName, loginPassword, skipAuthCreation } = data;
 
-        if (!email || !mobile || !firstName || !lastName) {
-            throw new HttpsError("invalid-argument", "Missing required fields: email, mobile, firstName, lastName");
+        if (!mobile || !firstName || !lastName) {
+            throw new HttpsError("invalid-argument", "Missing required fields: mobile, firstName, lastName");
         }
 
         try {
-            // 1. Create Firestore Document first (to get an ID, or use auto-id)
-            // or we can create Auth first. 
-            // Let's create Auth first to ensure we can.
+            let authUid: string | undefined;
 
-            let userRecord;
-            let password = mobile.replace(/[^0-9]/g, ""); // Default password
-            if (password.length < 6) password = "password123"; // Fallback
+            // Create Auth user only when email is provided and creation is not explicitly skipped
+            if (email && !skipAuthCreation) {
+                let userRecord;
+                const rawPassword = loginPassword && String(loginPassword).trim().length >= 6
+                    ? String(loginPassword).trim()
+                    : mobile.replace(/[^0-9]/g, "");
+                const password = rawPassword.length >= 6 ? rawPassword : "password123";
 
-            try {
-                userRecord = await admin.auth().getUserByEmail(email);
-                console.log(`[createDriverAccount] User already exists: ${userRecord.uid}`);
-                // If user exists, we might want to fail OR just link. 
-                // Creating a duplicate driver for an existing auth user might be weird.
-                // For now, let's allow it but warn.
-            } catch (error: any) {
-                if (error.code === "auth/user-not-found") {
-                    try {
-                        userRecord = await admin.auth().createUser({
-                            email: email,
-                            password: password,
-                            displayName: `${firstName} ${lastName}`,
-                            // phoneNumber: mobile, // Optional, can cause issues if format is wrong
-                            disabled: false,
-                        });
-                        console.log(`[createDriverAccount] Created new Auth user: ${userRecord.uid}`);
-                    } catch (createError: any) {
-                        console.error("Error creating auth user:", createError);
-                        throw new HttpsError("aborted", "Failed to create Auth user: " + createError.message);
+                try {
+                    userRecord = await admin.auth().getUserByEmail(email);
+                    console.log(`[createDriverAccount] User already exists: ${userRecord.uid}`);
+                } catch (error: any) {
+                    if (error.code === "auth/user-not-found") {
+                        try {
+                            userRecord = await admin.auth().createUser({
+                                email,
+                                password,
+                                displayName: `${firstName} ${lastName}`,
+                                disabled: false,
+                            });
+                            console.log(`[createDriverAccount] Created new Auth user: ${userRecord.uid}`);
+                        } catch (createError: any) {
+                            console.error("Error creating auth user:", createError);
+                            throw new HttpsError("aborted", "Failed to create Auth user: " + createError.message);
+                        }
+                    } else {
+                        throw new HttpsError("internal", "Error checking for existing user: " + error.message);
                     }
-                } else {
-                    throw new HttpsError("internal", "Error checking for existing user: " + error.message);
                 }
+                authUid = userRecord.uid;
             }
-
-            // 2. Create Driver Document in Firestore
-            // We use the data passed from client.
-            // Client should pass the full driver object ready for Firestore (except timestamps).
 
             const initialStatusHistory = [{
                 status: data.status || "Active",
@@ -109,27 +100,32 @@ export const createDriverAccount = onCall(
                 reason: "Initial Registration"
             }];
 
-            const driverData = {
-                ...data,
+            // Strip CF-only params so they don't land in Firestore
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const { loginPassword: _lp, skipAuthCreation: _skip, ...driverFields } = data;
+
+            const driverData: Record<string, unknown> = {
+                ...driverFields,
                 statusHistory: initialStatusHistory,
-                authId: userRecord.uid,
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             };
 
-            // Clean up undefined values if any (Firestore doesn't like them)
-            // But 'data' from onCall is JSON, so no undefineds usually, just nulls or missing.
+            if (authUid) {
+                driverData.authId = authUid;
+            }
 
             const docRef = await admin.firestore().collection("drivers").add(driverData);
             const driverId = docRef.id;
 
-            // 3. Set Custom Claims
-            await admin.auth().setCustomUserClaims(userRecord.uid, {
-                role: "driver",
-                driverId: driverId,
-            });
+            if (authUid) {
+                await admin.auth().setCustomUserClaims(authUid, {
+                    role: "driver",
+                    driverId,
+                });
+            }
 
-            return { success: true, driverId: driverId, authId: userRecord.uid };
+            return { success: true, driverId, ...(authUid ? { authId: authUid } : {}) };
 
         } catch (error: any) {
             console.error("[createDriverAccount] Error:", error);

@@ -26,14 +26,15 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import {
     Loader2, ArrowLeft, CheckCircle2, Upload, User,
-    FileText, Truck, Save, X, Building2
+    FileText, Truck, Save, X, Building2, KeyRound, Eye, EyeOff, ShieldCheck, ShieldOff,
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { DatePicker } from "@/components/ui/date-picker";
 import { format } from "date-fns";
-import { db } from "@/firebase/client";
+import { db, functions } from "@/firebase/client";
 import { collection, getDocs, query } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
 import { COLLECTIONS } from "@/lib/collections";
 import Image from "next/image";
 import { useLanguage } from "@/context/language";
@@ -46,6 +47,14 @@ export default function EditDriverForm() {
 
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
+
+    // Auth account state
+    const [driverAuthId, setDriverAuthId] = useState<string | null>(null);
+    const [showCreateAccount, setShowCreateAccount] = useState(false);
+    const [accountEmail, setAccountEmail] = useState("");
+    const [accountPassword, setAccountPassword] = useState("");
+    const [showPassword, setShowPassword] = useState(false);
+    const [isCreatingAccount, setIsCreatingAccount] = useState(false);
 
     // File states - for NEW uploads
     const [selectedImage, setSelectedImage] = useState<File | null>(null);
@@ -87,6 +96,7 @@ export default function EditDriverForm() {
             try {
                 const driver = await getDriverByIdClient(driverId);
                 if (driver) {
+                    setDriverAuthId((driver as any).authId || null);
                     const formData = {
                         ...driver,
                         email: driver.email || "",
@@ -152,6 +162,31 @@ export default function EditDriverForm() {
         setSelectedImage(null);
         setImagePreview(null);
         form.setValue("profileImage", undefined);
+    };
+
+    const handleCreateAccount = async () => {
+        if (!driverId || !accountEmail || !accountPassword) return;
+        setIsCreatingAccount(true);
+        try {
+            const createUserFn = httpsCallable(functions, 'createUser');
+            const result = await createUserFn({
+                email: accountEmail,
+                password: accountPassword,
+                displayName: `${form.getValues('firstName')} ${form.getValues('lastName')}`,
+                role: 'driver',
+                driverDocId: driverId,
+            });
+            const data = result.data as { uid?: string };
+            setDriverAuthId(data.uid || "linked");
+            setShowCreateAccount(false);
+            setAccountEmail("");
+            setAccountPassword("");
+            toast.success(t("drivers.toast.accountCreated"));
+        } catch {
+            toast.error(t("drivers.toast.accountCreateError"));
+        } finally {
+            setIsCreatingAccount(false);
+        }
     };
 
     const onSubmit = async (data: Driver) => {
@@ -491,6 +526,97 @@ export default function EditDriverForm() {
                                         />
                                     </div>
                                 </div>
+                            </CardContent>
+                        </Card>
+
+                        {/* Auth Account Card */}
+                        <Card>
+                            <CardHeader>
+                                <CardTitle className="flex items-center gap-2 text-base">
+                                    <KeyRound className="h-4 w-4 text-primary" />
+                                    {t("drivers.form.loginAccount")}
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                {driverAuthId ? (
+                                    <div className="flex items-start gap-3 p-3 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                                        <ShieldCheck className="h-5 w-5 text-green-600 mt-0.5 shrink-0" />
+                                        <div className="space-y-0.5">
+                                            <p className="text-sm font-medium text-green-700 dark:text-green-400">
+                                                {t("drivers.form.loginAccount.linked")}
+                                            </p>
+                                            <p className="text-xs text-muted-foreground font-mono break-all">
+                                                {t("drivers.form.loginAccount.linkedUid", { uid: driverAuthId })}
+                                            </p>
+                                            <p className="text-xs text-muted-foreground">
+                                                {t("drivers.form.loginAccount.securityNote")}
+                                            </p>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-4">
+                                        <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                                            <ShieldOff className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
+                                            <p className="text-sm text-amber-700 dark:text-amber-400">
+                                                {t("drivers.form.loginAccount.noAccount")}
+                                            </p>
+                                        </div>
+                                        {!showCreateAccount ? (
+                                            <Button type="button" variant="outline" size="sm" onClick={() => setShowCreateAccount(true)}>
+                                                <KeyRound className="h-4 w-4 mr-2" />
+                                                {t("drivers.form.loginAccount.createBtn")}
+                                            </Button>
+                                        ) : (
+                                            <div className="space-y-3 p-4 border rounded-lg">
+                                                <div className="space-y-1">
+                                                    <label className="text-sm font-medium">{t("drivers.form.loginAccount.emailLabel")}</label>
+                                                    <Input
+                                                        type="email"
+                                                        placeholder={t("drivers.form.email.placeholder")}
+                                                        value={accountEmail}
+                                                        onChange={e => setAccountEmail(e.target.value)}
+                                                    />
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <label className="text-sm font-medium">{t("drivers.form.loginAccount.password")}</label>
+                                                    <div className="relative">
+                                                        <Input
+                                                            type={showPassword ? "text" : "password"}
+                                                            placeholder={t("drivers.form.loginAccount.password.placeholder")}
+                                                            value={accountPassword}
+                                                            onChange={e => setAccountPassword(e.target.value)}
+                                                            className="pr-10"
+                                                        />
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setShowPassword(v => !v)}
+                                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                                        >
+                                                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                <div className="flex gap-2">
+                                                    <Button
+                                                        type="button"
+                                                        size="sm"
+                                                        onClick={handleCreateAccount}
+                                                        disabled={isCreatingAccount || !accountEmail || !accountPassword}
+                                                    >
+                                                        {isCreatingAccount ? (
+                                                            <><Loader2 className="h-4 w-4 animate-spin mr-2" />{t("drivers.form.saving")}</>
+                                                        ) : (
+                                                            t("drivers.form.loginAccount.createBtn")
+                                                        )}
+                                                    </Button>
+                                                    <Button type="button" variant="ghost" size="sm" onClick={() => setShowCreateAccount(false)}>
+                                                        {t("drivers.form.cancel")}
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </CardContent>
                         </Card>
 
