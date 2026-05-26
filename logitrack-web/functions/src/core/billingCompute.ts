@@ -124,12 +124,13 @@ export function selectBillingRateEntry(
     billDateMs: number,
     rateEntries: BillingRateEntry[]
 ): BillingRateEntry | null {
+    const normalizedVehicleClass = normalizeVehicleClass(vehicleClass);
     const candidates = rateEntries.filter(
         (entry) =>
             entry.customerId === customerId &&
             entry.hubId === hubId &&
             entry.destinationCode === destinationCode &&
-            entry.vehicleClass === vehicleClass
+            normalizeVehicleClass(entry.vehicleClass) === normalizedVehicleClass
     );
     if (candidates.length === 0) return null;
 

@@ -18,7 +18,7 @@ import {
 import { httpsCallable } from "firebase/functions";
 import { functions } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
-import { normalizeDestinationCode } from "@/lib/billingCompute";
+import { normalizeDestinationCode, normalizeVehicleClass } from "@/lib/billingCompute";
 
 export type VehicleExpenseType = "fuel" | "other";
 
@@ -354,7 +354,7 @@ export async function batchCreateCustomerRateEntries(
         for (const row of chunk) {
             const hubId = normalizeCode(row.hubId);
             const destinationCode = normalizeDestinationCode(row.destinationCode);
-            const vehicleClass = normalizeCode(row.vehicleClass || "4WJ");
+            const vehicleClass = normalizeVehicleClass(row.vehicleClass || "4WJ");
             const ref = doc(colRef);
             batch.set(ref, {
                 customerId: normalizedCustomerId,
@@ -386,7 +386,7 @@ export async function createCustomerRateEntry(
     if (!normalizedCustomerId) throw new Error("Customer is required");
     const hubId = normalizeCode(row.hubId);
     const destinationCode = normalizeDestinationCode(row.destinationCode);
-    const vehicleClass = normalizeCode(row.vehicleClass || "4WJ");
+    const vehicleClass = normalizeVehicleClass(row.vehicleClass || "4WJ");
     if (!hubId || !destinationCode) throw new Error("hubId and destinationCode are required");
     if (!Number.isFinite(row.rateThb)) throw new Error("rateThb is required");
 
@@ -461,7 +461,7 @@ export async function updateCustomerRateEntry(
         payload.distanceKm = Number(updates.distanceKm);
     }
     if (updates.vehicleClass?.trim()) {
-        payload.vehicleClass = normalizeCode(updates.vehicleClass);
+        payload.vehicleClass = normalizeVehicleClass(updates.vehicleClass);
     }
     if (updates.effectiveFrom) {
         payload.effectiveFrom = Timestamp.fromDate(parseDateOnly(updates.effectiveFrom));
