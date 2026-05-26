@@ -538,7 +538,7 @@ export default function DriverMonitorDashboard() {
             .map((h) => ({
                 value: h.source_id,
                 label: getSourceDisplayName(h.source_id),
-                type: "hub",
+                type: h.station_type === "SOC" ? "soc" : "hub",
                 linkedCustomerId: h.linkedCustomerId,
                 linkedCustomerName: h.linkedCustomerName,
                 linkedCustomerKind: h.customerLinkKind ?? "customer",

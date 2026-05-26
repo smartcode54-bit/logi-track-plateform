@@ -142,6 +142,13 @@ export default {
     "driverMonitor.detail.billingPerStop": "Billing per stop",
     "driverMonitor.detail.total": "Total",
 
+    // Edit Trip Dialog - Route & Job Type
+    "driverMonitor.editTrip.routeSection": "Route",
+    "driverMonitor.editTrip.selectOrigin": "Select origin",
+    "driverMonitor.editTrip.swapOriginDest": "Swap origin & destination",
+    "driverMonitor.editTrip.jobTypeLabel": "Job Type",
+    "driverMonitor.editTrip.jobTypeAutoDetected": "(auto from origin)",
+
     // Edit Trip Dialog - Delivery Stops
     "driverMonitor.editTrip.deliveryStopsSection": "Delivery Stops",
     "driverMonitor.editTrip.addStop": "Add Delivery Stop",

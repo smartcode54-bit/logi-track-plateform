@@ -142,6 +142,13 @@ export default {
     "driverMonitor.detail.billingPerStop": "ค่าบริการต่อจุด",
     "driverMonitor.detail.total": "รวมทั้งสิ้น",
 
+    // Edit Trip Dialog - Route & Job Type
+    "driverMonitor.editTrip.routeSection": "เส้นทาง",
+    "driverMonitor.editTrip.selectOrigin": "เลือกต้นทาง",
+    "driverMonitor.editTrip.swapOriginDest": "สลับต้นทาง/ปลายทาง",
+    "driverMonitor.editTrip.jobTypeLabel": "ประเภทงาน",
+    "driverMonitor.editTrip.jobTypeAutoDetected": "(อัตโนมัติจากต้นทาง)",
+
     // Edit Trip Dialog - Delivery Stops
     "driverMonitor.editTrip.deliveryStopsSection": "จุดส่งมอบ",
     "driverMonitor.editTrip.addStop": "เพิ่มจุดส่ง",

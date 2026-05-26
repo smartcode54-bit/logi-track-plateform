@@ -183,13 +183,14 @@ export const createUser = onCall(async (request) => {
         throw new HttpsError("permission-denied", "Only admins can create users");
     }
 
-    const { email, password, displayName, role, partnerScopeId, customerScopeId } = request.data as {
+    const { email, password, displayName, role, partnerScopeId, customerScopeId, driverDocId } = request.data as {
         email?: string;
         password?: string;
         displayName?: string;
         role?: string;
         partnerScopeId?: string;
         customerScopeId?: string;
+        driverDocId?: string;
     };
 
     if (!email || !password || !displayName) {
@@ -230,6 +231,19 @@ export const createUser = onCall(async (request) => {
             await admin.firestore().collection("users").doc(userRecord.uid).set(userDoc, { merge: true });
         } catch (dbErr) {
             console.error("[createUser] Firestore sync:", dbErr);
+        }
+
+        // Link to driver document if provided — writes authId so the mobile app can find tasks
+        if (typeof driverDocId === "string" && driverDocId.trim()) {
+            try {
+                await admin.firestore().collection("drivers").doc(driverDocId.trim()).update({
+                    authId: userRecord.uid,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+                console.log(`[createUser] Linked driver doc ${driverDocId} → uid ${userRecord.uid}`);
+            } catch (linkErr) {
+                console.error("[createUser] Failed to link driver doc:", linkErr);
+            }
         }
 
         try {
@@ -331,6 +345,49 @@ export const setUserDisabled = onCall(async (request) => {
         console.error(`[setUserDisabled] Error:`, error);
         throw new HttpsError("internal", `Failed to update disabled state: ${error?.message || error}`);
     }
+});
+
+/**
+ * Callable: Link (or unlink) a Firebase Auth user to a drivers/{driverDocId} document
+ * by writing authId into the driver doc. This lets the mobile app find assigned tasks.
+ * If driverDocId is empty, the existing link is cleared.
+ */
+export const linkDriverToUser = onCall(async (request) => {
+    if (!request.auth || request.auth.token.admin !== true) {
+        throw new HttpsError("permission-denied", "Admin only");
+    }
+
+    const { targetUid, driverDocId } = request.data as { targetUid?: string; driverDocId?: string };
+
+    if (!targetUid) throw new HttpsError("invalid-argument", "targetUid is required");
+
+    const firestore = admin.firestore();
+
+    // Remove authId from any driver doc currently linked to this UID
+    try {
+        const existing = await firestore.collection("drivers")
+            .where("authId", "==", targetUid)
+            .limit(1)
+            .get();
+        if (!existing.empty) {
+            await existing.docs[0].ref.update({
+                authId: admin.firestore.FieldValue.delete(),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+        }
+    } catch (err) {
+        console.error("[linkDriverToUser] Failed to clear old link:", err);
+    }
+
+    if (typeof driverDocId === "string" && driverDocId.trim()) {
+        await firestore.collection("drivers").doc(driverDocId.trim()).update({
+            authId: targetUid,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        console.log(`[linkDriverToUser] Linked driver doc ${driverDocId} → uid ${targetUid}`);
+    }
+
+    return { success: true };
 });
 
 /**

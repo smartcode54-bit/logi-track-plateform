@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import {
     Dialog,
     DialogContent,
@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Camera, Loader2, ExternalLink, ImagePlus, Lock, Plus, Trash2 } from "lucide-react";
+import { Camera, Loader2, ExternalLink, ImagePlus, Lock, Plus, Trash2, ArrowLeftRight } from "lucide-react";
 import { doc, updateDoc, serverTimestamp, getDocs, collection, query, where, limit, deleteField } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db } from "@/firebase/client";
@@ -19,7 +19,7 @@ import { functions } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { uploadTripPhoto } from "@/lib/uploadTripPhoto";
 import { dedupeTripPhotosByTypeLastWins } from "@/lib/trip-photo-utils";
-import { TRIP_PHOTO_TYPE_ENUM, type TripRecord, type TripPhoto, type DeliveryStopProgress } from "@/validate/tripRecordSchema";
+import { TRIP_PHOTO_TYPE_ENUM, TRIP_JOB_TYPE_ENUM, type TripRecord, type TripPhoto, type DeliveryStopProgress } from "@/validate/tripRecordSchema";
 import { useLanguage } from "@/context/language";
 import { effectivePartnerCode } from "@/features/drivers/hooks/useDriverMonitor";
 import { ReportIncidentModal } from "@/app/app/chat/components/ReportIncidentModal";
@@ -82,6 +82,8 @@ export function EditTripDetailsDialog({
     const [spxTripId, setSpxTripId] = useState(trip.spxTripId ?? "");
     const [sealCode, setSealCode] = useState(trip.sealCode ?? "");
     const [partnerCode, setPartnerCode] = useState("");
+    const [localOrigin, setLocalOrigin] = useState(trip.origin ?? "");
+    const [localDestination, setLocalDestination] = useState(trip.destination ?? "");
     const [localStops, setLocalStops] = useState<DeliveryStopProgress[]>(trip.deliveryStopsProgress ?? []);
     const originalStopCountRef = useRef(trip.deliveryStopsProgress?.length ?? 0);
     const stopMetadataRef = useRef<Record<number, { linkedCustomerId?: string; linkedCustomerName?: string; linkedCustomerKind?: string }>>({});
@@ -136,6 +138,8 @@ export function EditTripDetailsDialog({
             initialPartnerEffectiveRef.current = eff;
             setPartnerCode(eff || "");
             setReplaceByType({});
+            setLocalOrigin(trip.origin ?? "");
+            setLocalDestination(trip.destination ?? "");
             setLocalStops(trip.deliveryStopsProgress ?? []);
             originalStopCountRef.current = trip.deliveryStopsProgress?.length ?? 0;
             if (trip.id) {
@@ -146,6 +150,26 @@ export function EditTripDetailsDialog({
         }
         dialogWasOpenRef.current = open;
     }, [open, trip]);
+
+    // Always derived from origin: Hub → first_mile, SOC → line_haul
+    const localJobType = useMemo<typeof TRIP_JOB_TYPE_ENUM[number]>(() => {
+        const opt = destinationOptions.find((o) => o.value === localOrigin);
+        if (opt?.type === "soc") return "line_haul";
+        if (opt?.type === "hub") return "first_mile";
+        return trip.jobType; // fallback when origin not yet resolved
+    }, [localOrigin, destinationOptions, trip.jobType]);
+
+    const hasRouteChanges =
+        localOrigin !== (trip.origin ?? "") ||
+        localDestination !== (trip.destination ?? "") ||
+        localJobType !== trip.jobType;
+
+    const handleOriginChange = (value: string) => setLocalOrigin(value);
+
+    const handleSwap = () => {
+        setLocalOrigin(localDestination);
+        setLocalDestination(localOrigin);
+    };
 
     const addStop = () => {
         setLocalStops((prev) => [
@@ -219,7 +243,7 @@ export function EditTripDetailsDialog({
             spxTripId !== (trip.spxTripId ?? "") ||
             sealCode !== (trip.sealCode ?? "") ||
             partnerChanged;
-        if (!hasPhotoChanges && !hasMetaChanges && !hasStopsChanged) {
+        if (!hasPhotoChanges && !hasMetaChanges && !hasStopsChanged && !hasRouteChanges) {
             onOpenChange(false);
             if (onSuccess) onSuccess();
             return;
@@ -267,6 +291,11 @@ export function EditTripDetailsDialog({
                     updateData.partnerCode = partnerTrim ? partnerTrim : deleteField();
                 }
             }
+            if (hasRouteChanges) {
+                if (localOrigin) updateData.origin = localOrigin;
+                if (localDestination) updateData.destination = localDestination;
+                updateData.jobType = localJobType;
+            }
             if (hasStopsChanged) {
                 updateData.deliveryStopsProgress = localStops.map((s) => ({
                     index: s.index,
@@ -306,6 +335,40 @@ export function EditTripDetailsDialog({
                 }
             }
 
+            // Sync route changes to task doc
+            if (hasRouteChanges && trip.taskId) {
+                try {
+                    const originOpt = destinationOptions.find((o) => o.value === localOrigin);
+                    const taskRouteUpdate: Record<string, unknown> = {
+                        taskType: localJobType === "first_mile" ? "FIRST_MILE" : "LINE_HAUL",
+                        updatedAt: serverTimestamp(),
+                    };
+                    if (localOrigin) taskRouteUpdate.sourceHub = localOrigin;
+                    if (localDestination) taskRouteUpdate.destination = localDestination;
+                    if (originOpt?.type === "hub" && originOpt.linkedCustomerId) {
+                        taskRouteUpdate.sourceHubLinkedCustomerId = originOpt.linkedCustomerId;
+                        taskRouteUpdate.sourceHubLinkedCustomerName = originOpt.linkedCustomerName ?? null;
+                        taskRouteUpdate.sourceHubCustomerLinkKind = originOpt.linkedCustomerKind ?? "customer";
+                    }
+                    await updateDoc(doc(db, COLLECTIONS.TASKS, trip.taskId), taskRouteUpdate);
+                } catch (e) {
+                    console.error("Failed to update task route:", e);
+                }
+            }
+
+            // Trigger billing recompute if route changed on a delivered trip
+            if (hasRouteChanges && trip.status === "delivered") {
+                try {
+                    const fn = httpsCallable<
+                        { tripId: string },
+                        { ok: boolean; billingEstimateThb?: number; error?: string }
+                    >(functions, "computeTripBillingSnapshot");
+                    await fn({ tripId: trip.id });
+                } catch (_) {
+                    // Fail silently — admin can backfill from Income page
+                }
+            }
+
             // Trigger billing recompute if stops changed and >= 3 delivered
             if (hasStopsChanged) {
                 const deliveredCount = localStops.filter(
@@ -339,7 +402,8 @@ export function EditTripDetailsDialog({
         spxTripId !== (trip.spxTripId ?? "") ||
         sealCode !== (trip.sealCode ?? "") ||
         partnerCode.trim() !== initialPartnerEffectiveRef.current.trim() ||
-        hasStopsChanged;
+        hasStopsChanged ||
+        hasRouteChanges;
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -382,11 +446,56 @@ export function EditTripDetailsDialog({
                                 />
                             </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm bg-muted/30 rounded-lg p-4">
-                            <span className="text-muted-foreground">{t("driverMonitor.detail.origin")}</span>
-                            <span>{getSourceDisplayName ? getSourceDisplayName(trip.origin) : (trip.origin || "-")}</span>
-                            <span className="text-muted-foreground">{t("driverMonitor.detail.destination")}</span>
-                            <span>{getSourceDisplayName ? getSourceDisplayName(trip.destination) : (trip.destination || "-")}</span>
+                        <div className="space-y-3 bg-muted/30 rounded-lg p-4">
+                            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                                {t("driverMonitor.editTrip.routeSection")}
+                            </h3>
+                            <div className="flex items-end gap-2">
+                                <div className="flex-1 space-y-1.5">
+                                    <label className="text-xs text-muted-foreground">{t("driverMonitor.detail.origin")}</label>
+                                    <Combobox
+                                        options={destinationOptions}
+                                        value={localOrigin}
+                                        onSelect={handleOriginChange}
+                                        placeholder={t("driverMonitor.editTrip.selectOrigin")}
+                                        searchPlaceholder={t("driverMonitor.editTrip.selectOrigin")}
+                                    />
+                                </div>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={handleSwap}
+                                    title={t("driverMonitor.editTrip.swapOriginDest")}
+                                    className="shrink-0 mb-0.5"
+                                >
+                                    <ArrowLeftRight className="h-4 w-4" />
+                                </Button>
+                                <div className="flex-1 space-y-1.5">
+                                    <label className="text-xs text-muted-foreground">{t("driverMonitor.detail.destination")}</label>
+                                    <Combobox
+                                        options={destinationOptions}
+                                        value={localDestination}
+                                        onSelect={(v) => setLocalDestination(v)}
+                                        placeholder={t("driverMonitor.editTrip.selectDestination")}
+                                        searchPlaceholder={t("driverMonitor.editTrip.selectDestination")}
+                                    />
+                                </div>
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="text-xs text-muted-foreground">{t("driverMonitor.editTrip.jobTypeLabel")}</label>
+                                <div className="flex items-center h-9 px-3 rounded-md border border-border/60 bg-muted/50 gap-2">
+                                    <span className={[
+                                        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+                                        localJobType === "first_mile"
+                                            ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                                            : "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300",
+                                    ].join(" ")}>
+                                        {t(localJobType === "first_mile" ? "driverMonitor.jobType.firstMile" : "driverMonitor.jobType.lineHaul")}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground">{t("driverMonitor.editTrip.jobTypeAutoDetected")}</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
 

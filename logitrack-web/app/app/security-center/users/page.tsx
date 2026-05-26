@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { Functions } from "firebase/functions";
 import { httpsCallable } from "firebase/functions";
-import { collection, query, orderBy, limit, onSnapshot } from "firebase/firestore";
+import { collection, query, orderBy, limit, onSnapshot, getDocs } from "firebase/firestore";
 import { db, functions } from "@/firebase/client";
 import { usePermission } from "@/hooks/usePermission";
 import { CAPABILITIES } from "@/lib/capabilities";
@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Shield, User, Plus, Edit, ArrowUpDown, ArrowUp, ArrowDown, Search, MoreHorizontal, X, Truck, LogOut } from "lucide-react";
+import { Loader2, Shield, User, Plus, Edit, ArrowUpDown, ArrowUp, ArrowDown, Search, MoreHorizontal, X, Truck, LogOut, Link2 } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -27,6 +27,14 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+
+type DriverOption = {
+    id: string;
+    firstName?: string;
+    lastName?: string;
+    mobile?: string;
+    authId?: string;
+};
 
 type UserData = {
     uid: string;
@@ -103,6 +111,8 @@ function EditUserDialog({
     onOpenChange,
     functions: functionsInstance,
     customers,
+    drivers,
+    driversByAuthId,
     onSaveSuccess,
 }: {
     user: UserData | null;
@@ -110,6 +120,8 @@ function EditUserDialog({
     onOpenChange: (open: boolean) => void;
     functions: Functions;
     customers: CustomerData[];
+    drivers: DriverOption[];
+    driversByAuthId: Record<string, DriverOption>;
     onSaveSuccess?: () => void;
 }) {
     const { t } = useLanguage();
@@ -117,7 +129,9 @@ function EditUserDialog({
     const [role, setRole] = useState("user");
     const [partnerScopeId, setPartnerScopeId] = useState("");
     const [customerScopeId, setCustomerScopeId] = useState("");
+    const [driverDocId, setDriverDocId] = useState("");
     const [saving, setSaving] = useState(false);
+    const [linkingSaving, setLinkingSaving] = useState(false);
 
     useEffect(() => {
         if (open && user) {
@@ -125,13 +139,15 @@ function EditUserDialog({
             setRole(currentRole);
             setPartnerScopeId(typeof user.customClaims?.partnerScopeId === "string" ? user.customClaims.partnerScopeId : "");
             setCustomerScopeId(typeof user.customClaims?.customerScopeId === "string" ? user.customClaims.customerScopeId : "");
+            // Pre-fill currently linked driver doc
+            const linked = driversByAuthId[user.uid];
+            setDriverDocId(linked ? linked.id : "");
         }
-    }, [open, user]);
+    }, [open, user, driversByAuthId]);
 
     const save = async () => {
         if (!user) return;
         setSaving(true);
-        console.log(`[EditUserDialog] Saving user ${user.uid}. Current role state: "${role}"`);
         try {
             const updateUserRole = httpsCallable(functionsInstance, "updateUserRole");
             const payload = {
@@ -140,16 +156,10 @@ function EditUserDialog({
                 partnerScopeId: role === "partner" ? partnerScopeId.trim() : undefined,
                 customerScopeId: role === "customer" ? customerScopeId.trim() : undefined,
             };
-            console.log(`[EditUserDialog] Calling updateUserRole with payload:`, payload);
-            const result = await updateUserRole(payload);
-            console.log(`[EditUserDialog] updateUserRole response:`, result);
-
+            await updateUserRole(payload);
             toast.success(t("users.toast.roleUpdated"));
             onOpenChange(false);
             onSaveSuccess?.();
-            // Cloud Function writes forceLogoutAt on the user doc.
-            // Firestore listener in AuthContext will auto-logout the affected user
-            // (including the admin if they edited their own account).
         } catch (error) {
             console.error("Error updating user:", error);
             toast.error(t("users.toast.roleUpdateFailed"));
@@ -158,7 +168,25 @@ function EditUserDialog({
         }
     };
 
+    const saveDriverLink = async () => {
+        if (!user) return;
+        setLinkingSaving(true);
+        try {
+            const linkDriverToUser = httpsCallable(functionsInstance, "linkDriverToUser");
+            await linkDriverToUser({ targetUid: user.uid, driverDocId: driverDocId || "" });
+            toast.success(driverDocId ? t("users.driverLinkSaved") : t("users.driverLinkCleared"));
+            onSaveSuccess?.();
+        } catch (error) {
+            console.error("Error linking driver:", error);
+            toast.error(t("users.driverLinkFailed"));
+        } finally {
+            setLinkingSaving(false);
+        }
+    };
+
     if (!user) return null;
+
+    const currentRole = role;
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -191,7 +219,7 @@ function EditUserDialog({
                     </div>
 
                     {/* Partner Scope */}
-                    {role === "partner" && (
+                    {currentRole === "partner" && (
                         <div className="space-y-2">
                             <Label htmlFor="partner-scope">{t("users.partnerScope")}</Label>
                             <Input
@@ -205,7 +233,7 @@ function EditUserDialog({
                     )}
 
                     {/* Customer Scope */}
-                    {role === "customer" && (
+                    {currentRole === "customer" && (
                         <div className="space-y-2">
                             <Label htmlFor="customer-scope">{t("users.customerScope")}</Label>
                             <Select value={customerScopeId} onValueChange={setCustomerScopeId} disabled={saving}>
@@ -220,6 +248,42 @@ function EditUserDialog({
                                     ))}
                                 </SelectContent>
                             </Select>
+                        </div>
+                    )}
+
+                    {/* Driver Link */}
+                    {currentRole === "driver" && (
+                        <div className="space-y-2 rounded-md border p-3 bg-muted/30">
+                            <Label htmlFor="edit-driver-link" className="flex items-center gap-1.5">
+                                <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
+                                {t("users.driverLink")}
+                            </Label>
+                            <p className="text-xs text-muted-foreground">{t("users.driverLinkHint")}</p>
+                            <Select value={driverDocId} onValueChange={setDriverDocId} disabled={linkingSaving}>
+                                <SelectTrigger id="edit-driver-link">
+                                    <SelectValue placeholder={t("users.driverLinkPlaceholder")} />
+                                </SelectTrigger>
+                                <SelectContent position="popper" className="z-[1005]">
+                                    <SelectItem value="">{t("users.driverLinkNone")}</SelectItem>
+                                    {drivers.map((d) => (
+                                        <SelectItem key={d.id} value={d.id}>
+                                            {`${d.firstName ?? ""} ${d.lastName ?? ""}`.trim() || d.id}
+                                            {d.authId && d.authId !== user.uid ? " ⚠" : ""}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                onClick={saveDriverLink}
+                                disabled={linkingSaving}
+                                className="h-7 text-xs"
+                            >
+                                {linkingSaving && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
+                                {t("users.driverLinkSave") ?? "Link"}
+                            </Button>
                         </div>
                     )}
                 </div>
@@ -260,6 +324,11 @@ export default function AdminUsersPage() {
     const [newUserRole, setNewUserRole] = useState("user");
     const [newUserPartnerScopeId, setNewUserPartnerScopeId] = useState("");
     const [newUserCustomerScopeId, setNewUserCustomerScopeId] = useState("");
+    const [newUserDriverDocId, setNewUserDriverDocId] = useState("");
+
+    // Drivers list for driver-link feature
+    const [drivers, setDrivers] = useState<DriverOption[]>([]);
+    const [driversByAuthId, setDriversByAuthId] = useState<Record<string, DriverOption>>({});
 
     // Sorting State
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
@@ -351,6 +420,32 @@ export default function AdminUsersPage() {
         loadCustomers();
     }, []);
 
+    // Load drivers for driver-link feature
+    useEffect(() => {
+        const loadDrivers = async () => {
+            try {
+                const snap = await getDocs(query(collection(db, "drivers"), limit(300)));
+                const list: DriverOption[] = snap.docs.map((d) => {
+                    const data = d.data();
+                    return {
+                        id: d.id,
+                        firstName: data.firstName,
+                        lastName: data.lastName,
+                        mobile: data.mobile,
+                        authId: data.authId,
+                    };
+                });
+                setDrivers(list);
+                const byAuth: Record<string, DriverOption> = {};
+                list.forEach((d) => { if (d.authId) byAuth[d.authId] = d; });
+                setDriversByAuthId(byAuth);
+            } catch (error) {
+                console.error("Error loading drivers:", error);
+            }
+        };
+        loadDrivers();
+    }, []);
+
     // Refresh users from Cloud Function (calls getUsers which fetches from Firebase Auth)
     const fetchUsers = async () => {
         try {
@@ -397,6 +492,9 @@ export default function AdminUsersPage() {
                 ...(newUserRole === "customer" && newUserCustomerScopeId.trim()
                     ? { customerScopeId: newUserCustomerScopeId.trim() }
                     : {}),
+                ...(newUserRole === "driver" && newUserDriverDocId.trim()
+                    ? { driverDocId: newUserDriverDocId.trim() }
+                    : {}),
             });
 
             toast.success(t("users.toast.created"));
@@ -409,6 +507,7 @@ export default function AdminUsersPage() {
             setNewUserRole("user");
             setNewUserPartnerScopeId("");
             setNewUserCustomerScopeId("");
+            setNewUserDriverDocId("");
 
             // Refresh list
             fetchUsers();
@@ -724,6 +823,30 @@ export default function AdminUsersPage() {
                                         />
                                     </div>
                                 )}
+                                {newUserRole === "driver" && (
+                                    <div className="space-y-2 rounded-md border p-3 bg-muted/30">
+                                        <Label htmlFor="driverLink" className="flex items-center gap-1.5">
+                                            <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
+                                            {t("users.driverLink")}
+                                        </Label>
+                                        <p className="text-xs text-muted-foreground">{t("users.driverLinkHint")}</p>
+                                        <Select value={newUserDriverDocId} onValueChange={setNewUserDriverDocId}>
+                                            <SelectTrigger id="driverLink">
+                                                <SelectValue placeholder={t("users.driverLinkPlaceholder")} />
+                                            </SelectTrigger>
+                                            <SelectContent position="popper" className="z-[1005]">
+                                                <SelectItem value="">{t("users.driverLinkNone")}</SelectItem>
+                                                {drivers
+                                                    .filter((d) => !d.authId)
+                                                    .map((d) => (
+                                                        <SelectItem key={d.id} value={d.id}>
+                                                            {`${d.firstName ?? ""} ${d.lastName ?? ""}`.trim() || d.id}
+                                                        </SelectItem>
+                                                    ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                )}
                                 <DialogFooter>
                                     <Button type="button" variant="outline" onClick={() => setIsCreateOpen(false)}>
                                         {t("users.form.cancel")}
@@ -768,6 +891,8 @@ export default function AdminUsersPage() {
                         onOpenChange={(open) => !open && setEditUser(null)}
                         functions={functions}
                         customers={customers}
+                        drivers={drivers}
+                        driversByAuthId={driversByAuthId}
                         onSaveSuccess={() => fetchUsers()}
                     />
                 </div>
@@ -891,6 +1016,21 @@ export default function AdminUsersPage() {
                                                         <span className="text-xs font-medium text-foreground">
                                                             {customers.find((c) => c.id === user.customClaims?.customerScopeId)?.name || user.customClaims.customerScopeId}
                                                         </span>
+                                                    ) : role === "driver" ? (
+                                                        (() => {
+                                                            const linked = driversByAuthId[user.uid];
+                                                            return linked ? (
+                                                                <span className="text-xs font-medium text-foreground flex items-center gap-1">
+                                                                    <Link2 className="h-3 w-3 text-green-600" />
+                                                                    {`${linked.firstName ?? ""} ${linked.lastName ?? ""}`.trim() || linked.id}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-xs text-amber-600 flex items-center gap-1">
+                                                                    <Link2 className="h-3 w-3" />
+                                                                    {t("users.driverLinkNone")}
+                                                                </span>
+                                                            );
+                                                        })()
                                                     ) : (
                                                         <span className="text-xs text-muted-foreground">—</span>
                                                     )}

@@ -257,6 +257,7 @@ export function useDriverMonitor() {
             source_id: string;
             source_name_en?: string;
             source_name_th?: string;
+            station_type?: "HUB" | "SOC";
             linkedCustomerId?: string;
             linkedCustomerName?: string;
             customerLinkKind?: string;
@@ -358,6 +359,7 @@ export function useDriverMonitor() {
                 source_name_th:
                     (data.source_name_th ?? data.hubTHName ?? data.hub_th_name ?? "").toString().trim() ||
                     undefined,
+                station_type: (data.station_type === "SOC" ? "SOC" : "HUB") as "SOC" | "HUB",
                 linkedCustomerId: data.linkedCustomerId,
                 linkedCustomerName: data.linkedCustomerName,
                 customerLinkKind: data.customerLinkKind,
