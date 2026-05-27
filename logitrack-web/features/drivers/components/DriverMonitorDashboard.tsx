@@ -371,6 +371,11 @@ export default function DriverMonitorDashboard() {
         }
     };
 
+    const getPreOpenTimestamp = (trip: TripRecord): Date | null => {
+        const photo = trip.photos?.find((p) => p.type === "pre_open");
+        return photo?.geocoding?.timestamp ? toDateLocal(photo.geocoding.timestamp) : null;
+    };
+
     const formatTimestamp = (val: any) => {
         const d = toDateLocal(val);
         return d ? format(d, "dd/MM/yy HH:mm") : "-";
@@ -390,6 +395,7 @@ export default function DriverMonitorDashboard() {
             t("driverMonitor.table.sealCode"),
             t("driverMonitor.table.partnerCode"),
             t("driverMonitor.table.status"),
+            t("driverMonitor.table.arrivalTime"),
             t("nav.income"),
             t("driverMonitor.table.multiDrop"),
             t("driverMonitor.table.stopNumber"),
@@ -411,6 +417,7 @@ export default function DriverMonitorDashboard() {
             const statusLabel = t(`driverMonitor.status.${trip.status}` as any);
             const billing = getBillingForTrip(trip.id);
 
+            const preOpenTs = getPreOpenTimestamp(trip);
             const baseRow: (string | number | null | undefined)[] = [
                 trip.spxTripId || trip.id?.slice(0, 10) || "",
                 created ? format(created, "dd/MM/yyyy HH:mm") : "",
@@ -422,6 +429,7 @@ export default function DriverMonitorDashboard() {
                 trip.sealCode || "",
                 effectivePartnerCode(trip),
                 statusLabel,
+                preOpenTs ? format(preOpenTs, "dd/MM/yyyy HH:mm") : "",
                 null, // revenue — filled per stop below
             ];
 
@@ -443,7 +451,7 @@ export default function DriverMonitorDashboard() {
                     }
                     const row: (string | number | null | undefined)[] = [...baseRow];
                     row[6] = getSourceDisplayName(stop.destination);
-                    row[10] = stop.index === 1 ? (totalBilling ?? null) : null;
+                    row[11] = stop.index === 1 ? (totalBilling ?? null) : null;
                     row.push(
                         t("driverMonitor.table.multiDropYes"),
                         stop.index,
@@ -458,7 +466,7 @@ export default function DriverMonitorDashboard() {
                 );
                 const row: (string | number | null | undefined)[] = [...baseRow];
                 row[6] = getSourceDisplayName(trip.destination);
-                row[10] = billing ? billing.finalRateThb : trip.billingEstimateThb;
+                row[11] = billing ? billing.finalRateThb : trip.billingEstimateThb;
                 row.push(
                     t("driverMonitor.table.multiDropNo"),
                     1,
@@ -826,6 +834,7 @@ export default function DriverMonitorDashboard() {
                                     <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.sealCode")}</TableHead>
                                     <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.partnerCode")}</TableHead>
                                     <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.status")}</TableHead>
+                                    <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.arrivalTime")}</TableHead>
                                     <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.deliveredTime")}</TableHead>
                                     <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider text-right">{t("driverMonitor.table.estimatedRevenue")}</TableHead>
                                 </TableRow>
@@ -833,7 +842,7 @@ export default function DriverMonitorDashboard() {
                             <TableBody>
                                 {loading ? (
                                     <TableRow>
-                                        <TableCell colSpan={12} className="h-32 text-center">
+                                        <TableCell colSpan={13} className="h-32 text-center">
                                             <div className="flex flex-col items-center justify-center gap-2">
                                                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                                                 <p className="text-sm text-muted-foreground">{t("driverMonitor.table.loadingData")}</p>
@@ -842,7 +851,7 @@ export default function DriverMonitorDashboard() {
                                     </TableRow>
                                 ) : paginatedTrips.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={12} className="h-32 text-center">
+                                        <TableCell colSpan={13} className="h-32 text-center">
                                             <p className="text-sm text-muted-foreground">{t("driverMonitor.table.noTrips")}</p>
                                         </TableCell>
                                     </TableRow>
@@ -912,6 +921,9 @@ export default function DriverMonitorDashboard() {
                                                         <img src="/exclamation_8848378.png" alt="incident" className="w-4 h-4 object-contain" title="Incident Reported" />
                                                     )}
                                                 </div>
+                                            </TableCell>
+                                            <TableCell className="text-sm text-muted-foreground">
+                                                {formatTimestamp(getPreOpenTimestamp(trip))}
                                             </TableCell>
                                             <TableCell className="text-sm text-muted-foreground">
                                                 {formatTimestamp(trip.status === "delivered" && trip.deliveredTimestamp ? trip.deliveredTimestamp : trip.updatedAt)}
@@ -1273,6 +1285,8 @@ export default function DriverMonitorDashboard() {
                                     <span className="font-mono text-xs">
                                         {effectivePartnerCode(detailTrip) || "-"}
                                     </span>
+                                    <span className="text-muted-foreground">{t("driverMonitor.detail.arrivalTime")}</span>
+                                    <span>{formatTimestamp(getPreOpenTimestamp(detailTrip))}</span>
                                     <span className="text-muted-foreground">{t("driverMonitor.table.estimatedRevenue")}</span>
                                     <span className="font-semibold">
                                         {formatMoney(

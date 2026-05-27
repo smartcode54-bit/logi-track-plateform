@@ -62,6 +62,8 @@ export default {
     "driverMonitor.table.stopDeliveredTime": "ส่งจุดนี้เมื่อ",
     "driverMonitor.table.multiDropYes": "ใช่",
     "driverMonitor.table.multiDropNo": "ไม่",
+    "driverMonitor.table.arrivalTime": "เวลาถึง",
+    "driverMonitor.detail.arrivalTime": "เวลาถึงปลายทาง",
 
     // Status Labels
     "driverMonitor.status.loading": "กำลังโหลดของ",

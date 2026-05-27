@@ -62,6 +62,8 @@ export default {
     "driverMonitor.table.stopDeliveredTime": "Stop Delivered",
     "driverMonitor.table.multiDropYes": "Yes",
     "driverMonitor.table.multiDropNo": "No",
+    "driverMonitor.table.arrivalTime": "Arrived",
+    "driverMonitor.detail.arrivalTime": "Arrived at destination",
 
     // Status Labels
     "driverMonitor.status.loading": "Loading",
