@@ -209,11 +209,24 @@ exports.createUser = (0, https_1.onCall)(async (request) => {
         throw new https_1.HttpsError("invalid-argument", "Email, password, and display name are required");
     }
     try {
-        const userRecord = await admin.auth().createUser({
-            email,
-            password,
-            displayName,
-        });
+        let userRecord;
+        let isExisting = false;
+        try {
+            userRecord = await admin.auth().createUser({
+                email,
+                password,
+                displayName,
+            });
+        }
+        catch (createErr) {
+            if (createErr.code === "auth/email-already-exists" && typeof driverDocId === "string" && driverDocId.trim()) {
+                userRecord = await admin.auth().getUserByEmail(email);
+                isExisting = true;
+            }
+            else {
+                throw createErr;
+            }
+        }
         const userRole = role || 'user';
         const isAdmin = userRole === 'admin';
         const claims = {
@@ -279,7 +292,7 @@ exports.createUser = (0, https_1.onCall)(async (request) => {
         return {
             success: true,
             uid: userRecord.uid,
-            message: `User created successfully`,
+            message: isExisting ? `Existing account linked to driver` : `User created successfully`,
         };
     }
     catch (error) {
@@ -380,12 +393,35 @@ exports.linkDriverToUser = (0, https_1.onCall)(async (request) => {
     catch (err) {
         console.error("[linkDriverToUser] Failed to clear old link:", err);
     }
-    if (typeof driverDocId === "string" && driverDocId.trim()) {
-        await firestore.collection("drivers").doc(driverDocId.trim()).update({
+    const did = typeof driverDocId === "string" ? driverDocId.trim() : "";
+    if (did) {
+        await firestore.collection("drivers").doc(did).update({
             authId: targetUid,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
-        console.log(`[linkDriverToUser] Linked driver doc ${driverDocId} → uid ${targetUid}`);
+        console.log(`[linkDriverToUser] Linked driver doc ${did} → uid ${targetUid}`);
+    }
+    // Sync custom claims: the maintenance Firestore rule reads request.auth.token.driverId,
+    // so linking must also write the driverId claim (not just authId on the doc). Revoke
+    // tokens so the new claim takes effect on the driver's next login.
+    try {
+        const userRecord = await admin.auth().getUser(targetUid);
+        const nextClaims = { ...(userRecord.customClaims || {}) };
+        if (did) {
+            nextClaims.role = "driver";
+            nextClaims.admin = false;
+            nextClaims.driverId = did;
+        }
+        else {
+            delete nextClaims.driverId;
+        }
+        await admin.auth().setCustomUserClaims(targetUid, nextClaims);
+        await admin.auth().revokeRefreshTokens(targetUid);
+        console.log(`[linkDriverToUser] Claims synced for ${targetUid}:`, JSON.stringify(nextClaims));
+    }
+    catch (claimErr) {
+        console.error("[linkDriverToUser] Failed to sync claims:", claimErr);
+        throw new https_1.HttpsError("internal", "Linked driver doc but failed to set auth claims");
     }
     return { success: true };
 });

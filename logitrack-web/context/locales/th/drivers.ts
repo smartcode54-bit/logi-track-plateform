@@ -198,6 +198,7 @@ export default {
     "drivers.form.loginAccount.toggle": "สร้างบัญชี Login",
     "drivers.form.loginAccount.emailLabel": "อีเมลที่ใช้ Login",
     "drivers.form.loginAccount.emailMissing": "กรุณากรอกอีเมลในขั้นตอนที่ 1 ก่อน",
+    "drivers.form.loginAccount.emailRequired": "ต้องกรอกอีเมลเพื่อสร้างบัญชี Login กรุณาเพิ่มในขั้นตอนที่ 1 (ใช้อีเมล Google ของคนขับถ้าล็อกอินด้วย Google)",
     "drivers.form.loginAccount.password": "รหัสผ่านเริ่มต้น",
     "drivers.form.loginAccount.password.placeholder": "ขั้นต่ำ 6 ตัวอักษร",
     "drivers.form.loginAccount.password.hint": "ถ้าไม่กรอก จะใช้เบอร์โทรศัพท์เป็นรหัสผ่านตั้งต้น",

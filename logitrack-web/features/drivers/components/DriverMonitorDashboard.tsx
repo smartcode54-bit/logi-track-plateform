@@ -195,6 +195,7 @@ export default function DriverMonitorDashboard() {
         getTripsForExportResolved,
         trips,
         getBillingForTrip,
+        getBillingDebug,
     } = useDriverMonitor();
 
     useEffect(() => {
@@ -395,7 +396,6 @@ export default function DriverMonitorDashboard() {
             t("driverMonitor.table.sealCode"),
             t("driverMonitor.table.partnerCode"),
             t("driverMonitor.table.status"),
-            t("driverMonitor.table.arrivalTime"),
             t("nav.income"),
             t("driverMonitor.table.multiDrop"),
             t("driverMonitor.table.stopNumber"),
@@ -429,7 +429,6 @@ export default function DriverMonitorDashboard() {
                 trip.sealCode || "",
                 effectivePartnerCode(trip),
                 statusLabel,
-                preOpenTs ? format(preOpenTs, "dd/MM/yyyy HH:mm") : "",
                 null, // revenue — filled per stop below
             ];
 
@@ -451,7 +450,7 @@ export default function DriverMonitorDashboard() {
                     }
                     const row: (string | number | null | undefined)[] = [...baseRow];
                     row[6] = getSourceDisplayName(stop.destination);
-                    row[11] = stop.index === 1 ? (totalBilling ?? null) : null;
+                    row[10] = stop.index === 1 ? (totalBilling ?? null) : null;
                     row.push(
                         t("driverMonitor.table.multiDropYes"),
                         stop.index,
@@ -466,7 +465,7 @@ export default function DriverMonitorDashboard() {
                 );
                 const row: (string | number | null | undefined)[] = [...baseRow];
                 row[6] = getSourceDisplayName(trip.destination);
-                row[11] = billing ? billing.finalRateThb : trip.billingEstimateThb;
+                row[10] = billing ? billing.finalRateThb : trip.billingEstimateThb;
                 row.push(
                     t("driverMonitor.table.multiDropNo"),
                     1,
@@ -834,7 +833,6 @@ export default function DriverMonitorDashboard() {
                                     <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.sealCode")}</TableHead>
                                     <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.partnerCode")}</TableHead>
                                     <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.status")}</TableHead>
-                                    <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.arrivalTime")}</TableHead>
                                     <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.deliveredTime")}</TableHead>
                                     <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider text-right">{t("driverMonitor.table.estimatedRevenue")}</TableHead>
                                 </TableRow>
@@ -842,7 +840,7 @@ export default function DriverMonitorDashboard() {
                             <TableBody>
                                 {loading ? (
                                     <TableRow>
-                                        <TableCell colSpan={13} className="h-32 text-center">
+                                        <TableCell colSpan={12} className="h-32 text-center">
                                             <div className="flex flex-col items-center justify-center gap-2">
                                                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                                                 <p className="text-sm text-muted-foreground">{t("driverMonitor.table.loadingData")}</p>
@@ -851,7 +849,7 @@ export default function DriverMonitorDashboard() {
                                     </TableRow>
                                 ) : paginatedTrips.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={13} className="h-32 text-center">
+                                        <TableCell colSpan={12} className="h-32 text-center">
                                             <p className="text-sm text-muted-foreground">{t("driverMonitor.table.noTrips")}</p>
                                         </TableCell>
                                     </TableRow>
@@ -921,9 +919,6 @@ export default function DriverMonitorDashboard() {
                                                         <img src="/exclamation_8848378.png" alt="incident" className="w-4 h-4 object-contain" title="Incident Reported" />
                                                     )}
                                                 </div>
-                                            </TableCell>
-                                            <TableCell className="text-sm text-muted-foreground">
-                                                {formatTimestamp(getPreOpenTimestamp(trip))}
                                             </TableCell>
                                             <TableCell className="text-sm text-muted-foreground">
                                                 {formatTimestamp(trip.status === "delivered" && trip.deliveredTimestamp ? trip.deliveredTimestamp : trip.updatedAt)}
@@ -1285,8 +1280,6 @@ export default function DriverMonitorDashboard() {
                                     <span className="font-mono text-xs">
                                         {effectivePartnerCode(detailTrip) || "-"}
                                     </span>
-                                    <span className="text-muted-foreground">{t("driverMonitor.detail.arrivalTime")}</span>
-                                    <span>{formatTimestamp(getPreOpenTimestamp(detailTrip))}</span>
                                     <span className="text-muted-foreground">{t("driverMonitor.table.estimatedRevenue")}</span>
                                     <span className="font-semibold">
                                         {formatMoney(
@@ -1294,6 +1287,31 @@ export default function DriverMonitorDashboard() {
                                         )}
                                     </span>
                                 </div>
+                                {/* Billing debug: show when no billing is computed */}
+                                {!getBillingForTrip(detailTrip.id) && !detailTrip.billingEstimateThb && (() => {
+                                    const debug = getBillingDebug(detailTrip.id);
+                                    if (!debug) return null;
+                                    const reasonLabel = debug.failReason === "no_task"
+                                        ? "ไม่พบ Task ที่ผูกกับเที่ยวนี้"
+                                        : debug.failReason === "no_customer"
+                                          ? "Task ไม่มี sourceHubLinkedCustomerId"
+                                          : `ไม่พบ Rate Card ที่ตรง (มี ${debug.rateEntriesForCustomer} รายการสำหรับลูกค้านี้)`;
+                                    return (
+                                        <details className="mt-2 border border-amber-200 rounded-md bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 text-xs">
+                                            <summary className="cursor-pointer px-3 py-2 font-medium text-amber-700 dark:text-amber-400">
+                                                ⚠ Billing ไม่ได้คำนวน — คลิกดูสาเหตุ
+                                            </summary>
+                                            <div className="px-3 py-2 space-y-1 text-amber-900 dark:text-amber-200 font-mono">
+                                                <p><span className="text-muted-foreground">สาเหตุ:</span> {reasonLabel}</p>
+                                                <p><span className="text-muted-foreground">Customer ID:</span> {debug.customerId || "(ว่าง)"}</p>
+                                                <p><span className="text-muted-foreground">Hub lookup key:</span> {debug.hubId || "(ว่าง)"}</p>
+                                                <p><span className="text-muted-foreground">Destination key:</span> {debug.destinationCode || "(ว่าง)"}</p>
+                                                <p><span className="text-muted-foreground">Vehicle class:</span> {debug.vehicleClass || "(ว่าง)"}</p>
+                                                <p className="text-muted-foreground pt-1 text-[10px]">Rate card ต้องมีค่าตรงกับ key เหล่านี้ทุกช่อง</p>
+                                            </div>
+                                        </details>
+                                    );
+                                })()}
                             </div>
 
                             <div className="space-y-3">

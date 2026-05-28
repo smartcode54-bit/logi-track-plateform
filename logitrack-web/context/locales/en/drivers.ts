@@ -198,6 +198,7 @@ export default {
     "drivers.form.loginAccount.toggle": "Create login account",
     "drivers.form.loginAccount.emailLabel": "Login email",
     "drivers.form.loginAccount.emailMissing": "Enter email in Step 1 first",
+    "drivers.form.loginAccount.emailRequired": "Email is required to create a login account. Please add it in Step 1 (use the driver's Google email if they sign in with Google).",
     "drivers.form.loginAccount.password": "Initial password",
     "drivers.form.loginAccount.password.placeholder": "Min 6 characters",
     "drivers.form.loginAccount.password.hint": "Leave blank to use mobile number as default password",

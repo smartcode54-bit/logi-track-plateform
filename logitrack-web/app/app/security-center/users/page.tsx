@@ -150,12 +150,13 @@ function EditUserDialog({
         setSaving(true);
         try {
             const updateUserRole = httpsCallable(functionsInstance, "updateUserRole");
-            const payload = {
+            const payload: Record<string, string> = {
                 targetUid: user.uid,
                 role,
-                partnerScopeId: role === "partner" ? partnerScopeId.trim() : undefined,
-                customerScopeId: role === "customer" ? customerScopeId.trim() : undefined,
             };
+            if (role === "partner" && partnerScopeId.trim()) payload.partnerScopeId = partnerScopeId.trim();
+            if (role === "customer" && customerScopeId.trim()) payload.customerScopeId = customerScopeId.trim();
+            if (role === "driver" && driverDocId.trim()) payload.driverDocId = driverDocId.trim();
             await updateUserRole(payload);
             toast.success(t("users.toast.roleUpdated"));
             onOpenChange(false);
@@ -259,12 +260,12 @@ function EditUserDialog({
                                 {t("users.driverLink")}
                             </Label>
                             <p className="text-xs text-muted-foreground">{t("users.driverLinkHint")}</p>
-                            <Select value={driverDocId} onValueChange={setDriverDocId} disabled={linkingSaving}>
+                            <Select value={driverDocId || "__none__"} onValueChange={(v) => setDriverDocId(v === "__none__" ? "" : v)} disabled={linkingSaving}>
                                 <SelectTrigger id="edit-driver-link">
                                     <SelectValue placeholder={t("users.driverLinkPlaceholder")} />
                                 </SelectTrigger>
                                 <SelectContent position="popper" className="z-[1005]">
-                                    <SelectItem value="">{t("users.driverLinkNone")}</SelectItem>
+                                    <SelectItem value="__none__">{t("users.driverLinkNone")}</SelectItem>
                                     {drivers.map((d) => (
                                         <SelectItem key={d.id} value={d.id}>
                                             {`${d.firstName ?? ""} ${d.lastName ?? ""}`.trim() || d.id}
@@ -830,12 +831,12 @@ export default function AdminUsersPage() {
                                             {t("users.driverLink")}
                                         </Label>
                                         <p className="text-xs text-muted-foreground">{t("users.driverLinkHint")}</p>
-                                        <Select value={newUserDriverDocId} onValueChange={setNewUserDriverDocId}>
+                                        <Select value={newUserDriverDocId || "__none__"} onValueChange={(v) => setNewUserDriverDocId(v === "__none__" ? "" : v)}>
                                             <SelectTrigger id="driverLink">
                                                 <SelectValue placeholder={t("users.driverLinkPlaceholder")} />
                                             </SelectTrigger>
                                             <SelectContent position="popper" className="z-[1005]">
-                                                <SelectItem value="">{t("users.driverLinkNone")}</SelectItem>
+                                                <SelectItem value="__none__">{t("users.driverLinkNone")}</SelectItem>
                                                 {drivers
                                                     .filter((d) => !d.authId)
                                                     .map((d) => (

@@ -181,9 +181,11 @@ function chunkArray<T>(arr: T[], size: number): T[][] {
 }
 
 let _hubNameCache: HubNameMap | null = null;
+let _hubNameToCodeCache: Map<string, string> | null = null;
 
 function clearHubCache() {
     _hubNameCache = null;
+    _hubNameToCodeCache = null;
 }
 
 export default function AccountingIncomePage() {
@@ -223,9 +225,11 @@ export default function AccountingIncomePage() {
             (customerList as (Customer & { id: string })[]).forEach((c) => customerMap.set(c.id, c));
 
             let hubNames = _hubNameCache;
+            let hubNameToCode = _hubNameToCodeCache;
             if (!hubNames) {
                 const hubsSnap = await getDocs(collection(db, COLLECTIONS.HUBS));
                 hubNames = new Map<string, string>();
+                hubNameToCode = new Map<string, string>();
                 hubsSnap.docs.forEach((hubDoc) => {
                     const hd = hubDoc.data() as Record<string, unknown>;
                     const sourceId = String(hd.source_id ?? hd.hubId ?? hd.hubCode ?? "").trim();
@@ -241,8 +245,24 @@ export default function AccountingIncomePage() {
                     for (const k of keys) {
                         if (k) hubNames!.set(k, displayName);
                     }
+                    // Build reverse map: display name / Thai / English names → PDP code
+                    for (const nameField of ["source_name_th", "source_name_en", "hubName"] as const) {
+                        const n = typeof hd[nameField] === "string" ? (hd[nameField] as string).trim() : "";
+                        if (n && !hubNameToCode!.has(n)) hubNameToCode!.set(n, sourceId);
+                    }
+                    if (displayName !== sourceId && !hubNameToCode!.has(displayName)) {
+                        hubNameToCode!.set(displayName, sourceId);
+                    }
                 });
                 _hubNameCache = hubNames;
+                _hubNameToCodeCache = hubNameToCode;
+            } else if (!hubNameToCode) {
+                // Build reverse from cached code→name map
+                hubNameToCode = new Map<string, string>();
+                hubNames.forEach((name, code) => {
+                    if (!hubNameToCode!.has(name)) hubNameToCode!.set(name, code);
+                });
+                _hubNameToCodeCache = hubNameToCode;
             }
             setHubNameMap(hubNames);
 
@@ -352,7 +372,12 @@ export default function AccountingIncomePage() {
                     const customer = customerId ? customerMap.get(customerId) : undefined;
 
                     const lookupHubId = extractHubId(sourceHub);
-                    const lookupDestination = normalizeDestinationCode(destination);
+                    // Resolve display name → PDP code before normalizing
+                    const rawDest = destination?.trim() ?? "";
+                    const resolvedDest = rawDest && hubNameToCode
+                        ? (hubNameToCode.get(rawDest) ?? rawDest)
+                        : rawDest;
+                    const lookupDestination = normalizeDestinationCode(resolvedDest);
                     const lookupVehicleClass = (truckType ?? "4WJ").trim().toUpperCase();
 
                     let computedRate: number | undefined;
@@ -369,7 +394,9 @@ export default function AccountingIncomePage() {
                             deliveredTimestamp: d.deliveredTimestamp,
                             createdAt: d.createdAt,
                         } as TripRecord;
-                        const billing = computeTripBilling(tripRecord, task, rateEntries, fuelAdjustments);
+                        // Pass resolved destination so billing lookup matches rate card PDP codes
+                        const resolvedTask = resolvedDest !== destination ? { ...task, destination: resolvedDest } : task;
+                        const billing = computeTripBilling(tripRecord, resolvedTask, rateEntries, fuelAdjustments);
                         if (billing) {
                             computedRate = billing.finalRateThb;
                         } else {

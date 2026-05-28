@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Loader2, AlertTriangle } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Loader2, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { db } from "@/firebase/client";
 import { useLanguage } from "@/context/language";
 import {
@@ -10,17 +10,26 @@ import {
     extractHubId,
     normalizeDestinationCode,
 } from "@/lib/billingRates";
-import { computeTripBillingFromParts, type BillingRateEntry, type FuelRateAdjustment, type TripBillingComputed } from "@/lib/billingCompute";
-import { SOC_DESTINATIONS } from "@/validate/taskSchema";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+    computeTripBillingFromParts,
+    type BillingRateEntry,
+    type FuelRateAdjustment,
+    type TripBillingComputed,
+} from "@/lib/billingCompute";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Switch } from "@/components/ui/switch";
-import { writeTripBillingSnapshot, updateTaskBillingFields, type WriteTripBillingInput } from "../actions.client";
+import { Badge } from "@/components/ui/badge";
+import { writeTripBillingSnapshot, type WriteTripBillingInput } from "../actions.client";
 import type { MissingBillingRow } from "./page";
 
 export interface EditBillingDialogProps {
@@ -31,47 +40,62 @@ export interface EditBillingDialogProps {
     onSaved: (tripId: string) => void;
 }
 
-const TRUCK_TYPES = ["4WH", "4WJ", "6WH", "10WH", "18WH", "PICKUP", "VAN"];
+/** Build name→code reverse map from code→name hubNameMap */
+function buildNameToCodeMap(hubNameMap: Map<string, string>): Map<string, string> {
+    const reverse = new Map<string, string>();
+    hubNameMap.forEach((name, code) => {
+        if (name && code && !reverse.has(name)) reverse.set(name, code);
+    });
+    return reverse;
+}
 
 export function EditBillingDialog({ open, onOpenChange, row, hubNameMap, onSaved }: EditBillingDialogProps) {
     const { t } = useLanguage();
 
-    // Editable fields (truckType is read-only, tied to driver)
-    const [sourceHub, setSourceHub] = useState(row.sourceHub ?? "");
-    const [destination, setDestination] = useState(row.destination ?? "");
+    // Reverse map: display name → PDP code
+    const nameToCode = useMemo(() => buildNameToCodeMap(hubNameMap), [hubNameMap]);
 
-    // Manual override mode
-    const [isManualOverride, setIsManualOverride] = useState(false);
-    const [manualRateStr, setManualRateStr] = useState("");
-    const [manualRateError, setManualRateError] = useState<string | null>(null);
-
-    // Live preview
-    const [previewResult, setPreviewResult] = useState<TripBillingComputed | null>(null);
-    const [previewLoading, setPreviewLoading] = useState(false);
-    const [previewError, setPreviewError] = useState<string | null>(null);
+    // Resolved billing lookup keys from the trip's existing data
+    const resolvedHubId = useMemo(() => extractHubId(row.sourceHub), [row.sourceHub]);
+    const resolvedDestinationCode = useMemo(() => {
+        const raw = row.destination?.trim() ?? "";
+        if (!raw) return "";
+        // Try resolving display name → PDP code first
+        const pdpCode = nameToCode.get(raw) ?? raw;
+        return normalizeDestinationCode(pdpCode);
+    }, [row.destination, nameToCode]);
 
     // Rate data
     const [rateEntries, setRateEntries] = useState<BillingRateEntry[]>([]);
     const [fuelAdjustments, setFuelAdjustments] = useState<FuelRateAdjustment[]>([]);
     const [dataLoaded, setDataLoaded] = useState(false);
+    const [loadError, setLoadError] = useState<string | null>(null);
+
+    // Auto-computed result
+    const [computedResult, setComputedResult] = useState<TripBillingComputed | null>(null);
+    const [computeError, setComputeError] = useState<string | null>(null);
+
+    // Price input — always visible, pre-filled with computed rate
+    const [priceStr, setPriceStr] = useState("");
+    const [priceError, setPriceError] = useState<string | null>(null);
 
     // Save state
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
 
-    // Load rate data on dialog open
+    // Load rate data when dialog opens
     useEffect(() => {
         if (!open || !row.customerId) {
             setDataLoaded(false);
             return;
         }
         setDataLoaded(false);
-        setPreviewError(null);
-        setPreviewResult(null);
-        setManualRateStr("");
-        setManualRateError(null);
+        setLoadError(null);
+        setComputedResult(null);
+        setComputeError(null);
+        setPriceStr("");
+        setPriceError(null);
         setSaveError(null);
-        setIsManualOverride(false);
 
         Promise.all([
             fetchRateEntriesForCustomers(db, [row.customerId]),
@@ -82,291 +106,222 @@ export function EditBillingDialog({ open, onOpenChange, row, hubNameMap, onSaved
                 setFuelAdjustments(fuels);
                 setDataLoaded(true);
             })
-            .catch((err) => {
-                console.error("Failed to load rate data:", err);
-                setPreviewError(t("accounting.income.editBilling.loadDataError") || "Failed to load rate data");
+            .catch(() => {
+                setLoadError(t("accounting.income.editBilling.loadDataError") || "Failed to load rate data");
             });
     }, [open, row.customerId, t]);
 
-    // Compute preview whenever inputs change
+    // Auto-compute when rate data is ready
     useEffect(() => {
         if (!dataLoaded || !row.customerId) return;
-        setPreviewLoading(true);
 
-        try {
-            const tripTimestamps = {
-                deliveredTimestamp: row.deliveredTimestamp,
-                createdAt: row.createdAt,
-            };
-            const taskInput = {
-                sourceHub,
-                destination,
-                truckType: row.truckType ?? "4WJ",
-                sourceHubLinkedCustomerId: row.customerId,
-                destinationLinkedCustomerId: undefined,
-            };
-            const result = computeTripBillingFromParts(tripTimestamps, taskInput, rateEntries, fuelAdjustments);
-            setPreviewResult(result);
-            setPreviewError(result ? null : t("accounting.income.editBilling.noRateMatch") || "No rate card found");
-        } catch (err) {
-            console.error("Compute error:", err);
-            setPreviewError(t("accounting.income.editBilling.noRateMatch") || "No rate card found");
+        const tripTimestamps = {
+            deliveredTimestamp: row.deliveredTimestamp,
+            createdAt: row.createdAt,
+        };
+        const taskInput = {
+            // Use the resolved PDP code so billing lookup matches the rate card
+            sourceHub: row.sourceHub,
+            destination: resolvedDestinationCode || row.destination,
+            truckType: row.truckType ?? "4WJ",
+            sourceHubLinkedCustomerId: row.customerId,
+            destinationLinkedCustomerId: undefined,
+        };
+
+        const result = computeTripBillingFromParts(tripTimestamps, taskInput, rateEntries, fuelAdjustments);
+        if (result) {
+            setComputedResult(result);
+            setComputeError(null);
+            setPriceStr(String(result.finalRateThb));
+        } else {
+            setComputedResult(null);
+            setComputeError(t("accounting.income.editBilling.noRateMatch") || "No rate card found for this route");
         }
-        setPreviewLoading(false);
-    }, [sourceHub, destination, dataLoaded, rateEntries, fuelAdjustments, row.customerId, row.deliveredTimestamp, row.createdAt, row.truckType, t]);
+    }, [dataLoaded, rateEntries, fuelAdjustments, row, resolvedDestinationCode]);
 
-    // Build origin options: Hub + SOC both included
-    const originOptions = Array.from(hubNameMap.entries())
-        .map(([code, name]) => {
-            const isSoc = code.toUpperCase().startsWith("SOC");
-            return {
-                value: isSoc ? code : `${code} - ${name}`,
-                label: isSoc ? `${code} (${name})` : `${code} - ${name}`,
-            };
-        });
-
-    // Build destination options: SOC + Hub both included
-    const destOptions = [
-        ...Object.entries(SOC_DESTINATIONS).map(([key, value]) => ({
-            value: key,
-            label: `${key} (${value})`,
-        })),
-        ...Array.from(hubNameMap.entries())
-            .map(([code, name]) => {
-                const isSoc = code.toUpperCase().startsWith("SOC");
-                return {
-                    value: isSoc ? code : `${code} - ${name}`,
-                    label: isSoc ? `${code} (${name})` : `${code} - ${name}`,
-                };
-            }),
-    ];
-
-    // Remove duplicates by value
-    const uniqueDestOptions = Array.from(
-        new Map(destOptions.map((opt) => [opt.value, opt])).values()
-    );
-
-    const handleSaveRecompute = async () => {
-        if (!previewResult) {
-            setPreviewError(t("accounting.income.editBilling.noRateMatch") || "No rate card found");
-            return;
-        }
-
-        setSaving(true);
-        setSaveError(null);
-
-        try {
-            const billingInput: WriteTripBillingInput = {
-                tripId: row.id,
-                billingEstimateThb: previewResult.finalRateThb,
-                billingBaseRateThb: previewResult.baseRateThb,
-                billingRateImportId: previewResult.rateImportId,
-                billingLookupHubId: previewResult.lookupHubId,
-                billingLookupDestination: previewResult.lookupDestination,
-                billingFuelAdjustmentId: previewResult.fuelAdjustmentId ?? null,
-                billingRateMultiplier: previewResult.rateMultiplier,
-                billingAddThbPerTrip: previewResult.addThbPerTrip,
-                billingEffectiveFromDateStr: previewResult.effectiveFromDateStr ?? null,
-                billingCustomerId: previewResult.customerId,
-            };
-
-            const tasks = [];
-            tasks.push(writeTripBillingSnapshot(billingInput));
-
-            // Update task if it exists and fields changed (truckType stays unchanged, tied to driver)
-            if (
-                row.taskId &&
-                (sourceHub !== (row.sourceHub ?? "") || destination !== (row.destination ?? ""))
-            ) {
-                tasks.push(
-                    updateTaskBillingFields(row.taskId, {
-                        sourceHub,
-                        destination,
-                        truckType: row.truckType ?? "4WJ",
-                    })
-                );
-            }
-
-            await Promise.all(tasks);
-            onSaved(row.id);
-            onOpenChange(false);
-        } catch (err) {
-            console.error("Save error:", err);
-            setSaveError(t("accounting.income.editBilling.saveError") || "Could not save billing");
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    const handleSaveManualOverride = async () => {
-        const rate = parseFloat(manualRateStr);
+    const handleSave = async () => {
+        const rate = parseFloat(priceStr);
         if (!Number.isFinite(rate) || rate <= 0) {
-            setManualRateError(t("accounting.income.editBilling.manualRateInvalid") || "Enter a valid positive number");
+            setPriceError(t("accounting.income.editBilling.manualRateInvalid") || "Enter a valid positive number");
             return;
         }
 
         setSaving(true);
         setSaveError(null);
-        setManualRateError(null);
+        setPriceError(null);
 
         try {
+            const isManual = computedResult == null || Math.abs(rate - computedResult.finalRateThb) > 0.001;
+
             const billingInput: WriteTripBillingInput = {
                 tripId: row.id,
                 billingEstimateThb: rate,
-                billingBaseRateThb: rate,
-                billingRateImportId: "manual",
-                billingLookupHubId: extractHubId(sourceHub),
-                billingLookupDestination: normalizeDestinationCode(destination),
-                billingFuelAdjustmentId: null,
-                billingRateMultiplier: 1,
-                billingAddThbPerTrip: 0,
-                billingEffectiveFromDateStr: null,
+                billingBaseRateThb: computedResult?.baseRateThb ?? rate,
+                billingRateImportId: computedResult?.rateImportId ?? "manual",
+                billingLookupHubId: computedResult?.lookupHubId ?? resolvedHubId,
+                billingLookupDestination: computedResult?.lookupDestination ?? resolvedDestinationCode,
+                billingFuelAdjustmentId: computedResult?.fuelAdjustmentId ?? null,
+                billingRateMultiplier: computedResult?.rateMultiplier ?? 1,
+                billingAddThbPerTrip: computedResult?.addThbPerTrip ?? 0,
+                billingEffectiveFromDateStr: computedResult?.effectiveFromDateStr ?? null,
                 billingCustomerId: row.customerId ?? "",
-                billingManualOverride: true,
+                billingManualOverride: isManual,
             };
 
             await writeTripBillingSnapshot(billingInput);
             onSaved(row.id);
             onOpenChange(false);
-        } catch (err) {
-            console.error("Save error:", err);
+        } catch {
             setSaveError(t("accounting.income.editBilling.saveError") || "Could not save billing");
         } finally {
             setSaving(false);
         }
     };
 
-    const handleSave = async () => {
-        if (isManualOverride) {
-            await handleSaveManualOverride();
-        } else {
-            await handleSaveRecompute();
-        }
-    };
-
-    const isSaveDisabled = saving || (isManualOverride ? !manualRateStr || manualRateError !== null : !previewResult);
+    const priceNum = parseFloat(priceStr);
+    const isSaveDisabled = saving || !priceStr || !Number.isFinite(priceNum) || priceNum <= 0;
+    const isManualPrice = computedResult != null && Number.isFinite(priceNum) && Math.abs(priceNum - computedResult.finalRateThb) > 0.001;
+    const destinationResolved = resolvedDestinationCode && resolvedDestinationCode !== (row.destination ?? "").trim();
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto overflow-x-hidden">
+            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
-                    <DialogTitle>{t("accounting.income.editBilling.title") || "Edit Billing"}</DialogTitle>
+                    <DialogTitle>{t("accounting.income.editBilling.title") || "Set Billing"}</DialogTitle>
                     <DialogDescription>
-                        Trip {row.spxTripId || row.id} • Customer: {row.customerName}
+                        Trip {row.spxTripId || row.id} • {row.customerName}
                     </DialogDescription>
                 </DialogHeader>
 
                 <div className="space-y-4 py-2">
-                    {/* Read-only info */}
-                    <div className="grid grid-cols-2 gap-2 text-sm bg-muted/30 rounded p-3">
-                        <div>
-                            <span className="font-semibold">Origin:</span> {row.sourceHub}
+                    {/* Trip info — read-only */}
+                    <div className="rounded-md border bg-muted/30 p-3 space-y-2 text-sm">
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                            <div>
+                                <div className="text-xs text-muted-foreground mb-0.5">ต้นทาง</div>
+                                <div className="font-medium">{row.sourceHub || "—"}</div>
+                            </div>
+                            <div>
+                                <div className="text-xs text-muted-foreground mb-0.5">ปลายทาง</div>
+                                <div className="font-medium">{row.destination || "—"}</div>
+                            </div>
+                            <div>
+                                <div className="text-xs text-muted-foreground mb-0.5">ประเภทรถ</div>
+                                <div className="font-medium">{row.truckType || "—"}</div>
+                            </div>
+                            <div>
+                                <div className="text-xs text-muted-foreground mb-0.5">วันที่ส่ง</div>
+                                <div className="font-medium">
+                                    {row.deliveredTimestamp
+                                        ? row.deliveredTimestamp.toLocaleDateString("th-TH")
+                                        : "—"}
+                                </div>
+                            </div>
                         </div>
-                        <div>
-                            <span className="font-semibold">Destination:</span> {row.destination}
-                        </div>
-                        <div>
-                            <span className="font-semibold">Vehicle:</span> {row.truckType}
-                        </div>
-                        <div>
-                            <span className="font-semibold">Delivered:</span> {row.deliveredTimestamp?.toLocaleString?.() ?? "N/A"}
+
+                        {/* Billing lookup keys */}
+                        <div className="border-t pt-2 font-mono text-xs text-muted-foreground">
+                            <span className="not-italic">Billing keys: </span>
+                            <span className="text-foreground">{resolvedHubId || "—"}</span>
+                            <span> → </span>
+                            <span className={destinationResolved ? "text-amber-600 dark:text-amber-400" : "text-foreground"}>
+                                {resolvedDestinationCode || "—"}
+                            </span>
+                            {destinationResolved && (
+                                <span className="text-muted-foreground italic not-italic">
+                                    {" "}(resolved from &quot;{row.destination}&quot;)
+                                </span>
+                            )}
                         </div>
                     </div>
 
-                    {/* No taskId warning */}
-                    {!row.taskId && (
-                        <Alert className="border-blue-200 bg-blue-50">
-                            <AlertTriangle className="h-4 w-4 text-blue-600" />
-                            <AlertDescription className="text-blue-800">
-                                {t("accounting.income.editBilling.noTaskNote") ||
-                                    "This trip has no linked task. Billing will be saved but task fields will not be updated."}
+                    {/* Loading state */}
+                    {!dataLoaded && row.customerId && !loadError && (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            กำลังโหลด Rate Card...
+                        </div>
+                    )}
+
+                    {loadError && (
+                        <Alert className="border-destructive/50 bg-destructive/10">
+                            <AlertTriangle className="h-4 w-4 text-destructive" />
+                            <AlertDescription className="text-destructive">{loadError}</AlertDescription>
+                        </Alert>
+                    )}
+
+                    {/* Auto-computed rate result */}
+                    {computedResult && (
+                        <Alert className="border-green-200 bg-green-50 dark:bg-green-950/20">
+                            <CheckCircle2 className="h-4 w-4 text-green-600" />
+                            <AlertDescription>
+                                <div className="text-green-800 dark:text-green-300 space-y-1">
+                                    <div className="font-semibold">
+                                        พบ Rate Card — คำนวณได้ ฿{computedResult.finalRateThb.toLocaleString()}
+                                    </div>
+                                    <div className="font-mono text-xs opacity-80">
+                                        ฿{computedResult.baseRateThb} × {computedResult.rateMultiplier.toFixed(2)} + ฿{computedResult.addThbPerTrip} = ฿{computedResult.finalRateThb}
+                                    </div>
+                                </div>
                             </AlertDescription>
                         </Alert>
                     )}
 
-                    {/* Editable fields - Origin & Destination only */}
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <SearchableSelect
-                                id="origin"
-                                label={t("accounting.income.editBilling.origin") || "Origin (Hub)"}
-                                value={sourceHub}
-                                onValueChange={setSourceHub}
-                                options={originOptions}
-                                placeholder={t("accounting.income.editBilling.selectOrigin") || "Search origin..."}
-                            />
-                        </div>
-                        <div>
-                            <SearchableSelect
-                                id="destination"
-                                label={t("accounting.income.editBilling.destination") || "Destination"}
-                                value={destination}
-                                onValueChange={setDestination}
-                                options={uniqueDestOptions}
-                                placeholder={t("accounting.income.editBilling.selectDestination") || "Search destination..."}
-                            />
-                        </div>
-                    </div>
+                    {computeError && dataLoaded && (
+                        <Alert className="border-amber-200 bg-amber-50 dark:bg-amber-950/20">
+                            <AlertTriangle className="h-4 w-4 text-amber-600" />
+                            <AlertDescription className="text-amber-800 dark:text-amber-300 text-sm">
+                                {computeError}
+                            </AlertDescription>
+                        </Alert>
+                    )}
 
-                    {/* Preview box */}
-                    <div className="rounded-md border p-3 space-y-2 bg-slate-50">
-                        <p className="text-xs font-semibold text-muted-foreground">
-                            {t("accounting.income.editBilling.preview") || "Computed rate preview"}
-                        </p>
-                        {previewLoading && (
-                            <div className="flex items-center gap-2">
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                                <span className="text-sm">Computing...</span>
-                            </div>
-                        )}
-                        {previewResult && !isManualOverride && (
-                            <div className="space-y-1 text-sm">
-                                <div className="grid grid-cols-4 gap-2 font-mono text-xs">
-                                    <div>
-                                        <span className="text-muted-foreground">Base:</span> ฿{previewResult.baseRateThb.toLocaleString()}
-                                    </div>
-                                    <div>
-                                        <span className="text-muted-foreground">×</span> {previewResult.rateMultiplier.toFixed(2)}
-                                    </div>
-                                    <div>
-                                        <span className="text-muted-foreground">+</span> ฿{previewResult.addThbPerTrip}
-                                    </div>
-                                    <div className="font-bold text-green-600">= ฿{previewResult.finalRateThb.toLocaleString()}</div>
-                                </div>
-                            </div>
-                        )}
-                        {previewError && !isManualOverride && <p className="text-destructive text-xs">{previewError}</p>}
-                    </div>
+                    {!row.taskId && (
+                        <Alert className="border-blue-200 bg-blue-50 dark:bg-blue-950/20">
+                            <AlertTriangle className="h-4 w-4 text-blue-600" />
+                            <AlertDescription className="text-blue-800 dark:text-blue-300 text-sm">
+                                {t("accounting.income.editBilling.noTaskNote") ||
+                                    "Trip has no linked task — billing will be saved directly."}
+                            </AlertDescription>
+                        </Alert>
+                    )}
 
-                    {/* Manual override toggle + input */}
-                    <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                            <Switch id="manual-override" checked={isManualOverride} onCheckedChange={setIsManualOverride} />
-                            <Label htmlFor="manual-override" className="cursor-pointer">
-                                {t("accounting.income.editBilling.manualOverride") || "Manual rate override"}
-                            </Label>
-                        </div>
-                        {isManualOverride && (
-                            <div>
-                                <Label htmlFor="manualRate">{t("accounting.income.editBilling.manualRate") || "Final rate (THB)"}</Label>
-                                <Input
-                                    id="manualRate"
-                                    type="number"
-                                    placeholder="0.00"
-                                    value={manualRateStr}
-                                    onChange={(e) => {
-                                        setManualRateStr(e.target.value);
-                                        setManualRateError(null);
-                                    }}
-                                    step="0.01"
-                                    min="0"
-                                />
-                                {manualRateError && <p className="text-destructive text-xs mt-1">{manualRateError}</p>}
-                            </div>
+                    {/* Price input — always shown */}
+                    <div className="space-y-1.5">
+                        <Label htmlFor="billing-price" className="flex items-center gap-2">
+                            ราคา (THB)
+                            {isManualPrice && (
+                                <Badge variant="secondary" className="text-xs font-normal">
+                                    Manual override
+                                </Badge>
+                            )}
+                        </Label>
+                        <Input
+                            id="billing-price"
+                            type="number"
+                            placeholder="0.00"
+                            value={priceStr}
+                            onChange={(e) => {
+                                setPriceStr(e.target.value);
+                                setPriceError(null);
+                            }}
+                            step="0.01"
+                            min="0"
+                            className="text-lg font-semibold"
+                        />
+                        {priceError && <p className="text-destructive text-xs">{priceError}</p>}
+                        {computedResult && !isManualPrice && (
+                            <p className="text-xs text-muted-foreground">
+                                ราคาจาก Rate Card — แก้ไขได้หากต้องการ
+                            </p>
+                        )}
+                        {computeError && dataLoaded && (
+                            <p className="text-xs text-muted-foreground">
+                                ไม่พบ Rate Card — กรอกราคาด้วยตนเอง
+                            </p>
                         )}
                     </div>
 
-                    {/* Error message */}
                     {saveError && <p className="text-destructive text-sm">{saveError}</p>}
                 </div>
 
@@ -374,7 +329,7 @@ export function EditBillingDialog({ open, onOpenChange, row, hubNameMap, onSaved
                     <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
                         {t("common.cancel") || "Cancel"}
                     </Button>
-                    <Button onClick={handleSave} disabled={isSaveDisabled}>
+                    <Button onClick={() => void handleSave()} disabled={isSaveDisabled}>
                         {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                         {t("accounting.income.editBilling.save") || "Save Billing"}
                     </Button>

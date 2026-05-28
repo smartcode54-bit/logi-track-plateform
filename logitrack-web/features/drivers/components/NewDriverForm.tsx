@@ -52,8 +52,9 @@ export default function NewDriverForm() {
     const [currentStep, setCurrentStep] = useState(1);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    // Login account section state
-    const [createLoginAccount, setCreateLoginAccount] = useState(false);
+    // Login account section state — default ON so new drivers get authId + driverId claim
+    // (required for mobile app access). Toggle off only for drivers who won't use the app.
+    const [createLoginAccount, setCreateLoginAccount] = useState(true);
     const [loginPassword, setLoginPassword] = useState("");
     const [showPassword, setShowPassword] = useState(false);
 
@@ -120,6 +121,12 @@ export default function NewDriverForm() {
 
     const onSubmit = async (data: Driver) => {
         try {
+            if (createLoginAccount && !data.email?.trim()) {
+                toast.error(t("drivers.form.loginAccount.emailRequired"));
+                setCurrentStep(1);
+                return;
+            }
+
             setIsSubmitting(true);
 
             const files = {

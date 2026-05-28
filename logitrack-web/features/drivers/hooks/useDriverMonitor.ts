@@ -15,6 +15,7 @@ import {
     doc,
     writeBatch,
     serverTimestamp,
+    documentId,
 } from "firebase/firestore";
 import { startOfDay, endOfDay, subDays, differenceInCalendarDays } from "date-fns";
 import { db } from "@/firebase/client";
@@ -29,7 +30,20 @@ import {
     fetchRateEntriesForCustomers,
     type TripBillingComputed,
     resolveTaskCustomerId,
+    extractHubId,
+    normalizeDestinationCode,
 } from "@/lib/billingRates";
+import { normalizeVehicleClass } from "@/lib/billingCompute";
+
+export interface BillingDebugInfo {
+    taskFound: boolean;
+    customerId: string;
+    hubId: string;
+    destinationCode: string;
+    vehicleClass: string;
+    rateEntriesForCustomer: number;
+    failReason: "no_task" | "no_customer" | "no_rate_match" | "ok";
+}
 import { useCustomerScope } from "@/hooks/useCustomerScope";
 
 /**
@@ -268,6 +282,7 @@ export function useDriverMonitor() {
         Record<string, { description: string; delayCause: string | null; createdAt: Date | null }>
     >({});
     const [tripBillingByTripId, setTripBillingByTripId] = useState<Record<string, TripBillingComputed>>({});
+    const [billingDebugByTripId, setBillingDebugByTripId] = useState<Record<string, BillingDebugInfo>>({});
 
     const [dateFrom, setDateFrom] = useState<Date>(() => defaultDateRange().from);
     const [dateTo, setDateTo] = useState<Date>(() => defaultDateRange().to);
@@ -416,11 +431,24 @@ export function useDriverMonitor() {
         [sourceIdToName]
     );
 
+    // Map hub display name (TH/EN) → source_id for destination normalization
+    // e.g. "ประเวศ18" → "SPK890146" when tasks store the display name instead of the code
+    const hubDisplayNameToCode = useMemo(() => {
+        const map = new Map<string, string>();
+        hubs.forEach((h) => {
+            const code = h.source_id.trim();
+            if (!code) return;
+            if (h.source_name_th?.trim()) map.set(h.source_name_th.trim(), code);
+            if (h.source_name_en?.trim()) map.set(h.source_name_en.trim(), code);
+        });
+        return map;
+    }, [hubs]);
+
     useEffect(() => {
         const q = query(
             collection(db, COLLECTIONS.TASKS),
             orderBy("createdAt", "desc"),
-            limit(200)
+            limit(500)
         );
         const unsub = onSnapshot(q, (snap) => {
             const list = snap.docs.map((d) => {
@@ -444,6 +472,45 @@ export function useDriverMonitor() {
                 if (task.id) taskById.set(task.id, task);
                 if (task.taskId) taskById.set(task.taskId, task);
             });
+
+            // Fetch tasks not covered by the realtime listener (trips older than limit(500))
+            const missingTaskDocIds = Array.from(
+                new Set(
+                    trips
+                        .map((t) => t.taskId)
+                        .filter((id): id is string => !!id && !taskById.has(id))
+                )
+            );
+            if (missingTaskDocIds.length > 0) {
+                const chunks: string[][] = [];
+                for (let i = 0; i < missingTaskDocIds.length; i += 30) {
+                    chunks.push(missingTaskDocIds.slice(i, i + 30));
+                }
+                for (const chunk of chunks) {
+                    if (cancelled) return;
+                    const snap = await getDocs(
+                        query(collection(db, COLLECTIONS.TASKS), where(documentId(), "in", chunk))
+                    );
+                    snap.docs.forEach((d) => {
+                        const data = d.data();
+                        const task = { id: d.id, ...data } as Task;
+                        taskById.set(d.id, task);
+                        if (data.taskId) taskById.set(String(data.taskId), task);
+                    });
+                }
+            }
+
+            // Normalize task destination: display name → PDP code
+            // e.g. "ประเวศ18" → "SPK890146" when tasks store display name instead of code
+            const resolveTask = (task: Task | null | undefined): Task | null => {
+                if (!task?.destination) return task ?? null;
+                const resolved = hubDisplayNameToCode.get(task.destination.trim());
+                if (resolved && resolved !== task.destination) {
+                    return { ...task, destination: resolved };
+                }
+                return task;
+            };
+
             const customerIds = new Set<string>();
             trips.forEach((trip) => {
                 const task = taskById.get(trip.taskId || "") ?? taskById.get(trip.id || "");
@@ -457,19 +524,55 @@ export function useDriverMonitor() {
             ]);
             if (cancelled) return;
             const next: Record<string, TripBillingComputed> = {};
+            const debugNext: Record<string, BillingDebugInfo> = {};
             trips.forEach((trip) => {
                 if (!trip.id) return;
-                const task = taskById.get(trip.taskId || "") ?? taskById.get(trip.id || "");
+                const rawTask = taskById.get(trip.taskId || "") ?? taskById.get(trip.id || "");
+                const task = resolveTask(rawTask);
                 const result = computeTripBilling(trip, task, rateEntries, fuelAdjustments);
-                if (result) next[trip.id] = result;
+                if (result) {
+                    next[trip.id] = result;
+                    debugNext[trip.id] = {
+                        taskFound: true,
+                        customerId: result.customerId,
+                        hubId: result.lookupHubId,
+                        destinationCode: result.lookupDestination,
+                        vehicleClass: normalizeVehicleClass(task?.truckType),
+                        rateEntriesForCustomer: rateEntries.filter((e) => e.customerId === result.customerId).length,
+                        failReason: "ok",
+                    };
+                } else {
+                    const customerId = resolveTaskCustomerId(task);
+                    const hubId = extractHubId(task?.sourceHub);
+                    const destinationCode = normalizeDestinationCode(task?.destination);
+                    const vehicleClass = normalizeVehicleClass(task?.truckType);
+                    const rateEntriesForCustomer = customerId
+                        ? rateEntries.filter((e) => e.customerId === customerId).length
+                        : 0;
+                    const failReason: BillingDebugInfo["failReason"] = !rawTask
+                        ? "no_task"
+                        : !customerId
+                          ? "no_customer"
+                          : "no_rate_match";
+                    debugNext[trip.id] = {
+                        taskFound: !!rawTask,
+                        customerId,
+                        hubId,
+                        destinationCode,
+                        vehicleClass,
+                        rateEntriesForCustomer,
+                        failReason,
+                    };
+                }
             });
             setTripBillingByTripId(next);
+            setBillingDebugByTripId(debugNext);
         };
         void run();
         return () => {
             cancelled = true;
         };
-    }, [trips, tasks]);
+    }, [trips, tasks, hubDisplayNameToCode]);
 
     useEffect(() => {
         const deliveredWithoutSnapshot = trips.filter((trip) => {
@@ -610,6 +713,14 @@ export function useDriverMonitor() {
         [tripBillingByTripId]
     );
 
+    const getBillingDebug = useCallback(
+        (tripId?: string): BillingDebugInfo | null => {
+            if (!tripId) return null;
+            return billingDebugByTripId[tripId] ?? null;
+        },
+        [billingDebugByTripId]
+    );
+
     return {
         trips,
         paginatedTrips,
@@ -653,5 +764,6 @@ export function useDriverMonitor() {
         getTripsForExport,
         getTripsForExportResolved,
         getBillingForTrip,
+        getBillingDebug,
     };
 }

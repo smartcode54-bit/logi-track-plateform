@@ -1,0 +1,21 @@
+[debug] [2026-05-28T08:42:51.854Z] ----------------------------------------------------------------------
+[debug] [2026-05-28T08:42:51.857Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\acer\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js deploy --config firebase.prod.json --project logitrack-prod
+[debug] [2026-05-28T08:42:51.857Z] CLI Version:   15.18.0
+[debug] [2026-05-28T08:42:51.857Z] Platform:      win32
+[debug] [2026-05-28T08:42:51.857Z] Node Version:  v23.11.0
+[debug] [2026-05-28T08:42:51.858Z] Time:          Thu May 28 2026 15:42:51 GMT+0700 (เวลาอินโดจีน)
+[debug] [2026-05-28T08:42:51.858Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-05-28T08:42:54.708Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-05-28T08:42:54.709Z] > authorizing via signed-in user (radchada67@gmail.com)
+[debug] [2026-05-28T08:42:54.709Z] [iam] checking project logitrack-prod for permissions ["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","datastore.indexes.create","datastore.indexes.delete","datastore.indexes.list","datastore.indexes.update","firebase.projects.get","firebasehosting.sites.update","firebaserules.releases.create","firebaserules.releases.update","firebaserules.rulesets.create"]
+[debug] [2026-05-28T08:42:54.711Z] Checked if tokens are valid: false, expires at: 1779958319543
+[debug] [2026-05-28T08:42:54.711Z] Checked if tokens are valid: false, expires at: 1779958319543
+[debug] [2026-05-28T08:42:54.711Z] > refreshing access token with scopes: []
+[debug] [2026-05-28T08:42:54.713Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-05-28T08:42:54.713Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-05-28T08:42:54.872Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2026-05-28T08:42:54.873Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-05-28T08:42:54.960Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/logitrack-prod:testIamPermissions [none]
+[debug] [2026-05-28T08:42:54.960Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/logitrack-prod:testIamPermissions  x-goog-user-project=logitrack-prod
+[debug] [2026-05-28T08:42:54.960Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/logitrack-prod:testIamPermissions {"permissions":["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","datastore.indexes.create","datastore.indexes.delete","datastore.indexes.list","datastore.indexes.update","firebase.projects.get","firebasehosting.sites.update","firebaserules.releases.create","firebaserules.releases.update","firebaserules.rulesets.create"]}

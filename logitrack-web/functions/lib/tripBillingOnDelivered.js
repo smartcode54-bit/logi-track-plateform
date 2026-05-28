@@ -33,17 +33,42 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.normalizeRateEntryVehicleClasses = exports.backfillTripBillingSnapshots = exports.computeTripBillingSnapshot = void 0;
+exports.autoComputeBillingOnDelivery = exports.normalizeRateEntryVehicleClasses = exports.backfillTripBillingSnapshots = exports.computeTripBillingSnapshot = void 0;
 const admin = __importStar(require("firebase-admin"));
 const firebase_functions_1 = require("firebase-functions");
 const https_1 = require("firebase-functions/v2/https");
+const scheduler_1 = require("firebase-functions/v2/scheduler");
 const billingCompute_1 = require("./core/billingCompute");
 const COL_TASKS = "tasks";
 const COL_RATE_ENTRIES = "customer_rate_entries";
 const COL_FUEL_ADJ = "customer_fuel_rate_adjustments";
 const COL_TRIP_RECORDS = "trip_records";
+const COL_HUBS = "hubs";
 function normalizeStoredCode(v) {
     return (v ?? "").trim().toUpperCase();
+}
+/** Build display name → source_id map from hubs collection (load once per invocation). */
+async function buildHubNameToCodeMap(db) {
+    const snap = await db.collection(COL_HUBS).get();
+    const map = new Map();
+    snap.docs.forEach((d) => {
+        const data = d.data();
+        const code = String(data.source_id ?? data.hubId ?? "").trim();
+        if (!code)
+            return;
+        for (const nameField of [data.source_name_th, data.source_name_en, data.hubName]) {
+            const name = typeof nameField === "string" ? nameField.trim() : "";
+            if (name && !map.has(name))
+                map.set(name, code);
+        }
+    });
+    return map;
+}
+/** Resolve destination: if stored as display name ("ประเวศ18") → return PDP code ("SPK890146"). */
+function resolveDestination(raw, nameToCode) {
+    if (!raw)
+        return raw;
+    return nameToCode.get(raw.trim()) ?? raw;
 }
 function mapRateDoc(customerId, doc) {
     const d = doc.data();
@@ -69,7 +94,7 @@ function mapFuelDoc(customerId, doc) {
     };
 }
 /** Shared core: persist billing snapshot from already-read trip fields (idempotent). */
-async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef) {
+async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hubNameToCode) {
     if (data.status !== "delivered") {
         return { ok: true, skipped: true, error: "Trip is not delivered yet" };
     }
@@ -94,9 +119,10 @@ async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef) {
         return { ok: false, error: "Task not found" };
     }
     const t = taskSnap.data();
+    const rawDestination = typeof t.destination === "string" ? t.destination : undefined;
     const taskInput = {
         sourceHub: typeof t.sourceHub === "string" ? t.sourceHub : undefined,
-        destination: typeof t.destination === "string" ? t.destination : undefined,
+        destination: hubNameToCode ? resolveDestination(rawDestination, hubNameToCode) : rawDestination,
         truckType: typeof t.truckType === "string" ? t.truckType : undefined,
         sourceHubLinkedCustomerId: typeof t.sourceHubLinkedCustomerId === "string" ? t.sourceHubLinkedCustomerId : undefined,
         destinationLinkedCustomerId: typeof t.destinationLinkedCustomerId === "string" ? t.destinationLinkedCustomerId : undefined,
@@ -211,21 +237,25 @@ async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef) {
  */
 exports.computeTripBillingSnapshot = (0, https_1.onCall)({
     region: "asia-southeast1",
-    enforceAppCheck: true,
-    consumeAppCheckToken: true,
+    enforceAppCheck: false, // Web admin calls without App Check token; auth protected by request.auth check below
 }, async (request) => {
+    if (!request.auth) {
+        throw new https_1.HttpsError("unauthenticated", "Must be authenticated");
+    }
     const tripId = request.data?.tripId?.trim();
     if (!tripId) {
         throw new https_1.HttpsError("invalid-argument", "tripId is required");
     }
     const db = admin.firestore();
-    const tripRef = db.collection(COL_TRIP_RECORDS).doc(tripId);
-    const tripSnap = await tripRef.get();
+    const [tripSnap, hubNameToCode] = await Promise.all([
+        db.collection(COL_TRIP_RECORDS).doc(tripId).get(),
+        buildHubNameToCodeMap(db),
+    ]);
     if (!tripSnap.exists) {
         throw new https_1.HttpsError("not-found", "Trip not found");
     }
     const data = tripSnap.data();
-    return tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef);
+    return tryWriteBillingSnapshotFromTripData(db, tripId, data, tripSnap.ref, hubNameToCode);
 });
 function bangkokBoundsToTimestamps(fromDateStr, toDateStr) {
     const start = new Date(`${fromDateStr.trim()}T00:00:00+07:00`);
@@ -258,13 +288,15 @@ exports.backfillTripBillingSnapshots = (0, https_1.onCall)({
     const maxWrite = Math.min(Math.max(1, request.data?.maxWrite ?? 200), 500);
     const db = admin.firestore();
     const { start, end } = bangkokBoundsToTimestamps(fromDateStr, toDateStr);
-    const snap = await db
-        .collection(COL_TRIP_RECORDS)
-        .where("createdAt", ">=", start)
-        .where("createdAt", "<=", end)
-        .orderBy("createdAt", "desc")
-        .limit(maxScan)
-        .get();
+    const [snap, hubNameToCode] = await Promise.all([
+        db.collection(COL_TRIP_RECORDS)
+            .where("createdAt", ">=", start)
+            .where("createdAt", "<=", end)
+            .orderBy("createdAt", "desc")
+            .limit(maxScan)
+            .get(),
+        buildHubNameToCodeMap(db),
+    ]);
     let eligible = 0;
     let written = 0;
     let skipped = 0;
@@ -281,7 +313,7 @@ exports.backfillTripBillingSnapshots = (0, https_1.onCall)({
         if (written >= maxWrite)
             continue;
         attempted++;
-        const result = await tryWriteBillingSnapshotFromTripData(db, doc.id, data, doc.ref);
+        const result = await tryWriteBillingSnapshotFromTripData(db, doc.id, data, doc.ref, hubNameToCode);
         if (result.ok === true && result.skipped !== true && result.billingEstimateThb != null) {
             written++;
         }
@@ -345,5 +377,50 @@ exports.normalizeRateEntryVehicleClasses = (0, https_1.onCall)({
         samples,
         capped: needsUpdate > updated,
     };
+});
+/**
+ * Scheduled: auto-compute billing for recently delivered trips that have no billing yet.
+ * Runs every 15 minutes. Scans trips delivered in the last 30 minutes (double the interval
+ * for overlap safety). Idempotent — skips trips that already have billingEstimateThb set.
+ *
+ * Note: a Firestore document trigger cannot be used here because the Firestore database is
+ * in asia-southeast3 (Jakarta), which is not a supported Cloud Functions region.
+ */
+exports.autoComputeBillingOnDelivery = (0, scheduler_1.onSchedule)({
+    schedule: "every 15 minutes",
+    region: "asia-southeast1",
+    timeoutSeconds: 540,
+}, async () => {
+    const db = admin.firestore();
+    const windowMs = 30 * 60 * 1000; // 30-minute look-back window
+    const since = admin.firestore.Timestamp.fromMillis(Date.now() - windowMs);
+    const [snap, hubNameToCode] = await Promise.all([
+        db.collection(COL_TRIP_RECORDS)
+            .where("status", "==", "delivered")
+            .where("deliveredTimestamp", ">=", since)
+            .limit(100)
+            .get(),
+        buildHubNameToCodeMap(db),
+    ]);
+    let written = 0;
+    let failed = 0;
+    for (const doc of snap.docs) {
+        const data = doc.data();
+        if (typeof data.billingEstimateThb === "number")
+            continue; // already billed
+        const result = await tryWriteBillingSnapshotFromTripData(db, doc.id, data, doc.ref, hubNameToCode);
+        if (result.ok && !result.skipped) {
+            written++;
+            firebase_functions_1.logger.info("[autoComputeBilling] billing written", {
+                tripId: doc.id,
+                billingEstimateThb: result.billingEstimateThb,
+            });
+        }
+        else if (!result.ok) {
+            failed++;
+            firebase_functions_1.logger.warn("[autoComputeBilling] billing failed", { tripId: doc.id, error: result.error });
+        }
+    }
+    firebase_functions_1.logger.info("[autoComputeBilling] run complete", { scanned: snap.size, written, failed });
 });
 //# sourceMappingURL=tripBillingOnDelivered.js.map
