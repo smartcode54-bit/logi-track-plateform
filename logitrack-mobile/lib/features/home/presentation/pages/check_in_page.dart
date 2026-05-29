@@ -74,6 +74,22 @@ class _CheckInPageState extends State<CheckInPage> {
     return _hubNameMap[sourceId] ?? sourceId;
   }
 
+  Widget _infoRow(String label, String value) => Padding(
+        padding: const EdgeInsets.only(top: 2),
+        child: Text.rich(
+          TextSpan(
+            style: const TextStyle(fontSize: 12),
+            children: [
+              TextSpan(
+                text: '$label : ',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              TextSpan(text: value),
+            ],
+          ),
+        ),
+      );
+
   String _formatTaskLinkMeta(
     Map<String, dynamic> task,
     String side,
@@ -513,8 +529,21 @@ class _CheckInPageState extends State<CheckInPage> {
         'dd/MM/yyyy HH:mm:ss',
       ).format(checkInAt.toDate());
     }
-    final sourceLinkMeta = _formatTaskLinkMeta(t, 'sourceHub');
-    final destinationLinkMeta = _formatTaskLinkMeta(t, 'destination');
+    // ดึง customer จาก sourceHub ก่อน ถ้าไม่มีดึงจาก destination
+    final srcCustomerName = (t['sourceHubLinkedCustomerName'] as String? ?? '').trim();
+    final srcCustomerCode = (t['sourceHubLinkedCustomerCode'] as String? ?? '').trim();
+    final dstCustomerName = (t['destinationLinkedCustomerName'] as String? ?? '').trim();
+    final dstCustomerCode = (t['destinationLinkedCustomerCode'] as String? ?? '').trim();
+    String customerDisplay = '';
+    if (srcCustomerCode.isNotEmpty || srcCustomerName.isNotEmpty) {
+      customerDisplay = srcCustomerCode.isNotEmpty && srcCustomerName.isNotEmpty
+          ? '$srcCustomerCode - $srcCustomerName'
+          : (srcCustomerName.isNotEmpty ? srcCustomerName : srcCustomerCode);
+    } else if (dstCustomerCode.isNotEmpty || dstCustomerName.isNotEmpty) {
+      customerDisplay = dstCustomerCode.isNotEmpty && dstCustomerName.isNotEmpty
+          ? '$dstCustomerCode - $dstCustomerName'
+          : (dstCustomerName.isNotEmpty ? dstCustomerName : dstCustomerCode);
+    }
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -533,27 +562,16 @@ class _CheckInPageState extends State<CheckInPage> {
                 ),
               )
             : null,
-        title: Text(
-          '${t['taskId'] ?? t['FirstMileTaskId'] ?? 'Task'}: ${_resolveHubName(source)} → ${_resolveHubName(dest)}',
-        ),
+        title: Text(t['taskId'] ?? t['FirstMileTaskId'] ?? 'Task'),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('$dateStr $time · $status'),
-            if (sourceLinkMeta.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text(
-                sourceLinkMeta,
-                style: const TextStyle(fontSize: 12),
-              ),
-            ],
-            if (destinationLinkMeta.isNotEmpty) ...[
-              const SizedBox(height: 2),
-              Text(
-                destinationLinkMeta,
-                style: const TextStyle(fontSize: 12),
-              ),
-            ],
+            const SizedBox(height: 4),
+            if (customerDisplay.isNotEmpty)
+              _infoRow('checkin_customer_label'.tr(), customerDisplay),
+            _infoRow('checkin_origin'.tr(), _resolveHubName(source)),
+            _infoRow('checkin_destination'.tr(), _resolveHubName(dest)),
             if (checkInTimeStr.isNotEmpty) ...[
               const SizedBox(height: 4),
               Text(

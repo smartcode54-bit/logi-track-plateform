@@ -176,8 +176,15 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
     return created.year == _selectedYear && created.month == _selectedMonth;
   }
 
-  List<TripRecord> _tripsInSelectedMonth() =>
-      _allTrips.where(_isInSelectedYearMonth).toList();
+  List<TripRecord> _tripsInSelectedMonth() {
+    final list = _allTrips.where(_isInSelectedYearMonth).toList();
+    list.sort((a, b) {
+      final at = a.createdAt ?? DateTime(0);
+      final bt = b.createdAt ?? DateTime(0);
+      return bt.compareTo(at);
+    });
+    return list;
+  }
 
   Set<String> _distinctPartnerCodesInMonth() {
     final codes = <String>{};

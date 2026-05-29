@@ -73,6 +73,8 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
   String? _ocrReleaseTime;
   String? _ocrSecondarySealCode;
   String? _ocrSealSource;
+  /// true เมื่อ driver ยืนยันพิมพ์ seal มือ (fallback เมื่อ barcode เสียหาย)
+  bool _sealManualEntry = false;
 
   /// Inline duplicate validation (set when user blurs Trip ID / Seal Code)
   String? _tripIdDuplicateError;
@@ -401,6 +403,15 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         if (trip != null && trip.isNotEmpty) {
           controller.text = trip.trim().toUpperCase();
           _applyPartnerCodeFromTripId(controller.text);
+          // SPX: also fill seal from same barcode in one scan (ZX must scan seal separately)
+          if (!_isZxTripId(controller.text) && _sealCodeController.text.isEmpty) {
+            final seal = extractPrimarySealFromRawValue(value) ??
+                extractPrimarySealFromRawValue(value, kind: OcrImageKind.seal);
+            if (seal != null && seal.isNotEmpty) {
+              _sealCodeController.text = seal.trim().toUpperCase();
+              _ocrSealSource = 'scanned';
+            }
+          }
         } else {
           controller.text = value.trim().toUpperCase();
         }
@@ -605,12 +616,16 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         if (manageOcrLoading) _ocrLoading = false;
         if (result.tripId != null) _tripIdController.text = result.tripId!;
         _applyPartnerCodeFromTripId(_tripIdController.text);
-        if (result.sealCode != null) {
-          _sealCodeController.text = result.sealCode!;
-        }
-        if (result.secondarySealCode != null &&
-            result.secondarySealCode!.isNotEmpty) {
-          _ocrSecondarySealCode = result.secondarySealCode;
+        // J&T (ZX) trips: seal must be scanned manually at the seal input field.
+        // SPX trips: allow OCR to fill seal automatically.
+        if (!_isZxTripId(_tripIdController.text)) {
+          if (result.sealCode != null) {
+            _sealCodeController.text = result.sealCode!;
+          }
+          if (result.secondarySealCode != null &&
+              result.secondarySealCode!.isNotEmpty) {
+            _ocrSecondarySealCode = result.secondarySealCode;
+          }
         }
         if (result.parcelCount != null) {
           _parcelCountController.text = result.parcelCount!;
@@ -694,39 +709,6 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         );
       }
     }
-  }
-
-  Future<void> _scanRunsheetBarcodeLive() async {
-    if (kIsWeb) return;
-    final raw = await Navigator.of(context).push<String>(
-      MaterialPageRoute(
-        builder: (_) => const QrScanPage(title: 'loading_phase_scan_qr'),
-      ),
-    );
-    if (raw == null || !mounted) return;
-    final trip = extractTripIdFromRawValue(raw) ??
-        extractTripIdFromRawValue(
-          raw.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9\-]'), ''),
-        );
-    final spxSeal = extractPrimarySealFromRawValue(raw);
-    final numericSeal = extractPrimarySealFromRawValue(
-      raw,
-      kind: OcrImageKind.seal,
-    );
-    setState(() {
-      if (trip != null && trip.isNotEmpty) {
-        _tripIdController.text = trip.trim().toUpperCase();
-        _applyPartnerCodeFromTripId(_tripIdController.text);
-      }
-      if (spxSeal != null && spxSeal.isNotEmpty) {
-        _sealCodeController.text = spxSeal.toUpperCase().trim();
-        _ocrSealSource = 'scanned';
-      } else if (numericSeal != null && numericSeal.isNotEmpty) {
-        _sealCodeController.text = numericSeal.trim();
-        _ocrSealSource = 'scanned';
-      }
-    });
-    _saveLoadingDraft();
   }
 
   bool _isZxTripId(String tripId) => tripId.trim().toUpperCase().startsWith('ZX');
@@ -829,7 +811,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       );
       return;
     }
-    if (_isZxTripId(tripId) && _ocrSealSource != 'scanned') {
+    if (_isZxTripId(tripId) && _ocrSealSource != 'scanned' && !_sealManualEntry) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('loading_phase_seal_scan_required'.tr()),
@@ -1136,6 +1118,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       _ocrReleaseTime = null;
       _ocrSecondarySealCode = null;
       _ocrSealSource = null;
+      _sealManualEntry = false;
       _tripIdDuplicateError = null;
       _sealCodeDuplicateError = null;
       _lastDuplicateDebug = null;
@@ -1311,7 +1294,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
           : null;
       final supplierTrimmed = _ocrSupplierCode?.trim();
       final releaseTimeTrimmed = _ocrReleaseTime?.trim();
-      final sealSourceTrimmed = _ocrSealSource?.trim();
+      final sealSourceTrimmed = _sealManualEntry ? 'manual' : _ocrSealSource?.trim();
       final secondarySealTrimmed = _ocrSecondarySealCode?.trim();
 
       // Persist extra stops on the task first (callable upgrades single-stop tasks when needed).
@@ -1716,19 +1699,6 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                                 ),
                               ),
                             ),
-                                    const SizedBox(height: 8),
-                                    OutlinedButton.icon(
-                                      onPressed: _ocrLoading
-                                          ? null
-                                          : _scanRunsheetBarcodeLive,
-                                      icon: const Icon(
-                                        Icons.qr_code_scanner,
-                                        size: 20,
-                                      ),
-                                      label: Text(
-                                        'loading_phase_scan_from_camera'.tr(),
-                                      ),
-                                    ),
                           ],
                         ),
                       ),
@@ -1753,15 +1723,42 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                         ),
                         onTap: _validateDuplicateOnBlur,
                       ),
+                      if (_tripIdDuplicateError != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: SizedBox(
+                            width: double.infinity,
+                            child: FilledButton.icon(
+                              onPressed: () {
+                                setState(() {
+                                  _tripIdController.clear();
+                                  _tripIdDuplicateError = null;
+                                  _sealCodeDuplicateError = null;
+                                  _lastDuplicateDebug = null;
+                                });
+                                _scanAndSet(_tripIdController);
+                              },
+                              icon: const Icon(Icons.qr_code_scanner, size: 20),
+                              label: Text('loading_phase_rescan_trip_id'.tr()),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: Colors.red.shade600,
+                              ),
+                            ),
+                          ),
+                        ),
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: _sealCodeController,
                         textCapitalization: TextCapitalization.characters,
                         decoration: InputDecoration(
                           labelText: 'loading_phase_seal_code'.tr(),
-                          hintText: 'SPX...',
+                          hintText: 'loading_phase_seal_hint'.tr(),
                           border: const OutlineInputBorder(),
                           errorText: _sealCodeDuplicateError,
+                          helperText: _isZxTripId(_tripIdController.text)
+                              ? 'loading_phase_seal_jt_hint'.tr()
+                              : null,
+                          helperMaxLines: 2,
                           suffixIcon: IconButton(
                             icon: const Icon(Icons.qr_code_scanner),
                             tooltip: 'loading_phase_scan_qr'.tr(),
@@ -1770,6 +1767,42 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                         ),
                         onEditingComplete: _validateDuplicateOnBlur,
                       ),
+                      if (_isZxTripId(_tripIdController.text) &&
+                          _ocrSealSource != 'scanned' &&
+                          !_sealManualEntry)
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            onPressed: () async {
+                              final confirm = await showDialog<bool>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: Text('loading_phase_seal_manual_title'.tr()),
+                                  content: Text('loading_phase_seal_manual_body'.tr()),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(ctx, false),
+                                      child: Text(MaterialLocalizations.of(ctx).cancelButtonLabel),
+                                    ),
+                                    FilledButton(
+                                      onPressed: () => Navigator.pop(ctx, true),
+                                      child: Text('loading_phase_seal_manual_confirm'.tr()),
+                                    ),
+                                  ],
+                                ),
+                              );
+                              if (confirm == true && mounted) {
+                                setState(() => _sealManualEntry = true);
+                              }
+                            },
+                            icon: const Icon(Icons.edit_outlined, size: 16),
+                            label: Text('loading_phase_seal_manual_btn'.tr()),
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.orange.shade700,
+                              textStyle: const TextStyle(fontSize: 13),
+                            ),
+                          ),
+                        ),
                       if (_lastDuplicateDebug != null) ...[
                         const SizedBox(height: 12),
                         _buildDuplicateCheckDebugCard(_lastDuplicateDebug!),

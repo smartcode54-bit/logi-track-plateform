@@ -37,9 +37,7 @@ class DuplicateCheckResult {
 }
 
 /// Check if [tripId] or [sealCode] already exists in trip_records.
-/// - tripId: document with id [tripId] exists. If [currentDriverId] is passed and the existing
-///   document has the same driverId, treat as same driver updating (e.g. same runsheet, fix photo)
-///   and do NOT consider tripId duplicate so save can proceed (merge/update).
+/// - tripId: document with id [tripId] exists → block always, regardless of driver.
 /// - sealCode: another trip (different document) has the same sealCode; only checked if [sealCode] is not null/empty.
 Future<DuplicateCheckResult> checkDuplicateTripIdAndSeal({
   required String tripId,
@@ -51,15 +49,9 @@ Future<DuplicateCheckResult> checkDuplicateTripIdAndSeal({
   final tripDoc = await col.doc(tripId).get();
   final docExists = tripDoc.exists;
   final existingDriverId = tripDoc.data()?['driverId'] as String?;
-  bool tripIdExists = docExists;
-  bool sameDriverAllowed = false;
-  if (tripIdExists &&
-      currentDriverId != null &&
-      currentDriverId.isNotEmpty &&
-      existingDriverId == currentDriverId) {
-    sameDriverAllowed = true;
-    tripIdExists = false;
-  }
+  // Block duplicate trip ID unconditionally — same driver is not an exception.
+  final bool tripIdExists = docExists;
+  const bool sameDriverAllowed = false;
 
   bool sealCodeExists = false;
   final seal = sealCode?.trim();
