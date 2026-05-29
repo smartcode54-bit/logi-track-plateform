@@ -65,10 +65,10 @@ export function normalizeDestinationCode(destination: string | null | undefined)
     if (u.startsWith("SOCE")) return "SOCE";
     if (u.startsWith("SOCN")) return "SOCN";
     if (u.startsWith("SOCW")) return "SOCW";
-    // SPK codes: extract just the code part (e.g., "SPK890103-ลาดกระบัง26" → "SPK890103")
+    // SPK codes: extract just the code part (e.g., "SPK890103 - ลาดกระบัง26" or "SPK890103-ลาดกระบัง26" → "SPK890103")
     const dashIdx = u.indexOf("-");
     if (dashIdx > 0) {
-        return u.slice(0, dashIdx);
+        return u.slice(0, dashIdx).trim();
     }
     return u;
 }

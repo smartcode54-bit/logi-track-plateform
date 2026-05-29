@@ -124,8 +124,12 @@ export default function BillingDocumentPage() {
             snap.forEach((d) => {
                 const data = d.data();
                 const label = primaryHubLabelFromFirestoreData(data);
-                if (data.source_id) map.set(String(data.source_id), label);
+                // Map all possible code fields so any hub reference format resolves to a display name
+                if (data.source_id) map.set(String(data.source_id).trim().toUpperCase(), label);
+                if (data.hubId)     map.set(String(data.hubId).trim().toUpperCase(), label);
+                if (data.hubCode)   map.set(String(data.hubCode).trim().toUpperCase(), label);
                 map.set(d.id, label);
+                map.set(d.id.toUpperCase(), label);
             });
             setHubNameMap(map);
         }).catch(console.error);
@@ -500,7 +504,18 @@ export default function BillingDocumentPage() {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {filteredTrips.map((trip) => (
+                                    {filteredTrips.map((trip) => {
+                                        // Resolve display names at render time so hubNameMap is always up-to-date.
+                                        // Keys in hubNameMap are stored uppercase; normalizeDestinationCode also returns uppercase.
+                                        const resolveHubName = (code: string | undefined): string | undefined => {
+                                            if (!code) return undefined;
+                                            const upper = code.trim().toUpperCase();
+                                            const normalized = normalizeDestinationCode(upper) || upper;
+                                            return hubNameMap.get(normalized) ?? hubNameMap.get(upper) ?? hubNameMap.get(code);
+                                        };
+                                        const originDisplay = resolveHubName(trip.billingLookupHubId) ?? trip.hubDisplayName ?? trip.billingLookupHubId;
+                                        const destDisplay = resolveHubName(trip.billingLookupDestination ?? "") ?? trip.destinationDisplayName ?? trip.billingLookupDestination;
+                                        return (
                                         <TableRow key={trip.id} className={trip.rowType === "standby" ? "bg-amber-950/20" : trip.rowType === "multidrop_stop" ? "bg-blue-950/10" : undefined}>
                                             <TableCell className="font-mono text-xs">
                                                 {trip.rowType === "standby"
@@ -514,7 +529,7 @@ export default function BillingDocumentPage() {
                                                 {trip.deliveredTimestamp ? format(trip.deliveredTimestamp, "dd/MM/yyyy HH:mm") : "-"}
                                             </TableCell>
                                             <TableCell className="text-xs">
-                                                {[trip.hubDisplayName ?? trip.billingLookupHubId, trip.destinationDisplayName ?? trip.billingLookupDestination].filter(Boolean).join(" → ")}
+                                                {[originDisplay, destDisplay].filter(Boolean).join(" → ")}
                                             </TableCell>
                                             <TableCell>
                                                 {trip.rowType === "standby"
@@ -527,7 +542,8 @@ export default function BillingDocumentPage() {
                                                 {formatThb(trip.billingEstimateThb)}
                                             </TableCell>
                                         </TableRow>
-                                    ))}
+                                        );
+                                    })}
                                 </TableBody>
                             </Table>
                         </CardContent>
