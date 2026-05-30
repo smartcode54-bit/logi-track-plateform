@@ -357,18 +357,33 @@ async function buildInvoicePdf(
     doc.text(`ยอดรวม : ${formatThb(textAmount)} บาท`, 14, finalY + 21);
   }
 
-  // ── Bank info (invoice only) ──
+  // ── Payment method + bank info ──
   const bankName = prov.bankName || BILLING_PROVIDER.bankName;
   const accountNumber = prov.accountNumber || BILLING_PROVIDER.accountNumber;
   const accountName = prov.accountName || BILLING_PROVIDER.accountName;
-  if (!isReceipt && bankName) {
+  {
     doc.setFont("Sarabun", "normal");
     doc.setFontSize(9);
-    doc.text(
-      `ชำระโดย: ${bankName} เลขที่ ${accountNumber} ชื่อบัญชี: ${accountName}`,
-      14,
-      finalY + 28,
-    );
+    const py = finalY + 26;
+    doc.text("ชำระโดย", 14, py);
+
+    // Checkbox: เงินสด
+    const box = 3.2;
+    doc.rect(30, py - box, box, box);
+    doc.text("เงินสด", 34.5, py);
+
+    // Checkbox: เงินโอน
+    doc.rect(52, py - box, box, box);
+    doc.text("เงินโอน", 56.5, py);
+
+    // Bank account info on the next line
+    if (bankName) {
+      doc.text(
+        `ธนาคาร ${bankName}  เลขที่บัญชี ${accountNumber}  ชื่อบัญชี ${accountName}`,
+        14,
+        py + 6,
+      );
+    }
   }
 
   // ── Invoice note ──
@@ -376,11 +391,11 @@ async function buildInvoicePdf(
     doc.setFont("Sarabun", "normal");
     doc.setFontSize(8);
     const noteLines = doc.splitTextToSize(`หมายเหตุ: ${customer.invoiceNote}`, 180);
-    doc.text(noteLines, 14, finalY + 35);
+    doc.text(noteLines, 14, finalY + 42);
   }
 
   // ── Signature block ──
-  const sigY = finalY + (customer.invoiceNote ? 55 : 45);
+  const sigY = finalY + (customer.invoiceNote ? 62 : 52);
   doc.setFont("Sarabun", "normal");
   doc.setFontSize(9);
 
