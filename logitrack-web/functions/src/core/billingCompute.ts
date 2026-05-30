@@ -175,15 +175,19 @@ export interface MultiDeliveryStopBilling {
 
 export interface MultiDeliveryBillingResult {
     customerId: string;
-    baseRateThb: number; // Rate of stop 1
-    stopChargeThb: number; // Sum of rates for stop 3+
+    baseRateThb: number; // Rate of stop 1 (planned destination)
+    stopChargeThb: number; // Sum of rates for stop 2+ (extra stops)
     totalBillingThb: number; // baseRateThb + stopChargeThb
     stopBreakdown: MultiDeliveryStopBilling[];
     rateMultiplier: number;
     fuelAdjustmentId?: string;
 }
 
-/** Compute billing for multi-delivery task: charge stop 3+ only (A → each destination). */
+/**
+ * Compute billing for multi-delivery task.
+ * Rule: stop[0] = planned destination (base rate), stop[1+] = extra stops (each charged).
+ * Origin (source hub) is never in deliveryStops — it is already accounted for in the base rate.
+ */
 export function computeMultiDeliveryBilling(
     trip: TripBillingTimestamps,
     task: TaskBillingInput | null | undefined,
@@ -192,7 +196,7 @@ export function computeMultiDeliveryBilling(
     rateEntries: BillingRateEntry[],
     fuelAdjustments: FuelRateAdjustment[]
 ): MultiDeliveryBillingResult | null {
-    if (!task || deliveryStops.length < 3) return null;
+    if (!task || deliveryStops.length < 2) return null;
     const customerId = resolveTaskCustomerId(task);
     if (!customerId) return null;
 
@@ -224,7 +228,7 @@ export function computeMultiDeliveryBilling(
         const finalRate = computeFinalRateThb(baseRate, rateMultiplier, addThbPerTrip);
 
         if (idx === 0) {
-            // Stop 1: set baseRateThb
+            // Stop 1: planned destination — forms the base rate of the trip
             baseRateThb = finalRate;
             stopBreakdown.push({
                 stopIndex: 1,
@@ -232,8 +236,8 @@ export function computeMultiDeliveryBilling(
                 baseRateThb: baseRate,
                 finalRateThb: finalRate,
             });
-        } else if (idx >= 2) {
-            // Stop 3+: add to stopChargeThb
+        } else {
+            // Stop 2+: every extra stop added beyond the original plan is charged
             stopChargeThb += finalRate;
             stopBreakdown.push({
                 stopIndex: idx + 1,
@@ -254,6 +258,62 @@ export function computeMultiDeliveryBilling(
         stopBreakdown,
         rateMultiplier,
         fuelAdjustmentId: matchedAdjustment?.id,
+    };
+}
+
+// ─── Standby Billing ─────────────────────────────────────────────────────────
+
+export interface StandbyRateEntry {
+    id: string;
+    customerId: string;
+    /** Fixed THB charged per standby event (regardless of duration). */
+    rateThb: number;
+    effectiveFromMs: number;
+    note?: string;
+}
+
+export interface StandbyBillingComputed {
+    customerId: string;
+    rateThb: number;
+    rateEntryId: string;
+    effectiveFromDateStr?: string;
+}
+
+/** Select the standby rate effective on or before billDateMs; fallback to oldest if none match. */
+export function selectStandbyRateEntry(
+    customerId: string,
+    billDateMs: number,
+    rateEntries: StandbyRateEntry[]
+): StandbyRateEntry | null {
+    const candidates = rateEntries.filter((e) => e.customerId === customerId);
+    if (candidates.length === 0) return null;
+
+    const effective = candidates
+        .filter((e) => e.effectiveFromMs <= billDateMs)
+        .sort((a, b) => b.effectiveFromMs - a.effectiveFromMs);
+    if (effective.length > 0) return effective[0];
+
+    // Fallback: use oldest rate if standby happened before all effective dates
+    return candidates.sort((a, b) => a.effectiveFromMs - b.effectiveFromMs)[0];
+}
+
+/**
+ * Compute standby billing for a completed standby record.
+ * Fixed rate per event — does not depend on duration.
+ */
+export function computeStandbyBilling(
+    billDateMs: number,
+    customerId: string,
+    rateEntries: StandbyRateEntry[]
+): StandbyBillingComputed | null {
+    if (!customerId) return null;
+    const matched = selectStandbyRateEntry(customerId, billDateMs, rateEntries);
+    if (!matched) return null;
+    return {
+        customerId,
+        rateThb: matched.rateThb,
+        rateEntryId: matched.id,
+        effectiveFromDateStr: new Date(matched.effectiveFromMs).toISOString().slice(0, 10),
     };
 }
 

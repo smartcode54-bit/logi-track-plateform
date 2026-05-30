@@ -145,6 +145,12 @@ service cloud.firestore {
       allow write: if isAppCheckVerified() && request.auth != null && isWebAdmin();
     }
 
+    // Standby billing rates (fixed rate per event, per customer, by effective date).
+    match /standby_rate_entries/{docId} {
+      allow read: if request.auth != null && isWebAdmin();
+      allow write: if isAppCheckVerified() && request.auth != null && isWebAdmin();
+    }
+
     // Customer service fees (extra stop, waiting time, special handling, etc.).
     match /customer_service_fees/{docId} {
       allow read: if request.auth != null && isWebAdmin();

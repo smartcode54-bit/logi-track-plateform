@@ -153,8 +153,8 @@ async function tryWriteBillingSnapshotFromTripData(
     const isMultiDelivery = data.isMultiDelivery === true;
     const deliveryStopsProgress = Array.isArray(data.deliveryStopsProgress) ? data.deliveryStopsProgress : [];
 
-    if (isMultiDelivery && deliveryStopsProgress.length >= 3) {
-        // Multi-delivery billing: charge stop 3+ only
+    if (isMultiDelivery && deliveryStopsProgress.length >= 2) {
+        // Multi-delivery billing: stop[0] = base rate (planned destination), stop[1+] = extra stops charged
         const stops: DeliveryStopForBilling[] = deliveryStopsProgress
             .filter((stop: any) => stop.destination && stop.status === "delivered")
             .map((stop: any) => ({
@@ -162,13 +162,13 @@ async function tryWriteBillingSnapshotFromTripData(
                 destination: String(stop.destination ?? ""),
             }));
 
-        if (stops.length < 3) {
-            logger.warn("[billingSnapshot] multi-delivery trip has < 3 delivered stops", {
+        if (stops.length < 2) {
+            logger.warn("[billingSnapshot] multi-delivery trip has < 2 delivered stops", {
                 tripId,
                 taskId,
                 delivered: stops.length,
             });
-            return { ok: false, error: "Multi-delivery trip has < 3 delivered stops" };
+            return { ok: false, error: "Multi-delivery trip has < 2 delivered stops" };
         }
 
         const multiComputed = computeMultiDeliveryBilling(

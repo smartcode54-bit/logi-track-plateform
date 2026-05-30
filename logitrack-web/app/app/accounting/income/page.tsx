@@ -66,8 +66,12 @@ interface MultiDeliveryBreakdownItem {
     finalRateThb: number;
 }
 
+/** "trip" = standard delivered trip, "multi_drop" = multi-delivery trip, "standby" = standby event */
+type IncomeRecordType = "trip" | "multi_drop" | "standby";
+
 interface IncomeRow {
     id: string;
+    recordType: IncomeRecordType;
     spxTripId?: string;
     billingEstimateThb?: number;
     billingBaseRateThb?: number;
@@ -83,6 +87,9 @@ interface IncomeRow {
     billingIsMultiDelivery?: boolean;
     totalDeliveryStops?: number;
     billingMultiDeliveryBreakdown?: MultiDeliveryBreakdownItem[];
+    // Standby-specific
+    driverName?: string;
+    durationMinutes?: number;
 }
 
 import type { MissingBillingRow } from "@/features/accounting";
@@ -280,6 +287,7 @@ export default function AccountingIncomePage() {
                         : undefined;
                     withBilling.push({
                         id: docSnap.id,
+                        recordType: d.billingIsMultiDelivery === true ? "multi_drop" : "trip",
                         spxTripId: d.spxTripId ? String(d.spxTripId) : undefined,
                         billingEstimateThb: toNumber(d.billingEstimateThb),
                         billingBaseRateThb: toNumber(d.billingBaseRateThb),
@@ -305,6 +313,33 @@ export default function AccountingIncomePage() {
                 } else {
                     withoutBilling.push({ tripDoc: { id: docSnap.id, data: d as Record<string, unknown> } });
                 }
+            });
+
+            // Load completed standby records with billing already computed
+            const standbySnap = await getDocs(
+                query(
+                    collection(db, COLLECTIONS.STANDBY_RECORDS),
+                    where("status", "==", "completed"),
+                    orderBy("createdAt", "desc"),
+                    limit(300)
+                )
+            );
+            standbySnap.docs.forEach((docSnap) => {
+                const d = docSnap.data();
+                if (typeof d.billingEstimateThb !== "number") return;
+                withBilling.push({
+                    id: docSnap.id,
+                    recordType: "standby",
+                    billingEstimateThb: toNumber(d.billingEstimateThb),
+                    billingCustomerId: d.billingCustomerId ? String(d.billingCustomerId) : undefined,
+                    billingRateImportId: d.billingRateEntryId ? String(d.billingRateEntryId) : undefined,
+                    billingEffectiveFromDateStr: d.billingEffectiveFromDateStr
+                        ? String(d.billingEffectiveFromDateStr)
+                        : undefined,
+                    deliveredTimestamp: toDate(d.createdAt ?? d.startedAt),
+                    driverName: d.driverName ? String(d.driverName) : undefined,
+                    durationMinutes: typeof d.durationMinutes === "number" ? d.durationMinutes : undefined,
+                });
             });
 
             setRows(withBilling);
@@ -1085,7 +1120,21 @@ export default function AccountingIncomePage() {
                                 <TableBody>
                                     {paginatedRows.map((row) => (
                                         <TableRow key={row.id}>
-                                            <TableCell className="font-mono text-xs">{row.spxTripId || row.id}</TableCell>
+                                            <TableCell className="font-mono text-xs">
+                                                <div className="flex flex-col gap-1">
+                                                    <span>{row.spxTripId || row.id.slice(0, 10) + "…"}</span>
+                                                    {row.recordType === "standby" && (
+                                                        <Badge variant="outline" className="text-[10px] py-0 px-1 w-fit bg-orange-50 text-orange-700 border-orange-300 dark:bg-orange-950/30 dark:text-orange-400">
+                                                            STANDBY
+                                                        </Badge>
+                                                    )}
+                                                    {row.recordType === "multi_drop" && (
+                                                        <Badge variant="outline" className="text-[10px] py-0 px-1 w-fit bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-950/30 dark:text-blue-400">
+                                                            MULTI-DROP
+                                                        </Badge>
+                                                    )}
+                                                </div>
+                                            </TableCell>
                                             <TableCell>
                                                 {row.billingCustomerId
                                                     ? customerNameById.get(row.billingCustomerId) ?? row.billingCustomerId
