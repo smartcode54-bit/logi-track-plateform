@@ -414,12 +414,15 @@ async function buildInvoicePdf(
   doc.line(stampX - 25, sigY, stampX + 25, sigY);
   doc.text(prov.signatoryName ?? "ผู้จัดทำวางบิล", stampX, sigY + 5, { align: "center" });
   doc.text("ผู้จัดทำ/ผู้ตรวจสอบ", stampX, sigY + 10, { align: "center" });
+  doc.text("วันที่ ___/___/______", stampX, sigY + 16, { align: "center" });
 
   doc.line(sigX - 25, sigY, sigX + 25, sigY);
   doc.text("ตราประทับ", sigX, sigY + 5, { align: "center" });
+  doc.text("วันที่ ___/___/______", sigX, sigY + 11, { align: "center" });
 
   doc.line(receiverX - 25, sigY, receiverX + 25, sigY);
   doc.text("ผู้รับวางบิล", receiverX, sigY + 5, { align: "center" });
+  doc.text("วันที่ ___/___/______", receiverX, sigY + 11, { align: "center" });
 
   return doc;
 }
