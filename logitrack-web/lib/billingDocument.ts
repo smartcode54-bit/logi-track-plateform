@@ -231,7 +231,7 @@ async function buildInvoicePdf(
   registerThaiFont(doc, font);
 
   const grandTotal = trips.reduce((s, t) => s + t.billingEstimateThb, 0);
-  const withholdingTax = isReceipt ? 0 : Math.round(grandTotal * withholdingRate * 100) / 100;
+  const withholdingTax = Math.round(grandTotal * withholdingRate * 100) / 100;
   const totalNet = grandTotal - withholdingTax;
   const invNumber = invoiceNumberOverride ?? invoiceNumber(period);
   const issuedDate = format(new Date(), "dd/MM/yyyy");
@@ -332,22 +332,14 @@ async function buildInvoicePdf(
   doc.text(formatThb(grandTotal), rx, finalY, { align: "right" });
 
   doc.setFont("Sarabun", "normal");
-  if (isReceipt) {
-    doc.text("ภาษีหัก ณ ที่จ่าย 1%:", rx - 40, finalY + 7);
-    doc.text("-", rx, finalY + 7, { align: "right" });
-    doc.setFont("Sarabun", "bold");
-    doc.text("ยอดรวมสุทธิ:", rx - 40, finalY + 14);
-    doc.text(formatThb(grandTotal), rx, finalY + 14, { align: "right" });
-  } else {
-    doc.text(`ภาษีหัก ณ ที่จ่าย 1% (${formatThb(grandTotal)})`, rx - 60, finalY + 7);
-    doc.text(`- ${formatThb(withholdingTax)}`, rx, finalY + 7, { align: "right" });
-    doc.setFont("Sarabun", "bold");
-    doc.text("ยอดรวมสุทธิ:", rx - 40, finalY + 14);
-    doc.text(formatThb(totalNet), rx, finalY + 14, { align: "right" });
-  }
+  doc.text(`ภาษีหัก ณ ที่จ่าย 1% (${formatThb(grandTotal)})`, rx - 60, finalY + 7);
+  doc.text(`- ${formatThb(withholdingTax)}`, rx, finalY + 7, { align: "right" });
+  doc.setFont("Sarabun", "bold");
+  doc.text("ยอดรวมสุทธิ:", rx - 40, finalY + 14);
+  doc.text(formatThb(totalNet), rx, finalY + 14, { align: "right" });
 
   // ── Thai baht text ──
-  const textAmount = isReceipt ? grandTotal : totalNet;
+  const textAmount = totalNet;
   doc.setFont("Sarabun", "normal");
   doc.setFontSize(9);
   try {
