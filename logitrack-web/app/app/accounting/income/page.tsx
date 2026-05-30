@@ -202,6 +202,7 @@ export default function AccountingIncomePage() {
     const [showSummary, setShowSummary] = useState(false);
     const [hubNameMap, setHubNameMap] = useState<HubNameMap>(new Map());
     // Missing billing tab state
+    const [filterRecordType, setFilterRecordType] = useState<"all" | IncomeRecordType>("all");
     const [missingFilterStatus, setMissingFilterStatus] = useState<"all" | "canFix" | "needRateCard">("all");
     const [missingFilterReason, setMissingFilterReason] = useState<string>("all");
     const [missingPage, setMissingPage] = useState(1);
@@ -488,6 +489,9 @@ export default function AccountingIncomePage() {
         if (filterCustomerId !== "all") {
             list = list.filter((r) => r.billingCustomerId === filterCustomerId);
         }
+        if (filterRecordType !== "all") {
+            list = list.filter((r) => r.recordType === filterRecordType);
+        }
         if (filterDateFrom.trim() && filterDateTo.trim()) {
             const fromRaw = parseLocalDateOnly(filterDateFrom);
             const toRaw = parseLocalDateOnly(filterDateTo);
@@ -504,7 +508,7 @@ export default function AccountingIncomePage() {
             }
         }
         return list;
-    }, [rows, filterCustomerId, filterDateFrom, filterDateTo]);
+    }, [rows, filterCustomerId, filterRecordType, filterDateFrom, filterDateTo]);
 
     const totalIncome = useMemo(
         () => filteredRows.reduce((sum, row) => sum + (row.billingEstimateThb ?? 0), 0),
@@ -522,7 +526,7 @@ export default function AccountingIncomePage() {
     // Reset to page 1 when filters change
     useEffect(() => {
         setCurrentPage(1);
-    }, [filterCustomerId, filterDateFrom, filterDateTo]);
+    }, [filterCustomerId, filterRecordType, filterDateFrom, filterDateTo]);
 
     // Computable trips (green rows in Missing Billing tab)
     const computableMissingRows = useMemo(
@@ -1073,6 +1077,20 @@ export default function AccountingIncomePage() {
                                                 {c.code} — {c.name}
                                             </SelectItem>
                                         ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="flex flex-col gap-1.5 min-w-[180px]">
+                                <Label>{t("accounting.income.filter.recordType")}</Label>
+                                <Select value={filterRecordType} onValueChange={(v) => setFilterRecordType(v as "all" | IncomeRecordType)}>
+                                    <SelectTrigger>
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="all">{t("accounting.filter.all")}</SelectItem>
+                                        <SelectItem value="trip">{t("accounting.income.recordType.trip")}</SelectItem>
+                                        <SelectItem value="multi_drop">{t("accounting.income.recordType.multiDrop")}</SelectItem>
+                                        <SelectItem value="standby">{t("accounting.income.recordType.standby")}</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
