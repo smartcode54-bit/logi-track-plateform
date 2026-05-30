@@ -19,7 +19,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { SessionManagementActiveUsers } from "@/components/security-center/SessionManagementActiveUsers";
+import { SessionManagementActiveUsers } from "@/features/security-center";
 import { useState, useMemo } from "react";
 
 function formatCompactInt(n: number): string {

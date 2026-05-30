@@ -180,13 +180,14 @@ function groupToLineItems(trips: BillingTripRow[]): {
 }[] {
   const map = new Map<string, { vehicleClass: string; route: string; count: number; unitPrice: number; total: number }>();
   for (const t of trips) {
-    const isStandby = t.rowType === "standby";
-    const vc = isStandby ? "-" : (t.vehicleClass ?? "-");
-    const route = isStandby
-      ? `จอดรอ (Standby): ${t.hubDisplayName ?? "-"}`
-      : [t.hubDisplayName ?? t.billingLookupHubId ?? "-", t.destinationDisplayName ?? t.billingLookupDestination ?? "-"].join(" → ");
+    // All rows (including standby) show the real vehicle class + origin → destination route.
+    const vc = t.vehicleClass ?? "-";
+    const route = [
+      t.hubDisplayName ?? t.billingLookupHubId ?? "-",
+      t.destinationDisplayName ?? t.billingLookupDestination ?? "-",
+    ].join(" → ");
     const unitPrice = t.billingBaseRateThb ?? t.billingEstimateThb;
-    const key = isStandby ? `standby::${t.billingEstimateThb}` : `${vc}::${route}::${unitPrice}`;
+    const key = `${vc}::${route}::${unitPrice}`;
     const existing = map.get(key);
     if (existing) {
       existing.count += 1;
@@ -458,20 +459,23 @@ export function generateDetailExcelBuffer(
   const rows: ExcelRow[] = trips.map((t, i) => {
     const isStandby = t.rowType === "standby";
     const isStop = t.rowType === "multidrop_stop";
-    const route = isStandby
-      ? `จอดรอ (Standby): ${t.hubDisplayName ?? "-"}`
-      : [t.hubDisplayName ?? t.billingLookupHubId ?? "-", t.destinationDisplayName ?? t.billingLookupDestination ?? "-"].join(" → ");
-    const note = isStandby ? "จอดรอ" : isStop ? `Multidrop stop ${t.stopIndex ?? ""}` : "";
+    // Standby rows now display like a normal trip: ZX code, origin → destination route,
+    // real vehicle class. They are distinguished only by the "Stand by" note.
+    const route = [
+      t.hubDisplayName ?? t.billingLookupHubId ?? "-",
+      t.destinationDisplayName ?? t.billingLookupDestination ?? "-",
+    ].join(" → ");
+    const note = isStandby ? "Stand by" : isStop ? `Multidrop stop ${t.stopIndex ?? ""}` : "";
     return {
       "No.": i + 1,
       "วันที่": t.deliveredTimestamp ? format(t.deliveredTimestamp, "dd/MM/yyyy") : "",
       "เลขใบงาน": t.spxTripId ?? t.id,
       "เส้นทาง": route,
-      "ประเภทรถ": isStandby ? "-" : (t.vehicleClass ?? "-"),
+      "ประเภทรถ": t.vehicleClass ?? "-",
       "ทะเบียน": t.truckLicensePlate ?? "-",
       "ชื่อคนขับ": t.driverName ?? "-",
       "เบอร์โทร": t.driverPhone ?? "-",
-      "จำนวนรถ": isStandby ? 0 : 1,
+      "จำนวนรถ": 1,
       "ราคาขนส่ง/เที่ยว": t.billingEstimateThb,
       "หมายเหตุ": note,
     };

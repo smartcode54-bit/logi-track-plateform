@@ -37,7 +37,7 @@ import { cn } from "@/lib/utils"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
-import { IncidentLocationMap } from "./components/IncidentLocationMap"
+import { IncidentLocationMap } from "@/features/incident-reports"
 import { ImagePreviewGallery } from "@/components/accounting/ImagePreviewGallery"
 
 // --- Types ---
