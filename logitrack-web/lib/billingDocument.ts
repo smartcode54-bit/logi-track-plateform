@@ -12,7 +12,7 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const bahttext = require("bahttext") as (amount: number) => string;
+const { bahttext } = require("bahttext") as { bahttext: (amount: number) => string };
 import * as XLSX from "xlsx";
 import { format } from "date-fns";
 import { BILLING_PROVIDER, WITHHOLDING_TAX_RATE } from "./billingConfig";
