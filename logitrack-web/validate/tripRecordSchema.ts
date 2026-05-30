@@ -2,8 +2,6 @@ import { z } from "zod";
 
 // --- Status (Driver workflow state machine) ---
 export const TRIP_STATUS_ENUM = [
-    "loading",
-    "departure",
     "in_transit",
     "incident",
     "delivered",
@@ -64,7 +62,7 @@ export const deliveryStopProgressSchema = z.object({
 export const tripRecordSchema = z.object({
     id: z.string().optional(),
 
-    status: z.enum(TRIP_STATUS_ENUM).default("loading"),
+    status: z.enum(TRIP_STATUS_ENUM).default("in_transit"),
     jobType: z.enum(TRIP_JOB_TYPE_ENUM),
 
     photos: z.array(tripPhotoSchema).optional().default([]),

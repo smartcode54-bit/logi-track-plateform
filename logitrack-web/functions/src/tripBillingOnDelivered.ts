@@ -22,6 +22,7 @@ const COL_RATE_ENTRIES = "customer_rate_entries";
 const COL_FUEL_ADJ = "customer_fuel_rate_adjustments";
 const COL_TRIP_RECORDS = "trip_records";
 const COL_HUBS = "hubs";
+const COL_SERVICE_FEES = "customer_service_fees";
 
 function normalizeStoredCode(v: string | null | undefined): string {
     return (v ?? "").trim().toUpperCase();
@@ -153,8 +154,8 @@ async function tryWriteBillingSnapshotFromTripData(
     const isMultiDelivery = data.isMultiDelivery === true;
     const deliveryStopsProgress = Array.isArray(data.deliveryStopsProgress) ? data.deliveryStopsProgress : [];
 
-    if (isMultiDelivery && deliveryStopsProgress.length >= 3) {
-        // Multi-delivery billing: charge stop 3+ only
+    if (isMultiDelivery && deliveryStopsProgress.length >= 2) {
+        // Multi-delivery billing: stop[0] = base rate (planned destination), stop[1+] = extra stops charged
         const stops: DeliveryStopForBilling[] = deliveryStopsProgress
             .filter((stop: any) => stop.destination && stop.status === "delivered")
             .map((stop: any) => ({
@@ -162,13 +163,31 @@ async function tryWriteBillingSnapshotFromTripData(
                 destination: String(stop.destination ?? ""),
             }));
 
-        if (stops.length < 3) {
-            logger.warn("[billingSnapshot] multi-delivery trip has < 3 delivered stops", {
+        if (stops.length < 2) {
+            logger.warn("[billingSnapshot] multi-delivery trip has < 2 delivered stops", {
                 tripId,
                 taskId,
                 delivered: stops.length,
             });
-            return { ok: false, error: "Multi-delivery trip has < 3 delivered stops" };
+            return { ok: false, error: "Multi-delivery trip has < 2 delivered stops" };
+        }
+
+        // Flat extra-stop service fee (customer_service_fees, feeType "extra_stop").
+        // When set, every extra stop (stop 2+) is charged this fixed amount instead of a
+        // per-route rate-card lookup.
+        let extraStopFeeThb: number | undefined;
+        try {
+            const feeSnap = await db
+                .collection(COL_SERVICE_FEES)
+                .where("customerId", "==", customerId)
+                .get();
+            const extraStopDoc = feeSnap.docs.find((d) => d.data().feeType === "extra_stop");
+            if (extraStopDoc) {
+                const amt = Number(extraStopDoc.data().amountThb ?? 0);
+                if (Number.isFinite(amt) && amt >= 0) extraStopFeeThb = amt;
+            }
+        } catch (e) {
+            logger.warn("[billingSnapshot] failed to load extra_stop service fee", { customerId, error: String(e) });
         }
 
         const multiComputed = computeMultiDeliveryBilling(
@@ -177,7 +196,8 @@ async function tryWriteBillingSnapshotFromTripData(
             stops,
             normalizeVehicleClass(taskInput.truckType || "4WJ"),
             rateEntries,
-            fuelAdjustments
+            fuelAdjustments,
+            extraStopFeeThb
         );
 
         if (!multiComputed) {
@@ -195,6 +215,8 @@ async function tryWriteBillingSnapshotFromTripData(
             billingBaseRateThb: multiComputed.baseRateThb,
             billingStopChargeThb: multiComputed.stopChargeThb,
             billingIsMultiDelivery: true,
+            billingLookupHubId: extractHubId(taskInput.sourceHub),
+            billingLookupDestination: multiComputed.stopBreakdown[0]?.destination ?? null,
             billingMultiDeliveryBreakdown: multiComputed.stopBreakdown.map((stop) => ({
                 stopIndex: stop.stopIndex,
                 destination: stop.destination,

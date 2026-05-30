@@ -14,6 +14,8 @@ exports.selectBillingRateEntry = selectBillingRateEntry;
 exports.selectFuelAdjustmentForBillingDate = selectFuelAdjustmentForBillingDate;
 exports.computeFinalRateThb = computeFinalRateThb;
 exports.computeMultiDeliveryBilling = computeMultiDeliveryBilling;
+exports.selectStandbyRateEntry = selectStandbyRateEntry;
+exports.computeStandbyBilling = computeStandbyBilling;
 exports.computeTripBillingFromParts = computeTripBillingFromParts;
 function normalizeCode(v) {
     return (v ?? "").trim().toUpperCase();
@@ -35,10 +37,10 @@ function normalizeDestinationCode(destination) {
         return "SOCN";
     if (u.startsWith("SOCW"))
         return "SOCW";
-    // SPK codes: extract just the code part (e.g., "SPK890103-ลาดกระบัง26" → "SPK890103")
+    // SPK codes: extract just the code part (e.g., "SPK890103 - ลาดกระบัง26" or "SPK890103-ลาดกระบัง26" → "SPK890103")
     const dashIdx = u.indexOf("-");
     if (dashIdx > 0) {
-        return u.slice(0, dashIdx);
+        return u.slice(0, dashIdx).trim();
     }
     return u;
 }
@@ -113,9 +115,19 @@ function selectFuelAdjustmentForBillingDate(customerId, billDateMs, fuelAdjustme
 function computeFinalRateThb(baseRateThb, rateMultiplier, addThbPerTrip) {
     return Math.round((baseRateThb * rateMultiplier + addThbPerTrip) * 100) / 100;
 }
-/** Compute billing for multi-delivery task: charge stop 3+ only (A → each destination). */
-function computeMultiDeliveryBilling(trip, task, deliveryStops, vehicleClass, rateEntries, fuelAdjustments) {
-    if (!task || deliveryStops.length < 3)
+/**
+ * Compute billing for multi-delivery task.
+ * Rule: stop[0] = planned destination (base rate from rate card), stop[1+] = extra stops.
+ * Origin (source hub) is never in deliveryStops — it is already accounted for in the base rate.
+ *
+ * Extra stop charging:
+ *   - If `extraStopFeeThb` is provided (>= 0): each extra stop is charged this flat service fee
+ *     (from customer_service_fees, feeType "extra_stop"). Fuel multiplier is NOT applied to it.
+ *   - If `extraStopFeeThb` is undefined: legacy behaviour — each extra stop is looked up in the
+ *     rate card per route (with fuel multiplier applied).
+ */
+function computeMultiDeliveryBilling(trip, task, deliveryStops, vehicleClass, rateEntries, fuelAdjustments, extraStopFeeThb) {
+    if (!task || deliveryStops.length < 2)
         return null;
     const customerId = resolveTaskCustomerId(task);
     if (!customerId)
@@ -126,37 +138,82 @@ function computeMultiDeliveryBilling(trip, task, deliveryStops, vehicleClass, ra
     const matchedAdjustment = selectFuelAdjustmentForBillingDate(customerId, billDateMs, fuelAdjustments);
     const rateMultiplier = matchedAdjustment?.rateMultiplier ?? 1;
     const addThbPerTrip = matchedAdjustment?.addThbPerTrip ?? 0;
+    const useFlatExtraStopFee = typeof extraStopFeeThb === "number" && extraStopFeeThb >= 0;
     let baseRateThb = 0;
     let stopChargeThb = 0;
     const stopBreakdown = [];
-    deliveryStops.forEach((stop, idx) => {
-        const destination = normalizeDestinationCode(stop.destination);
-        const matchedRate = selectBillingRateEntry(customerId, hubId, destination, normalizedVehicleClass, billDateMs, rateEntries);
-        if (!matchedRate)
-            return;
-        const baseRate = matchedRate.rateThb;
-        const finalRate = computeFinalRateThb(baseRate, rateMultiplier, addThbPerTrip);
-        if (idx === 0) {
-            // Stop 1: set baseRateThb
-            baseRateThb = finalRate;
-            stopBreakdown.push({
-                stopIndex: 1,
-                destination,
-                baseRateThb: baseRate,
-                finalRateThb: finalRate,
-            });
+    if (useFlatExtraStopFee) {
+        // Flat extra-stop fee mode: the trip's BASE rate comes from the PLANNED
+        // destination (task.destination), independent of the order the stops were
+        // delivered in. Every OTHER delivered stop is an extra stop charged the flat
+        // fee (no rate-card lookup, no fuel multiplier).
+        //
+        // This is order-independent on purpose: deliveryStopsProgress[0] is whichever
+        // stop the driver completed first, which is NOT necessarily the planned route.
+        const normStops = deliveryStops.map((s) => normalizeDestinationCode(s.destination));
+        const plannedDest = normalizeDestinationCode(task.destination ?? "");
+        // Pick the base stop: prefer the delivered stop matching the planned
+        // destination; otherwise fall back to the first delivered stop that has a
+        // matching rate-card row.
+        let baseIdx = plannedDest ? normStops.findIndex((d) => d === plannedDest) : -1;
+        let baseDest = baseIdx >= 0 ? normStops[baseIdx] : plannedDest;
+        let baseMatch = baseDest
+            ? selectBillingRateEntry(customerId, hubId, baseDest, normalizedVehicleClass, billDateMs, rateEntries)
+            : null;
+        if (!baseMatch) {
+            for (let i = 0; i < normStops.length; i++) {
+                const m = selectBillingRateEntry(customerId, hubId, normStops[i], normalizedVehicleClass, billDateMs, rateEntries);
+                if (m) {
+                    baseMatch = m;
+                    baseIdx = i;
+                    baseDest = normStops[i];
+                    break;
+                }
+            }
         }
-        else if (idx >= 2) {
-            // Stop 3+: add to stopChargeThb
-            stopChargeThb += finalRate;
+        if (!baseMatch)
+            return null; // no rate card for any stop → cannot bill
+        const baseFinal = computeFinalRateThb(baseMatch.rateThb, rateMultiplier, addThbPerTrip);
+        baseRateThb = baseFinal;
+        stopBreakdown.push({ stopIndex: 1, destination: baseDest, baseRateThb: baseMatch.rateThb, finalRateThb: baseFinal });
+        // Exclude exactly one delivered stop (the base) from the extra-stop charges.
+        const excludeIdx = baseIdx >= 0 ? baseIdx : 0;
+        let extraSeq = 2;
+        deliveryStops.forEach((_stop, idx) => {
+            if (idx === excludeIdx)
+                return;
+            stopChargeThb += extraStopFeeThb;
+            stopBreakdown.push({
+                stopIndex: extraSeq++,
+                destination: normStops[idx],
+                baseRateThb: extraStopFeeThb,
+                finalRateThb: extraStopFeeThb,
+            });
+        });
+    }
+    else {
+        // Legacy per-route mode: stop[0] = base rate, stop[1+] = per-route rate-card lookup.
+        deliveryStops.forEach((stop, idx) => {
+            const destination = normalizeDestinationCode(stop.destination);
+            const matchedRate = selectBillingRateEntry(customerId, hubId, destination, normalizedVehicleClass, billDateMs, rateEntries);
+            if (!matchedRate)
+                return;
+            const baseRate = matchedRate.rateThb;
+            const finalRate = computeFinalRateThb(baseRate, rateMultiplier, addThbPerTrip);
+            if (idx === 0) {
+                baseRateThb = finalRate;
+            }
+            else {
+                stopChargeThb += finalRate;
+            }
             stopBreakdown.push({
                 stopIndex: idx + 1,
                 destination,
                 baseRateThb: baseRate,
                 finalRateThb: finalRate,
             });
-        }
-    });
+        });
+    }
     if (baseRateThb === 0 || stopBreakdown.length === 0)
         return null;
     return {
@@ -167,6 +224,36 @@ function computeMultiDeliveryBilling(trip, task, deliveryStops, vehicleClass, ra
         stopBreakdown,
         rateMultiplier,
         fuelAdjustmentId: matchedAdjustment?.id,
+    };
+}
+/** Select the standby rate effective on or before billDateMs; fallback to oldest if none match. */
+function selectStandbyRateEntry(customerId, billDateMs, rateEntries) {
+    const candidates = rateEntries.filter((e) => e.customerId === customerId);
+    if (candidates.length === 0)
+        return null;
+    const effective = candidates
+        .filter((e) => e.effectiveFromMs <= billDateMs)
+        .sort((a, b) => b.effectiveFromMs - a.effectiveFromMs);
+    if (effective.length > 0)
+        return effective[0];
+    // Fallback: use oldest rate if standby happened before all effective dates
+    return candidates.sort((a, b) => a.effectiveFromMs - b.effectiveFromMs)[0];
+}
+/**
+ * Compute standby billing for a completed standby record.
+ * Fixed rate per event — does not depend on duration.
+ */
+function computeStandbyBilling(billDateMs, customerId, rateEntries) {
+    if (!customerId)
+        return null;
+    const matched = selectStandbyRateEntry(customerId, billDateMs, rateEntries);
+    if (!matched)
+        return null;
+    return {
+        customerId,
+        rateThb: matched.rateThb,
+        rateEntryId: matched.id,
+        effectiveFromDateStr: new Date(matched.effectiveFromMs).toISOString().slice(0, 10),
     };
 }
 function computeTripBillingFromParts(trip, task, rateEntries, fuelAdjustments) {

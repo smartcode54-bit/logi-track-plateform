@@ -144,7 +144,6 @@ export function AppSidebar() {
                 { title: t("nav.driverMonitor"), url: "/app/driver-monitor", capability: CAPABILITIES.operations_view_driver_monitor },
                 { title: t("nav.incidentReports"), url: "/app/incident-reports", capability: CAPABILITIES.operations_view_incidents },
                 { title: t("nav.standbyRecords"), url: "/app/standby-records", capability: CAPABILITIES.operations_view_driver_monitor },
-                { title: t("nav.customStopsReview"), url: "/app/custom-stops-review", capability: CAPABILITIES.operations_view_custom_stops },
             ],
         },
         {

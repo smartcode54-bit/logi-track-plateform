@@ -66,8 +66,12 @@ interface MultiDeliveryBreakdownItem {
     finalRateThb: number;
 }
 
+/** "trip" = standard delivered trip, "multi_drop" = multi-delivery trip, "standby" = standby event */
+type IncomeRecordType = "trip" | "multi_drop" | "standby";
+
 interface IncomeRow {
     id: string;
+    recordType: IncomeRecordType;
     spxTripId?: string;
     billingEstimateThb?: number;
     billingBaseRateThb?: number;
@@ -83,6 +87,9 @@ interface IncomeRow {
     billingIsMultiDelivery?: boolean;
     totalDeliveryStops?: number;
     billingMultiDeliveryBreakdown?: MultiDeliveryBreakdownItem[];
+    // Standby-specific
+    driverName?: string;
+    durationMinutes?: number;
 }
 
 import type { MissingBillingRow } from "@/features/accounting";
@@ -195,6 +202,7 @@ export default function AccountingIncomePage() {
     const [showSummary, setShowSummary] = useState(false);
     const [hubNameMap, setHubNameMap] = useState<HubNameMap>(new Map());
     // Missing billing tab state
+    const [filterRecordType, setFilterRecordType] = useState<"all" | IncomeRecordType>("all");
     const [missingFilterStatus, setMissingFilterStatus] = useState<"all" | "canFix" | "needRateCard">("all");
     const [missingFilterReason, setMissingFilterReason] = useState<string>("all");
     const [missingPage, setMissingPage] = useState(1);
@@ -280,6 +288,7 @@ export default function AccountingIncomePage() {
                         : undefined;
                     withBilling.push({
                         id: docSnap.id,
+                        recordType: d.billingIsMultiDelivery === true ? "multi_drop" : "trip",
                         spxTripId: d.spxTripId ? String(d.spxTripId) : undefined,
                         billingEstimateThb: toNumber(d.billingEstimateThb),
                         billingBaseRateThb: toNumber(d.billingBaseRateThb),
@@ -306,6 +315,38 @@ export default function AccountingIncomePage() {
                     withoutBilling.push({ tripDoc: { id: docSnap.id, data: d as Record<string, unknown> } });
                 }
             });
+
+            // Load completed standby records with billing already computed
+            // Wrapped in try-catch: index may still be building after first deploy
+            try {
+                const standbySnap = await getDocs(
+                    query(
+                        collection(db, COLLECTIONS.STANDBY_RECORDS),
+                        where("status", "==", "completed"),
+                        orderBy("createdAt", "desc"),
+                        limit(300)
+                    )
+                );
+                standbySnap.docs.forEach((docSnap) => {
+                    const d = docSnap.data();
+                    if (typeof d.billingEstimateThb !== "number") return;
+                    withBilling.push({
+                        id: docSnap.id,
+                        recordType: "standby",
+                        billingEstimateThb: toNumber(d.billingEstimateThb),
+                        billingCustomerId: d.billingCustomerId ? String(d.billingCustomerId) : undefined,
+                        billingRateImportId: d.billingRateEntryId ? String(d.billingRateEntryId) : undefined,
+                        billingEffectiveFromDateStr: d.billingEffectiveFromDateStr
+                            ? String(d.billingEffectiveFromDateStr)
+                            : undefined,
+                        deliveredTimestamp: toDate(d.endedAt ?? d.startedAt ?? d.createdAt),
+                        driverName: d.driverName ? String(d.driverName) : undefined,
+                        durationMinutes: typeof d.durationMinutes === "number" ? d.durationMinutes : undefined,
+                    });
+                });
+            } catch (standbyErr) {
+                console.warn("[income] standby_records query failed (index may still be building):", standbyErr);
+            }
 
             setRows(withBilling);
 
@@ -448,6 +489,9 @@ export default function AccountingIncomePage() {
         if (filterCustomerId !== "all") {
             list = list.filter((r) => r.billingCustomerId === filterCustomerId);
         }
+        if (filterRecordType !== "all") {
+            list = list.filter((r) => r.recordType === filterRecordType);
+        }
         if (filterDateFrom.trim() && filterDateTo.trim()) {
             const fromRaw = parseLocalDateOnly(filterDateFrom);
             const toRaw = parseLocalDateOnly(filterDateTo);
@@ -464,7 +508,7 @@ export default function AccountingIncomePage() {
             }
         }
         return list;
-    }, [rows, filterCustomerId, filterDateFrom, filterDateTo]);
+    }, [rows, filterCustomerId, filterRecordType, filterDateFrom, filterDateTo]);
 
     const totalIncome = useMemo(
         () => filteredRows.reduce((sum, row) => sum + (row.billingEstimateThb ?? 0), 0),
@@ -482,7 +526,7 @@ export default function AccountingIncomePage() {
     // Reset to page 1 when filters change
     useEffect(() => {
         setCurrentPage(1);
-    }, [filterCustomerId, filterDateFrom, filterDateTo]);
+    }, [filterCustomerId, filterRecordType, filterDateFrom, filterDateTo]);
 
     // Computable trips (green rows in Missing Billing tab)
     const computableMissingRows = useMemo(
@@ -1036,6 +1080,20 @@ export default function AccountingIncomePage() {
                                     </SelectContent>
                                 </Select>
                             </div>
+                            <div className="flex flex-col gap-1.5 min-w-[180px]">
+                                <Label>{t("accounting.income.filter.recordType")}</Label>
+                                <Select value={filterRecordType} onValueChange={(v) => setFilterRecordType(v as "all" | IncomeRecordType)}>
+                                    <SelectTrigger>
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="all">{t("accounting.filter.all")}</SelectItem>
+                                        <SelectItem value="trip">{t("accounting.income.recordType.trip")}</SelectItem>
+                                        <SelectItem value="multi_drop">{t("accounting.income.recordType.multiDrop")}</SelectItem>
+                                        <SelectItem value="standby">{t("accounting.income.recordType.standby")}</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
                             <div className="flex flex-col gap-1.5">
                                 <Label>{t("accounting.income.filter.deliveredFrom")}</Label>
                                 <Input
@@ -1085,7 +1143,21 @@ export default function AccountingIncomePage() {
                                 <TableBody>
                                     {paginatedRows.map((row) => (
                                         <TableRow key={row.id}>
-                                            <TableCell className="font-mono text-xs">{row.spxTripId || row.id}</TableCell>
+                                            <TableCell className="font-mono text-xs">
+                                                <div className="flex flex-col gap-1">
+                                                    <span>{row.spxTripId || row.id.slice(0, 10) + "…"}</span>
+                                                    {row.recordType === "standby" && (
+                                                        <Badge variant="outline" className="text-[10px] py-0 px-1 w-fit bg-orange-50 text-orange-700 border-orange-300 dark:bg-orange-950/30 dark:text-orange-400">
+                                                            STANDBY
+                                                        </Badge>
+                                                    )}
+                                                    {row.recordType === "multi_drop" && (
+                                                        <Badge variant="outline" className="text-[10px] py-0 px-1 w-fit bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-950/30 dark:text-blue-400">
+                                                            MULTI-DROP
+                                                        </Badge>
+                                                    )}
+                                                </div>
+                                            </TableCell>
                                             <TableCell>
                                                 {row.billingCustomerId
                                                     ? customerNameById.get(row.billingCustomerId) ?? row.billingCustomerId

@@ -360,6 +360,20 @@
       ]
     },
     {
+      "collectionGroup": "standby_records",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
       "collectionGroup": "customer_service_fees",
       "queryScope": "COLLECTION",
       "fields": [

@@ -174,16 +174,16 @@ exports.updateDriverAccount = (0, https_1.onCall)({
         }
         const driverData = driverSnap.data();
         const authId = driverData.authId || driverData.authUid;
-        // 2. If Auth updating is needed (email change or password logic)
+        const wantEmail = typeof updates.email === 'string' ? updates.email.trim() : '';
+        // 2a. Driver already has an Auth account → sync email/password changes
         if (authId) {
             const authUpdates = {};
-            if (typeof updates.email === 'string' && updates.email.trim() !== '') {
-                const newEmail = updates.email.trim();
+            if (wantEmail) {
                 try {
                     // Always verify against actual Auth record to fix any unsynced states
                     const userRecord = await admin.auth().getUser(authId);
-                    if (userRecord.email !== newEmail) {
-                        authUpdates.email = newEmail;
+                    if (userRecord.email !== wantEmail) {
+                        authUpdates.email = wantEmail;
                     }
                 }
                 catch (error) {
@@ -203,6 +203,42 @@ exports.updateDriverAccount = (0, https_1.onCall)({
                     throw new https_1.HttpsError("aborted", "Failed to update Auth user credentials: " + authError.message);
                 }
             }
+        }
+        // 2b. Driver has NO Auth account yet but an email is being set → provision/link
+        // one, write authId back to the doc, and set claims (role:driver + driverId).
+        // Without this, adding an email later only stored a plain field — the driver
+        // could never log in and the maintenance rule (needs driverId claim) failed.
+        else if (wantEmail) {
+            const mobile = String(updates.mobile ?? driverData.mobile ?? '');
+            const rawPassword = typeof updates.password === 'string' && updates.password.trim().length >= 6
+                ? updates.password.trim()
+                : mobile.replace(/[^0-9]/g, "");
+            const password = rawPassword.length >= 6 ? rawPassword : "password123";
+            let userRecord;
+            try {
+                userRecord = await admin.auth().getUserByEmail(wantEmail);
+                console.log(`[updateDriverAccount] Linking existing Auth user ${userRecord.uid} to driver ${id}`);
+            }
+            catch (error) {
+                if (error.code === "auth/user-not-found") {
+                    const displayName = `${updates.firstName ?? driverData.firstName ?? ''} ${updates.lastName ?? driverData.lastName ?? ''}`.trim();
+                    userRecord = await admin.auth().createUser({
+                        email: wantEmail,
+                        password,
+                        displayName: displayName || undefined,
+                        disabled: false,
+                    });
+                    console.log(`[updateDriverAccount] Created Auth user ${userRecord.uid} for driver ${id}`);
+                }
+                else {
+                    throw new https_1.HttpsError("internal", "Error checking for existing user: " + error.message);
+                }
+            }
+            updates.authId = userRecord.uid;
+            await admin.auth().setCustomUserClaims(userRecord.uid, {
+                role: "driver",
+                driverId: id,
+            });
         }
         // Always delete password from updates before saving to firestore
         if ('password' in updates) {

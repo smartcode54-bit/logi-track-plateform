@@ -57,6 +57,10 @@ import {
     getCustomerServiceFees,
     updateCustomerServiceFee,
     normalizeRateEntryVehicleClasses,
+    getStandbyRateEntries,
+    createStandbyRateEntry,
+    updateStandbyRateEntry,
+    deleteStandbyRateEntry,
     type CustomerFuelRateAdjustmentRow,
     type CustomerRateEntryRow,
     type FuelMonthlySnapshotRow,
@@ -64,6 +68,7 @@ import {
     type ServiceFeeType,
     type ServiceFeeUnit,
     type NormalizeVehicleClassResponse,
+    type StandbyRateEntryRow,
 } from "../actions.client";
 import { RateCardImportDialog, type RateCardCustomerOption } from "@/features/accounting";
 import { db, functions } from "@/firebase/client";
@@ -249,6 +254,19 @@ export default function AccountingRateCardPage() {
     const [savingServiceFee, setSavingServiceFee] = useState(false);
     const [deletingServiceFeeId, setDeletingServiceFeeId] = useState<string | null>(null);
     const [serviceFeeError, setServiceFeeError] = useState<string | null>(null);
+    // Standby Rates state
+    const [standbyRates, setStandbyRates] = useState<StandbyRateEntryRow[]>([]);
+    const [standbyRateDialogOpen, setStandbyRateDialogOpen] = useState(false);
+    const [editingStandbyRateId, setEditingStandbyRateId] = useState<string | null>(null);
+    const [standbyRateForm, setStandbyRateForm] = useState({
+        customerId: "",
+        rateThb: "",
+        effectiveFrom: format(new Date(), "yyyy-MM-dd"),
+        note: "",
+    });
+    const [savingStandbyRate, setSavingStandbyRate] = useState(false);
+    const [deletingStandbyRateId, setDeletingStandbyRateId] = useState<string | null>(null);
+    const [standbyRateError, setStandbyRateError] = useState<string | null>(null);
     // Vehicle class normalization state
     const [normalizeInProgress, setNormalizeInProgress] = useState(false);
     const [normalizeResult, setNormalizeResult] = useState<NormalizeVehicleClassResponse | null>(null);
@@ -290,7 +308,7 @@ export default function AccountingRateCardPage() {
     const loadData = async () => {
         setLoading(true);
         try {
-            const [customerRows, entryRows, fuelRows, snapshotRows, hubRows, truckRows, serviceFeeRows] = await Promise.all([
+            const [customerRows, entryRows, fuelRows, snapshotRows, hubRows, truckRows, serviceFeeRows, standbyRateRows] = await Promise.all([
                 getCustomers(),
                 getCustomerRateEntries(),
                 getCustomerFuelRateAdjustments(),
@@ -298,6 +316,7 @@ export default function AccountingRateCardPage() {
                 getDocs(collection(db, COLLECTIONS.HUBS)),
                 getDocs(collection(db, COLLECTIONS.TRUCKS)),
                 getCustomerServiceFees(),
+                getStandbyRateEntries(),
             ]);
             const mappedCustomers: RateCardCustomerOption[] = (customerRows as (Customer & { id: string })[]).map((c) => ({
                 id: c.id,
@@ -309,6 +328,7 @@ export default function AccountingRateCardPage() {
             setFuelAdjustments(fuelRows);
             setFuelMonthlySnapshots(snapshotRows);
             setServiceFees(serviceFeeRows);
+            setStandbyRates(standbyRateRows);
             setHubs(
                 hubRows.docs.map((d) => {
                     const data = d.data();
@@ -936,6 +956,62 @@ export default function AccountingRateCardPage() {
         }
         const key = `accounting.serviceFees.type.${feeType}`;
         return t(key);
+    };
+
+    // Standby Rates handlers
+    const handleSaveStandbyRate = async () => {
+        setStandbyRateError(null);
+        const customerId = standbyRateForm.customerId.trim();
+        const rateThb = Number(standbyRateForm.rateThb);
+        const effDate = standbyRateForm.effectiveFrom ? new Date(`${standbyRateForm.effectiveFrom}T00:00:00`) : null;
+
+        if (!customerId || !Number.isFinite(rateThb) || rateThb < 0 || !effDate || isNaN(effDate.getTime())) {
+            setStandbyRateError("กรุณากรอกข้อมูลให้ครบถ้วน");
+            return;
+        }
+
+        setSavingStandbyRate(true);
+        try {
+            const input = { customerId, rateThb, effectiveFrom: effDate, note: standbyRateForm.note.trim() || undefined };
+            if (editingStandbyRateId) {
+                await updateStandbyRateEntry(editingStandbyRateId, input);
+            } else {
+                await createStandbyRateEntry(input);
+            }
+            setStandbyRateDialogOpen(false);
+            setEditingStandbyRateId(null);
+            setStandbyRateForm({ customerId: "", rateThb: "", effectiveFrom: format(new Date(), "yyyy-MM-dd"), note: "" });
+            await loadData();
+        } catch (err) {
+            setStandbyRateError(err instanceof Error ? err.message : "เกิดข้อผิดพลาด");
+        } finally {
+            setSavingStandbyRate(false);
+        }
+    };
+
+    const handleEditStandbyRate = (row: StandbyRateEntryRow) => {
+        setEditingStandbyRateId(row.id);
+        setStandbyRateForm({
+            customerId: row.customerId,
+            rateThb: String(row.rateThb),
+            effectiveFrom: format(row.effectiveFrom, "yyyy-MM-dd"),
+            note: row.note ?? "",
+        });
+        setStandbyRateError(null);
+        setStandbyRateDialogOpen(true);
+    };
+
+    const handleDeleteStandbyRate = async (id: string) => {
+        if (!confirm("ลบ Standby Rate นี้?")) return;
+        setDeletingStandbyRateId(id);
+        try {
+            await deleteStandbyRateEntry(id);
+            await loadData();
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setDeletingStandbyRateId(null);
+        }
     };
 
     const handleNormalizeVehicleClasses = async () => {
@@ -2284,6 +2360,163 @@ export default function AccountingRateCardPage() {
                     </Table>
                 </CardContent>
             </Card>
+
+            {/* ── Standby Rates ──────────────────────────────────────────────────────── */}
+            <Card>
+                <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="space-y-1">
+                        <CardTitle>{t("accounting.standbyRates.title", "Standby Rates")}</CardTitle>
+                        <p className="text-sm text-muted-foreground">
+                            {t("accounting.standbyRates.subtitle", "Fixed rate per standby event, per customer")}
+                        </p>
+                    </div>
+                    {canEdit && (
+                        <Button
+                            size="sm"
+                            className="shrink-0"
+                            onClick={() => {
+                                setEditingStandbyRateId(null);
+                                setStandbyRateForm({ customerId: filterCustomerId !== "all" ? filterCustomerId : "", rateThb: "", effectiveFrom: format(new Date(), "yyyy-MM-dd"), note: "" });
+                                setStandbyRateError(null);
+                                setStandbyRateDialogOpen(true);
+                            }}
+                        >
+                            <Plus className="h-4 w-4 mr-2" />
+                            {t("accounting.standbyRates.addButton", "Add Rate")}
+                        </Button>
+                    )}
+                </CardHeader>
+                <CardContent>
+                    <div className="rounded-md border overflow-x-auto">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>{t("accounting.standbyRates.table.customer", "Customer")}</TableHead>
+                                    <TableHead className="text-right">{t("accounting.standbyRates.table.rate", "Rate (THB/event)")}</TableHead>
+                                    <TableHead>{t("accounting.standbyRates.table.effectiveFrom", "Effective From")}</TableHead>
+                                    <TableHead>{t("accounting.standbyRates.table.note", "Note")}</TableHead>
+                                    {canEdit && <TableHead className="text-right">{t("accounting.standbyRates.table.actions", "Actions")}</TableHead>}
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {standbyRates.map((row) => (
+                                    <TableRow key={row.id}>
+                                        <TableCell className="font-medium">
+                                            {customerNameById.get(row.customerId) ?? row.customerId}
+                                        </TableCell>
+                                        <TableCell className="text-right font-mono">
+                                            ฿{row.rateThb.toLocaleString()}
+                                        </TableCell>
+                                        <TableCell className="text-sm text-muted-foreground">
+                                            {format(row.effectiveFrom, "dd/MM/yyyy")}
+                                        </TableCell>
+                                        <TableCell className="text-sm text-muted-foreground">
+                                            {row.note ?? "—"}
+                                        </TableCell>
+                                        {canEdit && (
+                                            <TableCell className="text-right">
+                                                <DropdownMenu>
+                                                    <DropdownMenuTrigger asChild>
+                                                        <Button variant="ghost" size="icon" className="h-8 w-8" disabled={deletingStandbyRateId === row.id}>
+                                                            {deletingStandbyRateId === row.id
+                                                                ? <Loader2 className="h-4 w-4 animate-spin" />
+                                                                : <MoreHorizontal className="h-4 w-4" />}
+                                                        </Button>
+                                                    </DropdownMenuTrigger>
+                                                    <DropdownMenuContent align="end">
+                                                        <DropdownMenuItem onClick={() => handleEditStandbyRate(row)}>
+                                                            <Pencil className="h-4 w-4 mr-2" />
+                                                            {t("accounting.standbyRates.table.edit", "Edit")}
+                                                        </DropdownMenuItem>
+                                                        <DropdownMenuItem
+                                                            className="text-destructive focus:text-destructive"
+                                                            onClick={() => void handleDeleteStandbyRate(row.id)}
+                                                        >
+                                                            <Trash2 className="h-4 w-4 mr-2" />
+                                                            {t("accounting.standbyRates.table.delete", "Delete")}
+                                                        </DropdownMenuItem>
+                                                    </DropdownMenuContent>
+                                                </DropdownMenu>
+                                            </TableCell>
+                                        )}
+                                    </TableRow>
+                                ))}
+                                {standbyRates.length === 0 && (
+                                    <TableRow>
+                                        <TableCell colSpan={canEdit ? 5 : 4} className="h-20 text-center text-muted-foreground">
+                                            {t("accounting.standbyRates.noRows", "No standby rates configured")}
+                                        </TableCell>
+                                    </TableRow>
+                                )}
+                            </TableBody>
+                        </Table>
+                    </div>
+                </CardContent>
+            </Card>
+
+            {/* Standby Rate Dialog */}
+            <Dialog open={standbyRateDialogOpen} onOpenChange={(open) => { if (!open) { setStandbyRateDialogOpen(false); setEditingStandbyRateId(null); } }}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>
+                            {editingStandbyRateId
+                                ? t("accounting.standbyRates.dialog.editTitle", "Edit Standby Rate")
+                                : t("accounting.standbyRates.dialog.addTitle", "Add Standby Rate")}
+                        </DialogTitle>
+                        <DialogDescription>
+                            {t("accounting.standbyRates.dialog.description", "Fixed rate charged per standby event for this customer")}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-2">
+                        <div className="space-y-1.5">
+                            <Label>{t("accounting.standbyRates.form.customer", "Customer")}</Label>
+                            <Combobox
+                                options={customers.map((c): ComboboxOption => ({ value: c.id, label: `${c.code} - ${c.name}` }))}
+                                value={standbyRateForm.customerId}
+                                onSelect={(v: string) => setStandbyRateForm((p) => ({ ...p, customerId: v }))}
+                                placeholder={t("accounting.standbyRates.form.customerPlaceholder", "Select customer...")}
+                            />
+                        </div>
+                        <div className="space-y-1.5">
+                            <Label>{t("accounting.standbyRates.form.rate", "Rate per event (THB)")}</Label>
+                            <Input
+                                type="number"
+                                min={0}
+                                step={1}
+                                placeholder="เช่น 500"
+                                value={standbyRateForm.rateThb}
+                                onChange={(e) => setStandbyRateForm((p) => ({ ...p, rateThb: e.target.value }))}
+                            />
+                        </div>
+                        <div className="space-y-1.5">
+                            <Label>{t("accounting.standbyRates.form.effectiveFrom", "Effective From (dd/MM/yyyy)")}</Label>
+                            <Input
+                                type="date"
+                                value={standbyRateForm.effectiveFrom}
+                                onChange={(e) => setStandbyRateForm((p) => ({ ...p, effectiveFrom: e.target.value }))}
+                            />
+                        </div>
+                        <div className="space-y-1.5">
+                            <Label>{t("accounting.standbyRates.form.note", "Note (optional)")}</Label>
+                            <Input
+                                placeholder={t("accounting.standbyRates.form.notePlaceholder", "e.g. Updated Q3 2026")}
+                                value={standbyRateForm.note}
+                                onChange={(e) => setStandbyRateForm((p) => ({ ...p, note: e.target.value }))}
+                            />
+                        </div>
+                        {standbyRateError && <p className="text-sm text-destructive">{standbyRateError}</p>}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => { setStandbyRateDialogOpen(false); setEditingStandbyRateId(null); }}>
+                            {t("accounting.detail.close")}
+                        </Button>
+                        <Button onClick={() => void handleSaveStandbyRate()} disabled={savingStandbyRate}>
+                            {savingStandbyRate && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                            {t("accounting.detail.save")}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <Card>
                 <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-start sm:justify-between">

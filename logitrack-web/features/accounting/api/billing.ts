@@ -884,6 +884,83 @@ export async function normalizeRateEntryVehicleClasses(
     return result.data;
 }
 
+// ─── Standby Rate Entries ─────────────────────────────────────────────────────
+
+export interface StandbyRateEntryInput {
+    customerId: string;
+    rateThb: number;
+    effectiveFrom: Date;
+    note?: string;
+}
+
+export interface StandbyRateEntryRow extends StandbyRateEntryInput {
+    id: string;
+    createdAt?: Date;
+}
+
+export async function getStandbyRateEntries(customerId?: string): Promise<StandbyRateEntryRow[]> {
+    const colRef = collection(db, COLLECTIONS.STANDBY_RATE_ENTRIES);
+    const useCustomer = customerId?.trim();
+    const q = useCustomer
+        ? query(colRef, where("customerId", "==", useCustomer), orderBy("effectiveFrom", "desc"))
+        : query(colRef, orderBy("effectiveFrom", "desc"));
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => {
+        const data = d.data();
+        const eff = data.effectiveFrom;
+        const effDate =
+            eff instanceof Timestamp
+                ? eff.toDate()
+                : eff instanceof Date
+                ? eff
+                : new Date(eff);
+        return {
+            id: d.id,
+            customerId: String(data.customerId ?? ""),
+            rateThb: Number(data.rateThb ?? 0),
+            effectiveFrom: effDate,
+            note: data.note != null ? String(data.note) : undefined,
+            createdAt: parseDate(data.createdAt),
+        };
+    });
+}
+
+export async function createStandbyRateEntry(input: StandbyRateEntryInput): Promise<void> {
+    const customerId = input.customerId.trim();
+    if (!customerId) throw new Error("Customer is required");
+    if (!Number.isFinite(input.rateThb) || input.rateThb < 0) throw new Error("Rate must be a non-negative number");
+    const colRef = collection(db, COLLECTIONS.STANDBY_RATE_ENTRIES);
+    const batch = writeBatch(db);
+    batch.set(doc(colRef), {
+        customerId,
+        rateThb: input.rateThb,
+        effectiveFrom: Timestamp.fromDate(input.effectiveFrom),
+        note: input.note?.trim() || null,
+        createdAt: serverTimestamp(),
+    });
+    await batch.commit();
+}
+
+export async function updateStandbyRateEntry(id: string, input: StandbyRateEntryInput): Promise<void> {
+    const normalizedId = id.trim();
+    if (!normalizedId) throw new Error("Standby rate entry id is required");
+    const customerId = input.customerId.trim();
+    if (!customerId) throw new Error("Customer is required");
+    if (!Number.isFinite(input.rateThb) || input.rateThb < 0) throw new Error("Rate must be a non-negative number");
+    await updateDoc(doc(db, COLLECTIONS.STANDBY_RATE_ENTRIES, normalizedId), {
+        customerId,
+        rateThb: input.rateThb,
+        effectiveFrom: Timestamp.fromDate(input.effectiveFrom),
+        note: input.note?.trim() || null,
+    });
+}
+
+export async function deleteStandbyRateEntry(id: string): Promise<void> {
+    const normalizedId = id.trim();
+    if (!normalizedId) throw new Error("Standby rate entry id is required");
+    await deleteDoc(doc(db, COLLECTIONS.STANDBY_RATE_ENTRIES, normalizedId));
+}
+
 export interface MissingBillingRow {
     id: string;
     spxTripId?: string;

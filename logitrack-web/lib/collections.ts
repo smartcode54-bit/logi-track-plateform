@@ -103,6 +103,9 @@ export const COLLECTIONS = {
     /** Security / audit events (append via Cloud Functions only; client read with audit capability) */
     SECURITY_EVENTS: "security_events",
 
+    /** Standby billing rates (fixed rate per event, per customer, by effective date) */
+    STANDBY_RATE_ENTRIES: "standby_rate_entries",
+
     /** Billing statements / invoice registry (one doc per invoice generated) */
     BILLING_STATEMENTS: "billing_statements",
 
