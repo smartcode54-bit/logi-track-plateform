@@ -489,12 +489,10 @@ export function generateDetailExcelBuffer(
     const isStop    = t.rowType === "multidrop_stop";
 
     const tripId = t.spxTripId ?? t.id.slice(0, 12);
-    const route  = isStandby
-      ? `Standby: ${t.hubDisplayName ?? t.billingLookupHubId ?? "-"}`
-      : [
-          t.hubDisplayName    ?? t.billingLookupHubId        ?? "-",
-          t.destinationDisplayName ?? t.billingLookupDestination ?? "-",
-        ].join(" → ");
+    const route = [
+      t.hubDisplayName         ?? t.billingLookupHubId        ?? "-",
+      t.destinationDisplayName ?? t.billingLookupDestination  ?? "-",
+    ].join(" → ");
     const vehicleClass = t.vehicleClass ?? "-";
     const note = isStandby ? "Standby" : isStop ? `Multidrop stop ${t.stopIndex ?? ""}` : "";
 
