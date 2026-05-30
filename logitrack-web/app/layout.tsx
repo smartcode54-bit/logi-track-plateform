@@ -36,6 +36,10 @@ const sarabun = Sarabun({
 export const metadata: Metadata = {
   title: "Logi Track",
   description: "Created by SmartCode",
+  icons: {
+    icon: "/icon.jpg",
+    apple: "/icon.jpg",
+  },
 };
 
 export default function RootLayout({

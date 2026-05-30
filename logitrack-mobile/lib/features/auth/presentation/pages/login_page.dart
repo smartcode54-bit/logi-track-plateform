@@ -295,23 +295,13 @@ class _BrandHeader extends StatelessWidget {
     final scheme = theme.colorScheme;
     return Column(
       children: [
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: scheme.primaryContainer,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: scheme.primaryContainer.withValues(alpha: 0.35),
-                blurRadius: 20,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
-          child: Icon(
-            Icons.local_shipping,
-            size: 36,
-            color: scheme.onPrimaryContainer,
+        ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: Image.asset(
+            'assets/app_icon.jpg',
+            width: 80,
+            height: 80,
+            fit: BoxFit.cover,
           ),
         ),
         const SizedBox(height: 14),

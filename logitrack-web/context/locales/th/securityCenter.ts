@@ -14,7 +14,7 @@ export default {
 
     // Overview page
     "securityCenter.overview.title": "ภาพรวมความปลอดภัย",
-    "securityCenter.overview.subtitle": "ติดตามสุขภาพระบบแบบเรียลไทม์และข้อมูลภัยคุกคามระดับโลก สำหรับ Logistics Pro",
+    "securityCenter.overview.subtitle": "ติดตามสุขภาพระบบแบบเรียลไทม์และข้อมูลภัยคุกคามระดับโลก สำหรับ LogiTrack Pro",
     "securityCenter.overview.systemStatus": "สถานะระบบ",
     "securityCenter.overview.secure": "ปลอดภัย",
     "securityCenter.overview.uptime": "ความพร้อม 99.9% • ไม่มีภัยคุกคามที่ตรวจพบ",
@@ -112,7 +112,7 @@ export default {
     "securityCenter.overview.deviceMobileAndroid": "มือถือ (Android)",
     "securityCenter.overview.roleFleetDriver": "คนขับรถ",
     "securityCenter.overview.roleDispatcher": "ผู้จัดส่ง",
-    "securityCenter.overview.footer": "© 2024 Logistics Pro Security Dashboard ระบบทำงานปกติทั้งหมด",
+    "securityCenter.overview.footer": "© 2024 LogiTrack Pro Security Dashboard ระบบทำงานปกติทั้งหมด",
     "securityCenter.overview.complianceReport": "รายงานการปฏิบัติตาม",
     "securityCenter.overview.privacyPolicy": "นโยบายความเป็นส่วนตัว",
     "securityCenter.overview.support": "ฝ่ายสนับสนุน",

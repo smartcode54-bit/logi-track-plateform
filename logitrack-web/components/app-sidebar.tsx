@@ -73,7 +73,7 @@ export function AppSidebar() {
         return () => unsub()
     }, [claims])
 
-    // Menu items structure based on "Logistics Pro" design (with capability for filtering)
+    // Menu items structure based on "LogiTrack Pro" design (with capability for filtering)
     const allItems = [
         {
             title: t("nav.dashboard"),
@@ -183,11 +183,11 @@ export function AppSidebar() {
                     <SidebarMenuItem>
                         <SidebarMenuButton size="lg" asChild>
                             <Link href="/app/dashboard" prefetch={false}>
-                                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-blue-600 text-primary-foreground">
-                                    <Truck className="size-4 text-white" />
+                                <div className="flex aspect-square size-8 items-center justify-center rounded-lg overflow-hidden">
+                                    <img src="/Logitrack-logo.jpg" alt="LogiTrack" className="w-full h-full object-cover" />
                                 </div>
                                 <div className="grid flex-1 text-left text-sm leading-tight">
-                                    <span className="truncate font-semibold text-base">Logistics Pro</span>
+                                    <span className="truncate font-semibold text-base">LogiTrack Pro</span>
                                     <span className="truncate text-xs text-muted-foreground capitalize">
                                         {(getRole(claims) || "user").replace(/_/g, " ")}
                                     </span>
