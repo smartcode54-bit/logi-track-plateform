@@ -410,6 +410,7 @@ async function buildInvoicePdf(
   // Signature lines
   doc.line(stampX - 25, sigY, stampX + 25, sigY);
   doc.text(prov.signatoryName ?? "ผู้จัดทำวางบิล", stampX, sigY + 5, { align: "center" });
+  doc.text("ผู้จัดทำ/ผู้ตรวจสอบ", stampX, sigY + 10, { align: "center" });
 
   doc.line(sigX - 25, sigY, sigX + 25, sigY);
   doc.text("ตราประทับ", sigX, sigY + 5, { align: "center" });
