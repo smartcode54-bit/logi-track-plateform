@@ -20,7 +20,7 @@ import { getCustomers } from "@/features/customers/api/customers";
 import type { Customer } from "@/validate/customerSchema";
 import { primaryHubLabelFromFirestoreData } from "@/lib/hubDisplay";
 import { normalizeDestinationCode } from "@/lib/billingRates";
-import { getCustomerServiceFees } from "@/app/app/accounting/actions.client";
+import { SOC_DESTINATIONS, normalizeSocIdToKey } from "@/validate/taskSchema";
 import {
     downloadBillingZip,
     type BillingTripRow,
@@ -30,6 +30,7 @@ import {
 } from "@/lib/billingDocument";
 import { saveBillingStatement } from "@/lib/billingStatement";
 import { getOwnerCompany } from "@/features/companies/api/companies";
+import { getCustomerServiceFees } from "@/features/accounting";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -55,6 +56,15 @@ function toDate(val: unknown): Date | undefined {
 
 function formatThb(n: number) {
     return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+}
+
+/** Extra keys so billing destination codes (e.g. SPK890103) resolve to hub rows whose source_id includes a Thai suffix. */
+function extraDestinationLookupKeys(sourceId: string): string[] {
+    const u = sourceId.trim().toUpperCase();
+    const norm = normalizeDestinationCode(sourceId);
+    if (!norm || norm === u) return [];
+    if (/^SPK-[A-Z0-9]+$/.test(u)) return [];
+    return [norm];
 }
 
 // ─── Page ────────────────────────────────────────────────────────────────────
@@ -124,16 +134,46 @@ export default function BillingDocumentPage() {
             snap.forEach((d) => {
                 const data = d.data();
                 const label = primaryHubLabelFromFirestoreData(data);
+                const sourceId = String(data.source_id ?? data.hubId ?? data.hubCode ?? "").trim();
                 // Map all possible code fields so any hub reference format resolves to a display name
                 if (data.source_id) map.set(String(data.source_id).trim().toUpperCase(), label);
                 if (data.hubId)     map.set(String(data.hubId).trim().toUpperCase(), label);
                 if (data.hubCode)   map.set(String(data.hubCode).trim().toUpperCase(), label);
+                // Normalized destination keys (e.g. "SPK890103-ลาดกระบัง26" → "SPK890103")
+                // so billing codes that drop the Thai suffix still resolve to the name.
+                for (const extra of extraDestinationLookupKeys(sourceId)) {
+                    map.set(extra, label);
+                }
                 map.set(d.id, label);
                 map.set(d.id.toUpperCase(), label);
             });
             setHubNameMap(map);
         }).catch(console.error);
     }, []);
+
+    /**
+     * Hub/destination name resolver — mirrors the income page's getDestinationDisplayName
+     * so billing ALWAYS shows a name (never a raw code). Resolution order:
+     * normalized map → upper map → trimmed map → SOC friendly name → dash-suffix → code.
+     */
+    const resolveDisplayName = (code: string | undefined): string => {
+        if (!code) return "-";
+        const trimmed = code.trim();
+        if (!trimmed) return "-";
+        const upper = trimmed.toUpperCase();
+        const norm = normalizeDestinationCode(trimmed);
+        if (norm && hubNameMap.get(norm)) return hubNameMap.get(norm)!;
+        if (hubNameMap.get(upper)) return hubNameMap.get(upper)!;
+        if (trimmed !== upper && hubNameMap.get(trimmed)) return hubNameMap.get(trimmed)!;
+        const socKey = normalizeSocIdToKey(upper);
+        if (socKey && (SOC_DESTINATIONS as Record<string, string>)[socKey]) {
+            return (SOC_DESTINATIONS as Record<string, string>)[socKey];
+        }
+        const dashIdx = upper.indexOf("-");
+        if (dashIdx > 0) return upper.slice(dashIdx + 1);
+        return norm || upper;
+    };
+
 
     async function loadTrips() {
         setLoading(true);

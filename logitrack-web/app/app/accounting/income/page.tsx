@@ -47,7 +47,7 @@ import {
 import type { Task } from "@/validate/taskSchema";
 import type { TripRecord } from "@/validate/tripRecordSchema";
 import { primaryHubLabelFromFirestoreData } from "@/lib/hubDisplay";
-import { EditBillingDialog } from "./edit-billing-dialog";
+import { EditBillingDialog } from "@/features/accounting";
 
 type HubNameMap = Map<string, string>;
 
@@ -85,23 +85,8 @@ interface IncomeRow {
     billingMultiDeliveryBreakdown?: MultiDeliveryBreakdownItem[];
 }
 
-export interface MissingBillingRow {
-    id: string;
-    spxTripId?: string;
-    taskId?: string;
-    deliveredTimestamp?: Date;
-    createdAt?: Date;
-    sourceHub?: string;
-    destination?: string;
-    truckType?: string;
-    customerId?: string;
-    customerName?: string;
-    lookupHubId?: string;
-    lookupDestination?: string;
-    lookupVehicleClass?: string;
-    computedRate?: number;
-    failureReason?: string;
-}
+import type { MissingBillingRow } from "@/features/accounting";
+export type { MissingBillingRow };
 
 function toDate(value: unknown): Date | undefined {
     if (!value) return undefined;

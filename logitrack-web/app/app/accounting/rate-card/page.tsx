@@ -65,7 +65,7 @@ import {
     type ServiceFeeUnit,
     type NormalizeVehicleClassResponse,
 } from "../actions.client";
-import { RateCardImportDialog, type RateCardCustomerOption } from "../rate-card-import-dialog";
+import { RateCardImportDialog, type RateCardCustomerOption } from "@/features/accounting";
 import { db, functions } from "@/firebase/client";
 import { httpsCallable } from "firebase/functions";
 import { collection, getDocs } from "firebase/firestore";

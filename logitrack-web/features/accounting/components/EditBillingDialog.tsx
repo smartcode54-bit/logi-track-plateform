@@ -29,8 +29,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { writeTripBillingSnapshot, type WriteTripBillingInput } from "../actions.client";
-import type { MissingBillingRow } from "./page";
+import { writeTripBillingSnapshot, type WriteTripBillingInput, type MissingBillingRow } from "../api/billing";
 
 export interface EditBillingDialogProps {
     open: boolean;

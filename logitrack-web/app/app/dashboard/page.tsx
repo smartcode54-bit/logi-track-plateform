@@ -1,13 +1,15 @@
 "use client";
 
-import { DashboardStats } from "./components/DashboardStats";
-import { ActivityChart } from "./components/ActivityChart";
-import { RecentUpdates } from "./components/RecentUpdates";
-import { ChatStatusWidget } from "./components/ChatStatusWidget";
-import { ExpenseAuditWidget } from "./components/ExpenseAuditWidget";
-import { ComplianceSummary } from "./components/ComplianceSummary";
-import { CurrentVehiclePosition } from "./components/CurrentVehiclePosition";
-import { DashboardVehicleMap } from "./components/DashboardVehicleMap";
+import {
+    DashboardStats,
+    ActivityChart,
+    RecentUpdates,
+    ChatStatusWidget,
+    ExpenseAuditWidget,
+    ComplianceSummary,
+    CurrentVehiclePosition,
+    DashboardVehicleMap,
+} from "@/features/dashboard";
 import { useLanguage } from "@/context/language";
 
 export default function AdminDashboardPage() {

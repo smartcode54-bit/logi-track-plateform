@@ -11,7 +11,7 @@ import {
     TruckOption,
     updateVehicleExpense,
 } from "../actions.client";
-import { TollExpenseImportDialog } from "../toll-expense-import-dialog";
+import { TollExpenseImportDialog } from "@/features/accounting";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Receipt, DollarSign, Hash, TrendingUp, Loader2, RefreshCw, Save, Search } from "lucide-react";

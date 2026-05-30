@@ -20,7 +20,7 @@ import { useLanguage } from "@/context/language";
 import {
     batchCreateCustomerRateEntries,
     type CustomerRateEntryInput,
-} from "./actions.client";
+} from "../api/billing";
 
 export interface RateCardCustomerOption {
     id: string;
