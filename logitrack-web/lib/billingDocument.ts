@@ -560,17 +560,15 @@ export async function downloadBillingZip(
   const mm = String(period.month).padStart(2, "0");
   const zipName = `invoice_CJSF_${period.year}${mm}.zip`;
 
-  // Generate invoice + receipt in parallel (font is cached after first load)
-  const [invoiceBlob, receiptBlob, excelBuffer] = await Promise.all([
+  // Receipt is generated separately on "Mark as paid" — not bundled here
+  const [invoiceBlob, excelBuffer] = await Promise.all([
     generateInvoiceBlob(trips, customer, period, invoiceNumberOverride, provider),
-    generateReceiptBlob(trips, customer, period, invoiceNumberOverride, provider),
     Promise.resolve(generateDetailExcelBuffer(trips, period, customer, provider)),
   ]);
 
   const { default: JSZip } = await import("jszip");
   const zip = new JSZip();
   zip.file("invoice_summary.pdf", invoiceBlob);
-  zip.file("receipt.pdf", receiptBlob);
   zip.file("invoice_detail.xlsx", excelBuffer);
 
   const zipBlob = await zip.generateAsync({ type: "blob" });
@@ -578,6 +576,24 @@ export async function downloadBillingZip(
   const a = document.createElement("a");
   a.href = url;
   a.download = zipName;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/** Called by manager on "Mark as paid" — downloads receipt PDF only. */
+export async function downloadReceiptPdf(
+  trips: BillingTripRow[],
+  customer: BillingCustomer,
+  period: BillingPeriod,
+  invoiceNumberOverride?: string,
+  provider?: BillingProviderInfo,
+): Promise<void> {
+  const mm = String(period.month).padStart(2, "0");
+  const blob = await generateReceiptBlob(trips, customer, period, invoiceNumberOverride, provider);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `receipt_CJSF_${period.year}${mm}.pdf`;
   a.click();
   URL.revokeObjectURL(url);
 }
