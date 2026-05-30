@@ -438,84 +438,106 @@ export async function generateReceiptBlob(
   return (await buildInvoicePdf(trips, customer, period, true, invoiceNumberOverride, provider)).output("blob") as Blob;
 }
 
+const THAI_MONTHS = [
+  "มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน",
+  "กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม",
+];
+
 export function generateDetailExcelBuffer(
   trips: BillingTripRow[],
   period: BillingPeriod,
+  customer?: BillingCustomer,
+  provider?: BillingProviderInfo,
 ): Uint8Array {
   const mm = String(period.month).padStart(2, "0");
-  type ExcelRow = {
-    "No.": number | string;
-    "วันที่": string;
-    "เลขใบงาน": string;
-    "เส้นทาง": string;
-    "ประเภทรถ": string;
-    "ทะเบียน": string;
-    "ชื่อคนขับ": string;
-    "เบอร์โทร": string;
-    "จำนวนรถ": number | string;
-    "ราคาขนส่ง/เที่ยว": number | string;
-    "หมายเหตุ": string;
-  };
-  const rows: ExcelRow[] = trips.map((t, i) => {
-    const isStandby = t.rowType === "standby";
-    const isStop = t.rowType === "multidrop_stop";
-    // Standby rows now display like a normal trip: ZX code, origin → destination route,
-    // real vehicle class. They are distinguished only by the "Stand by" note.
-    const route = [
-      t.hubDisplayName ?? t.billingLookupHubId ?? "-",
-      t.destinationDisplayName ?? t.billingLookupDestination ?? "-",
-    ].join(" → ");
-    const note = isStandby ? "Stand by" : isStop ? `Multidrop stop ${t.stopIndex ?? ""}` : "";
-    return {
-      "No.": i + 1,
-      "วันที่": t.deliveredTimestamp ? format(t.deliveredTimestamp, "dd/MM/yyyy") : "",
-      "เลขใบงาน": t.spxTripId ?? t.id,
-      "เส้นทาง": route,
-      "ประเภทรถ": t.vehicleClass ?? "-",
-      "ทะเบียน": t.truckLicensePlate ?? "-",
-      "ชื่อคนขับ": t.driverName ?? "-",
-      "เบอร์โทร": t.driverPhone ?? "-",
-      "จำนวนรถ": 1,
-      "ราคาขนส่ง/เที่ยว": t.billingEstimateThb,
-      "หมายเหตุ": note,
-    };
-  });
+  const providerName = provider?.name ?? BILLING_PROVIDER.name;
+  const customerName = customer?.name ?? "-";
+  const thaiMonth = THAI_MONTHS[period.month - 1];
+  const thaiYear  = period.year + 543;
 
   const grandTotal = trips.reduce((s, t) => s + t.billingEstimateThb, 0);
-  const withholdingTax = Math.round(grandTotal * WITHHOLDING_TAX_RATE * 100) / 100;
+  const whtRate = provider?.withholdingTaxRate != null
+    ? provider.withholdingTaxRate / 100
+    : WITHHOLDING_TAX_RATE;
+  const withholdingTax = Math.round(grandTotal * whtRate * 100) / 100;
 
-  // Footer rows — use "" for cells that should appear blank
-  rows.push({
-    "No.": "", "วันที่": "", "เลขใบงาน": "", "เส้นทาง": "",
-    "ประเภทรถ": "", "ทะเบียน": "", "ชื่อคนขับ": "", "เบอร์โทร": "",
-    "จำนวนรถ": "", "ราคาขนส่ง/เที่ยว": "", "หมายเหตุ": "",
-  });
-  rows.push({
-    "No.": "", "วันที่": "", "เลขใบงาน": "", "เส้นทาง": "",
-    "ประเภทรถ": "", "ทะเบียน": "", "ชื่อคนขับ": "ยอดรวมทั้งหมด", "เบอร์โทร": "",
-    "จำนวนรถ": "", "ราคาขนส่ง/เที่ยว": grandTotal, "หมายเหตุ": "",
-  });
-  rows.push({
-    "No.": "", "วันที่": "", "เลขใบงาน": "", "เส้นทาง": "",
-    "ประเภทรถ": "", "ทะเบียน": "", "ชื่อคนขับ": "ภาษีหัก ณ ที่จ่าย 1%", "เบอร์โทร": "",
-    "จำนวนรถ": "", "ราคาขนส่ง/เที่ยว": -withholdingTax, "หมายเหตุ": "",
-  });
-  rows.push({
-    "No.": "", "วันที่": "", "เลขใบงาน": "", "เส้นทาง": "",
-    "ประเภทรถ": "", "ทะเบียน": "", "ชื่อคนขับ": "ยอดสุทธิ", "เบอร์โทร": "",
-    "จำนวนรถ": "", "ราคาขนส่ง/เที่ยว": grandTotal - withholdingTax, "หมายเหตุ": "",
+  // ── Column headers ──────────────────────────────────────────────────────────
+  const COL_HEADERS = [
+    "No.", "วันที่", "เลขใบงาน", "เส้นทาง", "ประเภทรถ",
+    "ทะเบียน", "ชื่อคนขับ", "เบอร์โทร", "จำนวนรถ", "ราคาขนส่ง/เที่ยว", "หมายเหตุ",
+  ];
+  const NC = COL_HEADERS.length; // 11 columns
+
+  // ── Header rows (AOA) ───────────────────────────────────────────────────────
+  const blank = Array(NC).fill("");
+  const aoa: (string | number)[][] = [
+    // Row 1: company name
+    [providerName, ...Array(NC - 1).fill("")],
+    // Row 2: document title
+    [`รายละเอียดการขนส่ง เดือน${thaiMonth} ${thaiYear}`, ...Array(NC - 1).fill("")],
+    // Row 3: customer
+    [`ลูกค้า: ${customerName}`, ...Array(NC - 1).fill("")],
+    // Row 4: blank separator
+    blank,
+    // Row 5: column headers
+    COL_HEADERS,
+  ];
+
+  // ── Data rows ───────────────────────────────────────────────────────────────
+  trips.forEach((t, i) => {
+    const isStandby = t.rowType === "standby";
+    const isStop    = t.rowType === "multidrop_stop";
+
+    const tripId = t.spxTripId ?? t.id.slice(0, 12);
+    const route  = isStandby
+      ? `Standby: ${t.hubDisplayName ?? t.billingLookupHubId ?? "-"}`
+      : [
+          t.hubDisplayName    ?? t.billingLookupHubId        ?? "-",
+          t.destinationDisplayName ?? t.billingLookupDestination ?? "-",
+        ].join(" → ");
+    const vehicleClass = t.vehicleClass ?? "-";
+    const note = isStandby ? "Standby" : isStop ? `Multidrop stop ${t.stopIndex ?? ""}` : "";
+
+    aoa.push([
+      i + 1,
+      t.deliveredTimestamp ? format(t.deliveredTimestamp, "dd/MM/yyyy") : "",
+      tripId,
+      route,
+      vehicleClass,
+      t.truckLicensePlate ?? "-",
+      t.driverName        ?? "-",
+      t.driverPhone       ?? "-",
+      isStandby ? 0 : 1,
+      t.billingEstimateThb,
+      note,
+    ]);
   });
 
+  // ── Footer rows ─────────────────────────────────────────────────────────────
+  aoa.push(blank);
+  aoa.push(["", "", "", "", "", "", "", "", "", "", ""]);
+  aoa.push(["", "", "", "", "", "", "", "ยอดรวมทั้งหมด", "", grandTotal, ""]);
+  aoa.push(["", "", "", "", "", "", "", `ภาษีหัก ณ ที่จ่าย ${Math.round(whtRate * 100)}%`, "", -withholdingTax, ""]);
+  aoa.push(["", "", "", "", "", "", "", "ยอดสุทธิ", "", grandTotal - withholdingTax, ""]);
+
+  // ── Build sheet ─────────────────────────────────────────────────────────────
   const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.json_to_sheet(rows);
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
 
-  // Column widths
+  // Merge header rows across all columns (rows 0–2)
+  ws["!merges"] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: NC - 1 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: NC - 1 } },
+    { s: { r: 2, c: 0 }, e: { r: 2, c: NC - 1 } },
+  ];
+
   ws["!cols"] = [
-    { wch: 5 }, { wch: 12 }, { wch: 18 }, { wch: 30 }, { wch: 12 },
+    { wch: 5 }, { wch: 12 }, { wch: 20 }, { wch: 32 }, { wch: 12 },
     { wch: 12 }, { wch: 20 }, { wch: 14 }, { wch: 10 }, { wch: 18 }, { wch: 16 },
   ];
 
-  XLSX.utils.book_append_sheet(wb, ws, `รายละเอียด ${mm}-${period.year}`);
+  const sheetName = `รายละเอียดขนส่ง ${thaiMonth} ${thaiYear}`.slice(0, 31);
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
   return XLSX.write(wb, { type: "array", bookType: "xlsx" }) as Uint8Array;
 }
 
@@ -533,7 +555,7 @@ export async function downloadBillingZip(
   const [invoiceBlob, receiptBlob, excelBuffer] = await Promise.all([
     generateInvoiceBlob(trips, customer, period, invoiceNumberOverride, provider),
     generateReceiptBlob(trips, customer, period, invoiceNumberOverride, provider),
-    Promise.resolve(generateDetailExcelBuffer(trips, period)),
+    Promise.resolve(generateDetailExcelBuffer(trips, period, customer, provider)),
   ]);
 
   const { default: JSZip } = await import("jszip");
