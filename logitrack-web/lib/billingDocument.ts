@@ -190,7 +190,10 @@ function groupToLineItems(trips: BillingTripRow[]): {
     const route = isStandby ? `${baseRoute} (Stand by)`
                 : isStop    ? `${baseRoute} (Drop fee)`
                 : baseRoute;
-    const unitPrice = t.billingBaseRateThb ?? t.billingEstimateThb;
+    // Drop fee stops: show the actual stop amount (finalRateThb), not the base route rate
+    const unitPrice = isStop
+      ? t.billingEstimateThb
+      : (t.billingBaseRateThb ?? t.billingEstimateThb);
     const key = `${vc}::${route}::${unitPrice}`;
     const existing = map.get(key);
     if (existing) {
