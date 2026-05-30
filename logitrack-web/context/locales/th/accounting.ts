@@ -478,6 +478,7 @@ export default {
     "accounting.billingDocument.table.billingAmount": "ยอดวางบิล",
     "accounting.billingDocument.badge.standby": "จอดรอ",
     "accounting.billingDocument.badge.stopN": "จุดที่ {n}",
+    "accounting.billingDocument.badge.trip": "เที่ยว",
     "accounting.billingDocument.empty": "เลือกเดือน/ปี/ลูกค้า แล้วกด \"โหลดข้อมูล\"",
     "accounting.billingDocument.save.saving": "กำลังบันทึกรายการวางบิล…",
     "accounting.billingDocument.save.saved": "บันทึกสำเร็จ — เลขที่ {invoiceNumber}",

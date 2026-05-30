@@ -60,11 +60,6 @@ export function getMultiDeliveryProgressLabel(trip: Partial<TripRecord>): string
         return null;
     }
 
-    // During loading/departure phase, show "Pickup"
-    if (trip.status === "loading" || trip.status === "departure") {
-        return "Pickup";
-    }
-
     // During in-transit or delivery, show progress
     return `${progress.deliveredStops}/${progress.totalStops} stops delivered`;
 }

@@ -52,7 +52,6 @@ export default {
     "nav.leaveRequests": "รายการลา",
     "nav.incidentReports": "รายงานปัญหาการจัดส่ง",
     "nav.standbyRecords": "บันทึก Standby",
-    "nav.customStopsReview": "ตรวจสอบจุดส่งเพิ่ม",
     "nav.lineHaulTasks": "งาน Line Haul",
     "nav.holidays": "วันหยุด",
 

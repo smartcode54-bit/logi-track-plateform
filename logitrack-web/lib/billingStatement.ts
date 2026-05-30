@@ -41,7 +41,15 @@ export interface BillingStatement {
     totalAmount: number;
     withholdingTax: number;
     netAmount: number;
+    /** Total row count (trips + standby + multi-drop stops) */
     tripCount: number;
+    // ── Breakdown by record type (0 when not applicable / legacy docs) ──────
+    tripOnlyCount: number;
+    tripSubtotal: number;
+    standbyCount: number;
+    standbySubtotal: number;
+    multiDropCount: number;
+    multiDropSubtotal: number;
     status: BillingStatementStatus;
     generatedAt: Date | Timestamp;
     sentAt?: Date | Timestamp;
@@ -98,7 +106,15 @@ export interface SaveBillingStatementInput {
     totalAmount: number;
     withholdingTax: number;
     netAmount: number;
+    /** Total rows (trips + standby + multi-drop stops) */
     tripCount: number;
+    // Breakdown
+    tripOnlyCount: number;
+    tripSubtotal: number;
+    standbyCount: number;
+    standbySubtotal: number;
+    multiDropCount: number;
+    multiDropSubtotal: number;
     paymentTermsDays?: number;
     note?: string;
     generatedBy?: string;
@@ -133,6 +149,12 @@ export async function saveBillingStatement(
         withholdingTax: input.withholdingTax,
         netAmount: input.netAmount,
         tripCount: input.tripCount,
+        tripOnlyCount: input.tripOnlyCount,
+        tripSubtotal: input.tripSubtotal,
+        standbyCount: input.standbyCount,
+        standbySubtotal: input.standbySubtotal,
+        multiDropCount: input.multiDropCount,
+        multiDropSubtotal: input.multiDropSubtotal,
         status: "draft",
         generatedAt: now,
         ...(dueDate ? { dueDate } : {}),
@@ -174,6 +196,13 @@ function docToStatement(id: string, data: DocumentData): BillingStatement {
         withholdingTax: data.withholdingTax ?? 0,
         netAmount: data.netAmount ?? 0,
         tripCount: data.tripCount ?? 0,
+        // Breakdown — default 0 for legacy docs that predate this field
+        tripOnlyCount: data.tripOnlyCount ?? 0,
+        tripSubtotal: data.tripSubtotal ?? 0,
+        standbyCount: data.standbyCount ?? 0,
+        standbySubtotal: data.standbySubtotal ?? 0,
+        multiDropCount: data.multiDropCount ?? 0,
+        multiDropSubtotal: data.multiDropSubtotal ?? 0,
         status: data.status ?? "draft",
         generatedAt: toDate(data.generatedAt) ?? new Date(0),
         sentAt: toDate(data.sentAt),

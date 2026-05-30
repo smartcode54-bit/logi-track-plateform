@@ -316,31 +316,36 @@ export default function AccountingIncomePage() {
             });
 
             // Load completed standby records with billing already computed
-            const standbySnap = await getDocs(
-                query(
-                    collection(db, COLLECTIONS.STANDBY_RECORDS),
-                    where("status", "==", "completed"),
-                    orderBy("createdAt", "desc"),
-                    limit(300)
-                )
-            );
-            standbySnap.docs.forEach((docSnap) => {
-                const d = docSnap.data();
-                if (typeof d.billingEstimateThb !== "number") return;
-                withBilling.push({
-                    id: docSnap.id,
-                    recordType: "standby",
-                    billingEstimateThb: toNumber(d.billingEstimateThb),
-                    billingCustomerId: d.billingCustomerId ? String(d.billingCustomerId) : undefined,
-                    billingRateImportId: d.billingRateEntryId ? String(d.billingRateEntryId) : undefined,
-                    billingEffectiveFromDateStr: d.billingEffectiveFromDateStr
-                        ? String(d.billingEffectiveFromDateStr)
-                        : undefined,
-                    deliveredTimestamp: toDate(d.createdAt ?? d.startedAt),
-                    driverName: d.driverName ? String(d.driverName) : undefined,
-                    durationMinutes: typeof d.durationMinutes === "number" ? d.durationMinutes : undefined,
+            // Wrapped in try-catch: index may still be building after first deploy
+            try {
+                const standbySnap = await getDocs(
+                    query(
+                        collection(db, COLLECTIONS.STANDBY_RECORDS),
+                        where("status", "==", "completed"),
+                        orderBy("createdAt", "desc"),
+                        limit(300)
+                    )
+                );
+                standbySnap.docs.forEach((docSnap) => {
+                    const d = docSnap.data();
+                    if (typeof d.billingEstimateThb !== "number") return;
+                    withBilling.push({
+                        id: docSnap.id,
+                        recordType: "standby",
+                        billingEstimateThb: toNumber(d.billingEstimateThb),
+                        billingCustomerId: d.billingCustomerId ? String(d.billingCustomerId) : undefined,
+                        billingRateImportId: d.billingRateEntryId ? String(d.billingRateEntryId) : undefined,
+                        billingEffectiveFromDateStr: d.billingEffectiveFromDateStr
+                            ? String(d.billingEffectiveFromDateStr)
+                            : undefined,
+                        deliveredTimestamp: toDate(d.endedAt ?? d.startedAt ?? d.createdAt),
+                        driverName: d.driverName ? String(d.driverName) : undefined,
+                        durationMinutes: typeof d.durationMinutes === "number" ? d.durationMinutes : undefined,
+                    });
                 });
-            });
+            } catch (standbyErr) {
+                console.warn("[income] standby_records query failed (index may still be building):", standbyErr);
+            }
 
             setRows(withBilling);
 

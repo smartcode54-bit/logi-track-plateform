@@ -478,6 +478,7 @@ export default {
     "accounting.billingDocument.table.billingAmount": "Billing amount",
     "accounting.billingDocument.badge.standby": "Standby",
     "accounting.billingDocument.badge.stopN": "stop {n}",
+    "accounting.billingDocument.badge.trip": "Trip",
     "accounting.billingDocument.empty": "Select month / year / customer, then click \"Load data\"",
     "accounting.billingDocument.save.saving": "Saving statement…",
     "accounting.billingDocument.save.saved": "Statement saved — invoice {invoiceNumber}",

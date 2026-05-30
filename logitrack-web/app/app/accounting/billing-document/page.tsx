@@ -37,6 +37,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Download, FileText, Loader2, RefreshCw } from "lucide-react";
 import { format } from "date-fns";
 import { WITHHOLDING_TAX_RATE } from "@/lib/billingConfig";
@@ -99,6 +100,11 @@ export default function BillingDocumentPage() {
     const [trips, setTrips] = useState<BillingTripRow[]>([]);
     const [hubNameMap, setHubNameMap] = useState<Map<string, string>>(new Map());
 
+    // ── Type toggles (which charge types to include in billing) ──────────────
+    const [includeTrips,     setIncludeTrips]     = useState(true);
+    const [includeStandby,   setIncludeStandby]   = useState(true);
+    const [includeMultiDrop, setIncludeMultiDrop] = useState(true);
+
     const [loading, setLoading] = useState(false);
     const [generating, setGenerating] = useState(false);
     const [ownerProvider, setOwnerProvider] = useState<BillingProviderInfo | undefined>(undefined);
@@ -151,11 +157,6 @@ export default function BillingDocumentPage() {
         }).catch(console.error);
     }, []);
 
-    /**
-     * Hub/destination name resolver — mirrors the income page's getDestinationDisplayName
-     * so billing ALWAYS shows a name (never a raw code). Resolution order:
-     * normalized map → upper map → trimmed map → SOC friendly name → dash-suffix → code.
-     */
     const resolveDisplayName = (code: string | undefined): string => {
         if (!code) return "-";
         const trimmed = code.trim();
@@ -211,7 +212,7 @@ export default function BillingDocumentPage() {
             standbySnap?.forEach((d) => { const tid = d.data().taskId; if (tid) taskIds.add(tid); });
 
             // ── Fetch tasks (driverName/licensePlate/customer denormalized) ────
-            type TaskInfo = { truckType?: string; driverName?: string; driverPhone?: string; truckLicensePlate?: string; billingCustomerId?: string };
+            type TaskInfo = { truckType?: string; driverName?: string; driverPhone?: string; truckLicensePlate?: string; billingCustomerId?: string; sourceHub?: string; destination?: string };
             const taskMap = new Map<string, TaskInfo>();
             await Promise.allSettled(Array.from(taskIds).slice(0, 200).map(async (tid) => {
                 const taskSnap = await getDoc(doc(db, COLLECTIONS.TASKS, tid));
@@ -223,24 +224,11 @@ export default function BillingDocumentPage() {
                     driverPhone: t.driverPhone,
                     truckLicensePlate: t.licensePlate,
                     billingCustomerId: t.sourceHubLinkedCustomerId,
+                    sourceHub: t.sourceHub,
+                    destination: t.destination,
                 });
             }));
 
-            // ── Standby fee rate (per trip, per customer) ──────────────────────
-            let allServiceFees: Awaited<ReturnType<typeof getCustomerServiceFees>> = [];
-            try {
-                allServiceFees = await getCustomerServiceFees(
-                    selectedCustomerId !== "all" ? selectedCustomerId : undefined
-                );
-            } catch (e) {
-                console.warn("[billing] getCustomerServiceFees failed:", e);
-            }
-            const standbyFeeMap = new Map<string, number>();
-            for (const fee of allServiceFees) {
-                if (fee.feeType === "standby" && fee.unit === "per_trip") {
-                    standbyFeeMap.set(fee.customerId, fee.amountThb);
-                }
-            }
 
             const rows: BillingTripRow[] = [];
 
@@ -271,8 +259,8 @@ export default function BillingDocumentPage() {
                             driverName: taskInfo?.driverName,
                             driverPhone: taskInfo?.driverPhone,
                             truckLicensePlate: taskInfo?.truckLicensePlate,
-                            hubDisplayName: hubNameMap.get(hubId) ?? hubId,
-                            destinationDisplayName: hubNameMap.get(normalizeDestinationCode(destCode) ?? destCode) ?? destCode,
+                            hubDisplayName: resolveDisplayName(hubId),
+                            destinationDisplayName: resolveDisplayName(destCode),
                             rowType: "multidrop_stop",
                             stopIndex: stop.stopIndex,
                         });
@@ -298,37 +286,44 @@ export default function BillingDocumentPage() {
                     driverName: taskInfo?.driverName,
                     driverPhone: taskInfo?.driverPhone,
                     truckLicensePlate: taskInfo?.truckLicensePlate,
-                    hubDisplayName: hubNameMap.get(hubId) ?? hubId,
-                    destinationDisplayName: hubNameMap.get(normalizeDestinationCode(dest) ?? dest) ?? dest,
+                    hubDisplayName: resolveDisplayName(hubId),
+                    destinationDisplayName: resolveDisplayName(dest),
                     rowType: "trip",
                 });
             });
 
-            // ── Build standby rows ─────────────────────────────────────────────
+            // ── Build standby rows (source: standby_records.billingEstimateThb) ─
             standbySnap?.forEach((d) => {
                 const data = d.data();
+                const billingAmt = Number(data.billingEstimateThb);
+                if (!billingAmt) return; // backfill not yet run → skip
+
+                // Customer filter — prefer billingCustomerId written by backfill function
+                const cid = (data.billingCustomerId as string | undefined)?.trim() || undefined;
+                if (selectedCustomerId !== "all" && cid !== selectedCustomerId) return;
+
                 const taskInfo = data.taskId ? taskMap.get(data.taskId) : undefined;
-                const recordCustomerId = taskInfo?.billingCustomerId;
-
-                // Filter by selected customer
-                if (selectedCustomerId !== "all" && recordCustomerId !== selectedCustomerId) return;
-
-                const effectiveCustomerId = recordCustomerId ?? selectedCustomerId;
-                const feeAmount = typeof effectiveCustomerId === "string" ? standbyFeeMap.get(effectiveCustomerId) : undefined;
-                if (!feeAmount) return; // no standby rate configured → skip
 
                 rows.push({
                     id: d.id,
                     taskId: data.taskId ?? undefined,
+                    spxTripId: (data.spxTripId as string | undefined)
+                        ?? (data.migratedFromSpxTripId as string | undefined)
+                        ?? (data.migratedFromTripId as string | undefined)
+                        ?? undefined,
                     deliveredTimestamp: toDate(data.endedAt) ?? toDate(data.startedAt) ?? undefined,
-                    billingEstimateThb: feeAmount,
-                    billingCustomerId: effectiveCustomerId !== "all" ? effectiveCustomerId : undefined,
+                    billingEstimateThb: billingAmt,
+                    billingCustomerId: cid,
                     vehicleClass: taskInfo?.truckType,
                     driverName: taskInfo?.driverName,
                     driverPhone: taskInfo?.driverPhone,
                     truckLicensePlate: taskInfo?.truckLicensePlate,
-                    hubDisplayName: data.startLocation ?? "-",
-                    destinationDisplayName: data.endLocation ?? "-",
+                    hubDisplayName: resolveDisplayName(
+                        (taskInfo?.sourceHub as string | undefined) ?? (data.startLocation as string | undefined)
+                    ),
+                    destinationDisplayName: resolveDisplayName(
+                        (taskInfo?.destination as string | undefined) ?? (data.endLocation as string | undefined)
+                    ),
                     rowType: "standby",
                 });
             });
@@ -341,9 +336,39 @@ export default function BillingDocumentPage() {
     }
 
     const filteredTrips = useMemo(() => {
-        if (selectedCustomerId === "all") return trips;
-        return trips.filter((t) => t.billingCustomerId === selectedCustomerId);
+        return trips.filter((r) => {
+            if (selectedCustomerId !== "all" && r.billingCustomerId !== selectedCustomerId) return false;
+            if (r.rowType === "trip"           && !includeTrips)     return false;
+            if (r.rowType === "standby"        && !includeStandby)   return false;
+            if (r.rowType === "multidrop_stop" && !includeMultiDrop) return false;
+            return true;
+        });
+    }, [trips, selectedCustomerId, includeTrips, includeStandby, includeMultiDrop]);
+
+    // Count per type (before type-toggle filter, but after customer filter) for checkbox labels
+    const typeCounts = useMemo(() => {
+        const base = selectedCustomerId === "all" ? trips : trips.filter((r) => r.billingCustomerId === selectedCustomerId);
+        return {
+            trips:     base.filter((r) => r.rowType === "trip").length,
+            standby:   base.filter((r) => r.rowType === "standby").length,
+            multiDrop: base.filter((r) => r.rowType === "multidrop_stop").length,
+        };
     }, [trips, selectedCustomerId]);
+
+    const breakdown = useMemo(() => {
+        const tripRows      = filteredTrips.filter((r) => r.rowType === "trip");
+        const standbyRows   = filteredTrips.filter((r) => r.rowType === "standby");
+        const multiDropRows = filteredTrips.filter((r) => r.rowType === "multidrop_stop");
+        const sum = (arr: BillingTripRow[]) => arr.reduce((s, r) => s + r.billingEstimateThb, 0);
+        return {
+            tripOnlyCount:   tripRows.length,
+            tripSubtotal:    sum(tripRows),
+            standbyCount:    standbyRows.length,
+            standbySubtotal: sum(standbyRows),
+            multiDropCount:  multiDropRows.length,
+            multiDropSubtotal: sum(multiDropRows),
+        };
+    }, [filteredTrips]);
 
     const grandTotal = useMemo(() => filteredTrips.reduce((s, t) => s + t.billingEstimateThb, 0), [filteredTrips]);
     const withholdingTax = Math.round(grandTotal * WITHHOLDING_TAX_RATE * 100) / 100;
@@ -387,6 +412,7 @@ export default function BillingDocumentPage() {
                     withholdingTax,
                     netAmount: totalNet,
                     tripCount: filteredTrips.length,
+                    ...breakdown,
                     paymentTermsDays: selectedCustomer.paymentTermsDays,
                     generatedBy: auth?.currentUser?.uid,
                 });
@@ -464,6 +490,48 @@ export default function BillingDocumentPage() {
                             </Select>
                         </div>
 
+                        {/* ── Charge type toggles ── */}
+                        {trips.length > 0 && (
+                            <div className="space-y-1.5 border-l pl-4 ml-2">
+                                <Label className="text-xs text-muted-foreground">ค่าบริการที่รวมในบิล</Label>
+                                <div className="flex flex-col gap-2">
+                                    <label className="flex items-center gap-2 cursor-pointer text-sm">
+                                        <Checkbox
+                                            checked={includeTrips}
+                                            onCheckedChange={(v) => setIncludeTrips(!!v)}
+                                        />
+                                        <span className="flex items-center gap-1.5">
+                                            <span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />
+                                            เที่ยวปกติ
+                                            <Badge variant="secondary" className="text-xs px-1.5 py-0">{typeCounts.trips}</Badge>
+                                        </span>
+                                    </label>
+                                    <label className="flex items-center gap-2 cursor-pointer text-sm">
+                                        <Checkbox
+                                            checked={includeStandby}
+                                            onCheckedChange={(v) => setIncludeStandby(!!v)}
+                                        />
+                                        <span className="flex items-center gap-1.5">
+                                            <span className="w-2 h-2 rounded-full bg-orange-500 inline-block" />
+                                            Standby
+                                            <Badge variant="secondary" className="text-xs px-1.5 py-0">{typeCounts.standby}</Badge>
+                                        </span>
+                                    </label>
+                                    <label className="flex items-center gap-2 cursor-pointer text-sm">
+                                        <Checkbox
+                                            checked={includeMultiDrop}
+                                            onCheckedChange={(v) => setIncludeMultiDrop(!!v)}
+                                        />
+                                        <span className="flex items-center gap-1.5">
+                                            <span className="w-2 h-2 rounded-full bg-purple-500 inline-block" />
+                                            Multi-drop stops
+                                            <Badge variant="secondary" className="text-xs px-1.5 py-0">{typeCounts.multiDrop}</Badge>
+                                        </span>
+                                    </label>
+                                </div>
+                            </div>
+                        )}
+
                         <Button onClick={loadTrips} disabled={loading} variant="outline">
                             {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
                             {t("accounting.billingDocument.filters.load")}
@@ -473,31 +541,58 @@ export default function BillingDocumentPage() {
 
                 {/* ── Summary cards ── */}
                 {trips.length > 0 && (
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <Card>
-                            <CardContent className="pt-4">
-                                <p className="text-xs text-muted-foreground">{t("accounting.billingDocument.summary.tripCount")}</p>
-                                <p className="text-2xl font-bold">{filteredTrips.length}</p>
-                            </CardContent>
-                        </Card>
-                        <Card>
-                            <CardContent className="pt-4">
-                                <p className="text-xs text-muted-foreground">{t("accounting.billingDocument.summary.total")}</p>
-                                <p className="text-2xl font-bold">{formatThb(grandTotal)}</p>
-                            </CardContent>
-                        </Card>
-                        <Card>
-                            <CardContent className="pt-4">
-                                <p className="text-xs text-muted-foreground">{t("accounting.billingDocument.summary.withholdingTax")}</p>
-                                <p className="text-2xl font-bold text-red-600">-{formatThb(withholdingTax)}</p>
-                            </CardContent>
-                        </Card>
-                        <Card>
-                            <CardContent className="pt-4">
-                                <p className="text-xs text-muted-foreground">{t("accounting.billingDocument.summary.netTotal")}</p>
-                                <p className="text-2xl font-bold text-green-600">{formatThb(totalNet)}</p>
-                            </CardContent>
-                        </Card>
+                    <div className="space-y-3">
+                        {/* Breakdown by type */}
+                        <div className="grid grid-cols-3 gap-3">
+                            <Card className="border-l-4 border-l-blue-500">
+                                <CardContent className="pt-4 pb-3">
+                                    <p className="text-xs text-muted-foreground">เที่ยวปกติ</p>
+                                    <p className="text-xl font-bold">{breakdown.tripOnlyCount} เที่ยว</p>
+                                    <p className="text-sm font-mono text-blue-600">{formatThb(breakdown.tripSubtotal)}</p>
+                                </CardContent>
+                            </Card>
+                            <Card className="border-l-4 border-l-orange-500">
+                                <CardContent className="pt-4 pb-3">
+                                    <p className="text-xs text-muted-foreground">Standby</p>
+                                    <p className="text-xl font-bold">{breakdown.standbyCount} ครั้ง</p>
+                                    <p className="text-sm font-mono text-orange-600">{formatThb(breakdown.standbySubtotal)}</p>
+                                </CardContent>
+                            </Card>
+                            <Card className="border-l-4 border-l-purple-500">
+                                <CardContent className="pt-4 pb-3">
+                                    <p className="text-xs text-muted-foreground">Multi-drop stops</p>
+                                    <p className="text-xl font-bold">{breakdown.multiDropCount} จุด</p>
+                                    <p className="text-sm font-mono text-purple-600">{formatThb(breakdown.multiDropSubtotal)}</p>
+                                </CardContent>
+                            </Card>
+                        </div>
+                        {/* Totals */}
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <Card>
+                                <CardContent className="pt-4">
+                                    <p className="text-xs text-muted-foreground">{t("accounting.billingDocument.summary.tripCount")}</p>
+                                    <p className="text-2xl font-bold">{filteredTrips.length}</p>
+                                </CardContent>
+                            </Card>
+                            <Card>
+                                <CardContent className="pt-4">
+                                    <p className="text-xs text-muted-foreground">{t("accounting.billingDocument.summary.total")}</p>
+                                    <p className="text-2xl font-bold">{formatThb(grandTotal)}</p>
+                                </CardContent>
+                            </Card>
+                            <Card>
+                                <CardContent className="pt-4">
+                                    <p className="text-xs text-muted-foreground">{t("accounting.billingDocument.summary.withholdingTax")}</p>
+                                    <p className="text-2xl font-bold text-red-600">-{formatThb(withholdingTax)}</p>
+                                </CardContent>
+                            </Card>
+                            <Card>
+                                <CardContent className="pt-4">
+                                    <p className="text-xs text-muted-foreground">{t("accounting.billingDocument.summary.netTotal")}</p>
+                                    <p className="text-2xl font-bold text-green-600">{formatThb(totalNet)}</p>
+                                </CardContent>
+                            </Card>
+                        </div>
                     </div>
                 )}
 
@@ -545,25 +640,30 @@ export default function BillingDocumentPage() {
                                 </TableHeader>
                                 <TableBody>
                                     {filteredTrips.map((trip) => {
-                                        // Resolve display names at render time so hubNameMap is always up-to-date.
-                                        // Keys in hubNameMap are stored uppercase; normalizeDestinationCode also returns uppercase.
-                                        const resolveHubName = (code: string | undefined): string | undefined => {
-                                            if (!code) return undefined;
-                                            const upper = code.trim().toUpperCase();
-                                            const normalized = normalizeDestinationCode(upper) || upper;
-                                            return hubNameMap.get(normalized) ?? hubNameMap.get(upper) ?? hubNameMap.get(code);
-                                        };
-                                        const originDisplay = resolveHubName(trip.billingLookupHubId) ?? trip.hubDisplayName ?? trip.billingLookupHubId;
-                                        const destDisplay = resolveHubName(trip.billingLookupDestination ?? "") ?? trip.destinationDisplayName ?? trip.billingLookupDestination;
+                                        // hubDisplayName / destinationDisplayName already resolved by resolveDisplayName at load time
+                                        const originDisplay = trip.hubDisplayName ?? trip.billingLookupHubId ?? "-";
+                                        const destDisplay   = trip.destinationDisplayName ?? trip.billingLookupDestination ?? "-";
                                         return (
                                         <TableRow key={trip.id} className={trip.rowType === "standby" ? "bg-amber-950/20" : trip.rowType === "multidrop_stop" ? "bg-blue-950/10" : undefined}>
                                             <TableCell className="font-mono text-xs">
-                                                {trip.rowType === "standby"
-                                                    ? <Badge variant="outline" className="text-amber-400 border-amber-600">{t("accounting.billingDocument.badge.standby")}</Badge>
-                                                    : trip.rowType === "multidrop_stop"
-                                                        ? <span className="text-muted-foreground">{t("accounting.billingDocument.badge.stopN", { n: trip.stopIndex ?? 0 })}</span>
-                                                        : (trip.spxTripId ?? trip.id.slice(0, 8))
-                                                }
+                                                <div className="flex flex-col gap-1">
+                                                    <span>{trip.spxTripId ?? trip.id.slice(0, 8)}</span>
+                                                    {trip.rowType === "standby" && (
+                                                        <Badge variant="outline" className="w-fit text-amber-400 border-amber-600 text-[10px] px-1 py-0">
+                                                            {t("accounting.billingDocument.badge.standby")}
+                                                        </Badge>
+                                                    )}
+                                                    {trip.rowType === "multidrop_stop" && (
+                                                        <Badge variant="outline" className="w-fit text-purple-400 border-purple-600 text-[10px] px-1 py-0">
+                                                            {t("accounting.billingDocument.badge.stopN", { n: trip.stopIndex ?? 0 })}
+                                                        </Badge>
+                                                    )}
+                                                    {trip.rowType === "trip" && (
+                                                        <Badge variant="outline" className="w-fit text-blue-400 border-blue-600 text-[10px] px-1 py-0">
+                                                            {t("accounting.billingDocument.badge.trip")}
+                                                        </Badge>
+                                                    )}
+                                                </div>
                                             </TableCell>
                                             <TableCell className="text-xs">
                                                 {trip.deliveredTimestamp ? format(trip.deliveredTimestamp, "dd/MM/yyyy HH:mm") : "-"}
@@ -572,10 +672,7 @@ export default function BillingDocumentPage() {
                                                 {[originDisplay, destDisplay].filter(Boolean).join(" → ")}
                                             </TableCell>
                                             <TableCell>
-                                                {trip.rowType === "standby"
-                                                    ? <Badge variant="outline" className="text-amber-400 border-amber-600 text-xs">{t("accounting.billingDocument.badge.standby")}</Badge>
-                                                    : trip.vehicleClass ? <Badge variant="outline">{trip.vehicleClass}</Badge> : "-"
-                                                }
+                                                {trip.vehicleClass ? <Badge variant="outline">{trip.vehicleClass}</Badge> : "-"}
                                             </TableCell>
                                             <TableCell className="text-xs">{trip.driverName ?? "-"}</TableCell>
                                             <TableCell className="text-right font-mono">

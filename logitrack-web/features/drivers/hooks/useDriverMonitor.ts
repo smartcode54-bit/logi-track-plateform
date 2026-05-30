@@ -620,7 +620,6 @@ export function useDriverMonitor() {
         const total = trips.length;
         const inTransit = trips.filter((t) => t.status === "in_transit").length;
         const delivered = trips.filter((t) => t.status === "delivered").length;
-        const loadingCount = trips.filter((t) => t.status === "loading").length;
 
         const activeTasks = tasks.filter((t) =>
             ["Assigned", "Checked in", "In-Transit", "Completed"].includes(t.status)
@@ -629,7 +628,7 @@ export function useDriverMonitor() {
         const checkInActual = checkedInTasks.length;
         const checkInTotal = activeTasks.length;
 
-        return { total, inTransit, delivered, loading: loadingCount, checkInActual, checkInTotal };
+        return { total, inTransit, delivered, checkInActual, checkInTotal };
     }, [trips, tasks]);
 
     const filteredTrips = useMemo(() => {

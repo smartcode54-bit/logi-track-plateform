@@ -102,8 +102,6 @@ function escapeCsvCell(val: string): string {
 
 // Constants/Helpers
 const STATUS_COLOR: Record<string, string> = {
-    loading: "bg-slate-500/15 text-slate-600 border-slate-500/25 dark:text-slate-400",
-    departure: "bg-blue-500/15 text-blue-600 border-blue-500/25 dark:text-blue-400",
     in_transit: "bg-amber-500/15 text-amber-600 border-amber-500/25 dark:text-amber-400",
     incident: "bg-red-500/15 text-red-600 border-red-500/25 dark:text-red-400",
     delivered: "bg-emerald-500/15 text-emerald-600 border-emerald-500/25 dark:text-emerald-400",
@@ -577,7 +575,7 @@ export default function DriverMonitorDashboard() {
             </div>
 
             {/* Stats Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <Card className="bg-card">
                     <CardContent className="p-6 flex items-center justify-between">
                         <div>
@@ -588,20 +586,6 @@ export default function DriverMonitorDashboard() {
                         </div>
                         <div className="h-12 w-12 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-500">
                             <Package className="h-6 w-6" />
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <Card className="bg-card">
-                    <CardContent className="p-6 flex items-center justify-between">
-                        <div>
-                            <p className="text-sm font-medium text-muted-foreground">
-                                {t("driverMonitor.stats.loading")}
-                            </p>
-                            <h2 className="text-3xl font-bold mt-1">{stats.loading}</h2>
-                        </div>
-                        <div className="h-12 w-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500">
-                            <Loader2 className="h-5 w-5" />
                         </div>
                     </CardContent>
                 </Card>

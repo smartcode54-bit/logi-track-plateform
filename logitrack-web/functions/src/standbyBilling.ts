@@ -25,6 +25,7 @@ import {
 const COL_STANDBY_RECORDS = "standby_records";
 const COL_STANDBY_RATES = "standby_rate_entries";
 const COL_TASKS = "tasks";
+const COL_SERVICE_FEES = "customer_service_fees";
 
 function mapStandbyRateDoc(doc: admin.firestore.QueryDocumentSnapshot): StandbyRateEntry {
     const d = doc.data();
@@ -35,6 +36,22 @@ function mapStandbyRateDoc(doc: admin.firestore.QueryDocumentSnapshot): StandbyR
         effectiveFromMs: timestampLikeToMillis(d.effectiveFrom),
         note: typeof d.note === "string" ? d.note : undefined,
     };
+}
+
+/**
+ * Build a fallback map of customerId → standby fee (THB) from customer_service_fees
+ * (feeType "standby"). Used when no standby_rate_entries match the customer.
+ */
+function buildStandbyServiceFeeMap(snap: admin.firestore.QuerySnapshot): Map<string, number> {
+    const map = new Map<string, number>();
+    snap.docs.forEach((d) => {
+        const data = d.data();
+        if (data.feeType !== "standby") return;
+        const cid = String(data.customerId ?? "").trim();
+        const amt = Number(data.amountThb ?? 0);
+        if (cid && Number.isFinite(amt) && amt >= 0) map.set(cid, amt);
+    });
+    return map;
 }
 
 /**
@@ -81,7 +98,8 @@ async function tryWriteStandbyBillingSnapshot(
     recordId: string,
     data: Record<string, unknown>,
     docRef: admin.firestore.DocumentReference,
-    rateEntries: StandbyRateEntry[]
+    rateEntries: StandbyRateEntry[],
+    serviceFeeByCustomer: Map<string, number>
 ): Promise<StandbyBillingResponse> {
     if (data.status !== "completed") {
         return { ok: true, skipped: true, error: "Standby record is not completed yet" };
@@ -104,20 +122,32 @@ async function tryWriteStandbyBillingSnapshot(
         Date.now();
 
     const computed = computeStandbyBilling(billDateMs, customerId, rateEntries);
-    if (!computed) {
-        logger.warn("[standbyBilling] no matching standby rate entry", { recordId, customerId });
-        return { ok: false, error: `No standby rate entry found for customer ${customerId}` };
+    if (computed) {
+        await docRef.update({
+            billingEstimateThb: computed.rateThb,
+            billingCustomerId: computed.customerId,
+            billingRateEntryId: computed.rateEntryId,
+            billingEffectiveFromDateStr: computed.effectiveFromDateStr ?? null,
+            billingComputedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        return { ok: true, billingEstimateThb: computed.rateThb };
     }
 
-    await docRef.update({
-        billingEstimateThb: computed.rateThb,
-        billingCustomerId: computed.customerId,
-        billingRateEntryId: computed.rateEntryId,
-        billingEffectiveFromDateStr: computed.effectiveFromDateStr ?? null,
-        billingComputedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    // Fallback: use the flat Stand By service fee from customer_service_fees
+    const serviceFee = serviceFeeByCustomer.get(customerId);
+    if (typeof serviceFee === "number") {
+        await docRef.update({
+            billingEstimateThb: serviceFee,
+            billingCustomerId: customerId,
+            billingRateEntryId: "service_fee",
+            billingEffectiveFromDateStr: null,
+            billingComputedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        return { ok: true, billingEstimateThb: serviceFee };
+    }
 
-    return { ok: true, billingEstimateThb: computed.rateThb };
+    logger.warn("[standbyBilling] no matching standby rate entry or service fee", { recordId, customerId });
+    return { ok: false, error: `No standby rate entry or service fee found for customer ${customerId}` };
 }
 
 // ─── Callable: compute single standby record ──────────────────────────────────
@@ -146,9 +176,10 @@ export const computeStandbyBillingSnapshot = onCall<ComputeStandbyRequest, Promi
         }
 
         const db = admin.firestore();
-        const [docSnap, ratesSnap] = await Promise.all([
+        const [docSnap, ratesSnap, feesSnap] = await Promise.all([
             db.collection(COL_STANDBY_RECORDS).doc(standbyId).get(),
             db.collection(COL_STANDBY_RATES).get(),
+            db.collection(COL_SERVICE_FEES).get(),
         ]);
 
         if (!docSnap.exists) {
@@ -156,8 +187,9 @@ export const computeStandbyBillingSnapshot = onCall<ComputeStandbyRequest, Promi
         }
 
         const rateEntries = ratesSnap.docs.map(mapStandbyRateDoc);
+        const serviceFeeByCustomer = buildStandbyServiceFeeMap(feesSnap);
         const data = docSnap.data() as Record<string, unknown>;
-        return tryWriteStandbyBillingSnapshot(db, standbyId, data, docSnap.ref, rateEntries);
+        return tryWriteStandbyBillingSnapshot(db, standbyId, data, docSnap.ref, rateEntries, serviceFeeByCustomer);
     }
 );
 
@@ -178,16 +210,18 @@ export const autoComputeStandbyBilling = onSchedule(
         const windowMs = 30 * 60 * 1000;
         const since = admin.firestore.Timestamp.fromMillis(Date.now() - windowMs);
 
-        const [snap, ratesSnap] = await Promise.all([
+        const [snap, ratesSnap, feesSnap] = await Promise.all([
             db.collection(COL_STANDBY_RECORDS)
                 .where("status", "==", "completed")
                 .where("createdAt", ">=", since)
                 .limit(100)
                 .get(),
             db.collection(COL_STANDBY_RATES).get(),
+            db.collection(COL_SERVICE_FEES).get(),
         ]);
 
         const rateEntries = ratesSnap.docs.map(mapStandbyRateDoc);
+        const serviceFeeByCustomer = buildStandbyServiceFeeMap(feesSnap);
         let written = 0;
         let failed = 0;
 
@@ -195,7 +229,7 @@ export const autoComputeStandbyBilling = onSchedule(
             const data = doc.data() as Record<string, unknown>;
             if (typeof data.billingEstimateThb === "number") continue;
 
-            const result = await tryWriteStandbyBillingSnapshot(db, doc.id, data, doc.ref, rateEntries);
+            const result = await tryWriteStandbyBillingSnapshot(db, doc.id, data, doc.ref, rateEntries, serviceFeeByCustomer);
             if (result.ok && !result.skipped) {
                 written++;
                 logger.info("[autoStandbyBilling] billing written", {
@@ -272,7 +306,7 @@ export const backfillStandbyBillingSnapshots = onCall<BackfillStandbyRequest, Pr
         const db = admin.firestore();
         const { start, end } = bangkokBoundsToTimestamps(fromDateStr, toDateStr);
 
-        const [snap, ratesSnap] = await Promise.all([
+        const [snap, ratesSnap, feesSnap] = await Promise.all([
             db.collection(COL_STANDBY_RECORDS)
                 .where("createdAt", ">=", start)
                 .where("createdAt", "<=", end)
@@ -280,9 +314,11 @@ export const backfillStandbyBillingSnapshots = onCall<BackfillStandbyRequest, Pr
                 .limit(maxScan)
                 .get(),
             db.collection(COL_STANDBY_RATES).get(),
+            db.collection(COL_SERVICE_FEES).get(),
         ]);
 
         const rateEntries = ratesSnap.docs.map(mapStandbyRateDoc);
+        const serviceFeeByCustomer = buildStandbyServiceFeeMap(feesSnap);
         let eligible = 0;
         let written = 0;
         let skipped = 0;
@@ -299,7 +335,7 @@ export const backfillStandbyBillingSnapshots = onCall<BackfillStandbyRequest, Pr
             if (written >= maxWrite) continue;
 
             attempted++;
-            const result = await tryWriteStandbyBillingSnapshot(db, doc.id, data, doc.ref, rateEntries);
+            const result = await tryWriteStandbyBillingSnapshot(db, doc.id, data, doc.ref, rateEntries, serviceFeeByCustomer);
             if (result.ok === true && result.skipped !== true && result.billingEstimateThb != null) {
                 written++;
             } else if (result.skipped === true) {

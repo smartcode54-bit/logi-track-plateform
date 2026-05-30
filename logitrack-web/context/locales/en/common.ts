@@ -52,7 +52,6 @@ export default {
     "nav.leaveRequests": "Leave Requests",
     "nav.incidentReports": "Incident Reports",
     "nav.standbyRecords": "Standby Records",
-    "nav.customStopsReview": "Custom Stops Review",
     "nav.lineHaulTasks": "Line Haul Tasks",
     "nav.holidays": "Holidays",
 
