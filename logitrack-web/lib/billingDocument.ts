@@ -170,7 +170,7 @@ function invoiceNumber(period: BillingPeriod): string {
   return `INV-${period.year}${mm}-${seq}`;
 }
 
-/** Group trips by vehicleClass + route for the invoice body table. Standby rows group separately. */
+/** Group trips by vehicleClass + route for the invoice body table. */
 function groupToLineItems(trips: BillingTripRow[]): {
   vehicleClass: string;
   route: string;
@@ -180,12 +180,16 @@ function groupToLineItems(trips: BillingTripRow[]): {
 }[] {
   const map = new Map<string, { vehicleClass: string; route: string; count: number; unitPrice: number; total: number }>();
   for (const t of trips) {
-    // All rows (including standby) show the real vehicle class + origin → destination route.
+    const isStandby = t.rowType === "standby";
+    const isStop    = t.rowType === "multidrop_stop";
     const vc = t.vehicleClass ?? "-";
-    const route = [
-      t.hubDisplayName ?? t.billingLookupHubId ?? "-",
-      t.destinationDisplayName ?? t.billingLookupDestination ?? "-",
+    const baseRoute = [
+      t.hubDisplayName         ?? t.billingLookupHubId        ?? "-",
+      t.destinationDisplayName ?? t.billingLookupDestination  ?? "-",
     ].join(" → ");
+    const route = isStandby ? `${baseRoute} (Stand by)`
+                : isStop    ? `${baseRoute} (Drop fee)`
+                : baseRoute;
     const unitPrice = t.billingBaseRateThb ?? t.billingEstimateThb;
     const key = `${vc}::${route}::${unitPrice}`;
     const existing = map.get(key);
@@ -345,9 +349,9 @@ async function buildInvoicePdf(
   doc.setFontSize(9);
   try {
     const bahtStr: string = bahttext(textAmount);
-    doc.text(`(${bahtStr})`, 14, finalY + 21);
+    doc.text(`ยอดรวม : ${bahtStr}`, 14, finalY + 21);
   } catch {
-    doc.text(`(${formatThb(textAmount)} บาท)`, 14, finalY + 21);
+    doc.text(`ยอดรวม : ${formatThb(textAmount)} บาท`, 14, finalY + 21);
   }
 
   // ── Bank info (invoice only) ──
