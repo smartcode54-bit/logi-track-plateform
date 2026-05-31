@@ -1,161 +1,154 @@
 import 'dart:convert';
-import 'dart:typed_data';
-import 'package:flutter/foundation.dart' show compute, debugPrint;
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'dart:ui' as ui;
+
+import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/material.dart' show Colors;
+import 'package:flutter/painting.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_compass/flutter_compass.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
+import 'package:qr/qr.dart';
 
-/// Compass direction (short) from bearing degrees
-String _compassDirection(double heading) {
-  const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-  final index = ((heading + 22.5) % 360 / 45).floor();
-  return directions[index % 8];
-}
-
-/// Month abbreviations (Latin for bitmap font)
-const _monthAbbr = [
-  'Jan',
-  'Feb',
-  'Mar',
-  'Apr',
-  'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec',
-];
-const _weekdayShort = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
-/// Timeouts for overlay context (ลดจาก 5s/3s เพื่อไม่ให้ step overlay หน่วงเกินไป)
+// ─── Timeouts ───────────────────────────────────────────────────────────────
 const Duration _kGeocodeTimeout = Duration(seconds: 3);
 const Duration _kCompassTimeout = Duration(seconds: 2);
+const Duration _kStaticMapTimeout = Duration(seconds: 5);
 
-/// Fallback: Google Geocoding API เมื่อ placemarkFromCoordinates ไม่ทำงาน (เช่น prod release).
-/// โปรดใส่ GOOGLE_MAPS_API_KEY ใน .env.prod ด้วย เพื่อให้ overlay แสดงที่อ่านได้ (ไม่ใช่แค่ Lat/Lng).
+// ─── Thai weekday / month names ──────────────────────────────────────────────
+const _thaiWeekdays = ['จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.', 'อา.'];
+const _thaiMonths = [
+  'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+  'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.',
+];
+
+String _formatThaiDateTime(DateTime dt) {
+  final wd = _thaiWeekdays[dt.weekday - 1];
+  final mo = _thaiMonths[dt.month - 1];
+  final h = dt.hour.toString().padLeft(2, '0');
+  final m = dt.minute.toString().padLeft(2, '0');
+  return '$wd ${dt.day} $mo ${dt.year + 543}  $h:$m';
+}
+
+// ─── Reverse geocode via Google API ─────────────────────────────────────────
 Future<String> _reverseGeocodeViaGoogleApi(double lat, double lng) async {
   final apiKey = dotenv.env['GOOGLE_MAPS_API_KEY']?.trim();
-  if (apiKey == null || apiKey.isEmpty) {
-    debugPrint(
-      'Photo overlay: GOOGLE_MAPS_API_KEY ไม่มีใน .env — ใส่ใน .env.prod เพื่อให้ prod แสดงที่อยู่บนรูป',
-    );
-    return '';
-  }
-
-  final uri = Uri.parse(
-    'https://maps.googleapis.com/maps/api/geocode/json'
-    '?latlng=$lat,$lng'
-    '&key=$apiKey'
-    '&language=th',
-  );
+  if (apiKey == null || apiKey.isEmpty) return '';
   try {
+    final uri = Uri.parse(
+      'https://maps.googleapis.com/maps/api/geocode/json'
+      '?latlng=$lat,$lng&key=$apiKey&language=th',
+    );
     final resp = await http.get(uri).timeout(_kGeocodeTimeout);
     if (resp.statusCode != 200) return '';
-
     final data = jsonDecode(resp.body) as Map<String, dynamic>?;
     final results = data?['results'] as List<dynamic>?;
     if (results == null || results.isEmpty) return '';
-
-    final first = results.first as Map<String, dynamic>;
-    final formatted = first['formatted_address'] as String?;
-    if (formatted == null || formatted.isEmpty) return '';
-
-    // คืนค่าที่อยู่เต็มจาก formatted_address Directy เพื่อให้แสดงผลแบบเต็ม (เหมือนเครื่อง test หรือตามที่ google คืนมา)
-    return formatted;
-
+    return (results.first as Map<String, dynamic>)['formatted_address'] as String? ?? '';
   } catch (e) {
-    debugPrint('Google Geocoding API fallback failed: $e');
+    debugPrint('Google Geocoding fallback failed: $e');
     return '';
   }
 }
 
-/// Pre-fetch address and compass once (call before stamping multiple photos)
+// ─── Fetch Google Static Maps thumbnail ──────────────────────────────────────
+Future<Uint8List?> _fetchStaticMap(double lat, double lng) async {
+  final apiKey = (dotenv.env['GOOGLE_MAPS_STATIC_KEY'] ?? dotenv.env['GOOGLE_MAPS_API_KEY'])?.trim();
+  if (apiKey == null || apiKey.isEmpty) return null;
+  try {
+    final uri = Uri.parse(
+      'https://maps.googleapis.com/maps/api/staticmap'
+      '?center=$lat,$lng&zoom=16&size=640x640&scale=2&maptype=roadmap'
+      '&markers=color:red%7C$lat,$lng&key=$apiKey',
+    );
+    final resp = await http.get(uri).timeout(_kStaticMapTimeout);
+    return resp.statusCode == 200 ? resp.bodyBytes : null;
+  } catch (e) {
+    debugPrint('Static map fetch failed: $e');
+    return null;
+  }
+}
+
+// ─── OverlayContext ───────────────────────────────────────────────────────────
+class OverlayContext {
+  final String address;
+  final String cityName;
+  final double? heading;
+  final double? temperature;
+  final Uint8List? staticMapBytes;
+
+  OverlayContext({
+    required this.address,
+    this.cityName = '',
+    this.heading,
+    this.temperature,
+    this.staticMapBytes,
+  });
+}
+
+// ─── fetchOverlayContext ──────────────────────────────────────────────────────
 Future<OverlayContext> fetchOverlayContext(double lat, double lng) async {
   String address = '';
+  String cityName = '';
   double? heading;
 
-  // Reverse geocode (จุดช้า: network call) — ใช้ native ก่อน, fallback Google API เมื่อ prod ไม่แสดง
+  // Native reverse geocode first
   try {
-    final placemarks = await placemarkFromCoordinates(
-      lat,
-      lng,
-    ).timeout(_kGeocodeTimeout);
+    final placemarks = await placemarkFromCoordinates(lat, lng)
+        .timeout(_kGeocodeTimeout);
     if (placemarks.isNotEmpty) {
       final p = placemarks.first;
-      final parts = <String>[];
-      if (p.subThoroughfare != null && p.subThoroughfare!.isNotEmpty) {
-        parts.add(p.subThoroughfare!);
-      }
-      if (p.thoroughfare != null && p.thoroughfare!.isNotEmpty) {
-        parts.add(p.thoroughfare!);
-      }
-
-      if (p.subLocality != null && p.subLocality!.isNotEmpty) {
-        parts.add(p.subLocality!);
-      }
-      if (p.locality != null && p.locality!.isNotEmpty) {
-        parts.add(p.locality!);
-      }
-      if (p.subAdministrativeArea != null &&
-          p.subAdministrativeArea!.isNotEmpty) {
-        parts.add(p.subAdministrativeArea!);
-      }
-      if (p.administrativeArea != null && p.administrativeArea!.isNotEmpty) {
-        parts.add(p.administrativeArea!);
-      }
-      if (p.postalCode != null && p.postalCode!.isNotEmpty) {
-        parts.add(p.postalCode!);
-      }
+      cityName = p.locality ?? p.administrativeArea ?? '';
+      final parts = <String>[
+        if (p.subThoroughfare?.isNotEmpty == true) p.subThoroughfare!,
+        if (p.thoroughfare?.isNotEmpty == true) p.thoroughfare!,
+        if (p.subLocality?.isNotEmpty == true) p.subLocality!,
+        if (p.locality?.isNotEmpty == true) p.locality!,
+        if (p.subAdministrativeArea?.isNotEmpty == true) p.subAdministrativeArea!,
+        if (p.administrativeArea?.isNotEmpty == true) p.administrativeArea!,
+        if (p.postalCode?.isNotEmpty == true) p.postalCode!,
+        if (p.country?.isNotEmpty == true) p.country!,
+      ];
       address = parts.join(' ');
     }
   } catch (e) {
-    debugPrint('Reverse geocode (native) failed: $e');
+    debugPrint('Native geocode failed: $e');
   }
 
-  // Fallback: Google Geocoding API เมื่อ native ไม่ได้ที่อยู่ "จริง ๆ"
-  // - address ว่างเลย
-  // - หรือได้แค่เลขรหัสไปรษณีย์ล้วน ๆ (เช่น "13170") ซึ่งอ่านยากเกินไป
+  // Fallback to Google API
   final compact = address.trim().replaceAll(RegExp(r'\s+'), '');
-  final looksLikeJustPostal = RegExp(r'^\d{4,6}$').hasMatch(compact);
-  if (address.isEmpty || looksLikeJustPostal) {
-    final googleAddress = await _reverseGeocodeViaGoogleApi(lat, lng);
-    if (googleAddress.isNotEmpty) {
-      // ถ้า native ให้แค่รหัสไปรษณีย์ ให้แสดง "13170 จังหวัด/อำเภอ/ฯลฯ"
-      address = looksLikeJustPostal
-          ? '${address.trim()} $googleAddress'.trim()
-          : googleAddress;
+  if (address.isEmpty || RegExp(r'^\d{4,6}$').hasMatch(compact)) {
+    final ga = await _reverseGeocodeViaGoogleApi(lat, lng);
+    if (ga.isNotEmpty) {
+      address = ga;
+      // Extract city from Google formatted address (last before postal/country)
+      if (cityName.isEmpty) {
+        final parts = address.split(' ');
+        cityName = parts.length > 2 ? parts[parts.length - 2] : address;
+      }
     }
   }
 
-  // Compass (จุดช้า: sensor; timeout สั้นเพื่อไม่หน่วง)
+  // Compass
   try {
     final event = await FlutterCompass.events?.first.timeout(_kCompassTimeout);
     heading = event?.heading;
-  } catch (e) {
-    debugPrint('Compass failed: $e');
-  }
+  } catch (_) {}
 
-  return OverlayContext(address: address, heading: heading, temperature: null);
+  // Static map (parallel-safe — network call, not UI)
+  final staticMapBytes = await _fetchStaticMap(lat, lng);
+
+  return OverlayContext(
+    address: address,
+    cityName: cityName,
+    heading: heading,
+    staticMapBytes: staticMapBytes,
+  );
 }
 
-/// Cached overlay data (address, compass heading, optional temperature)
-class OverlayContext {
-  final String address;
-  final double? heading;
-  final double? temperature;
-  OverlayContext({required this.address, this.heading, this.temperature});
-}
-
-/// Stamp image with evidence overlay (date, time, location, coords, compass, optional temp).
-/// Uses pre-fetched [OverlayContext] so geocode/compass calls happen only once.
-///
-/// จุดที่เคยทำให้ช้า: (1) compress บน main thread ก่อน compute → ย้ายไปทำใน isolate
-/// (2) geocode timeout 5s / compass 3s → ลดเหลือ 3s/2s
-/// (3) แต่ละรูปเรียก getCurrentPosition + fetchOverlayContext → ใช้ [ctx] แบบ reuse ได้
+// ─── Public entry point (keeps same signature as before) ─────────────────────
 Future<List<int>> overlayGeocodingAndTimestamp({
   required List<int> imageBytes,
   required double lat,
@@ -165,19 +158,15 @@ Future<List<int>> overlayGeocodingAndTimestamp({
   OverlayContext? ctx,
   double? temperature,
 }) async {
-  // ทำทั้งหมดใน isolate: decode, resize (ถ้า >1024), วาด overlay, encode JPEG — ไม่ block UI
   try {
-    return await compute(
-      _processOverlay,
-      _OverlayParams(
-        imageBytes: imageBytes,
-        lat: lat,
-        lng: lng,
-        timestamp: timestamp,
-        address: address ?? ctx?.address ?? '',
-        heading: ctx?.heading,
-        temperature: temperature ?? ctx?.temperature,
-      ),
+    return await _buildOverlay(
+      imageBytes: Uint8List.fromList(imageBytes),
+      lat: lat,
+      lng: lng,
+      timestamp: timestamp,
+      address: address ?? ctx?.address ?? '',
+      cityName: ctx?.cityName ?? '',
+      staticMapBytes: ctx?.staticMapBytes,
     );
   } catch (e) {
     debugPrint('Overlay failed, returning original: $e');
@@ -185,208 +174,277 @@ Future<List<int>> overlayGeocodingAndTimestamp({
   }
 }
 
-/// Parameters for isolate processing
-class _OverlayParams {
-  final List<int> imageBytes;
-  final double lat;
-  final double lng;
-  final DateTime timestamp;
-  final String address;
-  final double? heading;
-  final double? temperature;
+// ─── Main overlay builder (runs on Flutter main thread for dart:ui + TextPainter) ──
+Future<List<int>> _buildOverlay({
+  required Uint8List imageBytes,
+  required double lat,
+  required double lng,
+  required DateTime timestamp,
+  required String address,
+  required String cityName,
+  Uint8List? staticMapBytes,
+}) async {
+  // 1. Decode + resize photo (max 1080px)
+  final codec = await ui.instantiateImageCodec(imageBytes, targetWidth: 1080);
+  final photoFrame = await codec.getNextFrame();
+  final photo = photoFrame.image;
+  final W = photo.width.toDouble();
+  final H = photo.height.toDouble();
 
-  _OverlayParams({
-    required this.imageBytes,
-    required this.lat,
-    required this.lng,
-    required this.timestamp,
-    required this.address,
-    this.heading,
-    this.temperature,
-  });
-}
-
-/// Runs in isolate — decode, resize to max 1024px, draw overlay, encode JPEG (ไม่ block UI).
-/// Template: left = big day, month year, weekday, time (AM/PM); right = address, coords, temp, compass.
-List<int> _processOverlay(_OverlayParams p) {
-  var decoded = img.decodeImage(Uint8List.fromList(p.imageBytes));
-  if (decoded == null) return p.imageBytes;
-  // ปรับขนาดรูปก่อนวาด overlay: เปลี่ยน 1024 เป็นค่าอื่น (px) ถ้าอยากให้ overlay ใหญ่/เล็กตามความละเอียดรูป
-  if (decoded.width > 1024) {
-    decoded = img.copyResize(decoded, width: 1024);
+  // 2. Decode mini-map
+  ui.Image? mapThumb;
+  if (staticMapBytes != null) {
+    try {
+      final mc = await ui.instantiateImageCodec(staticMapBytes);
+      mapThumb = (await mc.getNextFrame()).image;
+    } catch (_) {}
   }
 
-  final ts = p.timestamp;
-  final dayNum = ts.day.toString();
-  final monthYearStr = '${_monthAbbr[ts.month - 1]} ${ts.year}';
-  final weekday = _weekdayShort[ts.weekday - 1];
-  final hourStr = ts.hour.toString().padLeft(2, '0');
-  final minuteStr = ts.minute.toString().padLeft(2, '0');
-  final secondStr = ts.second.toString().padLeft(2, '0');
-  final timeLine = '$hourStr:$minuteStr:$secondStr';
-
-  final coordLine =
-      'Lat: ${p.lat.toStringAsFixed(6)}, Lng: ${p.lng.toStringAsFixed(6)}';
-  final compassPart = p.heading != null
-      ? '${p.heading!.toStringAsFixed(0)} ${_compassDirection(p.heading!)}'
-      : null;
-  final tempPart = p.temperature != null
-      ? '${p.temperature!.toStringAsFixed(2)}°'
-      : null;
-  // อุณหภูมิ + เข็มทิศ บรรทัดเดียวกัน (เหมือนในรูปอ้างอิง)
-  final tempCompassLine = [?tempPart, ?compassPart].join('   ');
-
-  // ─── ปรับขนาดตัวอักษร (package image มี arial14, arial24, arial48)
-  final fontSmall = img.arial24;
-  final fontLarge = img.arial48;
-  final fontRight =
-      img.arial24; // ที่อยู่ + ทิศ (ลดขนาด; package มีแค่ 14/24/48)
-
-  // ─── ปรับขนาด overlay (แก้ค่าตรงนี้แล้วรันใหม่จะเห็นผล)
-  // • leftPanelWidth = ความกว้างแผงซ้าย (วัน/เวลา). ลด 10% จาก 1/3 → 0.3 * width
-  final leftPanelWidth = ((decoded.width / 3) * 0.9).round().clamp(180, 342);
-  // • paddingH / paddingV = ช่องว่างขอบซ้าย–ขวา / บน–ล่าง ของข้อความ (px)
-  const paddingH = 18;
-  const paddingV = 10; // 0.5x (เดิม 20)
-  // • lineHeightSmall = ความสูง 1 บรรทัดของข้อความเล็ก (เดือน, ที่อยู่, พิกัด ฯลฯ). ยิ่งมาก overlay สูงขึ้น
-  const lineHeightSmall = 36; // 0.5x (เดิม 72)
-  // • lineHeightBig = ความสูงของบรรทัด “วันที่” กับ “เวลา”. อยากให้เลขวัน/เวลาใหญ่เด่น → เพิ่มค่า
-  const lineHeightBig = 55; // 0.5x (เดิม 110)
-  const lineHeightRight = 33; // ความสูง 1 บรรทัดฝั่งขวา (36 * 0.9 ≈ ลด 10%)
-
-  final addrLines = _wrapText(
-    p.address,
-    decoded.width - leftPanelWidth - paddingH * 3,
-    14, // charWidth สำหรับ arial24 (ที่อยู่ + ทิศ ลดขนาด)
-  );
-  var rightLineCount = addrLines.length + 1; // ที่อยู่ + พิกัด
-  if (tempCompassLine.isNotEmpty)
-    rightLineCount += 1; // อุณหภูมิ+เข็มทิศบรรทัดเดียว
-
-  final leftHeight = lineHeightBig + lineHeightSmall * 3 + paddingV * 2;
-  final rightHeight = lineHeightRight * rightLineCount + paddingV * 2;
-  final overlayHeight = leftHeight > rightHeight ? leftHeight : rightHeight;
-
-  final overlayTop = decoded.height - overlayHeight;
-  if (overlayTop <= 0) return img.encodeJpg(decoded, quality: 75);
-
-  // พื้นหลังเทาอ่อน ตามรูปอ้างอิง (ซ้ายเข้มกว่านิดหนึ่ง)
-  final overlayColor = img.ColorRgba8(235, 235, 235, 250);
-  final leftPanelColor = img.ColorRgba8(220, 220, 220, 252);
-  img.fillRect(
-    decoded,
-    x1: 0,
-    y1: overlayTop,
-    x2: decoded.width,
-    y2: decoded.height,
-    color: overlayColor,
-  );
-  img.fillRect(
-    decoded,
-    x1: 0,
-    y1: overlayTop,
-    x2: leftPanelWidth,
-    y2: decoded.height,
-    color: leftPanelColor,
-  );
-
-  // สีตามรูป: ข้อความหลักแดง, วันในสัปดาห์+เวลาเทาเข้ม
-  final colorRed = img.ColorRgba8(180, 50, 50, 255);
-  final colorDarkGrey = img.ColorRgba8(80, 80, 80, 255);
-
-  var y = overlayTop + paddingV;
-  img.drawString(
-    decoded,
-    dayNum,
-    font: fontLarge,
-    x: paddingH,
-    y: y,
-    color: colorRed,
-  );
-  y += lineHeightBig;
-  img.drawString(
-    decoded,
-    monthYearStr,
-    font: fontSmall,
-    x: paddingH,
-    y: y,
-    color: colorRed,
-  );
-  y += lineHeightSmall;
-  img.drawString(
-    decoded,
-    weekday,
-    font: fontSmall,
-    x: paddingH,
-    y: y,
-    color: colorDarkGrey,
-  );
-  y += lineHeightSmall;
-  img.drawString(
-    decoded,
-    timeLine,
-    font: fontLarge,
-    x: paddingH,
-    y: y,
-    color: colorDarkGrey,
-  );
-
-  final rightX = leftPanelWidth + paddingH;
-  var ry = overlayTop + paddingV;
-  for (final line in addrLines) {
-    img.drawString(
-      decoded,
-      line,
-      font: fontRight,
-      x: rightX,
-      y: ry,
-      color: colorRed,
+  // 3. Load LogiTrack logo asset
+  ui.Image? logo;
+  try {
+    final data = await rootBundle.load('assets/app_icon.jpg');
+    final lc = await ui.instantiateImageCodec(
+      data.buffer.asUint8List(),
+      targetWidth: 80,
+      targetHeight: 80,
     );
-    ry += lineHeightRight;
-  }
-  img.drawString(
-    decoded,
-    coordLine,
-    font: fontRight,
-    x: rightX,
-    y: ry,
-    color: colorRed,
+    logo = (await lc.getNextFrame()).image;
+  } catch (_) {}
+
+  // 4. Layout: 20% map | 60% text | 20% branding+QR
+  final scale = W / 1080.0;
+  final pad = 10.0 * scale;
+
+  final mapPanelW = W * 0.20;
+  final rightPanelW = W * 0.20;
+  final textPanelW = W * 0.60;
+  final textX = mapPanelW + pad;
+  final textMaxW = textPanelW - pad * 2;
+
+  // ── Styles (measure before deciding overlayH) ──
+  final city = cityName.isNotEmpty ? cityName : 'ประเทศไทย';
+  final cityStyle = _ts(52 * scale, Colors.white, weight: FontWeight.bold);
+  final addrStyle = _ts(34 * scale, const Color(0xFFD1D5DB));
+  final metaStyle = _ts(30 * scale, const Color(0xFF9CA3AF));
+  final coordStr = 'Lat ${lat.toStringAsFixed(6)}°  Long ${lng.toStringAsFixed(6)}°';
+  final dateStr = _formatThaiDateTime(timestamp);
+
+  final cityH  = _textHeight('$city  🇹🇭', cityStyle, textMaxW);
+  final addrH  = address.isNotEmpty
+      ? _textHeight(address, addrStyle, textMaxW, maxLines: 2) + 3 * scale : 0.0;
+  final coordH = _textHeight(coordStr, metaStyle, textMaxW) + 3 * scale;
+  final dateH  = _textHeight(dateStr, metaStyle, textMaxW);
+  final contentH = cityH + addrH + coordH + dateH + pad * 1.5;
+
+  // overlayH driven by content; min = mapPanelW so map is at least square
+  final overlayH = contentH.clamp(mapPanelW, H * 0.40);
+  final overlayTop = H - overlayH;
+
+  // Map fills FULL left panel height (edge-to-edge)
+  final mapRect = Rect.fromLTWH(0, overlayTop, mapPanelW, overlayH);
+
+  // Right panel: branding row (top) + QR (below)
+  final brandingH = overlayH * 0.28;
+  final brandingX = W - rightPanelW;
+  final brandingY = overlayTop;
+  final brandingW = rightPanelW;
+
+  final qrAvail = overlayH - brandingH - pad;
+  final qrSize  = qrAvail.clamp(40.0, rightPanelW - pad);
+  final qrX = W - rightPanelW + (rightPanelW - qrSize) / 2;
+  final qrY = overlayTop + brandingH + (qrAvail - qrSize) / 2;
+  final qrRect = Rect.fromLTWH(qrX, qrY, qrSize, qrSize);
+
+  // 5. Draw
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+
+  // Photo
+  canvas.drawImage(photo, Offset.zero, Paint());
+
+  // Overlay bar — 50% transparent dark
+  canvas.drawRect(
+    Rect.fromLTWH(0, overlayTop, W, overlayH),
+    Paint()..color = const Color(0x80111827),
   );
-  ry += lineHeightRight;
-  if (tempCompassLine.isNotEmpty) {
-    img.drawString(
-      decoded,
-      tempCompassLine,
-      font: fontRight,
-      x: rightX,
-      y: ry,
-      color: colorRed,
+
+  // Mini-map (edge-to-edge left panel, no rounding)
+  if (mapThumb != null) {
+    canvas.save();
+    canvas.clipRect(mapRect);
+    canvas.drawImageRect(
+      mapThumb,
+      Rect.fromLTWH(0, 0, mapThumb.width.toDouble(), mapThumb.height.toDouble()),
+      mapRect,
+      Paint(),
+    );
+    canvas.restore();
+    // Right border separator
+    canvas.drawLine(
+      Offset(mapPanelW, overlayTop),
+      Offset(mapPanelW, H),
+      Paint()..color = const Color(0x33FFFFFF)..strokeWidth = 1 * scale,
+    );
+  } else {
+    // Placeholder with pin icon centered
+    canvas.drawRect(mapRect, Paint()..color = const Color(0xFF1A2535));
+    _drawText(
+      canvas, '📍',
+      _ts(28 * scale, const Color(0xFF6B7280)),
+      mapRect.center - Offset(14 * scale, 14 * scale),
     );
   }
 
-  return img.encodeJpg(decoded, quality: 75);
+  // Text block — vertically centered in overlay (safe clamp)
+  final tyStart = overlayTop + (overlayH - contentH) / 2;
+  final tyLow  = overlayTop + pad;
+  final tyHigh = (H - contentH - pad).clamp(tyLow, H);
+  var ty = tyStart.clamp(tyLow, tyHigh);
+
+  _drawText(canvas, '$city  🇹🇭', cityStyle, Offset(textX, ty), maxW: textMaxW);
+  ty += cityH + 3 * scale;
+
+  if (address.isNotEmpty) {
+    _drawText(canvas, address, addrStyle, Offset(textX, ty), maxW: textMaxW, maxLines: 2);
+    ty += addrH;
+  }
+
+  _drawText(canvas, coordStr, metaStyle, Offset(textX, ty), maxW: textMaxW);
+  ty += coordH;
+
+  _drawText(canvas, dateStr, metaStyle, Offset(textX, ty), maxW: textMaxW);
+
+  // ─── Branding — single row: [Logo] [LogiTrack Pro] ───
+  canvas.drawRect(
+    Rect.fromLTWH(brandingX, brandingY, brandingW, brandingH),
+    Paint()..color = const Color(0xE61D4ED8),
+  );
+  canvas.drawLine(
+    Offset(brandingX, brandingY + brandingH),
+    Offset(W, brandingY + brandingH),
+    Paint()..color = const Color(0x44FFFFFF)..strokeWidth = 1 * scale,
+  );
+
+  // Logo icon — square, vertically centered in branding row
+  final iconSize = (brandingH * 0.75).clamp(16.0, 48.0);
+  final iconY = brandingY + (brandingH - iconSize) / 2;
+  final iconX = brandingX + pad * 0.6;
+
+  if (logo != null) {
+    canvas.save();
+    canvas.clipRRect(RRect.fromRectAndRadius(
+      Rect.fromLTWH(iconX, iconY, iconSize, iconSize),
+      Radius.circular(iconSize * 0.15),
+    ));
+    canvas.drawImageRect(
+      logo,
+      Rect.fromLTWH(0, 0, logo.width.toDouble(), logo.height.toDouble()),
+      Rect.fromLTWH(iconX, iconY, iconSize, iconSize),
+      Paint(),
+    );
+    canvas.restore();
+  }
+
+  // "LogiTrack Pro" — single line, font sized to fill remaining width
+  final textAfterIcon = iconX + iconSize + pad * 0.5;
+  final textSpace = W - textAfterIcon - pad * 0.5;
+  // ~0.55 width-per-em ratio for bold latin; "LogiTrack Pro" = 13 chars
+  final brandFontSize = (textSpace / (13 * 0.58)).clamp(8.0, 18.0);
+  _drawText(
+    canvas, 'LogiTrack Pro',
+    _ts(brandFontSize, Colors.white, weight: FontWeight.bold),
+    Offset(textAfterIcon, brandingY + (brandingH - brandFontSize * 1.3) / 2),
+    maxW: textSpace,
+    maxLines: 1,
+  );
+
+  // ─── QR Code ───
+  _drawQr(canvas, qrRect, 'https://www.google.com/maps?q=$lat,$lng', scale);
+
+  // 6. Encode final image
+  final picture = recorder.endRecording();
+  final result = await picture.toImage(W.toInt(), H.toInt());
+  final rgbaData = await result.toByteData(format: ui.ImageByteFormat.rawRgba);
+  if (rgbaData == null) return imageBytes;
+
+  // Re-encode as JPEG (85% quality) using image package
+  final imgObj = img.Image.fromBytes(
+    width: W.toInt(),
+    height: H.toInt(),
+    bytes: rgbaData.buffer,
+    numChannels: 4,
+    order: img.ChannelOrder.rgba,
+  );
+  return img.encodeJpg(imgObj, quality: 85);
 }
 
-/// Simple text wrapping สำหรับที่อยู่หลายบรรทัด
-/// [charWidth] ประมาณความกว้างต่อตัวอักษร (px): arial24≈14, arial48≈21
-List<String> _wrapText(String text, int maxWidth, [int charWidth = 14]) {
-  if (text.isEmpty) return [''];
-  final maxChars = maxWidth ~/ charWidth;
-  if (maxChars <= 0) return [text];
+// ─── TextStyle shorthand ──────────────────────────────────────────────────────
+TextStyle _ts(double size, Color color, {FontWeight weight = FontWeight.normal}) =>
+    TextStyle(fontSize: size, color: color, fontWeight: weight, height: 1.3);
 
-  final words = text.split(' ');
-  final lines = <String>[];
-  var current = '';
-  for (final word in words) {
-    if (current.isEmpty) {
-      current = word;
-    } else if ((current.length + 1 + word.length) <= maxChars) {
-      current += ' $word';
-    } else {
-      lines.add(current);
-      current = word;
+// ─── Draw text with TextPainter ───────────────────────────────────────────────
+void _drawText(
+  Canvas canvas,
+  String text,
+  TextStyle style,
+  Offset offset, {
+  double? maxW,
+  int? maxLines,
+}) {
+  final tp = TextPainter(
+    text: TextSpan(text: text, style: style),
+    textDirection: TextDirection.ltr,
+    maxLines: maxLines,
+    ellipsis: maxLines != null ? '…' : null,
+  )..layout(maxWidth: maxW ?? double.infinity);
+  tp.paint(canvas, offset);
+}
+
+double _textHeight(String text, TextStyle style, double maxW, {int? maxLines}) {
+  final tp = TextPainter(
+    text: TextSpan(text: text, style: style),
+    textDirection: TextDirection.ltr,
+    maxLines: maxLines,
+    ellipsis: maxLines != null ? '…' : null,
+  )..layout(maxWidth: maxW);
+  return tp.height;
+}
+
+// ─── Draw QR code ────────────────────────────────────────────────────────────
+void _drawQr(Canvas canvas, Rect rect, String data, double scale) {
+  try {
+    final qrCode = QrCode.fromData(
+      data: data,
+      errorCorrectLevel: QrErrorCorrectLevel.M,
+    );
+    final qrImage = QrImage(qrCode);
+    final modules = qrImage.moduleCount;
+    final moduleSize = rect.width / modules;
+
+    // White background
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, Radius.circular(3 * scale)),
+      Paint()..color = Colors.white,
+    );
+
+    final black = Paint()..color = Colors.black;
+    for (var r = 0; r < modules; r++) {
+      for (var c = 0; c < modules; c++) {
+        if (qrImage.isDark(r, c)) {
+          canvas.drawRect(
+            Rect.fromLTWH(
+              rect.left + c * moduleSize,
+              rect.top + r * moduleSize,
+              moduleSize,
+              moduleSize,
+            ),
+            black,
+          );
+        }
+      }
     }
+  } catch (e) {
+    debugPrint('QR draw failed: $e');
   }
-  if (current.isNotEmpty) lines.add(current);
-  return lines.isEmpty ? [''] : lines;
 }
