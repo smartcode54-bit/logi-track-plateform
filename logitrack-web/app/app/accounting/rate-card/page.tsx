@@ -1633,8 +1633,8 @@ export default function AccountingRateCardPage() {
                         {canEdit && (
                             <Button
                                 type="button"
-                                variant="outline"
                                 size="sm"
+                                className="bg-amber-500 hover:bg-amber-600 text-white"
                                 onClick={() => { setRecomputeResult(null); setRecomputeError(null); setRecomputeDialogOpen(true); }}
                             >
                                 <Calculator className="h-4 w-4 mr-2" />
