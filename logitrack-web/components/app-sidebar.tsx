@@ -126,6 +126,7 @@ export function AppSidebar() {
             icon: Calculator,
             items: [
                 { title: t("nav.fuel"), url: "/app/accounting/fuel", capability: CAPABILITIES.accounting_view_fuel },
+                { title: t("nav.fuelPriceHistory"), url: "/app/accounting/fuel-price-history", capability: CAPABILITIES.accounting_view_fuel },
                 { title: t("nav.other"), url: "/app/accounting/other", capability: CAPABILITIES.accounting_view_other },
                 { title: t("nav.auditExpense"), url: "/app/accounting/audit", capability: CAPABILITIES.accounting_audit_expense },
                 { title: t("nav.rateCard"), url: "/app/accounting/rate-card", capability: CAPABILITIES.accounting_view_rate_card },

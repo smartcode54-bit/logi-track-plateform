@@ -116,6 +116,7 @@ service cloud.firestore {
       );
       allow create: if isAppCheckVerified() && request.auth != null && (
         request.resource.data.driverId == request.auth.uid ||
+        (request.resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(request.resource.data.driverId)).data.get('authId', '') == request.auth.uid) ||
         canBackfillStandby()
       );
       allow update, delete: if isWebAdmin();
@@ -163,6 +164,12 @@ service cloud.firestore {
 
     // Monthly retail fuel snapshots (written by Cloud Functions only).
     match /fuel_monthly_snapshots/{docId} {
+      allow read: if request.auth != null && isWebAdmin();
+      allow write: if false;
+    }
+
+    // Daily retail fuel price history (written by Cloud Functions only; one doc per day).
+    match /fuel_daily_snapshots/{docId} {
       allow read: if request.auth != null && isWebAdmin();
       allow write: if false;
     }

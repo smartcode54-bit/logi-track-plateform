@@ -54,6 +54,8 @@ export const COLLECTIONS = {
 
     /** Bangchak retail fuel snapshots (doc id yyyy-MM Bangkok; refreshed daily + manual sync) */
     FUEL_MONTHLY_SNAPSHOTS: "fuel_monthly_snapshots",
+    /** Bangchak daily price history (doc id yyyy-MM-dd Bangkok; written once per day, never overwritten) */
+    FUEL_DAILY_SNAPSHOTS: "fuel_daily_snapshots",
 
     /** Hub and SOC locations (pickup/delivery points) */
     HUBS: "hubs",

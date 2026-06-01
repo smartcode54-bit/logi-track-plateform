@@ -1,6 +1,14 @@
 {
   "indexes": [
     {
+      "collectionGroup": "fuel_daily_snapshots",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "dayKey", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "billing_statements",
       "queryScope": "COLLECTION",
       "fields": [
@@ -370,6 +378,20 @@
         {
           "fieldPath": "createdAt",
           "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "standby_records",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "endedAt",
+          "order": "ASCENDING"
         }
       ]
     },

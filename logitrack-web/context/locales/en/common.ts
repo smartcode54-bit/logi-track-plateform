@@ -34,6 +34,7 @@ export default {
     "nav.reporting": "Reporting",
     "nav.accounting": "Accounting",
     "nav.fuel": "Fuel",
+    "nav.fuelPriceHistory": "Fuel Price History",
     "nav.other": "Other",
     "nav.auditExpense": "Audit expense",
     "nav.rateCard": "Rate Card",

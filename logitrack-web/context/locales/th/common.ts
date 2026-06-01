@@ -34,6 +34,7 @@ export default {
     "nav.reporting": "รายงานผล",
     "nav.accounting": "บัญชี/การเงิน",
     "nav.fuel": "น้ำมัน",
+    "nav.fuelPriceHistory": "ประวัติราคาน้ำมัน",
     "nav.other": "อื่นๆ",
     "nav.auditExpense": "ตรวจสอบค่าใช้จ่าย",
     "nav.rateCard": "เรทการวางบิล",

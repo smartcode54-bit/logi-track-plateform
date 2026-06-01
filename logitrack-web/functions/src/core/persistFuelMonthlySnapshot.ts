@@ -8,6 +8,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { fetchBangchakRetailOilPrices } from "./bangchakOilFetch";
 
 export const FUEL_MONTHLY_SNAPSHOTS_COLLECTION = "fuel_monthly_snapshots";
+export const FUEL_DAILY_SNAPSHOTS_COLLECTION = "fuel_daily_snapshots";
 
 export function bangkokMonthKey(date: Date): string {
     const fmt = new Intl.DateTimeFormat("en-CA", {
@@ -21,6 +22,16 @@ export function bangkokMonthKey(date: Date): string {
     return `${y}-${m}`;
 }
 
+export function bangkokDayKey(date: Date): string {
+    const fmt = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Bangkok",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    });
+    return fmt.format(date); // "yyyy-MM-dd"
+}
+
 export type PersistBangchakSnapshotResult =
     | { monthKey: string; ok: true; itemCount: number }
     | { monthKey: string; ok: false; itemCount: 0; errorMessage: string };
@@ -31,9 +42,19 @@ export async function persistBangchakFuelMonthlySnapshot(
 ): Promise<PersistBangchakSnapshotResult> {
     const monthKey = bangkokMonthKey(at);
 
+    const dayKey = bangkokDayKey(at);
+
     try {
         const { items, fetchedAtIso, source } = await fetchBangchakRetailOilPrices("th");
 
+        const priceItems = items.map((i) => ({
+            nameTh: i.nameTh,
+            nameEn: i.nameEn,
+            price: i.price,
+            unit: i.unit,
+        }));
+
+        // Monthly doc — overwrite (existing behaviour)
         await db.collection(FUEL_MONTHLY_SNAPSHOTS_COLLECTION).doc(monthKey).set({
             monthKey,
             capturedAt: FieldValue.serverTimestamp(),
@@ -41,13 +62,24 @@ export async function persistBangchakFuelMonthlySnapshot(
             source,
             locale: "th",
             status: "ok",
-            items: items.map((i) => ({
-                nameTh: i.nameTh,
-                nameEn: i.nameEn,
-                price: i.price,
-                unit: i.unit,
-            })),
+            items: priceItems,
         });
+
+        // Daily doc — create only; do not overwrite if already captured today
+        const dailyRef = db.collection(FUEL_DAILY_SNAPSHOTS_COLLECTION).doc(dayKey);
+        const dailySnap = await dailyRef.get();
+        if (!dailySnap.exists) {
+            await dailyRef.set({
+                dayKey,
+                monthKey,
+                capturedAt: FieldValue.serverTimestamp(),
+                fetchedAtIso,
+                source,
+                locale: "th",
+                status: "ok",
+                items: priceItems,
+            });
+        }
 
         return { monthKey, ok: true, itemCount: items.length };
     } catch (err) {
