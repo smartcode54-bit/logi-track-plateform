@@ -1700,7 +1700,7 @@ export default function AccountingRateCardPage() {
                                     <SelectTrigger>
                                         <SelectValue placeholder="ทุกลูกค้า" />
                                     </SelectTrigger>
-                                    <SelectContent>
+                                    <SelectContent className="z-[1005]" position="popper">
                                         <SelectItem value="all">ทุกลูกค้า</SelectItem>
                                         {customers.map((c) => (
                                             <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
