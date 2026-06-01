@@ -119,6 +119,11 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
   String? _activeTaskId;
   DateTime? _taskCheckedInAt;
 
+  // Truck snapshot from task (set during _lockJobTypeByActiveTask)
+  String? _truckId;
+  String? _truckLicensePlate;
+  String? _truckType;
+
   Timer? _draftSaveTimer;
   static const Duration _draftDebounce = Duration(milliseconds: 800);
 
@@ -199,6 +204,10 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
           if (checkInAt != null) {
             _taskCheckedInAt = checkInAt.toDate();
           }
+          // Snapshot truck info from task (written at check-in time)
+          _truckLicensePlate = data?['licensePlate'] as String?;
+          _truckType = data?['truckType'] as String?;
+          _truckId = data?['truckId'] as String?;
           if (taskType != null) {
             _jobType = (taskType == 'LINE_HAUL')
                 ? jobTypeLineHaul
@@ -1380,6 +1389,9 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         lat: _lat,
         lng: _lng,
         stepPhotos: allStepPhotos,
+        truckId: _truckId,
+        truckLicensePlate: _truckLicensePlate,
+        truckType: _truckType,
         ocrData: TripOcrData(
           tripId: tripId,
           sealCode: sealCode.isEmpty ? null : sealCode,

@@ -80,6 +80,10 @@ export const tripRecordSchema = z.object({
     partnerCode: z.string().optional(),
 
     driverId: z.string().optional(),
+    // Truck snapshot — recorded at trip creation; immutable after save
+    truckId: z.string().optional(),
+    truckLicensePlate: z.string().optional(),
+    truckType: z.string().optional(),
 
     // Mobile-only fields
     distance: z.string().optional(),

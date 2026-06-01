@@ -64,6 +64,26 @@ export default function BackfillPage() {
         }
     };
 
+    const [truckLoading, setTruckLoading] = useState(false);
+    const [truckResult, setTruckResult] = useState<{ totalScanned: number; updated: number; skipped: number; errors: number } | null>(null);
+    const [truckError, setTruckError] = useState<string | null>(null);
+
+    const runBackfillTripTruckData = async () => {
+        if (!auth?.currentUser) return;
+        setTruckLoading(true);
+        setTruckError(null);
+        setTruckResult(null);
+        try {
+            const fn = httpsCallable(functions, "backfillTripTruckData");
+            const res = await fn({});
+            setTruckResult(res.data as { totalScanned: number; updated: number; skipped: number; errors: number });
+        } catch (err) {
+            setTruckError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setTruckLoading(false);
+        }
+    };
+
     const runBackfillTaskCustomerLinks = async () => {
         if (!auth?.currentUser) return;
 
@@ -294,6 +314,46 @@ export default function BackfillPage() {
                                 billing for all delivered trips.
                             </p>
                         </div>
+                    </CardContent>
+                </Card>
+
+                {/* Trip Truck Data Backfill */}
+                <Card className="border-l-4 border-l-blue-500">
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <Zap className="w-5 h-5 text-blue-500" />
+                            Backfill Trip Truck Data
+                        </CardTitle>
+                        <CardDescription>
+                            Fills <code className="bg-muted px-1 rounded">truckLicensePlate</code> and <code className="bg-muted px-1 rounded">truckType</code> into trip_records that are missing them.
+                            Resolves from the linked task&apos;s snapshot (written at check-in time) — so historical trips show the correct plate even after truck reassignment.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <Button onClick={runBackfillTripTruckData} disabled={truckLoading} className="bg-blue-600 hover:bg-blue-700">
+                            {truckLoading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Running...</> : "Run Backfill"}
+                        </Button>
+                        {truckError && (
+                            <Alert variant="destructive">
+                                <AlertCircle className="h-4 w-4" />
+                                <AlertTitle>Error</AlertTitle>
+                                <AlertDescription>{truckError}</AlertDescription>
+                            </Alert>
+                        )}
+                        {truckResult && (
+                            <Alert>
+                                <CheckCircle2 className="h-4 w-4" />
+                                <AlertTitle>Done</AlertTitle>
+                                <AlertDescription>
+                                    <div className="flex gap-3 mt-1 flex-wrap">
+                                        <Badge variant="outline">Scanned: {truckResult.totalScanned}</Badge>
+                                        <Badge className="bg-green-600">Updated: {truckResult.updated}</Badge>
+                                        <Badge variant="secondary">Skipped: {truckResult.skipped}</Badge>
+                                        {truckResult.errors > 0 && <Badge variant="destructive">Errors: {truckResult.errors}</Badge>}
+                                    </div>
+                                </AlertDescription>
+                            </Alert>
+                        )}
                     </CardContent>
                 </Card>
             </div>

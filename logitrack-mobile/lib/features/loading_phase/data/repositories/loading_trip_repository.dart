@@ -28,6 +28,10 @@ Future<void> submitLoadingPhaseRecord({
   required Map<String, StampedPhotoInput> stepPhotos,
   TripOcrData? ocrData,
   bool isMultiDelivery = false,
+  // Truck snapshot — recorded at trip creation so reassignment won't affect history
+  String? truckId,
+  String? truckLicensePlate,
+  String? truckType,
 }) async {
   final photoFutures = stepPhotos.entries.map((entry) async {
     final type = entry.key;
@@ -80,6 +84,9 @@ Future<void> submitLoadingPhaseRecord({
     sealCode: sealCode,
     partnerCode: partnerCode,
     driverId: driverId,
+    truckId: truckId,
+    truckLicensePlate: truckLicensePlate,
+    truckType: truckType,
     origin: origin,
     destination: destination,
     distance: distanceValue,

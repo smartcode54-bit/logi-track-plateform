@@ -53,6 +53,10 @@ class TripRecord {
   final String? sealCode;
   final String? partnerCode;
   final String? driverId;
+  // Truck snapshot at trip creation time — immutable after save
+  final String? truckId;
+  final String? truckLicensePlate;
+  final String? truckType;
   final String? distance;
   final int? parcelCount;
   final String? sealTime;
@@ -158,6 +162,9 @@ class TripRecord {
       sealCode: map['sealCode'] as String?,
       partnerCode: map['partnerCode'] as String?,
       driverId: map['driverId'] as String?,
+      truckId: map['truckId'] as String?,
+      truckLicensePlate: map['truckLicensePlate'] as String?,
+      truckType: map['truckType'] as String?,
       distance: map['distance'] as String?,
       parcelCount: (map['parcelCount'] as num?)?.toInt(),
       sealTime: map['sealTime'] as String?,
@@ -194,6 +201,9 @@ class TripRecord {
     this.sealCode,
     this.partnerCode,
     this.driverId,
+    this.truckId,
+    this.truckLicensePlate,
+    this.truckType,
     this.distance,
     this.parcelCount,
     this.sealTime,
@@ -230,6 +240,9 @@ class TripRecord {
       if (sealCode != null) 'sealCode': sealCode,
       if (partnerCode != null) 'partnerCode': partnerCode,
       if (driverId != null) 'driverId': driverId,
+      if (truckId != null) 'truckId': truckId,
+      if (truckLicensePlate != null) 'truckLicensePlate': truckLicensePlate,
+      if (truckType != null) 'truckType': truckType,
       if (distance != null) 'distance': distance,
       if (parcelCount != null) 'parcelCount': parcelCount,
       if (sealTime != null) 'sealTime': sealTime,

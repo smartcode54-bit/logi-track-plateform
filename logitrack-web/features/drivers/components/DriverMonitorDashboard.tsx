@@ -327,7 +327,9 @@ export default function DriverMonitorDashboard() {
         return `${driver.firstName} ${driver.lastName}`.trim() || "-";
     };
 
-    const getLicensePlate = (driverId?: string) => {
+    const getLicensePlate = (driverId?: string, trip?: { truckLicensePlate?: string }) => {
+        // Prefer snapshot stored at trip creation time — unaffected by truck reassignment
+        if (trip?.truckLicensePlate) return trip.truckLicensePlate;
         if (!driverId) return "-";
         const driver = getDriver(driverId);
         return driver?.currentAssignment?.truckPlate ?? "-";
@@ -420,7 +422,7 @@ export default function DriverMonitorDashboard() {
                 trip.spxTripId || trip.id?.slice(0, 10) || "",
                 created ? format(created, "dd/MM/yyyy HH:mm") : "",
                 getDriverName(trip.driverId),
-                getLicensePlate(trip.driverId),
+                getLicensePlate(trip.driverId, trip),
                 jobLabel,
                 getSourceDisplayName(trip.origin),
                 "", // destination — filled per stop below
@@ -849,7 +851,7 @@ export default function DriverMonitorDashboard() {
                                                 {formatTimestamp((trip.id && checkInAtByTaskId[trip.id]) || trip.createdAt)}
                                             </TableCell>
                                             <TableCell><span className="font-medium text-sm">{getDriverName(trip.driverId)}</span></TableCell>
-                                            <TableCell><span className="font-mono text-sm text-muted-foreground">{getLicensePlate(trip.driverId)}</span></TableCell>
+                                            <TableCell><span className="font-mono text-sm text-muted-foreground">{getLicensePlate(trip.driverId, trip)}</span></TableCell>
                                             <TableCell>
                                                 <Badge variant="secondary" className={cn("font-medium border", JOB_TYPE_COLOR[trip.jobType] || "bg-gray-500/10 text-gray-500")}>
                                                     {JOB_TYPE_LABEL[trip.jobType] || trip.jobType}
