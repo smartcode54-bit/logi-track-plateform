@@ -318,6 +318,10 @@ interface BackfillBillingRequest {
     maxScan?: number;
     /** Max successful writes per invocation (stops attempting more writes after this). Default 200, max 500. */
     maxWrite?: number;
+    /** If true, recompute even trips that already have billingEstimateThb (useful after fuel adjustment changes). */
+    forceRecompute?: boolean;
+    /** If set, only recompute trips for this customerId. */
+    customerId?: string;
 }
 
 interface BackfillBillingFailure {
@@ -374,6 +378,8 @@ export const backfillTripBillingSnapshots = onCall<BackfillBillingRequest, Promi
 
         const maxScan = Math.min(Math.max(1, request.data?.maxScan ?? 500), 2000);
         const maxWrite = Math.min(Math.max(1, request.data?.maxWrite ?? 200), 500);
+        const forceRecompute = request.data?.forceRecompute === true;
+        const filterCustomerId = request.data?.customerId?.trim() ?? "";
 
         const db = admin.firestore();
         const { start, end } = bangkokBoundsToTimestamps(fromDateStr, toDateStr);
@@ -398,7 +404,10 @@ export const backfillTripBillingSnapshots = onCall<BackfillBillingRequest, Promi
         for (const doc of snap.docs) {
             const data = doc.data() as Record<string, unknown>;
             if (data.status !== "delivered") continue;
-            if (typeof data.billingEstimateThb === "number") continue;
+            // Filter by customerId if specified
+            if (filterCustomerId && data.billingCustomerId !== filterCustomerId) continue;
+            // Skip already-computed trips unless forceRecompute
+            if (!forceRecompute && typeof data.billingEstimateThb === "number") continue;
             eligible++;
 
             if (written >= maxWrite) continue;

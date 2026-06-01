@@ -229,6 +229,15 @@ export default function AccountingRateCardPage() {
         fuelBandBaselineFuelFloor: "41",
         fuelBandThbPerBaht: "10",
     });
+    // Recompute billing state
+    const [recomputeDialogOpen, setRecomputeDialogOpen] = useState(false);
+    const [recomputeFromDate, setRecomputeFromDate] = useState(() => format(new Date(new Date().setDate(1)), "yyyy-MM-dd"));
+    const [recomputeToDate, setRecomputeToDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
+    const [recomputeCustomerId, setRecomputeCustomerId] = useState("all");
+    const [recomputeLoading, setRecomputeLoading] = useState(false);
+    const [recomputeResult, setRecomputeResult] = useState<{ scanned: number; eligible: number; written: number; skipped: number; failed: number } | null>(null);
+    const [recomputeError, setRecomputeError] = useState<string | null>(null);
+
     // Rate entry edit/delete state
     const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
     const [editEntryForm, setEditEntryForm] = useState({
@@ -580,6 +589,28 @@ export default function AccountingRateCardPage() {
             setAdjustmentError(t("accounting.rateCard.fuelAdjustments.form.error"));
         } finally {
             setSavingAdjustment(false);
+        }
+    };
+
+    const handleRecomputeBilling = async () => {
+        setRecomputeLoading(true);
+        setRecomputeResult(null);
+        setRecomputeError(null);
+        try {
+            const fn = httpsCallable(functions, "backfillTripBillingSnapshots");
+            const res = await fn({
+                fromDateStr: recomputeFromDate,
+                toDateStr: recomputeToDate,
+                forceRecompute: true,
+                customerId: recomputeCustomerId !== "all" ? recomputeCustomerId : undefined,
+                maxScan: 2000,
+                maxWrite: 500,
+            });
+            setRecomputeResult(res.data as { scanned: number; eligible: number; written: number; skipped: number; failed: number });
+        } catch (err) {
+            setRecomputeError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setRecomputeLoading(false);
         }
     };
 
@@ -1598,34 +1629,109 @@ export default function AccountingRateCardPage() {
                             {t("accounting.rateCard.fuelAdjustments.subtitle")}
                         </p>
                     </div>
-                    {canEdit && (
-                        <Button
-                            type="button"
-                            size="sm"
-                            onClick={() => {
-                                const latest = latestFleetDieselFromMonthlySnapshots(fuelSnapshots);
-                                setEditingAdjustmentId(null);
-                                setAdjustmentError(null);
-                                setAdjustmentForm({
-                                    adjustmentType: "percent",
-                                    customerId: "",
-                                    effectiveFrom: "",
-                                    ratePercent: "0",
-                                    addThbPerTrip: "0",
-                                    referenceFuelPrice: latest != null ? String(latest.price) : "",
-                                    announcementNote: "",
-                                    fuelBandEnabled: false,
-                                    fuelBandBaselineFuelFloor: "41",
-                                    fuelBandThbPerBaht: "10",
-                                });
-                                setFuelAdjustmentDialogOpen(true);
-                            }}
-                        >
-                            <Plus className="h-4 w-4 mr-2" />
-                            {t("accounting.rateCard.fuelAdjustments.addRule")}
-                        </Button>
-                    )}
+                    <div className="flex gap-2">
+                        {canEdit && (
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => { setRecomputeResult(null); setRecomputeError(null); setRecomputeDialogOpen(true); }}
+                            >
+                                <Calculator className="h-4 w-4 mr-2" />
+                                Recompute Billing
+                            </Button>
+                        )}
+                        {canEdit && (
+                            <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => {
+                                    const latest = latestFleetDieselFromMonthlySnapshots(fuelSnapshots);
+                                    setEditingAdjustmentId(null);
+                                    setAdjustmentError(null);
+                                    setAdjustmentForm({
+                                        adjustmentType: "percent",
+                                        customerId: "",
+                                        effectiveFrom: "",
+                                        ratePercent: "0",
+                                        addThbPerTrip: "0",
+                                        referenceFuelPrice: latest != null ? String(latest.price) : "",
+                                        announcementNote: "",
+                                        fuelBandEnabled: false,
+                                        fuelBandBaselineFuelFloor: "41",
+                                        fuelBandThbPerBaht: "10",
+                                    });
+                                    setFuelAdjustmentDialogOpen(true);
+                                }}
+                            >
+                                <Plus className="h-4 w-4 mr-2" />
+                                {t("accounting.rateCard.fuelAdjustments.addRule")}
+                            </Button>
+                        )}
+                    </div>
                 </CardHeader>
+
+                {/* Recompute Billing Dialog */}
+                <Dialog open={recomputeDialogOpen} onOpenChange={(o) => { setRecomputeDialogOpen(o); if (!o) setRecomputeResult(null); }}>
+                    <DialogContent className="max-w-md">
+                        <DialogHeader>
+                            <DialogTitle className="flex items-center gap-2">
+                                <Calculator className="h-5 w-5" />
+                                Recompute Billing
+                            </DialogTitle>
+                            <DialogDescription>
+                                คำนวณ billing ใหม่ทุก trip ที่ส่งสำเร็จในช่วงวันที่ที่เลือก — ใช้หลังจากแก้ Fuel Adjustment
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 py-2">
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1">
+                                    <Label>จากวันที่</Label>
+                                    <Input type="date" value={recomputeFromDate} onChange={(e) => setRecomputeFromDate(e.target.value)} />
+                                </div>
+                                <div className="space-y-1">
+                                    <Label>ถึงวันที่</Label>
+                                    <Input type="date" value={recomputeToDate} onChange={(e) => setRecomputeToDate(e.target.value)} />
+                                </div>
+                            </div>
+                            <div className="space-y-1">
+                                <Label>ลูกค้า (ไม่ระบุ = ทุกลูกค้า)</Label>
+                                <Select value={recomputeCustomerId} onValueChange={setRecomputeCustomerId}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="ทุกลูกค้า" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="all">ทุกลูกค้า</SelectItem>
+                                        {customers.map((c) => (
+                                            <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            {recomputeError && (
+                                <p className="text-sm text-red-500">{recomputeError}</p>
+                            )}
+                            {recomputeResult && (
+                                <div className="rounded-md bg-green-500/10 border border-green-500/30 p-3 text-sm space-y-1">
+                                    <p className="font-semibold text-green-600">✅ เสร็จแล้ว</p>
+                                    <p>สแกน: {recomputeResult.scanned} trips</p>
+                                    <p>อัปเดตสำเร็จ: <span className="font-bold">{recomputeResult.written}</span></p>
+                                    <p>ข้าม (ไม่มี rate card): {recomputeResult.skipped}</p>
+                                    {recomputeResult.failed > 0 && <p className="text-red-500">ล้มเหลว: {recomputeResult.failed}</p>}
+                                    {(recomputeResult.eligible ?? 0) > recomputeResult.written && (
+                                        <p className="text-amber-500">⚠️ มี trip เหลือ — กด Recompute อีกครั้ง</p>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => setRecomputeDialogOpen(false)}>ปิด</Button>
+                            <Button onClick={handleRecomputeBilling} disabled={recomputeLoading || !recomputeFromDate || !recomputeToDate}>
+                                {recomputeLoading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />กำลังคำนวณ...</> : <><Calculator className="h-4 w-4 mr-2" />Recompute</>}
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
                 <CardContent>
                     {canEdit && (
                     <Dialog
