@@ -597,7 +597,7 @@ export default function AccountingRateCardPage() {
         setRecomputeResult(null);
         setRecomputeError(null);
         try {
-            const fn = httpsCallable(functions, "backfillTripBillingSnapshots");
+            const fn = httpsCallable(functions, "backfillTripBillingSnapshots", { timeout: 540000 });
             const res = await fn({
                 fromDateStr: recomputeFromDate,
                 toDateStr: recomputeToDate,
@@ -1717,7 +1717,14 @@ export default function AccountingRateCardPage() {
                                     <p>สแกน: {recomputeResult.scanned} trips</p>
                                     <p>อัปเดตสำเร็จ: <span className="font-bold">{recomputeResult.written}</span></p>
                                     <p>ข้าม (ไม่มี rate card): {recomputeResult.skipped}</p>
-                                    {recomputeResult.failed > 0 && <p className="text-red-500">ล้มเหลว: {recomputeResult.failed}</p>}
+                                    {recomputeResult.failed > 0 && (
+                                        <>
+                                            <p className="text-red-500">ล้มเหลว: {recomputeResult.failed}</p>
+                                            {(recomputeResult as { failures?: { tripId: string; error?: string }[] }).failures?.slice(0, 5).map((f) => (
+                                                <p key={f.tripId} className="text-red-400 text-xs font-mono break-all">• {f.tripId}: {f.error ?? "unknown"}</p>
+                                            ))}
+                                        </>
+                                    )}
                                     {(recomputeResult.eligible ?? 0) > recomputeResult.written && (
                                         <p className="text-amber-500">⚠️ มี trip เหลือ — กด Recompute อีกครั้ง</p>
                                     )}

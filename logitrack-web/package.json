@@ -1,6 +1,6 @@
 {
   "name": "logi-track",
-  "version": "2.7.0",
+  "version": "2.7.5",
   "private": true,
   "engines": {
     "node": ">=20.0.0"
@@ -73,6 +73,7 @@
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.4.0",
     "xlsx": "^0.18.5",
+    "xlsx-js-style": "^1.2.0",
     "zod": "^4.3.5"
   },
   "devDependencies": {

@@ -12,7 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Camera, Loader2, ExternalLink, ImagePlus, Lock, Plus, Trash2, ArrowLeftRight } from "lucide-react";
-import { doc, updateDoc, serverTimestamp, getDocs, collection, query, where, limit, deleteField } from "firebase/firestore";
+import { doc, updateDoc, serverTimestamp, getDocs, collection, query, where, limit, deleteField, Timestamp } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db } from "@/firebase/client";
 import { functions } from "@/firebase/client";
@@ -84,6 +84,17 @@ export function EditTripDetailsDialog({
     const [partnerCode, setPartnerCode] = useState("");
     const [localOrigin, setLocalOrigin] = useState(trip.origin ?? "");
     const [localDestination, setLocalDestination] = useState(trip.destination ?? "");
+
+    // Delivered timestamp
+    const toLocalDatetimeString = (ts: unknown): string => {
+        let d: Date | null = null;
+        if (ts && typeof (ts as { toDate?: () => Date }).toDate === "function") d = (ts as { toDate: () => Date }).toDate();
+        else if (ts instanceof Date) d = ts;
+        if (!d || Number.isNaN(d.getTime())) return "";
+        const pad = (n: number) => String(n).padStart(2, "0");
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    };
+    const [localDeliveredAt, setLocalDeliveredAt] = useState(() => toLocalDatetimeString(trip.deliveredTimestamp));
     const [localStops, setLocalStops] = useState<DeliveryStopProgress[]>(trip.deliveryStopsProgress ?? []);
     const originalStopCountRef = useRef(trip.deliveryStopsProgress?.length ?? 0);
     const stopMetadataRef = useRef<Record<number, { linkedCustomerId?: string; linkedCustomerName?: string; linkedCustomerKind?: string }>>({});
@@ -140,6 +151,7 @@ export function EditTripDetailsDialog({
             setReplaceByType({});
             setLocalOrigin(trip.origin ?? "");
             setLocalDestination(trip.destination ?? "");
+            setLocalDeliveredAt(toLocalDatetimeString(trip.deliveredTimestamp));
             setLocalStops(trip.deliveryStopsProgress ?? []);
             originalStopCountRef.current = trip.deliveryStopsProgress?.length ?? 0;
             if (trip.id) {
@@ -239,10 +251,13 @@ export function EditTripDetailsDialog({
         const hasPhotoChanges = Object.keys(replaceByType).length > 0;
         const partnerTrim = partnerCode.trim();
         const partnerChanged = partnerTrim !== initialPartnerEffectiveRef.current.trim();
+        const originalDeliveredAt = toLocalDatetimeString(trip.deliveredTimestamp);
+        const deliveredAtChanged = localDeliveredAt !== originalDeliveredAt;
         const hasMetaChanges =
             spxTripId !== (trip.spxTripId ?? "") ||
             sealCode !== (trip.sealCode ?? "") ||
-            partnerChanged;
+            partnerChanged ||
+            deliveredAtChanged;
         if (!hasPhotoChanges && !hasMetaChanges && !hasStopsChanged && !hasRouteChanges) {
             onOpenChange(false);
             if (onSuccess) onSuccess();
@@ -289,6 +304,13 @@ export function EditTripDetailsDialog({
                 if (sealCode.trim()) updateData.sealCode = sealCode.trim();
                 if (partnerChanged) {
                     updateData.partnerCode = partnerTrim ? partnerTrim : deleteField();
+                }
+                if (deliveredAtChanged) {
+                    if (localDeliveredAt) {
+                        updateData.deliveredTimestamp = Timestamp.fromDate(new Date(localDeliveredAt));
+                    } else {
+                        updateData.deliveredTimestamp = deleteField();
+                    }
                 }
             }
             if (hasRouteChanges) {
@@ -444,6 +466,18 @@ export function EditTripDetailsDialog({
                                     placeholder="e.g. SEAL1567844"
                                     className="font-mono text-xs"
                                 />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-muted-foreground block">วันที่-เวลาส่งสำเร็จ</label>
+                                <Input
+                                    type="datetime-local"
+                                    value={localDeliveredAt}
+                                    onChange={(e) => setLocalDeliveredAt(e.target.value)}
+                                    className="text-xs"
+                                />
+                                {!localDeliveredAt && (
+                                    <p className="text-xs text-amber-400">⚠ ยังไม่มีวันที่ส่ง — billing จะใช้ createdAt แทน</p>
+                                )}
                             </div>
                         </div>
                         <div className="space-y-3 bg-muted/30 rounded-lg p-4">

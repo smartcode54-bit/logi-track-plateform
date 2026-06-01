@@ -4,7 +4,7 @@ import { CAPABILITIES } from "@/lib/capabilities"
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { endOfDay, format, isWithinInterval, startOfDay, subDays } from "date-fns";
-import { collection, doc, getDoc, getDocs, limit, orderBy, query, where, documentId } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, limit, orderBy, query, where, documentId, updateDoc, Timestamp } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import * as XLSX from "xlsx";
 import {
@@ -48,6 +48,7 @@ import type { Task } from "@/validate/taskSchema";
 import type { TripRecord } from "@/validate/tripRecordSchema";
 import { primaryHubLabelFromFirestoreData } from "@/lib/hubDisplay";
 import { EditBillingDialog } from "@/features/accounting";
+import { toast } from "sonner";
 
 type HubNameMap = Map<string, string>;
 
@@ -201,6 +202,28 @@ export default function AccountingIncomePage() {
     const [pageSize, setPageSize] = useState(25);
     const [showSummary, setShowSummary] = useState(false);
     const [hubNameMap, setHubNameMap] = useState<HubNameMap>(new Map());
+    const [editingDeliveredId, setEditingDeliveredId] = useState<string | null>(null);
+    const [editingDeliveredValue, setEditingDeliveredValue] = useState("");
+    const [savingDeliveredId, setSavingDeliveredId] = useState<string | null>(null);
+    const handleSaveDeliveredDate = async (tripId: string) => {
+        if (!editingDeliveredValue) return;
+        const d = new Date(editingDeliveredValue);
+        if (Number.isNaN(d.getTime())) { toast.error("วันที่ไม่ถูกต้อง"); return; }
+        setSavingDeliveredId(tripId);
+        try {
+            await updateDoc(doc(db, COLLECTIONS.TRIP_RECORDS, tripId), {
+                deliveredTimestamp: Timestamp.fromDate(d),
+            });
+            setRows((prev) => prev.map((r) => r.id === tripId ? { ...r, deliveredTimestamp: d } : r));
+            toast.success("บันทึกวันที่ส่งสำเร็จ");
+            setEditingDeliveredId(null);
+        } catch (e) {
+            toast.error("บันทึกไม่สำเร็จ: " + String(e));
+        } finally {
+            setSavingDeliveredId(null);
+        }
+    };
+
     // Missing billing tab state
     const [filterRecordType, setFilterRecordType] = useState<"all" | IncomeRecordType>("all");
     const [missingFilterStatus, setMissingFilterStatus] = useState<"all" | "canFix" | "needRateCard">("all");
@@ -1192,9 +1215,31 @@ export default function AccountingIncomePage() {
                                                     : "-"}
                                             </TableCell>
                                             <TableCell>
-                                                {row.deliveredTimestamp
-                                                    ? format(row.deliveredTimestamp, "dd/MM/yyyy HH:mm")
-                                                    : "-"}
+                                                {editingDeliveredId === row.id ? (
+                                                    <div className="flex items-center gap-1">
+                                                        <Input
+                                                            type="datetime-local"
+                                                            className="h-7 text-xs w-44"
+                                                            value={editingDeliveredValue}
+                                                            onChange={(e) => setEditingDeliveredValue(e.target.value)}
+                                                        />
+                                                        <Button size="sm" className="h-7 px-2 text-xs" disabled={savingDeliveredId === row.id} onClick={() => handleSaveDeliveredDate(row.id)}>
+                                                            {savingDeliveredId === row.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "บันทึก"}
+                                                        </Button>
+                                                        <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setEditingDeliveredId(null)}>ยกเลิก</Button>
+                                                    </div>
+                                                ) : row.deliveredTimestamp ? (
+                                                    format(row.deliveredTimestamp, "dd/MM/yyyy HH:mm")
+                                                ) : (
+                                                    <div className="flex items-center gap-1">
+                                                        <span className="text-muted-foreground">-</span>
+                                                        {isAdmin && (
+                                                            <Button size="sm" variant="ghost" className="h-6 px-1" onClick={() => { setEditingDeliveredId(row.id); setEditingDeliveredValue(""); }}>
+                                                                <Pencil className="h-3 w-3" />
+                                                            </Button>
+                                                        )}
+                                                    </div>
+                                                )}
                                             </TableCell>
                                             <TableCell className="font-mono text-xs">
                                                 {row.billingRateImportId || "-"}

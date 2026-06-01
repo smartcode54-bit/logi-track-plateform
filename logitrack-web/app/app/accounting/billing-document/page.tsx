@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
     collection,
     getDocs,
+    getDocsFromServer,
     query,
     where,
     Timestamp,
@@ -162,17 +163,19 @@ export default function BillingDocumentPage() {
         const trimmed = code.trim();
         if (!trimmed) return "-";
         const upper = trimmed.toUpperCase();
-        const norm = normalizeDestinationCode(trimmed);
-        if (norm && hubNameMap.get(norm)) return hubNameMap.get(norm)!;
+        // 1. Try raw code first (e.g. "SPK-GW" → "J&T EXPRESS บางปู")
         if (hubNameMap.get(upper)) return hubNameMap.get(upper)!;
         if (trimmed !== upper && hubNameMap.get(trimmed)) return hubNameMap.get(trimmed)!;
+        // 2. Try normalized code (strips suffix after dash for SOC codes)
+        const norm = normalizeDestinationCode(trimmed);
+        if (norm && norm !== upper && hubNameMap.get(norm)) return hubNameMap.get(norm)!;
+        // 3. SOC destinations (SOCE/SOCN/SOCW/SPKxxxxxx)
         const socKey = normalizeSocIdToKey(upper);
         if (socKey && (SOC_DESTINATIONS as Record<string, string>)[socKey]) {
             return (SOC_DESTINATIONS as Record<string, string>)[socKey];
         }
-        const dashIdx = upper.indexOf("-");
-        if (dashIdx > 0) return upper.slice(dashIdx + 1);
-        return norm || upper;
+        // 4. Fallback: return as-is (already a display name like "J&T EXPRESS บางปู")
+        return trimmed;
     };
 
 
@@ -191,17 +194,17 @@ export default function BillingDocumentPage() {
             if (selectedCustomerId !== "all") {
                 tripConstraints.push(where("billingCustomerId", "==", selectedCustomerId));
             }
-            const tripSnap = await getDocs(query(collection(db, COLLECTIONS.TRIP_RECORDS), ...tripConstraints));
+            const tripSnap = await getDocsFromServer(query(collection(db, COLLECTIONS.TRIP_RECORDS), ...tripConstraints));
 
             // ── Load standby_records (isolated — index may be building) ────────
             let standbySnap: QuerySnapshot<DocumentData> | null = null;
             try {
                 const standbyConstraints = [
                     where("status", "==", "completed"),
-                    where("startedAt", ">=", Timestamp.fromDate(start)),
-                    where("startedAt", "<", Timestamp.fromDate(end)),
+                    where("endedAt", ">=", Timestamp.fromDate(start)),
+                    where("endedAt", "<", Timestamp.fromDate(end)),
                 ];
-                standbySnap = await getDocs(query(collection(db, COLLECTIONS.STANDBY_RECORDS), ...standbyConstraints));
+                standbySnap = await getDocsFromServer(query(collection(db, COLLECTIONS.STANDBY_RECORDS), ...standbyConstraints));
             } catch (e) {
                 console.warn("[billing] standby_records query failed (index may be building):", e);
             }

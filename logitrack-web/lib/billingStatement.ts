@@ -13,7 +13,7 @@ import {
     doc,
     runTransaction,
     addDoc,
-    getDocs,
+    getDocsFromServer,
     updateDoc,
     query,
     where,
@@ -232,7 +232,7 @@ export async function getBillingStatements(
 
     constraints.push(orderBy("generatedAt", "desc"));
 
-    const snap = await getDocs(
+    const snap = await getDocsFromServer(
         query(collection(db, COLLECTIONS.BILLING_STATEMENTS), ...constraints)
     );
 

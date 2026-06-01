@@ -48,7 +48,7 @@ const COL_SERVICE_FEES = "customer_service_fees";
 function normalizeStoredCode(v) {
     return (v ?? "").trim().toUpperCase();
 }
-/** Build display name → source_id map from hubs collection (load once per invocation). */
+/** Build display name → source_id map AND code → display name map from hubs collection. */
 async function buildHubNameToCodeMap(db) {
     const snap = await db.collection(COL_HUBS).get();
     const map = new Map();
@@ -62,6 +62,10 @@ async function buildHubNameToCodeMap(db) {
             if (name && !map.has(name))
                 map.set(name, code);
         }
+        // Also add reverse: code → primary display name (source_name_th first)
+        const displayName = typeof data.source_name_th === "string" ? data.source_name_th.trim() : "";
+        if (displayName && !map.has(code))
+            map.set(code, displayName);
     });
     return map;
 }
@@ -95,11 +99,11 @@ function mapFuelDoc(customerId, doc) {
     };
 }
 /** Shared core: persist billing snapshot from already-read trip fields (idempotent). */
-async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hubNameToCode) {
+async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hubNameToCode, forceRecompute, rateCache, taskCache) {
     if (data.status !== "delivered") {
         return { ok: true, skipped: true, error: "Trip is not delivered yet" };
     }
-    if (typeof data.billingEstimateThb === "number") {
+    if (!forceRecompute && typeof data.billingEstimateThb === "number") {
         return { ok: true, skipped: true, billingEstimateThb: data.billingEstimateThb };
     }
     const taskId = typeof data.taskId === "string" ? data.taskId.trim() : "";
@@ -107,23 +111,41 @@ async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hu
         firebase_functions_1.logger.warn("[billingSnapshot] delivered trip missing taskId", { tripId });
         return { ok: false, error: "Trip missing taskId" };
     }
-    let taskSnap;
-    try {
-        taskSnap = await db.collection(COL_TASKS).doc(taskId).get();
+    let t = taskCache?.get(taskId);
+    if (!t) {
+        let taskSnap;
+        try {
+            taskSnap = await db.collection(COL_TASKS).doc(taskId).get();
+        }
+        catch (e) {
+            firebase_functions_1.logger.error("[billingSnapshot] task load failed", e);
+            return { ok: false, error: "Failed to load task" };
+        }
+        if (!taskSnap.exists) {
+            firebase_functions_1.logger.warn("[billingSnapshot] task not found", { taskId, tripId });
+            return { ok: false, error: "Task not found" };
+        }
+        t = taskSnap.data();
     }
-    catch (e) {
-        firebase_functions_1.logger.error("[billingSnapshot] task load failed", e);
-        return { ok: false, error: "Failed to load task" };
-    }
-    if (!taskSnap.exists) {
-        firebase_functions_1.logger.warn("[billingSnapshot] task not found", { taskId, tripId });
-        return { ok: false, error: "Task not found" };
-    }
-    const t = taskSnap.data();
     const rawDestination = typeof t.destination === "string" ? t.destination : undefined;
+    const rawSourceHub = typeof t.sourceHub === "string" ? t.sourceHub : undefined;
+    // Resolve hub: "J&T EXPRESS บางปู" → "SPK-GW" (display name → source_id)
+    const resolvedSourceHub = rawSourceHub && hubNameToCode
+        ? (hubNameToCode.get(rawSourceHub.trim()) ?? rawSourceHub)
+        : rawSourceHub;
+    // Resolve destination: try display name → code first; if unchanged, try code → display name (for SOC codes like SPK890146)
+    let resolvedDestination = rawDestination && hubNameToCode
+        ? resolveDestination(rawDestination, hubNameToCode)
+        : rawDestination;
+    if (resolvedDestination && hubNameToCode && resolvedDestination === rawDestination) {
+        // No name→code match — try reverse: code → display name (matches rate card stored as display names)
+        const byCode = hubNameToCode.get(resolvedDestination.trim());
+        if (byCode && byCode !== resolvedDestination)
+            resolvedDestination = byCode;
+    }
     const taskInput = {
-        sourceHub: typeof t.sourceHub === "string" ? t.sourceHub : undefined,
-        destination: hubNameToCode ? resolveDestination(rawDestination, hubNameToCode) : rawDestination,
+        sourceHub: resolvedSourceHub,
+        destination: resolvedDestination,
         truckType: typeof t.truckType === "string" ? t.truckType : undefined,
         sourceHubLinkedCustomerId: typeof t.sourceHubLinkedCustomerId === "string" ? t.sourceHubLinkedCustomerId : undefined,
         destinationLinkedCustomerId: typeof t.destinationLinkedCustomerId === "string" ? t.destinationLinkedCustomerId : undefined,
@@ -135,12 +157,20 @@ async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hu
         firebase_functions_1.logger.warn("[billingSnapshot] task has no linked customer", { taskId, tripId });
         return { ok: false, error: "Task has no linked customer" };
     }
-    const [rateSnap, fuelSnap] = await Promise.all([
-        db.collection(COL_RATE_ENTRIES).where("customerId", "==", customerId).get(),
-        db.collection(COL_FUEL_ADJ).where("customerId", "==", customerId).get(),
-    ]);
-    const rateEntries = rateSnap.docs.map((d) => mapRateDoc(customerId, d));
-    const fuelAdjustments = fuelSnap.docs.map((d) => mapFuelDoc(customerId, d));
+    let rateEntries;
+    let fuelAdjustments;
+    if (rateCache?.has(customerId)) {
+        ({ rateEntries, fuelAdjustments } = rateCache.get(customerId));
+    }
+    else {
+        const [rateSnap, fuelSnap] = await Promise.all([
+            db.collection(COL_RATE_ENTRIES).where("customerId", "==", customerId).get(),
+            db.collection(COL_FUEL_ADJ).where("customerId", "==", customerId).get(),
+        ]);
+        rateEntries = rateSnap.docs.map((d) => mapRateDoc(customerId, d));
+        fuelAdjustments = fuelSnap.docs.map((d) => mapFuelDoc(customerId, d));
+        rateCache?.set(customerId, { rateEntries, fuelAdjustments });
+    }
     const tripParts = {
         deliveredTimestamp: data.deliveredTimestamp,
         createdAt: data.createdAt,
@@ -233,7 +263,7 @@ async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hu
                 rawTaskSourceHub: taskInput.sourceHub,
                 rawTaskDestination: taskInput.destination,
             });
-            return { ok: false, error: "No matching rate entry found" };
+            return { ok: false, error: `No rate: ${hubId} → ${destination} (${vehicleClass})` };
         }
         await tripRef.update({
             billingEstimateThb: computed.finalRateThb,
@@ -297,6 +327,7 @@ function bangkokBoundsToTimestamps(fromDateStr, toDateStr) {
 exports.backfillTripBillingSnapshots = (0, https_1.onCall)({
     region: "asia-southeast1",
     enforceAppCheck: false, // Admin-only function protected by auth check; App Check enforcement disabled to avoid web client token issues
+    timeoutSeconds: 540,
 }, async (request) => {
     if (request.auth?.token?.admin !== true) {
         throw new https_1.HttpsError("permission-denied", "Admin only");
@@ -308,6 +339,8 @@ exports.backfillTripBillingSnapshots = (0, https_1.onCall)({
     }
     const maxScan = Math.min(Math.max(1, request.data?.maxScan ?? 500), 2000);
     const maxWrite = Math.min(Math.max(1, request.data?.maxWrite ?? 200), 500);
+    const forceRecompute = request.data?.forceRecompute === true;
+    const filterCustomerId = request.data?.customerId?.trim() ?? "";
     const db = admin.firestore();
     const { start, end } = bangkokBoundsToTimestamps(fromDateStr, toDateStr);
     const [snap, hubNameToCode] = await Promise.all([
@@ -319,23 +352,38 @@ exports.backfillTripBillingSnapshots = (0, https_1.onCall)({
             .get(),
         buildHubNameToCodeMap(db),
     ]);
+    // Pre-fetch all tasks in parallel to avoid sequential reads in the loop
+    const eligibleDocs = snap.docs.filter((doc) => {
+        const data = doc.data();
+        if (data.status !== "delivered")
+            return false;
+        if (filterCustomerId && data.billingCustomerId !== filterCustomerId)
+            return false;
+        if (!forceRecompute && typeof data.billingEstimateThb === "number")
+            return false;
+        return true;
+    });
+    const taskIds = [...new Set(eligibleDocs
+            .map((d) => d.data().taskId)
+            .filter((id) => typeof id === "string" && id.trim().length > 0))];
+    const taskSnapshots = await Promise.all(taskIds.map((id) => db.collection(COL_TASKS).doc(id).get()));
+    const taskCache = new Map();
+    taskSnapshots.forEach((snap) => { if (snap.exists)
+        taskCache.set(snap.id, snap.data()); });
     let eligible = 0;
     let written = 0;
     let skipped = 0;
     let failed = 0;
     let attempted = 0;
     const failures = [];
-    for (const doc of snap.docs) {
+    const rateCache = new Map();
+    for (const doc of eligibleDocs) {
         const data = doc.data();
-        if (data.status !== "delivered")
-            continue;
-        if (typeof data.billingEstimateThb === "number")
-            continue;
         eligible++;
         if (written >= maxWrite)
             continue;
         attempted++;
-        const result = await tryWriteBillingSnapshotFromTripData(db, doc.id, data, doc.ref, hubNameToCode);
+        const result = await tryWriteBillingSnapshotFromTripData(db, doc.id, data, doc.ref, hubNameToCode, forceRecompute, rateCache, taskCache);
         if (result.ok === true && result.skipped !== true && result.billingEstimateThb != null) {
             written++;
         }

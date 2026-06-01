@@ -13,7 +13,7 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { bahttext } = require("bahttext") as { bahttext: (amount: number) => string };
-import * as XLSX from "xlsx";
+import * as XLSX from "xlsx-js-style";
 import { format } from "date-fns";
 import { BILLING_PROVIDER, WITHHOLDING_TAX_RATE } from "./billingConfig";
 
@@ -190,10 +190,8 @@ function groupToLineItems(trips: BillingTripRow[]): {
     const route = isStandby ? `${baseRoute} (Stand by)`
                 : isStop    ? `${baseRoute} (Drop fee)`
                 : baseRoute;
-    // Drop fee stops: show the actual stop amount (finalRateThb), not the base route rate
-    const unitPrice = isStop
-      ? t.billingEstimateThb
-      : (t.billingBaseRateThb ?? t.billingEstimateThb);
+    // Use final (adjusted) rate as unit price so quantity × unitPrice = total
+    const unitPrice = t.billingEstimateThb;
     const key = `${vc}::${route}::${unitPrice}`;
     const existing = map.get(key);
     if (existing) {
@@ -479,78 +477,139 @@ export function generateDetailExcelBuffer(
     : WITHHOLDING_TAX_RATE;
   const withholdingTax = Math.round(grandTotal * whtRate * 100) / 100;
 
-  // ── Column headers ──────────────────────────────────────────────────────────
-  const COL_HEADERS = [
-    "No.", "วันที่", "เลขใบงาน", "เส้นทาง", "ประเภทรถ",
-    "ทะเบียน", "ชื่อคนขับ", "เบอร์โทร", "จำนวนรถ", "ราคาขนส่ง/เที่ยว", "หมายเหตุ",
+  // ── Column definitions ───────────────────────────────────────────────────────
+  const COLS: { header: string; wch: number }[] = [
+    { header: "No.",              wch: 5  },
+    { header: "วันที่",           wch: 13 },
+    { header: "เลขใบงาน",        wch: 20 },
+    { header: "เส้นทาง",         wch: 34 },
+    { header: "ประเภทรถ",        wch: 10 },
+    { header: "ทะเบียน",         wch: 12 },
+    { header: "ชื่อคนขับ",       wch: 20 },
+    { header: "เบอร์โทร",        wch: 14 },
+    { header: "จำนวนรถ",         wch: 10 },
+    { header: "ราคา/เที่ยว",     wch: 15 },
+    { header: "หมายเหตุ",        wch: 14 },
   ];
-  const NC = COL_HEADERS.length; // 11 columns
+  const NC = COLS.length;
 
-  // ── Header rows (AOA) ───────────────────────────────────────────────────────
-  const blank = Array(NC).fill("");
-  const aoa: (string | number)[][] = [
-    // Row 1: company name
-    [providerName, ...Array(NC - 1).fill("")],
-    // Row 2: document title
-    [`รายละเอียดการขนส่ง เดือน${thaiMonth} ${thaiYear}`, ...Array(NC - 1).fill("")],
-    // Row 3: customer
-    [`ลูกค้า: ${customerName}`, ...Array(NC - 1).fill("")],
-    // Row 4: blank separator
-    blank,
-    // Row 5: column headers
-    COL_HEADERS,
+  // ── Style helpers ────────────────────────────────────────────────────────────
+  const BORDER_THIN = { style: "thin", color: { rgb: "BDBDBD" } };
+  const ALL_BORDERS = { top: BORDER_THIN, bottom: BORDER_THIN, left: BORDER_THIN, right: BORDER_THIN };
+  const HEADER_FILL = { fgColor: { rgb: "1565C0" }, patternType: "solid" };
+  const ALT_FILL    = { fgColor: { rgb: "E3F2FD" }, patternType: "solid" };
+  const FOOTER_FILL = { fgColor: { rgb: "F5F5F5" }, patternType: "solid" };
+  const FONT_BASE   = { name: "TH SarabunPSK", sz: 11 };
+  const FONT_HEADER = { ...FONT_BASE, bold: true, color: { rgb: "FFFFFF" } };
+  const FONT_TITLE  = { ...FONT_BASE, sz: 13, bold: true };
+  const FONT_BOLD   = { ...FONT_BASE, bold: true };
+
+  const cell = (v: string | number, s: object): XLSX.CellObject => ({ v, t: typeof v === "number" ? "n" : "s", s });
+
+  // ── Build rows ───────────────────────────────────────────────────────────────
+  const TITLE_STYLE = { font: FONT_TITLE, alignment: { horizontal: "center", vertical: "center" } };
+  const SUB_STYLE   = { font: { ...FONT_BASE, sz: 11 }, alignment: { horizontal: "center" } };
+
+  const rows: XLSX.CellObject[][] = [
+    [cell(providerName, TITLE_STYLE),  ...Array(NC - 1).fill(cell("", {}))],
+    [cell(`รายละเอียดการขนส่ง เดือน${thaiMonth} ${thaiYear}`, TITLE_STYLE), ...Array(NC - 1).fill(cell("", {}))],
+    [cell(`ลูกค้า: ${customerName}`, SUB_STYLE), ...Array(NC - 1).fill(cell("", {}))],
+    Array(NC).fill(cell("", {})), // blank row
+    // Column header row
+    COLS.map((c) => cell(c.header, { font: FONT_HEADER, fill: HEADER_FILL, border: ALL_BORDERS, alignment: { horizontal: "center", vertical: "center", wrapText: true } })),
   ];
 
-  // ── Data rows ───────────────────────────────────────────────────────────────
+  // Data rows
   trips.forEach((t, i) => {
     const isStandby = t.rowType === "standby";
     const isStop    = t.rowType === "multidrop_stop";
+    const isAlt     = i % 2 === 1;
+    const dateFill  = isAlt ? ALT_FILL : { fgColor: { rgb: "FFFFFF" }, patternType: "solid" };
+    const ds = { font: FONT_BASE, border: ALL_BORDERS, fill: dateFill };
+    const dsNum = { ...ds, alignment: { horizontal: "right" } };
+    const dsCenter = { ...ds, alignment: { horizontal: "center" } };
 
-    const tripId = t.spxTripId ?? t.id.slice(0, 12);
     const route = [
       t.hubDisplayName         ?? t.billingLookupHubId        ?? "-",
       t.destinationDisplayName ?? t.billingLookupDestination  ?? "-",
     ].join(" → ");
-    const vehicleClass = t.vehicleClass ?? "-";
     const note = isStandby ? "Standby" : isStop ? `Multidrop stop ${t.stopIndex ?? ""}` : "";
 
-    aoa.push([
-      i + 1,
-      t.deliveredTimestamp ? format(t.deliveredTimestamp, "dd/MM/yyyy") : "",
-      tripId,
-      route,
-      vehicleClass,
-      t.truckLicensePlate ?? "-",
-      t.driverName        ?? "-",
-      t.driverPhone       ?? "-",
-      isStandby ? 0 : 1,
-      t.billingEstimateThb,
-      note,
+    rows.push([
+      cell(i + 1,                                                            { ...dsCenter }),
+      cell(t.deliveredTimestamp ? format(t.deliveredTimestamp, "dd/MM/yyyy") : "", ds),
+      cell(t.spxTripId ?? t.id.slice(0, 12),                                { ...ds, font: { ...FONT_BASE, name: "Consolas", sz: 9 } }),
+      cell(route,                                                            { ...ds, alignment: { wrapText: true } }),
+      cell(t.vehicleClass ?? "-",                                            dsCenter),
+      cell(t.truckLicensePlate ?? "-",                                       dsCenter),
+      cell(t.driverName ?? "-",                                              ds),
+      cell(t.driverPhone ?? "-",                                             dsCenter),
+      cell(isStandby ? 0 : 1,                                               dsCenter),
+      cell(t.billingEstimateThb,                                             { ...dsNum, numFmt: "#,##0.00" }),
+      cell(note,                                                             ds),
     ]);
   });
 
-  // ── Footer rows ─────────────────────────────────────────────────────────────
-  aoa.push(blank);
-  aoa.push(["", "", "", "", "", "", "", "", "", "", ""]);
-  aoa.push(["", "", "", "", "", "", "", "ยอดรวมทั้งหมด", "", grandTotal, ""]);
-  aoa.push(["", "", "", "", "", "", "", `ภาษีหัก ณ ที่จ่าย ${Math.round(whtRate * 100)}%`, "", -withholdingTax, ""]);
-  aoa.push(["", "", "", "", "", "", "", "ยอดสุทธิ", "", grandTotal - withholdingTax, ""]);
+  // Footer rows
+  rows.push(Array(NC).fill(cell("", {})));
+  const footerLabelStyle = { font: FONT_BOLD, fill: FOOTER_FILL, border: ALL_BORDERS, alignment: { horizontal: "right" } };
+  const footerNumStyle   = { font: FONT_BOLD, fill: FOOTER_FILL, border: ALL_BORDERS, alignment: { horizontal: "right" }, numFmt: "#,##0.00" };
+  const makeFooter = (label: string, amount: number): XLSX.CellObject[] => [
+    ...Array(NC - 4).fill(cell("", {})),
+    { ...cell(label, footerLabelStyle), s: footerLabelStyle } as XLSX.CellObject,
+    cell("", {}),
+    cell("", {}),
+    cell(amount, footerNumStyle),
+  ];
+  rows.push(makeFooter("ยอดรวมทั้งหมด", grandTotal));
+  rows.push(makeFooter(`ภาษีหัก ณ ที่จ่าย ${Math.round(whtRate * 100)}%`, -withholdingTax));
+  rows.push(makeFooter("ยอดสุทธิ", grandTotal - withholdingTax));
 
-  // ── Build sheet ─────────────────────────────────────────────────────────────
+  // ── Build worksheet ──────────────────────────────────────────────────────────
   const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const ws: XLSX.WorkSheet = XLSX.utils.aoa_to_sheet(rows.map((r) => r.map((c) => c.v)));
 
-  // Merge header rows across all columns (rows 0–2)
+  // Apply cell styles
+  rows.forEach((row, r) => {
+    row.forEach((cellObj, c) => {
+      const addr = XLSX.utils.encode_cell({ r, c });
+      if (!ws[addr]) ws[addr] = { v: cellObj.v, t: cellObj.t ?? "s" };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ws[addr] as any).s = (cellObj as any).s ?? {};
+      if ((cellObj as any).numFmt) (ws[addr] as any).z = (cellObj as any).numFmt;
+    });
+  });
+
+  // Merges for title rows
   ws["!merges"] = [
     { s: { r: 0, c: 0 }, e: { r: 0, c: NC - 1 } },
     { s: { r: 1, c: 0 }, e: { r: 1, c: NC - 1 } },
     { s: { r: 2, c: 0 }, e: { r: 2, c: NC - 1 } },
   ];
 
-  ws["!cols"] = [
-    { wch: 5 }, { wch: 12 }, { wch: 20 }, { wch: 32 }, { wch: 12 },
-    { wch: 12 }, { wch: 20 }, { wch: 14 }, { wch: 10 }, { wch: 18 }, { wch: 16 },
+  // Column widths
+  ws["!cols"] = COLS.map((c) => ({ wch: c.wch }));
+
+  // Row heights
+  ws["!rows"] = [
+    { hpt: 22 }, // row 0: company name
+    { hpt: 20 }, // row 1: title
+    { hpt: 18 }, // row 2: customer
+    { hpt: 8  }, // row 3: blank
+    { hpt: 22 }, // row 4: column headers
   ];
+
+  // ── Page setup: A4 landscape, fit to 1 page wide ─────────────────────────────
+  ws["!pageSetup"] = {
+    paperSize: 9,          // A4
+    orientation: "landscape",
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 0,        // unlimited height
+    scale: 100,
+  };
+  ws["!printOptions"] = { gridLines: false };
+  ws["!margins"] = { left: 0.5, right: 0.5, top: 0.75, bottom: 0.75, header: 0.3, footer: 0.3 };
 
   const sheetName = `รายละเอียดขนส่ง ${thaiMonth} ${thaiYear}`.slice(0, 31);
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
