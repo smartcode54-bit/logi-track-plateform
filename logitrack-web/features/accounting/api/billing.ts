@@ -672,6 +672,7 @@ export async function updateVehicleExpense(
         status: VehicleExpenseStatus;
         adminNote: string;
         truckId: string;
+        truckLicensePlate: string;
         tollImportSequence: number;
         tollLocation: string;
         tollLane: string;
@@ -695,6 +696,7 @@ export async function updateVehicleExpense(
     if (data.status != null) payload.status = data.status;
     if (data.adminNote !== undefined) payload.adminNote = data.adminNote;
     if (data.truckId !== undefined) payload.truckId = data.truckId;
+    if (data.truckLicensePlate !== undefined) payload.truckLicensePlate = data.truckLicensePlate;
     if (data.tollImportSequence != null) payload.tollImportSequence = Number(data.tollImportSequence);
     if (data.tollLocation !== undefined) payload.tollLocation = data.tollLocation;
     if (data.tollLane !== undefined) payload.tollLane = data.tollLane;

@@ -214,6 +214,9 @@ export default function AccountingFuelPage() {
                 stationTaxId: editForm.stationTaxId ?? "",
                 taxInvId: editForm.taxInvId ?? "",
                 distanceKm: editForm.distanceKm,
+                ...(editForm.licensePlate !== detailRow.licensePlate && editForm.licensePlate
+                    ? { truckLicensePlate: editForm.licensePlate.trim().toUpperCase() }
+                    : {}),
             });
 
             await loadData(); // Reload list to get updated data
@@ -762,7 +765,16 @@ export default function AccountingFuelPage() {
                                         <Label className="text-muted-foreground">{t("accounting.detail.driver")}</Label>
                                         <Input value={editForm.driverName ?? editForm.driverId ?? "—"} readOnly className="h-9 bg-muted/50 cursor-not-allowed" />
                                         <Label className="text-muted-foreground">{t("accounting.detail.vehicle")}</Label>
-                                        <Input value={editForm.licensePlate ?? "—"} readOnly className="h-9 font-mono bg-muted/50 cursor-not-allowed" />
+                                        {canEdit ? (
+                                            <Input
+                                                value={editForm.licensePlate ?? ""}
+                                                onChange={(e) => setEditForm({ ...editForm, licensePlate: e.target.value })}
+                                                className="h-9 font-mono"
+                                                placeholder="ทะเบียนรถ"
+                                            />
+                                        ) : (
+                                            <Input value={editForm.licensePlate ?? "—"} readOnly className="h-9 font-mono bg-muted/50 cursor-not-allowed" />
+                                        )}
 
                                         <Label className="text-muted-foreground">{t("accounting.detail.amount")}</Label>
                                         {canEdit ? (
