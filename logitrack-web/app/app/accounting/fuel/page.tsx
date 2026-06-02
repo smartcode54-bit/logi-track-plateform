@@ -214,7 +214,9 @@ export default function AccountingFuelPage() {
                 stationTaxId: editForm.stationTaxId ?? "",
                 taxInvId: editForm.taxInvId ?? "",
                 distanceKm: editForm.distanceKm,
-                ...(editForm.licensePlate !== detailRow.licensePlate && editForm.licensePlate
+                ...(editForm.truckId !== detailRow.truckId && editForm.truckId
+                    ? { truckId: editForm.truckId, truckLicensePlate: editForm.licensePlate?.trim().toUpperCase() ?? "" }
+                    : editForm.licensePlate !== detailRow.licensePlate && editForm.licensePlate
                     ? { truckLicensePlate: editForm.licensePlate.trim().toUpperCase() }
                     : {}),
             });
@@ -766,12 +768,28 @@ export default function AccountingFuelPage() {
                                         <Input value={editForm.driverName ?? editForm.driverId ?? "—"} readOnly className="h-9 bg-muted/50 cursor-not-allowed" />
                                         <Label className="text-muted-foreground">{t("accounting.detail.vehicle")}</Label>
                                         {canEdit ? (
-                                            <Input
-                                                value={editForm.licensePlate ?? ""}
-                                                onChange={(e) => setEditForm({ ...editForm, licensePlate: e.target.value })}
-                                                className="h-9 font-mono"
-                                                placeholder="ทะเบียนรถ"
-                                            />
+                                            <Select
+                                                value={editForm.truckId ?? "__none__"}
+                                                onValueChange={(val) => {
+                                                    const truck = trucks.find((t) => t.id === val);
+                                                    setEditForm({
+                                                        ...editForm,
+                                                        truckId: truck?.id ?? undefined,
+                                                        licensePlate: truck?.licensePlate ?? editForm.licensePlate,
+                                                    });
+                                                }}
+                                            >
+                                                <SelectTrigger className="h-9 font-mono">
+                                                    <SelectValue placeholder="เลือกทะเบียนรถ" />
+                                                </SelectTrigger>
+                                                <SelectContent className="z-[1005]">
+                                                    {trucks.map((truck) => (
+                                                        <SelectItem key={truck.id} value={truck.id} className="font-mono">
+                                                            {truck.licensePlate}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
                                         ) : (
                                             <Input value={editForm.licensePlate ?? "—"} readOnly className="h-9 font-mono bg-muted/50 cursor-not-allowed" />
                                         )}
