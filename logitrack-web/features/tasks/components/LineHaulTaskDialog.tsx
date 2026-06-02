@@ -26,9 +26,7 @@ import { Input } from "@/components/ui/input";
 import {
     Select,
     SelectContent,
-    SelectGroup,
     SelectItem,
-    SelectLabel,
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
@@ -70,6 +68,10 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
         setHubDropdownOpen,
         hubSearch,
         setHubSearch,
+        socDropdownOpen,
+        setSocDropdownOpen,
+        socSearch,
+        setSocSearch,
         newCheckInPhotoFile,
         setNewCheckInPhotoFile,
         activeTaskDriverIds,
@@ -170,44 +172,74 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                             <FormField
                                 control={form.control}
                                 name="sourceHub"
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel>Source (SOC)</FormLabel>
-                                        <Select
-                                            onValueChange={field.onChange}
-                                            value={(() => {
-                                                const v = field.value ?? "";
-                                                if (!v) return "";
-                                                if (socOptions.some((s) => s.source_id === v)) return v;
-                                                const normalized = normalizeSocIdToKey(v);
-                                                const matched = socOptions.find((s) => normalizeSocIdToKey(s.source_id) === normalized);
-                                                return matched?.source_id ?? "";
-                                            })()}
-                                        >
-                                            <FormControl>
-                                                <SelectTrigger>
-                                                    <SelectValue placeholder="Select Source (SOC)" />
-                                                </SelectTrigger>
-                                            </FormControl>
-                                            <SelectContent className="z-[1005]" position="popper">
-                                                {socOptions.length === 0 ? (
-                                                    <SelectGroup>
-                                                        <SelectLabel className="text-muted-foreground">
-                                                            No SOCs found. Add locations with station type SOC.
-                                                        </SelectLabel>
-                                                    </SelectGroup>
-                                                ) : (
-                                                    socOptions.map((soc) => (
-                                                        <SelectItem key={soc.source_id} value={soc.source_id}>
-                                                            {soc.name || soc.source_id}
-                                                        </SelectItem>
-                                                    ))
-                                                )}
-                                            </SelectContent>
-                                        </Select>
-                                        <FormMessage />
-                                    </FormItem>
-                                )}
+                                render={({ field }) => {
+                                    const resolvedValue = (() => {
+                                        const v = field.value ?? "";
+                                        if (!v) return "";
+                                        if (socOptions.some((s) => s.source_id === v)) return v;
+                                        const normalized = normalizeSocIdToKey(v);
+                                        return socOptions.find((s) => normalizeSocIdToKey(s.source_id) === normalized)?.source_id ?? "";
+                                    })();
+                                    const selectedSoc = socOptions.find((s) => s.source_id === resolvedValue);
+                                    const filteredSocs = socOptions.filter((s) => {
+                                        const q = socSearch.toLowerCase();
+                                        return s.source_id.toLowerCase().includes(q) || s.name.toLowerCase().includes(q);
+                                    });
+                                    return (
+                                        <FormItem className="flex flex-col">
+                                            <FormLabel>Source (SOC)</FormLabel>
+                                            <Popover open={socDropdownOpen} onOpenChange={(o) => { setSocDropdownOpen(o); if (o) setSocSearch(""); }} modal={true}>
+                                                <PopoverTrigger asChild>
+                                                    <FormControl>
+                                                        <Button
+                                                            type="button"
+                                                            variant="outline"
+                                                            role="combobox"
+                                                            className={cn("w-full justify-between h-auto min-h-10 py-2", !resolvedValue && "text-muted-foreground")}
+                                                        >
+                                                            <span className="block truncate text-left flex-1 min-w-0">
+                                                                {selectedSoc ? selectedSoc.name || selectedSoc.source_id : "Select Source (SOC)"}
+                                                            </span>
+                                                            <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50 ml-2" />
+                                                        </Button>
+                                                    </FormControl>
+                                                </PopoverTrigger>
+                                                <PopoverContent className="w-[--radix-popover-trigger-width] p-0 z-[1010]" align="start">
+                                                    <div className="flex items-center border-b px-3">
+                                                        <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                                                        <input
+                                                            className="flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
+                                                            placeholder="Search SOC..."
+                                                            value={socSearch}
+                                                            onChange={(e) => setSocSearch(e.target.value)}
+                                                            autoFocus
+                                                        />
+                                                    </div>
+                                                    <div className="max-h-[220px] overflow-y-auto p-1">
+                                                        {filteredSocs.length === 0 ? (
+                                                            <div className="py-4 text-center text-sm text-muted-foreground">No SOCs found.</div>
+                                                        ) : (
+                                                            filteredSocs.map((soc) => (
+                                                                <div
+                                                                    key={soc.source_id}
+                                                                    onClick={() => { field.onChange(soc.source_id); setSocDropdownOpen(false); }}
+                                                                    className={cn(
+                                                                        "relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
+                                                                        resolvedValue === soc.source_id && "bg-accent"
+                                                                    )}
+                                                                >
+                                                                    <Check className={cn("mr-2 h-4 w-4 shrink-0", resolvedValue === soc.source_id ? "opacity-100" : "opacity-0")} />
+                                                                    <span>{soc.name || soc.source_id}</span>
+                                                                </div>
+                                                            ))
+                                                        )}
+                                                    </div>
+                                                </PopoverContent>
+                                            </Popover>
+                                            <FormMessage />
+                                        </FormItem>
+                                    );
+                                }}
                             />
 
                             {/* Destination Field (Hub) */}
@@ -216,118 +248,76 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                 name="destination"
                                 render={({ field }) => {
                                     const filteredHubs = hubOptions.filter((hub) => {
-                                        const val = hub['Hub Code'] ?? '';
-                                        const name = hub['Hub Name'] ?? '';
-                                        const nameTh = hub['Hub Name Th'] ?? '';
-                                        const searchLower = hubSearch.toLowerCase();
-                                        return (
-                                            val.toString().toLowerCase().includes(searchLower) ||
-                                            name.toString().toLowerCase().includes(searchLower) ||
-                                            nameTh.toString().toLowerCase().includes(searchLower)
-                                        );
+                                        const val = String(hub['Hub Code'] ?? '');
+                                        const name = String(hub['Hub Name'] ?? '');
+                                        const nameTh = String(hub['Hub Name Th'] ?? '');
+                                        const q = hubSearch.toLowerCase();
+                                        return val.toLowerCase().includes(q) || name.toLowerCase().includes(q) || nameTh.toLowerCase().includes(q);
                                     });
+                                    const selectedHub = hubOptions.find((h) => (h['Hub Code'] ?? '') === field.value);
+                                    const selectedLabel = selectedHub
+                                        ? String(selectedHub['Hub Name Th'] || selectedHub['Hub Name'] || selectedHub['Hub Code'] || '')
+                                        : field.value || '';
 
                                     return (
-                                        <FormItem className="flex flex-col relative">
+                                        <FormItem className="flex flex-col">
                                             <FormLabel>Destination (Hub)</FormLabel>
-                                            <FormControl>
-                                                <Button
-                                                    type="button"
-                                                    variant="outline"
-                                                    role="combobox"
-                                                    className={cn(
-                                                        "w-full justify-between h-auto min-h-10 py-2",
-                                                        !field.value && "text-muted-foreground"
-                                                    )}
-                                                    onClick={() => {
-                                                        setHubDropdownOpen(!hubDropdownOpen);
-                                                        setHubSearch("");
-                                                    }}
-                                                >
-                                                    <div className="flex w-full items-center gap-2 min-w-0">
-                                                        <div className="flex-1 min-w-0 text-left">
-                                                            {field.value ? (
-                                                                (() => {
-                                                                    const h = hubOptions.find(
-                                                                        (hub) => (hub['Hub Code'] ?? '') === field.value
-                                                                    );
-                                                                    const val = h ? (h['Hub Code'] ?? '') : field.value;
-                                                                    const primary = h
-                                                                        ? String(
-                                                                              h['Hub Name Th'] || h['Hub Name'] || val
-                                                                          )
-                                                                        : field.value;
-                                                                    return (
-                                                                        <span className="block truncate font-medium">
-                                                                            {primary}
-                                                                        </span>
-                                                                    );
-                                                                })()
-                                                            ) : (
-                                                                "Select Destination Hub"
-                                                            )}
-                                                        </div>
-                                                        <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+                                            <Popover open={hubDropdownOpen} onOpenChange={(o) => { setHubDropdownOpen(o); if (o) setHubSearch(""); }} modal={true}>
+                                                <PopoverTrigger asChild>
+                                                    <FormControl>
+                                                        <Button
+                                                            type="button"
+                                                            variant="outline"
+                                                            role="combobox"
+                                                            className={cn("w-full justify-between h-auto min-h-10 py-2", !field.value && "text-muted-foreground")}
+                                                        >
+                                                            <span className="block truncate text-left flex-1 min-w-0">
+                                                                {selectedLabel || "Select Destination Hub"}
+                                                            </span>
+                                                            <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50 ml-2" />
+                                                        </Button>
+                                                    </FormControl>
+                                                </PopoverTrigger>
+                                                <PopoverContent className="w-[--radix-popover-trigger-width] p-0 z-[1010]" align="start">
+                                                    <div className="flex items-center border-b px-3">
+                                                        <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                                                        <input
+                                                            className="flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
+                                                            placeholder="Search Hub..."
+                                                            value={hubSearch}
+                                                            onChange={(e) => setHubSearch(e.target.value)}
+                                                            autoFocus
+                                                        />
                                                     </div>
-                                                </Button>
-                                            </FormControl>
-                                            {hubDropdownOpen && (
-                                                <>
-                                                    <div className="fixed inset-0 z-40" onClick={() => setHubDropdownOpen(false)} />
-                                                    <div className="absolute top-[calc(100%+4px)] left-0 w-full z-50 rounded-md border bg-popover text-popover-foreground shadow-md">
-                                                        <div className="flex items-center border-b px-3">
-                                                            <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-                                                            <input
-                                                                className="flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
-                                                                placeholder="Search Hub..."
-                                                                value={hubSearch}
-                                                                onChange={(e) => setHubSearch(e.target.value)}
-                                                                autoFocus
-                                                            />
-                                                        </div>
-                                                        <div className="max-h-[200px] overflow-y-auto p-1">
-                                                            {filteredHubs.length === 0 ? (
-                                                                <div className="py-4 text-center text-sm text-muted-foreground">
-                                                                    No hubs found.
-                                                                </div>
-                                                            ) : (
-                                                                filteredHubs.slice(0, 100).map((hub, idx) => {
-                                                                    const val = hub['Hub Code'] ?? '';
-                                                                    const primary = String(
-                                                                        hub['Hub Name Th'] || hub['Hub Name'] || val
-                                                                    );
-                                                                    return (
-                                                                        <div
-                                                                            key={val || idx}
-                                                                            onClick={() => {
-                                                                                if (!val) return;
-                                                                                form.setValue("destination", val as any, { shouldValidate: true });
-                                                                                setHubDropdownOpen(false);
-                                                                            }}
-                                                                            className={cn(
-                                                                                "relative flex cursor-default select-none items-start rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
-                                                                                field.value === val ? "bg-accent" : ""
-                                                                            )}
-                                                                        >
-                                                                            <Check
-                                                                                className={cn(
-                                                                                    "mr-2 h-4 w-4 mt-0.5 shrink-0",
-                                                                                    field.value === val ? "opacity-100" : "opacity-0"
-                                                                                )}
-                                                                            />
-                                                                            <div className="min-w-0 flex-1">
-                                                                                <span className="block font-medium leading-tight">
-                                                                                    {primary}
-                                                                                </span>
-                                                                            </div>
-                                                                        </div>
-                                                                    );
-                                                                })
-                                                            )}
-                                                        </div>
+                                                    <div className="max-h-[220px] overflow-y-auto p-1">
+                                                        {filteredHubs.length === 0 ? (
+                                                            <div className="py-4 text-center text-sm text-muted-foreground">No hubs found.</div>
+                                                        ) : (
+                                                            filteredHubs.slice(0, 100).map((hub, idx) => {
+                                                                const val = String(hub['Hub Code'] ?? '');
+                                                                const primary = String(hub['Hub Name Th'] || hub['Hub Name'] || val);
+                                                                return (
+                                                                    <div
+                                                                        key={val || idx}
+                                                                        onClick={() => {
+                                                                            if (!val) return;
+                                                                            form.setValue("destination", val as any, { shouldValidate: true });
+                                                                            setHubDropdownOpen(false);
+                                                                        }}
+                                                                        className={cn(
+                                                                            "relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
+                                                                            field.value === val && "bg-accent"
+                                                                        )}
+                                                                    >
+                                                                        <Check className={cn("mr-2 h-4 w-4 shrink-0", field.value === val ? "opacity-100" : "opacity-0")} />
+                                                                        <span className="block leading-tight">{primary}</span>
+                                                                    </div>
+                                                                );
+                                                            })
+                                                        )}
                                                     </div>
-                                                </>
-                                            )}
+                                                </PopoverContent>
+                                            </Popover>
                                             <FormMessage />
                                         </FormItem>
                                     );

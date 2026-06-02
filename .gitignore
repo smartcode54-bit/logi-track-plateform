@@ -1,3 +1,6 @@
+# Service account keys — never commit
+**/service-account*.json
+
 # Env files with secrets (keep *.example committed; never commit real values)
 envs/.env.prod.web
 envs/.env.prod.mobile

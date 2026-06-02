@@ -34,6 +34,8 @@ export function useLineHaulTask({
     const [loading, setLoading] = useState(false);
     const [hubDropdownOpen, setHubDropdownOpen] = useState(false);
     const [hubSearch, setHubSearch] = useState("");
+    const [socDropdownOpen, setSocDropdownOpen] = useState(false);
+    const [socSearch, setSocSearch] = useState("");
     const [activeTaskDriverIds, setActiveTaskDriverIds] = useState<Set<string>>(new Set());
     const [newCheckInPhotoFile, setNewCheckInPhotoFile] = useState<File | null>(null);
     const [customersById, setCustomersById] = useState<Map<string, CustomerData>>(new Map());
@@ -71,6 +73,7 @@ export function useLineHaulTask({
                 };
                 setHubOptions(hubList.filter((h: any) => isHub(h.station_type ?? "")));
 
+                const seen = new Set<string>();
                 const socList = hubList
                     .filter((h: any) => {
                         const st = String(h.station_type ?? "").trim().toUpperCase();
@@ -81,7 +84,11 @@ export function useLineHaulTask({
                         source_id: (h["Hub Code"] ?? "").toString(),
                         name: (h["Hub Name Th"] ?? h["Hub Name"] ?? h["Hub Code"] ?? "").toString(),
                     }))
-                    .filter((s: any) => s.source_id.length > 0);
+                    .filter((s: any) => {
+                        if (!s.source_id || seen.has(s.source_id)) return false;
+                        seen.add(s.source_id);
+                        return true;
+                    });
                 setSocOptions(socList);
 
                 const truckList = await taskService.fetchTrucks();
@@ -362,6 +369,10 @@ export function useLineHaulTask({
         setHubDropdownOpen,
         hubSearch,
         setHubSearch,
+        socDropdownOpen,
+        setSocDropdownOpen,
+        socSearch,
+        setSocSearch,
         newCheckInPhotoFile,
         setNewCheckInPhotoFile,
         activeTaskDriverIds,

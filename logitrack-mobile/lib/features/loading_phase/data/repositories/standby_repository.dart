@@ -106,5 +106,33 @@ Future<void> submitStandbyRecord({
     });
   }
 
-  await batch.commit();
+  await ref.set({
+    'driverId': driverId,
+    'taskId': taskId,
+    'tripId': tripId,
+    'startLocation': startLocation,
+    'endLocation': endLocation,
+    'startedAt': Timestamp.fromDate(startedAt),
+    'endedAt': Timestamp.fromDate(now),
+    'durationMinutes': durationMinutes,
+    'photos': photos,
+    'note': (note?.trim().isEmpty ?? true) ? null : note?.trim(),
+    'status': 'completed',
+    'lat': lat,
+    'lng': lng,
+    'createdAt': Timestamp.fromDate(now),
+    'updatedAt': Timestamp.fromDate(now),
+  });
+
+  if (taskId != null && taskId.isNotEmpty) {
+    try {
+      await db.collection('tasks').doc(taskId).update({
+        'status': 'Completed',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (_) {
+      // Non-critical: standby record already saved.
+    }
+  }
+
 }

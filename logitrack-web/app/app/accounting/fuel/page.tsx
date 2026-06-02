@@ -768,6 +768,7 @@ export default function AccountingFuelPage() {
                                         {canEdit ? (
                                             <Input
                                                 type="number"
+                                                step="any"
                                                 value={editForm.amount ?? ""}
                                                 onChange={(e) => setEditForm({ ...editForm, amount: e.target.value === "" ? editForm.amount : Number(e.target.value) })}
                                                 className="h-9 font-semibold"
@@ -780,6 +781,7 @@ export default function AccountingFuelPage() {
                                         {canEdit ? (
                                             <Input
                                                 type="number"
+                                                step="any"
                                                 value={editForm.volumeLiters ?? ""}
                                                 onChange={(e) => setEditForm({ ...editForm, volumeLiters: e.target.value === "" ? undefined : Number(e.target.value) })}
                                                 className="h-9"
@@ -792,6 +794,7 @@ export default function AccountingFuelPage() {
                                         {canEdit ? (
                                             <Input
                                                 type="number"
+                                                step="any"
                                                 value={editForm.pricePerLiter ?? ""}
                                                 onChange={(e) => setEditForm({ ...editForm, pricePerLiter: e.target.value === "" ? undefined : Number(e.target.value) })}
                                                 className="h-9"
@@ -804,6 +807,7 @@ export default function AccountingFuelPage() {
                                         {canEdit ? (
                                             <Input
                                                 type="number"
+                                                step="any"
                                                 value={editForm.odometer ?? ""}
                                                 onChange={(e) => setEditForm({ ...editForm, odometer: e.target.value === "" ? undefined : Number(e.target.value) })}
                                                 className="h-9"

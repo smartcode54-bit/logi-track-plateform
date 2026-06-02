@@ -4,12 +4,14 @@
  * Same doc is overwritten on each successful sync (scheduled daily or manual).
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.FUEL_MONTHLY_SNAPSHOTS_COLLECTION = void 0;
+exports.FUEL_DAILY_SNAPSHOTS_COLLECTION = exports.FUEL_MONTHLY_SNAPSHOTS_COLLECTION = void 0;
 exports.bangkokMonthKey = bangkokMonthKey;
+exports.bangkokDayKey = bangkokDayKey;
 exports.persistBangchakFuelMonthlySnapshot = persistBangchakFuelMonthlySnapshot;
 const firestore_1 = require("firebase-admin/firestore");
 const bangchakOilFetch_1 = require("./bangchakOilFetch");
 exports.FUEL_MONTHLY_SNAPSHOTS_COLLECTION = "fuel_monthly_snapshots";
+exports.FUEL_DAILY_SNAPSHOTS_COLLECTION = "fuel_daily_snapshots";
 function bangkokMonthKey(date) {
     const fmt = new Intl.DateTimeFormat("en-CA", {
         timeZone: "Asia/Bangkok",
@@ -21,10 +23,27 @@ function bangkokMonthKey(date) {
     const m = parts.find((p) => p.type === "month")?.value ?? "01";
     return `${y}-${m}`;
 }
+function bangkokDayKey(date) {
+    const fmt = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Bangkok",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    });
+    return fmt.format(date); // "yyyy-MM-dd"
+}
 async function persistBangchakFuelMonthlySnapshot(db, at = new Date()) {
     const monthKey = bangkokMonthKey(at);
+    const dayKey = bangkokDayKey(at);
     try {
         const { items, fetchedAtIso, source } = await (0, bangchakOilFetch_1.fetchBangchakRetailOilPrices)("th");
+        const priceItems = items.map((i) => ({
+            nameTh: i.nameTh,
+            nameEn: i.nameEn,
+            price: i.price,
+            unit: i.unit,
+        }));
+        // Monthly doc — overwrite (existing behaviour)
         await db.collection(exports.FUEL_MONTHLY_SNAPSHOTS_COLLECTION).doc(monthKey).set({
             monthKey,
             capturedAt: firestore_1.FieldValue.serverTimestamp(),
@@ -32,13 +51,23 @@ async function persistBangchakFuelMonthlySnapshot(db, at = new Date()) {
             source,
             locale: "th",
             status: "ok",
-            items: items.map((i) => ({
-                nameTh: i.nameTh,
-                nameEn: i.nameEn,
-                price: i.price,
-                unit: i.unit,
-            })),
+            items: priceItems,
         });
+        // Daily doc — create only; do not overwrite if already captured today
+        const dailyRef = db.collection(exports.FUEL_DAILY_SNAPSHOTS_COLLECTION).doc(dayKey);
+        const dailySnap = await dailyRef.get();
+        if (!dailySnap.exists) {
+            await dailyRef.set({
+                dayKey,
+                monthKey,
+                capturedAt: firestore_1.FieldValue.serverTimestamp(),
+                fetchedAtIso,
+                source,
+                locale: "th",
+                status: "ok",
+                items: priceItems,
+            });
+        }
         return { monthKey, ok: true, itemCount: items.length };
     }
     catch (err) {
