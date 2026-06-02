@@ -35,6 +35,8 @@ Future<void> submitStandbyRecord({
   List<int>? siteImage,
   double? lat,
   double? lng,
+  String? truckId,
+  String? truckLicensePlate,
 }) async {
   final db = FirebaseFirestore.instance;
   final col = db.collection(_standbyCollection);
@@ -71,8 +73,7 @@ Future<void> submitStandbyRecord({
 
   final batch = db.batch();
 
-  // Write standby_records doc
-  batch.set(ref, {
+  final docData = {
     'driverId': driverId,
     'taskId': taskId,
     'tripId': tripId,
@@ -86,11 +87,14 @@ Future<void> submitStandbyRecord({
     'status': 'completed',
     'lat': lat,
     'lng': lng,
+    if (truckId != null) 'truckId': truckId,
+    if (truckLicensePlate != null) 'truckLicensePlate': truckLicensePlate,
     'createdAt': Timestamp.fromDate(now),
     'updatedAt': Timestamp.fromDate(now),
-  });
+  };
 
-  // Mark task as Completed (same as normal delivery finish)
+  batch.set(ref, docData);
+
   if (taskId != null && taskId.isNotEmpty) {
     batch.update(db.collection('tasks').doc(taskId), {
       'status': 'Completed',
@@ -98,7 +102,6 @@ Future<void> submitStandbyRecord({
     });
   }
 
-  // Mark trip_record as standby so Driver Monitor shows it
   if (tripId != null && tripId.isNotEmpty) {
     batch.update(db.collection('trip_records').doc(tripId), {
       'status': 'standby',
@@ -106,33 +109,5 @@ Future<void> submitStandbyRecord({
     });
   }
 
-  await ref.set({
-    'driverId': driverId,
-    'taskId': taskId,
-    'tripId': tripId,
-    'startLocation': startLocation,
-    'endLocation': endLocation,
-    'startedAt': Timestamp.fromDate(startedAt),
-    'endedAt': Timestamp.fromDate(now),
-    'durationMinutes': durationMinutes,
-    'photos': photos,
-    'note': (note?.trim().isEmpty ?? true) ? null : note?.trim(),
-    'status': 'completed',
-    'lat': lat,
-    'lng': lng,
-    'createdAt': Timestamp.fromDate(now),
-    'updatedAt': Timestamp.fromDate(now),
-  });
-
-  if (taskId != null && taskId.isNotEmpty) {
-    try {
-      await db.collection('tasks').doc(taskId).update({
-        'status': 'Completed',
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    } catch (_) {
-      // Non-critical: standby record already saved.
-    }
-  }
-
+  await batch.commit();
 }

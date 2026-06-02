@@ -155,6 +155,8 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
             : null,
         lat: _lat,
         lng: _lng,
+        truckId: widget.savedTripSummary?.truckId,
+        truckLicensePlate: widget.savedTripSummary?.truckLicensePlate,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

@@ -18,6 +18,8 @@ class StandbyPage extends StatefulWidget {
     required this.origin,
     required this.destination,
     required this.startedAt,
+    this.truckId,
+    this.truckLicensePlate,
   });
 
   final String? taskId;
@@ -25,6 +27,8 @@ class StandbyPage extends StatefulWidget {
   final String origin;
   final String destination;
   final DateTime startedAt;
+  final String? truckId;
+  final String? truckLicensePlate;
 
   @override
   State<StandbyPage> createState() => _StandbyPageState();
@@ -143,6 +147,8 @@ class _StandbyPageState extends State<StandbyPage> {
         siteImage: _photos[_siteKey]?.toList(),
         lat: _lat,
         lng: _lng,
+        truckId: widget.truckId,
+        truckLicensePlate: widget.truckLicensePlate,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

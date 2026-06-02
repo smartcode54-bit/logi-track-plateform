@@ -43,6 +43,8 @@ class VehicleExpense {
   // สถานะอนุมัติค่าใช้จ่ายแบบใหม่
   final String status; // 'PENDING' | 'APPROVED' | 'REJECTED'
   final String? adminNote;
+  final String? truckId;
+  final String? truckLicensePlate;
 
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -66,6 +68,8 @@ class VehicleExpense {
     this.description,
     this.status = 'PENDING',
     this.adminNote,
+    this.truckId,
+    this.truckLicensePlate,
     this.createdAt,
     this.updatedAt,
   });
@@ -145,6 +149,8 @@ class VehicleExpense {
       description: map['description'] as String?,
       status: map['status'] as String? ?? 'PENDING',
       adminNote: map['adminNote'] as String?,
+      truckId: map['truckId'] as String?,
+      truckLicensePlate: map['truckLicensePlate'] as String?,
       createdAt: _parseDate(map['createdAt']),
       updatedAt: _parseDate(map['updatedAt']),
     );
@@ -161,8 +167,10 @@ class VehicleExpense {
       'createdAt': createdAt ?? now,
       'updatedAt': updatedAt ?? now,
     };
-    if (adminNote != null && adminNote!.isNotEmpty) {
-      map['adminNote'] = adminNote;
+    if (adminNote != null && adminNote!.isNotEmpty) map['adminNote'] = adminNote;
+    if (truckId != null && truckId!.isNotEmpty) map['truckId'] = truckId;
+    if (truckLicensePlate != null && truckLicensePlate!.isNotEmpty) {
+      map['truckLicensePlate'] = truckLicensePlate;
     }
 
     if (type == VehicleExpenseType.fuel) {

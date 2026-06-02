@@ -44,6 +44,8 @@ Future<void> submitIncidentReport({
   List<int>? situation2Image,
   double? lat,
   double? lng,
+  String? truckId,
+  String? truckLicensePlate,
 }) async {
   final col = FirebaseFirestore.instance.collection(incidentReportCollection);
   final reportRef = col.doc();
@@ -87,6 +89,8 @@ Future<void> submitIncidentReport({
     'situation2PhotoUrl': situation2Url,
     'lat': lat,
     'lng': lng,
+    if (truckId != null) 'truckId': truckId,
+    if (truckLicensePlate != null) 'truckLicensePlate': truckLicensePlate,
     'createdAt': Timestamp.fromDate(now),
     'updatedAt': Timestamp.fromDate(now),
   });

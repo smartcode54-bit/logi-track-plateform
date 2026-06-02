@@ -33,8 +33,10 @@ String? _sanitizeOcrOdometerForForm(String raw) {
 
 class RefuelFormPage extends StatefulWidget {
   final VehicleExpense? initialData;
+  final String? truckId;
+  final String? truckLicensePlate;
 
-  const RefuelFormPage({super.key, this.initialData});
+  const RefuelFormPage({super.key, this.initialData, this.truckId, this.truckLicensePlate});
 
   @override
   State<RefuelFormPage> createState() => _RefuelFormPageState();
@@ -442,9 +444,10 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
         stationTaxId: taxId,
         taxInvId: taxInv,
         refillLocation: _refillLocation,
-        // Status resets to PENDING for edited rejections
         status: 'PENDING',
         adminNote: null,
+        truckId: widget.initialData?.truckId ?? widget.truckId,
+        truckLicensePlate: widget.initialData?.truckLicensePlate ?? widget.truckLicensePlate,
       );
       await saveVehicleExpense(
         expense,

@@ -1431,6 +1431,8 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         sealCode: sealCode.isEmpty ? null : sealCode,
         jobType: jobType,
         taskId: activeTaskId,
+        truckId: _truckId,
+        truckLicensePlate: _truckLicensePlate,
       );
 
       // Clear the task ID from local storage since it is now safely recorded in the remote trip record
@@ -2125,6 +2127,8 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                                         destination: destText,
                                         startedAt: _taskCheckedInAt ??
                                             DateTime.now(),
+                                        truckId: _truckId,
+                                        truckLicensePlate: _truckLicensePlate,
                                       ),
                                     ),
                                   )

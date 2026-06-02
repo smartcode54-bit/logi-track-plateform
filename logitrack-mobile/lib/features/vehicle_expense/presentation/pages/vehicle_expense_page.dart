@@ -134,10 +134,25 @@ class _VehicleExpensePageState extends State<VehicleExpensePage>
     }
   }
 
+  String? _truckPlateForExpense(Map<String, dynamic>? driver) {
+    if (driver == null) return null;
+    final ca = driver['currentAssignment'];
+    if (ca is Map) {
+      final plate = ca['truckPlate'] as String?;
+      if (plate != null && plate.isNotEmpty) return plate;
+    }
+    return null;
+  }
+
   Future<void> _openRefuelForm() async {
-    final result = await Navigator.of(
-      context,
-    ).push<bool>(MaterialPageRoute(builder: (_) => const RefuelFormPage()));
+    final truckId = _truckIdForMaintenance(_driverData);
+    final truckPlate = _truckPlateForExpense(_driverData);
+    final result = await Navigator.of(context).push<bool>(MaterialPageRoute(
+      builder: (_) => RefuelFormPage(
+        truckId: truckId.isEmpty ? null : truckId,
+        truckLicensePlate: truckPlate,
+      ),
+    ));
     if (result == true) _loadRecent();
   }
 
