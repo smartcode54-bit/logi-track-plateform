@@ -192,7 +192,8 @@ export async function getVehicleExpensesByType(type: VehicleExpenseType): Promis
             const driverId = d.driverId ?? "";
             const truckId = (d.truckId as string | undefined) ?? authIdToTruckId.get(driverId);
             const driverName = driverNameByKey.get(driverId);
-            const licensePlate = truckId ? truckPlateMap.get(truckId) : undefined;
+            const storedPlate = d.truckLicensePlate as string | undefined;
+            const licensePlate = storedPlate || (truckId ? truckPlateMap.get(truckId) : undefined);
             return {
                 id: doc.id,
                 driverId,
