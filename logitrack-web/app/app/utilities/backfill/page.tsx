@@ -64,8 +64,11 @@ export default function BackfillPage() {
         }
     };
 
+    interface TruckCollectionStats { scanned: number; updated: number; skipped: number; errors: number }
+    interface TruckBackfillResult { tripRecords: TruckCollectionStats; vehicleExpenses: TruckCollectionStats; tasks: TruckCollectionStats }
+
     const [truckLoading, setTruckLoading] = useState(false);
-    const [truckResult, setTruckResult] = useState<{ totalScanned: number; updated: number; skipped: number; errors: number } | null>(null);
+    const [truckResult, setTruckResult] = useState<TruckBackfillResult | null>(null);
     const [truckError, setTruckError] = useState<string | null>(null);
 
     const runBackfillTripTruckData = async () => {
@@ -76,7 +79,7 @@ export default function BackfillPage() {
         try {
             const fn = httpsCallable(functions, "backfillTripTruckData");
             const res = await fn({});
-            setTruckResult(res.data as { totalScanned: number; updated: number; skipped: number; errors: number });
+            setTruckResult(res.data as TruckBackfillResult);
         } catch (err) {
             setTruckError(err instanceof Error ? err.message : String(err));
         } finally {
@@ -341,16 +344,25 @@ export default function BackfillPage() {
                             </Alert>
                         )}
                         {truckResult && (
-                            <Alert>
-                                <CheckCircle2 className="h-4 w-4" />
-                                <AlertTitle>Done</AlertTitle>
-                                <AlertDescription>
-                                    <div className="flex gap-3 mt-1 flex-wrap">
-                                        <Badge variant="outline">Scanned: {truckResult.totalScanned}</Badge>
-                                        <Badge className="bg-green-600">Updated: {truckResult.updated}</Badge>
-                                        <Badge variant="secondary">Skipped: {truckResult.skipped}</Badge>
-                                        {truckResult.errors > 0 && <Badge variant="destructive">Errors: {truckResult.errors}</Badge>}
-                                    </div>
+                            <Alert className="border-green-200 bg-green-50">
+                                <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                <AlertTitle className="text-green-900">Done</AlertTitle>
+                                <AlertDescription className="text-green-800 mt-2 space-y-3">
+                                    {(["tripRecords", "vehicleExpenses", "tasks"] as const).map((key) => {
+                                        const labels = { tripRecords: "Trip Records", vehicleExpenses: "Vehicle Expenses", tasks: "Tasks" };
+                                        const s = truckResult[key];
+                                        return (
+                                            <div key={key}>
+                                                <p className="text-xs font-semibold mb-1">{labels[key]}</p>
+                                                <div className="flex gap-2 flex-wrap">
+                                                    <Badge variant="outline">Scanned: {s.scanned}</Badge>
+                                                    <Badge className="bg-green-600">Updated: {s.updated}</Badge>
+                                                    <Badge variant="secondary">Skipped: {s.skipped}</Badge>
+                                                    {s.errors > 0 && <Badge variant="destructive">Errors: {s.errors}</Badge>}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
                                 </AlertDescription>
                             </Alert>
                         )}
