@@ -71,6 +71,7 @@ export default function NewDriverForm() {
         defaultValues: {
             firstName: "",
             lastName: "",
+            fullNameTh: "",
             mobile: "",
             email: "",
             idCard: "",
@@ -152,7 +153,7 @@ export default function NewDriverForm() {
 
     const nextStep = async () => {
         let fieldsToValidate: any[] = [];
-        if (currentStep === 1) fieldsToValidate = ['firstName', 'lastName', 'mobile', 'email', 'birthDate'];
+        if (currentStep === 1) fieldsToValidate = ['firstName', 'lastName', 'fullNameTh', 'mobile', 'email', 'birthDate'];
         if (currentStep === 2) fieldsToValidate = ['idCard', 'truckLicenseId'];
         if (currentStep === 3) fieldsToValidate = ['employmentType', 'contractYears', 'employmentPeriod', 'subcontractorId'];
 
@@ -254,6 +255,10 @@ export default function NewDriverForm() {
                                                         <FormItem><FormLabel>{t("drivers.form.lastName")} <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder={t("drivers.form.lastName.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
                                                     )} />
                                                 </div>
+
+                                                <FormField control={form.control} name="fullNameTh" render={({ field }) => (
+                                                    <FormItem><FormLabel>{t("drivers.form.fullNameTh")} <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder={t("drivers.form.fullNameTh.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
+                                                )} />
 
                                                 <div className="grid md:grid-cols-2 gap-6">
                                                     <FormField control={form.control} name="mobile" render={({ field }) => (
@@ -482,6 +487,8 @@ export default function NewDriverForm() {
                                                 <div className="grid grid-cols-2 gap-4 text-sm border p-4 rounded-lg">
                                                     <span className="text-muted-foreground">{t("drivers.form.reviewName")}</span>
                                                     <span className="font-medium text-right">{form.getValues("firstName")} {form.getValues("lastName")}</span>
+                                                    <span className="text-muted-foreground">{t("drivers.form.reviewFullNameTh")}</span>
+                                                    <span className="font-medium text-right">{form.getValues("fullNameTh")}</span>
                                                     <span className="text-muted-foreground">{t("drivers.form.reviewMobile")}</span>
                                                     <span className="font-medium text-right">{form.getValues("mobile")}</span>
                                                     <span className="text-muted-foreground">{t("drivers.form.reviewIdCard")}</span>

@@ -12,6 +12,8 @@ export const driverSchema = z.object({
     // Personal Info
     firstName: z.string().min(1, "First Name is required"),
     lastName: z.string().min(1, "Last Name is required"),
+    /** Full Thai name (ชื่อ-สกุล ภาษาไทย) — single combined field */
+    fullNameTh: z.string().min(1, "Thai full name is required"),
     mobile: z.string().min(1, "Mobile number is required"),
     email: z.string().email("Invalid email address").optional().or(z.literal("")),
     profileImage: z.string().optional(),

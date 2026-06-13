@@ -109,6 +109,8 @@ export default {
     "firstMile.hub.spxNamePlaceholder": "เช่น วังทองหลาง เอ",
     "firstMile.hub.nameThai": "ชื่อจุดรับงาน (ภาษาไทย)",
     "firstMile.hub.nameThaiPlaceholder": "เช่น ศูนย์คัดแยกกรุงเทพ",
+    "firstMile.hub.nameEn": "ชื่อจุดรับงาน (ภาษาอังกฤษ) — ชื่อที่ใช้วางบิล",
+    "firstMile.hub.nameEnPlaceholder": "เช่น Bangkok Sorting Center",
     "firstMile.hub.location": "ตำแหน่ง",
     "firstMile.hub.stationType": "ประเภทสถานี",
     "firstMile.hub.stationTypePlaceholder": "เลือกประเภท",

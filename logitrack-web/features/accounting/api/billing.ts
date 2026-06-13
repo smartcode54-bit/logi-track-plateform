@@ -19,6 +19,7 @@ import { httpsCallable } from "firebase/functions";
 import { functions } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { normalizeDestinationCode, normalizeVehicleClass } from "@/lib/billingCompute";
+import { driverDisplayName } from "@/lib/driverName";
 
 export type VehicleExpenseType = "fuel" | "other";
 
@@ -165,21 +166,12 @@ export async function getVehicleExpensesByType(type: VehicleExpenseType): Promis
             getDocs(collection(db, COLLECTIONS.TRUCKS)),
         ]);
         const driverNameByKey = new Map<string, string>();
-        const authIdToTruckId = new Map<string, string>();
         driversSnapshot.forEach((docSnap) => {
             const d = docSnap.data();
-            const firstName = d.firstName ?? "";
-            const lastName = d.lastName ?? "";
-            const name = (d.name as string)?.trim()
-                || [firstName, lastName].filter(Boolean).join(" ").trim()
-                || (d.email as string)
-                || docSnap.id;
+            const name = driverDisplayName(d, docSnap.id);
             driverNameByKey.set(docSnap.id, name);
             const authId = (d.authId ?? d.authUid) as string | undefined;
             if (authId) driverNameByKey.set(authId, name);
-            const assignment = d.currentAssignment ?? (Array.isArray(d.currentAssignments) && d.currentAssignments.length > 0 ? d.currentAssignments[0] : null);
-            const assignedTruckId = assignment?.truckId as string | undefined;
-            if (authId && assignedTruckId) authIdToTruckId.set(authId, assignedTruckId);
         });
         const truckPlateMap = new Map<string, string>();
         trucksSnapshot.forEach((docSnap) => {
@@ -190,8 +182,12 @@ export async function getVehicleExpensesByType(type: VehicleExpenseType): Promis
         return byType.map((doc) => {
             const d = doc.data();
             const driverId = d.driverId ?? "";
-            const truckId = (d.truckId as string | undefined) ?? authIdToTruckId.get(driverId);
+            // ใช้เฉพาะ snapshot ที่บันทึกไว้ในเอกสาร — ไม่ fallback ไป assignment ปัจจุบันของคนขับ
+            // มิฉะนั้นรายการเก่าจะเปลี่ยนรถ/ทะเบียนตามเมื่อคนขับถูกย้ายไปคันใหม่
+            const truckId = (d.truckId as string | undefined) ?? undefined;
             const driverName = driverNameByKey.get(driverId);
+            // truckLicensePlate ที่ snapshot ไว้มาก่อน; ถ้าไม่มี ค่อยใช้ทะเบียนของรถที่ระบุไว้ในเอกสาร
+            // (ทะเบียนต่อรถคงที่ ปลอดภัยกว่าการ resolve ผ่านคนขับ)
             const storedPlate = d.truckLicensePlate as string | undefined;
             const licensePlate = storedPlate || (truckId ? truckPlateMap.get(truckId) : undefined);
             return {
@@ -235,10 +231,7 @@ export async function getDriversForFilter(): Promise<DriverOption[]> {
         const snapshot = await getDocs(collection(db, COLLECTIONS.DRIVERS));
         return snapshot.docs.map((docSnap) => {
             const d = docSnap.data();
-            const name = (d.name as string)?.trim()
-                || [d.firstName, d.lastName].filter(Boolean).join(" ").trim()
-                || (d.email as string)
-                || docSnap.id;
+            const name = driverDisplayName(d, docSnap.id);
             const authId = (d.authId ?? d.authUid) as string | undefined;
             return { id: authId ?? docSnap.id, name };
         }).filter((x) => x.name);
@@ -267,10 +260,7 @@ export async function getDriversWithTruckAssignments(): Promise<DriverWithTruckA
         const snapshot = await getDocs(collection(db, COLLECTIONS.DRIVERS));
         return snapshot.docs.map((docSnap) => {
             const d = docSnap.data();
-            const name = (d.name as string)?.trim()
-                || [d.firstName, d.lastName].filter(Boolean).join(" ").trim()
-                || (d.email as string)
-                || docSnap.id;
+            const name = driverDisplayName(d, docSnap.id);
             const authId = (d.authId ?? d.authUid) as string | undefined;
             const filterId = authId ?? docSnap.id;
             const assignment = d.currentAssignment ?? (Array.isArray(d.currentAssignments) && d.currentAssignments.length > 0 ? d.currentAssignments[0] : null);

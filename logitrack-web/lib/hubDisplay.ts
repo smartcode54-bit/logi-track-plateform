@@ -10,6 +10,19 @@ export function primaryHubLabelFromFirestoreData(data: Record<string, unknown>):
     return th || en || code;
 }
 
+/**
+ * ป้ายสำหรับ "การวางบิล": อังกฤษ → ไทย → รหัส
+ * ชื่อภาษาอังกฤษของจุดรับ-ส่ง (source_name_en) คือชื่อที่ใช้บนเอกสารวางบิล/ใบแจ้งหนี้
+ */
+export function billingHubLabelFromFirestoreData(data: Record<string, unknown>): string {
+    const code = String(data.source_id ?? data.hubId ?? data.hubCode ?? "").trim();
+    const en = String(data.source_name_en ?? data.hubName ?? data.station_name_en ?? "").trim();
+    const th = String(
+        data.source_name_th ?? data.hubTHName ?? data.hub_th_name ?? data.station_name_th ?? ""
+    ).trim();
+    return en || th || code;
+}
+
 export type HubDisplayEntry = {
     source_id: string;
     source_name_en?: string;

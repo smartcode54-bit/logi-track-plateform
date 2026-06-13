@@ -10,8 +10,10 @@ export const hubSchema = z.object({
     id: z.string().optional(),
     /** Source ID (e.g. ALANG-A, SOCN – ตามใบงาน) */
     source_id: z.string().min(1, "Source ID is required"),
-    /** Display name in English */
-    source_name_en: z.string().min(1, "Source name (EN) is required"),
+    /** Primary display name in Thai (ชื่อจุดรับงาน ภาษาไทย) — required */
+    source_name_th: z.string().min(1, "Source name (TH) is required"),
+    /** Display name in English — used as the billing name. Optional. */
+    source_name_en: z.string().optional(),
     /** Latitude for Check-in / Geofencing */
     latitude: z.number().optional(),
     /** Longitude for Check-in / Geofencing */

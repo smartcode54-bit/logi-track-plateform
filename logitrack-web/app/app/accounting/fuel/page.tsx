@@ -46,10 +46,43 @@ import { CAPABILITIES } from "@/lib/capabilities";
 import { updateVehicleExpense } from "../actions.client";
 import { functions } from "@/firebase/client";
 
+/** เหตุผลที่ค่า km/L ของแถวนั้นไม่น่าเชื่อถือ (ไม่นำไปคิดค่าเฉลี่ย) */
+export type FuelFlag =
+    | "no-truck"          // ระบุรถไม่ได้ (ไม่มี truckId/ทะเบียน snapshot)
+    | "chain-start"       // รายการแรกของรถ ไม่มีฐานให้เทียบ
+    | "no-odometer"       // ไม่มีเลขไมล์
+    | "odometer-rollback" // เลขไมล์ย้อนกลับ (ข้อมูลผิด/สลับคัน)
+    | "out-of-range";     // km/L หลุดช่วงสมเหตุสมผล (น่าจะ chain break หรือเติมไม่เต็มถัง)
+
 export interface FuelRow extends VehicleExpenseRow {
     kmPerLiter?: number;
-    /** ระยะทาง (กม.) ตั้งแต่การเติมครั้งก่อน */
+    /** ระยะทาง (กม.) ตั้งแต่การเติมครั้งก่อนของรถคันเดียวกัน */
     distanceKm?: number;
+    /** ถ้ามีค่า = km/L ของแถวนี้ไม่น่าเชื่อถือ ไม่ถูกนำไปเฉลี่ย */
+    fuelFlag?: FuelFlag;
+}
+
+/** ช่วง km/L ที่ถือว่าสมเหตุสมผลสำหรับรถบรรทุก — นอกช่วงนี้ถือว่าเพี้ยน */
+const KMPL_MIN = 2;
+const KMPL_MAX = 25;
+
+/** คีย์จัดกลุ่มตาม "รถ" — truckId ก่อน, ไม่มีก็ใช้ทะเบียน (normalize); ไม่มีทั้งคู่ = null */
+function fuelTruckKey(r: VehicleExpenseRow): string | null {
+    if (r.truckId) return `id:${r.truckId}`;
+    if (r.licensePlate && r.licensePlate.trim())
+        return `plate:${r.licensePlate.replace(/[\s-]/g, "").toUpperCase()}`;
+    return null;
+}
+
+/** คำอธิบายเหตุผลที่ km/L ไม่น่าเชื่อถือ (แสดงเป็น tooltip) */
+function fuelFlagLabel(flag: FuelFlag): string {
+    switch (flag) {
+        case "no-truck": return "ระบุรถไม่ได้ (ไม่มีทะเบียน) — กรุณาเลือกรถในรายการเพื่อให้คำนวณต่อเนื่องได้";
+        case "chain-start": return "รายการแรกของรถคันนี้ ยังไม่มีเลขไมล์ก่อนหน้าให้เทียบ";
+        case "no-odometer": return "ไม่มีเลขไมล์ในรายการนี้";
+        case "odometer-rollback": return "เลขไมล์ย้อนกลับจากรายการก่อนหน้า — ตรวจสอบข้อมูล/รถที่เลือก";
+        case "out-of-range": return `ค่าหลุดช่วงปกติ (${KMPL_MIN}–${KMPL_MAX} กม./ลิตร) — น่าจะมีการเติมที่ไม่ได้บันทึก หรือเติมไม่เต็มถัง จึงไม่นำไปคิดค่าเฉลี่ย`;
+    }
 }
 
 interface BangchakPriceItem {
@@ -85,35 +118,56 @@ function formatBangchakPriceOnly(price: number): string {
 }
 
 function computeKmPerLiter(records: VehicleExpenseRow[]): FuelRow[] {
-    const byDriver = new Map<string, VehicleExpenseRow[]>();
+    // จัดกลุ่มตาม "รถ" ไม่ใช่ "คนขับ" — เพื่อให้เลขไมล์ต่อเนื่องข้ามคนขับที่สลับกันขับคันเดียวกันได้
+    const byTruck = new Map<string, VehicleExpenseRow[]>();
+    const orphans: VehicleExpenseRow[] = []; // ระบุรถไม่ได้ → คำนวณ km/L ไม่ได้
     records.forEach((r) => {
-        const key = r.truckId ?? r.driverId;
-        if (!byDriver.has(key)) byDriver.set(key, []);
-        byDriver.get(key)!.push(r);
+        const key = fuelTruckKey(r);
+        if (!key) { orphans.push(r); return; }
+        if (!byTruck.has(key)) byTruck.set(key, []);
+        byTruck.get(key)!.push(r);
     });
+
     const result: FuelRow[] = [];
-    byDriver.forEach((rows) => {
-        const sorted = [...rows].sort((a, b) => a.date.getTime() - b.date.getTime());
-        sorted.forEach((row, i) => {
-            const prev = i > 0 ? sorted[i - 1] : null;
-            const prevOdo = prev?.odometer;
+    byTruck.forEach((rows) => {
+        // เรียงตามเลขไมล์เป็นหลัก, วันที่เป็น tiebreak (กัน timestamp สลับลำดับ)
+        const sorted = [...rows].sort((a, b) => {
+            const ao = a.odometer ?? Number.POSITIVE_INFINITY;
+            const bo = b.odometer ?? Number.POSITIVE_INFINITY;
+            return ao !== bo ? ao - bo : a.date.getTime() - b.date.getTime();
+        });
+
+        let lastWithOdo: VehicleExpenseRow | null = null;
+        sorted.forEach((row) => {
             const currOdo = row.odometer;
             const vol = row.volumeLiters;
             let kmPerLiter: number | undefined;
             let distanceKm: number | undefined;
-            if (
-                prevOdo != null &&
-                currOdo != null &&
-                currOdo >= prevOdo
-            ) {
+            let fuelFlag: FuelFlag | undefined;
+
+            const prevOdo = lastWithOdo?.odometer;
+            if (currOdo == null) {
+                fuelFlag = "no-odometer";
+            } else if (prevOdo == null) {
+                fuelFlag = "chain-start"; // รายการแรกของรถที่มีเลขไมล์
+            } else if (currOdo < prevOdo) {
+                fuelFlag = "odometer-rollback";
+            } else {
                 distanceKm = currOdo - prevOdo;
                 if (vol != null && vol > 0) {
-                    kmPerLiter = Math.round((distanceKm / vol) * 10) / 10;
+                    const raw = distanceKm / vol;
+                    kmPerLiter = Math.round(raw * 10) / 10;
+                    if (raw < KMPL_MIN || raw > KMPL_MAX) fuelFlag = "out-of-range";
                 }
             }
-            result.push({ ...row, kmPerLiter, distanceKm });
+            // เลื่อนฐานเฉพาะเมื่อมีเลขไมล์จริง — ถ้ามีรายการที่ลืมกรอกเลขไมล์ โซ่จะข้ามไป
+            if (currOdo != null) lastWithOdo = row;
+
+            result.push({ ...row, kmPerLiter, distanceKm, fuelFlag });
         });
     });
+
+    orphans.forEach((r) => result.push({ ...r, fuelFlag: "no-truck" }));
     return result.sort((a, b) => b.date.getTime() - a.date.getTime());
 }
 
@@ -347,6 +401,8 @@ export default function AccountingFuelPage() {
     );
     const thisMonthTotal = thisMonth.reduce((s, r) => s + r.amount, 0);
     const kmPerLiterValues = filteredRecords
+        // ตัดแถวที่ติดธง (chain break / เลขไมล์ย้อน / เติมไม่เต็มถัง) ออกจากค่าเฉลี่ย
+        .filter((r) => (r as FuelRow).fuelFlag == null)
         .map((r) => (r as FuelRow).kmPerLiter)
         .filter((v): v is number => v != null && v > 0);
     const avgKmPerLiter =
@@ -684,9 +740,25 @@ export default function AccountingFuelPage() {
                                             : "—"}
                                     </TableCell>
                                     <TableCell className="text-right font-medium">
-                                        {(row as FuelRow).kmPerLiter != null
-                                            ? `${(row as FuelRow).kmPerLiter}`
-                                            : "—"}
+                                        {(() => {
+                                            const fr = row as FuelRow;
+                                            const flag = fr.fuelFlag;
+                                            if (fr.kmPerLiter != null) {
+                                                // มีค่า แต่ถ้าติดธง out-of-range ให้แสดงแบบเตือน (ส้ม) พร้อม ⚠
+                                                return flag ? (
+                                                    <span className="text-amber-500" title={fuelFlagLabel(flag)}>
+                                                        ⚠ {fr.kmPerLiter}
+                                                    </span>
+                                                ) : (
+                                                    <span>{fr.kmPerLiter}</span>
+                                                );
+                                            }
+                                            return (
+                                                <span className="text-muted-foreground" title={flag ? fuelFlagLabel(flag) : undefined}>
+                                                    —
+                                                </span>
+                                            );
+                                        })()}
                                     </TableCell>
                                 </TableRow>
                             ))}

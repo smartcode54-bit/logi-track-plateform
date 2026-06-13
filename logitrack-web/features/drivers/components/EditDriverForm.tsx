@@ -73,6 +73,7 @@ export default function EditDriverForm() {
         defaultValues: {
             firstName: "",
             lastName: "",
+            fullNameTh: "",
             mobile: "",
             email: "",
             idCard: "",
@@ -298,6 +299,10 @@ export default function EditDriverForm() {
                                         <FormItem><FormLabel>{t("drivers.form.lastName")} <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder={t("drivers.form.lastName.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
                                     )} />
                                 </div>
+
+                                <FormField control={form.control} name="fullNameTh" render={({ field }) => (
+                                    <FormItem><FormLabel>{t("drivers.form.fullNameTh")} <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder={t("drivers.form.fullNameTh.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
+                                )} />
 
                                 <div className="grid md:grid-cols-2 gap-6">
                                     <FormField control={form.control} name="mobile" render={({ field }) => (

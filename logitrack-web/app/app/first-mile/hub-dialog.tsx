@@ -62,6 +62,7 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
         resolver: zodResolver(hubSchema as any),
         defaultValues: {
             source_id: "",
+            source_name_th: "",
             source_name_en: "",
             latitude: 13.7563, // Default BKK
             longitude: 100.5018,
@@ -90,9 +91,16 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
     useEffect(() => {
         if (isOpen) {
             if (isEditMode && defaultValues) {
+                // Organic migration for legacy hubs: older docs stored the Thai name
+                // in source_name_en. If source_name_th is missing, seed it from the
+                // legacy source_name_en value and leave the English field blank so the
+                // admin can fill the real (billing) English name.
+                const hasTh = Boolean(String(defaultValues.source_name_th ?? "").trim());
+                const legacyName = String(defaultValues.source_name_en ?? "").trim();
                 form.reset({
                     source_id: defaultValues.source_id ?? "",
-                    source_name_en: defaultValues.source_name_en ?? "",
+                    source_name_th: hasTh ? (defaultValues.source_name_th ?? "") : legacyName,
+                    source_name_en: hasTh ? (defaultValues.source_name_en ?? "") : "",
                     latitude: defaultValues.latitude ?? 13.7563,
                     longitude: defaultValues.longitude ?? 100.5018,
                     station_type: defaultValues.station_type ?? "HUB",
@@ -102,6 +110,7 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
             } else {
                 form.reset({
                     source_id: "",
+                    source_name_th: "",
                     source_name_en: "",
                     latitude: 13.7563,
                     longitude: 100.5018,
@@ -199,18 +208,32 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
 
                             <FormField
                                 control={form.control}
-                                name="source_name_en"
+                                name="source_name_th"
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel>{t("firstMile.hub.spxName")}</FormLabel>
+                                        <FormLabel>{t("firstMile.hub.nameThai")}</FormLabel>
                                         <FormControl>
-                                            <Input placeholder={t("firstMile.hub.spxNamePlaceholder")} {...field} />
+                                            <Input placeholder={t("firstMile.hub.nameThaiPlaceholder")} {...field} />
                                         </FormControl>
                                         <FormMessage />
                                     </FormItem>
                                 )}
                             />
                         </div>
+
+                        <FormField
+                            control={form.control}
+                            name="source_name_en"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>{t("firstMile.hub.nameEn")}</FormLabel>
+                                    <FormControl>
+                                        <Input placeholder={t("firstMile.hub.nameEnPlaceholder")} {...field} value={field.value ?? ""} />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
 
                         <FormField
                             control={form.control}

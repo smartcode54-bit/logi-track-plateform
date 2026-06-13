@@ -52,8 +52,10 @@ const SourcesMap = dynamic(() => import("@/components/map/SourcesMap"), {
 });
 
 /** Display row: supports both new schema and legacy Firestore fields */
-interface SourceRow extends Pick<Hub, "source_id" | "source_name_en" | "latitude" | "longitude" | "station_type"> {
+interface SourceRow extends Pick<Hub, "source_id" | "latitude" | "longitude" | "station_type"> {
     id?: string;
+    /** English / billing name — always normalized to a string in mapDocToSourceRow */
+    source_name_en: string;
     /** Thai / legacy hubTHName — ค้นหาและแสดง (ฟอร์มแก้ไขยังใช้ source_name_en เป็นหลัก) */
     source_name_th?: string;
     linkedCustomerId?: string;
@@ -384,6 +386,7 @@ export default function SourcesPage() {
                         }}
                         defaultValues={editSource ? {
                             source_id: editSource.source_id,
+                            source_name_th: editSource.source_name_th,
                             source_name_en: editSource.source_name_en,
                             latitude: editSource.latitude,
                             longitude: editSource.longitude,

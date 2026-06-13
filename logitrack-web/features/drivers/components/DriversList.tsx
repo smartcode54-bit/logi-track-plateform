@@ -102,7 +102,7 @@ export default function DriversList() {
     // Filtering Logic
     const filteredDrivers = useMemo(() => {
         return drivers.filter(driver => {
-            const fullName = `${driver.firstName} ${driver.lastName}`.toLowerCase();
+            const fullName = `${driver.fullNameTh ?? ""} ${driver.firstName} ${driver.lastName}`.toLowerCase();
             const matchSearch =
                 fullName.includes(searchQuery.toLowerCase()) ||
                 driver.truckLicenseId?.toLowerCase().includes(searchQuery.toLowerCase()) ||

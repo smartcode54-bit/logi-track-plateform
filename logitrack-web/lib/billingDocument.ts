@@ -170,15 +170,52 @@ function invoiceNumber(period: BillingPeriod): string {
   return `INV-${period.year}${mm}-${seq}`;
 }
 
-/** Group trips by vehicleClass + route for the invoice body table. */
-function groupToLineItems(trips: BillingTripRow[]): {
+interface LineItem {
   vehicleClass: string;
   route: string;
   count: number;
   unitPrice: number;
   total: number;
-}[] {
-  const map = new Map<string, { vehicleClass: string; route: string; count: number; unitPrice: number; total: number }>();
+  dates: Date[];
+  /** Standby lists each working day (14,17,20); others use a min–max range (2-31). */
+  enumerateDays: boolean;
+}
+
+const beYear = (d: Date) => d.getFullYear() + 543;
+
+/**
+ * Delivery date label for a line item, in Thai Buddhist year.
+ * A statement covers a single billing month, so all dates share month/year.
+ *  - range (trips / ค่าโยก): same day → "5/5/2569"; span → "2-31/5/2569"
+ *  - enumerated (standby): distinct days → "14,17,20/5/2569"
+ */
+function formatLineItemDates(dates: Date[], enumerateDays: boolean): string {
+  const valid = dates.filter(Boolean).sort((a, b) => a.getTime() - b.getTime());
+  if (valid.length === 0) return "-";
+  const ref = valid[valid.length - 1];
+  const monthYear = `${ref.getMonth() + 1}/${beYear(ref)}`;
+
+  if (enumerateDays) {
+    const days = [...new Set(valid.map((d) => d.getDate()))].sort((a, b) => a - b);
+    return `${days.join(",")}/${monthYear}`;
+  }
+
+  const min = valid[0];
+  const max = valid[valid.length - 1];
+  const sameMonth = min.getFullYear() === max.getFullYear() && min.getMonth() === max.getMonth();
+  if (sameMonth) {
+    const dMin = min.getDate();
+    const dMax = max.getDate();
+    const dayPart = dMin === dMax ? `${dMin}` : `${dMin}-${dMax}`;
+    return `${dayPart}/${monthYear}`;
+  }
+  // Cross-month fallback (rare): spell out both ends fully
+  return `${min.getDate()}/${min.getMonth() + 1}/${beYear(min)}-${max.getDate()}/${max.getMonth() + 1}/${beYear(max)}`;
+}
+
+/** Group trips by vehicleClass + route for the invoice body table. */
+function groupToLineItems(trips: BillingTripRow[]): LineItem[] {
+  const map = new Map<string, LineItem>();
   for (const t of trips) {
     const isStandby = t.rowType === "standby";
     const isStop    = t.rowType === "multidrop_stop";
@@ -187,18 +224,21 @@ function groupToLineItems(trips: BillingTripRow[]): {
       t.hubDisplayName         ?? t.billingLookupHubId        ?? "-",
       t.destinationDisplayName ?? t.billingLookupDestination  ?? "-",
     ].join(" → ");
+    // ค่าโยก (multidrop) จัดกลุ่มรวมเป็นรายการเดียว ไม่ระบุเส้นทาง — แจกแจงด้วยช่วงวันที่เหมือนเที่ยวปกติ
     const route = isStandby ? `${baseRoute} (Stand by)`
-                : isStop    ? `${baseRoute} (Drop fee)`
+                : isStop    ? "ค่าโยก"
                 : baseRoute;
     // Use final (adjusted) rate as unit price so quantity × unitPrice = total
     const unitPrice = t.billingEstimateThb;
     const key = `${vc}::${route}::${unitPrice}`;
+    const d = t.deliveredTimestamp;
     const existing = map.get(key);
     if (existing) {
       existing.count += 1;
       existing.total += t.billingEstimateThb;
+      if (d) existing.dates.push(d);
     } else {
-      map.set(key, { vehicleClass: vc, route, count: 1, unitPrice, total: t.billingEstimateThb });
+      map.set(key, { vehicleClass: vc, route, count: 1, unitPrice, total: t.billingEstimateThb, dates: d ? [d] : [], enumerateDays: isStandby });
     }
   }
   return Array.from(map.values());
@@ -299,11 +339,12 @@ async function buildInvoicePdf(
   const lineItems = groupToLineItems(trips);
   autoTable(doc, {
     startY: Math.max(y + 5, 80),
-    head: [["ลำดับ", "ประเภทรถ", "รายการ", "จำนวน", "ราคา/หน่วย", "รวม"]],
+    head: [["ลำดับ", "ประเภทรถ", "รายการ", "วันที่จัดส่ง", "จำนวน", "ราคา/หน่วย", "รวม"]],
     body: lineItems.map((item, i) => [
       String(i + 1),
       item.vehicleClass,
       item.route,
+      formatLineItemDates(item.dates, item.enumerateDays),
       String(item.count),
       formatThb(item.unitPrice),
       formatThb(item.total),
@@ -313,11 +354,12 @@ async function buildInvoicePdf(
     headStyles: { fillColor: [30, 80, 160], textColor: 255, fontSize: 9, font: "Sarabun", fontStyle: "bold" },
     bodyStyles: { fontSize: 9, font: "Sarabun", fontStyle: "normal" },
     columnStyles: {
-      0: { cellWidth: 12, halign: "center" },
-      1: { cellWidth: 25 },
-      3: { cellWidth: 18, halign: "center" },
-      4: { cellWidth: 28, halign: "right" },
-      5: { cellWidth: 28, halign: "right" },
+      0: { cellWidth: 10, halign: "center" },
+      1: { cellWidth: 20 },
+      3: { cellWidth: 28, halign: "center" },
+      4: { cellWidth: 14, halign: "center" },
+      5: { cellWidth: 24, halign: "right" },
+      6: { cellWidth: 24, halign: "right" },
     },
   });
 
@@ -330,8 +372,8 @@ async function buildInvoicePdf(
   doc.text(formatThb(grandTotal), rx, finalY, { align: "right" });
 
   doc.setFont("Sarabun", "normal");
-  doc.text(`ภาษีหัก ณ ที่จ่าย 1% (${formatThb(grandTotal)})`, rx - 60, finalY + 7);
-  doc.text(`- ${formatThb(withholdingTax)}`, rx, finalY + 7, { align: "right" });
+  doc.text("ภาษีหัก ณ ที่จ่าย 1%", rx - 60, finalY + 7);
+  doc.text(`-${formatThb(withholdingTax)}`, rx, finalY + 7, { align: "right" });
   doc.setFont("Sarabun", "bold");
   doc.text("ยอดรวมสุทธิ:", rx - 40, finalY + 14);
   doc.text(formatThb(totalNet), rx, finalY + 14, { align: "right" });

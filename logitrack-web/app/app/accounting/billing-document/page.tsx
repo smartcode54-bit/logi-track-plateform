@@ -19,7 +19,8 @@ import { COLLECTIONS } from "@/lib/collections";
 import { useLanguage } from "@/context/language";
 import { getCustomers } from "@/features/customers/api/customers";
 import type { Customer } from "@/validate/customerSchema";
-import { primaryHubLabelFromFirestoreData } from "@/lib/hubDisplay";
+import { billingHubLabelFromFirestoreData } from "@/lib/hubDisplay";
+import { driverDisplayName } from "@/lib/driverName";
 import { normalizeDestinationCode } from "@/lib/billingRates";
 import { SOC_DESTINATIONS, normalizeSocIdToKey } from "@/validate/taskSchema";
 import {
@@ -140,7 +141,7 @@ export default function BillingDocumentPage() {
             const map = new Map<string, string>();
             snap.forEach((d) => {
                 const data = d.data();
-                const label = primaryHubLabelFromFirestoreData(data);
+                const label = billingHubLabelFromFirestoreData(data);
                 const sourceId = String(data.source_id ?? data.hubId ?? data.hubCode ?? "").trim();
                 // Map all possible code fields so any hub reference format resolves to a display name
                 if (data.source_id) map.set(String(data.source_id).trim().toUpperCase(), label);
@@ -232,6 +233,25 @@ export default function BillingDocumentPage() {
                 });
             }));
 
+            // ── Drivers: resolve names to Thai (reports use Thai driver names) ──
+            // Keyed by both doc id and authId so a trip's driverId (authId) resolves.
+            const driverNameByKey = new Map<string, string>();
+            try {
+                const driversSnap = await getDocs(collection(db, COLLECTIONS.DRIVERS));
+                driversSnap.forEach((ds) => {
+                    const dd = ds.data();
+                    const name = driverDisplayName(dd, ds.id);
+                    driverNameByKey.set(ds.id, name);
+                    const authId = (dd.authId ?? dd.authUid) as string | undefined;
+                    if (authId) driverNameByKey.set(authId, name);
+                });
+            } catch (e) {
+                console.warn("[billing] failed to load drivers for Thai name resolution:", e);
+            }
+            const resolveDriverName = (driverId: unknown, fallback?: string): string | undefined => {
+                const key = String(driverId ?? "").trim();
+                return (key && driverNameByKey.get(key)) || fallback;
+            };
 
             const rows: BillingTripRow[] = [];
 
@@ -259,7 +279,7 @@ export default function BillingDocumentPage() {
                             billingLookupDestination: destCode,
                             billingCustomerId: data.billingCustomerId,
                             vehicleClass: taskInfo?.truckType,
-                            driverName: taskInfo?.driverName,
+                            driverName: resolveDriverName(data.driverId, taskInfo?.driverName),
                             driverPhone: taskInfo?.driverPhone,
                             truckLicensePlate: taskInfo?.truckLicensePlate,
                             hubDisplayName: resolveDisplayName(hubId),
@@ -286,7 +306,7 @@ export default function BillingDocumentPage() {
                     billingAddThbPerTrip: Number(data.billingAddThbPerTrip) || undefined,
                     billingCustomerId: data.billingCustomerId,
                     vehicleClass: taskInfo?.truckType,
-                    driverName: taskInfo?.driverName,
+                    driverName: resolveDriverName(data.driverId, taskInfo?.driverName),
                     driverPhone: taskInfo?.driverPhone,
                     truckLicensePlate: taskInfo?.truckLicensePlate,
                     hubDisplayName: resolveDisplayName(hubId),
@@ -318,7 +338,7 @@ export default function BillingDocumentPage() {
                     billingEstimateThb: billingAmt,
                     billingCustomerId: cid,
                     vehicleClass: taskInfo?.truckType,
-                    driverName: taskInfo?.driverName,
+                    driverName: resolveDriverName(data.driverId, taskInfo?.driverName),
                     driverPhone: taskInfo?.driverPhone,
                     truckLicensePlate: taskInfo?.truckLicensePlate,
                     hubDisplayName: resolveDisplayName(
