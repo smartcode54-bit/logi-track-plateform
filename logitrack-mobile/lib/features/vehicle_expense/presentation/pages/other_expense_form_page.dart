@@ -15,10 +15,17 @@ final DateFormat _dateTimeFormat = DateFormat('dd/MM/yyyy HH:mm:ss');
 /// หน้าบันทึกค่าใช้จ่ายอื่นๆ: วันที่เวลา, ประเภท, ยอดเงิน, ถ่ายภาพใบเสร็จ (template overlay), สถานที่ lat,lng
 /// ไม่มีรายละเอียด/หมายเหตุ; ก่อนบันทึกมี Preview; ตอน Save disable ทุก input + spinning + กำลังบันทึก...
 class OtherExpenseFormPage extends StatefulWidget {
-  const OtherExpenseFormPage({super.key, this.initialData});
+  const OtherExpenseFormPage({
+    super.key,
+    this.initialData,
+    this.truckId,
+    this.truckLicensePlate,
+  });
 
   /// เติมจากรายการที่แอดมินปฏิเสธ — merge doc เดิม สถานะกลับเป็น PENDING
   final VehicleExpense? initialData;
+  final String? truckId;
+  final String? truckLicensePlate;
 
   @override
   State<OtherExpenseFormPage> createState() => _OtherExpenseFormPageState();
@@ -217,6 +224,8 @@ class _OtherExpenseFormPageState extends State<OtherExpenseFormPage> {
         adminNote: null,
         createdAt: widget.initialData?.createdAt,
         updatedAt: DateTime.now(),
+        truckId: widget.initialData?.truckId ?? widget.truckId,
+        truckLicensePlate: widget.initialData?.truckLicensePlate ?? widget.truckLicensePlate,
       );
       await saveVehicleExpense(
         expense,

@@ -144,9 +144,24 @@ class _VehicleExpensePageState extends State<VehicleExpensePage>
     return null;
   }
 
+  /// Fetch fresh driver data right before opening any expense form,
+  /// so spare drivers who switch trucks mid-shift always record the correct plate.
+  Future<Map<String, dynamic>?> _fetchFreshDriverData() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || uid.isEmpty) return _driverData;
+    try {
+      final fresh = await _driverRepository.getCurrentDriver(uid);
+      if (fresh != null && mounted) setState(() => _driverData = fresh);
+      return fresh ?? _driverData;
+    } catch (_) {
+      return _driverData;
+    }
+  }
+
   Future<void> _openRefuelForm() async {
-    final truckId = _truckIdForMaintenance(_driverData);
-    final truckPlate = _truckPlateForExpense(_driverData);
+    final driver = await _fetchFreshDriverData();
+    final truckId = _truckIdForMaintenance(driver);
+    final truckPlate = _truckPlateForExpense(driver);
     final result = await Navigator.of(context).push<bool>(MaterialPageRoute(
       builder: (_) => RefuelFormPage(
         truckId: truckId.isEmpty ? null : truckId,
@@ -157,8 +172,16 @@ class _VehicleExpensePageState extends State<VehicleExpensePage>
   }
 
   Future<void> _openOtherExpenseForm() async {
+    final driver = await _fetchFreshDriverData();
+    final truckId = _truckIdForMaintenance(driver);
+    final truckPlate = _truckPlateForExpense(driver);
     final result = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => const OtherExpenseFormPage()),
+      MaterialPageRoute(
+        builder: (_) => OtherExpenseFormPage(
+          truckId: truckId.isEmpty ? null : truckId,
+          truckLicensePlate: truckPlate,
+        ),
+      ),
     );
     if (result == true) _loadRecent();
   }

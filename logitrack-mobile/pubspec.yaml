@@ -16,8 +16,8 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-# 2.6.1: add trip schema for include truck licensePlate into task, trip, fuel, expense 
-version: 2.6.1+1
+# 2.6.2: adjust truckid when driver has an expense on the truck
+version: 2.6.2+1
 
 environment:
   sdk: ^3.10.8
