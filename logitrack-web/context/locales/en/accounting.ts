@@ -392,6 +392,7 @@ export default {
     "accounting.income.backfill.useFilterDates": "Copy dates from filters (as trip createdAt range)",
     "accounting.income.backfill.run": "Run backfill",
     "accounting.income.backfill.runByDate": "Backfill by date range",
+    "accounting.income.backfill.forceRecompute": "Force recompute — overwrite existing billing (use after deleting fuel adjustment rules)",
     "accounting.income.backfill.missingTotal": "Missing billing",
     "accounting.income.backfill.canFix": "Can fix now",
     "accounting.income.backfill.needRateCard": "Need Rate Card",

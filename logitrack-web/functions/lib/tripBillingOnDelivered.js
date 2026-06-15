@@ -48,10 +48,10 @@ const COL_SERVICE_FEES = "customer_service_fees";
 function normalizeStoredCode(v) {
     return (v ?? "").trim().toUpperCase();
 }
-/** Build display name → source_id map AND code → display name map from hubs collection. */
-async function buildHubNameToCodeMap(db) {
+async function buildHubMaps(db) {
     const snap = await db.collection(COL_HUBS).get();
-    const map = new Map();
+    const nameToCode = new Map();
+    const codeToName = new Map();
     snap.docs.forEach((d) => {
         const data = d.data();
         const code = String(data.source_id ?? data.hubId ?? "").trim();
@@ -59,19 +59,19 @@ async function buildHubNameToCodeMap(db) {
             return;
         for (const nameField of [data.source_name_th, data.source_name_en, data.hubName]) {
             const name = typeof nameField === "string" ? nameField.trim() : "";
-            if (name && !map.has(name))
-                map.set(name, code);
+            // Skip names equal to the code so a code never maps to itself in nameToCode.
+            if (name && name !== code && !nameToCode.has(name))
+                nameToCode.set(name, code);
         }
-        // Also add reverse: code → primary display name (source_name_th first)
         const displayName = typeof data.source_name_th === "string" ? data.source_name_th.trim() : "";
-        if (displayName && !map.has(code))
-            map.set(code, displayName);
+        if (displayName && !codeToName.has(code))
+            codeToName.set(code, displayName);
     });
-    return map;
+    return { nameToCode, codeToName };
 }
-/** Resolve destination: if stored as display name ("ประเวศ18") → return PDP code ("SPK890146"). */
-function resolveDestination(raw, nameToCode) {
-    if (!raw)
+/** Translate a display name → code. Codes (and unknown values) pass through unchanged. */
+function resolveNameToCode(raw, nameToCode) {
+    if (!raw || !nameToCode)
         return raw;
     return nameToCode.get(raw.trim()) ?? raw;
 }
@@ -99,7 +99,7 @@ function mapFuelDoc(customerId, doc) {
     };
 }
 /** Shared core: persist billing snapshot from already-read trip fields (idempotent). */
-async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hubNameToCode, forceRecompute, rateCache, taskCache) {
+async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hubMaps, forceRecompute, rateCache, taskCache) {
     if (data.status !== "delivered") {
         return { ok: true, skipped: true, error: "Trip is not delivered yet" };
     }
@@ -129,20 +129,13 @@ async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hu
     }
     const rawDestination = typeof t.destination === "string" ? t.destination : undefined;
     const rawSourceHub = typeof t.sourceHub === "string" ? t.sourceHub : undefined;
-    // Resolve hub: "J&T EXPRESS บางปู" → "SPK-GW" (display name → source_id)
-    const resolvedSourceHub = rawSourceHub && hubNameToCode
-        ? (hubNameToCode.get(rawSourceHub.trim()) ?? rawSourceHub)
-        : rawSourceHub;
-    // Resolve destination: try display name → code first; if unchanged, try code → display name (for SOC codes like SPK890146)
-    let resolvedDestination = rawDestination && hubNameToCode
-        ? resolveDestination(rawDestination, hubNameToCode)
-        : rawDestination;
-    if (resolvedDestination && hubNameToCode && resolvedDestination === rawDestination) {
-        // No name→code match — try reverse: code → display name (matches rate card stored as display names)
-        const byCode = hubNameToCode.get(resolvedDestination.trim());
-        if (byCode && byCode !== resolvedDestination)
-            resolvedDestination = byCode;
-    }
+    const nameToCode = hubMaps?.nameToCode;
+    const codeToName = hubMaps?.codeToName;
+    // Resolve to CODE form only: display name → source_id ("J&T EXPRESS บางปู" → "SPK-GW",
+    // "ประเวศ18" → "SPK890146"). Values already stored as a code ("SPK890174", "SPK-GW")
+    // pass through unchanged so they match rate cards keyed by code.
+    const resolvedSourceHub = resolveNameToCode(rawSourceHub, nameToCode);
+    const resolvedDestination = resolveNameToCode(rawDestination, nameToCode);
     const taskInput = {
         sourceHub: resolvedSourceHub,
         destination: resolvedDestination,
@@ -245,7 +238,16 @@ async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hu
     }
     else {
         // Single-delivery billing (existing logic)
-        const computed = (0, billingCompute_1.computeTripBillingFromParts)(tripParts, taskInput, rateEntries, fuelAdjustments);
+        let computed = (0, billingCompute_1.computeTripBillingFromParts)(tripParts, taskInput, rateEntries, fuelAdjustments);
+        // Fallback for customers whose rate cards key destination by DISPLAY NAME instead of
+        // code: if no rate matched the code form, retry once with the Thai display name.
+        if (!computed && codeToName && rawDestination) {
+            const altDest = codeToName.get((resolvedDestination ?? rawDestination).trim())
+                ?? codeToName.get(rawDestination.trim());
+            if (altDest && altDest !== resolvedDestination) {
+                computed = (0, billingCompute_1.computeTripBillingFromParts)(tripParts, { ...taskInput, destination: altDest }, rateEntries, fuelAdjustments);
+            }
+        }
         if (!computed) {
             const hubId = (0, billingCompute_1.extractHubId)(taskInput.sourceHub);
             const destination = (0, billingCompute_1.normalizeDestinationCode)(taskInput.destination);
@@ -299,15 +301,15 @@ exports.computeTripBillingSnapshot = (0, https_1.onCall)({
         throw new https_1.HttpsError("invalid-argument", "tripId is required");
     }
     const db = admin.firestore();
-    const [tripSnap, hubNameToCode] = await Promise.all([
+    const [tripSnap, hubMaps] = await Promise.all([
         db.collection(COL_TRIP_RECORDS).doc(tripId).get(),
-        buildHubNameToCodeMap(db),
+        buildHubMaps(db),
     ]);
     if (!tripSnap.exists) {
         throw new https_1.HttpsError("not-found", "Trip not found");
     }
     const data = tripSnap.data();
-    return tryWriteBillingSnapshotFromTripData(db, tripId, data, tripSnap.ref, hubNameToCode);
+    return tryWriteBillingSnapshotFromTripData(db, tripId, data, tripSnap.ref, hubMaps);
 });
 function bangkokBoundsToTimestamps(fromDateStr, toDateStr) {
     const start = new Date(`${fromDateStr.trim()}T00:00:00+07:00`);
@@ -343,14 +345,14 @@ exports.backfillTripBillingSnapshots = (0, https_1.onCall)({
     const filterCustomerId = request.data?.customerId?.trim() ?? "";
     const db = admin.firestore();
     const { start, end } = bangkokBoundsToTimestamps(fromDateStr, toDateStr);
-    const [snap, hubNameToCode] = await Promise.all([
+    const [snap, hubMaps] = await Promise.all([
         db.collection(COL_TRIP_RECORDS)
             .where("createdAt", ">=", start)
             .where("createdAt", "<=", end)
             .orderBy("createdAt", "desc")
             .limit(maxScan)
             .get(),
-        buildHubNameToCodeMap(db),
+        buildHubMaps(db),
     ]);
     // Pre-fetch all tasks in parallel to avoid sequential reads in the loop
     const eligibleDocs = snap.docs.filter((doc) => {
@@ -383,7 +385,7 @@ exports.backfillTripBillingSnapshots = (0, https_1.onCall)({
         if (written >= maxWrite)
             continue;
         attempted++;
-        const result = await tryWriteBillingSnapshotFromTripData(db, doc.id, data, doc.ref, hubNameToCode, forceRecompute, rateCache, taskCache);
+        const result = await tryWriteBillingSnapshotFromTripData(db, doc.id, data, doc.ref, hubMaps, forceRecompute, rateCache, taskCache);
         if (result.ok === true && result.skipped !== true && result.billingEstimateThb != null) {
             written++;
         }
@@ -464,13 +466,13 @@ exports.autoComputeBillingOnDelivery = (0, scheduler_1.onSchedule)({
     const db = admin.firestore();
     const windowMs = 30 * 60 * 1000; // 30-minute look-back window
     const since = admin.firestore.Timestamp.fromMillis(Date.now() - windowMs);
-    const [snap, hubNameToCode] = await Promise.all([
+    const [snap, hubMaps] = await Promise.all([
         db.collection(COL_TRIP_RECORDS)
             .where("status", "==", "delivered")
             .where("deliveredTimestamp", ">=", since)
             .limit(100)
             .get(),
-        buildHubNameToCodeMap(db),
+        buildHubMaps(db),
     ]);
     let written = 0;
     let failed = 0;
@@ -478,7 +480,7 @@ exports.autoComputeBillingOnDelivery = (0, scheduler_1.onSchedule)({
         const data = doc.data();
         if (typeof data.billingEstimateThb === "number")
             continue; // already billed
-        const result = await tryWriteBillingSnapshotFromTripData(db, doc.id, data, doc.ref, hubNameToCode);
+        const result = await tryWriteBillingSnapshotFromTripData(db, doc.id, data, doc.ref, hubMaps);
         if (result.ok && !result.skipped) {
             written++;
             firebase_functions_1.logger.info("[autoComputeBilling] billing written", {

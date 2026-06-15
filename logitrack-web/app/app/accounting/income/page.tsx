@@ -26,6 +26,7 @@ import { useLanguage } from "@/context/language";
 import { useAuth } from "@/context/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -195,6 +196,7 @@ export default function AccountingIncomePage() {
     const [backfillFrom, setBackfillFrom] = useState(() => format(subDays(new Date(), 89), "yyyy-MM-dd"));
     const [backfillTo, setBackfillTo] = useState(() => format(new Date(), "yyyy-MM-dd"));
     const [backfillRunning, setBackfillRunning] = useState(false);
+    const [backfillForce, setBackfillForce] = useState(false);
     const [backfillResult, setBackfillResult] = useState<BackfillBillingResponse | null>(null);
     const [backfillError, setBackfillError] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<string>("with-billing");
@@ -743,7 +745,7 @@ export default function AccountingIncomePage() {
         setBackfillResult(null);
         try {
             const fn = httpsCallable<
-                { fromDateStr: string; toDateStr: string; maxScan?: number; maxWrite?: number },
+                { fromDateStr: string; toDateStr: string; maxScan?: number; maxWrite?: number; forceRecompute?: boolean },
                 BackfillBillingResponse
             >(functions, "backfillTripBillingSnapshots");
             const { data } = await fn({
@@ -751,6 +753,7 @@ export default function AccountingIncomePage() {
                 toDateStr: backfillTo.trim(),
                 maxScan: 500,
                 maxWrite: 200,
+                forceRecompute: backfillForce,
             });
             setBackfillResult(data);
             await loadData();
@@ -1032,6 +1035,16 @@ export default function AccountingIncomePage() {
                                 )}
                                 {t("accounting.income.backfill.runByDate")}
                             </Button>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Checkbox
+                                id="backfillForce"
+                                checked={backfillForce}
+                                onCheckedChange={(v) => setBackfillForce(v === true)}
+                            />
+                            <Label htmlFor="backfillForce" className="text-sm font-normal cursor-pointer">
+                                {t("accounting.income.backfill.forceRecompute")}
+                            </Label>
                         </div>
                         <p className="text-xs text-muted-foreground">{t("accounting.income.backfill.limitsHint")}</p>
                         {backfillError && <p className="text-sm text-destructive">{backfillError}</p>}

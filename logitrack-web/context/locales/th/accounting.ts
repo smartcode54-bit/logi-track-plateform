@@ -392,6 +392,7 @@ export default {
     "accounting.income.backfill.useFilterDates": "คัดลอกวันที่จากตัวกรอง (ใช้เป็นช่วง createdAt ของเที่ยว ไม่ใช่เวลาส่งงาน)",
     "accounting.income.backfill.run": "เริ่มเติมข้อมูล",
     "accounting.income.backfill.runByDate": "เติมข้อมูลตามช่วงวัน",
+    "accounting.income.backfill.forceRecompute": "บังคับคำนวณใหม่ — เขียนทับ billing ที่มีอยู่ (ใช้หลังลบกฎปรับราคาน้ำมัน)",
     "accounting.income.backfill.missingTotal": "รายการยังไม่มี billing",
     "accounting.income.backfill.canFix": "แก้ได้เลย",
     "accounting.income.backfill.needRateCard": "ต้องเพิ่ม Rate Card",
