@@ -1,7 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-/// Sort key for driver task queue: [runOrder] ascending when set, else legacy bucket last by [createdAt] ascending.
+/// Sort key for driver task queue: [runOrder] ascending when set. Tasks WITHOUT
+/// [runOrder] are legacy/older work and sort FIRST (by [createdAt] ascending),
+/// so a newly assigned task — which always carries a [runOrder] = max+1 — lands
+/// at the END of the queue and never jumps ahead of an in-progress legacy task.
 int compareTasksForDriverQueue(Map<String, dynamic> a, Map<String, dynamic> b) {
   final roA = a['runOrder'];
   final roB = b['runOrder'];
@@ -11,7 +14,8 @@ int compareTasksForDriverQueue(Map<String, dynamic> a, Map<String, dynamic> b) {
     final c = roA.toInt().compareTo(roB.toInt());
     if (c != 0) return c;
   } else if (hasA != hasB) {
-    return hasA ? -1 : 1;
+    // No runOrder = older legacy task → goes first; runOrder-bearing task last.
+    return hasA ? 1 : -1;
   }
   final at = a['createdAt'] as DateTime?;
   final bt = b['createdAt'] as DateTime?;
