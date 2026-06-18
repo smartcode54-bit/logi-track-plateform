@@ -12,7 +12,7 @@ logitrack-web/functions/.env
 logitrack-web/functions/.env.*
 !logitrack-web/functions/.env.example
 
-# Markdown and docs
+# Markdown and docs (ignored by default; track key docs with `git add -f`)
 README.md
 *.md
 **/doc/
