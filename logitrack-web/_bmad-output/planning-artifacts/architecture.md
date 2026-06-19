@@ -57,6 +57,20 @@ Full-stack brownfield feature inside the existing LogiTrack monorepo — **no ne
 
 **Note:** No init/scaffold story needed — first implementation story starts directly on data model + compute engine.
 
+## ⚠️ REVISION 2026-06-18 — Build on existing `payroll` (supersedes parts of D1/D7/D9/D10)
+
+Discovered during build that a **payroll feature already exists**: `payroll` collection + `validate/payrollSchema.ts` (lineItems EARNING/DEDUCTION; categories incl. TRIP_COMMISSION, FUEL_INCENTIVE, SOCIAL_SECURITY, BASE_SALARY, TAX; totals; status DRAFT→PENDING_APPROVAL→APPROVED→PAID→CANCELLED), `app/app/payroll/page.tsx` + `PayrollReviewDialog.tsx` (list/filter/review/approve), capabilities `hr_view_payroll`/`hr_manage_payroll`, sidebar, i18n. It is a **shell**: no compute engine, "Generate payroll" button not wired to computation, approve only changes status (no `transactions` posting).
+
+**Revised decisions:**
+- **D1′** Do NOT create `driver_payouts`. **Reuse `payroll`** (extend payrollSchema with: `round` R1|R2, immutable `snapshot` on approve, installment refs). Keep NEW: `driver_compensation_config` (rates/tiers/SSO/penalty types). Penalties → `driver_penalties` (new) feeding DEDUCTION lineItems.
+- **Status enum′** use existing `DRAFT | PENDING_APPROVAL | APPROVED | PAID | CANCELLED` (drop draft/approved/published). Mobile shows `APPROVED`/`PAID`.
+- **D7′** transactions posting on approve is NEW (currently missing) — add to the existing approve flow.
+- **D9′** reuse `hr_view_payroll` / `hr_manage_payroll` capabilities (do NOT add 4 new `compensation_*` caps); add at most one config-scoped capability if needed.
+- **D10′** Firestore rules: driver reads own `payroll` where status ∈ {APPROVED, PAID}.
+- **Net-new work:** compensation config + UI; compute engine generating payroll lineItems (wire the existing Generate button); fuel/trip-volume/SSO/installment logic; driver payroll fields; transactions posting on approve; mobile self-view. Existing list/review/approve UI is reused/enhanced, not rebuilt.
+
+> Original D1–D12 below retained for history; where they conflict, this revision wins.
+
 ## Core Architectural Decisions
 
 ### Already decided by existing stack (not re-decided)

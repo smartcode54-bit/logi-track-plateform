@@ -89,6 +89,14 @@ Drivers view their own published compensation breakdown read-only in the Flutter
 
 ---
 
+## ⚠️ REVISION 2026-06-18 — Re-scoped onto existing `payroll`
+A payroll shell already exists (collection, schema, list+review/approve UI, hr capabilities, "Generate payroll" button, sidebar/i18n) — see architecture Revision. Epics adjusted:
+- **E1:** keep config (new) + driver fields (new). Reuse `hr_view_payroll`/`hr_manage_payroll` (no new caps). Story 1.1 = config collection + Zod + rules only.
+- **E2:** compute engine generates **`payroll`** lineItems and **wires the existing "Generate payroll" button**; reuse payrollSchema (extend with `round`). Story 2.5 = wire generate, not a new collection.
+- **E3:** review/approve UI EXISTS → re-scope to: penalties (new), **transactions posting on approve (new)**, adjustments (new), export (verify if exists). Do NOT rebuild list/review/approve.
+- **E4:** mobile self-view of own `payroll` (status APPROVED/PAID) — new.
+- **Status vocab:** use existing DRAFT/PENDING_APPROVAL/APPROVED/PAID/CANCELLED.
+
 ## Epic 1: Compensation Setup & Payroll Data
 
 Admin can configure compensation rules and maintain driver payroll fields — the foundation other epics read from.
