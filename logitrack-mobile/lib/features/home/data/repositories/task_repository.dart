@@ -1,11 +1,40 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-/// Sort key for driver task queue: [runOrder] ascending when set. Tasks WITHOUT
-/// [runOrder] are legacy/older work and sort FIRST (by [createdAt] ascending),
-/// so a newly assigned task — which always carries a [runOrder] = max+1 — lands
-/// at the END of the queue and never jumps ahead of an in-progress legacy task.
+/// Sort key for driver task queue:
+/// 1. Scheduled [date] ascending (earlier pickup date comes first).
+/// 2. Scheduled [time] string ascending within the same date (HH:mm — lexicographic
+///    order is correct for zero-padded times).
+/// 3. [runOrder] ascending as tiebreaker for same date+time tasks.
+///    Tasks WITHOUT [runOrder] (legacy records) sort BEFORE those with one.
+/// 4. [createdAt] ascending as final fallback.
+///
+/// Tasks with no date at all sort after all dated tasks — they are legacy records
+/// with no scheduled pickup time and should be done last.
 int compareTasksForDriverQueue(Map<String, dynamic> a, Map<String, dynamic> b) {
+  final dateA = a['date'] as DateTime?;
+  final dateB = b['date'] as DateTime?;
+
+  // 1. Both have a scheduled date → compare by date then time string.
+  if (dateA != null && dateB != null) {
+    final dayA = DateTime(dateA.year, dateA.month, dateA.day);
+    final dayB = DateTime(dateB.year, dateB.month, dateB.day);
+    final dateCmp = dayA.compareTo(dayB);
+    if (dateCmp != 0) return dateCmp;
+
+    final timeA = (a['time'] as String? ?? '');
+    final timeB = (b['time'] as String? ?? '');
+    final timeCmp = timeA.compareTo(timeB);
+    if (timeCmp != 0) return timeCmp;
+    // Same date+time: fall through to runOrder tiebreaker.
+  } else if (dateA != null) {
+    return -1; // a has date, b doesn't → a sorts first.
+  } else if (dateB != null) {
+    return 1;  // b has date, a doesn't → b sorts first.
+  }
+  // Both have no date: fall through to runOrder.
+
+  // 2. runOrder tiebreaker; no-runOrder (legacy) sorts BEFORE runOrder-bearing tasks.
   final roA = a['runOrder'];
   final roB = b['runOrder'];
   final hasA = roA is num;
@@ -14,9 +43,10 @@ int compareTasksForDriverQueue(Map<String, dynamic> a, Map<String, dynamic> b) {
     final c = roA.toInt().compareTo(roB.toInt());
     if (c != 0) return c;
   } else if (hasA != hasB) {
-    // No runOrder = older legacy task → goes first; runOrder-bearing task last.
     return hasA ? 1 : -1;
   }
+
+  // 3. Final fallback: createdAt ascending.
   final at = a['createdAt'] as DateTime?;
   final bt = b['createdAt'] as DateTime?;
   if (at == null && bt == null) return 0;
