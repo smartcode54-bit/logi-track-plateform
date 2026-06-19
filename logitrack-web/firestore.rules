@@ -434,6 +434,12 @@ service cloud.firestore {
       allow write: if isAppCheckVerified() && request.auth != null && isWebAdmin();
     }
 
+    // Driver compensation config (effective-dated rates/tiers/SSO/penalty types) — admin only.
+    match /driver_compensation_config/{configId} {
+      allow read: if request.auth != null && isWebAdmin();
+      allow write: if isAppCheckVerified() && request.auth != null && isWebAdmin();
+    }
+
     // Security audit stream: read for Security Center (admin or explicit audit capability); writes only via Admin SDK (Cloud Functions).
     match /security_events/{eventId} {
       allow read: if request.auth != null && canReadSecurityEvents();

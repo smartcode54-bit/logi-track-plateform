@@ -99,8 +99,11 @@ export const COLLECTIONS = {
     /** Driver leave requests (sick, annual, etc.) */
     LEAVE_REQUESTS: "leave_requests",
 
-    /** Payroll records (net pay, earnings, deductions) */
+    /** Payroll records (net pay, earnings, deductions) — reused by driver compensation */
     PAYROLL: "payroll",
+
+    /** Driver compensation config (effective-dated rates/tiers/SSO/penalty types) */
+    DRIVER_COMPENSATION_CONFIG: "driver_compensation_config",
 
     /** Security / audit events (append via Cloud Functions only; client read with audit capability) */
     SECURITY_EVENTS: "security_events",
