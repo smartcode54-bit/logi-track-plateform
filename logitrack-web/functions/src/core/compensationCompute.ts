@@ -94,3 +94,43 @@ export function computeBasePay(
     );
     return { weekdayTrips, holidayTrips, excludedTrips, basePayThb };
 }
+
+export interface IncentiveTier {
+    /** Inclusive threshold (km/L for fuel, trip count for volume). */
+    min: number;
+    amountThb: number;
+}
+
+/**
+ * Fuel-efficiency incentive (FR9, FR9.1). Gated by `refuelCount > minRefuels`
+ * for the whole incentive (anti-gaming). Picks the highest tier whose `min`
+ * km/L is reached; below all tiers (or ineligible) → 0.
+ */
+export function computeFuelIncentive(
+    kmPerLitre: number | null,
+    refuelCount: number,
+    tiers: IncentiveTier[],
+    minRefuels: number,
+): { amountThb: number; eligible: boolean } {
+    const eligible = kmPerLitre != null && refuelCount > minRefuels;
+    if (!eligible) return { amountThb: 0, eligible: false };
+    const sorted = [...tiers].sort((a, b) => a.min - b.min);
+    let amountThb = 0;
+    for (const t of sorted) {
+        if ((kmPerLitre as number) >= t.min) amountThb = t.amountThb;
+    }
+    return { amountThb, eligible: true };
+}
+
+/**
+ * Trip-volume incentive (FR12) — highest reached tier ONLY (not additive).
+ * Below the lowest tier → 0.
+ */
+export function computeTripVolumeIncentive(tripCount: number, tiers: IncentiveTier[]): number {
+    const sorted = [...tiers].sort((a, b) => a.min - b.min);
+    let amountThb = 0;
+    for (const t of sorted) {
+        if (tripCount >= t.min) amountThb = t.amountThb;
+    }
+    return amountThb;
+}

@@ -4,8 +4,24 @@ import {
     assignRound,
     makeHolidayChecker,
     computeBasePay,
+    computeFuelIncentive,
+    computeTripVolumeIncentive,
     type BasePayTrip,
+    type IncentiveTier,
 } from "./compensationCompute";
+
+const FUEL_TIERS: IncentiveTier[] = [
+    { min: 10, amountThb: 1000 },
+    { min: 11, amountThb: 1100 },
+    { min: 12, amountThb: 1200 },
+    { min: 13, amountThb: 1400 },
+    { min: 14, amountThb: 1800 },
+];
+const TRIP_TIERS: IncentiveTier[] = [
+    { min: 50, amountThb: 1000 },
+    { min: 60, amountThb: 1500 },
+    { min: 70, amountThb: 2000 },
+];
 
 describe("roundTHB", () => {
     it("rounds half-up to whole baht", () => {
@@ -65,5 +81,34 @@ describe("computeBasePay", () => {
         expect(res.holidayTrips).toBe(0);
         expect(res.excludedTrips).toBe(1);
         expect(res.basePayThb).toBe(4 * 300);
+    });
+});
+
+describe("computeFuelIncentive", () => {
+    it("maps km/L to the highest reached tier when eligible", () => {
+        expect(computeFuelIncentive(10, 6, FUEL_TIERS, 5).amountThb).toBe(1000);
+        expect(computeFuelIncentive(13.9, 6, FUEL_TIERS, 5).amountThb).toBe(1400);
+        expect(computeFuelIncentive(14, 6, FUEL_TIERS, 5).amountThb).toBe(1800);
+        expect(computeFuelIncentive(20, 6, FUEL_TIERS, 5).amountThb).toBe(1800);
+    });
+    it("returns 0 below the lowest tier", () => {
+        expect(computeFuelIncentive(9.9, 6, FUEL_TIERS, 5).amountThb).toBe(0);
+    });
+    it("gates the whole incentive on > minRefuels", () => {
+        expect(computeFuelIncentive(14, 5, FUEL_TIERS, 5)).toEqual({ amountThb: 0, eligible: false });
+        expect(computeFuelIncentive(14, 6, FUEL_TIERS, 5).eligible).toBe(true);
+    });
+    it("returns 0 when km/L is null", () => {
+        expect(computeFuelIncentive(null, 10, FUEL_TIERS, 5)).toEqual({ amountThb: 0, eligible: false });
+    });
+});
+
+describe("computeTripVolumeIncentive", () => {
+    it("uses the highest reached tier only (not additive)", () => {
+        expect(computeTripVolumeIncentive(49, TRIP_TIERS)).toBe(0);
+        expect(computeTripVolumeIncentive(50, TRIP_TIERS)).toBe(1000);
+        expect(computeTripVolumeIncentive(65, TRIP_TIERS)).toBe(1500);
+        expect(computeTripVolumeIncentive(70, TRIP_TIERS)).toBe(2000);
+        expect(computeTripVolumeIncentive(100, TRIP_TIERS)).toBe(2000);
     });
 });
