@@ -163,20 +163,19 @@ export const generateDriverPayoutRun = onCall(
                 const penaltyApplications: { penaltyId: string; appliedThb: number }[] = [];
 
                 // Helper / training-day pay for this round window. Helper days are
-                // trip_records with status "helper" (editable in the trip-record UI),
-                // dated by deliveredTimestamp. Paid only on days with NO delivered trip
-                // (driving days pay as trips instead).
+                // tasks where this driver was selected as a helper by the main driver
+                // (tasks.helperDriverIds, set at check-in), dated by the task's date.
+                // Paid only on days with NO own delivered trip (driving days pay as trips).
                 const deliveredDateKeys = new Set(monthTrips.map((t) => bangkokDateKey(t.deliveredAt)));
                 const helperSnap = await firestore
-                    .collection("trip_records")
-                    .where("driverId", "==", authId)
-                    .where("status", "==", "helper")
-                    .where("deliveredTimestamp", ">=", admin.firestore.Timestamp.fromDate(range.start))
-                    .where("deliveredTimestamp", "<", admin.firestore.Timestamp.fromDate(range.end))
+                    .collection("tasks")
+                    .where("helperDriverIds", "array-contains", authId)
+                    .where("date", ">=", admin.firestore.Timestamp.fromDate(range.start))
+                    .where("date", "<", admin.firestore.Timestamp.fromDate(range.end))
                     .get();
                 const eligibleHelperDays = new Set<string>();
                 for (const h of helperSnap.docs) {
-                    const date = tsToDate(h.data().deliveredTimestamp);
+                    const date = tsToDate(h.data().date);
                     if (!date) continue;
                     const key = bangkokDateKey(date);
                     if (!deliveredDateKeys.has(key)) eligibleHelperDays.add(key); // 1 per day, skip driving days

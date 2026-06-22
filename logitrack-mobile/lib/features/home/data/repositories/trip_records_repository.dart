@@ -10,31 +10,6 @@ const String tripRecordsCollection = 'trip_records';
 String tripRecordPhotoPath(String tripId, String photoType) =>
     'trip_records/$tripId/$photoType.jpg';
 
-/// บันทึกการขึ้นฝึก/ช่วยงาน (helper) ของวันนี้ — เป็น trip_record status 'helper'
-/// (ค่าตอบแทนคิดเป็นค่า helper รายวัน ฝั่งเว็บ; ไม่ใช่เที่ยววิ่งงาน)
-/// [driverId] ต้องเป็น Firebase Auth UID (ให้ตรงกับ payout query ฝั่งเว็บ)
-Future<void> submitHelperCheckIn({
-  required String driverId,
-  String? driverName,
-  double? lat,
-  double? lng,
-  String? note,
-}) async {
-  final now = DateTime.now();
-  await FirebaseFirestore.instance.collection(tripRecordsCollection).add({
-    'status': 'helper',
-    'jobType': 'first_mile', // placeholder — helper ไม่ใช่งานวิ่งจริง; ใช้ status เป็นตัวบอก
-    'driverId': driverId,
-    if (driverName != null) 'driverName': driverName,
-    'deliveredTimestamp': Timestamp.fromDate(now),
-    if (lat != null) 'lat': lat,
-    if (lng != null) 'lng': lng,
-    if (note != null && note.isNotEmpty) 'note': note,
-    'createdAt': FieldValue.serverTimestamp(),
-    'updatedAt': FieldValue.serverTimestamp(),
-  });
-}
-
 /// Result of duplicate check for Trip ID and Seal Code.
 class DuplicateCheckResult {
   final bool tripIdExists;

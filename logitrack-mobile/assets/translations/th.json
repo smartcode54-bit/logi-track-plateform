@@ -1,10 +1,4 @@
 {
-    "helper_checkin": "เช็คอินขึ้นฝึก / Helper",
-    "helper_checkin_confirm": "เช็คอินขึ้นฝึก/ช่วยงานสำหรับวันนี้ใช่ไหม? (วันที่ไม่ได้วิ่งงาน จ่ายเป็นค่า helper รายวัน)",
-    "helper_checkin_button": "เช็คอิน",
-    "helper_checkin_cancel": "ยกเลิก",
-    "helper_checkin_success": "บันทึกเช็คอินขึ้นฝึกแล้ว",
-    "helper_checkin_failed": "เช็คอินขึ้นฝึกไม่สำเร็จ",
     "login": "เข้าสู่ระบบ",
     "welcome_back": "ยินดีต้อนรับกลับ",
     "welcome_subtitle": "กรุณากรอกข้อมูลของคุณเพื่อดำเนินการต่อ",

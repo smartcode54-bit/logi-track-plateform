@@ -1,10 +1,4 @@
 {
-    "helper_checkin": "Helper / Training check-in",
-    "helper_checkin_confirm": "Check in as a helper/trainee for today? (a non-driving attendance day, paid at the daily helper rate)",
-    "helper_checkin_button": "Check in",
-    "helper_checkin_cancel": "Cancel",
-    "helper_checkin_success": "Helper check-in saved",
-    "helper_checkin_failed": "Helper check-in failed",
     "login": "Login",
     "welcome_back": "Welcome Back",
     "welcome_subtitle": "Please enter your details to continue to your route.",

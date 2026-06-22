@@ -6,8 +6,6 @@ export const TRIP_STATUS_ENUM = [
     "incident",
     "delivered",
     "standby",
-    // Non-driving helper/training attendance day (paid a flat helperDayRateThb).
-    "helper",
 ] as const;
 
 // --- Job Type (auto-detected from origin: Hub = first_mile, SOC = line_haul) ---
