@@ -44,8 +44,11 @@ export function DatePicker({
                 <Button
                     variant={"outline"}
                     className={cn(
+                        // Inverted vs theme: contrasts in both dark & light (token-driven, auto-swaps)
                         "w-full text-left font-normal justify-between px-3",
-                        !value && "text-muted-foreground",
+                        "bg-foreground text-background border-foreground",
+                        "hover:bg-foreground/90 hover:text-background",
+                        !value && "text-background/60",
                         className
                     )}
                     disabled={disabled === true}
