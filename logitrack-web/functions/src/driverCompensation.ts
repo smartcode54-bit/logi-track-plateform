@@ -162,18 +162,21 @@ export const generateDriverPayoutRun = onCall(
                 ];
                 const penaltyApplications: { penaltyId: string; appliedThb: number }[] = [];
 
-                // Helper / training-day pay for this round window — paid per attendance day
-                // with NO delivered trip that day (driving days pay as trips instead).
+                // Helper / training-day pay for this round window. Helper days are
+                // trip_records with status "helper" (editable in the trip-record UI),
+                // dated by deliveredTimestamp. Paid only on days with NO delivered trip
+                // (driving days pay as trips instead).
                 const deliveredDateKeys = new Set(monthTrips.map((t) => bangkokDateKey(t.deliveredAt)));
                 const helperSnap = await firestore
-                    .collection("driver_helper_days")
+                    .collection("trip_records")
                     .where("driverId", "==", authId)
-                    .where("date", ">=", admin.firestore.Timestamp.fromDate(range.start))
-                    .where("date", "<", admin.firestore.Timestamp.fromDate(range.end))
+                    .where("status", "==", "helper")
+                    .where("deliveredTimestamp", ">=", admin.firestore.Timestamp.fromDate(range.start))
+                    .where("deliveredTimestamp", "<", admin.firestore.Timestamp.fromDate(range.end))
                     .get();
                 const eligibleHelperDays = new Set<string>();
                 for (const h of helperSnap.docs) {
-                    const date = tsToDate(h.data().date);
+                    const date = tsToDate(h.data().deliveredTimestamp);
                     if (!date) continue;
                     const key = bangkokDateKey(date);
                     if (!deliveredDateKeys.has(key)) eligibleHelperDays.add(key); // 1 per day, skip driving days
