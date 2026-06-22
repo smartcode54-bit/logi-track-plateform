@@ -81,13 +81,19 @@ export const generateDriverPayoutRun = onCall(
         const range = roundRange(period, round);
 
         // Active compensation config (latest effectiveFrom <= month end).
-        const cfgSnap = await firestore
-            .collection("driver_compensation_config")
+        const cfgCol = firestore.collection("driver_compensation_config");
+        let cfgSnap = await cfgCol
             .where("effectiveFrom", "<=", admin.firestore.Timestamp.fromDate(range.monthEnd))
             .orderBy("effectiveFrom", "desc")
             .limit(1)
             .get();
-        if (cfgSnap.empty) throw new HttpsError("failed-precondition", "No compensation config is in effect");
+        if (cfgSnap.empty) {
+            // Fallback: earliest config (e.g. generating a period before the first effective date).
+            cfgSnap = await cfgCol.orderBy("effectiveFrom", "asc").limit(1).get();
+        }
+        if (cfgSnap.empty) {
+            throw new HttpsError("failed-precondition", "No compensation config exists — create one in Compensation Config first");
+        }
         const cfg = cfgSnap.docs[0].data();
 
         // Published holiday date keys.
