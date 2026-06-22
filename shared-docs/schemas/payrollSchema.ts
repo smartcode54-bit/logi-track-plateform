@@ -21,6 +21,11 @@ export const payrollSchema = z.object({
     /** Pay period key "YYYY-MM" + semi-monthly round (driver compensation). */
     payPeriod: z.string().optional(),
     round: z.enum(["R1", "R2"]).optional(),
+    /** Penalty deductions applied this payout — committed to driver_penalties on approve. */
+    penaltyApplications: z.array(z.object({
+        penaltyId: z.string(),
+        appliedThb: z.number(),
+    })).optional(),
     status: z.enum(PAYROLL_STATUS_ENUM).default("DRAFT"),
     
     lineItems: z.array(payrollLineItemSchema).default([]),

@@ -153,6 +153,7 @@ export const generateDriverPayoutRun = onCall(
                 const lineItems: Array<{ type: "EARNING" | "DEDUCTION"; category: string; name: string; amount: number }> = [
                     { type: "EARNING", category: "TRIP_COMMISSION", name: "Trip pay", amount: base.basePayThb },
                 ];
+                const penaltyApplications: { penaltyId: string; appliedThb: number }[] = [];
 
                 // Incentives + deductions settle in R2 only (computed over the full month).
                 if (round === "R2") {
@@ -213,6 +214,7 @@ export const generateDriverPayoutRun = onCall(
                                 name: (src?.data.typeName as string) || (src?.data.typeCode as string) || "Penalty",
                                 amount: pp.appliedThb,
                             });
+                            penaltyApplications.push({ penaltyId: pp.id, appliedThb: pp.appliedThb });
                         }
                     }
                 }
@@ -239,6 +241,7 @@ export const generateDriverPayoutRun = onCall(
                         periodEnd: admin.firestore.Timestamp.fromDate(range.end),
                         status: "DRAFT",
                         lineItems,
+                        penaltyApplications,
                         totalEarnings,
                         totalDeductions,
                         netPay,
@@ -254,5 +257,83 @@ export const generateDriverPayoutRun = onCall(
 
         logger.info("[generateDriverPayoutRun] done", { period, round, written, skippedApproved });
         return { period, round, written, skippedApproved };
+    },
+);
+
+/**
+ * Approve a draft payout (FR18): atomically lock it APPROVED, post one expense
+ * to the `transactions` ledger, and commit penalty installment balances. Runs
+ * in a Firestore transaction so the ledger + penalty balances never diverge.
+ */
+export const approveDriverPayout = onCall(
+    { enforceAppCheck: false },
+    async (request) => {
+        if (!request.auth) throw new HttpsError("unauthenticated", "User must be authenticated");
+        if (request.auth.token.admin !== true) {
+            throw new HttpsError("permission-denied", "Only admins can approve payouts");
+        }
+        const payoutId = (request.data as { payoutId?: string })?.payoutId;
+        if (!payoutId) throw new HttpsError("invalid-argument", "payoutId is required");
+
+        const firestore = db();
+        const approverUid = request.auth.uid;
+
+        await firestore.runTransaction(async (tx) => {
+            const payRef = firestore.collection("payroll").doc(payoutId);
+            const paySnap = await tx.get(payRef);
+            if (!paySnap.exists) throw new HttpsError("not-found", "Payout not found");
+            const pay = paySnap.data() as Record<string, unknown>;
+            if (pay.status === "APPROVED" || pay.status === "PAID") {
+                throw new HttpsError("failed-precondition", "Payout already approved/paid");
+            }
+
+            const applications = (pay.penaltyApplications as { penaltyId: string; appliedThb: number }[] | undefined) ?? [];
+            // Read all penalty docs first (transaction: reads before writes).
+            const penRefs = applications.map((a) => firestore.collection("driver_penalties").doc(a.penaltyId));
+            const penSnaps = await Promise.all(penRefs.map((r) => tx.get(r)));
+
+            // Commit penalty balances.
+            penSnaps.forEach((snap, i) => {
+                if (!snap.exists) return;
+                const data = snap.data() as Record<string, unknown>;
+                const applied = applications[i].appliedThb;
+                const remainingAfter = Math.max(0, Number(data.remainingThb ?? 0) - applied);
+                const installmentsPaid = Number(data.installmentsPaid ?? 0) + 1;
+                tx.update(penRefs[i], {
+                    remainingThb: remainingAfter,
+                    installmentsPaid,
+                    status: remainingAfter <= 0 ? "cleared" : "partially_deducted",
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+            });
+
+            // Post one expense entry to the ledger.
+            const txnRef = firestore.collection("transactions").doc();
+            tx.set(txnRef, {
+                type: "driver_payout",
+                subType: "Driver Compensation",
+                amount: Number(pay.netPay ?? 0),
+                date: new Date().toISOString().split("T")[0],
+                driverId: pay.driverId ?? null,
+                driverName: pay.driverName ?? null,
+                payoutId,
+                payPeriod: pay.payPeriod ?? null,
+                round: pay.round ?? null,
+                performedBy: approverUid,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+
+            // Lock the payout.
+            tx.update(payRef, {
+                status: "APPROVED",
+                approvedBy: approverUid,
+                approvedAt: admin.firestore.FieldValue.serverTimestamp(),
+                ledgerTransactionId: txnRef.id,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+        });
+
+        logger.info("[approveDriverPayout] approved", { payoutId, approverUid });
+        return { payoutId, status: "APPROVED" };
     },
 );

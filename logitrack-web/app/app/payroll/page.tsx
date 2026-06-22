@@ -144,17 +144,19 @@ export default function PayrollPage() {
 
     const handleUpdateStatus = async (id: string, status: Payroll["status"]) => {
         try {
-            const ref = doc(db, COLLECTIONS.PAYROLL, id);
-            const updates: any = { 
-                status,
-                updatedAt: Timestamp.now()
-            };
-            
             if (status === "APPROVED") {
-                updates.approvedBy = user?.uid;
-                updates.approvedAt = Timestamp.now();
+                // Approve posts to the ledger + commits penalty balances atomically (server-side).
+                const fn = httpsCallable<{ payoutId: string }, { status: string }>(functions, "approveDriverPayout");
+                await fn({ payoutId: id });
+                toast.success(`Payroll marked as approved`);
+                return;
             }
-            
+
+            const ref = doc(db, COLLECTIONS.PAYROLL, id);
+            const updates: any = {
+                status,
+                updatedAt: Timestamp.now(),
+            };
             if (status === "PAID") {
                 updates.paymentDate = Timestamp.now();
             }
