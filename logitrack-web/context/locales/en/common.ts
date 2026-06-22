@@ -270,6 +270,8 @@ export default {
     "payroll.subtitle": "Manage driver earnings, deductions, and payment cycles.",
     "payroll.export": "Export",
     "payroll.generatePayroll": "Generate Payroll",
+    "payroll.generated": "Payout run done — {written} written, {skipped} approved skipped",
+    "payroll.generateError": "Failed to generate payout run",
     "payroll.stats.totalNetPay": "Total Net Pay (Period)",
     "payroll.stats.pendingApproval": "Pending Approval",
     "payroll.stats.successfullyPaid": "Successfully Paid",

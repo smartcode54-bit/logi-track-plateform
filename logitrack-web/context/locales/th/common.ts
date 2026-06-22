@@ -270,6 +270,8 @@ export default {
     "payroll.subtitle": "จัดการรายได้ การหัก และรอบการจ่ายของคนขับ",
     "payroll.export": "ส่งออก",
     "payroll.generatePayroll": "สร้างเงินเดือน",
+    "payroll.generated": "สร้างรอบจ่ายเสร็จ — เขียน {written} รายการ, ข้ามที่อนุมัติแล้ว {skipped}",
+    "payroll.generateError": "สร้างรอบจ่ายไม่สำเร็จ",
     "payroll.stats.totalNetPay": "รายได้สุทธิรวม (ช่วง)",
     "payroll.stats.pendingApproval": "รออนุมัติ",
     "payroll.stats.successfullyPaid": "จ่ายแล้ว",

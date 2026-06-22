@@ -2,7 +2,9 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { collection, query, orderBy, onSnapshot, doc, updateDoc, Timestamp, limit } from "firebase/firestore";
-import { db } from "@/firebase/client";
+import { db, functions } from "@/firebase/client";
+import { httpsCallable } from "firebase/functions";
+import Link from "next/link";
 import { COLLECTIONS } from "@/lib/collections";
 import { Payroll, PAYROLL_STATUS_ENUM } from "@/validate/payrollSchema";
 import {
@@ -56,6 +58,32 @@ export default function PayrollPage() {
     // Dialog state
     const [selectedPayroll, setSelectedPayroll] = useState<Payroll | null>(null);
     const [isReviewOpen, setIsReviewOpen] = useState(false);
+
+    // Payout run generation
+    const [genPeriod, setGenPeriod] = useState<string>(() => format(new Date(), "yyyy-MM"));
+    const [genRound, setGenRound] = useState<"R1" | "R2">("R1");
+    const [generating, setGenerating] = useState(false);
+
+    const handleGenerate = async () => {
+        setGenerating(true);
+        try {
+            const fn = httpsCallable<{ period: string; round: string }, { written: number; skippedApproved: number }>(
+                functions,
+                "generateDriverPayoutRun",
+            );
+            const res = await fn({ period: genPeriod, round: genRound });
+            toast.success(
+                t("payroll.generated")
+                    .replace("{written}", String(res.data.written))
+                    .replace("{skipped}", String(res.data.skippedApproved)),
+            );
+        } catch (e) {
+            console.error(e);
+            toast.error((e as Error)?.message || t("payroll.generateError"));
+        } finally {
+            setGenerating(false);
+        }
+    };
 
     // Fetch payroll records
     useEffect(() => {
@@ -149,12 +177,30 @@ export default function PayrollPage() {
                         {t("payroll.subtitle")}
                     </p>
                 </div>
-                <div className="flex gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                    <Button variant="outline" asChild>
+                        <Link href="/app/payroll/config">{t("driverComp.config.title")}</Link>
+                    </Button>
                     <Button variant="outline" onClick={() => toast.info("Export CSV coming soon")}>
                         <Download className="mr-2 h-4 w-4" />
                         {t("payroll.export")}
                     </Button>
-                    <Button onClick={() => toast.info("Batch Generation coming soon")}>
+                    <Input
+                        type="month"
+                        value={genPeriod}
+                        onChange={(e) => setGenPeriod(e.target.value)}
+                        className="w-[150px]"
+                    />
+                    <select
+                        value={genRound}
+                        onChange={(e) => setGenRound(e.target.value as "R1" | "R2")}
+                        className="h-9 rounded-md border bg-background px-2 text-sm"
+                    >
+                        <option value="R1">R1 (1–15)</option>
+                        <option value="R2">R2 (16–end)</option>
+                    </select>
+                    <Button onClick={handleGenerate} disabled={generating}>
+                        {generating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                         {t("payroll.generatePayroll")}
                     </Button>
                 </div>

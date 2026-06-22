@@ -18,6 +18,9 @@ export const payrollSchema = z.object({
     driverName: z.string().optional(),
     periodStart: z.coerce.date(),
     periodEnd: z.coerce.date(),
+    /** Pay period key "YYYY-MM" + semi-monthly round (driver compensation). */
+    payPeriod: z.string().optional(),
+    round: z.enum(["R1", "R2"]).optional(),
     status: z.enum(PAYROLL_STATUS_ENUM).default("DRAFT"),
     
     lineItems: z.array(payrollLineItemSchema).default([]),
