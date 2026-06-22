@@ -6,6 +6,7 @@ import '../../../../core/services/fcm_service.dart';
 import '../../../../features/auth/data/repositories/auth_repository.dart';
 import '../../data/repositories/driver_repository.dart';
 import '../../data/repositories/task_repository.dart';
+import '../../data/repositories/trip_records_repository.dart';
 import '../../../../components/quick_action_card.dart';
 import '../../../broadcast/data/repositories/broadcast_repository.dart';
 import '../../../broadcast/data/services/broadcast_read_tracker.dart';
@@ -380,6 +381,11 @@ class _HomePageState extends State<HomePage> {
                     label: 'history'.tr(),
                     onTap: () => Navigator.pushNamed(context, '/trip-history'),
                   ),
+                  QuickActionCard(
+                    icon: Icons.school_outlined,
+                    label: 'helper_checkin'.tr(),
+                    onTap: _submitHelperCheckIn,
+                  ),
                 ],
               ),
             ),
@@ -388,6 +394,52 @@ class _HomePageState extends State<HomePage> {
         ),
       ),
     );
+  }
+
+  Future<void> _submitHelperCheckIn() async {
+    final uid = _authRepository.currentUser?.uid;
+    if (uid == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('helper_checkin'.tr()),
+        content: Text('helper_checkin_confirm'.tr()),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('helper_checkin_cancel'.tr()),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('helper_checkin_button'.tr()),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final firstName = _driverData?['firstName'] ?? '';
+    final lastName = _driverData?['lastName'] ?? '';
+    final name = '$firstName $lastName'.trim();
+    try {
+      await submitHelperCheckIn(
+        driverId: uid,
+        driverName: name.isEmpty ? null : name,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('helper_checkin_success'.tr())),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('helper_checkin_failed'.tr()),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildSummaryCard(
