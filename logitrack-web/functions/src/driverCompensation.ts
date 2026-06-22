@@ -26,6 +26,7 @@ import {
     bangkokDateKey,
     type BasePayTrip,
     type IncentiveTier,
+    type ScheduledPenalty,
 } from "./core/compensationCompute";
 
 const db = () => admin.firestore();
@@ -182,10 +183,37 @@ export const generateDriverPayoutRun = onCall(
                     if (tripVolume > 0) lineItems.push({ type: "EARNING", category: "TRIP_VOLUME_INCENTIVE", name: "Trip-volume incentive", amount: tripVolume });
 
                     const earnings = lineItems.filter((l) => l.type === "EARNING").reduce((s, l) => s + l.amount, 0);
-                    // TODO(Story 3.1): load driver_penalties and schedule installments here.
-                    const deductionResult = applyDeductions(earnings, sso, []);
+
+                    // Open penalties for this driver → scheduled installments (balances are
+                    // committed at approve time, not here; draft only computes).
+                    const penSnap = await firestore
+                        .collection("driver_penalties")
+                        .where("driverId", "==", authId)
+                        .where("status", "in", ["pending", "partially_deducted"])
+                        .get();
+                    const penaltyDocs = penSnap.docs.map((p) => ({ id: p.id, data: p.data() as Record<string, unknown> }));
+                    const scheduled: ScheduledPenalty[] = penaltyDocs.map((p) => {
+                        const total = Number(p.data.totalThb ?? 0);
+                        const remaining = Number(p.data.remainingThb ?? 0);
+                        const installmentsTotal = Number(p.data.installmentsTotal ?? 1);
+                        const per = installmentsTotal > 1 ? Math.round(total / installmentsTotal) : remaining;
+                        return { id: p.id, remainingThb: remaining, installmentThb: Math.min(Math.max(0, per), Math.max(0, remaining)) };
+                    });
+
+                    const deductionResult = applyDeductions(earnings, sso, scheduled);
                     if (deductionResult.ssoAppliedThb > 0) {
                         lineItems.push({ type: "DEDUCTION", category: "SOCIAL_SECURITY", name: "Social security", amount: deductionResult.ssoAppliedThb });
+                    }
+                    for (const pp of deductionResult.perPenalty) {
+                        if (pp.appliedThb > 0) {
+                            const src = penaltyDocs.find((d) => d.id === pp.id);
+                            lineItems.push({
+                                type: "DEDUCTION",
+                                category: "PENALTY",
+                                name: (src?.data.typeName as string) || (src?.data.typeCode as string) || "Penalty",
+                                amount: pp.appliedThb,
+                            });
+                        }
                     }
                 }
 

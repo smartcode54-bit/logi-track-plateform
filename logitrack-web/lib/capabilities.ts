@@ -370,6 +370,7 @@ export const ROUTE_CAPABILITIES: Record<string, CapabilityId> = {
   "/app/analytics": CAPABILITIES.reporting_view_analytics,
   "/app/payroll": CAPABILITIES.hr_view_payroll,
   "/app/payroll/config": CAPABILITIES.hr_manage_payroll,
+  "/app/payroll/penalties": CAPABILITIES.hr_manage_payroll,
   "/app/leave-requests": CAPABILITIES.hr_view_leave,
   "/app/holidays": CAPABILITIES.hr_manage_holidays,
   "/app/waitlist": CAPABILITIES.waitlist_view,

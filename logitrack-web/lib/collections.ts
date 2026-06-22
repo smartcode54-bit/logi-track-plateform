@@ -105,6 +105,9 @@ export const COLLECTIONS = {
     /** Driver compensation config (effective-dated rates/tiers/SSO/penalty types) */
     DRIVER_COMPENSATION_CONFIG: "driver_compensation_config",
 
+    /** Driver penalties (deductions, installment-capable) feeding payroll */
+    DRIVER_PENALTIES: "driver_penalties",
+
     /** Security / audit events (append via Cloud Functions only; client read with audit capability) */
     SECURITY_EVENTS: "security_events",
 
