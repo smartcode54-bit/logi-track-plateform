@@ -6,9 +6,21 @@ import {
     computeBasePay,
     computeFuelIncentive,
     computeTripVolumeIncentive,
+    computeSso,
+    applyDeductions,
     type BasePayTrip,
     type IncentiveTier,
+    type SsoRuleInput,
 } from "./compensationCompute";
+
+const SSO_RULE: SsoRuleInput = {
+    ratePercent: 5,
+    baseExistingThb: 15000,
+    baseNewThb: 12000,
+    existingHiredBeforeYear: 2026,
+    maxAgeInclusive: 55,
+};
+const ASOF = new Date("2026-06-30T12:00:00+07:00");
 
 const FUEL_TIERS: IncentiveTier[] = [
     { min: 10, amountThb: 1000 },
@@ -110,5 +122,47 @@ describe("computeTripVolumeIncentive", () => {
         expect(computeTripVolumeIncentive(65, TRIP_TIERS)).toBe(1500);
         expect(computeTripVolumeIncentive(70, TRIP_TIERS)).toBe(2000);
         expect(computeTripVolumeIncentive(100, TRIP_TIERS)).toBe(2000);
+    });
+});
+
+describe("computeSso", () => {
+    const d = (s: string) => new Date(s);
+    it("is 0 while in probation", () => {
+        expect(computeSso({ hireDate: d("2024-01-01T00:00:00+07:00"), birthDate: null, probationPassed: false }, SSO_RULE, ASOF)).toBe(0);
+    });
+    it("existing (hired before cutoff) uses 15000 base @5% = 750", () => {
+        expect(computeSso({ hireDate: d("2025-05-01T00:00:00+07:00"), birthDate: d("1990-01-01T00:00:00+07:00"), probationPassed: true }, SSO_RULE, ASOF)).toBe(750);
+    });
+    it("new (hired in/after cutoff) uses 12000 base @5% = 600", () => {
+        expect(computeSso({ hireDate: d("2026-02-01T00:00:00+07:00"), birthDate: d("1990-01-01T00:00:00+07:00"), probationPassed: true }, SSO_RULE, ASOF)).toBe(600);
+    });
+    it("is 0 when older than maxAgeInclusive", () => {
+        expect(computeSso({ hireDate: d("2025-01-01T00:00:00+07:00"), birthDate: d("1969-01-01T00:00:00+07:00"), probationPassed: true }, SSO_RULE, ASOF)).toBe(0);
+    });
+    it("missing hireDate is treated as existing", () => {
+        expect(computeSso({ hireDate: null, birthDate: null, probationPassed: true }, SSO_RULE, ASOF)).toBe(750);
+    });
+});
+
+describe("applyDeductions", () => {
+    it("deducts SSO then penalty; net = earnings - sso - penalty", () => {
+        const r = applyDeductions(5000, 750, [{ id: "p1", remainingThb: 3000, installmentThb: 3000 }]);
+        expect(r.ssoAppliedThb).toBe(750);
+        expect(r.penaltiesAppliedThb).toBe(3000);
+        expect(r.perPenalty[0].remainingAfterThb).toBe(0);
+        expect(r.netThb).toBe(1250);
+    });
+    it("never goes negative; unpaid penalty carries forward", () => {
+        const r = applyDeductions(1000, 750, [{ id: "p1", remainingThb: 3000, installmentThb: 3000 }]);
+        expect(r.ssoAppliedThb).toBe(750);
+        expect(r.penaltiesAppliedThb).toBe(250);
+        expect(r.perPenalty[0].remainingAfterThb).toBe(2750);
+        expect(r.netThb).toBe(0);
+    });
+    it("honors a split installment smaller than the balance", () => {
+        const r = applyDeductions(5000, 0, [{ id: "p1", remainingThb: 3000, installmentThb: 1000 }]);
+        expect(r.penaltiesAppliedThb).toBe(1000);
+        expect(r.perPenalty[0].remainingAfterThb).toBe(2000);
+        expect(r.netThb).toBe(4000);
     });
 });

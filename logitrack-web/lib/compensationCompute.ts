@@ -134,3 +134,85 @@ export function computeTripVolumeIncentive(tripCount: number, tiers: IncentiveTi
     }
     return amountThb;
 }
+
+/** Whole-years age at `asOf` (Bangkok). */
+export function ageYearsAt(birthDate: Date, asOf: Date): number {
+    const b = bangkokParts(birthDate);
+    const n = bangkokParts(asOf);
+    let age = n.y - b.y;
+    if (n.m < b.m || (n.m === b.m && n.day < b.day)) age--;
+    return age;
+}
+
+export interface SsoRuleInput {
+    ratePercent: number;
+    baseExistingThb: number;
+    baseNewThb: number;
+    existingHiredBeforeYear: number;
+    maxAgeInclusive: number;
+}
+
+export interface SsoDriverInput {
+    hireDate: Date | null;
+    birthDate: Date | null;
+    probationPassed: boolean;
+}
+
+/**
+ * Social-security employee deduction (FR13). 0 if still in probation
+ * (probationPassed=false) or age > maxAgeInclusive. Base is chosen by hire year
+ * (existing if hired before existingHiredBeforeYear, else new; missing hireDate
+ * → treated as existing). Returns whole THB.
+ */
+export function computeSso(driver: SsoDriverInput, rule: SsoRuleInput, asOf: Date): number {
+    if (!driver.probationPassed) return 0;
+    if (driver.birthDate && ageYearsAt(driver.birthDate, asOf) > rule.maxAgeInclusive) return 0;
+    const isExisting = driver.hireDate
+        ? bangkokParts(driver.hireDate).y < rule.existingHiredBeforeYear
+        : true;
+    const base = isExisting ? rule.baseExistingThb : rule.baseNewThb;
+    return roundTHB((base * rule.ratePercent) / 100);
+}
+
+export interface ScheduledPenalty {
+    id: string;
+    /** Outstanding balance before this round. */
+    remainingThb: number;
+    /** Amount scheduled to deduct this round (full = remaining, or split = remaining/งวด). */
+    installmentThb: number;
+}
+
+export interface DeductionResult {
+    ssoAppliedThb: number;
+    penaltiesAppliedThb: number;
+    perPenalty: { id: string; appliedThb: number; remainingAfterThb: number }[];
+    /** earnings − SSO − penalties, clamped ≥ 0 (FR15.1). */
+    netThb: number;
+}
+
+/**
+ * Apply deductions so net pay is never negative (FR15.1). SSO is taken first
+ * (mandatory), then penalties in order; each penalty takes
+ * min(installmentThb, remaining, available). Any shortfall stays as
+ * `remainingAfterThb` to carry to the next round.
+ */
+export function applyDeductions(
+    earningsThb: number,
+    ssoThb: number,
+    penalties: ScheduledPenalty[],
+): DeductionResult {
+    let available = Math.max(0, earningsThb);
+    const ssoAppliedThb = Math.min(available, Math.max(0, ssoThb));
+    available -= ssoAppliedThb;
+
+    const perPenalty: { id: string; appliedThb: number; remainingAfterThb: number }[] = [];
+    let penaltiesAppliedThb = 0;
+    for (const p of penalties) {
+        const want = Math.min(Math.max(0, p.installmentThb), Math.max(0, p.remainingThb));
+        const applied = Math.min(want, available);
+        available -= applied;
+        penaltiesAppliedThb += applied;
+        perPenalty.push({ id: p.id, appliedThb: applied, remainingAfterThb: p.remainingThb - applied });
+    }
+    return { ssoAppliedThb, penaltiesAppliedThb, perPenalty, netThb: roundTHB(available) };
+}
