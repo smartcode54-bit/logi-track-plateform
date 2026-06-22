@@ -8,6 +8,7 @@ import {
     computeTripVolumeIncentive,
     computeSso,
     applyDeductions,
+    computeHelperPay,
     type BasePayTrip,
     type IncentiveTier,
     type SsoRuleInput,
@@ -141,6 +142,14 @@ describe("computeSso", () => {
     });
     it("missing hireDate is treated as existing", () => {
         expect(computeSso({ hireDate: null, birthDate: null, probationPassed: true }, SSO_RULE, ASOF)).toBe(750);
+    });
+});
+
+describe("computeHelperPay", () => {
+    it("multiplies eligible helper days by the daily rate", () => {
+        expect(computeHelperPay(3, 400)).toBe(1200);
+        expect(computeHelperPay(0, 400)).toBe(0);
+        expect(computeHelperPay(-2, 400)).toBe(0);
     });
 });
 

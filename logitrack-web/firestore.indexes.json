@@ -18,6 +18,14 @@
       ]
     },
     {
+      "collectionGroup": "driver_helper_days",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "driverId", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "fuel_daily_snapshots",
       "queryScope": "COLLECTION",
       "fields": [

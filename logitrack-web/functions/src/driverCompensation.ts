@@ -22,6 +22,7 @@ import {
     computeTripVolumeIncentive,
     computeSso,
     applyDeductions,
+    computeHelperPay,
     makeHolidayChecker,
     bangkokDateKey,
     type BasePayTrip,
@@ -160,6 +161,27 @@ export const generateDriverPayoutRun = onCall(
                     { type: "EARNING", category: "TRIP_COMMISSION", name: "Trip pay", amount: base.basePayThb },
                 ];
                 const penaltyApplications: { penaltyId: string; appliedThb: number }[] = [];
+
+                // Helper / training-day pay for this round window — paid per attendance day
+                // with NO delivered trip that day (driving days pay as trips instead).
+                const deliveredDateKeys = new Set(monthTrips.map((t) => bangkokDateKey(t.deliveredAt)));
+                const helperSnap = await firestore
+                    .collection("driver_helper_days")
+                    .where("driverId", "==", authId)
+                    .where("date", ">=", admin.firestore.Timestamp.fromDate(range.start))
+                    .where("date", "<", admin.firestore.Timestamp.fromDate(range.end))
+                    .get();
+                const eligibleHelperDays = new Set<string>();
+                for (const h of helperSnap.docs) {
+                    const date = tsToDate(h.data().date);
+                    if (!date) continue;
+                    const key = bangkokDateKey(date);
+                    if (!deliveredDateKeys.has(key)) eligibleHelperDays.add(key); // 1 per day, skip driving days
+                }
+                const helperPay = computeHelperPay(eligibleHelperDays.size, cfg.helperDayRateThb ?? 400);
+                if (helperPay > 0) {
+                    lineItems.push({ type: "EARNING", category: "HELPER_PAY", name: "Helper/training pay", amount: helperPay });
+                }
 
                 // Incentives + deductions settle in R2 only (computed over the full month).
                 if (round === "R2") {

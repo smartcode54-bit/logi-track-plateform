@@ -446,6 +446,13 @@ service cloud.firestore {
       allow write: if isAppCheckVerified() && request.auth != null && isWebAdmin();
     }
 
+    // Driver helper/training attendance days — driver creates own (mobile check-in); admin manages.
+    match /driver_helper_days/{dayId} {
+      allow read: if request.auth != null && (isWebAdmin() || resource.data.driverId == request.auth.uid);
+      allow create: if request.auth != null && (isWebAdmin() || request.resource.data.driverId == request.auth.uid);
+      allow update, delete: if isAppCheckVerified() && request.auth != null && isWebAdmin();
+    }
+
     // Security audit stream: read for Security Center (admin or explicit audit capability); writes only via Admin SDK (Cloud Functions).
     match /security_events/{eventId} {
       allow read: if request.auth != null && canReadSecurityEvents();

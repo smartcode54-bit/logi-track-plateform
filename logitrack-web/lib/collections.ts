@@ -108,6 +108,9 @@ export const COLLECTIONS = {
     /** Driver penalties (deductions, installment-capable) feeding payroll */
     DRIVER_PENALTIES: "driver_penalties",
 
+    /** Driver helper/training attendance days (flat daily pay) from mobile check-in */
+    DRIVER_HELPER_DAYS: "driver_helper_days",
+
     /** Security / audit events (append via Cloud Functions only; client read with audit capability) */
     SECURITY_EVENTS: "security_events",
 

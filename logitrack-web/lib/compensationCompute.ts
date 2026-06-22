@@ -135,6 +135,14 @@ export function computeTripVolumeIncentive(tripCount: number, tiers: IncentiveTi
     return amountThb;
 }
 
+/**
+ * Helper / training-day pay — flat rate per eligible non-driving attendance day.
+ * Caller passes the count of eligible helper days (days with no delivered trip).
+ */
+export function computeHelperPay(helperDayCount: number, ratePerDay: number): number {
+    return roundTHB(Math.max(0, helperDayCount) * Math.max(0, ratePerDay));
+}
+
 /** Whole-years age at `asOf` (Bangkok). */
 export function ageYearsAt(birthDate: Date, asOf: Date): number {
     const b = bangkokParts(birthDate);

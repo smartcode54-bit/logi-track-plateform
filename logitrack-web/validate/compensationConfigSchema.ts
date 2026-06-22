@@ -58,6 +58,8 @@ export const compensationConfigSchema = z.object({
     holidayRateThb: z.number().int().nonnegative().default(350),
     /** Standby trips paid? Default false (FR3, configurable). */
     payStandby: z.boolean().default(false),
+    /** Flat pay per helper/training day (a non-driving attendance day). */
+    helperDayRateThb: z.number().int().nonnegative().default(400),
 
     // Fuel incentive (FR9, FR9.1)
     fuelIncentiveTiers: z.array(fuelIncentiveTierSchema).default([]),
@@ -87,6 +89,7 @@ export const DEFAULT_COMPENSATION_CONFIG: Omit<CompensationConfig, "id" | "effec
     weekdayRateThb: 300,
     holidayRateThb: 350,
     payStandby: false,
+    helperDayRateThb: 400,
     fuelIncentiveTiers: [
         { minKmPerLitre: 10, amountThb: 1000 },
         { minKmPerLitre: 11, amountThb: 1100 },

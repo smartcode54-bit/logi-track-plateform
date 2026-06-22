@@ -9,6 +9,7 @@ export default {
     "driverComp.config.weekdayRate": "เรทวันธรรมดา (บาท/เที่ยว)",
     "driverComp.config.holidayRate": "เรทวันหยุด (บาท/เที่ยว)",
     "driverComp.config.payStandby": "จ่ายเที่ยว standby",
+    "driverComp.config.helperDayRate": "ค่าขึ้นฝึก/helper (บาท/วัน)",
     "driverComp.config.fuelTitle": "อินเซนทีฟประหยัดน้ำมัน",
     "driverComp.config.fuelMinRefuels": "เติมน้ำมันขั้นต่ำ/เดือน (ต้องมากกว่า)",
     "driverComp.config.minKmPerLitre": "กม./ลิตร ขั้นต่ำ",

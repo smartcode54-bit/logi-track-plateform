@@ -9,6 +9,7 @@ export default {
     "driverComp.config.weekdayRate": "Weekday rate (THB/trip)",
     "driverComp.config.holidayRate": "Holiday rate (THB/trip)",
     "driverComp.config.payStandby": "Pay standby trips",
+    "driverComp.config.helperDayRate": "Helper/training day (THB/day)",
     "driverComp.config.fuelTitle": "Fuel-efficiency incentive",
     "driverComp.config.fuelMinRefuels": "Min refuels/month (must exceed)",
     "driverComp.config.minKmPerLitre": "Min km/L",

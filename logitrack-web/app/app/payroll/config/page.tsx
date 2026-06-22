@@ -108,6 +108,9 @@ export default function CompensationConfigPage() {
                         <Field label={t("driverComp.config.holidayRate")}>
                             <Input type="number" value={cfg.holidayRateThb} onChange={(e) => set("holidayRateThb", Number(e.target.value))} />
                         </Field>
+                        <Field label={t("driverComp.config.helperDayRate")}>
+                            <Input type="number" value={cfg.helperDayRateThb} onChange={(e) => set("helperDayRateThb", Number(e.target.value))} />
+                        </Field>
                     </div>
                     <label className="flex items-center gap-2 text-sm">
                         <input type="checkbox" checked={cfg.payStandby} onChange={(e) => set("payStandby", e.target.checked)} />
