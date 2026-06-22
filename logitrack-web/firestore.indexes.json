@@ -1,6 +1,23 @@
 {
   "indexes": [
     {
+      "collectionGroup": "trip_records",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "driverId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "deliveredTimestamp", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "driver_penalties",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "driverId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "fuel_daily_snapshots",
       "queryScope": "COLLECTION",
       "fields": [
