@@ -51,6 +51,12 @@ export const driverSchema = z.object({
         end: z.coerce.date().optional(),
     }).optional(),
 
+    // Compensation / payroll (driver compensation feature)
+    /** วันเริ่มงาน — derive new/existing (SSO base) + probation start */
+    hireDate: z.coerce.date().optional(),
+    /** ผ่านทดลองงาน → เริ่มหักประกันสังคม (OQ8 manual flag) */
+    probationPassed: z.boolean().optional().default(false),
+
     // Status & Work
     status: z.enum(DRIVER_STATUS_ENUM).default("Active"),
     assignToProject: z.string().optional(),

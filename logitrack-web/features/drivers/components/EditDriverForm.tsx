@@ -103,6 +103,8 @@ export default function EditDriverForm() {
                         email: driver.email || "",
                         contractYears: driver.contractYears || ("" as any),
                         birthDate: driver.birthDate || undefined,
+                        hireDate: driver.hireDate || undefined,
+                        probationPassed: driver.probationPassed ?? false,
                         idCardExpiredDate: driver.idCardExpiredDate || undefined,
                         truckLicenseExpiredDate: driver.truckLicenseExpiredDate || undefined,
                         customerDriverIds: {
@@ -471,6 +473,29 @@ export default function EditDriverForm() {
                                         <FormItem><FormLabel>{t("drivers.form.contractDuration")}</FormLabel><FormControl><Input type="number" {...field} onChange={e => field.onChange(e.target.value)} /></FormControl><FormMessage /></FormItem>
                                     )} />
                                 )}
+
+                                <FormField control={form.control} name="hireDate" render={({ field }) => (
+                                    <FormItem className="flex flex-col">
+                                        <FormLabel>{t("driverComp.driver.hireDate")}</FormLabel>
+                                        <DatePicker
+                                            value={field.value ? new Date(field.value) : undefined}
+                                            onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
+                                            fromYear={new Date().getFullYear() - 15}
+                                            toYear={new Date().getFullYear()}
+                                        />
+                                        <FormMessage />
+                                    </FormItem>
+                                )} />
+
+                                <FormField control={form.control} name="probationPassed" render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel className="flex items-center gap-2">
+                                            <input type="checkbox" checked={!!field.value} onChange={(e) => field.onChange(e.target.checked)} />
+                                            {t("driverComp.driver.probationPassed")}
+                                        </FormLabel>
+                                        <FormMessage />
+                                    </FormItem>
+                                )} />
 
                                 <FormField control={form.control} name="status" render={({ field }) => (
                                     <FormItem>

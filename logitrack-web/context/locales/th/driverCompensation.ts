@@ -23,4 +23,6 @@ export default {
     "driverComp.config.ssoExistingYear": "นับเป็นเก่าถ้าเข้าก่อนปี",
     "driverComp.config.ssoMaxAge": "อายุสูงสุด (รวม)",
     "driverComp.config.ssoProbation": "ทดลองงาน (เดือน)",
+    "driverComp.driver.hireDate": "วันเริ่มงาน",
+    "driverComp.driver.probationPassed": "ผ่านทดลองงาน (เข้าเกณฑ์ประกันสังคม)",
 };

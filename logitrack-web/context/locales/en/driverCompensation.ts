@@ -23,4 +23,6 @@ export default {
     "driverComp.config.ssoExistingYear": "Existing if hired before (year)",
     "driverComp.config.ssoMaxAge": "Max age (inclusive)",
     "driverComp.config.ssoProbation": "Probation (months)",
+    "driverComp.driver.hireDate": "Hire date",
+    "driverComp.driver.probationPassed": "Probation passed (social security eligible)",
 };
