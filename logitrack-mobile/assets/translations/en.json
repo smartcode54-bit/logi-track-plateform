@@ -1,4 +1,9 @@
 {
+    "helper_section_title": "Helpers (training / assisting)",
+    "helper_none_selected": "No helpers selected",
+    "helper_select": "Select helpers",
+    "helper_search": "Search driver",
+    "helper_done": "Done",
     "login": "Login",
     "welcome_back": "Welcome Back",
     "welcome_subtitle": "Please enter your details to continue to your route.",

@@ -704,10 +704,109 @@ class _TaskCheckInPageState extends State<TaskCheckInPage> {
   Map<String, dynamic>? _assignedTruck;
   String _truckType = '';
 
+  // Helper selection (main driver picks helpers who train/assist on this job)
+  List<Map<String, String>> _allDrivers = [];
+  final Set<String> _selectedHelperIds = {};
+
   @override
   void initState() {
     super.initState();
     _fetchDriverData();
+    _loadDrivers();
+  }
+
+  Future<void> _loadDrivers() async {
+    try {
+      final selfUid = FirebaseAuth.instance.currentUser?.uid;
+      final snap = await FirebaseFirestore.instance.collection('drivers').get();
+      final list = <Map<String, String>>[];
+      for (final d in snap.docs) {
+        final data = d.data();
+        final authId = data['authId'] as String?;
+        if (authId == null || authId.isEmpty || authId == selfUid) continue;
+        final name = '${data['firstName'] ?? ''} ${data['lastName'] ?? ''}'.trim();
+        list.add({
+          'authId': authId,
+          'name': name.isNotEmpty ? name : (data['fullNameTh'] as String? ?? authId),
+        });
+      }
+      list.sort((a, b) => (a['name'] ?? '').compareTo(b['name'] ?? ''));
+      if (mounted) setState(() => _allDrivers = list);
+    } catch (_) {}
+  }
+
+  Future<void> _showHelperPicker() async {
+    final query = ValueNotifier<String>('');
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.7,
+          builder: (ctx, scrollCtrl) => Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: TextField(
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(Icons.search),
+                    hintText: 'helper_search'.tr(),
+                    border: const OutlineInputBorder(),
+                  ),
+                  onChanged: (v) => query.value = v.toLowerCase(),
+                ),
+              ),
+              Expanded(
+                child: ValueListenableBuilder<String>(
+                  valueListenable: query,
+                  builder: (ctx, q, _) {
+                    final filtered = _allDrivers
+                        .where((d) => (d['name'] ?? '').toLowerCase().contains(q))
+                        .toList();
+                    return ListView.builder(
+                      controller: scrollCtrl,
+                      itemCount: filtered.length,
+                      itemBuilder: (ctx, i) {
+                        final d = filtered[i];
+                        final id = d['authId']!;
+                        final checked = _selectedHelperIds.contains(id);
+                        return CheckboxListTile(
+                          value: checked,
+                          title: Text(d['name'] ?? id),
+                          onChanged: (v) {
+                            setSheet(() {
+                              if (v == true) {
+                                _selectedHelperIds.add(id);
+                              } else {
+                                _selectedHelperIds.remove(id);
+                              }
+                            });
+                            setState(() {});
+                          },
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+              SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: Text('helper_done'.tr()),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _fetchDriverData() async {
@@ -864,6 +963,7 @@ class _TaskCheckInPageState extends State<TaskCheckInPage> {
         lat: position.latitude,
         lng: position.longitude,
         timestamp: timestamp,
+        helperDriverIds: _selectedHelperIds.isEmpty ? null : _selectedHelperIds.toList(),
       );
       await DraftStorageService.instance.saveActiveCheckInTaskId(widget.taskId);
 
@@ -988,6 +1088,57 @@ class _TaskCheckInPageState extends State<TaskCheckInPage> {
 
           // Delivery stops section (if multi-delivery)
           _buildDeliveryStopsSection(),
+
+          const SizedBox(height: 16),
+
+          // Helper selection — main driver picks helpers who train/assist on this job
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.group_add, size: 20),
+                      const SizedBox(width: 8),
+                      Text(
+                        'helper_section_title'.tr(),
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  if (_selectedHelperIds.isEmpty)
+                    Text(
+                      'helper_none_selected'.tr(),
+                      style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                    )
+                  else
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: _selectedHelperIds.map((id) {
+                        final d = _allDrivers.firstWhere(
+                          (x) => x['authId'] == id,
+                          orElse: () => {'name': id, 'authId': id},
+                        );
+                        return Chip(
+                          label: Text(d['name'] ?? id),
+                          onDeleted: () => setState(() => _selectedHelperIds.remove(id)),
+                        );
+                      }).toList(),
+                    ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.person_add),
+                    label: Text('helper_select'.tr()),
+                    onPressed: _showHelperPicker,
+                  ),
+                ],
+              ),
+            ),
+          ),
 
           const SizedBox(height: 24),
 

@@ -1,4 +1,9 @@
 {
+    "helper_section_title": "ผู้ช่วย (ขึ้นฝึก / ช่วยงาน)",
+    "helper_none_selected": "ยังไม่ได้เลือกผู้ช่วย",
+    "helper_select": "เลือกผู้ช่วย",
+    "helper_search": "ค้นหาคนขับ",
+    "helper_done": "เสร็จสิ้น",
     "login": "เข้าสู่ระบบ",
     "welcome_back": "ยินดีต้อนรับกลับ",
     "welcome_subtitle": "กรุณากรอกข้อมูลของคุณเพื่อดำเนินการต่อ",

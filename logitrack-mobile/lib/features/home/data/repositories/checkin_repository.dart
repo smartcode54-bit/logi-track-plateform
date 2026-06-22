@@ -80,6 +80,7 @@ Future<void> submitCheckIn({
   required double lat,
   required double lng,
   required DateTime timestamp,
+  List<String>? helperDriverIds, // Auth UIDs of helpers selected by the main driver
 }) async {
   final ctx = await fetchOverlayContext(lat, lng);
   final stamped = await overlayGeocodingAndTimestamp(
@@ -104,6 +105,7 @@ Future<void> submitCheckIn({
     'checkInPhotoUrl': photoUrl,
     'checkInLat': lat,
     'checkInLng': lng,
+    if (helperDriverIds != null) 'helperDriverIds': helperDriverIds,
     'updatedAt': Timestamp.fromDate(DateTime.now()),
   });
 
