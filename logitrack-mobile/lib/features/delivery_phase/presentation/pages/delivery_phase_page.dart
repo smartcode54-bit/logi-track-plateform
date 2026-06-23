@@ -43,6 +43,9 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
   bool _locationLoading = true;
   bool _saving = false;
 
+  /// true เมื่อเที่ยวนี้ถูกปิด/แก้ไขจากเครื่องอื่นแล้ว — หยุดโชว์ฟอร์ม/ไม่ restore draft
+  bool _closedRemotely = false;
+
   /// Cache position + overlay (ที่อยู่, เข็มทิศ) สำหรับรูป step 2, 3 — ไม่หน่วงซ้ำ
   Position? _cachedOverlayPosition;
   OverlayContext? _cachedOverlayContext;
@@ -87,10 +90,92 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
     super.initState();
     _loadLocation();
     _loadHubsForNavigation();
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => _tryRestoreDeliveryDraft(),
+    _initDeliveryFlow();
+  }
+
+  /// ตรวจ server ก่อนว่าเที่ยวนี้ยังค้างจริงไหม — ถ้าถูกปิด/แก้ไขจากเครื่องอื่นแล้ว
+  /// ให้เคลียร์งานค้าง (draft + summary) กลับหน้าแรก ไม่โชว์ฟอร์ม/ไม่เด้ง dialog โหลด draft
+  Future<void> _initDeliveryFlow() async {
+    final tripId = widget.savedTripSummary?.tripId.trim() ?? '';
+    if (tripId.isNotEmpty) {
+      final check = await checkPendingTripOnServer(tripId);
+      if (!mounted) return;
+      if (isClearablePendingTrip(check)) {
+        await _handleRemotelyClosed();
+        return;
+      }
+    }
+    await _fetchCurrentTrip();
+    if (!mounted || _closedRemotely) return;
+    await _tryRestoreDeliveryDraft();
+  }
+
+  /// เที่ยวถูกปิด/แก้ไขจากเครื่องอื่นแล้ว — ล้าง draft + งานค้าง แล้วกลับหน้าแรก
+  Future<void> _handleRemotelyClosed() async {
+    _closedRemotely = true;
+    await DraftStorageService.instance.clearDeliveryDraft();
+    if (!mounted) return;
+    setState(() => _deliveryPhotos.clear());
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('delivery_already_closed'.tr())),
     );
-    _fetchCurrentTrip();
+    MainLayoutScope.maybeOf(context)?.onDeliveryCompleted?.call();
+  }
+
+  /// ผู้ใช้กดล้างงานค้างเอง — ตรวจ server ก่อน: ถ้าปิด/หายแล้วล้างทันที,
+  /// ถ้ายัง in_transit อยู่จริงให้ยืนยันแบบเข้ม (force) เผื่อกรณีเที่ยวเดิมถูกทิ้งค้าง (นำใบงานผิดเข้ามา)
+  Future<void> _promptClearStuckJob() async {
+    final tripId = widget.savedTripSummary?.tripId.trim() ?? '';
+    if (tripId.isEmpty) {
+      await _forceClearStuckJob();
+      return;
+    }
+    final check = await checkPendingTripOnServer(tripId);
+    if (!mounted) return;
+    if (isClearablePendingTrip(check)) {
+      await _handleRemotelyClosed();
+      return;
+    }
+    if (check == PendingTripCheck.unknown) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('delivery_clear_stuck_offline'.tr()),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+    // ยัง active บน server — เตือนเข้มก่อน force clear
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('delivery_clear_stuck_title'.tr()),
+        content: Text('delivery_clear_stuck_active_warning'.tr()),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('manual_checkin_cancel'.tr()),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('delivery_clear_stuck_confirm'.tr()),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true) await _forceClearStuckJob();
+  }
+
+  /// ล้างงานค้างในเครื่อง (draft + summary) โดยไม่แตะสถานะบน server
+  Future<void> _forceClearStuckJob() async {
+    _closedRemotely = true;
+    await DraftStorageService.instance.clearDeliveryDraft();
+    if (!mounted) return;
+    setState(() => _deliveryPhotos.clear());
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('delivery_clear_stuck_done'.tr())),
+    );
+    MainLayoutScope.maybeOf(context)?.onDeliveryCompleted?.call();
   }
 
   Future<void> _loadHubsForNavigation() async {
@@ -609,6 +694,20 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
+            ),
+            // เมนูล้างงานค้าง — กรณีเที่ยวถูกปิด/แก้ไขจากเครื่องอื่น (เว็บแอดมิน) แล้วยังค้างในมือถือ
+            PopupMenuButton<String>(
+              enabled: !_saving,
+              icon: const Icon(Icons.more_vert, color: Colors.white),
+              onSelected: (v) {
+                if (v == 'clear_stuck') _promptClearStuckJob();
+              },
+              itemBuilder: (_) => [
+                PopupMenuItem<String>(
+                  value: 'clear_stuck',
+                  child: Text('delivery_clear_stuck'.tr()),
+                ),
+              ],
             ),
           ],
         ),

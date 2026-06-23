@@ -12,7 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Camera, Loader2, ExternalLink, ImagePlus, Lock, Plus, Trash2, ArrowLeftRight } from "lucide-react";
-import { doc, updateDoc, serverTimestamp, getDocs, collection, query, where, limit, deleteField, Timestamp } from "firebase/firestore";
+import { doc, updateDoc, serverTimestamp, getDocs, collection, query, where, limit, deleteField, Timestamp, writeBatch } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db } from "@/firebase/client";
 import { functions } from "@/firebase/client";
@@ -78,6 +78,11 @@ export function EditTripDetailsDialog({
 }: EditTripDetailsDialogProps) {
     const { t } = useLanguage();
     const [loading, setLoading] = useState(false);
+    // จัดการงานค้าง (ปุ่มเดียว → dialog เลือกผล + เคลียร์ทั้งคนขับ)
+    const [resolveOpen, setResolveOpen] = useState(false);
+    const [resolveOutcome, setResolveOutcome] = useState<"delivered" | "cancelled">("cancelled");
+    const [resolveClearAll, setResolveClearAll] = useState(false);
+    const [resolving, setResolving] = useState(false);
     const [replaceByType, setReplaceByType] = useState<Record<string, File>>({});
     const [spxTripId, setSpxTripId] = useState(trip.spxTripId ?? "");
     const [sealCode, setSealCode] = useState(trip.sealCode ?? "");
@@ -419,6 +424,121 @@ export function EditTripDetailsDialog({
         }
     };
 
+    // จัดการงานค้างจากเว็บ (ปุ่มเดียว → dialog): เลือกผลของเที่ยวนี้ (delivered=นับเงิน / cancelled=ไม่นับ)
+    // + ตัวเลือกเคลียร์เที่ยว in_transit อื่นๆ ของคนขับคนนี้ในคราวเดียว
+    // ไม่ต้องอัปโหลด/overlay รูปเหมือนมือถือ — มือถือจะ auto-clear เองเมื่อเห็น status delivered/cancelled
+    const handleResolve = async () => {
+        if (!trip.id) return;
+        setResolving(true);
+        try {
+            // 1) ผลของเที่ยวนี้
+            if (resolveOutcome === "delivered") {
+                const updateData: Record<string, unknown> = {
+                    status: "delivered",
+                    updatedAt: serverTimestamp(),
+                };
+                if (localDeliveredAt) {
+                    updateData.deliveredTimestamp = Timestamp.fromDate(new Date(localDeliveredAt));
+                } else if (!trip.deliveredTimestamp) {
+                    updateData.deliveredTimestamp = Timestamp.fromDate(new Date());
+                }
+                await updateDoc(doc(db, COLLECTIONS.TRIP_RECORDS, trip.id), updateData);
+                if (trip.taskId) {
+                    try {
+                        await updateDoc(doc(db, COLLECTIONS.TASKS, trip.taskId), {
+                            status: "Completed",
+                            updatedAt: serverTimestamp(),
+                        });
+                    } catch (e) {
+                        console.error("Failed to complete task on resolve(delivered):", e);
+                    }
+                }
+                try {
+                    const fn = httpsCallable<{ tripId: string }, { ok: boolean }>(
+                        functions,
+                        "computeTripBillingSnapshot"
+                    );
+                    await fn({ tripId: trip.id });
+                } catch (_) {
+                    // Fail silently — admin can backfill from Income page
+                }
+            } else {
+                await updateDoc(doc(db, COLLECTIONS.TRIP_RECORDS, trip.id), {
+                    status: "cancelled",
+                    updatedAt: serverTimestamp(),
+                });
+                if (trip.taskId) {
+                    try {
+                        await updateDoc(doc(db, COLLECTIONS.TASKS, trip.taskId), {
+                            status: "Cancelled",
+                            updatedAt: serverTimestamp(),
+                        });
+                    } catch (e) {
+                        console.error("Failed to cancel task on resolve(cancelled):", e);
+                    }
+                }
+            }
+
+            // 2) (ตัวเลือก) ยกเลิกเที่ยว in_transit อื่นๆ ที่ค้างของคนขับคนนี้ทั้งหมด
+            // query ด้วย driverId อย่างเดียว แล้วกรอง in_transit ใน memory — เลี่ยง composite index
+            let bulkCount = 0;
+            if (resolveClearAll && trip.driverId) {
+                const snap = await getDocs(
+                    query(collection(db, COLLECTIONS.TRIP_RECORDS), where("driverId", "==", trip.driverId))
+                );
+                const others = snap.docs.filter(
+                    (d) =>
+                        d.id !== trip.id &&
+                        ((d.data().status as string | undefined) ?? "").toLowerCase() === "in_transit"
+                );
+                if (others.length > 0) {
+                    const batch = writeBatch(db);
+                    const taskIds: string[] = [];
+                    others.forEach((d) => {
+                        batch.update(d.ref, { status: "cancelled", updatedAt: serverTimestamp() });
+                        const tid = d.data().taskId as string | undefined;
+                        if (tid) taskIds.push(tid);
+                    });
+                    await batch.commit();
+                    // ปลด task ทีละตัว (best-effort) — ไม่รวมใน batch กันพังถ้า task ถูกลบไปแล้ว
+                    for (const tid of taskIds) {
+                        try {
+                            await updateDoc(doc(db, COLLECTIONS.TASKS, tid), {
+                                status: "Cancelled",
+                                updatedAt: serverTimestamp(),
+                            });
+                        } catch (e) {
+                            console.error("Failed to cancel task during clear-all:", tid, e);
+                        }
+                    }
+                    bulkCount = others.length;
+                }
+            }
+
+            const baseMsg =
+                resolveOutcome === "delivered"
+                    ? t("driverMonitor.editTrip.resolveDoneDelivered", "Marked as delivered.")
+                    : t("driverMonitor.editTrip.resolveDoneCancelled", "Job cancelled.");
+            const extra =
+                bulkCount > 0
+                    ? " " +
+                      t(
+                          "driverMonitor.editTrip.resolveDoneBulk",
+                          "Also cleared {n} other stuck trip(s)."
+                      ).replace("{n}", String(bulkCount))
+                    : "";
+            toast.success(baseMsg + extra);
+            setResolveOpen(false);
+            onOpenChange(false);
+            if (onSuccess) onSuccess();
+        } catch (e) {
+            console.error("Failed to resolve stuck job:", e);
+            toast.error(t("driverMonitor.editTrip.resolveError", "Failed to resolve stuck job."));
+        } finally {
+            setResolving(false);
+        }
+    };
+
     const hasChanges =
         Object.keys(replaceByType).length > 0 ||
         spxTripId !== (trip.spxTripId ?? "") ||
@@ -428,6 +548,7 @@ export function EditTripDetailsDialog({
         hasRouteChanges;
 
     return (
+        <>
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
@@ -748,6 +869,19 @@ export function EditTripDetailsDialog({
                     <Button variant="outline" onClick={() => onOpenChange(false)}>
                         {t("firstMile.task.cancel", "Cancel")}
                     </Button>
+                    {trip.status !== "delivered" && trip.status !== "cancelled" && (
+                        <Button
+                            variant="secondary"
+                            onClick={() => {
+                                setResolveOutcome("cancelled");
+                                setResolveClearAll(false);
+                                setResolveOpen(true);
+                            }}
+                            disabled={loading}
+                        >
+                            {t("driverMonitor.editTrip.resolve", "Resolve stuck job")}
+                        </Button>
+                    )}
                     <Button onClick={handleSave} disabled={loading || !hasChanges}>
                         {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                         {t("firstMile.task.save", "Save Changes")}
@@ -755,5 +889,90 @@ export function EditTripDetailsDialog({
                 </DialogFooter>
             </DialogContent>
         </Dialog>
+
+        {/* จัดการงานค้าง: เลือกผล (ส่งสำเร็จ/ยกเลิก) + เคลียร์ทั้งคนขับ — ปุ่มเดียวบน footer */}
+        <Dialog open={resolveOpen} onOpenChange={(o) => !resolving && setResolveOpen(o)}>
+            <DialogContent className="max-w-md">
+                <DialogHeader>
+                    <DialogTitle>
+                        {t("driverMonitor.editTrip.resolveTitle", "Resolve stuck job")}
+                        {" "}
+                        <span className="font-mono text-sm text-muted-foreground">
+                            {trip.spxTripId || trip.id}
+                        </span>
+                    </DialogTitle>
+                    <DialogDescription>
+                        {t(
+                            "driverMonitor.editTrip.resolveDesc",
+                            "Close this stuck trip from the web. No photos needed — the driver's app clears it automatically."
+                        )}
+                    </DialogDescription>
+                </DialogHeader>
+
+                <div className="space-y-3 py-1">
+                    <p className="text-sm font-medium">
+                        {t("driverMonitor.editTrip.resolveOutcomeLabel", "Outcome for this trip")}
+                    </p>
+                    <label className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/40">
+                        <input
+                            type="radio"
+                            name="resolveOutcome"
+                            className="mt-1"
+                            checked={resolveOutcome === "cancelled"}
+                            onChange={() => setResolveOutcome("cancelled")}
+                        />
+                        <span className="text-sm">
+                            <span className="font-medium">🚫 {t("driverMonitor.editTrip.resolveCancelled", "Cancel — wrong job")}</span>
+                            <span className="block text-xs text-muted-foreground">
+                                {t("driverMonitor.editTrip.resolveCancelledHint", "Does NOT count as income.")}
+                            </span>
+                        </span>
+                    </label>
+                    <label className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/40">
+                        <input
+                            type="radio"
+                            name="resolveOutcome"
+                            className="mt-1"
+                            checked={resolveOutcome === "delivered"}
+                            onChange={() => setResolveOutcome("delivered")}
+                        />
+                        <span className="text-sm">
+                            <span className="font-medium">✅ {t("driverMonitor.editTrip.resolveDelivered", "Mark delivered")}</span>
+                            <span className="block text-xs text-muted-foreground">
+                                {t("driverMonitor.editTrip.resolveDeliveredHint", "Counts as income.")}
+                            </span>
+                        </span>
+                    </label>
+
+                    <label className="flex items-start gap-3 rounded-lg border border-dashed p-3 cursor-pointer hover:bg-muted/40">
+                        <input
+                            type="checkbox"
+                            className="mt-1"
+                            checked={resolveClearAll}
+                            onChange={(e) => setResolveClearAll(e.target.checked)}
+                        />
+                        <span className="text-sm">
+                            <span className="font-medium">
+                                {t("driverMonitor.editTrip.resolveClearAll", "Also clear ALL stuck trips for this driver")}
+                            </span>
+                            <span className="block text-xs text-muted-foreground">
+                                {t("driverMonitor.editTrip.resolveClearAllHint", "Cancels the driver's other in-transit trips too (no income).")}
+                            </span>
+                        </span>
+                    </label>
+                </div>
+
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => setResolveOpen(false)} disabled={resolving}>
+                        {t("firstMile.task.cancel", "Cancel")}
+                    </Button>
+                    <Button onClick={handleResolve} disabled={resolving}>
+                        {resolving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        {t("driverMonitor.editTrip.resolveConfirm", "Confirm")}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+        </>
     );
 }

@@ -72,6 +72,7 @@ export default {
     "driverMonitor.status.incident": "Incident",
     "driverMonitor.status.delivered": "Delivered",
     "driverMonitor.status.standby": "Standby",
+    "driverMonitor.status.cancelled": "Cancelled",
 
     // Table States
     "driverMonitor.table.noTrips": "No trips found.",
@@ -160,6 +161,40 @@ export default {
     "driverMonitor.editTrip.stopLocked": "Delivered by driver",
     "driverMonitor.editTrip.billingWillRecompute": "Billing will be re-computed after save",
     "driverMonitor.editTrip.stopDestinationRequired": "All stops must have a destination",
+
+    // Edit Trip Dialog - Mark Delivered (force close from web)
+    "driverMonitor.editTrip.markDelivered": "Mark Delivered",
+    "driverMonitor.editTrip.markDeliveredConfirm": "Mark this trip as delivered? This closes the job and frees the driver to pick up a new one.",
+    "driverMonitor.editTrip.markDeliveredDone": "Trip marked as delivered.",
+    "driverMonitor.editTrip.markDeliveredError": "Failed to mark delivered.",
+    "driverMonitor.editTrip.cancelTrip": "Cancel Job",
+    "driverMonitor.editTrip.cancelTripConfirm": "Cancel this trip as a wrong/void job? It will NOT count as income, and the driver is freed to run new tasks.",
+    "driverMonitor.editTrip.cancelTripDone": "Trip cancelled.",
+    "driverMonitor.editTrip.cancelTripError": "Failed to cancel trip.",
+    "driverMonitor.editTrip.clearAll": "Clear all stuck (driver)",
+    "driverMonitor.editTrip.clearAllHint": "Cancel all in-transit trips for this driver",
+    "driverMonitor.editTrip.clearAllConfirm": "Cancel ALL in-transit trips for this driver and free their tasks? Use only to reset a driver with wrong/stuck jobs. Delivered trips are NOT affected and these will NOT count as income.",
+    "driverMonitor.editTrip.clearAllDone": "Cleared {n} stuck trip(s).",
+    "driverMonitor.editTrip.clearAllNone": "No stuck (in-transit) trips for this driver.",
+    "driverMonitor.editTrip.clearAllNoDriver": "No driver id on this trip.",
+    "driverMonitor.editTrip.clearAllError": "Failed to clear stuck trips.",
+
+    // Edit Trip Dialog - Resolve stuck job (single button -> choice dialog)
+    "driverMonitor.editTrip.resolve": "Resolve stuck job",
+    "driverMonitor.editTrip.resolveTitle": "Resolve stuck job",
+    "driverMonitor.editTrip.resolveDesc": "Close this stuck trip from the web. No photos needed — the driver's app clears it automatically.",
+    "driverMonitor.editTrip.resolveOutcomeLabel": "Outcome for this trip",
+    "driverMonitor.editTrip.resolveCancelled": "Cancel — wrong job",
+    "driverMonitor.editTrip.resolveCancelledHint": "Does NOT count as income.",
+    "driverMonitor.editTrip.resolveDelivered": "Mark delivered",
+    "driverMonitor.editTrip.resolveDeliveredHint": "Counts as income.",
+    "driverMonitor.editTrip.resolveClearAll": "Also clear ALL stuck trips for this driver",
+    "driverMonitor.editTrip.resolveClearAllHint": "Cancels the driver's other in-transit trips too (no income).",
+    "driverMonitor.editTrip.resolveConfirm": "Confirm",
+    "driverMonitor.editTrip.resolveDoneDelivered": "Marked as delivered.",
+    "driverMonitor.editTrip.resolveDoneCancelled": "Job cancelled.",
+    "driverMonitor.editTrip.resolveDoneBulk": "Also cleared {n} other stuck trip(s).",
+    "driverMonitor.editTrip.resolveError": "Failed to resolve stuck job.",
 
     "driverMonitor.preview.downloadCurrent": "Download this image",
     "driverMonitor.preview.downloadAllZip": "Download all as ZIP",

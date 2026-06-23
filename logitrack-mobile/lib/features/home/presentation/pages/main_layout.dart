@@ -13,7 +13,7 @@ import '../../../../core/services/mobile_client_heartbeat_service.dart';
 import '../../../../core/services/notification_service.dart';
 import '../../../chat/data/repositories/chat_repository.dart';
 import '../../data/repositories/driver_repository.dart';
-import '../../data/services/draft_storage_service.dart' show prefKeyPendingDeliverySummary;
+import '../../data/services/draft_storage_service.dart' show prefKeyPendingDeliverySummary, DraftStorageService;
 import '../../data/repositories/task_repository.dart';
 import '../../data/repositories/trip_records_repository.dart';
 import 'home_page.dart';
@@ -213,6 +213,9 @@ class _MainLayoutState extends State<MainLayout> with RouteAware, WidgetsBinding
     await MobileAppVersionService.instance.ensureAllowedToRun(context);
     if (!mounted) return;
     await MobileClientHeartbeatService.instance.onResumed(_driverId);
+    if (!mounted) return;
+    // เผื่อเที่ยวถูกปิด/แก้จากเครื่องอื่นตอนแอปพัก — เคลียร์งานค้างให้รับงานรอบใหม่ได้
+    await _validatePendingDeliveryAndClearIfDelivered();
   }
 
   @override
@@ -414,6 +417,11 @@ class _MainLayoutState extends State<MainLayout> with RouteAware, WidgetsBinding
     if (index == 1) {
       await _loadDriverAndCheckInStatus(); // ดึงสถานะเช็คอินล่าสุดก่อนเช็ค
       if (!mounted) return;
+      // ถ้าเที่ยวค้างถูกปิด/แก้จากเครื่องอื่นแล้ว ให้เคลียร์ก่อน จะได้ไม่บล็อกการรับงานใหม่
+      if (_hasActiveDelivery) {
+        await _validatePendingDeliveryAndClearIfDelivered();
+        if (!mounted) return;
+      }
       if (_isPickupDisabled) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -439,17 +447,24 @@ class _MainLayoutState extends State<MainLayout> with RouteAware, WidgetsBinding
     }
   }
 
-  /// เช็คใน DB ว่าเที่ยวค้างยังเป็น in_transit หรือไม่ ถ้าไม่มีหรือ delivered แล้ว ให้เคลียร์และไม่แสดง
+  /// เช็คกับ **server โดยตรง** ว่าเที่ยวค้างถูกปิด (delivered) หรือถูกลบ/แก้ไขจากเครื่องอื่นแล้วหรือยัง
+  /// ถ้าใช่ → เคลียร์งานค้าง (summary + draft) เพื่อให้รับงานรอบใหม่ได้ทันที
+  /// ใช้ server source กัน Firestore cache ค้างเป็น in_transit เมื่อแอดมินปิด/แก้งานบนเว็บ
   Future<void> _validatePendingDeliveryAndClearIfDelivered() async {
     final summary = _savedTripSummary;
     if (summary == null || summary.tripId.trim().isEmpty) return;
-    try {
-      final status = await getTripStatus(summary.tripId);
-      if (status == null || status == 'delivered') {
-        await _savePendingDeliverySummary(null);
-        if (mounted) setState(() => _savedTripSummary = null);
+    final check = await checkPendingTripOnServer(summary.tripId);
+    // เคลียร์เฉพาะเมื่อยืนยันได้ว่า delivered/cancelled/doc หาย — ไม่เคลียร์ตอน unknown (ออฟไลน์) หรือ active
+    if (isClearablePendingTrip(check)) {
+      await _savePendingDeliverySummary(null);
+      await DraftStorageService.instance.clearDeliveryDraft();
+      if (mounted) {
+        setState(() {
+          _savedTripSummary = null;
+          if (_currentIndex == 2) _currentIndex = 0;
+        });
       }
-    } catch (_) {}
+    }
   }
 
   @override

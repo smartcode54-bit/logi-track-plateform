@@ -72,6 +72,7 @@ export default {
     "driverMonitor.status.incident": "เหตุการณ์ผิดปกติ",
     "driverMonitor.status.delivered": "ส่งแล้ว",
     "driverMonitor.status.standby": "Standby งานหมด",
+    "driverMonitor.status.cancelled": "ยกเลิก",
 
     // Table States
     "driverMonitor.table.noTrips": "ไม่พบเที่ยวงาน",
@@ -160,6 +161,40 @@ export default {
     "driverMonitor.editTrip.stopLocked": "ส่งแล้วโดยคนขับ",
     "driverMonitor.editTrip.billingWillRecompute": "ระบบจะคำนวณค่าบิลใหม่หลังบันทึก",
     "driverMonitor.editTrip.stopDestinationRequired": "ทุกจุดต้องเลือกปลายทาง",
+
+    // Edit Trip Dialog - Mark Delivered (ปิดงานจากเว็บ)
+    "driverMonitor.editTrip.markDelivered": "ปิดงาน (Mark Delivered)",
+    "driverMonitor.editTrip.markDeliveredConfirm": "ยืนยันปิดงานเที่ยวนี้เป็น 'ส่งสำเร็จ'? จะเป็นการปิดงานและปลดล็อกให้คนขับรับงานใหม่ได้",
+    "driverMonitor.editTrip.markDeliveredDone": "ปิดงานเป็นส่งสำเร็จแล้ว",
+    "driverMonitor.editTrip.markDeliveredError": "ปิดงานไม่สำเร็จ",
+    "driverMonitor.editTrip.cancelTrip": "ยกเลิกงาน",
+    "driverMonitor.editTrip.cancelTripConfirm": "ยกเลิกเที่ยวนี้เป็นงานผิด/งานเสีย? จะไม่ถูกนับเป็นรายได้ และปลดล็อกให้คนขับรับงานใหม่ได้",
+    "driverMonitor.editTrip.cancelTripDone": "ยกเลิกเที่ยวแล้ว",
+    "driverMonitor.editTrip.cancelTripError": "ยกเลิกเที่ยวไม่สำเร็จ",
+    "driverMonitor.editTrip.clearAll": "เคลียร์งานค้างทั้งหมด (คนขับ)",
+    "driverMonitor.editTrip.clearAllHint": "ยกเลิกทุกเที่ยวที่ค้าง (กำลังขนส่ง) ของคนขับคนนี้",
+    "driverMonitor.editTrip.clearAllConfirm": "ยกเลิกทุกเที่ยวที่กำลังขนส่งของคนขับคนนี้ และปลด task ทั้งหมด? ใช้เฉพาะกรณีรีเซ็ตคนขับที่เอางานเข้ามาผิด — เที่ยวที่ส่งสำเร็จแล้วจะไม่ถูกแตะ และรายการเหล่านี้จะไม่ถูกนับเป็นรายได้",
+    "driverMonitor.editTrip.clearAllDone": "เคลียร์งานค้างแล้ว {n} เที่ยว",
+    "driverMonitor.editTrip.clearAllNone": "ไม่มีเที่ยวค้าง (กำลังขนส่ง) ของคนขับคนนี้",
+    "driverMonitor.editTrip.clearAllNoDriver": "เที่ยวนี้ไม่มีรหัสคนขับ",
+    "driverMonitor.editTrip.clearAllError": "เคลียร์งานค้างไม่สำเร็จ",
+
+    // Edit Trip Dialog - จัดการงานค้าง (ปุ่มเดียว -> dialog เลือก)
+    "driverMonitor.editTrip.resolve": "จัดการงานค้าง",
+    "driverMonitor.editTrip.resolveTitle": "จัดการงานค้าง",
+    "driverMonitor.editTrip.resolveDesc": "ปิดเที่ยวที่ค้างจากเว็บ ไม่ต้องแนบรูป — แอปคนขับจะเคลียร์งานค้างให้อัตโนมัติ",
+    "driverMonitor.editTrip.resolveOutcomeLabel": "เลือกผลของเที่ยวนี้",
+    "driverMonitor.editTrip.resolveCancelled": "ยกเลิก — งานผิด",
+    "driverMonitor.editTrip.resolveCancelledHint": "ไม่นับเป็นรายได้",
+    "driverMonitor.editTrip.resolveDelivered": "ปิดเป็นส่งสำเร็จ",
+    "driverMonitor.editTrip.resolveDeliveredHint": "นับเป็นรายได้",
+    "driverMonitor.editTrip.resolveClearAll": "เคลียร์งานค้างทั้งหมดของคนขับคนนี้ด้วย",
+    "driverMonitor.editTrip.resolveClearAllHint": "ยกเลิกเที่ยว in_transit อื่นๆ ของคนขับด้วย (ไม่นับรายได้)",
+    "driverMonitor.editTrip.resolveConfirm": "ยืนยัน",
+    "driverMonitor.editTrip.resolveDoneDelivered": "ปิดเป็นส่งสำเร็จแล้ว",
+    "driverMonitor.editTrip.resolveDoneCancelled": "ยกเลิกงานแล้ว",
+    "driverMonitor.editTrip.resolveDoneBulk": "เคลียร์งานค้างอื่นเพิ่มอีก {n} เที่ยว",
+    "driverMonitor.editTrip.resolveError": "จัดการงานค้างไม่สำเร็จ",
 
     "driverMonitor.preview.downloadCurrent": "ดาวน์โหลดรูปนี้",
     "driverMonitor.preview.downloadAllZip": "ดาวน์โหลดทั้งหมด (ZIP)",

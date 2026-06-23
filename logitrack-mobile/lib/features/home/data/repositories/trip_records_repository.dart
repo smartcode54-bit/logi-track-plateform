@@ -122,6 +122,39 @@ Future<String?> getTripStatus(String tripId) async {
   }
 }
 
+/// ผลการตรวจเที่ยวค้างจาก server เพื่อตัดสินใจว่าจะเคลียร์งานค้างในเครื่องหรือไม่
+/// - [delivered] / [cancelled] / [missing] → เคลียร์ได้ (เที่ยวปิด/ยกเลิก/ถูกลบจากเครื่องอื่น เช่น แอดมินบนเว็บ)
+/// - [active] → ยังเป็นงานค้างจริง (in_transit) อย่าเคลียร์
+/// - [unknown] → ออฟไลน์/อ่าน server ไม่ได้ อย่าเพิ่งเคลียร์ (กันลบงานค้างผิด)
+enum PendingTripCheck { delivered, cancelled, missing, active, unknown }
+
+/// true เมื่อสถานะนี้ถือว่า "ปิดแล้ว" — เคลียร์งานค้างในเครื่องได้
+bool isClearablePendingTrip(PendingTripCheck c) =>
+    c == PendingTripCheck.delivered ||
+    c == PendingTripCheck.cancelled ||
+    c == PendingTripCheck.missing;
+
+/// ตรวจสถานะเที่ยวค้างจาก **server โดยตรง** (ข้าม cache) — สำคัญเมื่อเที่ยวถูกปิด/แก้ไขจากเครื่องอื่น
+/// (เช่น แอดมินปิด/ยกเลิกงานบนเว็บ) แล้ว cache ในมือถือยังค้างเป็น in_transit ทำให้รับงานรอบใหม่ไม่ได้
+Future<PendingTripCheck> checkPendingTripOnServer(String tripId) async {
+  if (tripId.trim().isEmpty) return PendingTripCheck.missing;
+  try {
+    final doc = await FirebaseFirestore.instance
+        .collection(tripRecordsCollection)
+        .doc(tripId)
+        .get(const GetOptions(source: Source.server));
+    if (!doc.exists) return PendingTripCheck.missing;
+    final status = (doc.data()?['status'] as String?)?.toLowerCase();
+    if (status == 'delivered') return PendingTripCheck.delivered;
+    if (status == 'cancelled' || status == 'canceled') {
+      return PendingTripCheck.cancelled;
+    }
+    return PendingTripCheck.active;
+  } catch (_) {
+    return PendingTripCheck.unknown;
+  }
+}
+
 /// คืน set ของ taskId ที่เที่ยวถูกส่งแล้ว (status = delivered) ของคนขับนี้
 /// ใช้ในหน้า Check-in เพื่อไม่บล็อกการเพิ่มงานใหม่เมื่อ task ยังเป็น "Checked in" แต่เที่ยวส่งแล้ว
 /// Query แค่ driverId แล้วกรอง status ใน memory เพื่อไม่ต้องใช้ composite index

@@ -6,6 +6,7 @@ export const TRIP_STATUS_ENUM = [
     "incident",
     "delivered",
     "standby",
+    "cancelled", // ปิด/ยกเลิกงานผิดจากเว็บ (admin) — ไม่นับรายได้ และมือถือ auto-clear งานค้าง
 ] as const;
 
 // --- Job Type (auto-detected from origin: Hub = first_mile, SOC = line_haul) ---
