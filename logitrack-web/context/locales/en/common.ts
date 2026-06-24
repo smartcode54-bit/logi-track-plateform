@@ -5,6 +5,9 @@ export default {
     "task.helper.select": "Select helper",
     "task.helper.none": "No helper",
     "task.helper.search": "Search driver",
+    "task.helper.locked": "Payout for this period is already finalized ({status}) — use an adjustment.",
+    "task.helper.lockedSave": "Cannot change the helper — the payout for this period is already finalized ({status}). Use an adjustment.",
+    "task.helper.regenHint": "A draft payroll exists for this period — regenerate it to apply this change.",
 
     // Navigation
     "nav.home": "Home",

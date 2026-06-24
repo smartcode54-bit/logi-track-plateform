@@ -24,6 +24,11 @@ import { ReportIncidentModal } from "../chat/components/ReportIncidentModal";
 import { ImagePreviewGallery } from "@/components/accounting/ImagePreviewGallery";
 import { HelperDriverField } from "@/features/tasks/components/HelperDriverField";
 import type { Driver } from "@/validate/driverSchema";
+import { assignRound, bangkokParts } from "@/lib/compensationCompute";
+
+type PeriodRound = { period: string; round: "R1" | "R2" };
+const PAYOUT_LOCKED = new Set(["APPROVED", "PAID"]);
+const PAYOUT_DRAFT = new Set(["DRAFT", "PENDING_APPROVAL"]);
 
 interface EditTripDetailsDialogProps {
     open: boolean;
@@ -69,6 +74,10 @@ export function EditTripDetailsDialog({
     const [initialHelperIds, setInitialHelperIds] = useState<string[]>([]);
     const [taskDocId, setTaskDocId] = useState<string | null>(null);
     const [drivers, setDrivers] = useState<Driver[]>([]);
+    const [periodRound, setPeriodRound] = useState<PeriodRound | null>(null);
+    const [lockedStatus, setLockedStatus] = useState<string | null>(null);
+    const [draftHint, setDraftHint] = useState(false);
+    const [helperError, setHelperError] = useState<string | null>(null);
     const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
     const photos = trip.photos ?? [];
@@ -95,33 +104,72 @@ export function EditTripDetailsDialog({
         }
     };
 
+    const toDate = (raw: unknown): Date | null => {
+        if (!raw) return null;
+        if (raw instanceof Date) return raw;
+        if (typeof (raw as { toDate?: () => Date }).toDate === "function") return (raw as { toDate: () => Date }).toDate();
+        const d = new Date(raw as string | number);
+        return isNaN(d.getTime()) ? null : d;
+    };
+
+    const periodRoundForDate = (date: Date): PeriodRound => {
+        const { y, m } = bangkokParts(date);
+        return { period: `${y}-${String(m).padStart(2, "0")}`, round: assignRound(date) };
+    };
+
+    // Status of a helper's payout for the task's period+round (id: authId_period_round).
+    const payoutStatusFor = async (authId: string, pr: PeriodRound): Promise<string | null> => {
+        try {
+            const s = await getDoc(doc(db, COLLECTIONS.PAYROLL, `${authId}_${pr.period}_${pr.round}`));
+            return s.exists() ? ((s.data()?.status as string) ?? null) : null;
+        } catch {
+            return null;
+        }
+    };
+
     // Helpers live on the linked task (tasks.helperDriverIds), not the trip_record.
-    // Resolve the task DOC id so admins can edit the helper here (review path).
-    const fetchHelperIds = async (taskId: string) => {
-        const apply = (docId: string | null, ids: unknown) => {
-            const arr = Array.isArray(ids) ? (ids as string[]).slice(0, 1) : [];
-            setTaskDocId(docId);
-            setHelperIds(arr);
-            setInitialHelperIds(arr);
-        };
+    // Resolve the task doc (id + helper + date) so admins can review/edit the helper here,
+    // and lock editing when the helper's payout for that period/round is already finalized.
+    const loadHelperContext = async (taskId: string) => {
+        let docId: string | null = null;
+        let data: Record<string, unknown> | undefined;
         try {
             // taskId may be the task doc id or the human task id (e.g. "FM-..").
             const byId = await getDoc(doc(db, COLLECTIONS.TASKS, taskId));
             if (byId.exists()) {
-                apply(byId.id, byId.data()?.helperDriverIds);
-                return;
+                docId = byId.id;
+                data = byId.data();
+            } else {
+                const snap = await getDocs(
+                    query(collection(db, COLLECTIONS.TASKS), where("taskId", "==", taskId), limit(1))
+                );
+                if (!snap.empty) {
+                    docId = snap.docs[0].id;
+                    data = snap.docs[0].data();
+                }
             }
-            const snap = await getDocs(
-                query(collection(db, COLLECTIONS.TASKS), where("taskId", "==", taskId), limit(1))
-            );
-            if (!snap.empty) {
-                apply(snap.docs[0].id, snap.docs[0].data()?.helperDriverIds);
-                return;
-            }
-            apply(null, []);
         } catch {
-            apply(null, []);
+            /* leave docId null */
         }
+
+        const ids = Array.isArray(data?.helperDriverIds) ? (data!.helperDriverIds as string[]).slice(0, 1) : [];
+        setTaskDocId(docId);
+        setHelperIds(ids);
+        setInitialHelperIds(ids);
+
+        const date = toDate(data?.date);
+        const pr = date ? periodRoundForDate(date) : null;
+        setPeriodRound(pr);
+
+        let locked: string | null = null;
+        let draft = false;
+        if (pr && ids[0]) {
+            const status = await payoutStatusFor(ids[0], pr);
+            if (status && PAYOUT_LOCKED.has(status)) locked = status;
+            else if (status && PAYOUT_DRAFT.has(status)) draft = true;
+        }
+        setLockedStatus(locked);
+        setDraftHint(draft);
     };
 
     const fetchDrivers = async () => {
@@ -144,12 +192,16 @@ export function EditTripDetailsDialog({
                 setIncidentReport(null);
             }
             fetchDrivers();
+            setHelperError(null);
             if (trip.taskId) {
-                fetchHelperIds(trip.taskId);
+                loadHelperContext(trip.taskId);
             } else {
                 setTaskDocId(null);
                 setHelperIds([]);
                 setInitialHelperIds([]);
+                setPeriodRound(null);
+                setLockedStatus(null);
+                setDraftHint(false);
             }
         }
     }, [open, trip.id, trip.taskId, trip.spxTripId, trip.sealCode]);
@@ -173,8 +225,26 @@ export function EditTripDetailsDialog({
             return;
         }
 
+        setHelperError(null);
         setLoading(true);
         try {
+            // Guard: a helper-day cannot be changed once the affected payout is
+            // finalized (APPROVED/PAID) — correct it via a post-approval adjustment.
+            // Check both the outgoing and incoming helper for this period/round.
+            if (helperChanged && periodRound) {
+                const affected = [initialHelperIds[0], helperIds[0]].filter(Boolean) as string[];
+                for (const aid of affected) {
+                    const status = await payoutStatusFor(aid, periodRound);
+                    if (status && PAYOUT_LOCKED.has(status)) {
+                        setHelperError(
+                            t("task.helper.lockedSave", "Cannot change the helper — the payout for this period is already finalized ({status}). Use an adjustment.").replace("{status}", status)
+                        );
+                        setLoading(false);
+                        return;
+                    }
+                }
+            }
+
             // Helper lives on the linked task. Editing it before payroll runs is the
             // admin review path; a draft payout must be regenerated to pick up the change.
             if (helperChanged && taskDocId) {
@@ -183,6 +253,11 @@ export function EditTripDetailsDialog({
                     updatedAt: serverTimestamp(),
                 });
                 setInitialHelperIds(helperIds.slice(0, 1));
+                // Nudge: if the affected helper already has a DRAFT payout, it must be regenerated.
+                if (periodRound && helperIds[0]) {
+                    const st = await payoutStatusFor(helperIds[0], periodRound);
+                    setDraftHint(!!st && PAYOUT_DRAFT.has(st));
+                }
             }
 
             if (!trip.id) {
@@ -285,17 +360,31 @@ export function EditTripDetailsDialog({
                             <span>{getSourceDisplayName ? getSourceDisplayName(trip.destination) : (trip.destination || "-")}</span>
                         </div>
                         {/* Helper (training / assisting) — editable admin review of tasks.helperDriverIds */}
-                        <HelperDriverField
-                            drivers={drivers}
-                            value={helperIds}
-                            onChange={setHelperIds}
-                            excludeAuthId={trip.driverId || undefined}
-                            disabled={!taskDocId}
-                            label={t("task.helper.label", "Helper (training / assisting)")}
-                            placeholder={t("task.helper.select", "Select helper")}
-                            noneLabel={t("task.helper.none", "No helper")}
-                            searchPlaceholder={t("task.helper.search", "Search driver")}
-                        />
+                        <div>
+                            <HelperDriverField
+                                drivers={drivers}
+                                value={helperIds}
+                                onChange={(next) => { setHelperIds(next); setHelperError(null); }}
+                                excludeAuthId={trip.driverId || undefined}
+                                disabled={!taskDocId || !!lockedStatus}
+                                label={t("task.helper.label", "Helper (training / assisting)")}
+                                placeholder={t("task.helper.select", "Select helper")}
+                                noneLabel={t("task.helper.none", "No helper")}
+                                searchPlaceholder={t("task.helper.search", "Search driver")}
+                            />
+                            {lockedStatus ? (
+                                <p className="mt-1 text-xs text-amber-600 dark:text-amber-500">
+                                    {t("task.helper.locked", "Payout for this period is already finalized ({status}) — use an adjustment.").replace("{status}", lockedStatus)}
+                                </p>
+                            ) : draftHint ? (
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                    {t("task.helper.regenHint", "A draft payroll exists for this period — regenerate it to apply this change.")}
+                                </p>
+                            ) : null}
+                            {helperError && (
+                                <p className="mt-1 text-xs text-red-600 dark:text-red-500">{helperError}</p>
+                            )}
+                        </div>
                     </div>
 
                     {/* Incident Report Section */}

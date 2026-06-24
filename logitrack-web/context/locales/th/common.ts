@@ -5,6 +5,9 @@ export default {
     "task.helper.select": "เลือกผู้ช่วย",
     "task.helper.none": "ไม่มีผู้ช่วย",
     "task.helper.search": "ค้นหาคนขับ",
+    "task.helper.locked": "payout งวดนี้ถูกปิดแล้ว ({status}) — ต้องแก้ผ่านรายการปรับปรุง",
+    "task.helper.lockedSave": "แก้ผู้ช่วยไม่ได้ — payout งวดนี้ถูกปิดแล้ว ({status}) ให้ใช้รายการปรับปรุงแทน",
+    "task.helper.regenHint": "งวดนี้มี draft payroll อยู่ — ต้อง Generate ใหม่เพื่อให้การแก้มีผล",
 
     // Navigation
     "nav.home": "หน้าแรก",
