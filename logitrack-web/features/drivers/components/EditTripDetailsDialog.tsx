@@ -426,7 +426,7 @@ export function EditTripDetailsDialog({
 
     // จัดการงานค้างจากเว็บ (ปุ่มเดียว → dialog): เลือกผลของเที่ยวนี้ (delivered=นับเงิน / cancelled=ไม่นับ)
     // + ตัวเลือกเคลียร์เที่ยว in_transit อื่นๆ ของคนขับคนนี้ในคราวเดียว
-    // ไม่ต้องอัปโหลด/overlay รูปเหมือนมือถือ — มือถือจะ auto-clear เองเมื่อเห็น status delivered/cancelled
+    // delivered: เก็บรูปหลักฐานการส่งที่ admin แนบไว้ด้วย (ให้ admin ปิดงานพร้อมรูปได้เหมือน driver)
     const handleResolve = async () => {
         if (!trip.id) return;
         setResolving(true);
@@ -441,6 +441,24 @@ export function EditTripDetailsDialog({
                     updateData.deliveredTimestamp = Timestamp.fromDate(new Date(localDeliveredAt));
                 } else if (!trip.deliveredTimestamp) {
                     updateData.deliveredTimestamp = Timestamp.fromDate(new Date());
+                }
+                // Persist any delivery-proof photos the admin attached (same merge as handleSave).
+                if (Object.keys(replaceByType).length > 0) {
+                    const updatedPhotos: TripPhoto[] = [...photos];
+                    const typeToIndex = new Map<string, number>();
+                    photos.forEach((p, i) => typeToIndex.set(p.type, i));
+                    for (const [photoType, file] of Object.entries(replaceByType)) {
+                        const newUrl = await uploadTripPhoto(trip.id, photoType, file);
+                        const idx = typeToIndex.get(photoType);
+                        const existing = photos.find((p) => p.type === photoType);
+                        if (idx !== undefined) {
+                            updatedPhotos[idx] = { url: newUrl, type: photoType as TripPhoto["type"], geocoding: existing?.geocoding };
+                        } else {
+                            updatedPhotos.push({ url: newUrl, type: photoType as TripPhoto["type"] });
+                        }
+                    }
+                    const deduped = dedupeTripPhotosByTypeLastWins(updatedPhotos);
+                    updateData.photos = deduped.map((p) => ({ url: p.url, type: p.type, geocoding: p.geocoding ?? null }));
                 }
                 await updateDoc(doc(db, COLLECTIONS.TRIP_RECORDS, trip.id), updateData);
                 if (trip.taskId) {
