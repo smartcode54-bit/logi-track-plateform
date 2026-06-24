@@ -45,7 +45,7 @@ So that the helper is paid a flat per-day rate for days they helped but did not 
 - [x] **Admin-assign helper at task assignment** (2026-06-24) — shared `features/tasks/components/HelperDriverField.tsx` (single-select, stores Auth UID, excludes main driver) wired into `FirstMileTaskDialog` + `LineHaulTaskDialog` (+ hooks defaults & multi-delivery payload) and `createOrUpdateTask` CF persists `helperDriverIds` (capped at 1).
 - [x] **Admin review/edit helper before payroll** (2026-06-24) — `EditTripDetailsDialog` now resolves the linked task doc and edits `tasks.helperDriverIds` via the same `HelperDriverField`.
 - [~] **Recompute-on-change** — DRAFT case works manually: re-running "Generate Payroll" overwrites the DRAFT and picks up the edited helper (orchestrator is idempotent). Still TODO: auto-trigger on edit + APPROVED → Story 3.4 adjustment. Edits are NOT yet blocked once a run is approved.
-- [ ] **Orchestrator eligibility tests** — `computeHelperPay` only tests the multiply; add tests for the eligibility/dedup/round-window logic that lives in `driverCompensation.ts` (exclude own delivered day, one-per-day, R1/R2 boundary).
+- [x] **Orchestrator eligibility tests** (2026-06-24) — extracted the eligibility logic into pure `eligibleHelperDayKeys(helperTaskDayKeys, deliveredDayKeys)` (mirrored lib ↔ functions/core), now used by the orchestrator. 5 vitest cases (dedup per day, exclude driving days, all-driving → empty, empty-key handling, Set input).
 - [ ] **Surface `HELPER_PAY` in payout review UI** — ensure the new category renders with an EN/TH label, not a raw key.
 - [ ] **E2E**: deploy (Gen2) and verify the closed loop with a real helper-day.
 

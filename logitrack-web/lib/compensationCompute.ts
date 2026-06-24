@@ -143,6 +143,23 @@ export function computeHelperPay(helperDayCount: number, ratePerDay: number): nu
     return roundTHB(Math.max(0, helperDayCount) * Math.max(0, ratePerDay));
 }
 
+/**
+ * Distinct helper-day keys that earn pay: helper-task day keys minus any day on
+ * which the driver already had a delivered trip (driving days pay as trips, never
+ * also as a helper-day). One unit per calendar day. See ADR-0001 / glossary.
+ */
+export function eligibleHelperDayKeys(
+    helperTaskDayKeys: string[],
+    deliveredDayKeys: Iterable<string>,
+): string[] {
+    const delivered = new Set(deliveredDayKeys);
+    const out = new Set<string>();
+    for (const key of helperTaskDayKeys) {
+        if (key && !delivered.has(key)) out.add(key);
+    }
+    return [...out];
+}
+
 /** Whole-years age at `asOf` (Bangkok). */
 export function ageYearsAt(birthDate: Date, asOf: Date): number {
     const b = bangkokParts(birthDate);

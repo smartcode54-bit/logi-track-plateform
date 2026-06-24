@@ -19,6 +19,7 @@ exports.computeBasePay = computeBasePay;
 exports.computeFuelIncentive = computeFuelIncentive;
 exports.computeTripVolumeIncentive = computeTripVolumeIncentive;
 exports.computeHelperPay = computeHelperPay;
+exports.eligibleHelperDayKeys = eligibleHelperDayKeys;
 exports.ageYearsAt = ageYearsAt;
 exports.computeSso = computeSso;
 exports.applyDeductions = applyDeductions;
@@ -114,6 +115,20 @@ function computeTripVolumeIncentive(tripCount, tiers) {
  */
 function computeHelperPay(helperDayCount, ratePerDay) {
     return roundTHB(Math.max(0, helperDayCount) * Math.max(0, ratePerDay));
+}
+/**
+ * Distinct helper-day keys that earn pay: helper-task day keys minus any day on
+ * which the driver already had a delivered trip (driving days pay as trips, never
+ * also as a helper-day). One unit per calendar day. See ADR-0001 / glossary.
+ */
+function eligibleHelperDayKeys(helperTaskDayKeys, deliveredDayKeys) {
+    const delivered = new Set(deliveredDayKeys);
+    const out = new Set();
+    for (const key of helperTaskDayKeys) {
+        if (key && !delivered.has(key))
+            out.add(key);
+    }
+    return [...out];
 }
 /** Whole-years age at `asOf` (Bangkok). */
 function ageYearsAt(birthDate, asOf) {

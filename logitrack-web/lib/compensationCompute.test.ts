@@ -9,6 +9,7 @@ import {
     computeSso,
     applyDeductions,
     computeHelperPay,
+    eligibleHelperDayKeys,
     type BasePayTrip,
     type IncentiveTier,
     type SsoRuleInput,
@@ -150,6 +151,28 @@ describe("computeHelperPay", () => {
         expect(computeHelperPay(3, 400)).toBe(1200);
         expect(computeHelperPay(0, 400)).toBe(0);
         expect(computeHelperPay(-2, 400)).toBe(0);
+    });
+});
+
+describe("eligibleHelperDayKeys", () => {
+    it("counts one helper-day per calendar day (dedupes multiple helper tasks same day)", () => {
+        const r = eligibleHelperDayKeys(["2026-06-02", "2026-06-02", "2026-06-03"], []);
+        expect(r.sort()).toEqual(["2026-06-02", "2026-06-03"]);
+    });
+    it("excludes days the driver had a delivered trip (driving days pay as trips)", () => {
+        const r = eligibleHelperDayKeys(["2026-06-02", "2026-06-03"], ["2026-06-03"]);
+        expect(r).toEqual(["2026-06-02"]);
+    });
+    it("returns empty when every helper day is also a driving day", () => {
+        expect(eligibleHelperDayKeys(["2026-06-05"], ["2026-06-05"])).toEqual([]);
+    });
+    it("ignores empty keys and handles no helper tasks", () => {
+        expect(eligibleHelperDayKeys(["", "2026-06-07"], new Set<string>())).toEqual(["2026-06-07"]);
+        expect(eligibleHelperDayKeys([], ["2026-06-01"])).toEqual([]);
+    });
+    it("accepts a Set for delivered keys", () => {
+        const r = eligibleHelperDayKeys(["2026-06-10", "2026-06-11"], new Set(["2026-06-11"]));
+        expect(r).toEqual(["2026-06-10"]);
     });
 });
 

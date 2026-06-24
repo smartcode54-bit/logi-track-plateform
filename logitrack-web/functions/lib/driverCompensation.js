@@ -166,16 +166,14 @@ async (request) => {
             .where("date", ">=", admin.firestore.Timestamp.fromDate(range.start))
             .where("date", "<", admin.firestore.Timestamp.fromDate(range.end))
             .get();
-        const eligibleHelperDays = new Set();
-        for (const h of helperSnap.docs) {
+        const helperDayKeys = helperSnap.docs
+            .map((h) => {
             const date = tsToDate(h.data().date);
-            if (!date)
-                continue;
-            const key = (0, compensationCompute_1.bangkokDateKey)(date);
-            if (!deliveredDateKeys.has(key))
-                eligibleHelperDays.add(key); // 1 per day, skip driving days
-        }
-        const helperPay = (0, compensationCompute_1.computeHelperPay)(eligibleHelperDays.size, cfg.helperDayRateThb ?? 400);
+            return date ? (0, compensationCompute_1.bangkokDateKey)(date) : "";
+        })
+            .filter(Boolean);
+        const eligibleHelperDays = (0, compensationCompute_1.eligibleHelperDayKeys)(helperDayKeys, deliveredDateKeys);
+        const helperPay = (0, compensationCompute_1.computeHelperPay)(eligibleHelperDays.length, cfg.helperDayRateThb ?? 400);
         if (helperPay > 0) {
             lineItems.push({ type: "EARNING", category: "HELPER_PAY", name: "Helper/training pay", amount: helperPay });
         }

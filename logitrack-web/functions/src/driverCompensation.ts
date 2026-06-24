@@ -23,6 +23,7 @@ import {
     computeSso,
     applyDeductions,
     computeHelperPay,
+    eligibleHelperDayKeys,
     makeHolidayChecker,
     bangkokDateKey,
     type BasePayTrip,
@@ -173,14 +174,14 @@ export const generateDriverPayoutRun = onCall(
                     .where("date", ">=", admin.firestore.Timestamp.fromDate(range.start))
                     .where("date", "<", admin.firestore.Timestamp.fromDate(range.end))
                     .get();
-                const eligibleHelperDays = new Set<string>();
-                for (const h of helperSnap.docs) {
-                    const date = tsToDate(h.data().date);
-                    if (!date) continue;
-                    const key = bangkokDateKey(date);
-                    if (!deliveredDateKeys.has(key)) eligibleHelperDays.add(key); // 1 per day, skip driving days
-                }
-                const helperPay = computeHelperPay(eligibleHelperDays.size, cfg.helperDayRateThb ?? 400);
+                const helperDayKeys = helperSnap.docs
+                    .map((h) => {
+                        const date = tsToDate(h.data().date);
+                        return date ? bangkokDateKey(date) : "";
+                    })
+                    .filter(Boolean);
+                const eligibleHelperDays = eligibleHelperDayKeys(helperDayKeys, deliveredDateKeys);
+                const helperPay = computeHelperPay(eligibleHelperDays.length, cfg.helperDayRateThb ?? 400);
                 if (helperPay > 0) {
                     lineItems.push({ type: "EARNING", category: "HELPER_PAY", name: "Helper/training pay", amount: helperPay });
                 }
