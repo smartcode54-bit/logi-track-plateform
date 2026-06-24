@@ -13,7 +13,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Camera, Loader2, ExternalLink } from "lucide-react";
-import { doc, updateDoc, serverTimestamp, getDocs, collection, query, where, limit } from "firebase/firestore";
+import { doc, getDoc, updateDoc, serverTimestamp, getDocs, collection, query, where, limit } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { uploadTripPhoto } from "@/lib/uploadTripPhoto";
@@ -22,6 +22,8 @@ import type { TripRecord, TripPhoto } from "@/validate/tripRecordSchema";
 import { useLanguage } from "@/context/language";
 import { ReportIncidentModal } from "../chat/components/ReportIncidentModal";
 import { ImagePreviewGallery } from "@/components/accounting/ImagePreviewGallery";
+import { HelperDriverField } from "@/features/tasks/components/HelperDriverField";
+import type { Driver } from "@/validate/driverSchema";
 
 interface EditTripDetailsDialogProps {
     open: boolean;
@@ -63,6 +65,10 @@ export function EditTripDetailsDialog({
         situation2PhotoUrl?: string | null;
     } | null>(null);
     const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+    const [helperIds, setHelperIds] = useState<string[]>([]);
+    const [initialHelperIds, setInitialHelperIds] = useState<string[]>([]);
+    const [taskDocId, setTaskDocId] = useState<string | null>(null);
+    const [drivers, setDrivers] = useState<Driver[]>([]);
     const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
     const photos = trip.photos ?? [];
@@ -89,6 +95,44 @@ export function EditTripDetailsDialog({
         }
     };
 
+    // Helpers live on the linked task (tasks.helperDriverIds), not the trip_record.
+    // Resolve the task DOC id so admins can edit the helper here (review path).
+    const fetchHelperIds = async (taskId: string) => {
+        const apply = (docId: string | null, ids: unknown) => {
+            const arr = Array.isArray(ids) ? (ids as string[]).slice(0, 1) : [];
+            setTaskDocId(docId);
+            setHelperIds(arr);
+            setInitialHelperIds(arr);
+        };
+        try {
+            // taskId may be the task doc id or the human task id (e.g. "FM-..").
+            const byId = await getDoc(doc(db, COLLECTIONS.TASKS, taskId));
+            if (byId.exists()) {
+                apply(byId.id, byId.data()?.helperDriverIds);
+                return;
+            }
+            const snap = await getDocs(
+                query(collection(db, COLLECTIONS.TASKS), where("taskId", "==", taskId), limit(1))
+            );
+            if (!snap.empty) {
+                apply(snap.docs[0].id, snap.docs[0].data()?.helperDriverIds);
+                return;
+            }
+            apply(null, []);
+        } catch {
+            apply(null, []);
+        }
+    };
+
+    const fetchDrivers = async () => {
+        try {
+            const snap = await getDocs(collection(db, COLLECTIONS.DRIVERS));
+            setDrivers(snap.docs.map((d) => ({ id: d.id, ...(d.data() as object) })) as Driver[]);
+        } catch {
+            setDrivers([]);
+        }
+    };
+
     useEffect(() => {
         if (open) {
             setSpxTripId(trip.spxTripId ?? "");
@@ -99,8 +143,16 @@ export function EditTripDetailsDialog({
             } else {
                 setIncidentReport(null);
             }
+            fetchDrivers();
+            if (trip.taskId) {
+                fetchHelperIds(trip.taskId);
+            } else {
+                setTaskDocId(null);
+                setHelperIds([]);
+                setInitialHelperIds([]);
+            }
         }
-    }, [open, trip.id, trip.spxTripId, trip.sealCode]);
+    }, [open, trip.id, trip.taskId, trip.spxTripId, trip.sealCode]);
 
     const handleFileSelect = (photoType: string, e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -110,12 +162,12 @@ export function EditTripDetailsDialog({
         e.target.value = "";
     };
 
-    const handleSave = async () => {
-        if (!trip.id) return;
+    const helperChanged = (helperIds[0] ?? "") !== (initialHelperIds[0] ?? "");
 
+    const handleSave = async () => {
         const hasPhotoChanges = Object.keys(replaceByType).length > 0;
         const hasMetaChanges = spxTripId !== (trip.spxTripId ?? "") || sealCode !== (trip.sealCode ?? "");
-        if (!hasPhotoChanges && !hasMetaChanges) {
+        if (!hasPhotoChanges && !hasMetaChanges && !helperChanged) {
             onOpenChange(false);
             if (onSuccess) onSuccess();
             return;
@@ -123,6 +175,21 @@ export function EditTripDetailsDialog({
 
         setLoading(true);
         try {
+            // Helper lives on the linked task. Editing it before payroll runs is the
+            // admin review path; a draft payout must be regenerated to pick up the change.
+            if (helperChanged && taskDocId) {
+                await updateDoc(doc(db, COLLECTIONS.TASKS, taskDocId), {
+                    helperDriverIds: helperIds.slice(0, 1),
+                    updatedAt: serverTimestamp(),
+                });
+                setInitialHelperIds(helperIds.slice(0, 1));
+            }
+
+            if (!trip.id) {
+                onOpenChange(false);
+                if (onSuccess) onSuccess();
+                return;
+            }
             const updatedPhotos: TripPhoto[] = [...photos];
             const typeToIndex = new Map<string, number>();
             photos.forEach((p, i) => typeToIndex.set(p.type, i));
@@ -175,7 +242,8 @@ export function EditTripDetailsDialog({
     const hasChanges =
         Object.keys(replaceByType).length > 0 ||
         spxTripId !== (trip.spxTripId ?? "") ||
-        sealCode !== (trip.sealCode ?? "");
+        sealCode !== (trip.sealCode ?? "") ||
+        helperChanged;
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -216,6 +284,18 @@ export function EditTripDetailsDialog({
                             <span className="text-muted-foreground">{t("driverMonitor.detail.destination")}</span>
                             <span>{getSourceDisplayName ? getSourceDisplayName(trip.destination) : (trip.destination || "-")}</span>
                         </div>
+                        {/* Helper (training / assisting) — editable admin review of tasks.helperDriverIds */}
+                        <HelperDriverField
+                            drivers={drivers}
+                            value={helperIds}
+                            onChange={setHelperIds}
+                            excludeAuthId={trip.driverId || undefined}
+                            disabled={!taskDocId}
+                            label={t("task.helper.label", "Helper (training / assisting)")}
+                            placeholder={t("task.helper.select", "Select helper")}
+                            noneLabel={t("task.helper.none", "No helper")}
+                            searchPlaceholder={t("task.helper.search", "Search driver")}
+                        />
                     </div>
 
                     {/* Incident Report Section */}

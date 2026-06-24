@@ -25,6 +25,8 @@ interface CreateOrUpdateTaskRequest {
     taskType: "FIRST_MILE" | "LINE_HAUL";
     truckType?: "4WH" | "4WJ" | "6WH" | "10WH" | "18WH" | "PICKUP" | "VAN";
     driverId?: string;
+    /** Helper (training/assisting) Auth UIDs — at most one. See ADR-0001. */
+    helperDriverIds?: string[];
     isMultiDelivery?: boolean;
     deliveryStops?: DeliveryStopPayload[]; // Only set if isMultiDelivery === true
 
@@ -127,6 +129,10 @@ export const createOrUpdateTask = onCall(
             taskType: data.taskType,
             truckType: data.truckType,
             driverId: data.driverId,
+            // At most one helper; persist as an array for array-contains queries.
+            helperDriverIds: Array.isArray(data.helperDriverIds)
+                ? data.helperDriverIds.filter(Boolean).slice(0, 1)
+                : [],
             driverName: undefined, // Will be fetched separately if needed
             status: data.driverId ? "Assigned" : "Pending",
             isMultiDelivery,

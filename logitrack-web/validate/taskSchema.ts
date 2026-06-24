@@ -90,6 +90,9 @@ export const taskSchema = z.object({
     checkInLat: z.number().optional(),
     checkInLng: z.number().optional(),
 
+    /** Auth UIDs of helpers selected by the main driver at check-in (see driverCompensation helper pay). */
+    helperDriverIds: z.array(z.string()).optional(),
+
     // Multi-delivery support (backward compatible)
     isMultiDelivery: z.boolean().optional().default(false),
     deliveryStops: z.array(deliveryStopSchema).optional(), // Only set if isMultiDelivery === true

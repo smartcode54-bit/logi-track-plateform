@@ -61,6 +61,7 @@ import {
 import { MoreHorizontal, Pencil, RefreshCw } from "lucide-react";
 import { EditTripDetailsDialog } from "@/app/app/driver-monitor/EditTripDetailsDialog";
 import type { TripRecord } from "@/validate/tripRecordSchema";
+import { useDriverNamesByAuthId } from "@/hooks/useDriverNamesByAuthId";
 
 function toDate(val: unknown): Date | null {
     if (!val) return null;
@@ -87,6 +88,9 @@ export default function LineHaulPage() {
     const [detailTask, setDetailTask] = useState<FirstMileTask | null>(null);
     const [detailTrip, setDetailTrip] = useState<TripRecord | null>(null);
     const [editTripDialogOpen, setEditTripDialogOpen] = useState(false);
+
+    // Resolve helper Auth UIDs → names for the open task detail
+    const helperNames = useDriverNamesByAuthId(detailTask?.helperDriverIds);
 
     // Fetch Hubs directly from Firestore
     const fetchHubs = async () => {
@@ -509,6 +513,12 @@ export default function LineHaulPage() {
                                 <span>{detailTask.driverName ?? "-"}</span>
                                 <span className="text-muted-foreground">{t("lineHaul.table.phone")}</span>
                                 <span>{detailTask.driverPhone ?? "-"}</span>
+                                {detailTask.helperDriverIds && detailTask.helperDriverIds.length > 0 && (
+                                    <>
+                                        <span className="text-muted-foreground">{t("task.helpers", "Helpers")}</span>
+                                        <span>{detailTask.helperDriverIds.map((id) => helperNames[id] ?? id).join(", ")}</span>
+                                    </>
+                                )}
                                 <span className="text-muted-foreground">{t("lineHaul.table.status")}</span>
                                 <span>
                                     <Badge variant={detailTask.status === "Cancelled" ? "secondary" : "outline"}>

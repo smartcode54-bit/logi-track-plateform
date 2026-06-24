@@ -57,6 +57,7 @@ export function useLineHaulTask({
             taskType: "LINE_HAUL" as const,
             isMultiDelivery: false,
             deliveryStops: undefined,
+            helperDriverIds: [],
         },
     });
 
@@ -245,6 +246,7 @@ export function useLineHaulTask({
                     driverPhone: values.driverPhone || undefined,
                     licensePlate: values.licensePlate || undefined,
                     status: values.status,
+                    helperDriverIds: values.helperDriverIds ?? [],
                     isMultiDelivery: true,
                     deliveryStops: values.deliveryStops.map((stop) => ({
                         index: stop.index,

@@ -1,4 +1,11 @@
 export default {
+    // Task / trip shared
+    "task.helpers": "Helpers",
+    "task.helper.label": "Helper (training / assisting)",
+    "task.helper.select": "Select helper",
+    "task.helper.none": "No helper",
+    "task.helper.search": "Search driver",
+
     // Navigation
     "nav.home": "Home",
     "nav.dashboard": "Dashboard",

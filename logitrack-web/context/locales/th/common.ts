@@ -1,4 +1,11 @@
 export default {
+    // Task / trip shared
+    "task.helpers": "ผู้ช่วย",
+    "task.helper.label": "ผู้ช่วย (ขึ้นฝึก / ช่วยงาน)",
+    "task.helper.select": "เลือกผู้ช่วย",
+    "task.helper.none": "ไม่มีผู้ช่วย",
+    "task.helper.search": "ค้นหาคนขับ",
+
     // Navigation
     "nav.home": "หน้าแรก",
     "nav.dashboard": "แดชบอร์ด",

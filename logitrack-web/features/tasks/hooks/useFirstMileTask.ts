@@ -55,6 +55,7 @@ export function useFirstMileTask({
             taskType: "FIRST_MILE" as const,
             isMultiDelivery: false,
             deliveryStops: undefined,
+            helperDriverIds: [],
         },
     });
 
@@ -230,6 +231,7 @@ export function useFirstMileTask({
                     taskType: values.taskType,
                     truckType: values.truckType,
                     driverId: values.driverId,
+                    helperDriverIds: values.helperDriverIds ?? [],
                     isMultiDelivery: true,
                     deliveryStops: values.deliveryStops.map((stop) => ({
                         index: stop.index,

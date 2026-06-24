@@ -40,6 +40,7 @@ import { cn } from "@/lib/utils";
 import { useLanguage } from "@/context/language";
 import { useLineHaulTask } from "../hooks/useLineHaulTask";
 import DeliveryStopsEditor from "./DeliveryStopsEditor";
+import { HelperDriverField } from "./HelperDriverField";
 import { Task as FirstMileTask } from "@/validate/taskSchema";
 
 export interface LineHaulTaskDialogProps {
@@ -503,6 +504,31 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                             <FormLabel>License Plate</FormLabel>
                                             <FormControl>
                                                 <Input placeholder="e.g. 1กก-1234" {...field} readOnly className="bg-muted" />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                            </div>
+
+                            {/* Helper (training / assisting) — at most one, stores Auth UID. See ADR-0001. */}
+                            <div className="mt-4">
+                                <FormField
+                                    control={form.control}
+                                    name="helperDriverIds"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormControl>
+                                                <HelperDriverField
+                                                    drivers={drivers}
+                                                    value={field.value as string[] | undefined}
+                                                    onChange={field.onChange}
+                                                    excludeDriverId={form.watch("driverId") || undefined}
+                                                    label={t("task.helper.label", "Helper (training / assisting)")}
+                                                    placeholder={t("task.helper.select", "Select helper")}
+                                                    noneLabel={t("task.helper.none", "No helper")}
+                                                    searchPlaceholder={t("task.helper.search", "Search driver")}
+                                                />
                                             </FormControl>
                                             <FormMessage />
                                         </FormItem>
