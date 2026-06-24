@@ -111,6 +111,10 @@ async (request) => {
         taskType: data.taskType,
         truckType: data.truckType,
         driverId: data.driverId,
+        // At most one helper; persist as an array for array-contains queries.
+        helperDriverIds: Array.isArray(data.helperDriverIds)
+            ? data.helperDriverIds.filter(Boolean).slice(0, 1)
+            : [],
         driverName: undefined, // Will be fetched separately if needed
         status: data.driverId ? "Assigned" : "Pending",
         isMultiDelivery,

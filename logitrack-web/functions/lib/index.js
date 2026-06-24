@@ -65,4 +65,5 @@ __exportStar(require("./tasks"), exports);
 __exportStar(require("./multiDeliveryTrips"), exports);
 __exportStar(require("./standbyBilling"), exports);
 __exportStar(require("./backfillTripTruckData"), exports);
+__exportStar(require("./driverCompensation"), exports);
 //# sourceMappingURL=index.js.map
