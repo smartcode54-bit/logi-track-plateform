@@ -8,6 +8,7 @@ export default {
     "task.helper.locked": "Payout for this period is already finalized ({status}) — use an adjustment.",
     "task.helper.lockedSave": "Cannot change the helper — the payout for this period is already finalized ({status}). Use an adjustment.",
     "task.helper.regenHint": "A draft payroll exists for this period — regenerate it to apply this change.",
+    "task.helper.noTask": "No linked task — helper can't be set for this trip.",
 
     // Navigation
     "nav.home": "Home",
