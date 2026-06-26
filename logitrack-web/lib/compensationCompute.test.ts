@@ -10,6 +10,7 @@ import {
     applyDeductions,
     computeHelperPay,
     eligibleHelperDayKeys,
+    helperWindowKey,
     type BasePayTrip,
     type IncentiveTier,
     type SsoRuleInput,
@@ -154,8 +155,27 @@ describe("computeHelperPay", () => {
     });
 });
 
+describe("helperWindowKey", () => {
+    // Bangkok wall-clock instant helper (UTC+7).
+    const bkk = (y: number, m1: number, d: number, h: number, min = 0) =>
+        new Date(Date.UTC(y, m1 - 1, d, h, min, 0) - 7 * 3600000);
+
+    it("keys the window 12:00 D → 11:59 D+1 to day D", () => {
+        expect(helperWindowKey(bkk(2026, 6, 15, 12, 0))).toBe("2026-06-15"); // window start
+        expect(helperWindowKey(bkk(2026, 6, 15, 13, 0))).toBe("2026-06-15");
+        expect(helperWindowKey(bkk(2026, 6, 16, 2, 0))).toBe("2026-06-15"); // crosses midnight
+        expect(helperWindowKey(bkk(2026, 6, 16, 11, 59))).toBe("2026-06-15"); // window end
+    });
+    it("rolls to the next window at exactly 12:00", () => {
+        expect(helperWindowKey(bkk(2026, 6, 16, 12, 0))).toBe("2026-06-16");
+    });
+    it("an 11:00 check-in on the 16th belongs to the 15th (R1, not R2)", () => {
+        expect(helperWindowKey(bkk(2026, 6, 16, 11, 0))).toBe("2026-06-15");
+    });
+});
+
 describe("eligibleHelperDayKeys", () => {
-    it("counts one helper-day per calendar day (dedupes multiple helper tasks same day)", () => {
+    it("counts one helper-day per window key (dedupes multiple helper tasks same window)", () => {
         const r = eligibleHelperDayKeys(["2026-06-02", "2026-06-02", "2026-06-03"], []);
         expect(r.sort()).toEqual(["2026-06-02", "2026-06-03"]);
     });
