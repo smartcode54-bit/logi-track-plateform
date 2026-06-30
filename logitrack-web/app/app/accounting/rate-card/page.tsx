@@ -208,7 +208,16 @@ export default function AccountingRateCardPage() {
     const [editingAdjustmentId, setEditingAdjustmentId] = useState<string | null>(null);
     const [manualRateError, setManualRateError] = useState<string | null>(null);
     const [savingManualRate, setSavingManualRate] = useState(false);
-    const [manualRateForm, setManualRateForm] = useState({
+    const [manualRateForm, setManualRateForm] = useState<{
+        customerId: string;
+        hubId: string;
+        destinationCode: string;
+        vehicleClass: string;
+        rateThb: string;
+        distanceKm: string;
+        effectiveFrom: string;
+        jobCategory: "PRIMARY" | "SUPPLEMENTARY";
+    }>({
         customerId: "",
         hubId: "",
         destinationCode: "",
@@ -216,6 +225,7 @@ export default function AccountingRateCardPage() {
         rateThb: "",
         distanceKm: "",
         effectiveFrom: "",
+        jobCategory: "PRIMARY",
     });
     const [adjustmentForm, setAdjustmentForm] = useState({
         adjustmentType: "percent" as "percent" | "fixed_thb",
@@ -801,6 +811,7 @@ export default function AccountingRateCardPage() {
                     vehicleClass,
                     rateThb,
                     distanceKm: Number.isFinite(distanceKm as number) ? distanceKm : undefined,
+                    jobCategory: manualRateForm.jobCategory,
                 },
                 effectiveFrom
             );
@@ -812,6 +823,7 @@ export default function AccountingRateCardPage() {
                 rateThb: "",
                 distanceKm: "",
                 effectiveFrom: "",
+                jobCategory: "PRIMARY",
             }));
             await loadData();
         } catch (err) {
@@ -1292,6 +1304,23 @@ export default function AccountingRateCardPage() {
                             </Select>
                         </div>
                         <div className="space-y-1.5">
+                            <Label>{t("accounting.rateCard.jobCategory.label", "ประเภทงาน")}</Label>
+                            <Select
+                                value={manualRateForm.jobCategory}
+                                onValueChange={(value) =>
+                                    setManualRateForm((prev) => ({ ...prev, jobCategory: value === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY" }))
+                                }
+                            >
+                                <SelectTrigger>
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="PRIMARY">{t("accounting.rateCard.jobCategory.primary", "หลัก")}</SelectItem>
+                                    <SelectItem value="SUPPLEMENTARY">{t("accounting.rateCard.jobCategory.supplementary", "เสริม")}</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="space-y-1.5">
                             <Label>{t("accounting.rateCard.table.rateThb")}</Label>
                             <Input
                                 type="number"
@@ -1451,6 +1480,7 @@ export default function AccountingRateCardPage() {
                                 <TableHead>{t("accounting.rateCard.table.hubId")}</TableHead>
                                 <TableHead>{t("accounting.rateCard.table.destination")}</TableHead>
                                 <TableHead>{t("accounting.rateCard.table.vehicleClass")}</TableHead>
+                                <TableHead>{t("accounting.rateCard.jobCategory.label", "ประเภทงาน")}</TableHead>
                                 <TableHead className="text-right">{t("accounting.rateCard.table.rateThb")}</TableHead>
                                 {showRateCalPreview && (
                                     <TableHead className="text-right">{t("accounting.rateCard.table.newRateThb")}</TableHead>
@@ -1488,6 +1518,17 @@ export default function AccountingRateCardPage() {
                                     <TableCell>{formatSource(row.hubId)}</TableCell>
                                     <TableCell>{formatDestination(row.destinationCode)}</TableCell>
                                     <TableCell className="font-mono text-xs">{displayVehicleTypeCode(row.vehicleClass)}</TableCell>
+                                    <TableCell>
+                                        {row.jobCategory === "SUPPLEMENTARY" ? (
+                                            <Badge variant="secondary" className="bg-amber-100 text-amber-800">
+                                                {t("accounting.rateCard.jobCategory.supplementary", "เสริม")}
+                                            </Badge>
+                                        ) : (
+                                            <span className="text-xs text-muted-foreground">
+                                                {t("accounting.rateCard.jobCategory.primary", "หลัก")}
+                                            </span>
+                                        )}
+                                    </TableCell>
                                     <TableCell className="text-right">฿{row.rateThb.toLocaleString()}</TableCell>
                                     {showRateCalPreview && (
                                         <TableCell className="text-right">
@@ -1562,7 +1603,7 @@ export default function AccountingRateCardPage() {
                             {paginatedEntries.length === 0 && (
                                 <TableRow>
                                     <TableCell
-                                        colSpan={showRateCalPreview ? (canEdit ? 10 : 9) : (canEdit ? 9 : 8)}
+                                        colSpan={showRateCalPreview ? (canEdit ? 11 : 10) : (canEdit ? 10 : 9)}
                                         className="h-24 text-center text-muted-foreground"
                                     >
                                         {t("accounting.rateCard.noEntries")}

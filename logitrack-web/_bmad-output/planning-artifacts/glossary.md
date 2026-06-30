@@ -40,6 +40,14 @@ Captured during the helper-pay grilling sessions, 2026-06-24 and 2026-06-26. Def
 
 - **Damage / lost-goods penalty** — a driver-at-fault deduction (damaged or lost cargo) is **not** a new collection; it is a new **penalty type in config `penaltyTypes`**, reusing the existing `driver_penalties` model, page, and R2 deduction logic ([ADR-0001](adr/ADR-0001-helper-pay-data-model.md) context; penalties predate it).
 
+## Supplementary trips ([ADR-0005](adr/ADR-0005-supplementary-trips.md))
+
+- **jobCategory (`PRIMARY` / `SUPPLEMENTARY`)** — a trip/task axis marking whether it is the **primary** contracted route (หลัก) or a **supplementary** ad-hoc trip (เสริม). Stored on `tasks.jobCategory` and `trip_records.jobCategory`, default `PRIMARY`. **Distinct from `jobType`** (`first_mile | line_haul`, auto-detected from origin) — do not conflate. UI shows หลัก/เสริม.
+- **เที่ยวเสริม (supplementary trip)** — a trip billed at a **separately agreed price** that does not come from the primary rate card; its price is **frozen** once the trip has happened.
+- **Supplementary rate card** — `customer_rate_entries` rows tagged `jobCategory = SUPPLEMENTARY`. Same collection/shape as the primary card; the category is a **filter dimension** on `selectBillingRateEntry`, not a separate collection.
+- **Frozen pricing** — a SUPPLEMENTARY trip's billing snapshot is computed **once** (at delivery, from the supplementary rate card) with `billingManualOverride = true`, and **never recomputed**. The `forceRecompute` path skips any trip with `billingManualOverride === true` or `jobCategory === SUPPLEMENTARY`, so primary rate-card / fuel re-imports never move a เสริม price.
+- **Report display rules (Excel detail)** — (1) for **J&T**, the source-hub origin in เส้นทาง shows the hub **code** (`SPK_GW`) instead of the billing name (`J&T EXPRESS บางปู`); (2) globally, vehicle class **`PICKUP` displays as `4WH`** in ประเภท; (3) supplementary rows carry **`เสริม`** in หมายเหตุ.
+
 ## Related (already defined elsewhere)
 
 - **Round (R1 / R2)** — semi-monthly pay window; R1 = days 1–15, R2 = 16–end. Helper-days are assigned to a round by their **window key day D** ([ADR-0002](adr/ADR-0002-helper-day-window.md)), not the raw check-in timestamp — a check-in at 11:00 on the 16th belongs to R1.

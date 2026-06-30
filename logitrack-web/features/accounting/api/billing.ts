@@ -90,6 +90,8 @@ export interface CustomerRateEntryInput {
     vehicleClass: string;
     rateThb: number;
     distanceKm?: number;
+    /** หลัก/เสริม (ADR-0005). Tagged per import. Missing = PRIMARY. */
+    jobCategory?: "PRIMARY" | "SUPPLEMENTARY";
 }
 
 export interface CustomerRateEntryRow extends CustomerRateEntryInput {
@@ -356,6 +358,7 @@ export async function batchCreateCustomerRateEntries(
                 vehicleClass,
                 rateThb: Number(row.rateThb),
                 distanceKm: row.distanceKm != null ? Number(row.distanceKm) : null,
+                jobCategory: row.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
                 effectiveFrom: effectiveFromTs,
                 importedAt: serverTimestamp(),
                 createdAt: serverTimestamp(),
@@ -394,6 +397,7 @@ export async function createCustomerRateEntry(
             vehicleClass,
             rateThb: Number(row.rateThb),
             distanceKm: row.distanceKm != null ? Number(row.distanceKm) : null,
+            jobCategory: row.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
             effectiveFrom: effectiveFromTs,
             importedAt: serverTimestamp(),
             createdAt: serverTimestamp(),
@@ -422,6 +426,7 @@ export async function getCustomerRateEntries(customerId?: string): Promise<Custo
             vehicleClass: String(d.vehicleClass ?? "4WJ"),
             rateThb: Number(d.rateThb ?? 0),
             distanceKm: d.distanceKm != null ? Number(d.distanceKm) : undefined,
+            jobCategory: (d.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY") as "PRIMARY" | "SUPPLEMENTARY",
             effectiveFrom: parseDate(d.effectiveFrom) ?? new Date(0),
             importedAt: parseDate(d.importedAt),
         };

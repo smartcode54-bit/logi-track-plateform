@@ -63,7 +63,13 @@ export function computeTripBilling(
         deliveredTimestamp: trip.deliveredTimestamp,
         createdAt: trip.createdAt,
     };
-    return computeTripBillingFromParts(tripParts, taskToBillingInput(task), rateEntries, fuelAdjustments);
+    const input = taskToBillingInput(task);
+    // Derive หลัก/เสริม like the billing engine (ADR-0005): primary card by date first,
+    // fall back to the supplementary card.
+    return (
+        computeTripBillingFromParts(tripParts, input, rateEntries, fuelAdjustments, "PRIMARY") ??
+        computeTripBillingFromParts(tripParts, input, rateEntries, fuelAdjustments, "SUPPLEMENTARY")
+    );
 }
 
 export async function fetchRateEntriesForCustomers(

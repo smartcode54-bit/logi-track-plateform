@@ -9,6 +9,8 @@ export const CompanySchema = z.object({
   nameTh: z.string().min(1, "ต้องระบุชื่อบริษัท"),
   /** English company name (optional) */
   nameEn: z.string().optional(),
+  /** ชื่อย่อ (e.g. "WRT") — shown in the billing-detail "Sub" column for own-fleet trips (ADR-0005). */
+  shortName: z.string().optional(),
   /** Thai Revenue Dept. 13-digit Tax ID */
   taxId: z.string().length(13, "Tax ID ต้องมี 13 หลัก"),
   /** Whether this is the head office or a branch */

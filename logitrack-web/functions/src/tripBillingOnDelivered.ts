@@ -80,6 +80,7 @@ function mapRateDoc(customerId: string, doc: admin.firestore.QueryDocumentSnapsh
         vehicleClass: normalizeStoredCode(String(d.vehicleClass ?? "4WJ")),
         rateThb: Number(d.rateThb ?? 0),
         effectiveFromMs: timestampLikeToMillis(d.effectiveFrom),
+        jobCategory: d.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
     };
 }
 
@@ -117,6 +118,13 @@ async function tryWriteBillingSnapshotFromTripData(
     }
 
     if (!forceRecompute && typeof data.billingEstimateThb === "number") {
+        return { ok: true, skipped: true, billingEstimateThb: data.billingEstimateThb as number };
+    }
+
+    // Frozen pricing (ADR-0005): a supplementary trip — or any manually-overridden snapshot —
+    // keeps its agreed price. Even a forced recompute must NOT overwrite it once it has one.
+    const tripFrozen = data.billingManualOverride === true || data.jobCategory === "SUPPLEMENTARY";
+    if (forceRecompute && tripFrozen && typeof data.billingEstimateThb === "number") {
         return { ok: true, skipped: true, billingEstimateThb: data.billingEstimateThb as number };
     }
 
@@ -168,6 +176,13 @@ async function tryWriteBillingSnapshotFromTripData(
         logger.warn("[billingSnapshot] task has no linked customer", { taskId, tripId });
         return { ok: false, error: "Task has no linked customer" };
     }
+
+    // หลัก/เสริม is DERIVED, not stored on the task (ADR-0005). A route is หลัก if it has a
+    // PRIMARY rate-card entry effective on the trip's date; otherwise it falls back to the
+    // SUPPLEMENTARY card → เสริม, and the snapshot is frozen (billingManualOverride). The
+    // resolved category is computed per branch below and written onto the trip.
+    const overrideFor = (cat: "PRIMARY" | "SUPPLEMENTARY") =>
+        cat === "SUPPLEMENTARY" ? { billingManualOverride: true } : {};
 
     let rateEntries: BillingRateEntry[];
     let fuelAdjustments: FuelRateAdjustment[];
@@ -228,15 +243,18 @@ async function tryWriteBillingSnapshotFromTripData(
             logger.warn("[billingSnapshot] failed to load extra_stop service fee", { customerId, error: String(e) });
         }
 
-        const multiComputed = computeMultiDeliveryBilling(
-            tripParts,
-            taskInput,
-            stops,
-            normalizeVehicleClass(taskInput.truckType || "4WJ"),
-            rateEntries,
-            fuelAdjustments,
-            extraStopFeeThb
+        // Derive category: try PRIMARY card first, fall back to SUPPLEMENTARY (ADR-0005).
+        const mVehicleClass = normalizeVehicleClass(taskInput.truckType || "4WJ");
+        let multiComputed = computeMultiDeliveryBilling(
+            tripParts, taskInput, stops, mVehicleClass, rateEntries, fuelAdjustments, extraStopFeeThb, "PRIMARY"
         );
+        let resolvedCategory: "PRIMARY" | "SUPPLEMENTARY" = "PRIMARY";
+        if (!multiComputed) {
+            multiComputed = computeMultiDeliveryBilling(
+                tripParts, taskInput, stops, mVehicleClass, rateEntries, fuelAdjustments, extraStopFeeThb, "SUPPLEMENTARY"
+            );
+            if (multiComputed) resolvedCategory = "SUPPLEMENTARY";
+        }
 
         if (!multiComputed) {
             logger.warn("[billingSnapshot] could not compute multi-delivery billing", {
@@ -264,26 +282,34 @@ async function tryWriteBillingSnapshotFromTripData(
             billingFuelAdjustmentId: multiComputed.fuelAdjustmentId ?? null,
             billingRateMultiplier: multiComputed.rateMultiplier,
             billingCustomerId: multiComputed.customerId,
+            jobCategory: resolvedCategory,
+            ...overrideFor(resolvedCategory),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
 
         return { ok: true, billingEstimateThb: multiComputed.totalBillingThb };
     } else {
-        // Single-delivery billing (existing logic)
-        let computed = computeTripBillingFromParts(tripParts, taskInput, rateEntries, fuelAdjustments);
-        // Fallback for customers whose rate cards key destination by DISPLAY NAME instead of
-        // code: if no rate matched the code form, retry once with the Thai display name.
-        if (!computed && codeToName && rawDestination) {
-            const altDest = codeToName.get((resolvedDestination ?? rawDestination).trim())
-                ?? codeToName.get(rawDestination.trim());
-            if (altDest && altDest !== resolvedDestination) {
-                computed = computeTripBillingFromParts(
-                    tripParts,
-                    { ...taskInput, destination: altDest },
-                    rateEntries,
-                    fuelAdjustments
-                );
+        // Single-delivery billing. Derive category: try PRIMARY card, fall back to SUPPLEMENTARY.
+        let resolvedCategory: "PRIMARY" | "SUPPLEMENTARY" = "PRIMARY";
+        const computeForCategory = (cat: "PRIMARY" | "SUPPLEMENTARY") => {
+            let c = computeTripBillingFromParts(tripParts, taskInput, rateEntries, fuelAdjustments, cat);
+            // Fallback for customers whose rate cards key destination by DISPLAY NAME instead of
+            // code: if no rate matched the code form, retry once with the Thai display name.
+            if (!c && codeToName && rawDestination) {
+                const altDest = codeToName.get((resolvedDestination ?? rawDestination).trim())
+                    ?? codeToName.get(rawDestination.trim());
+                if (altDest && altDest !== resolvedDestination) {
+                    c = computeTripBillingFromParts(
+                        tripParts, { ...taskInput, destination: altDest }, rateEntries, fuelAdjustments, cat
+                    );
+                }
             }
+            return c;
+        };
+        let computed = computeForCategory("PRIMARY");
+        if (!computed) {
+            computed = computeForCategory("SUPPLEMENTARY");
+            if (computed) resolvedCategory = "SUPPLEMENTARY";
         }
         if (!computed) {
             const hubId = extractHubId(taskInput.sourceHub);
@@ -316,6 +342,8 @@ async function tryWriteBillingSnapshotFromTripData(
             billingAddThbPerTrip: computed.addThbPerTrip,
             billingEffectiveFromDateStr: computed.effectiveFromDateStr ?? null,
             billingCustomerId: computed.customerId,
+            jobCategory: resolvedCategory,
+            ...overrideFor(resolvedCategory),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
 

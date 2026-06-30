@@ -12,7 +12,11 @@ export interface BillingRateEntry {
     vehicleClass: string;
     rateThb: number;
     effectiveFromMs: number;
+    /** หลัก/เสริม. Missing = "PRIMARY" (legacy rows). See ADR-0005. */
+    jobCategory?: "PRIMARY" | "SUPPLEMENTARY";
 }
+
+export type JobCategory = "PRIMARY" | "SUPPLEMENTARY";
 
 export interface FuelRateAdjustment {
     id: string;
@@ -122,7 +126,8 @@ export function selectBillingRateEntry(
     destinationCode: string,
     vehicleClass: string,
     billDateMs: number,
-    rateEntries: BillingRateEntry[]
+    rateEntries: BillingRateEntry[],
+    jobCategory: JobCategory = "PRIMARY"
 ): BillingRateEntry | null {
     const normalizedVehicleClass = normalizeVehicleClass(vehicleClass);
     const candidates = rateEntries.filter(
@@ -130,7 +135,8 @@ export function selectBillingRateEntry(
             entry.customerId === customerId &&
             entry.hubId === hubId &&
             entry.destinationCode === destinationCode &&
-            normalizeVehicleClass(entry.vehicleClass) === normalizedVehicleClass
+            normalizeVehicleClass(entry.vehicleClass) === normalizedVehicleClass &&
+            (entry.jobCategory ?? "PRIMARY") === jobCategory
     );
     if (candidates.length === 0) return null;
 
@@ -201,7 +207,8 @@ export function computeMultiDeliveryBilling(
     vehicleClass: string,
     rateEntries: BillingRateEntry[],
     fuelAdjustments: FuelRateAdjustment[],
-    extraStopFeeThb?: number
+    extraStopFeeThb?: number,
+    jobCategory: JobCategory = "PRIMARY"
 ): MultiDeliveryBillingResult | null {
     if (!task || deliveryStops.length < 2) return null;
     const customerId = resolveTaskCustomerId(task);
@@ -236,11 +243,11 @@ export function computeMultiDeliveryBilling(
         let baseIdx = plannedDest ? normStops.findIndex((d) => d === plannedDest) : -1;
         let baseDest = baseIdx >= 0 ? normStops[baseIdx] : plannedDest;
         let baseMatch = baseDest
-            ? selectBillingRateEntry(customerId, hubId, baseDest, normalizedVehicleClass, billDateMs, rateEntries)
+            ? selectBillingRateEntry(customerId, hubId, baseDest, normalizedVehicleClass, billDateMs, rateEntries, jobCategory)
             : null;
         if (!baseMatch) {
             for (let i = 0; i < normStops.length; i++) {
-                const m = selectBillingRateEntry(customerId, hubId, normStops[i], normalizedVehicleClass, billDateMs, rateEntries);
+                const m = selectBillingRateEntry(customerId, hubId, normStops[i], normalizedVehicleClass, billDateMs, rateEntries, jobCategory);
                 if (m) { baseMatch = m; baseIdx = i; baseDest = normStops[i]; break; }
             }
         }
@@ -273,7 +280,8 @@ export function computeMultiDeliveryBilling(
                 destination,
                 normalizedVehicleClass,
                 billDateMs,
-                rateEntries
+                rateEntries,
+                jobCategory
             );
             if (!matchedRate) return;
 
@@ -366,7 +374,8 @@ export function computeTripBillingFromParts(
     trip: TripBillingTimestamps,
     task: TaskBillingInput | null | undefined,
     rateEntries: BillingRateEntry[],
-    fuelAdjustments: FuelRateAdjustment[]
+    fuelAdjustments: FuelRateAdjustment[],
+    jobCategory: JobCategory = "PRIMARY"
 ): TripBillingComputed | null {
     if (!task) return null;
     const customerId = resolveTaskCustomerId(task);
@@ -383,7 +392,8 @@ export function computeTripBillingFromParts(
         destination,
         vehicleClass,
         billDateMs,
-        rateEntries
+        rateEntries,
+        jobCategory
     );
     if (!matchedRate) return null;
 

@@ -12,6 +12,10 @@ export const TRIP_STATUS_ENUM = [
 // --- Job Type (auto-detected from origin: Hub = first_mile, SOC = line_haul) ---
 export const TRIP_JOB_TYPE_ENUM = ["first_mile", "line_haul"] as const;
 
+// --- Job Category (หลัก/เสริม) — a DIFFERENT axis from jobType; เสริม uses a separate
+//     rate card and its billing price is frozen (see ADR-0005). Default PRIMARY. ---
+export const TRIP_JOB_CATEGORY_ENUM = ["PRIMARY", "SUPPLEMENTARY"] as const;
+
 // --- Photo type ---
 export const TRIP_PHOTO_TYPE_ENUM = [
     "pre_close",
@@ -65,6 +69,8 @@ export const tripRecordSchema = z.object({
 
     status: z.enum(TRIP_STATUS_ENUM).default("in_transit"),
     jobType: z.enum(TRIP_JOB_TYPE_ENUM),
+    /** หลัก/เสริม (inherited from the task). เสริม → separate rate card + frozen price. Default PRIMARY. */
+    jobCategory: z.enum(TRIP_JOB_CATEGORY_ENUM).default("PRIMARY"),
 
     photos: z.array(tripPhotoSchema).optional().default([]),
 

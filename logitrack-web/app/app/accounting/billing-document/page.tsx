@@ -100,6 +100,9 @@ export default function BillingDocumentPage() {
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [trips, setTrips] = useState<BillingTripRow[]>([]);
     const [hubNameMap, setHubNameMap] = useState<Map<string, string>>(new Map());
+    // Reverse map: any hub name/label/code (UPPERCASE) → source_id code. Used to render the
+    // J&T origin as a hub CODE even for trips whose billingLookupHubId snapshot stored a NAME.
+    const [hubCodeMap, setHubCodeMap] = useState<Map<string, string>>(new Map());
 
     // ── Type toggles (which charge types to include in billing) ──────────────
     const [includeTrips,     setIncludeTrips]     = useState(true);
@@ -119,6 +122,7 @@ export default function BillingDocumentPage() {
                 if (company) {
                     setOwnerProvider({
                         name: company.nameTh,
+                        shortName: company.shortName,
                         address: company.address,
                         taxId: company.taxId,
                         bankName: company.bankName,
@@ -138,6 +142,7 @@ export default function BillingDocumentPage() {
     useEffect(() => {
         getDocs(collection(db, COLLECTIONS.HUBS)).then((snap) => {
             const map = new Map<string, string>();
+            const codeMap = new Map<string, string>();
             snap.forEach((d) => {
                 const data = d.data();
                 const label = billingHubLabelFromFirestoreData(data);
@@ -153,8 +158,21 @@ export default function BillingDocumentPage() {
                 }
                 map.set(d.id, label);
                 map.set(d.id.toUpperCase(), label);
+
+                // Reverse: name/label/code → source_id code (for the J&T origin-code display rule).
+                if (sourceId) {
+                    const codeKey = sourceId.toUpperCase();
+                    codeMap.set(codeKey, sourceId);
+                    codeMap.set(label.trim().toUpperCase(), sourceId);
+                    for (const nameField of [data.source_name_en, data.source_name_th, data.hubName, data.hubTHName]) {
+                        const name = typeof nameField === "string" ? nameField.trim() : "";
+                        if (name) codeMap.set(name.toUpperCase(), sourceId);
+                    }
+                    codeMap.set(d.id.toUpperCase(), sourceId);
+                }
             });
             setHubNameMap(map);
+            setHubCodeMap(codeMap);
         }).catch(console.error);
     }, []);
 
@@ -176,6 +194,18 @@ export default function BillingDocumentPage() {
         }
         // 4. Fallback: return as-is (already a display name like "J&T EXPRESS บางปู")
         return trimmed;
+    };
+
+    /**
+     * Resolve a source-hub reference (which may be a CODE like "SPK-GW" or a NAME like
+     * "J&T EXPRESS บางปู", depending on what the trip's billing snapshot stored) to its
+     * canonical hub CODE (source_id). Used for the J&T origin-code rule. Unknown values
+     * pass through unchanged so already-correct codes are preserved.
+     */
+    const resolveHubCode = (value: string | undefined): string => {
+        const trimmed = (value ?? "").trim();
+        if (!trimmed) return trimmed;
+        return hubCodeMap.get(trimmed.toUpperCase()) ?? trimmed;
     };
 
 
@@ -245,14 +275,20 @@ export default function BillingDocumentPage() {
             // ── Drivers: resolve names to Thai (reports use Thai driver names) ──
             // Keyed by both doc id and authId so a trip's driverId (authId) resolves.
             const driverNameByKey = new Map<string, string>();
+            const driverSubByKey = new Map<string, string>(); // Sup (ผู้รับเหมา) ของคนขับ
             try {
                 const driversSnap = await getDocs(collection(db, COLLECTIONS.DRIVERS));
                 driversSnap.forEach((ds) => {
                     const dd = ds.data();
                     const name = driverDisplayName(dd, ds.id);
+                    const sub = (dd.subcontractorName as string | undefined)?.trim();
                     driverNameByKey.set(ds.id, name);
+                    if (sub) driverSubByKey.set(ds.id, sub);
                     const authId = (dd.authId ?? dd.authUid) as string | undefined;
-                    if (authId) driverNameByKey.set(authId, name);
+                    if (authId) {
+                        driverNameByKey.set(authId, name);
+                        if (sub) driverSubByKey.set(authId, sub);
+                    }
                 });
             } catch (e) {
                 console.warn("[billing] failed to load drivers for Thai name resolution:", e);
@@ -260,6 +296,10 @@ export default function BillingDocumentPage() {
             const resolveDriverName = (driverId: unknown, fallback?: string): string | undefined => {
                 const key = String(driverId ?? "").trim();
                 return (key && driverNameByKey.get(key)) || fallback;
+            };
+            const resolveSubcontractor = (driverId: unknown): string | undefined => {
+                const key = String(driverId ?? "").trim();
+                return key ? driverSubByKey.get(key) : undefined;
             };
 
             const rows: BillingTripRow[] = [];
@@ -290,8 +330,11 @@ export default function BillingDocumentPage() {
                             vehicleClass: taskInfo?.truckType,
                             driverName: resolveDriverName(data.driverId, taskInfo?.driverName),
                             driverPhone: taskInfo?.driverPhone,
+                            subcontractorName: resolveSubcontractor(data.driverId),
+                            jobCategory: data.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
                             truckLicensePlate: taskInfo?.truckLicensePlate,
                             hubDisplayName: resolveDisplayName(hubId),
+                            originHubCode: resolveHubCode(hubId || (taskInfo?.sourceHub as string | undefined) || ""),
                             destinationDisplayName: resolveDisplayName(destCode),
                             rowType: "multidrop_stop",
                             stopIndex: stop.stopIndex,
@@ -317,8 +360,11 @@ export default function BillingDocumentPage() {
                     vehicleClass: taskInfo?.truckType,
                     driverName: resolveDriverName(data.driverId, taskInfo?.driverName),
                     driverPhone: taskInfo?.driverPhone,
+                    subcontractorName: resolveSubcontractor(data.driverId),
+                    jobCategory: data.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
                     truckLicensePlate: taskInfo?.truckLicensePlate,
                     hubDisplayName: resolveDisplayName(hubId),
+                    originHubCode: resolveHubCode(hubId || (taskInfo?.sourceHub as string | undefined) || ""),
                     destinationDisplayName: resolveDisplayName(dest),
                     rowType: "trip",
                 });
@@ -349,9 +395,13 @@ export default function BillingDocumentPage() {
                     vehicleClass: taskInfo?.truckType,
                     driverName: resolveDriverName(data.driverId, taskInfo?.driverName),
                     driverPhone: taskInfo?.driverPhone,
+                    subcontractorName: resolveSubcontractor(data.driverId),
                     truckLicensePlate: taskInfo?.truckLicensePlate,
                     hubDisplayName: resolveDisplayName(
                         (taskInfo?.sourceHub as string | undefined) ?? (data.startLocation as string | undefined)
+                    ),
+                    originHubCode: resolveHubCode(
+                        (taskInfo?.sourceHub as string | undefined) ?? (data.startLocation as string | undefined) ?? ""
                     ),
                     destinationDisplayName: resolveDisplayName(
                         (taskInfo?.destination as string | undefined) ?? (data.endLocation as string | undefined)
@@ -672,8 +722,12 @@ export default function BillingDocumentPage() {
                                 </TableHeader>
                                 <TableBody>
                                     {filteredTrips.map((trip) => {
-                                        // hubDisplayName / destinationDisplayName already resolved by resolveDisplayName at load time
-                                        const originDisplay = trip.hubDisplayName ?? trip.billingLookupHubId ?? "-";
+                                        // hubDisplayName / destinationDisplayName already resolved by resolveDisplayName at load time.
+                                        // J&T: show the source-hub CODE (SPK-GW) to match the Excel export (ADR-0005).
+                                        const isJntCustomer = /j&t|jnt|j and t/i.test(selectedCustomer?.name ?? "");
+                                        const originDisplay = isJntCustomer
+                                            ? (trip.originHubCode || trip.billingLookupHubId || trip.hubDisplayName || "-")
+                                            : (trip.hubDisplayName ?? trip.billingLookupHubId ?? "-");
                                         const destDisplay   = trip.destinationDisplayName ?? trip.billingLookupDestination ?? "-";
                                         return (
                                         <TableRow key={trip.id} className={trip.rowType === "standby" ? "bg-amber-950/20" : trip.rowType === "multidrop_stop" ? "bg-blue-950/10" : undefined}>

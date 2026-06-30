@@ -127,7 +127,9 @@ export function EditBillingDialog({ open, onOpenChange, row, hubNameMap, onSaved
             destinationLinkedCustomerId: undefined,
         };
 
-        const result = computeTripBillingFromParts(tripTimestamps, taskInput, rateEntries, fuelAdjustments);
+        // Derive หลัก/เสริม (ADR-0005): try primary card first, fall back to supplementary.
+        const result = computeTripBillingFromParts(tripTimestamps, taskInput, rateEntries, fuelAdjustments, "PRIMARY")
+            ?? computeTripBillingFromParts(tripTimestamps, taskInput, rateEntries, fuelAdjustments, "SUPPLEMENTARY");
         if (result) {
             setComputedResult(result);
             setComputeError(null);

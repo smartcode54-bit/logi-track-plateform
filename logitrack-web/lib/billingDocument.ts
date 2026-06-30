@@ -21,6 +21,8 @@ import { BILLING_PROVIDER, WITHHOLDING_TAX_RATE } from "./billingConfig";
 
 export interface BillingProviderInfo {
   name: string;
+  /** ชื่อย่อบริษัทเจ้าของ (e.g. "WRT") — shown in the "Sub" column for own-fleet trips (ADR-0005). */
+  shortName?: string;
   address: string;
   taxId: string;
   bankName?: string;
@@ -49,12 +51,18 @@ export interface BillingTripRow {
   vehicleClass?: string;
   driverName?: string;
   driverPhone?: string;
+  /** ผู้รับเหมา (Sup) ของคนขับ — แสดงในคอลัมน์ Sup ของ Excel detail; "-" ถ้าเป็นรถตัวเอง */
+  subcontractorName?: string;
   truckLicensePlate?: string;
   hubDisplayName?: string;
+  /** Source-hub CODE (source_id) resolved by the page — used for the J&T origin-code rule (ADR-0005). */
+  originHubCode?: string;
   destinationDisplayName?: string;
   /** Row type for grouping/display: "trip" = normal, "multidrop_stop" = expanded stop, "standby" = จอดรอ */
   rowType?: "trip" | "multidrop_stop" | "standby";
   stopIndex?: number;
+  /** หลัก/เสริม — SUPPLEMENTARY rows show "เสริม" in หมายเหตุ (ADR-0005). */
+  jobCategory?: "PRIMARY" | "SUPPLEMENTARY";
 }
 
 export interface BillingCustomer {
@@ -364,7 +372,18 @@ async function buildInvoicePdf(
   });
 
   // ── Totals footer ──
-  const finalY: number = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
+  // The table auto-paginates, but everything below (totals, baht text, payment, signatures)
+  // is drawn at a fixed offset from the table end. If that block would overflow the page,
+  // move the WHOLE block to a fresh page so the signature/stamp section never gets cut off.
+  const tableEndY = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
+  const pageHeight = doc.internal.pageSize.getHeight();
+  // mm needed below `finalY` for totals + baht text + payment + (note) + signature block.
+  const footerBlockHeight = customer.invoiceNote ? 86 : 76;
+  let finalY: number = tableEndY + 8;
+  if (finalY + footerBlockHeight > pageHeight - 10) {
+    doc.addPage();
+    finalY = 20; // restart the footer block near the top of the new page
+  }
   const rx = 196;
 
   doc.setFont("Sarabun", "bold");
@@ -519,18 +538,117 @@ export function generateDetailExcelBuffer(
     : WITHHOLDING_TAX_RATE;
   const withholdingTax = Math.round(grandTotal * whtRate * 100) / 100;
 
-  // ── Column definitions ───────────────────────────────────────────────────────
+  // ── Display rules (ADR-0005) ─────────────────────────────────────────────────
+  // (1) J&T only: source-hub origin shows the hub code (SPK_GW) instead of the
+  //     resolved billing name (J&T EXPRESS บางปู).
+  // (2) Global: vehicle class PICKUP renders as 4WH.
+  const isJnt = /j&t|jnt|j and t/i.test(customerName);
+  const displayVehicleClass = (vc?: string) => ((vc ?? "-") === "PICKUP" ? "4WH" : (vc ?? "-"));
+  // "Sub" column: subcontractor name when the trip was run by a subcontractor; otherwise the
+  // owner company's short name (e.g. WRT) for own-fleet trips (ADR-0005).
+  const ownerShortName = (provider?.shortName ?? "").trim();
+  const subText = (subcontractorName?: string) =>
+    subcontractorName && subcontractorName.trim() ? subcontractorName.trim() : (ownerShortName || "-");
+  const originLabel = (t: BillingTripRow) =>
+    isJnt
+      ? (t.originHubCode || t.billingLookupHubId || t.hubDisplayName || "-")
+      : (t.hubDisplayName ?? t.billingLookupHubId ?? "-");
+
+  // ── Aggregate multidrop_stop rows into one row per trip ──────────────────────
+  // The billing page expands a multi-delivery trip into one row per billed stop.
+  // For this report we want ONE row per trip: stop 1 = ค่าขนส่ง/เที่ยว (base route),
+  // stops 2+ = ค่าโยก (drop fee). Total = base + drop. No detail rows split out.
+  const routeOf = (t: BillingTripRow) =>
+    [
+      originLabel(t),
+      t.destinationDisplayName ?? t.billingLookupDestination  ?? "-",
+    ].join(" → ");
+  const stripStop = (s: string) => s.replace(/[-_]s\d+$/, "");
+
+  interface DetailRow {
+    date?: Date;
+    jobNo: string;          // เลขใบงาน ("Stand by" สำหรับเที่ยว standby)
+    route: string;
+    vehicleClass: string;
+    plate: string;
+    driverName: string;
+    sup: string;            // ผู้รับเหมา
+    phone: string;
+    truckCount: number;     // จำนวนรถ
+    dropFeeThb: number;     // ค่าโยก
+    transportFeeThb: number;// ค่าขนส่ง/เที่ยว
+    totalThb: number;       // ยอดรวม
+    remark: string;         // หมายเหตุ ("เสริม" สำหรับ SUPPLEMENTARY)
+  }
+
+  const multidropGroups = new Map<string, BillingTripRow[]>();
+  const detailRows: DetailRow[] = [];
+
+  for (const t of trips) {
+    if (t.rowType === "multidrop_stop") {
+      const pid = stripStop(t.id);
+      const arr = multidropGroups.get(pid) ?? [];
+      arr.push(t);
+      multidropGroups.set(pid, arr);
+      continue;
+    }
+    const isStandby = t.rowType === "standby";
+    detailRows.push({
+      date: t.deliveredTimestamp,
+      jobNo: isStandby ? "Stand by" : (t.spxTripId ?? t.id.slice(0, 12)),
+      route: routeOf(t),
+      vehicleClass: displayVehicleClass(t.vehicleClass),
+      plate: t.truckLicensePlate ?? "-",
+      driverName: t.driverName ?? "-",
+      sup: subText(t.subcontractorName),
+      phone: t.driverPhone ?? "-",
+      truckCount: isStandby ? 0 : 1,
+      dropFeeThb: 0,
+      transportFeeThb: t.billingEstimateThb,
+      totalThb: t.billingEstimateThb,
+      remark: t.jobCategory === "SUPPLEMENTARY" ? "เสริม" : "",
+    });
+  }
+
+  for (const stops of multidropGroups.values()) {
+    const sorted = [...stops].sort((a, b) => (a.stopIndex ?? 0) - (b.stopIndex ?? 0));
+    const base = sorted[0];
+    const transportFeeThb = base.billingEstimateThb;                                  // stop 1 = base route
+    const dropFeeThb = sorted.slice(1).reduce((s, r) => s + r.billingEstimateThb, 0); // stops 2+ = ค่าโยก
+    detailRows.push({
+      date: base.deliveredTimestamp,
+      jobNo: base.spxTripId ? stripStop(base.spxTripId) : stripStop(base.id).slice(0, 12),
+      route: routeOf(base),
+      vehicleClass: displayVehicleClass(base.vehicleClass),
+      plate: base.truckLicensePlate ?? "-",
+      driverName: base.driverName ?? "-",
+      sup: subText(base.subcontractorName),
+      phone: base.driverPhone ?? "-",
+      truckCount: 1,
+      dropFeeThb,
+      transportFeeThb,
+      totalThb: transportFeeThb + dropFeeThb,
+      remark: base.jobCategory === "SUPPLEMENTARY" ? "เสริม" : "",
+    });
+  }
+
+  detailRows.sort((a, b) => (a.date?.getTime() ?? 0) - (b.date?.getTime() ?? 0));
+
+  // ── Column definitions (ตามรูป) ──────────────────────────────────────────────
   const COLS: { header: string; wch: number }[] = [
     { header: "No.",              wch: 5  },
-    { header: "วันที่",           wch: 13 },
-    { header: "เลขใบงาน",        wch: 20 },
-    { header: "เส้นทาง",         wch: 34 },
-    { header: "ประเภทรถ",        wch: 10 },
-    { header: "ทะเบียน",         wch: 12 },
-    { header: "ชื่อคนขับ",       wch: 20 },
-    { header: "เบอร์โทร",        wch: 14 },
-    { header: "จำนวนรถ",         wch: 10 },
-    { header: "ราคา/เที่ยว",     wch: 15 },
+    { header: "วันที่",           wch: 12 },
+    { header: "เลขใบงาน",        wch: 18 },
+    { header: "เส้นทาง",         wch: 30 },
+    { header: "ประเภท",          wch: 9  },
+    { header: "ทะเบียน",         wch: 11 },
+    { header: "ชื่อคนขับรถ",     wch: 18 },
+    { header: "Sub",             wch: 10 },
+    { header: "เบอร์รถ",         wch: 13 },
+    { header: "จำนวนรถ",         wch: 9  },
+    { header: "ค่าโยก",          wch: 11 },
+    { header: "ค่าขนส่ง/เที่ยว",  wch: 14 },
+    { header: "ยอดรวม",          wch: 14 },
     { header: "หมายเหตุ",        wch: 14 },
   ];
   const NC = COLS.length;
@@ -562,33 +680,28 @@ export function generateDetailExcelBuffer(
   ];
 
   // Data rows
-  trips.forEach((t, i) => {
-    const isStandby = t.rowType === "standby";
-    const isStop    = t.rowType === "multidrop_stop";
+  detailRows.forEach((r, i) => {
     const isAlt     = i % 2 === 1;
     const dateFill  = isAlt ? ALT_FILL : { fgColor: { rgb: "FFFFFF" }, patternType: "solid" };
     const ds = { font: FONT_BASE, border: ALL_BORDERS, fill: dateFill };
     const dsNum = { ...ds, alignment: { horizontal: "right" } };
     const dsCenter = { ...ds, alignment: { horizontal: "center" } };
 
-    const route = [
-      t.hubDisplayName         ?? t.billingLookupHubId        ?? "-",
-      t.destinationDisplayName ?? t.billingLookupDestination  ?? "-",
-    ].join(" → ");
-    const note = isStandby ? "Standby" : isStop ? `Multidrop stop ${t.stopIndex ?? ""}` : "";
-
     rows.push([
-      cell(i + 1,                                                            { ...dsCenter }),
-      cell(t.deliveredTimestamp ? format(t.deliveredTimestamp, "dd/MM/yyyy") : "", ds),
-      cell(t.spxTripId ?? t.id.slice(0, 12),                                { ...ds, font: { ...FONT_BASE, name: "Consolas", sz: 9 } }),
-      cell(route,                                                            { ...ds, alignment: { wrapText: true } }),
-      cell(t.vehicleClass ?? "-",                                            dsCenter),
-      cell(t.truckLicensePlate ?? "-",                                       dsCenter),
-      cell(t.driverName ?? "-",                                              ds),
-      cell(t.driverPhone ?? "-",                                             dsCenter),
-      cell(isStandby ? 0 : 1,                                               dsCenter),
-      cell(t.billingEstimateThb,                                             { ...dsNum, numFmt: "#,##0.00" }),
-      cell(note,                                                             ds),
+      cell(i + 1,                                                       dsCenter),
+      cell(r.date ? format(r.date, "dd/MM/yyyy") : "",                  ds),
+      cell(r.jobNo,                                                     { ...ds, font: { ...FONT_BASE, name: "Consolas", sz: 9 } }),
+      cell(r.route,                                                     { ...ds, alignment: { wrapText: true } }),
+      cell(r.vehicleClass,                                             dsCenter),
+      cell(r.plate,                                                    dsCenter),
+      cell(r.driverName,                                              ds),
+      cell(r.sup,                                                     dsCenter),
+      cell(r.phone,                                                   dsCenter),
+      cell(r.truckCount,                                              dsCenter),
+      cell(r.dropFeeThb ? r.dropFeeThb : "",                          { ...dsNum, numFmt: "#,##0.00" }), // ค่าโยก: เว้นว่างถ้าไม่มี
+      cell(r.transportFeeThb,                                         { ...dsNum, numFmt: "#,##0.00" }),
+      cell(r.totalThb,                                                { ...dsNum, numFmt: "#,##0.00" }),
+      cell(r.remark,                                                   dsCenter), // หมายเหตุ ("เสริม")
     ]);
   });
 
@@ -596,13 +709,13 @@ export function generateDetailExcelBuffer(
   rows.push(Array(NC).fill(cell("", {})));
   const footerLabelStyle = { font: FONT_BOLD, fill: FOOTER_FILL, border: ALL_BORDERS, alignment: { horizontal: "right" } };
   const footerNumStyle   = { font: FONT_BOLD, fill: FOOTER_FILL, border: ALL_BORDERS, alignment: { horizontal: "right" }, numFmt: "#,##0.00" };
-  const makeFooter = (label: string, amount: number): XLSX.CellObject[] => [
-    ...Array(NC - 4).fill(cell("", {})),
-    { ...cell(label, footerLabelStyle), s: footerLabelStyle } as XLSX.CellObject,
-    cell("", {}),
-    cell("", {}),
-    cell(amount, footerNumStyle),
-  ];
+  // Label sits on ค่าขนส่ง/เที่ยว (col 11, right-aligned), amount under ยอดรวม (col 12).
+  const makeFooter = (label: string, amount: number): XLSX.CellObject[] => {
+    const row: XLSX.CellObject[] = Array(NC).fill(cell("", {}));
+    row[NC - 3] = { ...cell(label, footerLabelStyle), s: footerLabelStyle } as XLSX.CellObject;
+    row[NC - 2] = cell(amount, footerNumStyle);
+    return row;
+  };
   rows.push(makeFooter("ยอดรวมทั้งหมด", grandTotal));
   rows.push(makeFooter(`ภาษีหัก ณ ที่จ่าย ${Math.round(whtRate * 100)}%`, -withholdingTax));
   rows.push(makeFooter("ยอดสุทธิ", grandTotal - withholdingTax));

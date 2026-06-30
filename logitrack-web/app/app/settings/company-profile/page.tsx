@@ -71,6 +71,7 @@ export default function CompanyProfilePage() {
     defaultValues: {
       nameTh: "",
       nameEn: "",
+      shortName: "",
       taxId: "",
       branchType: "headquarters",
       branchNumber: "",
@@ -281,6 +282,14 @@ export default function CompanyProfilePage() {
                     id="nameEn"
                     placeholder={t("company.placeholder.nameEn")}
                     {...register("nameEn")}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="shortName">{t("company.field.shortName", "ชื่อย่อ (เช่น WRT)")}</Label>
+                  <Input
+                    id="shortName"
+                    placeholder={t("company.placeholder.shortName", "WRT")}
+                    {...register("shortName")}
                   />
                 </div>
               </div>

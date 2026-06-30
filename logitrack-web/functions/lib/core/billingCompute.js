@@ -87,12 +87,13 @@ function resolveTaskCustomerId(task) {
         task?.destinationLinkedCustomerId?.trim() ||
         "");
 }
-function selectBillingRateEntry(customerId, hubId, destinationCode, vehicleClass, billDateMs, rateEntries) {
+function selectBillingRateEntry(customerId, hubId, destinationCode, vehicleClass, billDateMs, rateEntries, jobCategory = "PRIMARY") {
     const normalizedVehicleClass = normalizeVehicleClass(vehicleClass);
     const candidates = rateEntries.filter((entry) => entry.customerId === customerId &&
         entry.hubId === hubId &&
         entry.destinationCode === destinationCode &&
-        normalizeVehicleClass(entry.vehicleClass) === normalizedVehicleClass);
+        normalizeVehicleClass(entry.vehicleClass) === normalizedVehicleClass &&
+        (entry.jobCategory ?? "PRIMARY") === jobCategory);
     if (candidates.length === 0)
         return null;
     // Primary: effective on or before trip date (newest first)
@@ -126,7 +127,7 @@ function computeFinalRateThb(baseRateThb, rateMultiplier, addThbPerTrip) {
  *   - If `extraStopFeeThb` is undefined: legacy behaviour — each extra stop is looked up in the
  *     rate card per route (with fuel multiplier applied).
  */
-function computeMultiDeliveryBilling(trip, task, deliveryStops, vehicleClass, rateEntries, fuelAdjustments, extraStopFeeThb) {
+function computeMultiDeliveryBilling(trip, task, deliveryStops, vehicleClass, rateEntries, fuelAdjustments, extraStopFeeThb, jobCategory = "PRIMARY") {
     if (!task || deliveryStops.length < 2)
         return null;
     const customerId = resolveTaskCustomerId(task);
@@ -158,11 +159,11 @@ function computeMultiDeliveryBilling(trip, task, deliveryStops, vehicleClass, ra
         let baseIdx = plannedDest ? normStops.findIndex((d) => d === plannedDest) : -1;
         let baseDest = baseIdx >= 0 ? normStops[baseIdx] : plannedDest;
         let baseMatch = baseDest
-            ? selectBillingRateEntry(customerId, hubId, baseDest, normalizedVehicleClass, billDateMs, rateEntries)
+            ? selectBillingRateEntry(customerId, hubId, baseDest, normalizedVehicleClass, billDateMs, rateEntries, jobCategory)
             : null;
         if (!baseMatch) {
             for (let i = 0; i < normStops.length; i++) {
-                const m = selectBillingRateEntry(customerId, hubId, normStops[i], normalizedVehicleClass, billDateMs, rateEntries);
+                const m = selectBillingRateEntry(customerId, hubId, normStops[i], normalizedVehicleClass, billDateMs, rateEntries, jobCategory);
                 if (m) {
                     baseMatch = m;
                     baseIdx = i;
@@ -195,7 +196,7 @@ function computeMultiDeliveryBilling(trip, task, deliveryStops, vehicleClass, ra
         // Legacy per-route mode: stop[0] = base rate, stop[1+] = per-route rate-card lookup.
         deliveryStops.forEach((stop, idx) => {
             const destination = normalizeDestinationCode(stop.destination);
-            const matchedRate = selectBillingRateEntry(customerId, hubId, destination, normalizedVehicleClass, billDateMs, rateEntries);
+            const matchedRate = selectBillingRateEntry(customerId, hubId, destination, normalizedVehicleClass, billDateMs, rateEntries, jobCategory);
             if (!matchedRate)
                 return;
             const baseRate = matchedRate.rateThb;
@@ -256,7 +257,7 @@ function computeStandbyBilling(billDateMs, customerId, rateEntries) {
         effectiveFromDateStr: new Date(matched.effectiveFromMs).toISOString().slice(0, 10),
     };
 }
-function computeTripBillingFromParts(trip, task, rateEntries, fuelAdjustments) {
+function computeTripBillingFromParts(trip, task, rateEntries, fuelAdjustments, jobCategory = "PRIMARY") {
     if (!task)
         return null;
     const customerId = resolveTaskCustomerId(task);
@@ -266,7 +267,7 @@ function computeTripBillingFromParts(trip, task, rateEntries, fuelAdjustments) {
     const destination = normalizeDestinationCode(task.destination);
     const vehicleClass = normalizeVehicleClass(task.truckType || "4WJ");
     const billDateMs = getTripBillingDateMs(trip);
-    const matchedRate = selectBillingRateEntry(customerId, hubId, destination, vehicleClass, billDateMs, rateEntries);
+    const matchedRate = selectBillingRateEntry(customerId, hubId, destination, vehicleClass, billDateMs, rateEntries, jobCategory);
     if (!matchedRate)
         return null;
     const matchedAdjustment = selectFuelAdjustmentForBillingDate(customerId, billDateMs, fuelAdjustments);

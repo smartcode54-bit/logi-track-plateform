@@ -61,6 +61,7 @@ export function RateCardImportDialog({
     const { t } = useLanguage();
     const [customerId, setCustomerId] = useState<string>(initialCustomerId ?? "");
     const [effectiveFrom, setEffectiveFrom] = useState<Date | undefined>(undefined);
+    const [jobCategory, setJobCategory] = useState<"PRIMARY" | "SUPPLEMENTARY">("PRIMARY");
     const [rows, setRows] = useState<CustomerRateEntryInput[]>([]);
     const [warnings, setWarnings] = useState<string[]>([]);
     const [loading, setLoading] = useState(false);
@@ -77,6 +78,7 @@ export function RateCardImportDialog({
         setWarnings([]);
         setError(null);
         setEffectiveFrom(undefined);
+        setJobCategory("PRIMARY");
     };
 
     const parseFile = async (file: File) => {
@@ -160,7 +162,9 @@ export function RateCardImportDialog({
         setError(null);
         try {
             const date = effectiveFrom ?? new Date();
-            await batchCreateCustomerRateEntries(customerId, rows, date);
+            // Tag the whole sheet with the selected หลัก/เสริม category (ADR-0005).
+            const taggedRows = rows.map((r) => ({ ...r, jobCategory }));
+            await batchCreateCustomerRateEntries(customerId, taggedRows, date);
             onImported?.();
             onOpenChange(false);
             resetState();
@@ -215,6 +219,26 @@ export function RateCardImportDialog({
                             placeholder={t("accounting.rateCard.import.effectiveDatePlaceholder")}
                             disabled={loading}
                         />
+                    </div>
+
+                    <div className="grid gap-2">
+                        <Label>{t("accounting.rateCard.import.jobCategory", "ประเภทงาน (หลัก/เสริม)")}</Label>
+                        <Select
+                            value={jobCategory}
+                            onValueChange={(v) => setJobCategory(v === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY")}
+                            disabled={loading}
+                        >
+                            <SelectTrigger>
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="z-[1005]" position="popper">
+                                <SelectItem value="PRIMARY">{t("accounting.rateCard.jobCategory.primary", "หลัก")}</SelectItem>
+                                <SelectItem value="SUPPLEMENTARY">{t("accounting.rateCard.jobCategory.supplementary", "เสริม")}</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                            {t("accounting.rateCard.import.jobCategoryHint", "แท็กทั้งชีตเป็นเรตหลักหรือเรตเสริม — เรตเสริมจะถูก freeze ตอนคิดเงิน")}
+                        </p>
                     </div>
 
                     <div className="grid gap-2">
