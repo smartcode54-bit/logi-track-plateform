@@ -24,6 +24,7 @@ import {
     applyDeductions,
     computeHelperPay,
     eligibleHelperDayKeys,
+    helperWindowKey,
     makeHolidayChecker,
     bangkokDateKey,
     type BasePayTrip,
@@ -43,6 +44,12 @@ interface GenerateRequest {
 /** Bangkok local midnight (start of `day`) as a UTC instant. */
 function bkkMidnight(year: number, month1: number, day: number): Date {
     return new Date(Date.UTC(year, month1 - 1, day, 0, 0, 0) - 7 * 3600000);
+}
+
+/** Bangkok local noon (12:00) of a Date's Bangkok calendar day, as a UTC instant. */
+function bkkNoonOfDay(d: Date): Date {
+    const bkk = new Date(d.getTime() + 7 * 3600000);
+    return new Date(Date.UTC(bkk.getUTCFullYear(), bkk.getUTCMonth(), bkk.getUTCDate(), 12, 0, 0) - 7 * 3600000);
 }
 
 function roundRange(period: string, round: Round) {
@@ -163,24 +170,54 @@ export const generateDriverPayoutRun = onCall(
                 ];
                 const penaltyApplications: { penaltyId: string; appliedThb: number }[] = [];
 
-                // Helper / training-day pay for this round window. Helper days are
-                // tasks where this driver was selected as a helper by the main driver
-                // (tasks.helperDriverIds, set at check-in), dated by the task's date.
-                // Paid only on days with NO own delivered trip (driving days pay as trips).
-                const deliveredDateKeys = new Set(monthTrips.map((t) => bangkokDateKey(t.deliveredAt)));
+                // Helper / training-day pay for this round. A helper "day" is the
+                // work window 12:00→11:59 anchored by the main driver's task
+                // checkInAt (ADR-0002), keyed to its start day D. Helper tasks are
+                // tasks where this driver is in helperDriverIds. Paid only on
+                // windows where the driver had NO own driving work — i.e. no own
+                // delivered trip AND no own assigned task (decision 6). A driving
+                // window always pays as trips, never additionally as a helper-day.
+                //
+                // checkInAt is not indexed; query by `date` widened ±1 day so the
+                // 12h window shift can't drop a boundary task, then filter to the
+                // round by window key in memory.
+                const helperRangeStart = new Date(range.start.getTime() - 24 * 3600000);
+                const helperRangeEnd = new Date(range.end.getTime() + 24 * 3600000);
+                const startKey = bangkokDateKey(range.start);
+                const endKey = bangkokDateKey(range.end); // exclusive (next round's first day)
+
+                // Window key from a task: checkInAt anchor, fallback task date at noon.
+                const taskWindowKey = (data: admin.firestore.DocumentData): string => {
+                    const checkInAt = tsToDate(data.checkInAt);
+                    const date = tsToDate(data.date);
+                    const anchor = checkInAt ?? (date ? bkkNoonOfDay(date) : null);
+                    return anchor ? helperWindowKey(anchor) : "";
+                };
+
+                // Own driving windows: delivered trips (by deliveredAt) + own
+                // assigned tasks (covers tasks that produced no delivered trip).
+                const ownTasksSnap = await firestore
+                    .collection("tasks")
+                    .where("driverId", "==", authId)
+                    .where("date", ">=", admin.firestore.Timestamp.fromDate(helperRangeStart))
+                    .where("date", "<", admin.firestore.Timestamp.fromDate(helperRangeEnd))
+                    .get();
+                const drivingDateKeys = new Set<string>(monthTrips.map((t) => helperWindowKey(t.deliveredAt)));
+                for (const d of ownTasksSnap.docs) {
+                    const k = taskWindowKey(d.data());
+                    if (k) drivingDateKeys.add(k);
+                }
+
                 const helperSnap = await firestore
                     .collection("tasks")
                     .where("helperDriverIds", "array-contains", authId)
-                    .where("date", ">=", admin.firestore.Timestamp.fromDate(range.start))
-                    .where("date", "<", admin.firestore.Timestamp.fromDate(range.end))
+                    .where("date", ">=", admin.firestore.Timestamp.fromDate(helperRangeStart))
+                    .where("date", "<", admin.firestore.Timestamp.fromDate(helperRangeEnd))
                     .get();
                 const helperDayKeys = helperSnap.docs
-                    .map((h) => {
-                        const date = tsToDate(h.data().date);
-                        return date ? bangkokDateKey(date) : "";
-                    })
-                    .filter(Boolean);
-                const eligibleHelperDays = eligibleHelperDayKeys(helperDayKeys, deliveredDateKeys);
+                    .map((h) => taskWindowKey(h.data()))
+                    .filter((k) => k && k >= startKey && k < endKey);
+                const eligibleHelperDays = eligibleHelperDayKeys(helperDayKeys, drivingDateKeys);
                 const helperPay = computeHelperPay(eligibleHelperDays.length, cfg.helperDayRateThb ?? 400);
                 if (helperPay > 0) {
                     lineItems.push({ type: "EARNING", category: "HELPER_PAY", name: "Helper/training pay", amount: helperPay });

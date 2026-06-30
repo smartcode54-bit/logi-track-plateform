@@ -12,7 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Camera, Loader2, ExternalLink, ImagePlus, Lock, Plus, Trash2, ArrowLeftRight } from "lucide-react";
-import { doc, updateDoc, serverTimestamp, getDocs, collection, query, where, limit, deleteField, Timestamp, writeBatch } from "firebase/firestore";
+import { doc, getDoc, updateDoc, serverTimestamp, getDocs, collection, query, where, limit, deleteField, Timestamp, writeBatch } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db } from "@/firebase/client";
 import { functions } from "@/firebase/client";
@@ -26,6 +26,13 @@ import { ReportIncidentModal } from "@/app/app/chat/components/ReportIncidentMod
 import { ImagePreviewGallery } from "@/components/accounting/ImagePreviewGallery";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { toast } from "sonner";
+import { HelperDriverField } from "@/features/tasks/components/HelperDriverField";
+import type { Driver } from "@/validate/driverSchema";
+import { assignRound, bangkokParts } from "@/lib/compensationCompute";
+
+type PeriodRound = { period: string; round: "R1" | "R2" };
+const PAYOUT_LOCKED = new Set(["APPROVED", "PAID"]);
+const PAYOUT_DRAFT = new Set(["DRAFT", "PENDING_APPROVAL"]);
 
 interface EditTripDetailsDialogProps {
     open: boolean;
@@ -115,6 +122,15 @@ export function EditTripDetailsDialog({
     const [isReportModalOpen, setIsReportModalOpen] = useState(false);
     const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
     const dialogWasOpenRef = useRef(false);
+    // Helper (training/assisting) — admin retro-assign on the linked task.
+    const [helperIds, setHelperIds] = useState<string[]>([]);
+    const [initialHelperIds, setInitialHelperIds] = useState<string[]>([]);
+    const [helperTaskDocId, setHelperTaskDocId] = useState<string | null>(null);
+    const [drivers, setDrivers] = useState<Driver[]>([]);
+    const [periodRound, setPeriodRound] = useState<PeriodRound | null>(null);
+    const [lockedStatus, setLockedStatus] = useState<string | null>(null);
+    const [draftHint, setDraftHint] = useState(false);
+    const [helperError, setHelperError] = useState<string | null>(null);
 
     const hasStopsChanged =
         JSON.stringify(localStops) !== JSON.stringify(trip.deliveryStopsProgress ?? []);
@@ -146,6 +162,77 @@ export function EditTripDetailsDialog({
         }
     };
 
+    const toDate = (raw: unknown): Date | null => {
+        if (!raw) return null;
+        if (raw instanceof Date) return raw;
+        if (typeof (raw as { toDate?: () => Date }).toDate === "function") return (raw as { toDate: () => Date }).toDate();
+        const d = new Date(raw as string | number);
+        return isNaN(d.getTime()) ? null : d;
+    };
+
+    const periodRoundForDate = (date: Date): PeriodRound => {
+        const { y, m } = bangkokParts(date);
+        return { period: `${y}-${String(m).padStart(2, "0")}`, round: assignRound(date) };
+    };
+
+    const payoutStatusFor = async (authId: string, pr: PeriodRound): Promise<string | null> => {
+        try {
+            const s = await getDoc(doc(db, COLLECTIONS.PAYROLL, `${authId}_${pr.period}_${pr.round}`));
+            return s.exists() ? ((s.data()?.status as string) ?? null) : null;
+        } catch {
+            return null;
+        }
+    };
+
+    const fetchDrivers = async () => {
+        try {
+            const snap = await getDocs(collection(db, COLLECTIONS.DRIVERS));
+            setDrivers(snap.docs.map((d) => ({ id: d.id, ...(d.data() as object) })) as Driver[]);
+        } catch {
+            setDrivers([]);
+        }
+    };
+
+    // Resolve the linked task doc (helper lives on tasks.helperDriverIds) + derive the
+    // pay period/round from the task date so we can lock edits once the payout is final.
+    const loadHelperContext = async (taskId: string) => {
+        let docId: string | null = null;
+        let data: Record<string, unknown> | undefined;
+        try {
+            const byId = await getDoc(doc(db, COLLECTIONS.TASKS, taskId));
+            if (byId.exists()) {
+                docId = byId.id;
+                data = byId.data();
+            } else {
+                const snap = await getDocs(query(collection(db, COLLECTIONS.TASKS), where("taskId", "==", taskId), limit(1)));
+                if (!snap.empty) {
+                    docId = snap.docs[0].id;
+                    data = snap.docs[0].data();
+                }
+            }
+        } catch {
+            /* leave docId null */
+        }
+        const ids = Array.isArray(data?.helperDriverIds) ? (data!.helperDriverIds as string[]).slice(0, 1) : [];
+        setHelperTaskDocId(docId);
+        setHelperIds(ids);
+        setInitialHelperIds(ids);
+
+        const date = toDate(data?.date);
+        const pr = date ? periodRoundForDate(date) : null;
+        setPeriodRound(pr);
+
+        let locked: string | null = null;
+        let draft = false;
+        if (pr && ids[0]) {
+            const status = await payoutStatusFor(ids[0], pr);
+            if (status && PAYOUT_LOCKED.has(status)) locked = status;
+            else if (status && PAYOUT_DRAFT.has(status)) draft = true;
+        }
+        setLockedStatus(locked);
+        setDraftHint(draft);
+    };
+
     useEffect(() => {
         if (open && !dialogWasOpenRef.current) {
             setSpxTripId(trip.spxTripId ?? "");
@@ -164,9 +251,23 @@ export function EditTripDetailsDialog({
             } else {
                 setIncidentReport(null);
             }
+            setHelperError(null);
+            fetchDrivers();
+            if (trip.taskId) {
+                loadHelperContext(trip.taskId);
+            } else {
+                setHelperTaskDocId(null);
+                setHelperIds([]);
+                setInitialHelperIds([]);
+                setPeriodRound(null);
+                setLockedStatus(null);
+                setDraftHint(false);
+            }
         }
         dialogWasOpenRef.current = open;
     }, [open, trip]);
+
+    const helperChanged = (helperIds[0] ?? "") !== (initialHelperIds[0] ?? "");
 
     // Always derived from origin: Hub → first_mile, SOC → line_haul
     const localJobType = useMemo<typeof TRIP_JOB_TYPE_ENUM[number]>(() => {
@@ -263,14 +364,39 @@ export function EditTripDetailsDialog({
             sealCode !== (trip.sealCode ?? "") ||
             partnerChanged ||
             deliveredAtChanged;
-        if (!hasPhotoChanges && !hasMetaChanges && !hasStopsChanged && !hasRouteChanges) {
+        if (!hasPhotoChanges && !hasMetaChanges && !hasStopsChanged && !hasRouteChanges && !helperChanged) {
             onOpenChange(false);
             if (onSuccess) onSuccess();
             return;
         }
 
+        setHelperError(null);
         setLoading(true);
         try {
+            // Helper (training/assisting) lives on the linked task. Block the edit once the
+            // affected payout is finalized (APPROVED/PAID) — correct via an adjustment instead.
+            if (helperChanged) {
+                if (periodRound) {
+                    const affected = [initialHelperIds[0], helperIds[0]].filter(Boolean) as string[];
+                    for (const aid of affected) {
+                        const status = await payoutStatusFor(aid, periodRound);
+                        if (status && PAYOUT_LOCKED.has(status)) {
+                            setHelperError(
+                                t("task.helper.lockedSave", "Cannot change the helper — the payout for this period is already finalized ({status}). Use an adjustment.").replace("{status}", status)
+                            );
+                            setLoading(false);
+                            return;
+                        }
+                    }
+                }
+                if (helperTaskDocId) {
+                    await updateDoc(doc(db, COLLECTIONS.TASKS, helperTaskDocId), {
+                        helperDriverIds: helperIds.slice(0, 1),
+                        updatedAt: serverTimestamp(),
+                    });
+                    setInitialHelperIds(helperIds.slice(0, 1));
+                }
+            }
             const updatedPhotos: TripPhoto[] = [...photos];
             const typeToIndex = new Map<string, number>();
             photos.forEach((p, i) => typeToIndex.set(p.type, i));
@@ -426,7 +552,7 @@ export function EditTripDetailsDialog({
 
     // จัดการงานค้างจากเว็บ (ปุ่มเดียว → dialog): เลือกผลของเที่ยวนี้ (delivered=นับเงิน / cancelled=ไม่นับ)
     // + ตัวเลือกเคลียร์เที่ยว in_transit อื่นๆ ของคนขับคนนี้ในคราวเดียว
-    // ไม่ต้องอัปโหลด/overlay รูปเหมือนมือถือ — มือถือจะ auto-clear เองเมื่อเห็น status delivered/cancelled
+    // delivered: เก็บรูปหลักฐานการส่งที่ admin แนบไว้ด้วย (ให้ admin ปิดงานพร้อมรูปได้เหมือน driver)
     const handleResolve = async () => {
         if (!trip.id) return;
         setResolving(true);
@@ -441,6 +567,24 @@ export function EditTripDetailsDialog({
                     updateData.deliveredTimestamp = Timestamp.fromDate(new Date(localDeliveredAt));
                 } else if (!trip.deliveredTimestamp) {
                     updateData.deliveredTimestamp = Timestamp.fromDate(new Date());
+                }
+                // Persist any delivery-proof photos the admin attached (same merge as handleSave).
+                if (Object.keys(replaceByType).length > 0) {
+                    const updatedPhotos: TripPhoto[] = [...photos];
+                    const typeToIndex = new Map<string, number>();
+                    photos.forEach((p, i) => typeToIndex.set(p.type, i));
+                    for (const [photoType, file] of Object.entries(replaceByType)) {
+                        const newUrl = await uploadTripPhoto(trip.id, photoType, file);
+                        const idx = typeToIndex.get(photoType);
+                        const existing = photos.find((p) => p.type === photoType);
+                        if (idx !== undefined) {
+                            updatedPhotos[idx] = { url: newUrl, type: photoType as TripPhoto["type"], geocoding: existing?.geocoding };
+                        } else {
+                            updatedPhotos.push({ url: newUrl, type: photoType as TripPhoto["type"] });
+                        }
+                    }
+                    const deduped = dedupeTripPhotosByTypeLastWins(updatedPhotos);
+                    updateData.photos = deduped.map((p) => ({ url: p.url, type: p.type, geocoding: p.geocoding ?? null }));
                 }
                 await updateDoc(doc(db, COLLECTIONS.TRIP_RECORDS, trip.id), updateData);
                 if (trip.taskId) {
@@ -545,7 +689,8 @@ export function EditTripDetailsDialog({
         sealCode !== (trip.sealCode ?? "") ||
         partnerCode.trim() !== initialPartnerEffectiveRef.current.trim() ||
         hasStopsChanged ||
-        hasRouteChanges;
+        hasRouteChanges ||
+        helperChanged;
 
     return (
         <>
@@ -651,6 +796,37 @@ export function EditTripDetailsDialog({
                                     <span className="text-xs text-muted-foreground">{t("driverMonitor.editTrip.jobTypeAutoDetected")}</span>
                                 </div>
                             </div>
+                        </div>
+
+                        {/* Helper (training / assisting) — admin retro-assign on the linked task */}
+                        <div className="space-y-1.5">
+                            <HelperDriverField
+                                drivers={drivers}
+                                value={helperIds}
+                                onChange={(next) => { setHelperIds(next); setHelperError(null); }}
+                                excludeAuthId={trip.driverId || undefined}
+                                disabled={!helperTaskDocId || !!lockedStatus}
+                                label={t("task.helper.label", "Helper (training / assisting)")}
+                                placeholder={t("task.helper.select", "Select helper")}
+                                noneLabel={t("task.helper.none", "No helper")}
+                                searchPlaceholder={t("task.helper.search", "Search driver")}
+                            />
+                            {lockedStatus ? (
+                                <p className="text-xs text-amber-600 dark:text-amber-500">
+                                    {t("task.helper.locked", "Payout for this period is already finalized ({status}) — use an adjustment.").replace("{status}", lockedStatus)}
+                                </p>
+                            ) : draftHint ? (
+                                <p className="text-xs text-muted-foreground">
+                                    {t("task.helper.regenHint", "A draft payroll exists for this period — regenerate it to apply this change.")}
+                                </p>
+                            ) : !helperTaskDocId ? (
+                                <p className="text-xs text-muted-foreground">
+                                    {t("task.helper.noTask", "No linked task — helper can't be set for this trip.")}
+                                </p>
+                            ) : null}
+                            {helperError && (
+                                <p className="text-xs text-red-600 dark:text-red-500">{helperError}</p>
+                            )}
                         </div>
                     </div>
 

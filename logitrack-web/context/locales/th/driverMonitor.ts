@@ -182,7 +182,7 @@ export default {
     // Edit Trip Dialog - จัดการงานค้าง (ปุ่มเดียว -> dialog เลือก)
     "driverMonitor.editTrip.resolve": "จัดการงานค้าง",
     "driverMonitor.editTrip.resolveTitle": "จัดการงานค้าง",
-    "driverMonitor.editTrip.resolveDesc": "ปิดเที่ยวที่ค้างจากเว็บ ไม่ต้องแนบรูป — แอปคนขับจะเคลียร์งานค้างให้อัตโนมัติ",
+    "driverMonitor.editTrip.resolveDesc": "ปิดเที่ยวที่ค้างจากเว็บ รูปหลักฐานการส่งที่แนบไว้ด้านบนจะถูกบันทึกด้วย แอปคนขับจะเคลียร์งานค้างให้อัตโนมัติ",
     "driverMonitor.editTrip.resolveOutcomeLabel": "เลือกผลของเที่ยวนี้",
     "driverMonitor.editTrip.resolveCancelled": "ยกเลิก — งานผิด",
     "driverMonitor.editTrip.resolveCancelledHint": "ไม่นับเป็นรายได้",

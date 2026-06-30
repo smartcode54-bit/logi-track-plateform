@@ -182,7 +182,7 @@ export default {
     // Edit Trip Dialog - Resolve stuck job (single button -> choice dialog)
     "driverMonitor.editTrip.resolve": "Resolve stuck job",
     "driverMonitor.editTrip.resolveTitle": "Resolve stuck job",
-    "driverMonitor.editTrip.resolveDesc": "Close this stuck trip from the web. No photos needed — the driver's app clears it automatically.",
+    "driverMonitor.editTrip.resolveDesc": "Close this stuck trip from the web. Any delivery photos you attached above are saved with it. The driver's app clears the job automatically.",
     "driverMonitor.editTrip.resolveOutcomeLabel": "Outcome for this trip",
     "driverMonitor.editTrip.resolveCancelled": "Cancel — wrong job",
     "driverMonitor.editTrip.resolveCancelledHint": "Does NOT count as income.",
