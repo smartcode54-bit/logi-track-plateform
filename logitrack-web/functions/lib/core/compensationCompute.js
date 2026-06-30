@@ -19,6 +19,7 @@ exports.computeBasePay = computeBasePay;
 exports.computeFuelIncentive = computeFuelIncentive;
 exports.computeTripVolumeIncentive = computeTripVolumeIncentive;
 exports.computeHelperPay = computeHelperPay;
+exports.helperWindowKey = helperWindowKey;
 exports.eligibleHelperDayKeys = eligibleHelperDayKeys;
 exports.ageYearsAt = ageYearsAt;
 exports.computeSso = computeSso;
@@ -111,15 +112,29 @@ function computeTripVolumeIncentive(tripCount, tiers) {
 }
 /**
  * Helper / training-day pay — flat rate per eligible non-driving attendance day.
- * Caller passes the count of eligible helper days (days with no delivered trip).
+ * Caller passes the count of eligible helper days (windows with no own delivered trip).
  */
 function computeHelperPay(helperDayCount, ratePerDay) {
     return roundTHB(Math.max(0, helperDayCount) * Math.max(0, ratePerDay));
 }
 /**
- * Distinct helper-day keys that earn pay: helper-task day keys minus any day on
- * which the driver already had a delivered trip (driving days pay as trips, never
- * also as a helper-day). One unit per calendar day. See ADR-0001 / glossary.
+ * Work-window key for an instant (ADR-0002). A helper "day" is the window
+ * 12:00:00 of day D → 11:59:59 of day D+1 (Asia/Bangkok), keyed to day D — so a
+ * shift that crosses midnight is still one day. Computed by shifting back 12h
+ * and taking the Bangkok date: timestamps in [D 12:00, D+1 12:00) → key D.
+ *
+ * The anchoring instant is the main driver's task `checkInAt`; callers fall back
+ * to `tasks.date` at Bangkok noon when `checkInAt` is absent (legacy guard).
+ */
+function helperWindowKey(checkInAt) {
+    return bangkokDateKey(new Date(checkInAt.getTime() - 12 * 60 * 60000));
+}
+/**
+ * Distinct helper-day keys that earn pay: helper-window keys minus any window in
+ * which the driver already had a delivered trip (driving windows pay as trips,
+ * never also as a helper-day). One unit per work window. Both inputs MUST be
+ * window keys from `helperWindowKey` so the 12:00→11:59 boundary lines up.
+ * See ADR-0002 / glossary.
  */
 function eligibleHelperDayKeys(helperTaskDayKeys, deliveredDayKeys) {
     const delivered = new Set(deliveredDayKeys);
