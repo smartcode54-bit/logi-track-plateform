@@ -316,7 +316,7 @@ export default function SourcesPage() {
 
     return (
         <div className="flex-1 space-y-4 p-8 pt-6">
-            <div className="flex items-center justify-between space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-3xl font-bold tracking-tight">{t("firstMile.sources.title")}</h2>
                 <div className="flex flex-col items-end gap-2">
                     <div className="flex flex-col items-end gap-1">
@@ -331,7 +331,7 @@ export default function SourcesPage() {
                             </p>
                         )}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center justify-end gap-2">
                     <Button
                         variant="outline"
                         size="sm"
@@ -463,7 +463,7 @@ export default function SourcesPage() {
                                     </TabsList>
                                 </Tabs>
                             </div>
-                            <div className="flex items-center space-x-2">
+                            <div className="flex flex-wrap items-center gap-2 min-w-0">
                                 <Button
                                     variant="outline"
                                     size="sm"
@@ -486,17 +486,19 @@ export default function SourcesPage() {
                                     <Download className="h-4 w-4" />
                                     <span className="max-sm:hidden">{t("firstMile.sources.download")}</span>
                                 </Button>
-                                <Search className="h-4 w-4 text-muted-foreground shrink-0" />
-                                <Input
-                                    placeholder={t("firstMile.sources.search")}
-                                    value={search}
-                                    onChange={(e) => {
-                                        setSearch(e.target.value);
-                                    }}
-                                    className="h-8 w-[200px]"
-                                />
+                                <div className="flex items-center gap-2 min-w-0 flex-1 sm:flex-none">
+                                    <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+                                    <Input
+                                        placeholder={t("firstMile.sources.search")}
+                                        value={search}
+                                        onChange={(e) => {
+                                            setSearch(e.target.value);
+                                        }}
+                                        className="h-8 w-full min-w-0 sm:w-[200px]"
+                                    />
+                                </div>
                                 <Select value={customerFilterId} onValueChange={setCustomerFilterId}>
-                                    <SelectTrigger className="h-8 w-[220px] shrink-0">
+                                    <SelectTrigger className="h-8 w-full min-w-0 sm:w-[220px]">
                                         <SelectValue placeholder={t("firstMile.sources.filterCustomer")} />
                                     </SelectTrigger>
                                     <SelectContent position="popper" className="max-h-[280px]">
