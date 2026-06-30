@@ -23,6 +23,23 @@ Captured during the helper-pay grilling sessions, 2026-06-24 and 2026-06-26. Def
 
 - **`HELPER_PAY`** — the payroll line-item category (type `EARNING`) emitted by the orchestrator for helper pay. Settled in the round window that contains the helper-day.
 
+## Payroll detail / line-item breakdown ([ADR-0003](adr/ADR-0003-payroll-lineitem-breakdown.md))
+
+- **Line-item breakdown** — every payroll line item stores its own breakdown at **generation time** (`quantity`, `unitRate`, `description`, `meta`) so the detail view (`PayrollReviewDialog`, kebab → "View details") shows *how* each figure was reached and stays correct even if config later changes. The UI falls back to name+amount for older payrolls that lack the fields.
+- **Trip-pay split** — `TRIP_COMMISSION` is emitted as **two** lines when both apply: weekday (`quantity` = weekday trips × `weekdayRateThb`) and holiday (`quantity` = holiday trips × `holidayRateThb`).
+- **Penalty breakdown** — penalty line items carry `meta` = `{ installmentIndex, installmentsTotal, remainingThb, totalThb }` so the view shows installment progress.
+
+## Cash advance (เบิกล่วงหน้า) ([ADR-0004](adr/ADR-0004-cash-advance.md))
+
+- **Cash advance** — money paid to a driver **before** a pay round closes, recorded by admin/HR at the withdrawal date in the new `driver_advances` collection and deducted **in full, once**, in the **next** pay round. No installments, no interest, no carry-over.
+- **Deduction round** — computed once at creation from `withdrawnAt` (Asia/Bangkok): withdrawn day ≤ 15 → **R2 same month**; day ≥ 16 → **R1 next month**. Stored as `deductPeriod` + `deductRound` so the orchestrator query is one equality. **R1 can now carry a deduction** — the old "deductions only in R2" assumption no longer holds.
+- **Advance cap** — at most ½ of what the driver has earned so far; **enforced by admin/HR judgement, not the system**. The system only records and deducts. Because of the cap, the next round's net pay always covers the advance (no carry-over balance is modelled).
+- **`CASH_ADVANCE`** — the payroll line-item category (type `DEDUCTION`) for a settled advance.
+
+## Penalty types (config)
+
+- **Damage / lost-goods penalty** — a driver-at-fault deduction (damaged or lost cargo) is **not** a new collection; it is a new **penalty type in config `penaltyTypes`**, reusing the existing `driver_penalties` model, page, and R2 deduction logic ([ADR-0001](adr/ADR-0001-helper-pay-data-model.md) context; penalties predate it).
+
 ## Related (already defined elsewhere)
 
 - **Round (R1 / R2)** — semi-monthly pay window; R1 = days 1–15, R2 = 16–end. Helper-days are assigned to a round by their **window key day D** ([ADR-0002](adr/ADR-0002-helper-day-window.md)), not the raw check-in timestamp — a check-in at 11:00 on the 16th belongs to R1.
