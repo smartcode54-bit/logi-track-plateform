@@ -9,8 +9,7 @@ import {
     query,
     where,
     Timestamp,
-    getDoc,
-    doc,
+    documentId,
     type QuerySnapshot,
     type DocumentData,
 } from "firebase/firestore";
@@ -218,18 +217,28 @@ export default function BillingDocumentPage() {
             // ── Fetch tasks (driverName/licensePlate/customer denormalized) ────
             type TaskInfo = { truckType?: string; driverName?: string; driverPhone?: string; truckLicensePlate?: string; billingCustomerId?: string; sourceHub?: string; destination?: string };
             const taskMap = new Map<string, TaskInfo>();
-            await Promise.allSettled(Array.from(taskIds).slice(0, 200).map(async (tid) => {
-                const taskSnap = await getDoc(doc(db, COLLECTIONS.TASKS, tid));
-                if (!taskSnap.exists()) return;
-                const t = taskSnap.data();
-                taskMap.set(tid, {
-                    truckType: t.truckType,
-                    driverName: t.driverName,
-                    driverPhone: t.driverPhone,
-                    truckLicensePlate: t.licensePlate,
-                    billingCustomerId: t.sourceHubLinkedCustomerId,
-                    sourceHub: t.sourceHub,
-                    destination: t.destination,
+            // Batched fetch via documentId() "in" (chunks of 30) — no per-row cap, so
+            // trip + standby task lookups don't overflow when a month has many trips.
+            const taskIdChunks: string[][] = [];
+            const allTaskIds = Array.from(taskIds);
+            for (let i = 0; i < allTaskIds.length; i += 30) {
+                taskIdChunks.push(allTaskIds.slice(i, i + 30));
+            }
+            await Promise.allSettled(taskIdChunks.map(async (chunk) => {
+                const taskSnap = await getDocs(
+                    query(collection(db, COLLECTIONS.TASKS), where(documentId(), "in", chunk))
+                );
+                taskSnap.forEach((taskDoc) => {
+                    const t = taskDoc.data();
+                    taskMap.set(taskDoc.id, {
+                        truckType: t.truckType,
+                        driverName: t.driverName,
+                        driverPhone: t.driverPhone,
+                        truckLicensePlate: t.licensePlate,
+                        billingCustomerId: t.sourceHubLinkedCustomerId,
+                        sourceHub: t.sourceHub,
+                        destination: t.destination,
+                    });
                 });
             }));
 
