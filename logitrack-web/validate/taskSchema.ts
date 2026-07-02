@@ -29,6 +29,9 @@ export function normalizeSocIdToKey(sourceId: string): string {
 export const TASK_STATUS_ENUM = ["Pending", "Assigned", "Checked in", "In-Transit", "Completed", "Cancelled"] as const;
 export const TASK_TYPE_ENUM = ["FIRST_MILE", "LINE_HAUL"] as const;
 
+/** หลัก/เสริม, set explicitly by admin at assign time. Absent = legacy task, billing derives it (ADR-0005/0006). */
+export const TASK_JOB_CATEGORY_ENUM = ["PRIMARY", "SUPPLEMENTARY"] as const;
+
 // Multi-delivery support
 export const deliveryStopSchema = z.object({
     index: z.number().int().min(1),
@@ -65,6 +68,9 @@ export const taskSchema = z.object({
     destinationLinkedCustomerName: z.string().optional(),
     destinationLinkedCustomerCode: z.string().optional(),
     destinationCustomerLinkKind: z.enum(["customer", "partner"]).optional(),
+
+    /** หลัก/เสริม, chosen by admin at assign time. Optional — absent means billing derives it (ADR-0005/0006). */
+    jobCategory: z.enum(TASK_JOB_CATEGORY_ENUM).default("PRIMARY").optional(),
 
     // Vehicle Requirements
     truckType: z.enum(["4WH", "4WJ", "6WH", "10WH", "18WH", "PICKUP", "VAN"]).optional(), // Based on image

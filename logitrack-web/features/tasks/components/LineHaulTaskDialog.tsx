@@ -326,6 +326,32 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                             />
                         </div>
 
+                        {/* Job Category: หลัก/เสริม */}
+                        <FormField
+                            control={form.control}
+                            name="jobCategory"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>{t("firstMile.task.jobCategory.label", "Job Category")}</FormLabel>
+                                    <Select
+                                        onValueChange={field.onChange}
+                                        value={field.value ?? "PRIMARY"}
+                                    >
+                                        <FormControl>
+                                            <SelectTrigger>
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent className="z-[1005]" position="popper">
+                                            <SelectItem value="PRIMARY">{t("firstMile.task.jobCategory.primary", "Primary")}</SelectItem>
+                                            <SelectItem value="SUPPLEMENTARY">{t("firstMile.task.jobCategory.supplementary", "Supplementary")}</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+
                         {/* Multi-Delivery Toggle */}
                         <FormField
                             control={form.control}

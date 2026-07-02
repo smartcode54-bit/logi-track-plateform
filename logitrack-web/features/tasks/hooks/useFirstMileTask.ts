@@ -45,6 +45,7 @@ export function useFirstMileTask({
             time: "15:00",
             sourceHub: "",
             destination: "",
+            jobCategory: "PRIMARY" as const,
             truckType: "PICKUP",
             taskId: "",
             driverId: "",
@@ -125,6 +126,7 @@ export function useFirstMileTask({
                     time: task.time || "",
                     sourceHub: task.sourceHub || "",
                     destination: (task.destination as string) || "",
+                    jobCategory: (task.jobCategory as FirstMileTask["jobCategory"]) || "PRIMARY",
                     status: (task.status as FirstMileTask["status"]) || "Pending"
                 } as FirstMileTask);
             } else {
@@ -133,6 +135,7 @@ export function useFirstMileTask({
                     time: "15:00",
                     sourceHub: "",
                     destination: "",
+                    jobCategory: "PRIMARY",
                     truckType: "PICKUP",
                     taskId: "",
                     driverName: "",
@@ -226,6 +229,7 @@ export function useFirstMileTask({
                     id: mode === "edit" ? task?.id : undefined,
                     sourceHub: values.sourceHub,
                     destination: values.destination,
+                    jobCategory: values.jobCategory,
                     date: values.date ? format(values.date, "yyyy-MM-dd") : new Date().toISOString(),
                     time: values.time,
                     taskType: values.taskType,

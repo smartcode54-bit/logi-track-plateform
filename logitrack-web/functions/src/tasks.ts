@@ -20,6 +20,8 @@ interface CreateOrUpdateTaskRequest {
     id?: string; // undefined = create, otherwise update
     sourceHub: string;
     destination: string; // Primary destination (1st stop or single stop)
+    /** หลัก/เสริม, chosen by admin at assign time. Optional — absent means billing derives it (ADR-0005/0006). */
+    jobCategory?: "PRIMARY" | "SUPPLEMENTARY";
     date: string; // ISO date string
     time: string; // HH:MM format
     taskType: "FIRST_MILE" | "LINE_HAUL";
@@ -124,6 +126,7 @@ export const createOrUpdateTask = onCall(
         const taskDoc: Record<string, unknown> = {
             sourceHub: data.sourceHub.trim().toUpperCase(),
             destination: data.destination.trim().toUpperCase(),
+            jobCategory: data.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
             date: new Date(data.date),
             time: data.time.trim(),
             taskType: data.taskType,

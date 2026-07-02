@@ -106,6 +106,7 @@ async (request) => {
     const taskDoc = {
         sourceHub: data.sourceHub.trim().toUpperCase(),
         destination: data.destination.trim().toUpperCase(),
+        jobCategory: data.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
         date: new Date(data.date),
         time: data.time.trim(),
         taskType: data.taskType,

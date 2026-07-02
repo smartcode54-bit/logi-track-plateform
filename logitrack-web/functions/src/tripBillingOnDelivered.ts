@@ -177,10 +177,13 @@ async function tryWriteBillingSnapshotFromTripData(
         return { ok: false, error: "Task has no linked customer" };
     }
 
-    // หลัก/เสริม is DERIVED, not stored on the task (ADR-0005). A route is หลัก if it has a
-    // PRIMARY rate-card entry effective on the trip's date; otherwise it falls back to the
-    // SUPPLEMENTARY card → เสริม, and the snapshot is frozen (billingManualOverride). The
-    // resolved category is computed per branch below and written onto the trip.
+    // หลัก/เสริม (ADR-0006, supersedes ADR-0005 decision #3): admins may now pick it explicitly
+    // on the task at assign time. When present, it's authoritative — the PRIMARY probe is
+    // skipped and billing goes straight to the chosen category's rate card. A legacy task with
+    // no explicit value (created before this change) keeps the original derivation: try PRIMARY,
+    // fall back to SUPPLEMENTARY. Either way the resolved category is frozen when SUPPLEMENTARY.
+    const explicitJobCategory: "PRIMARY" | "SUPPLEMENTARY" | undefined =
+        t.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : t.jobCategory === "PRIMARY" ? "PRIMARY" : undefined;
     const overrideFor = (cat: "PRIMARY" | "SUPPLEMENTARY") =>
         cat === "SUPPLEMENTARY" ? { billingManualOverride: true } : {};
 
@@ -243,17 +246,28 @@ async function tryWriteBillingSnapshotFromTripData(
             logger.warn("[billingSnapshot] failed to load extra_stop service fee", { customerId, error: String(e) });
         }
 
-        // Derive category: try PRIMARY card first, fall back to SUPPLEMENTARY (ADR-0005).
+        // Category: honor an explicit task-level choice (ADR-0006) — skip the PRIMARY probe
+        // entirely when the task is explicitly marked เสริม. Otherwise (explicit หลัก, or a
+        // legacy task with no explicit value) derive as before: try PRIMARY, fall back to
+        // SUPPLEMENTARY (ADR-0005).
         const mVehicleClass = normalizeVehicleClass(taskInput.truckType || "4WJ");
-        let multiComputed = computeMultiDeliveryBilling(
-            tripParts, taskInput, stops, mVehicleClass, rateEntries, fuelAdjustments, extraStopFeeThb, "PRIMARY"
-        );
+        let multiComputed: ReturnType<typeof computeMultiDeliveryBilling>;
         let resolvedCategory: "PRIMARY" | "SUPPLEMENTARY" = "PRIMARY";
-        if (!multiComputed) {
+        if (explicitJobCategory === "SUPPLEMENTARY") {
             multiComputed = computeMultiDeliveryBilling(
                 tripParts, taskInput, stops, mVehicleClass, rateEntries, fuelAdjustments, extraStopFeeThb, "SUPPLEMENTARY"
             );
-            if (multiComputed) resolvedCategory = "SUPPLEMENTARY";
+            resolvedCategory = "SUPPLEMENTARY";
+        } else {
+            multiComputed = computeMultiDeliveryBilling(
+                tripParts, taskInput, stops, mVehicleClass, rateEntries, fuelAdjustments, extraStopFeeThb, "PRIMARY"
+            );
+            if (!multiComputed) {
+                multiComputed = computeMultiDeliveryBilling(
+                    tripParts, taskInput, stops, mVehicleClass, rateEntries, fuelAdjustments, extraStopFeeThb, "SUPPLEMENTARY"
+                );
+                if (multiComputed) resolvedCategory = "SUPPLEMENTARY";
+            }
         }
 
         if (!multiComputed) {
@@ -289,7 +303,10 @@ async function tryWriteBillingSnapshotFromTripData(
 
         return { ok: true, billingEstimateThb: multiComputed.totalBillingThb };
     } else {
-        // Single-delivery billing. Derive category: try PRIMARY card, fall back to SUPPLEMENTARY.
+        // Single-delivery billing. Category: honor an explicit task-level choice (ADR-0006) —
+        // skip the PRIMARY probe entirely when the task is explicitly marked เสริม. Otherwise
+        // (explicit หลัก, or a legacy task with no explicit value) derive as before: try PRIMARY,
+        // fall back to SUPPLEMENTARY (ADR-0005).
         let resolvedCategory: "PRIMARY" | "SUPPLEMENTARY" = "PRIMARY";
         const computeForCategory = (cat: "PRIMARY" | "SUPPLEMENTARY") => {
             let c = computeTripBillingFromParts(tripParts, taskInput, rateEntries, fuelAdjustments, cat);
@@ -306,10 +323,16 @@ async function tryWriteBillingSnapshotFromTripData(
             }
             return c;
         };
-        let computed = computeForCategory("PRIMARY");
-        if (!computed) {
+        let computed: ReturnType<typeof computeForCategory>;
+        if (explicitJobCategory === "SUPPLEMENTARY") {
             computed = computeForCategory("SUPPLEMENTARY");
-            if (computed) resolvedCategory = "SUPPLEMENTARY";
+            resolvedCategory = "SUPPLEMENTARY";
+        } else {
+            computed = computeForCategory("PRIMARY");
+            if (!computed) {
+                computed = computeForCategory("SUPPLEMENTARY");
+                if (computed) resolvedCategory = "SUPPLEMENTARY";
+            }
         }
         if (!computed) {
             const hubId = extractHubId(taskInput.sourceHub);
