@@ -182,6 +182,7 @@ export default {
     "standbyRecords.detail.minutes": "min",
     "standbyRecords.detail.worksheetPhoto": "Customer Worksheet",
     "standbyRecords.detail.sitePhoto": "Site Photo",
+    "standbyRecords.detail.checkInPhoto": "Check-in Photo",
 
     // Standby Backfill Dialog (admin retroactive create)
     "standbyRecords.create.button": "Backfill Standby",

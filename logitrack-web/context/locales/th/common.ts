@@ -182,6 +182,7 @@ export default {
     "standbyRecords.detail.minutes": "นาที",
     "standbyRecords.detail.worksheetPhoto": "ใบงานลูกค้า",
     "standbyRecords.detail.sitePhoto": "รูปหน้างาน",
+    "standbyRecords.detail.checkInPhoto": "รูปหน้าเช็คอิน",
 
     // Standby Backfill Dialog (admin retroactive create)
     "standbyRecords.create.button": "บันทึก Standby ย้อนหลัง",

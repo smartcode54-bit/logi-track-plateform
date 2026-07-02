@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
-import { collection, onSnapshot, query, orderBy, limit } from "firebase/firestore"
+import { collection, onSnapshot, query, orderBy, limit, doc, getDoc } from "firebase/firestore"
 import { db } from "@/firebase/client"
 import { COLLECTIONS } from "@/lib/collections"
 import { useLanguage } from "@/context/language"
@@ -95,8 +95,25 @@ export default function StandbyRecordsPage() {
     const itemsPerPage = 15
 
     const [detailRecord, setDetailRecord] = useState<StandbyRecord | null>(null)
+    const [checkInPhotoUrl, setCheckInPhotoUrl] = useState<string | null>(null)
     const [backfillOpen, setBackfillOpen] = useState(false)
     const { hasPermission: canCreateStandby } = usePermission(CAPABILITIES.operations_create_standby)
+
+    useEffect(() => {
+        const taskId = detailRecord?.taskId
+        if (!taskId) {
+            setCheckInPhotoUrl(null)
+            return
+        }
+        let cancelled = false
+        getDoc(doc(db, COLLECTIONS.TASKS, taskId)).then((snap) => {
+            if (cancelled) return
+            setCheckInPhotoUrl((snap.data()?.checkInPhotoUrl as string | undefined) ?? null)
+        }).catch(() => {
+            if (!cancelled) setCheckInPhotoUrl(null)
+        })
+        return () => { cancelled = true }
+    }, [detailRecord?.taskId])
 
     const fetchRecords = () => {
         setLoading(true)
@@ -525,16 +542,24 @@ export default function StandbyRecordsPage() {
                                     </div>
 
                                     {/* Photos */}
-                                    {detailRecord.photos.length > 0 && (
+                                    {(detailRecord.photos.length > 0 || checkInPhotoUrl) && (
                                         <div className="mt-2">
                                             <ImagePreviewGallery
                                                 compact
-                                                items={detailRecord.photos.map(p => ({
-                                                    url: p.url,
-                                                    label: p.type === "customer_worksheet"
-                                                        ? t("standbyRecords.detail.worksheetPhoto", "Customer Worksheet")
-                                                        : t("standbyRecords.detail.sitePhoto", "Site Photo"),
-                                                }))}
+                                                items={[
+                                                    ...(checkInPhotoUrl
+                                                        ? [{
+                                                            url: checkInPhotoUrl,
+                                                            label: t("standbyRecords.detail.checkInPhoto", "Check-in Photo"),
+                                                        }]
+                                                        : []),
+                                                    ...detailRecord.photos.map(p => ({
+                                                        url: p.url,
+                                                        label: p.type === "customer_worksheet"
+                                                            ? t("standbyRecords.detail.worksheetPhoto", "Customer Worksheet")
+                                                            : t("standbyRecords.detail.sitePhoto", "Site Photo"),
+                                                    })),
+                                                ]}
                                             />
                                         </div>
                                     )}
