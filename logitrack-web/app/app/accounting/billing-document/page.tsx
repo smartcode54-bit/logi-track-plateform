@@ -70,6 +70,10 @@ export default function BillingDocumentPage() {
     const [includeStandby,   setIncludeStandby]   = useState(true);
     const [includeMultiDrop, setIncludeMultiDrop] = useState(true);
 
+    // ── Job category toggles (หลัก/เสริม) — standby rows have no jobCategory, unaffected ──
+    const [includePrimary,      setIncludePrimary]      = useState(true);
+    const [includeSupplementary, setIncludeSupplementary] = useState(true);
+
     const [loading, setLoading] = useState(false);
     const [generating, setGenerating] = useState(false);
     const [ownerProvider, setOwnerProvider] = useState<BillingProviderInfo | undefined>(undefined);
@@ -118,9 +122,15 @@ export default function BillingDocumentPage() {
             if (r.rowType === "trip"           && !includeTrips)     return false;
             if (r.rowType === "standby"        && !includeStandby)   return false;
             if (r.rowType === "multidrop_stop" && !includeMultiDrop) return false;
+            // Job category only applies to trip / multidrop_stop rows — standby has no jobCategory.
+            if (r.rowType !== "standby") {
+                const isSupplementary = r.jobCategory === "SUPPLEMENTARY";
+                if (isSupplementary && !includeSupplementary) return false;
+                if (!isSupplementary && !includePrimary) return false;
+            }
             return true;
         });
-    }, [trips, selectedCustomerId, includeTrips, includeStandby, includeMultiDrop]);
+    }, [trips, selectedCustomerId, includeTrips, includeStandby, includeMultiDrop, includePrimary, includeSupplementary]);
 
     // Count per type (before type-toggle filter, but after customer filter) for checkbox labels
     const typeCounts = useMemo(() => {
@@ -129,6 +139,16 @@ export default function BillingDocumentPage() {
             trips:     base.filter((r) => r.rowType === "trip").length,
             standby:   base.filter((r) => r.rowType === "standby").length,
             multiDrop: base.filter((r) => r.rowType === "multidrop_stop").length,
+        };
+    }, [trips, selectedCustomerId]);
+
+    // Count per job category (non-standby rows only) for checkbox labels
+    const jobCategoryCounts = useMemo(() => {
+        const base = (selectedCustomerId === "all" ? trips : trips.filter((r) => r.billingCustomerId === selectedCustomerId))
+            .filter((r) => r.rowType !== "standby");
+        return {
+            primary:      base.filter((r) => r.jobCategory !== "SUPPLEMENTARY").length,
+            supplementary: base.filter((r) => r.jobCategory === "SUPPLEMENTARY").length,
         };
     }, [trips, selectedCustomerId]);
 
@@ -303,6 +323,35 @@ export default function BillingDocumentPage() {
                                             <span className="w-2 h-2 rounded-full bg-purple-500 inline-block" />
                                             Multi-drop stops
                                             <Badge variant="secondary" className="text-xs px-1.5 py-0">{typeCounts.multiDrop}</Badge>
+                                        </span>
+                                    </label>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ── Job category (หลัก/เสริม) toggles ── */}
+                        {trips.length > 0 && (
+                            <div className="space-y-1.5 border-l pl-4 ml-2">
+                                <Label className="text-xs text-muted-foreground">{t("accounting.billingDocument.table.jobCategory")}</Label>
+                                <div className="flex flex-col gap-2">
+                                    <label className="flex items-center gap-2 cursor-pointer text-sm">
+                                        <Checkbox
+                                            checked={includePrimary}
+                                            onCheckedChange={(v) => setIncludePrimary(!!v)}
+                                        />
+                                        <span className="flex items-center gap-1.5">
+                                            {t("accounting.billingDocument.badge.jobCategoryPrimary")}
+                                            <Badge variant="secondary" className="text-xs px-1.5 py-0">{jobCategoryCounts.primary}</Badge>
+                                        </span>
+                                    </label>
+                                    <label className="flex items-center gap-2 cursor-pointer text-sm">
+                                        <Checkbox
+                                            checked={includeSupplementary}
+                                            onCheckedChange={(v) => setIncludeSupplementary(!!v)}
+                                        />
+                                        <span className="flex items-center gap-1.5">
+                                            {t("accounting.billingDocument.badge.jobCategorySupplementary")}
+                                            <Badge variant="secondary" className="text-xs px-1.5 py-0">{jobCategoryCounts.supplementary}</Badge>
                                         </span>
                                     </label>
                                 </div>
