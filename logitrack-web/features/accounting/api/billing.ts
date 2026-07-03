@@ -4,7 +4,9 @@ import { db } from "@/firebase/client";
 import {
     collection,
     deleteDoc,
+    documentId,
     getDocs,
+    getDocsFromServer,
     query,
     orderBy,
     doc,
@@ -14,12 +16,17 @@ import {
     Timestamp,
     writeBatch,
     where,
+    type QuerySnapshot,
+    type DocumentData,
 } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { functions } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { normalizeDestinationCode, normalizeVehicleClass } from "@/lib/billingCompute";
 import { driverDisplayName } from "@/lib/driverName";
+import { billingHubLabelFromFirestoreData } from "@/lib/hubDisplay";
+import { SOC_DESTINATIONS, normalizeSocIdToKey } from "@/validate/taskSchema";
+import type { BillingTripRow } from "@/lib/billingDocument";
 
 export type VehicleExpenseType = "fuel" | "other";
 
@@ -975,4 +982,272 @@ export interface MissingBillingRow {
     lookupVehicleClass?: string;
     computedRate?: number;
     failureReason?: string;
+}
+
+// ─── Shared trip-row fetcher for Billing Document / Result pages ──────────────
+
+function toBillingDate(val: unknown): Date | undefined {
+    if (!val) return undefined;
+    if (val instanceof Date) return val;
+    if (typeof (val as { toDate?: () => Date }).toDate === "function") {
+        return (val as { toDate: () => Date }).toDate();
+    }
+    return undefined;
+}
+
+/** Extra keys so billing destination codes (e.g. SPK890103) resolve to hub rows whose source_id includes a Thai suffix. */
+function extraDestinationLookupKeys(sourceId: string): string[] {
+    const u = sourceId.trim().toUpperCase();
+    const norm = normalizeDestinationCode(sourceId);
+    if (!norm || norm === u) return [];
+    if (/^SPK-[A-Z0-9]+$/.test(u)) return [];
+    return [norm];
+}
+
+/**
+ * Fetch billed trip/standby/multidrop-stop rows for one customer + period, resolved to
+ * display-ready `BillingTripRow[]` (driver names, hub display names, origin codes). Used
+ * by the Billing Document page (initial download) and the Billing Result page (redownload,
+ * issue receipt) so both always regenerate from the same real data instead of an empty array.
+ */
+export async function fetchBillingTripRows(
+    customerId: string | "all",
+    period: { month: number; year: number }
+): Promise<BillingTripRow[]> {
+    const start = new Date(period.year, period.month - 1, 1);
+    const end = new Date(period.year, period.month, 1);
+
+    // ── Hub display-name / code maps (rebuilt per call — same shape as billing-document page) ──
+    const hubNameMap = new Map<string, string>();
+    const hubCodeMap = new Map<string, string>();
+    const hubsSnap = await getDocs(collection(db, COLLECTIONS.HUBS));
+    hubsSnap.forEach((d) => {
+        const data = d.data();
+        const label = billingHubLabelFromFirestoreData(data);
+        const sourceId = String(data.source_id ?? data.hubId ?? data.hubCode ?? "").trim();
+        if (data.source_id) hubNameMap.set(String(data.source_id).trim().toUpperCase(), label);
+        if (data.hubId) hubNameMap.set(String(data.hubId).trim().toUpperCase(), label);
+        if (data.hubCode) hubNameMap.set(String(data.hubCode).trim().toUpperCase(), label);
+        for (const extra of extraDestinationLookupKeys(sourceId)) hubNameMap.set(extra, label);
+        hubNameMap.set(d.id, label);
+        hubNameMap.set(d.id.toUpperCase(), label);
+
+        if (sourceId) {
+            const codeKey = sourceId.toUpperCase();
+            hubCodeMap.set(codeKey, sourceId);
+            hubCodeMap.set(label.trim().toUpperCase(), sourceId);
+            for (const nameField of [data.source_name_en, data.source_name_th, data.hubName, data.hubTHName]) {
+                const name = typeof nameField === "string" ? nameField.trim() : "";
+                if (name) hubCodeMap.set(name.toUpperCase(), sourceId);
+            }
+            hubCodeMap.set(d.id.toUpperCase(), sourceId);
+        }
+    });
+
+    const resolveDisplayName = (code: string | undefined): string => {
+        if (!code) return "-";
+        const trimmed = code.trim();
+        if (!trimmed) return "-";
+        const upper = trimmed.toUpperCase();
+        if (hubNameMap.get(upper)) return hubNameMap.get(upper)!;
+        if (trimmed !== upper && hubNameMap.get(trimmed)) return hubNameMap.get(trimmed)!;
+        const norm = normalizeDestinationCode(trimmed);
+        if (norm && norm !== upper && hubNameMap.get(norm)) return hubNameMap.get(norm)!;
+        const socKey = normalizeSocIdToKey(upper);
+        if (socKey && (SOC_DESTINATIONS as Record<string, string>)[socKey]) {
+            return (SOC_DESTINATIONS as Record<string, string>)[socKey];
+        }
+        return trimmed;
+    };
+
+    const resolveHubCode = (value: string | undefined): string => {
+        const trimmed = (value ?? "").trim();
+        if (!trimmed) return trimmed;
+        return hubCodeMap.get(trimmed.toUpperCase()) ?? trimmed;
+    };
+
+    // ── trip_records + standby_records for this customer (or all) + period ───────
+    const tripConstraints = [
+        where("status", "==", "delivered"),
+        where("deliveredTimestamp", ">=", Timestamp.fromDate(start)),
+        where("deliveredTimestamp", "<", Timestamp.fromDate(end)),
+    ];
+    if (customerId !== "all") tripConstraints.push(where("billingCustomerId", "==", customerId));
+    const tripSnap = await getDocsFromServer(
+        query(collection(db, COLLECTIONS.TRIP_RECORDS), ...tripConstraints)
+    );
+
+    let standbySnap: QuerySnapshot<DocumentData> | null = null;
+    try {
+        standbySnap = await getDocsFromServer(
+            query(
+                collection(db, COLLECTIONS.STANDBY_RECORDS),
+                where("status", "==", "completed"),
+                where("endedAt", ">=", Timestamp.fromDate(start)),
+                where("endedAt", "<", Timestamp.fromDate(end))
+            )
+        );
+    } catch (e) {
+        console.warn("[fetchBillingTripRows] standby_records query failed (index may be building):", e);
+    }
+
+    // ── Batch-fetch linked tasks (driverName/licensePlate/customer denormalized) ──
+    type TaskInfo = { truckType?: string; driverName?: string; driverPhone?: string; truckLicensePlate?: string; sourceHub?: string; destination?: string };
+    const taskMap = new Map<string, TaskInfo>();
+    const taskIds = new Set<string>();
+    tripSnap.forEach((d) => { const tid = d.data().taskId; if (tid) taskIds.add(tid); });
+    standbySnap?.forEach((d) => { const tid = d.data().taskId; if (tid) taskIds.add(tid); });
+
+    const allTaskIds = Array.from(taskIds);
+    const taskIdChunks: string[][] = [];
+    for (let i = 0; i < allTaskIds.length; i += 30) taskIdChunks.push(allTaskIds.slice(i, i + 30));
+    await Promise.allSettled(taskIdChunks.map(async (chunk) => {
+        const taskSnap = await getDocs(query(collection(db, COLLECTIONS.TASKS), where(documentId(), "in", chunk)));
+        taskSnap.forEach((taskDoc) => {
+            const t = taskDoc.data();
+            taskMap.set(taskDoc.id, {
+                truckType: t.truckType,
+                driverName: t.driverName,
+                driverPhone: t.driverPhone,
+                truckLicensePlate: t.licensePlate,
+                sourceHub: t.sourceHub,
+                destination: t.destination,
+            });
+        });
+    }));
+
+    // ── Drivers: resolve names to Thai + subcontractor name ───────────────────────
+    const driverNameByKey = new Map<string, string>();
+    const driverSubByKey = new Map<string, string>();
+    try {
+        const driversSnap = await getDocs(collection(db, COLLECTIONS.DRIVERS));
+        driversSnap.forEach((ds) => {
+            const dd = ds.data();
+            const name = driverDisplayName(dd, ds.id);
+            const sub = (dd.subcontractorName as string | undefined)?.trim();
+            driverNameByKey.set(ds.id, name);
+            if (sub) driverSubByKey.set(ds.id, sub);
+            const authId = (dd.authId ?? dd.authUid) as string | undefined;
+            if (authId) {
+                driverNameByKey.set(authId, name);
+                if (sub) driverSubByKey.set(authId, sub);
+            }
+        });
+    } catch (e) {
+        console.warn("[fetchBillingTripRows] failed to load drivers for Thai name resolution:", e);
+    }
+    const resolveDriverName = (driverId: unknown, fallback?: string): string | undefined => {
+        const key = String(driverId ?? "").trim();
+        return (key && driverNameByKey.get(key)) || fallback;
+    };
+    const resolveSubcontractor = (driverId: unknown): string | undefined => {
+        const key = String(driverId ?? "").trim();
+        return key ? driverSubByKey.get(key) : undefined;
+    };
+
+    const rows: BillingTripRow[] = [];
+
+    tripSnap.forEach((d) => {
+        const data = d.data();
+        if (!Number(data.billingEstimateThb)) return; // skip no-billing trips
+
+        const taskInfo = data.taskId ? taskMap.get(data.taskId) : undefined;
+        const hubId = data.billingLookupHubId ?? "";
+
+        if (data.billingIsMultiDelivery && Array.isArray(data.billingMultiDeliveryBreakdown) && data.billingMultiDeliveryBreakdown.length > 0) {
+            for (const stop of data.billingMultiDeliveryBreakdown as { stopIndex: number; destination: string; baseRateThb: number; finalRateThb: number }[]) {
+                if (!stop.finalRateThb) continue;
+                const destCode = stop.destination ?? "";
+                rows.push({
+                    id: `${d.id}_s${stop.stopIndex}`,
+                    taskId: data.taskId,
+                    spxTripId: data.spxTripId ? `${data.spxTripId}-s${stop.stopIndex}` : undefined,
+                    deliveredTimestamp: toBillingDate(data.deliveredTimestamp),
+                    billingEstimateThb: stop.finalRateThb,
+                    billingBaseRateThb: stop.baseRateThb || undefined,
+                    billingLookupHubId: hubId,
+                    billingLookupDestination: destCode,
+                    billingCustomerId: data.billingCustomerId,
+                    vehicleClass: taskInfo?.truckType,
+                    driverName: resolveDriverName(data.driverId, taskInfo?.driverName),
+                    driverPhone: taskInfo?.driverPhone,
+                    subcontractorName: resolveSubcontractor(data.driverId),
+                    jobCategory: data.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
+                    truckLicensePlate: taskInfo?.truckLicensePlate,
+                    hubDisplayName: resolveDisplayName(hubId),
+                    originHubCode: resolveHubCode(hubId || (taskInfo?.sourceHub as string | undefined) || ""),
+                    destinationDisplayName: resolveDisplayName(destCode),
+                    rowType: "multidrop_stop",
+                    stopIndex: stop.stopIndex,
+                });
+            }
+            return;
+        }
+
+        const dest = data.billingLookupDestination ?? "";
+        rows.push({
+            id: d.id,
+            taskId: data.taskId,
+            spxTripId: data.spxTripId,
+            deliveredTimestamp: toBillingDate(data.deliveredTimestamp),
+            billingEstimateThb: Number(data.billingEstimateThb),
+            billingBaseRateThb: Number(data.billingBaseRateThb) || undefined,
+            billingLookupHubId: hubId,
+            billingLookupDestination: dest,
+            billingRateMultiplier: Number(data.billingRateMultiplier) || undefined,
+            billingAddThbPerTrip: Number(data.billingAddThbPerTrip) || undefined,
+            billingCustomerId: data.billingCustomerId,
+            vehicleClass: taskInfo?.truckType,
+            driverName: resolveDriverName(data.driverId, taskInfo?.driverName),
+            driverPhone: taskInfo?.driverPhone,
+            subcontractorName: resolveSubcontractor(data.driverId),
+            jobCategory: data.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
+            truckLicensePlate: taskInfo?.truckLicensePlate,
+            hubDisplayName: resolveDisplayName(hubId),
+            originHubCode: resolveHubCode(hubId || (taskInfo?.sourceHub as string | undefined) || ""),
+            destinationDisplayName: resolveDisplayName(dest),
+            rowType: "trip",
+        });
+    });
+
+    standbySnap?.forEach((d) => {
+        const data = d.data();
+        const billingAmt = Number(data.billingEstimateThb);
+        if (!billingAmt) return;
+
+        const cid = (data.billingCustomerId as string | undefined)?.trim() || undefined;
+        if (customerId !== "all" && cid !== customerId) return;
+
+        const taskInfo = data.taskId ? taskMap.get(data.taskId) : undefined;
+
+        rows.push({
+            id: d.id,
+            taskId: data.taskId ?? undefined,
+            spxTripId: (data.spxTripId as string | undefined)
+                ?? (data.migratedFromSpxTripId as string | undefined)
+                ?? (data.migratedFromTripId as string | undefined)
+                ?? undefined,
+            deliveredTimestamp: toBillingDate(data.endedAt) ?? toBillingDate(data.startedAt) ?? undefined,
+            billingEstimateThb: billingAmt,
+            billingCustomerId: cid,
+            vehicleClass: taskInfo?.truckType,
+            driverName: resolveDriverName(data.driverId, taskInfo?.driverName),
+            driverPhone: taskInfo?.driverPhone,
+            subcontractorName: resolveSubcontractor(data.driverId),
+            truckLicensePlate: taskInfo?.truckLicensePlate,
+            hubDisplayName: resolveDisplayName(
+                (taskInfo?.sourceHub as string | undefined) ?? (data.startLocation as string | undefined)
+            ),
+            originHubCode: resolveHubCode(
+                (taskInfo?.sourceHub as string | undefined) ?? (data.startLocation as string | undefined) ?? ""
+            ),
+            destinationDisplayName: resolveDisplayName(
+                (taskInfo?.destination as string | undefined) ?? (data.endLocation as string | undefined)
+            ),
+            rowType: "standby",
+        });
+    });
+
+    rows.sort((a, b) => (a.deliveredTimestamp?.getTime() ?? 0) - (b.deliveredTimestamp?.getTime() ?? 0));
+    return rows;
 }

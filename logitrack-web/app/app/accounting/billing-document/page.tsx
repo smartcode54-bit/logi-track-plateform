@@ -2,26 +2,9 @@
 import { PagePermissionGuard } from "@/components/page-permission-guard";
 import { CAPABILITIES } from "@/lib/capabilities";
 import { useEffect, useMemo, useState } from "react";
-import {
-    collection,
-    getDocs,
-    getDocsFromServer,
-    query,
-    where,
-    Timestamp,
-    documentId,
-    type QuerySnapshot,
-    type DocumentData,
-} from "firebase/firestore";
-import { db } from "@/firebase/client";
-import { COLLECTIONS } from "@/lib/collections";
 import { useLanguage } from "@/context/language";
 import { getCustomers } from "@/features/customers/api/customers";
 import type { Customer } from "@/validate/customerSchema";
-import { billingHubLabelFromFirestoreData } from "@/lib/hubDisplay";
-import { driverDisplayName } from "@/lib/driverName";
-import { normalizeDestinationCode } from "@/lib/billingRates";
-import { SOC_DESTINATIONS, normalizeSocIdToKey } from "@/validate/taskSchema";
 import {
     downloadBillingZip,
     type BillingTripRow,
@@ -31,7 +14,7 @@ import {
 } from "@/lib/billingDocument";
 import { saveBillingStatement } from "@/lib/billingStatement";
 import { getOwnerCompany } from "@/features/companies/api/companies";
-import { getCustomerServiceFees } from "@/features/accounting";
+import { getCustomerServiceFees, fetchBillingTripRows } from "@/features/accounting";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -47,26 +30,8 @@ import { useAuth } from "@/context/auth";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-function toDate(val: unknown): Date | undefined {
-    if (!val) return undefined;
-    if (val instanceof Date) return val;
-    if (typeof (val as { toDate?: () => Date }).toDate === "function") {
-        return (val as { toDate: () => Date }).toDate();
-    }
-    return undefined;
-}
-
 function formatThb(n: number) {
     return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
-}
-
-/** Extra keys so billing destination codes (e.g. SPK890103) resolve to hub rows whose source_id includes a Thai suffix. */
-function extraDestinationLookupKeys(sourceId: string): string[] {
-    const u = sourceId.trim().toUpperCase();
-    const norm = normalizeDestinationCode(sourceId);
-    if (!norm || norm === u) return [];
-    if (/^SPK-[A-Z0-9]+$/.test(u)) return [];
-    return [norm];
 }
 
 // ─── Page ────────────────────────────────────────────────────────────────────
@@ -99,10 +64,6 @@ export default function BillingDocumentPage() {
 
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [trips, setTrips] = useState<BillingTripRow[]>([]);
-    const [hubNameMap, setHubNameMap] = useState<Map<string, string>>(new Map());
-    // Reverse map: any hub name/label/code (UPPERCASE) → source_id code. Used to render the
-    // J&T origin as a hub CODE even for trips whose billingLookupHubId snapshot stored a NAME.
-    const [hubCodeMap, setHubCodeMap] = useState<Map<string, string>>(new Map());
 
     // ── Type toggles (which charge types to include in billing) ──────────────
     const [includeTrips,     setIncludeTrips]     = useState(true);
@@ -138,280 +99,14 @@ export default function BillingDocumentPage() {
             .catch((e) => console.warn("[billing] getOwnerCompany failed (using default provider):", e));
     }, []);
 
-    // Load hub display names once
-    useEffect(() => {
-        getDocs(collection(db, COLLECTIONS.HUBS)).then((snap) => {
-            const map = new Map<string, string>();
-            const codeMap = new Map<string, string>();
-            snap.forEach((d) => {
-                const data = d.data();
-                const label = billingHubLabelFromFirestoreData(data);
-                const sourceId = String(data.source_id ?? data.hubId ?? data.hubCode ?? "").trim();
-                // Map all possible code fields so any hub reference format resolves to a display name
-                if (data.source_id) map.set(String(data.source_id).trim().toUpperCase(), label);
-                if (data.hubId)     map.set(String(data.hubId).trim().toUpperCase(), label);
-                if (data.hubCode)   map.set(String(data.hubCode).trim().toUpperCase(), label);
-                // Normalized destination keys (e.g. "SPK890103-ลาดกระบัง26" → "SPK890103")
-                // so billing codes that drop the Thai suffix still resolve to the name.
-                for (const extra of extraDestinationLookupKeys(sourceId)) {
-                    map.set(extra, label);
-                }
-                map.set(d.id, label);
-                map.set(d.id.toUpperCase(), label);
-
-                // Reverse: name/label/code → source_id code (for the J&T origin-code display rule).
-                if (sourceId) {
-                    const codeKey = sourceId.toUpperCase();
-                    codeMap.set(codeKey, sourceId);
-                    codeMap.set(label.trim().toUpperCase(), sourceId);
-                    for (const nameField of [data.source_name_en, data.source_name_th, data.hubName, data.hubTHName]) {
-                        const name = typeof nameField === "string" ? nameField.trim() : "";
-                        if (name) codeMap.set(name.toUpperCase(), sourceId);
-                    }
-                    codeMap.set(d.id.toUpperCase(), sourceId);
-                }
-            });
-            setHubNameMap(map);
-            setHubCodeMap(codeMap);
-        }).catch(console.error);
-    }, []);
-
-    const resolveDisplayName = (code: string | undefined): string => {
-        if (!code) return "-";
-        const trimmed = code.trim();
-        if (!trimmed) return "-";
-        const upper = trimmed.toUpperCase();
-        // 1. Try raw code first (e.g. "SPK-GW" → "J&T EXPRESS บางปู")
-        if (hubNameMap.get(upper)) return hubNameMap.get(upper)!;
-        if (trimmed !== upper && hubNameMap.get(trimmed)) return hubNameMap.get(trimmed)!;
-        // 2. Try normalized code (strips suffix after dash for SOC codes)
-        const norm = normalizeDestinationCode(trimmed);
-        if (norm && norm !== upper && hubNameMap.get(norm)) return hubNameMap.get(norm)!;
-        // 3. SOC destinations (SOCE/SOCN/SOCW/SPKxxxxxx)
-        const socKey = normalizeSocIdToKey(upper);
-        if (socKey && (SOC_DESTINATIONS as Record<string, string>)[socKey]) {
-            return (SOC_DESTINATIONS as Record<string, string>)[socKey];
-        }
-        // 4. Fallback: return as-is (already a display name like "J&T EXPRESS บางปู")
-        return trimmed;
-    };
-
-    /**
-     * Resolve a source-hub reference (which may be a CODE like "SPK-GW" or a NAME like
-     * "J&T EXPRESS บางปู", depending on what the trip's billing snapshot stored) to its
-     * canonical hub CODE (source_id). Used for the J&T origin-code rule. Unknown values
-     * pass through unchanged so already-correct codes are preserved.
-     */
-    const resolveHubCode = (value: string | undefined): string => {
-        const trimmed = (value ?? "").trim();
-        if (!trimmed) return trimmed;
-        return hubCodeMap.get(trimmed.toUpperCase()) ?? trimmed;
-    };
-
-
     async function loadTrips() {
         setLoading(true);
         try {
-            const start = new Date(selectedYear, selectedMonth - 1, 1);
-            const end = new Date(selectedYear, selectedMonth, 1);
-
-            // ── Load trip_records ──────────────────────────────────────────────
-            const tripConstraints = [
-                where("status", "==", "delivered"),
-                where("deliveredTimestamp", ">=", Timestamp.fromDate(start)),
-                where("deliveredTimestamp", "<", Timestamp.fromDate(end)),
-            ];
-            if (selectedCustomerId !== "all") {
-                tripConstraints.push(where("billingCustomerId", "==", selectedCustomerId));
-            }
-            const tripSnap = await getDocsFromServer(query(collection(db, COLLECTIONS.TRIP_RECORDS), ...tripConstraints));
-
-            // ── Load standby_records (isolated — index may be building) ────────
-            let standbySnap: QuerySnapshot<DocumentData> | null = null;
-            try {
-                const standbyConstraints = [
-                    where("status", "==", "completed"),
-                    where("endedAt", ">=", Timestamp.fromDate(start)),
-                    where("endedAt", "<", Timestamp.fromDate(end)),
-                ];
-                standbySnap = await getDocsFromServer(query(collection(db, COLLECTIONS.STANDBY_RECORDS), ...standbyConstraints));
-            } catch (e) {
-                console.warn("[billing] standby_records query failed (index may be building):", e);
-            }
-
-            // ── Collect taskIds for batch lookup ──────────────────────────────
-            const taskIds = new Set<string>();
-            tripSnap.forEach((d) => { const tid = d.data().taskId; if (tid) taskIds.add(tid); });
-            standbySnap?.forEach((d) => { const tid = d.data().taskId; if (tid) taskIds.add(tid); });
-
-            // ── Fetch tasks (driverName/licensePlate/customer denormalized) ────
-            type TaskInfo = { truckType?: string; driverName?: string; driverPhone?: string; truckLicensePlate?: string; billingCustomerId?: string; sourceHub?: string; destination?: string };
-            const taskMap = new Map<string, TaskInfo>();
-            // Batched fetch via documentId() "in" (chunks of 30) — no per-row cap, so
-            // trip + standby task lookups don't overflow when a month has many trips.
-            const taskIdChunks: string[][] = [];
-            const allTaskIds = Array.from(taskIds);
-            for (let i = 0; i < allTaskIds.length; i += 30) {
-                taskIdChunks.push(allTaskIds.slice(i, i + 30));
-            }
-            await Promise.allSettled(taskIdChunks.map(async (chunk) => {
-                const taskSnap = await getDocs(
-                    query(collection(db, COLLECTIONS.TASKS), where(documentId(), "in", chunk))
-                );
-                taskSnap.forEach((taskDoc) => {
-                    const t = taskDoc.data();
-                    taskMap.set(taskDoc.id, {
-                        truckType: t.truckType,
-                        driverName: t.driverName,
-                        driverPhone: t.driverPhone,
-                        truckLicensePlate: t.licensePlate,
-                        billingCustomerId: t.sourceHubLinkedCustomerId,
-                        sourceHub: t.sourceHub,
-                        destination: t.destination,
-                    });
-                });
-            }));
-
-            // ── Drivers: resolve names to Thai (reports use Thai driver names) ──
-            // Keyed by both doc id and authId so a trip's driverId (authId) resolves.
-            const driverNameByKey = new Map<string, string>();
-            const driverSubByKey = new Map<string, string>(); // Sup (ผู้รับเหมา) ของคนขับ
-            try {
-                const driversSnap = await getDocs(collection(db, COLLECTIONS.DRIVERS));
-                driversSnap.forEach((ds) => {
-                    const dd = ds.data();
-                    const name = driverDisplayName(dd, ds.id);
-                    const sub = (dd.subcontractorName as string | undefined)?.trim();
-                    driverNameByKey.set(ds.id, name);
-                    if (sub) driverSubByKey.set(ds.id, sub);
-                    const authId = (dd.authId ?? dd.authUid) as string | undefined;
-                    if (authId) {
-                        driverNameByKey.set(authId, name);
-                        if (sub) driverSubByKey.set(authId, sub);
-                    }
-                });
-            } catch (e) {
-                console.warn("[billing] failed to load drivers for Thai name resolution:", e);
-            }
-            const resolveDriverName = (driverId: unknown, fallback?: string): string | undefined => {
-                const key = String(driverId ?? "").trim();
-                return (key && driverNameByKey.get(key)) || fallback;
-            };
-            const resolveSubcontractor = (driverId: unknown): string | undefined => {
-                const key = String(driverId ?? "").trim();
-                return key ? driverSubByKey.get(key) : undefined;
-            };
-
-            const rows: BillingTripRow[] = [];
-
-            // ── Build trip rows ────────────────────────────────────────────────
-            tripSnap.forEach((d) => {
-                const data = d.data();
-                if (!Number(data.billingEstimateThb)) return; // skip no-billing trips
-
-                const taskInfo = data.taskId ? taskMap.get(data.taskId) : undefined;
-                const hubId = data.billingLookupHubId ?? "";
-
-                // Multidrop: expand breakdown into one row per billed stop
-                if (data.billingIsMultiDelivery && Array.isArray(data.billingMultiDeliveryBreakdown) && data.billingMultiDeliveryBreakdown.length > 0) {
-                    for (const stop of data.billingMultiDeliveryBreakdown as { stopIndex: number; destination: string; baseRateThb: number; finalRateThb: number }[]) {
-                        if (!stop.finalRateThb) continue;
-                        const destCode = stop.destination ?? "";
-                        rows.push({
-                            id: `${d.id}_s${stop.stopIndex}`,
-                            taskId: data.taskId,
-                            spxTripId: data.spxTripId ? `${data.spxTripId}-s${stop.stopIndex}` : undefined,
-                            deliveredTimestamp: toDate(data.deliveredTimestamp),
-                            billingEstimateThb: stop.finalRateThb,
-                            billingBaseRateThb: stop.baseRateThb || undefined,
-                            billingLookupHubId: hubId,
-                            billingLookupDestination: destCode,
-                            billingCustomerId: data.billingCustomerId,
-                            vehicleClass: taskInfo?.truckType,
-                            driverName: resolveDriverName(data.driverId, taskInfo?.driverName),
-                            driverPhone: taskInfo?.driverPhone,
-                            subcontractorName: resolveSubcontractor(data.driverId),
-                            jobCategory: data.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
-                            truckLicensePlate: taskInfo?.truckLicensePlate,
-                            hubDisplayName: resolveDisplayName(hubId),
-                            originHubCode: resolveHubCode(hubId || (taskInfo?.sourceHub as string | undefined) || ""),
-                            destinationDisplayName: resolveDisplayName(destCode),
-                            rowType: "multidrop_stop",
-                            stopIndex: stop.stopIndex,
-                        });
-                    }
-                    return;
-                }
-
-                // Single-delivery trip
-                const dest = data.billingLookupDestination ?? "";
-                rows.push({
-                    id: d.id,
-                    taskId: data.taskId,
-                    spxTripId: data.spxTripId,
-                    deliveredTimestamp: toDate(data.deliveredTimestamp),
-                    billingEstimateThb: Number(data.billingEstimateThb),
-                    billingBaseRateThb: Number(data.billingBaseRateThb) || undefined,
-                    billingLookupHubId: hubId,
-                    billingLookupDestination: dest,
-                    billingRateMultiplier: Number(data.billingRateMultiplier) || undefined,
-                    billingAddThbPerTrip: Number(data.billingAddThbPerTrip) || undefined,
-                    billingCustomerId: data.billingCustomerId,
-                    vehicleClass: taskInfo?.truckType,
-                    driverName: resolveDriverName(data.driverId, taskInfo?.driverName),
-                    driverPhone: taskInfo?.driverPhone,
-                    subcontractorName: resolveSubcontractor(data.driverId),
-                    jobCategory: data.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
-                    truckLicensePlate: taskInfo?.truckLicensePlate,
-                    hubDisplayName: resolveDisplayName(hubId),
-                    originHubCode: resolveHubCode(hubId || (taskInfo?.sourceHub as string | undefined) || ""),
-                    destinationDisplayName: resolveDisplayName(dest),
-                    rowType: "trip",
-                });
-            });
-
-            // ── Build standby rows (source: standby_records.billingEstimateThb) ─
-            standbySnap?.forEach((d) => {
-                const data = d.data();
-                const billingAmt = Number(data.billingEstimateThb);
-                if (!billingAmt) return; // backfill not yet run → skip
-
-                // Customer filter — prefer billingCustomerId written by backfill function
-                const cid = (data.billingCustomerId as string | undefined)?.trim() || undefined;
-                if (selectedCustomerId !== "all" && cid !== selectedCustomerId) return;
-
-                const taskInfo = data.taskId ? taskMap.get(data.taskId) : undefined;
-
-                rows.push({
-                    id: d.id,
-                    taskId: data.taskId ?? undefined,
-                    spxTripId: (data.spxTripId as string | undefined)
-                        ?? (data.migratedFromSpxTripId as string | undefined)
-                        ?? (data.migratedFromTripId as string | undefined)
-                        ?? undefined,
-                    deliveredTimestamp: toDate(data.endedAt) ?? toDate(data.startedAt) ?? undefined,
-                    billingEstimateThb: billingAmt,
-                    billingCustomerId: cid,
-                    vehicleClass: taskInfo?.truckType,
-                    driverName: resolveDriverName(data.driverId, taskInfo?.driverName),
-                    driverPhone: taskInfo?.driverPhone,
-                    subcontractorName: resolveSubcontractor(data.driverId),
-                    truckLicensePlate: taskInfo?.truckLicensePlate,
-                    hubDisplayName: resolveDisplayName(
-                        (taskInfo?.sourceHub as string | undefined) ?? (data.startLocation as string | undefined)
-                    ),
-                    originHubCode: resolveHubCode(
-                        (taskInfo?.sourceHub as string | undefined) ?? (data.startLocation as string | undefined) ?? ""
-                    ),
-                    destinationDisplayName: resolveDisplayName(
-                        (taskInfo?.destination as string | undefined) ?? (data.endLocation as string | undefined)
-                    ),
-                    rowType: "standby",
-                });
-            });
-
-            rows.sort((a, b) => (a.deliveredTimestamp?.getTime() ?? 0) - (b.deliveredTimestamp?.getTime() ?? 0));
+            const rows = await fetchBillingTripRows(selectedCustomerId, { month: selectedMonth, year: selectedYear });
             setTrips(rows);
+        } catch (e) {
+            console.error("[billing] fetchBillingTripRows failed:", e);
+            toast.error(t("accounting.billingDocument.loadError", "Failed to load trips — please try again."));
         } finally {
             setLoading(false);
         }
@@ -723,7 +418,7 @@ export default function BillingDocumentPage() {
                                 </TableHeader>
                                 <TableBody>
                                     {filteredTrips.map((trip) => {
-                                        // hubDisplayName / destinationDisplayName already resolved by resolveDisplayName at load time.
+                                        // hubDisplayName / destinationDisplayName already resolved by fetchBillingTripRows at load time.
                                         // J&T: show the source-hub CODE (SPK-GW) to match the Excel export (ADR-0005).
                                         const isJntCustomer = /j&t|jnt|j and t/i.test(selectedCustomer?.name ?? "");
                                         const originDisplay = isJntCustomer

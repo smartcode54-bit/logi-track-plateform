@@ -491,6 +491,7 @@ export default {
     "accounting.billingDocument.save.saving": "Saving statement…",
     "accounting.billingDocument.save.saved": "Statement saved — invoice {invoiceNumber}",
     "accounting.billingDocument.save.error": "Could not save billing statement.",
+    "accounting.billingDocument.loadError": "Failed to load trips — please try again.",
 
     // ── Billing Result (Invoice Registry) ────────────────────────────────────
     "accounting.billingResult.subtitle": "Invoice registry — track billing history, payment status, and aging per customer.",
@@ -528,10 +529,18 @@ export default {
     "accounting.billingResult.action.redownload": "Re-download",
     "accounting.billingResult.action.redownloading": "Generating…",
     "accounting.billingResult.action.updateError": "Could not update status.",
+    "accounting.billingResult.action.redownloadError": "Could not re-download invoice.",
+    "accounting.billingResult.action.issueReceipt": "Issue receipt",
+    "accounting.billingResult.action.issuingReceipt": "Generating receipt…",
+    "accounting.billingResult.action.issueReceiptError": "Could not generate receipt.",
+    "accounting.billingResult.action.delete": "Delete",
+    "accounting.billingResult.action.deleting": "Deleting…",
+    "accounting.billingResult.action.deleteError": "Could not delete billing statement.",
     "accounting.billingResult.noData": "No billing statements found.",
     "accounting.billingResult.aging.current": "Current",
     "accounting.billingResult.aging.days30": "1–30 days overdue",
     "accounting.billingResult.aging.days60": "31–60 days overdue",
     "accounting.billingResult.aging.days90plus": "60+ days overdue",
     "accounting.billingResult.confirmCancel": "Cancel this invoice? This cannot be undone.",
+    "accounting.billingResult.confirmDelete": "Delete this draft billing statement? This cannot be undone.",
 };

@@ -491,6 +491,7 @@ export default {
     "accounting.billingDocument.save.saving": "กำลังบันทึกรายการวางบิล…",
     "accounting.billingDocument.save.saved": "บันทึกสำเร็จ — เลขที่ {invoiceNumber}",
     "accounting.billingDocument.save.error": "ไม่สามารถบันทึกรายการวางบิล",
+    "accounting.billingDocument.loadError": "โหลดข้อมูลเที่ยวไม่สำเร็จ กรุณาลองใหม่อีกครั้ง",
 
     // ── Billing Result (Invoice Registry) ────────────────────────────────────
     "accounting.billingResult.subtitle": "ทะเบียนใบวางบิล — ติดตามประวัติการวางบิล สถานะการชำระ และ aging ต่อลูกค้า",
@@ -528,10 +529,18 @@ export default {
     "accounting.billingResult.action.redownload": "ดาวน์โหลดใหม่",
     "accounting.billingResult.action.redownloading": "กำลังสร้างเอกสาร…",
     "accounting.billingResult.action.updateError": "ไม่สามารถอัปเดตสถานะ",
+    "accounting.billingResult.action.redownloadError": "ไม่สามารถดาวน์โหลดใบวางบิลใหม่",
+    "accounting.billingResult.action.issueReceipt": "ออกใบเสร็จรับเงิน",
+    "accounting.billingResult.action.issuingReceipt": "กำลังสร้างใบเสร็จ…",
+    "accounting.billingResult.action.issueReceiptError": "ไม่สามารถสร้างใบเสร็จรับเงิน",
+    "accounting.billingResult.action.delete": "ลบ",
+    "accounting.billingResult.action.deleting": "กำลังลบ…",
+    "accounting.billingResult.action.deleteError": "ไม่สามารถลบรายการวางบิล",
     "accounting.billingResult.noData": "ไม่พบรายการวางบิล",
     "accounting.billingResult.aging.current": "ยังไม่เกินกำหนด",
     "accounting.billingResult.aging.days30": "เกิน 1–30 วัน",
     "accounting.billingResult.aging.days60": "เกิน 31–60 วัน",
     "accounting.billingResult.aging.days90plus": "เกิน 60 วันขึ้นไป",
     "accounting.billingResult.confirmCancel": "ยืนยันการยกเลิกใบวางบิลนี้ ไม่สามารถย้อนกลับได้",
+    "accounting.billingResult.confirmDelete": "ยืนยันการลบรายการวางบิล (ฉบับร่าง) นี้ ไม่สามารถย้อนกลับได้",
 };
