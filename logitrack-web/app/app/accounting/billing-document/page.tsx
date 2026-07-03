@@ -717,6 +717,7 @@ export default function BillingDocumentPage() {
                                         <TableHead>{t("accounting.billingDocument.table.route")}</TableHead>
                                         <TableHead>{t("accounting.billingDocument.table.vehicleType")}</TableHead>
                                         <TableHead>{t("accounting.billingDocument.table.driver")}</TableHead>
+                                        <TableHead>{t("accounting.billingDocument.table.jobCategory")}</TableHead>
                                         <TableHead className="text-right">{t("accounting.billingDocument.table.billingAmount")}</TableHead>
                                     </TableRow>
                                 </TableHeader>
@@ -761,6 +762,17 @@ export default function BillingDocumentPage() {
                                                 {trip.vehicleClass ? <Badge variant="outline">{trip.vehicleClass}</Badge> : "-"}
                                             </TableCell>
                                             <TableCell className="text-xs">{trip.driverName ?? "-"}</TableCell>
+                                            <TableCell>
+                                                {trip.jobCategory === "SUPPLEMENTARY" ? (
+                                                    <Badge variant="outline" className="text-amber-400 border-amber-600">
+                                                        {t("accounting.billingDocument.badge.jobCategorySupplementary")}
+                                                    </Badge>
+                                                ) : (
+                                                    <Badge variant="outline">
+                                                        {t("accounting.billingDocument.badge.jobCategoryPrimary")}
+                                                    </Badge>
+                                                )}
+                                            </TableCell>
                                             <TableCell className="text-right font-mono">
                                                 {formatThb(trip.billingEstimateThb)}
                                             </TableCell>
