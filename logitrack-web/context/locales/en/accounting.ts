@@ -11,6 +11,7 @@ export default {
     "accounting.fuel.addDialog.selectTruck": "Select truck",
     "accounting.fuel.addDialog.date": "Date",
     "accounting.fuel.addDialog.receipt": "Receipt photo (optional)",
+    "accounting.fuel.addDialog.odometerPhoto": "Odometer photo (optional)",
     "accounting.fuel.addDialog.note": "Note",
     "accounting.fuel.addDialog.saved": "Fuel record saved.",
     "accounting.fuel.addDialog.saveError": "Could not save fuel record.",

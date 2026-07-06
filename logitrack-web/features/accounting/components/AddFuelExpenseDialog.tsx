@@ -51,12 +51,14 @@ export function AddFuelExpenseDialog({ open, onOpenChange, onSaved }: AddFuelExp
     const [trucks, setTrucks] = useState<TruckOption[]>([]);
     const [form, setForm] = useState(EMPTY_FORM);
     const [receiptFile, setReceiptFile] = useState<File | null>(null);
+    const [odometerFile, setOdometerFile] = useState<File | null>(null);
     const [submitting, setSubmitting] = useState(false);
 
     useEffect(() => {
         if (!open) return;
         setForm(EMPTY_FORM);
         setReceiptFile(null);
+        setOdometerFile(null);
         Promise.all([getDriversWithTruckAssignments(), getTrucksForFilter()]).then(([d, tr]) => {
             setDrivers(d);
             setTrucks(tr);
@@ -96,6 +98,7 @@ export function AddFuelExpenseDialog({ open, onOpenChange, onSaved }: AddFuelExp
                 taxInvId: form.taxInvId.trim() || undefined,
                 note: form.note.trim() || undefined,
                 receiptPhotoFile: receiptFile ?? undefined,
+                odometerPhotoFile: odometerFile ?? undefined,
             });
             toast.success(t("accounting.fuel.addDialog.saved"));
             onOpenChange(false);
@@ -191,12 +194,23 @@ export function AddFuelExpenseDialog({ open, onOpenChange, onSaved }: AddFuelExp
                                 onChange={(e) => setForm((f) => ({ ...f, odometer: e.target.value }))}
                             />
                         </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1.5">
                             <Label>{t("accounting.fuel.addDialog.receipt")}</Label>
                             <Input
                                 type="file"
                                 accept="image/*"
                                 onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
+                            />
+                        </div>
+                        <div className="space-y-1.5">
+                            <Label>{t("accounting.fuel.addDialog.odometerPhoto")}</Label>
+                            <Input
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => setOdometerFile(e.target.files?.[0] ?? null)}
                             />
                         </div>
                     </div>

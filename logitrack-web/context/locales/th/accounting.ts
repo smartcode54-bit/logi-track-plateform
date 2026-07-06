@@ -11,6 +11,7 @@ export default {
     "accounting.fuel.addDialog.selectTruck": "เลือกรถ",
     "accounting.fuel.addDialog.date": "วันที่",
     "accounting.fuel.addDialog.receipt": "รูปใบเสร็จ (ถ้ามี)",
+    "accounting.fuel.addDialog.odometerPhoto": "รูปเลขไมล์ (ถ้ามี)",
     "accounting.fuel.addDialog.note": "หมายเหตุ",
     "accounting.fuel.addDialog.saved": "บันทึกรายการน้ำมันสำเร็จ",
     "accounting.fuel.addDialog.saveError": "ไม่สามารถบันทึกรายการน้ำมัน",

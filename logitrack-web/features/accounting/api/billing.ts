@@ -714,8 +714,9 @@ export interface CreateFuelExpenseInput {
     stationTaxId?: string;
     taxInvId?: string;
     note?: string;
-    /** Optional receipt photo — admin-entered records source data from an external petro app, so a photo isn't required. */
+    /** Optional receipt / odometer photos — admin-entered records source data from an external petro app, so photos aren't required. */
     receiptPhotoFile?: File;
+    odometerPhotoFile?: File;
 }
 
 /**
@@ -726,13 +727,14 @@ export interface CreateFuelExpenseInput {
 export async function createFuelExpense(input: CreateFuelExpenseInput): Promise<string> {
     const ref = doc(collection(db, COLLECTIONS.VEHICLE_EXPENSES));
 
-    let receiptPhotoUrl: string | undefined;
-    if (input.receiptPhotoFile) {
-        const storagePath = `vehicle_expenses/${ref.id}/receipt.jpg`;
+    async function uploadPhoto(file: File, photoType: string): Promise<string> {
+        const storagePath = `vehicle_expenses/${ref.id}/${photoType}.jpg`;
         const storageRef = storageRefFn(storage, storagePath);
-        await uploadBytes(storageRef, input.receiptPhotoFile, { contentType: "image/jpeg" });
-        receiptPhotoUrl = await getDownloadURL(storageRef);
+        await uploadBytes(storageRef, file, { contentType: "image/jpeg" });
+        return getDownloadURL(storageRef);
     }
+    const receiptPhotoUrl = input.receiptPhotoFile ? await uploadPhoto(input.receiptPhotoFile, "receipt") : undefined;
+    const odometerPhotoUrl = input.odometerPhotoFile ? await uploadPhoto(input.odometerPhotoFile, "odometer") : undefined;
 
     const payload: Record<string, unknown> = {
         driverId: input.driverId,
@@ -753,6 +755,7 @@ export async function createFuelExpense(input: CreateFuelExpenseInput): Promise<
     if (input.taxInvId) payload.taxInvId = input.taxInvId;
     if (input.note) payload.note = input.note;
     if (receiptPhotoUrl) payload.receiptPhotoUrl = receiptPhotoUrl;
+    if (odometerPhotoUrl) payload.odometerPhotoUrl = odometerPhotoUrl;
 
     await setDoc(ref, payload);
     return ref.id;
