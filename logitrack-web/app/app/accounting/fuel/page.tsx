@@ -12,7 +12,7 @@ import {
 } from "../actions.client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Fuel, DollarSign, Hash, TrendingUp, Loader2, Gauge, Search, RefreshCw, Save } from "lucide-react";
+import { Fuel, DollarSign, Hash, TrendingUp, Loader2, Gauge, Search, RefreshCw, Save, Plus } from "lucide-react";
 import {
     ImageUrlPreviewView,
     type ImageUrlPreviewLabels,
@@ -45,6 +45,7 @@ import { usePermission } from "@/hooks/usePermission";
 import { CAPABILITIES } from "@/lib/capabilities";
 import { updateVehicleExpense } from "../actions.client";
 import { functions } from "@/firebase/client";
+import { AddFuelExpenseDialog } from "@/features/accounting/components/AddFuelExpenseDialog";
 
 /** เหตุผลที่ค่า km/L ของแถวนั้นไม่น่าเชื่อถือ (ไม่นำไปคิดค่าเฉลี่ย) */
 export type FuelFlag =
@@ -195,6 +196,7 @@ export default function AccountingFuelPage() {
     const [bangchakError, setBangchakError] = useState<string | null>(null);
 
     const { hasPermission: canEdit } = usePermission(CAPABILITIES.accounting_edit_fuel);
+    const [isAddOpen, setIsAddOpen] = useState(false);
 
     const [detailMapKey, setDetailMapKey] = useState(0);
     const [slideCaption, setSlideCaption] = useState("");
@@ -692,10 +694,18 @@ export default function AccountingFuelPage() {
             <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0">
                     <CardTitle>{t("accounting.fuel.title")}</CardTitle>
-                    <Button variant="outline" size="sm" onClick={loadData} disabled={loading}>
-                        <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-                        {t("common.refresh")}
-                    </Button>
+                    <div className="flex items-center gap-2">
+                        {canEdit && (
+                            <Button variant="default" size="sm" onClick={() => setIsAddOpen(true)}>
+                                <Plus className="h-4 w-4 mr-2" />
+                                {t("accounting.fuel.addButton")}
+                            </Button>
+                        )}
+                        <Button variant="outline" size="sm" onClick={loadData} disabled={loading}>
+                            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+                            {t("common.refresh")}
+                        </Button>
+                    </div>
                 </CardHeader>
                 <CardContent>
                     <Table>
@@ -1027,6 +1037,12 @@ export default function AccountingFuelPage() {
                     )}
                 </DialogContent>
             </Dialog>
+
+            <AddFuelExpenseDialog
+                open={isAddOpen}
+                onOpenChange={setIsAddOpen}
+                onSaved={loadData}
+            />
         </div>
     );
 }

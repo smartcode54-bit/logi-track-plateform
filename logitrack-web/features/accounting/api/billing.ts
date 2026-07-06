@@ -1,6 +1,6 @@
 "use client";
 
-import { db } from "@/firebase/client";
+import { db, storage } from "@/firebase/client";
 import {
     collection,
     deleteDoc,
@@ -8,6 +8,7 @@ import {
     query,
     orderBy,
     doc,
+    setDoc,
     limit,
     updateDoc,
     serverTimestamp,
@@ -15,6 +16,7 @@ import {
     writeBatch,
     where,
 } from "firebase/firestore";
+import { ref as storageRefFn, uploadBytes, getDownloadURL } from "firebase/storage";
 import { httpsCallable } from "firebase/functions";
 import { functions } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
@@ -698,6 +700,62 @@ export async function updateVehicleExpense(
     if (data.tollLane !== undefined) payload.tollLane = data.tollLane;
     if (data.tollSourceType !== undefined) payload.tollSourceType = data.tollSourceType;
     await updateDoc(ref, payload);
+}
+
+export interface CreateFuelExpenseInput {
+    driverId: string;
+    truckId?: string;
+    truckLicensePlate?: string;
+    date: Date;
+    amount: number;
+    volumeLiters?: number;
+    pricePerLiter?: number;
+    odometer?: number;
+    stationTaxId?: string;
+    taxInvId?: string;
+    note?: string;
+    /** Optional receipt photo — admin-entered records source data from an external petro app, so a photo isn't required. */
+    receiptPhotoFile?: File;
+}
+
+/**
+ * Admin-entered fuel expense (on behalf of a driver who can't record it themselves via
+ * mobile). Written directly with status "APPROVED" since the admin already trusts the
+ * source data (petro app), skipping the normal driver-submitted PENDING review step.
+ */
+export async function createFuelExpense(input: CreateFuelExpenseInput): Promise<string> {
+    const ref = doc(collection(db, COLLECTIONS.VEHICLE_EXPENSES));
+
+    let receiptPhotoUrl: string | undefined;
+    if (input.receiptPhotoFile) {
+        const storagePath = `vehicle_expenses/${ref.id}/receipt.jpg`;
+        const storageRef = storageRefFn(storage, storagePath);
+        await uploadBytes(storageRef, input.receiptPhotoFile, { contentType: "image/jpeg" });
+        receiptPhotoUrl = await getDownloadURL(storageRef);
+    }
+
+    const payload: Record<string, unknown> = {
+        driverId: input.driverId,
+        type: "fuel",
+        date: Timestamp.fromDate(input.date),
+        amount: Number(input.amount),
+        status: "APPROVED",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        adminNote: "บันทึกโดย admin (ข้อมูลจาก petro app)",
+    };
+    if (input.truckId) payload.truckId = input.truckId;
+    if (input.truckLicensePlate) payload.truckLicensePlate = input.truckLicensePlate;
+    if (input.volumeLiters != null) payload.volumeLiters = Number(input.volumeLiters);
+    if (input.pricePerLiter != null) payload.pricePerLiter = Number(input.pricePerLiter);
+    if (input.odometer != null) payload.odometer = Number(input.odometer);
+    if (input.stationTaxId) payload.stationTaxId = input.stationTaxId;
+    if (input.taxInvId) payload.taxInvId = input.taxInvId;
+    if (input.note) payload.note = input.note;
+    if (receiptPhotoUrl) payload.receiptPhotoUrl = receiptPhotoUrl;
+
+    await setDoc(ref, payload);
+    return ref.id;
 }
 
 export interface WriteTripBillingInput {
