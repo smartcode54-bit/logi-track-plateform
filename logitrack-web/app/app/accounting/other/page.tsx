@@ -14,7 +14,7 @@ import {
 import { TollExpenseImportDialog } from "@/features/accounting";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Receipt, DollarSign, Hash, TrendingUp, Loader2, RefreshCw, Save, Search } from "lucide-react";
+import { Receipt, DollarSign, Hash, TrendingUp, Loader2, RefreshCw, Save, Search, Plus } from "lucide-react";
 import {
     ImageUrlPreviewView,
     type ImageUrlPreviewLabels,
@@ -38,6 +38,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { usePermission } from "@/hooks/usePermission";
 import { CAPABILITIES } from "@/lib/capabilities";
+import { AddOtherExpenseDialog } from "@/features/accounting/components/AddOtherExpenseDialog";
 
 const categoryKeys: Record<string, string> = {
     tire_repair: "accounting.category.tireRepair",
@@ -64,6 +65,7 @@ export default function AccountingOtherPage() {
     const [submitting, setSubmitting] = useState(false);
 
     const { hasPermission: canEdit } = usePermission(CAPABILITIES.accounting_edit_other);
+    const [isAddOpen, setIsAddOpen] = useState(false);
 
     const [slideCaption, setSlideCaption] = useState("");
     const [slideIndex, setSlideIndex] = useState(0);
@@ -427,10 +429,18 @@ export default function AccountingOtherPage() {
             <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0">
                     <CardTitle>{t("accounting.other.title")}</CardTitle>
-                    <Button variant="outline" size="sm" onClick={loadData} disabled={loading}>
-                        <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-                        {t("common.refresh")}
-                    </Button>
+                    <div className="flex items-center gap-2">
+                        {canEdit && (
+                            <Button variant="default" size="sm" onClick={() => setIsAddOpen(true)}>
+                                <Plus className="h-4 w-4 mr-2" />
+                                {t("accounting.other.addButton")}
+                            </Button>
+                        )}
+                        <Button variant="outline" size="sm" onClick={loadData} disabled={loading}>
+                            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+                            {t("common.refresh")}
+                        </Button>
+                    </div>
                 </CardHeader>
                 <CardContent>
                     <Table>
@@ -636,6 +646,12 @@ export default function AccountingOtherPage() {
                     )}
                 </DialogContent>
             </Dialog>
+
+            <AddOtherExpenseDialog
+                open={isAddOpen}
+                onOpenChange={setIsAddOpen}
+                onSaved={loadData}
+            />
         </div>
     );
 }

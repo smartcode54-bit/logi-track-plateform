@@ -17,6 +17,12 @@ export default {
     "accounting.fuel.addDialog.saveError": "Could not save fuel record.",
     "accounting.other.title": "Other",
     "accounting.other.subtitle": "Other vehicle expenses (toll, parking, repair, etc.).",
+    "accounting.other.addButton": "Add expense record",
+    "accounting.other.addDialog.title": "Add expense record",
+    "accounting.other.addDialog.description": "Record an expense on behalf of a driver when they can't record it themselves.",
+    "accounting.other.addDialog.receipt": "Receipt photo (optional)",
+    "accounting.other.addDialog.saved": "Expense record saved.",
+    "accounting.other.addDialog.saveError": "Could not save expense record.",
 
     "accounting.table.date": "Date",
     "accounting.table.licensePlate": "License plate",

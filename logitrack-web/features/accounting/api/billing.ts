@@ -761,6 +761,56 @@ export async function createFuelExpense(input: CreateFuelExpenseInput): Promise<
     return ref.id;
 }
 
+export interface CreateOtherExpenseInput {
+    driverId: string;
+    truckId?: string;
+    truckLicensePlate?: string;
+    date: Date;
+    amount: number;
+    category?: string;
+    description?: string;
+    note?: string;
+    /** Optional proof photo (receipt, etc.) — admin-entered records don't require one. */
+    receiptPhotoFile?: File;
+}
+
+/**
+ * Admin-entered "other" vehicle expense (toll, parking, repair, etc.) on behalf of a
+ * driver who can't record it themselves via mobile. Written directly with status
+ * "APPROVED" since the admin already trusts the source data.
+ */
+export async function createOtherExpense(input: CreateOtherExpenseInput): Promise<string> {
+    const ref = doc(collection(db, COLLECTIONS.VEHICLE_EXPENSES));
+
+    let receiptPhotoUrl: string | undefined;
+    if (input.receiptPhotoFile) {
+        const storagePath = `vehicle_expenses/${ref.id}/receipt.jpg`;
+        const storageRef = storageRefFn(storage, storagePath);
+        await uploadBytes(storageRef, input.receiptPhotoFile, { contentType: "image/jpeg" });
+        receiptPhotoUrl = await getDownloadURL(storageRef);
+    }
+
+    const payload: Record<string, unknown> = {
+        driverId: input.driverId,
+        type: "other",
+        date: Timestamp.fromDate(input.date),
+        amount: Number(input.amount),
+        status: "APPROVED",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        adminNote: "บันทึกโดย admin",
+    };
+    if (input.truckId) payload.truckId = input.truckId;
+    if (input.truckLicensePlate) payload.truckLicensePlate = input.truckLicensePlate;
+    if (input.category) payload.category = input.category;
+    if (input.description) payload.description = input.description;
+    if (input.note) payload.note = input.note;
+    if (receiptPhotoUrl) payload.receiptPhotoUrl = receiptPhotoUrl;
+
+    await setDoc(ref, payload);
+    return ref.id;
+}
+
 export interface WriteTripBillingInput {
     tripId: string;
     billingEstimateThb: number;

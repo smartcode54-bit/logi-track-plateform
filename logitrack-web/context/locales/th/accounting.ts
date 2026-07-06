@@ -17,6 +17,12 @@ export default {
     "accounting.fuel.addDialog.saveError": "ไม่สามารถบันทึกรายการน้ำมัน",
     "accounting.other.title": "อื่นๆ",
     "accounting.other.subtitle": "ค่าใช้จ่ายรถอื่นๆ (ค่าทางด่วน ที่จอด ซ่อม ฯลฯ)",
+    "accounting.other.addButton": "เพิ่มรายการค่าใช้จ่าย",
+    "accounting.other.addDialog.title": "เพิ่มรายการค่าใช้จ่าย",
+    "accounting.other.addDialog.description": "บันทึกค่าใช้จ่ายแทนคนขับ กรณีคนขับไม่สะดวกบันทึกเอง",
+    "accounting.other.addDialog.receipt": "รูปใบเสร็จ (ถ้ามี)",
+    "accounting.other.addDialog.saved": "บันทึกรายการค่าใช้จ่ายสำเร็จ",
+    "accounting.other.addDialog.saveError": "ไม่สามารถบันทึกรายการค่าใช้จ่าย",
 
     "accounting.table.date": "วันที่",
     "accounting.table.licensePlate": "ทะเบียนรถ",
