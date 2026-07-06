@@ -37,3 +37,8 @@ file example/
 # Claude Code worktrees (local only, not for version control)
 .claude/worktrees/
 logitrack-mobile/.claude/worktrees/
+
+# BMAD/WDS skill framework tooling (vendored by the skill installer, not project source)
+logitrack-web/.claude/
+logitrack-web/.agents/
+logitrack-web/_bmad/
