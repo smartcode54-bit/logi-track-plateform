@@ -416,6 +416,27 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
   }
 
   /// บันทึกจริงหลัง driver ยืนยันจาก preview
+  /// Blocking confirmation — must be acknowledged before we pop, so a successful
+  /// save can never "disappear silently" behind the navigation.
+  Future<void> _showSaveSuccessDialog(String message) async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.check_circle, color: Colors.green, size: 48),
+        title: Text('vehicle_expense_submit_success_title'.tr()),
+        content: Text(message),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text('loading_phase_submit_success_ok'.tr()),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _doSave(String driverId) async {
     setState(() {
       _saving = true;
@@ -459,16 +480,16 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
             : null,
       );
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('vehicle_expense_saved'.tr())));
+        setState(() => _saving = false);
+        await _showSaveSuccessDialog('vehicle_expense_saved'.tr());
+        if (!mounted) return;
         Navigator.of(context).pop(true);
       }
     } on VehicleExpenseOfflineSavedException catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('vehicle_expense_saved_offline'.tr())),
-        );
+        setState(() => _saving = false);
+        await _showSaveSuccessDialog('vehicle_expense_saved_offline'.tr());
+        if (!mounted) return;
         Navigator.of(context).pop(true);
       }
     } catch (e) {

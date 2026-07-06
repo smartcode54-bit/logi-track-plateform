@@ -103,10 +103,26 @@ class _MaintenanceActionPageState extends State<MaintenanceActionPage> {
     try {
       await MaintenanceRepository().checkInMaintenance(widget.task['id']);
       if (mounted) {
-        Navigator.pop(context, true);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('maintenance_checkin_success'.tr())),
+        setState(() => _saving = false);
+        // Blocking confirmation — must be acknowledged before we pop, so a successful
+        // check-in can never "disappear silently."
+        await showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            icon: const Icon(Icons.check_circle, color: Colors.green, size: 48),
+            title: Text('maintenance_submit_success_title'.tr()),
+            content: Text('maintenance_checkin_success'.tr()),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: Text('loading_phase_submit_success_ok'.tr()),
+              ),
+            ],
+          ),
         );
+        if (!mounted) return;
+        Navigator.pop(context, true);
       }
     } catch (e) {
       if (mounted) {
@@ -149,10 +165,26 @@ class _MaintenanceActionPageState extends State<MaintenanceActionPage> {
         invoiceAmount: amount,
       );
       if (mounted) {
-        Navigator.pop(context, true);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('maintenance_submit_success'.tr())),
+        setState(() => _saving = false);
+        // Blocking confirmation — must be acknowledged before we pop, so a successful
+        // submit can never "disappear silently."
+        await showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            icon: const Icon(Icons.check_circle, color: Colors.green, size: 48),
+            title: Text('maintenance_submit_success_title'.tr()),
+            content: Text('maintenance_submit_success'.tr()),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: Text('loading_phase_submit_success_ok'.tr()),
+              ),
+            ],
+          ),
         );
+        if (!mounted) return;
+        Navigator.pop(context, true);
       }
     } catch (e) {
       if (mounted) {

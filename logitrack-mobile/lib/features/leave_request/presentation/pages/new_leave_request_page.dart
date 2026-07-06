@@ -149,6 +149,26 @@ class _NewLeaveRequestPageState extends State<NewLeaveRequestPage> {
         attachmentUrls: urls,
       );
       if (mounted) {
+        setState(() => _submitting = false);
+        // Blocking confirmation — must be acknowledged before we pop, so a successful
+        // submit can never "disappear silently" (this flow previously had no
+        // confirmation at all).
+        await showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            icon: const Icon(Icons.check_circle, color: Colors.green, size: 48),
+            title: Text('leave_request_submit_success_title'.tr()),
+            content: Text('leave_request_submit_success_body'.tr()),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: Text('loading_phase_submit_success_ok'.tr()),
+              ),
+            ],
+          ),
+        );
+        if (!mounted) return;
         Navigator.pop(context, true);
       }
     } catch (e) {

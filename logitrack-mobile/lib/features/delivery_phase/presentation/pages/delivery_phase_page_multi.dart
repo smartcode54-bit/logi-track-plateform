@@ -659,15 +659,32 @@ class _DeliveryPhasePageMultiState extends State<DeliveryPhasePageMulti> {
           _saving = false;
         });
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('delivery_stop_confirmed'.tr())),
-        );
-
         if (allDone) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('delivery_all_stops_done'.tr())),
+          // Last stop — the screen is about to navigate away, so a SnackBar could be
+          // missed entirely. Use a blocking confirmation the driver must acknowledge first.
+          await showDialog<void>(
+            context: context,
+            barrierDismissible: false,
+            builder: (ctx) => AlertDialog(
+              icon: const Icon(Icons.check_circle, color: Colors.green, size: 48),
+              title: Text('delivery_submit_success_title'.tr()),
+              content: Text('delivery_all_stops_done'.tr()),
+              actions: [
+                FilledButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: Text('loading_phase_submit_success_ok'.tr()),
+                ),
+              ],
+            ),
           );
+          if (!mounted) return;
           _completeMultiTripSuccess();
+        } else {
+          // Not the last stop — driver stays on this screen and sees the stop card
+          // flip to "delivered" immediately, so a SnackBar here is sufficient feedback.
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('delivery_stop_confirmed'.tr())),
+          );
         }
       }
     } catch (e) {

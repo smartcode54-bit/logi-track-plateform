@@ -151,12 +151,25 @@ class _StandbyPageState extends State<StandbyPage> {
         truckLicensePlate: widget.truckLicensePlate,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+      setState(() => _saving = false);
+      // Blocking confirmation — must be acknowledged before we navigate away, so a
+      // successful submit can never "disappear silently."
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          icon: const Icon(Icons.check_circle, color: Colors.green, size: 48),
+          title: Text('standby_submit_success_title'.tr()),
           content: Text('standby_saved'.tr()),
-          backgroundColor: Colors.green,
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: Text('loading_phase_submit_success_ok'.tr()),
+            ),
+          ],
         ),
       );
+      if (!mounted) return;
       Navigator.of(context).pushNamedAndRemoveUntil('/home', (_) => false);
     } catch (e) {
       if (mounted) {

@@ -680,24 +680,32 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       final ocrTripId = result.tripId?.trim();
       if (ocrTripId != null && ocrTripId.isNotEmpty) {
         final ocrSeal = result.sealCode?.trim();
-        final duplicate = await checkDuplicateTripIdAndSeal(
-          tripId: ocrTripId,
-          sealCode: (ocrSeal != null && ocrSeal.isNotEmpty) ? ocrSeal : null,
-          currentDriverId: FirebaseAuth.instance.currentUser?.uid,
-        );
-        if (duplicate.hasDuplicate && mounted) {
+        DuplicateCheckResult? duplicate;
+        try {
+          duplicate = await checkDuplicateTripIdAndSeal(
+            tripId: ocrTripId,
+            sealCode: (ocrSeal != null && ocrSeal.isNotEmpty) ? ocrSeal : null,
+            currentDriverId: FirebaseAuth.instance.currentUser?.uid,
+          );
+        } catch (_) {
+          // Server unreachable — this is just an advisory hint after OCR, not a hard
+          // gate (the real gate is the server-forced check in _doSubmit). Skip silently
+          // rather than mislabeling this as an OCR failure.
+        }
+        if (duplicate != null && duplicate.hasDuplicate && mounted) {
+          final dup = duplicate;
           setState(() {
-            _tripIdDuplicateError = duplicate.tripIdExists
+            _tripIdDuplicateError = dup.tripIdExists
                 ? 'loading_phase_duplicate_trip_id'.tr()
                 : null;
-            _sealCodeDuplicateError = duplicate.sealCodeExists
+            _sealCodeDuplicateError = dup.sealCodeExists
                 ? 'loading_phase_duplicate_seal_code'.tr()
                 : null;
-            _lastDuplicateDebug = duplicate;
+            _lastDuplicateDebug = dup;
           });
-          final msg = duplicate.tripIdExists && duplicate.sealCodeExists
+          final msg = dup.tripIdExists && dup.sealCodeExists
               ? 'loading_phase_duplicate_trip_and_seal'.tr()
-              : duplicate.tripIdExists
+              : dup.tripIdExists
               ? 'loading_phase_duplicate_trip_id'.tr()
               : 'loading_phase_duplicate_seal_code'.tr();
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1188,11 +1196,28 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       final tripId = _tripIdController.text.trim();
       final sealCode = _sealCodeController.text.trim();
 
-      final duplicate = await checkDuplicateTripIdAndSeal(
-        tripId: tripId,
-        sealCode: sealCode.isEmpty ? null : sealCode,
-        currentDriverId: FirebaseAuth.instance.currentUser?.uid,
-      );
+      final DuplicateCheckResult duplicate;
+      try {
+        duplicate = await checkDuplicateTripIdAndSeal(
+          tripId: tripId,
+          sealCode: sealCode.isEmpty ? null : sealCode,
+          currentDriverId: FirebaseAuth.instance.currentUser?.uid,
+        );
+      } catch (_) {
+        // Server unreachable — do NOT fall back to a (possibly stale/pending) cache read,
+        // and do NOT let this surface as a misleading "duplicate" result. Ask the driver
+        // to retry once back online instead.
+        if (mounted) {
+          setState(() => _saving = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('loading_phase_duplicate_check_offline'.tr()),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
       if (duplicate.hasDuplicate && mounted) {
         setState(() {
           _saving = false;
@@ -1422,6 +1447,37 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
 
       setState(() => _saving = false);
 
+      // Blocking confirmation — must be acknowledged before we clear the form and
+      // navigate away, so a successful submit can never "disappear silently."
+      if (mounted) {
+        await showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            icon: const Icon(Icons.check_circle, color: Colors.green, size: 48),
+            title: Text('loading_phase_submit_success_title'.tr()),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('loading_phase_submit_success_body'.tr()),
+                const SizedBox(height: 12),
+                Text('Trip ID: $tripId', style: const TextStyle(fontWeight: FontWeight.w600)),
+                if (sealCode.isNotEmpty)
+                  Text('Seal Code: $sealCode', style: const TextStyle(fontWeight: FontWeight.w600)),
+              ],
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: Text('loading_phase_submit_success_ok'.tr()),
+              ),
+            ],
+          ),
+        );
+      }
+      if (!mounted) return;
+
       _clearForm();
 
       final summary = SavedTripSummary(
@@ -1457,11 +1513,6 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
           },
         );
       }
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('loading_phase_saved'.tr())));
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);
