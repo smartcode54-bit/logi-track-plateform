@@ -9,7 +9,7 @@ import {
     getTrucksForFilter,
     type DriverWithTruckAssignment,
     type TruckOption,
-} from "../api/billing";
+} from "../api/expenses";
 import {
     Dialog,
     DialogContent,
