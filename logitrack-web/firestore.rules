@@ -463,7 +463,8 @@ service cloud.firestore {
       );
     }
 
-    // Billing statements (invoice registry): admin/manager create + read + update status; no delete.
+    // Billing statements (invoice registry): admin/manager create + read + update status;
+    // delete only allowed while still "draft" — sent/paid are financial records of record.
     match /billing_statements/{docId} {
       allow read: if request.auth != null && (
         isWebAdmin() ||
@@ -480,7 +481,11 @@ service cloud.firestore {
         isWebAdmin() ||
         request.auth.token.get('role', '') == 'manager'
       );
-      allow delete: if false;
+      allow delete: if isAppCheckVerified() && request.auth != null && (
+        isWebAdmin() ||
+        request.auth.token.get('role', '') == 'manager'
+      )
+        && resource.data.get('status', '') == 'draft';
     }
 
     // Billing counters (sequential invoice number state): admin/manager read+write.

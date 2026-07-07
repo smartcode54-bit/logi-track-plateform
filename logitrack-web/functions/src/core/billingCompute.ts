@@ -217,7 +217,12 @@ export function computeMultiDeliveryBilling(
     const hubId = extractHubId(task.sourceHub);
     const normalizedVehicleClass = normalizeVehicleClass(vehicleClass || "4WJ");
     const billDateMs = getTripBillingDateMs(trip);
-    const matchedAdjustment = selectFuelAdjustmentForBillingDate(customerId, billDateMs, fuelAdjustments);
+    // Supplementary (เสริม) rate cards are fixed, separately-agreed prices (ADR-0005) —
+    // they never move with primary fuel-rate adjustments.
+    const matchedAdjustment =
+        jobCategory === "SUPPLEMENTARY"
+            ? null
+            : selectFuelAdjustmentForBillingDate(customerId, billDateMs, fuelAdjustments);
     const rateMultiplier = matchedAdjustment?.rateMultiplier ?? 1;
     const addThbPerTrip = matchedAdjustment?.addThbPerTrip ?? 0;
     const useFlatExtraStopFee = typeof extraStopFeeThb === "number" && extraStopFeeThb >= 0;
@@ -397,7 +402,12 @@ export function computeTripBillingFromParts(
     );
     if (!matchedRate) return null;
 
-    const matchedAdjustment = selectFuelAdjustmentForBillingDate(customerId, billDateMs, fuelAdjustments);
+    // Supplementary (เสริม) rate cards are fixed, separately-agreed prices (ADR-0005) —
+    // they never move with primary fuel-rate adjustments.
+    const matchedAdjustment =
+        jobCategory === "SUPPLEMENTARY"
+            ? null
+            : selectFuelAdjustmentForBillingDate(customerId, billDateMs, fuelAdjustments);
 
     const multiplier = matchedAdjustment?.rateMultiplier ?? 1;
     const addThbPerTrip = matchedAdjustment?.addThbPerTrip ?? 0;

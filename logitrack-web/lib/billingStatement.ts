@@ -10,6 +10,7 @@
 
 import {
     collection,
+    deleteDoc,
     doc,
     runTransaction,
     addDoc,
@@ -263,4 +264,15 @@ export async function updateBillingStatementStatus(
     if (status === "paid") update.paidAt = serverTimestamp();
 
     await updateDoc(ref, update);
+}
+
+// ─── Delete (draft only — enforced by Firestore rules) ─────────────────────────
+
+/**
+ * Delete a billing statement. Only "draft" statements can be deleted — sent/paid ones
+ * are financial records of record and must stay immutable (enforced server-side by
+ * firestore.rules, not just this client check).
+ */
+export async function deleteBillingStatement(id: string): Promise<void> {
+    await deleteDoc(doc(db, COLLECTIONS.BILLING_STATEMENTS, id));
 }
