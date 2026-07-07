@@ -150,4 +150,37 @@ describe("jobCategory dimension (ADR-0005 — supplementary trips)", () => {
         );
         expect(result!.finalRateThb).toBe(1000);
     });
+
+    it("SUPPLEMENTARY is a fixed rate — a fuel adjustment does NOT change it", () => {
+        const fuel: FuelRateAdjustment[] = [
+            {
+                id: "f1",
+                customerId: "c1",
+                effectiveFromMs: new Date("2020-01-01").getTime(),
+                rateMultiplier: 1.1,
+                addThbPerTrip: 50,
+            },
+        ];
+        const supp = computeTripBillingFromParts(
+            { deliveredTimestamp: deliveredMs },
+            task("WANGTHONGLANG12"),
+            entries,
+            fuel,
+            "SUPPLEMENTARY"
+        );
+        expect(supp!.finalRateThb).toBe(1250);
+        expect(supp!.rateMultiplier).toBe(1);
+        expect(supp!.addThbPerTrip).toBe(0);
+        expect(supp!.fuelAdjustmentId).toBeUndefined();
+
+        // Same fuel rule still applies normally to a PRIMARY route.
+        const primary = computeTripBillingFromParts(
+            { deliveredTimestamp: deliveredMs },
+            task("SOCE"),
+            entries,
+            fuel,
+            "PRIMARY"
+        );
+        expect(primary!.finalRateThb).toBe(computeFinalRateThb(1000, 1.1, 50));
+    });
 });
