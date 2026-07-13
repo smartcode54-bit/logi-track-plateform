@@ -384,6 +384,8 @@ export default {
     "accounting.income.table.customerName": "ลูกค้า",
     "accounting.income.table.origin": "ต้นทาง (ฮับ)",
     "accounting.income.table.destination": "ปลายทาง",
+    "accounting.income.table.truckType": "ประเภทรถ",
+    "accounting.income.table.jobCategory": "ประเภทงาน",
     "accounting.income.table.ruleMultiplier": "ตัวคูณกฎน้ำมัน",
     "accounting.income.table.addPerTrip": "บวกต่อเที่ยว",
     "accounting.income.table.baseRate": "เรทฐาน (บาท)",

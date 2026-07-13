@@ -85,6 +85,8 @@ interface IncomeRow {
     billingFuelAdjustmentId?: string;
     billingEffectiveFromDateStr?: string;
     billingCustomerId?: string;
+    truckType?: string;
+    jobCategory?: "PRIMARY" | "SUPPLEMENTARY";
     deliveredTimestamp?: Date;
     billingIsMultiDelivery?: boolean;
     totalDeliveryStops?: number;
@@ -331,6 +333,13 @@ export default function AccountingIncomePage() {
                             ? String(d.billingEffectiveFromDateStr)
                             : undefined,
                         billingCustomerId: d.billingCustomerId ? String(d.billingCustomerId) : undefined,
+                        truckType: d.truckType ? String(d.truckType) : undefined,
+                        jobCategory:
+                            d.jobCategory === "SUPPLEMENTARY"
+                                ? "SUPPLEMENTARY"
+                                : d.jobCategory === "PRIMARY"
+                                ? "PRIMARY"
+                                : undefined,
                         deliveredTimestamp: toDate(d.deliveredTimestamp),
                         billingIsMultiDelivery: d.billingIsMultiDelivery === true,
                         totalDeliveryStops: typeof d.totalDeliveryStops === "number" ? d.totalDeliveryStops : undefined,
@@ -1167,6 +1176,8 @@ export default function AccountingIncomePage() {
                                         <TableHead>{t("accounting.income.table.customerName")}</TableHead>
                                         <TableHead>{t("accounting.income.table.origin")}</TableHead>
                                         <TableHead>{t("accounting.income.table.destination")}</TableHead>
+                                        <TableHead>{t("accounting.income.table.truckType")}</TableHead>
+                                        <TableHead>{t("accounting.income.table.jobCategory")}</TableHead>
                                         <TableHead className="text-right">{t("accounting.income.table.baseRate")}</TableHead>
                                         <TableHead className="text-right">{t("accounting.income.table.ruleMultiplier")}</TableHead>
                                         <TableHead className="text-right">{t("accounting.income.table.addPerTrip")}</TableHead>
@@ -1208,6 +1219,22 @@ export default function AccountingIncomePage() {
                                                 {row.billingLookupDestination
                                                     ? getDestinationDisplayName(row.billingLookupDestination, hubNameMap)
                                                     : "—"}
+                                            </TableCell>
+                                            <TableCell className="text-sm">
+                                                {row.truckType || "—"}
+                                            </TableCell>
+                                            <TableCell className="text-sm">
+                                                {row.jobCategory === "SUPPLEMENTARY" ? (
+                                                    <Badge variant="outline" className="text-[10px] py-0 px-1 bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/30 dark:text-amber-400">
+                                                        {t("accounting.billingDocument.badge.jobCategorySupplementary")}
+                                                    </Badge>
+                                                ) : row.jobCategory === "PRIMARY" ? (
+                                                    <Badge variant="outline" className="text-[10px] py-0 px-1 bg-slate-50 text-slate-700 border-slate-300 dark:bg-slate-900/30 dark:text-slate-300">
+                                                        {t("accounting.billingDocument.badge.jobCategoryPrimary")}
+                                                    </Badge>
+                                                ) : (
+                                                    "—"
+                                                )}
                                             </TableCell>
                                             <TableCell className="text-right">
                                                 {row.billingBaseRateThb != null
@@ -1269,7 +1296,7 @@ export default function AccountingIncomePage() {
                                     ))}
                                     {filteredRows.length === 0 && (
                                         <TableRow>
-                                            <TableCell colSpan={11} className="h-24 text-center text-muted-foreground">
+                                            <TableCell colSpan={13} className="h-24 text-center text-muted-foreground">
                                                 {t("accounting.income.noRecords")}
                                             </TableCell>
                                         </TableRow>
