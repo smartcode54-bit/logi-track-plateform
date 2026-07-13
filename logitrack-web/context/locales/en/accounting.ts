@@ -384,6 +384,8 @@ export default {
     "accounting.income.table.customerName": "Customer",
     "accounting.income.table.origin": "Origin (hub)",
     "accounting.income.table.destination": "Destination",
+    "accounting.income.table.truckType": "Truck type",
+    "accounting.income.table.jobCategory": "Job type",
     "accounting.income.table.ruleMultiplier": "Fuel factor",
     "accounting.income.table.addPerTrip": "Add / trip",
     "accounting.income.table.baseRate": "Base rate (THB)",

@@ -231,7 +231,13 @@ async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hu
             multiComputed = (0, billingCompute_1.computeMultiDeliveryBilling)(tripParts, taskInput, stops, mVehicleClass, rateEntries, fuelAdjustments, extraStopFeeThb, "SUPPLEMENTARY");
             resolvedCategory = "SUPPLEMENTARY";
         }
+        else if (explicitJobCategory === "PRIMARY") {
+            // Explicit หลัก (ADR-0006): PRIMARY rate rule only, no fallback to เสริม.
+            multiComputed = (0, billingCompute_1.computeMultiDeliveryBilling)(tripParts, taskInput, stops, mVehicleClass, rateEntries, fuelAdjustments, extraStopFeeThb, "PRIMARY");
+            resolvedCategory = "PRIMARY";
+        }
         else {
+            // Legacy task with no explicit jobCategory: try PRIMARY, fall back to SUPPLEMENTARY.
             multiComputed = (0, billingCompute_1.computeMultiDeliveryBilling)(tripParts, taskInput, stops, mVehicleClass, rateEntries, fuelAdjustments, extraStopFeeThb, "PRIMARY");
             if (!multiComputed) {
                 multiComputed = (0, billingCompute_1.computeMultiDeliveryBilling)(tripParts, taskInput, stops, mVehicleClass, rateEntries, fuelAdjustments, extraStopFeeThb, "SUPPLEMENTARY");
@@ -294,7 +300,16 @@ async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hu
             computed = computeForCategory("SUPPLEMENTARY");
             resolvedCategory = "SUPPLEMENTARY";
         }
+        else if (explicitJobCategory === "PRIMARY") {
+            // Explicit หลัก (ADR-0006): PRIMARY rate rule only. No fallback to เสริม —
+            // a missing PRIMARY rate must fail loud, not silently bill (and freeze) at a
+            // supplementary price.
+            computed = computeForCategory("PRIMARY");
+            resolvedCategory = "PRIMARY";
+        }
         else {
+            // Legacy task with no explicit jobCategory: derive as before (ADR-0005) —
+            // try PRIMARY, fall back to SUPPLEMENTARY.
             computed = computeForCategory("PRIMARY");
             if (!computed) {
                 computed = computeForCategory("SUPPLEMENTARY");
