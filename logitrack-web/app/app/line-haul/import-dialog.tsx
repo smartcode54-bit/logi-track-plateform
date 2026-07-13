@@ -81,7 +81,7 @@ export function LineHaulImportDialog({ onSuccess }: ImportDialogProps) {
                 const sourceHub = getValue(['source', 'hub', 'ต้นทาง', 'pickup', 'จุดรับงาน', 'pickup location']);
                 const destination = getValue(['destination', 'soc', 'ปลายทาง']);
                 const time = getValue(['time', 'เวลา']);
-                const plateType = getValue(['plateType', 'plate', 'ประเภทรถ', 'Truck Type']) || "4WH";
+                const plateType = getValue(['plateType', 'plate', 'ประเภทรถ', 'Truck Type']) || "4W";
                 const truckType = plateType; // Assign to new variable
                 const shipmentId = getValue(['shipment', 'id', 'เลขงาน']);
                 const licensePlate = getValue(['license', 'plate', 'ทะเบียน']);

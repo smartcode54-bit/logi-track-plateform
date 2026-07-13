@@ -30,4 +30,5 @@ export * from "./tasks";
 export * from "./multiDeliveryTrips";
 export * from "./standbyBilling";
 export * from "./backfillTripTruckData";
+export * from "./backfillTruckType";
 export * from "./driverCompensation";

@@ -405,14 +405,14 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
                                 render={({ field }) => (
                                     <FormItem>
                                         <FormLabel>{t("firstMile.task.truckType")}</FormLabel>
-                                        <Select onValueChange={field.onChange} value={field.value ?? "PICKUP"}>
+                                        <Select onValueChange={field.onChange} value={field.value ?? "4W"}>
                                             <FormControl>
                                                 <SelectTrigger>
                                                     <SelectValue placeholder={t("firstMile.task.selectTruckType")} />
                                                 </SelectTrigger>
                                             </FormControl>
                                             <SelectContent className="z-[1005]" position="popper">
-                                                <SelectItem value="PICKUP">Pickup</SelectItem>
+                                                <SelectItem value="4W">4W</SelectItem>
                                                 <SelectItem value="4WJ">4WJ</SelectItem>
                                                 <SelectItem value="6WH">6WH</SelectItem>
                                                 <SelectItem value="10WH">10WH</SelectItem>
@@ -484,11 +484,11 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
                                                     <SelectItem value="__none__">{t("firstMile.task.selectDriver")}</SelectItem>
                                                     {(() => {
                                                         const getMappedTruckType = (fmType: string) => {
-                                                            if (fmType === "4WH" || fmType === "4WJ") return "4 Wheels Jumbo";
+                                                            if (fmType === "4WJ") return "4 Wheels Jumbo";
                                                             if (fmType === "6WH") return "6 Wheels";
                                                             if (fmType === "10WH") return "10 Wheels";
                                                             if (fmType === "18WH") return "18 Wheels";
-                                                            if (fmType === "PICKUP") return "Pickup";
+                                                            if (fmType === "4W") return "Pickup";
                                                             if (fmType === "VAN") return "Van";
                                                             return fmType;
                                                         };

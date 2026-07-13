@@ -393,12 +393,11 @@ export default function FirstMilePage() {
                                     <TableCell>
                                         <span className={cn(
                                             "inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset",
-                                            task.truckType === "4WH" && "bg-blue-50 text-blue-700 ring-blue-600/20",
                                             task.truckType === "4WJ" && "bg-cyan-50 text-cyan-700 ring-cyan-600/20",
                                             task.truckType === "6WH" && "bg-purple-50 text-purple-700 ring-purple-600/20",
                                             task.truckType === "10WH" && "bg-gray-50 text-gray-600 ring-gray-500/10",
                                             task.truckType === "18WH" && "bg-orange-50 text-orange-700 ring-orange-600/20",
-                                            task.truckType === "PICKUP" && "bg-green-50 text-green-700 ring-green-600/20",
+                                            task.truckType === "4W" && "bg-green-50 text-green-700 ring-green-600/20",
                                             task.truckType === "VAN" && "bg-indigo-50 text-indigo-700 ring-indigo-600/20"
                                         )}>
                                             {task.truckType}
