@@ -25,7 +25,7 @@ interface CreateOrUpdateTaskRequest {
     date: string; // ISO date string
     time: string; // HH:MM format
     taskType: "FIRST_MILE" | "LINE_HAUL";
-    truckType?: "4WH" | "4WJ" | "6WH" | "10WH" | "18WH" | "PICKUP" | "VAN";
+    truckType?: "4W" | "4WJ" | "6WH" | "10WH" | "18WH" | "VAN";
     driverId?: string;
     /** Helper (training/assisting) Auth UIDs — at most one. See ADR-0001. */
     helperDriverIds?: string[];

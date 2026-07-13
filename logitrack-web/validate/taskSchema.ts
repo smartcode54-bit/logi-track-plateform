@@ -73,7 +73,7 @@ export const taskSchema = z.object({
     jobCategory: z.enum(TASK_JOB_CATEGORY_ENUM).default("PRIMARY").optional(),
 
     // Vehicle Requirements
-    truckType: z.enum(["4WH", "4WJ", "6WH", "10WH", "18WH", "PICKUP", "VAN"]).optional(), // Based on image
+    truckType: z.enum(["4W", "4WJ", "6WH", "10WH", "18WH", "VAN"]).optional(), // Based on image
 
     // Shipment Info
     taskId: z.string().optional(),

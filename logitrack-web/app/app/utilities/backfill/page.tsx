@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { httpsCallable } from "firebase/functions";
-import { AlertCircle, CheckCircle2, Loader2, PauseCircle, Zap } from "lucide-react";
+import { AlertCircle, CheckCircle2, Loader2, PauseCircle, Truck, Zap } from "lucide-react";
 import { functions } from "@/firebase/client";
 import { useAuth } from "@/context/auth";
 import { useLanguage } from "@/context/language";
@@ -84,6 +84,37 @@ export default function BackfillPage() {
             setTruckError(err instanceof Error ? err.message : String(err));
         } finally {
             setTruckLoading(false);
+        }
+    };
+
+    interface TruckTypeStat { matched: number; updated: number }
+    interface TruckTypeMigrationResult {
+        fromType: string;
+        toType: string;
+        tasks: TruckTypeStat;
+        trip_records: TruckTypeStat;
+        capped: boolean;
+    }
+
+    const [ttFrom, setTtFrom] = useState("PICKUP");
+    const [ttTo, setTtTo] = useState("4W");
+    const [ttLoading, setTtLoading] = useState(false);
+    const [ttResult, setTtResult] = useState<TruckTypeMigrationResult | null>(null);
+    const [ttError, setTtError] = useState<string | null>(null);
+
+    const runBackfillTruckType = async () => {
+        if (!auth?.currentUser) return;
+        setTtLoading(true);
+        setTtError(null);
+        setTtResult(null);
+        try {
+            const fn = httpsCallable(functions, "backfillTruckType");
+            const res = await fn({ fromType: ttFrom.trim(), toType: ttTo.trim() });
+            setTtResult(res.data as TruckTypeMigrationResult);
+        } catch (err) {
+            setTtError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setTtLoading(false);
         }
     };
 
@@ -366,6 +397,85 @@ export default function BackfillPage() {
                                 </AlertDescription>
                             </Alert>
                         )}
+                    </CardContent>
+                </Card>
+
+                {/* Truck Type Migration (PICKUP → 4W) */}
+                <Card className="border-l-4 border-l-green-500">
+                    <CardHeader>
+                        <div className="flex items-start justify-between">
+                            <div>
+                                <CardTitle className="flex items-center gap-2">
+                                    <Truck className="h-5 w-5 text-green-600" />
+                                    Migrate Truck Type
+                                </CardTitle>
+                                <CardDescription>
+                                    Rewrite a legacy <code className="bg-muted px-1 rounded">truckType</code> value across <code className="bg-muted px-1 rounded">tasks</code> and <code className="bg-muted px-1 rounded">trip_records</code>. Default: PICKUP → 4W. Reuse for 4WH by changing the From value.
+                                </CardDescription>
+                            </div>
+                            <Badge variant="outline">Admin Only</Badge>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="rounded-lg bg-green-50 p-4 text-sm text-green-900">
+                            <p className="font-medium mb-2">What this does:</p>
+                            <ul className="list-disc list-inside space-y-1 text-xs">
+                                <li>Finds tasks + trip_records where truckType == From</li>
+                                <li>Rewrites them to the To value (batched, idempotent)</li>
+                                <li>Does NOT touch the trucks master (keeps full-name types)</li>
+                            </ul>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                                <Label>From (old value)</Label>
+                                <Input value={ttFrom} onChange={(e) => setTtFrom(e.target.value)} />
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label>To (new value)</Label>
+                                <Input value={ttTo} onChange={(e) => setTtTo(e.target.value)} />
+                            </div>
+                        </div>
+
+                        {ttError && (
+                            <Alert variant="destructive">
+                                <AlertCircle className="h-4 w-4" />
+                                <AlertTitle>Error</AlertTitle>
+                                <AlertDescription>{ttError}</AlertDescription>
+                            </Alert>
+                        )}
+
+                        {ttResult && (
+                            <Alert className="border-green-200 bg-green-50">
+                                <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                <AlertTitle className="text-green-900">Migrated {ttResult.fromType} → {ttResult.toType}</AlertTitle>
+                                <AlertDescription className="text-green-800 mt-2 space-y-3">
+                                    {(["tasks", "trip_records"] as const).map((key) => {
+                                        const s = ttResult[key];
+                                        return (
+                                            <div key={key}>
+                                                <p className="text-xs font-semibold mb-1">{key}</p>
+                                                <div className="flex gap-2 flex-wrap">
+                                                    <Badge variant="outline">Matched: {s.matched}</Badge>
+                                                    <Badge className="bg-green-600">Updated: {s.updated}</Badge>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                    {ttResult.capped && (
+                                        <p className="text-xs mt-2 text-orange-700">⚠ More matched than updated — run again.</p>
+                                    )}
+                                </AlertDescription>
+                            </Alert>
+                        )}
+
+                        <div className="flex gap-2">
+                            <Button onClick={runBackfillTruckType} disabled={ttLoading} className="gap-2 bg-green-600 hover:bg-green-700">
+                                {ttLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}
+                                {ttLoading ? "Running..." : "Run Migration"}
+                            </Button>
+                            {ttResult && <Button variant="outline" onClick={() => setTtResult(null)}>Clear</Button>}
+                        </div>
                     </CardContent>
                 </Card>
             </div>

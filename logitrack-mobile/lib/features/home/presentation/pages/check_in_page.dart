@@ -1354,7 +1354,7 @@ class _TaskCheckInPageState extends State<TaskCheckInPage> {
 
 /// Truck type mapping: Firestore trucks.type → task abbreviation
 const _truckTypeMap = <String, String>{
-  'Pickup': 'PICKUP',
+  'Pickup': '4W',
   '4 Wheels': '4WJ',
   '4 Wheels Jumbo': '4WJ',
   '6 Wheels': '6WH',
@@ -1568,7 +1568,7 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
           if (truckDoc.exists) _assignedTruck = truckDoc.data();
           final tt = _assignedTruck?['type'] as String? ?? '';
           _truckType = _truckTypeMap[tt] ?? tt;
-          if (_truckType.isEmpty) _truckType = 'PICKUP';
+          if (_truckType.isEmpty) _truckType = '4W';
         }
       }
 
