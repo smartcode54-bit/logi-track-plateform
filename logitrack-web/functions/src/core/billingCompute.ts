@@ -77,14 +77,32 @@ export function normalizeDestinationCode(destination: string | null | undefined)
     return u;
 }
 
+/**
+ * Folds every spelling a vehicle class was ever stored in onto the class a task carries today
+ * (TASK_TRUCK_TYPE_ENUM: 4W, 4WJ, 6WH, 10WH, 18WH, VAN).
+ *
+ * Both sides of the rate lookup pass through here, so a rate entry only matches a trip when the two
+ * land on the same code. Rate cards written from the old truck-master dropdown ("Pickup", "6 Wheels")
+ * and from an earlier normalize pass ("6W", "10W") therefore matched nothing at all — the codes they
+ * produced are not in the enum. They are mapped here rather than left to rot, since an unmatched
+ * rate card shows up as "No rate" on a trip that does have a price agreed.
+ *
+ * PICKUP and 4WH are the pre-2026-07 names for 4W.
+ */
 export function normalizeVehicleClass(vehicleClass: string | null | undefined): string {
     const u = normalizeCode(vehicleClass || "4WJ");
     if (!u) return "4WJ";
-    // Map full truck type names to short codes
     const mapping: Record<string, string> = {
+        "PICKUP": "4W",
+        "4WH": "4W",
+        "4 WHEELS": "4WJ",
         "4 WHEELS JUMBO": "4WJ",
-        "6 WHEELS": "6W",
-        "10 WHEELS": "10W",
+        "6 WHEELS": "6WH",
+        "6W": "6WH",
+        "10 WHEELS": "10WH",
+        "10W": "10WH",
+        "18 WHEELS": "18WH",
+        "18W": "18WH",
         "2 WHEELS": "2W",
     };
     return mapping[u] ?? u;
