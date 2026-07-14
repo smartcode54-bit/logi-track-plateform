@@ -314,9 +314,9 @@ export default {
     // Truck Types
     "trucks.type.pickup": "4W",
     "trucks.type.4wheels": "4WJ",
-    "trucks.type.6wheels": "6W",
-    "trucks.type.10wheels": "10W",
-    "trucks.type.18wheels": "18W",
+    "trucks.type.6wheels": "6WH",
+    "trucks.type.10wheels": "10WH",
+    "trucks.type.18wheels": "18WH",
     "trucks.type.van": "VAN",
 
     // Fuel Types
