@@ -33,16 +33,25 @@ class _VehicleExpensePageState extends State<VehicleExpensePage>
   Map<String, dynamic>? _driverData; // 🚗 ข้อมูลพขร.
   final _driverRepository = DriverRepository(); // 🚗 เพื่อดึง info รถ
 
-  /// รถที่พขร. ขับ — Firestore เก็บที่ currentAssignment.truckId (ไม่ใช่ top-level truckId)
+  /// รถที่พขร. ขับอยู่ตอนนี้ — `activeTruck` (รถของงานที่เช็คอินไว้) มาก่อน currentAssignment (รถประจำ)
+  ///
+  /// The truck is chosen per task, so a driver may be running a vehicle other than the one they
+  /// are bound to. Expenses and maintenance must follow the truck they are actually driving,
+  /// otherwise a receipt for truck B gets booked against truck A.
   String _truckIdForMaintenance(Map<String, dynamic>? driver) {
     if (driver == null) return '';
-    final top = driver['truckId'] as String?;
-    if (top != null && top.isNotEmpty) return top;
+    final active = driver['activeTruck'];
+    if (active is Map) {
+      final tid = active['truckId'] as String?;
+      if (tid != null && tid.isNotEmpty) return tid;
+    }
     final ca = driver['currentAssignment'];
     if (ca is Map) {
       final tid = ca['truckId'] as String?;
       if (tid != null && tid.isNotEmpty) return tid;
     }
+    final top = driver['truckId'] as String?;
+    if (top != null && top.isNotEmpty) return top;
     return '';
   }
 
@@ -134,8 +143,14 @@ class _VehicleExpensePageState extends State<VehicleExpensePage>
     }
   }
 
+  /// ทะเบียนรถที่ขับอยู่ตอนนี้ — ต้องมาจากรถของงาน (activeTruck) ก่อนรถประจำ
   String? _truckPlateForExpense(Map<String, dynamic>? driver) {
     if (driver == null) return null;
+    final active = driver['activeTruck'];
+    if (active is Map) {
+      final plate = active['truckPlate'] as String?;
+      if (plate != null && plate.isNotEmpty) return plate;
+    }
     final ca = driver['currentAssignment'];
     if (ca is Map) {
       final plate = ca['truckPlate'] as String?;

@@ -10,7 +10,7 @@ import { uploadCheckInPhoto } from "@/lib/uploadCheckInPhoto";
 import { taskSchema as firstMileTaskSchema, Task as FirstMileTask, normalizeSocIdToKey } from "@/validate/taskSchema";
 import { hubSourceIdHasSpxSuffix } from "@/validate/hubSchema";
 import { Driver } from "@/validate/driverSchema";
-import { taskService } from "../services/taskService";
+import { taskService, TaskTruck } from "../services/taskService";
 import { getCustomers, CustomerData } from "@/features/customers/api/customers";
 
 export function useFirstMileTask({
@@ -29,7 +29,7 @@ export function useFirstMileTask({
     const [hubs, setHubs] = useState<Record<string, any>[]>([]);
     const [hubOptions, setHubOptions] = useState<Record<string, any>[]>([]);
     const [socOptions, setSocOptions] = useState<{ source_id: string; name: string }[]>([]);
-    const [trucks, setTrucks] = useState<any[]>([]);
+    const [trucks, setTrucks] = useState<TaskTruck[]>([]);
     const [drivers, setDrivers] = useState<Driver[]>([]);
     const [loading, setLoading] = useState(false);
     const [hubDropdownOpen, setHubDropdownOpen] = useState(false);
@@ -47,6 +47,7 @@ export function useFirstMileTask({
             destination: "",
             jobCategory: "PRIMARY" as const,
             truckType: "4W",
+            truckId: "",
             taskId: "",
             driverId: "",
             driverName: "",
@@ -137,7 +138,9 @@ export function useFirstMileTask({
                     destination: "",
                     jobCategory: "PRIMARY",
                     truckType: "4W",
+                    truckId: "",
                     taskId: "",
+                    driverId: "",
                     driverName: "",
                     driverPhone: "",
                     licensePlate: "",
@@ -234,7 +237,11 @@ export function useFirstMileTask({
                     time: values.time,
                     taskType: values.taskType,
                     truckType: values.truckType,
+                    truckId: values.truckId,
+                    licensePlate: values.licensePlate,
                     driverId: values.driverId,
+                    driverName: values.driverName,
+                    driverPhone: values.driverPhone,
                     helperDriverIds: values.helperDriverIds ?? [],
                     isMultiDelivery: true,
                     deliveryStops: values.deliveryStops.map((stop) => ({

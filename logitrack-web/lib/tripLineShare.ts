@@ -71,9 +71,15 @@ export function resolveDriverShareCode(driver: Driver | null | undefined): strin
     return "-";
 }
 
-function plateFromDriver(driver: Driver | null | undefined): string {
-    if (!driver) return "-";
-    const p = driver.currentAssignment?.truckPlate?.trim();
+/**
+ * The plate that actually ran this trip. The trip's own snapshot wins: a driver runs the truck the
+ * task assigned, which is not necessarily the one they are bound to now — reading the live binding
+ * would restamp an old trip with today's truck.
+ */
+function plateForTrip(trip: TripRecord, driver: Driver | null | undefined): string {
+    const fromTrip = trip.truckLicensePlate?.trim();
+    if (fromTrip) return fromTrip;
+    const p = driver?.currentAssignment?.truckPlate?.trim();
     return p && p.length > 0 ? p : "-";
 }
 
@@ -129,7 +135,7 @@ export function buildTripDeliveryShareText(p: BuildTripShareTextInput): string {
     const tripNo = tripNumberLine(trip);
     const name = driverDisplayName(driver);
     const code = resolveDriverShareCode(driver);
-    const plate = plateFromDriver(driver);
+    const plate = plateForTrip(trip, driver);
     const phone = driverPhone(driver);
     const partner = partnerLine.trim() || "-";
     const truckTypeLine = truckType.trim() || "-";
@@ -206,11 +212,13 @@ export async function buildTripDeliveryShareTextAsync(
 ): Promise<string> {
     const fs = params.firestore ?? db;
     const { trip, driver } = params;
-    const truckId = driver?.currentAssignment?.truckId;
-    const [checkInAt, truckType] = await Promise.all([
+    // The truck that ran this trip, not the one the driver happens to be bound to today.
+    const truckId = trip.truckId || driver?.currentAssignment?.truckId;
+    const [checkInAt, truckTypeFromDoc] = await Promise.all([
         fetchTaskCheckInAt(fs, trip.taskId),
         fetchTruckType(fs, truckId),
     ]);
+    const truckType = truckTypeFromDoc || trip.truckType || "";
     return buildTripDeliveryShareText({
         trip,
         driver,

@@ -111,6 +111,9 @@ export function VehicleDetailsSection() {
                                         </SelectTrigger>
                                     </FormControl>
                                     <SelectContent>
+                                        {/* Stored as "Pickup" on purpose — the truck master keeps full
+                                            names and lib/truckType.ts maps it to the 4W task class.
+                                            Only the label follows the 4W vocabulary. */}
                                         <SelectItem value="Pickup">{t("trucks.type.pickup")}</SelectItem>
                                         <SelectItem value="4 Wheels Jumbo">{t("trucks.type.4wheels")}</SelectItem>
                                         <SelectItem value="6 Wheels">{t("trucks.type.6wheels")}</SelectItem>

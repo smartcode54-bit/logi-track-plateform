@@ -10,7 +10,7 @@ import { uploadCheckInPhoto } from "@/lib/uploadCheckInPhoto";
 import { taskSchema as firstMileTaskSchema, Task as FirstMileTask, normalizeSocIdToKey } from "@/validate/taskSchema";
 import { hubSourceIdHasSpxSuffix } from "@/validate/hubSchema";
 import { Driver } from "@/validate/driverSchema";
-import { taskService } from "../services/taskService";
+import { taskService, TaskTruck } from "../services/taskService";
 import { getCustomers, CustomerData } from "@/features/customers/api/customers";
 
 export function useLineHaulTask({
@@ -29,7 +29,7 @@ export function useLineHaulTask({
     const [hubs, setHubs] = useState<Record<string, any>[]>([]);
     const [hubOptions, setHubOptions] = useState<Record<string, any>[]>([]);
     const [socOptions, setSocOptions] = useState<{ source_id: string; name: string }[]>([]);
-    const [trucks, setTrucks] = useState<any[]>([]);
+    const [trucks, setTrucks] = useState<TaskTruck[]>([]);
     const [drivers, setDrivers] = useState<Driver[]>([]);
     const [loading, setLoading] = useState(false);
     const [hubDropdownOpen, setHubDropdownOpen] = useState(false);
@@ -49,6 +49,7 @@ export function useLineHaulTask({
             destination: "",
             jobCategory: "PRIMARY" as const,
             truckType: "4W",
+            truckId: "",
             taskId: "",
             driverId: "",
             driverName: "",
@@ -146,7 +147,9 @@ export function useLineHaulTask({
                     destination: "",
                     jobCategory: "PRIMARY",
                     truckType: "4W",
+                    truckId: "",
                     taskId: "",
+                    driverId: "",
                     driverName: "",
                     driverPhone: "",
                     licensePlate: "",
@@ -244,6 +247,7 @@ export function useLineHaulTask({
                     sourceHub: values.sourceHub,
                     jobCategory: values.jobCategory,
                     truckType: values.truckType,
+                    truckId: values.truckId || undefined,
                     taskType: values.taskType,
                     driverId: values.driverId || undefined,
                     driverName: values.driverName || undefined,

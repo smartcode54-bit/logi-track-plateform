@@ -29,6 +29,13 @@ export function normalizeSocIdToKey(sourceId: string): string {
 export const TASK_STATUS_ENUM = ["Pending", "Assigned", "Checked in", "In-Transit", "Completed", "Cancelled"] as const;
 export const TASK_TYPE_ENUM = ["FIRST_MILE", "LINE_HAUL"] as const;
 
+/** หลัก/เสริม, set explicitly by admin at assign time. Absent = legacy task, billing derives it (ADR-0005/0006). */
+export const TASK_JOB_CATEGORY_ENUM = ["PRIMARY", "SUPPLEMENTARY"] as const;
+
+/** Vehicle class carried on a task. Billing reads this to select the rate card (see billingCompute). */
+export const TASK_TRUCK_TYPE_ENUM = ["4W", "4WJ", "6WH", "10WH", "18WH", "VAN"] as const;
+export type TaskTruckType = typeof TASK_TRUCK_TYPE_ENUM[number];
+
 // Multi-delivery stop schema
 export const deliveryStopSchema = z.object({
     index: z.number().min(1, "Stop index must be >= 1"),
@@ -66,8 +73,13 @@ export const taskSchema = z.object({
     destinationLinkedCustomerCode: z.string().optional(),
     destinationCustomerLinkKind: z.enum(["customer", "partner"]).optional(),
 
-    // Vehicle Requirements
-    truckType: z.enum(["4WH", "4WJ", "6WH", "10WH", "18WH", "PICKUP", "VAN"]).optional(), // Based on image
+    /** หลัก/เสริม, chosen by admin at assign time. Optional — absent means billing derives it (ADR-0005/0006). */
+    jobCategory: z.enum(TASK_JOB_CATEGORY_ENUM).default("PRIMARY").optional(),
+
+    // Vehicle for this job — chosen per task, NOT derived from drivers.currentAssignment.
+    // truckId is the trucks/{id} doc; licensePlate + truckType are denormalized snapshots of it.
+    truckId: z.string().optional(),
+    truckType: z.enum(TASK_TRUCK_TYPE_ENUM).optional(),
 
     // Shipment Info
     taskId: z.string().optional(),
@@ -81,11 +93,17 @@ export const taskSchema = z.object({
 
     status: z.enum(TASK_STATUS_ENUM).default("Pending"),
 
+    /** Per-driver queue sequence (1-based). Set on create when driverId is set. */
+    runOrder: z.number().int().min(1).optional(),
+
     /** Check-in at pickup: set by driver on mobile */
     checkInAt: z.any().optional(),
     checkInPhotoUrl: z.string().optional(),
     checkInLat: z.number().optional(),
     checkInLng: z.number().optional(),
+
+    /** Auth UIDs of helpers selected by the main driver at check-in (see driverCompensation helper pay). */
+    helperDriverIds: z.array(z.string()).optional(),
 
     // Multi-delivery support (backward compatible)
     isMultiDelivery: z.boolean().optional().default(false),

@@ -2,10 +2,43 @@ import { describe, expect, it } from "vitest";
 import {
     computeFinalRateThb,
     computeTripBillingFromParts,
+    normalizeVehicleClass,
     selectFuelAdjustmentForBillingDate,
     type BillingRateEntry,
     type FuelRateAdjustment,
 } from "./billingCompute";
+
+describe("normalizeVehicleClass", () => {
+    it("folds the truck master's names onto the class a task carries", () => {
+        expect(normalizeVehicleClass("Pickup")).toBe("4W");
+        expect(normalizeVehicleClass("4 Wheels Jumbo")).toBe("4WJ");
+        expect(normalizeVehicleClass("6 Wheels")).toBe("6WH");
+        expect(normalizeVehicleClass("10 Wheels")).toBe("10WH");
+        expect(normalizeVehicleClass("18 Wheels")).toBe("18WH");
+    });
+
+    it("folds the codes an earlier normalize pass produced", () => {
+        // These matched no task: the enum has 6WH/10WH, never 6W/10W.
+        expect(normalizeVehicleClass("6W")).toBe("6WH");
+        expect(normalizeVehicleClass("10W")).toBe("10WH");
+    });
+
+    it("folds the pre-2026-07 names for 4W", () => {
+        expect(normalizeVehicleClass("PICKUP")).toBe("4W");
+        expect(normalizeVehicleClass("4WH")).toBe("4W");
+    });
+
+    it("leaves a current class untouched, so both sides of a lookup agree", () => {
+        for (const code of ["4W", "4WJ", "6WH", "10WH", "18WH", "VAN"]) {
+            expect(normalizeVehicleClass(code)).toBe(code);
+        }
+    });
+
+    it("defaults a missing class to 4WJ", () => {
+        expect(normalizeVehicleClass("")).toBe("4WJ");
+        expect(normalizeVehicleClass(null)).toBe("4WJ");
+    });
+});
 
 describe("computeFinalRateThb", () => {
     it("rounds to 2 decimal places like billing snapshot", () => {

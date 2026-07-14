@@ -77,11 +77,25 @@ export const driverSchema = z.object({
     /** FCM token for push notifications (e.g. task assigned) */
     fcmToken: z.string().optional(),
 
-    // Legacy/Compatibility fields
-    currentTruckId: z.string().optional().nullable(),
+    /**
+     * The truck this driver is responsible for RIGHT NOW — set by mobile at check-in from the
+     * task's truck, cleared when the trip completes. Distinct from currentAssignment (the driver's
+     * home truck): a driver may run a different vehicle for a single job.
+     * Fuel/other-expense forms and the maintenance Firestore rule read this first.
+     */
+    activeTruck: z.object({
+        truckId: z.string(),
+        truckPlate: z.string(),
+        taskId: z.string(),
+        startedAt: z.any().optional(),
+    }).optional().nullable(),
+
+    // Home truck binding — written by the Truck Assignment page. A DEFAULT at assign time, never a filter.
+    currentTruckId: z.string().optional().nullable(), // legacy
     currentAssignment: z.object({
         truckId: z.string(),
         truckPlate: z.string(),
+        truckModel: z.string().optional(),
         assignedAt: z.any(),
         assignmentId: z.string()
     }).optional().nullable(),
