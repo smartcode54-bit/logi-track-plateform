@@ -362,21 +362,30 @@ service cloud.firestore {
     }
 
     // Maintenance: admin full; assigned driver may read/update rows for their truck (mobile PM / receipt).
-    function driverMaintenanceTruckId() {
+    function driverDocData() {
       let did = request.auth.token.get('driverId', '');
       return did != '' && exists(/databases/$(database)/documents/drivers/$(did))
-        ? (
-            get(/databases/$(database)/documents/drivers/$(did)).data.get('currentAssignment', {}).get('truckId', '') != ''
-            ? get(/databases/$(database)/documents/drivers/$(did)).data.get('currentAssignment', {}).get('truckId', '')
-            : get(/databases/$(database)/documents/drivers/$(did)).data.get('truckId', '')
-          )
-        : '';
+        ? get(/databases/$(database)/documents/drivers/$(did)).data
+        : {};
+    }
+
+    // A driver may run a DIFFERENT vehicle per task, so the home binding alone is not enough:
+    // activeTruck is the truck they are responsible for right now (set by mobile at check-in from
+    // the task's truck), currentAssignment is their home truck. Both grant maintenance access.
+    // Nested maps are null-checked — terminateAssignment writes currentAssignment: null.
+    function driverMaintenanceTruckIds() {
+      let d = driverDocData();
+      let active = d.get('activeTruck', {});
+      let home = d.get('currentAssignment', {});
+      return [
+        active is map ? active.get('truckId', '') : '',
+        home is map ? home.get('truckId', '') : '',
+        d.get('truckId', '')
+      ];
     }
 
     function maintenanceVisibleToAssignedDriver(truckId) {
-      return truckId != ''
-        && driverMaintenanceTruckId() != ''
-        && truckId == driverMaintenanceTruckId();
+      return truckId != '' && truckId in driverMaintenanceTruckIds();
     }
 
     match /maintenance/{docId} {

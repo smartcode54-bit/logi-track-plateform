@@ -3,6 +3,18 @@ import { db } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { Driver } from "@/validate/driverSchema";
 
+/** The subset of a trucks/{id} doc the task dialogs need to pick a vehicle for a job. */
+export interface TaskTruck {
+  id: string;
+  licensePlate?: string;
+  /** Full-word type from the truck master ("6 Wheels"). Map with lib/truckType.ts, never compare raw. */
+  type?: string;
+  model?: string;
+  truckStatus?: string;
+  ownershipType?: "own" | "subcontractor";
+  subcontractorId?: string;
+}
+
 export const taskService = {
   async fetchHubs() {
     const snapshot = await getDocs(collection(db, "hubs"));
@@ -24,9 +36,9 @@ export const taskService = {
     });
   },
   
-  async fetchTrucks() {
-    const snapshot = await getDocs(collection(db, 'trucks'));
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  async fetchTrucks(): Promise<TaskTruck[]> {
+    const snapshot = await getDocs(collection(db, COLLECTIONS.TRUCKS));
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as TaskTruck));
   },
 
   async fetchDrivers() {

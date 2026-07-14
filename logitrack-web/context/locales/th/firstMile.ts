@@ -50,6 +50,7 @@ export default {
     "firstMile.import.records": "รายการ",
     "firstMile.import.unknown": "ไม่ทราบ",
     "firstMile.import.invalid": "ไม่ถูกต้อง",
+    "firstMile.import.plateNotInFleet": "ไม่พบทะเบียนนี้ในระบบรถ",
 
     // Import Table Headers
     "firstMile.import.table.row": "แถว",
@@ -93,6 +94,10 @@ export default {
     "firstMile.task.driverOnRun": "กำลังวิ่งอยู่",
     "firstMile.task.phone": "เบอร์โทร",
     "firstMile.task.licensePlate": "ทะเบียนรถ",
+    "firstMile.task.selectTruck": "เลือกรถ",
+    "firstMile.task.searchTruck": "ค้นหาทะเบียนรถ...",
+    "firstMile.task.noTruck": "ไม่พบรถประเภทนี้",
+    "firstMile.task.truckNotInFleet": "ไม่มีในระบบ",
     "firstMile.task.cancel": "ยกเลิก",
     "firstMile.task.create": "สร้างงาน",
     "firstMile.task.save": "บันทึกการเปลี่ยนแปลง",

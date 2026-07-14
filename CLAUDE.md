@@ -790,6 +790,47 @@ Pages ที่ wrap: first-mile, line-haul, driver-monitor, incident-reports, t
 
 ---
 
+#### 40. Per-task Truck Selection (รถผูกกับงาน ไม่ใช่คนขับ) — [13 ก.ค. 2026] — Mobile 2.9.0+1
+
+**ปัญหาเดิม:** task ไม่เคยเก็บว่า "รถคันไหนวิ่ง" — เก็บแค่ `truckType` (แอดมินเลือกมือ) + `licensePlate` (copy จาก `drivers.currentAssignment.truckPlate`) และ **ไม่มี `tasks.truckId`** ทั้งที่ `backfillTripTruckData.ts` + mobile `loading_phase_page.dart` อ่านอยู่ → `trip_records.truckId` เป็น null เสมอ. ที่หนักกว่าคือ dropdown คนขับ **ซ่อนคนขับที่ไม่มีรถผูก** → จะให้คนขับใช้รถคันอื่นต้องไปปลด/ผูกรถใหม่ที่หน้า Truck Assignment ก่อน. และถ้าคนขับ **สร้างงานเอง** (manual check-in) โดยไม่มีรถผูก จะได้ `truckType='4W'`, `licensePlate='-'` → **bill ผิด vehicle class เงียบๆ**
+
+**Data model — 3 concept แยกกัน (ห้ามยุบรวม):**
+
+| Field | ความหมาย |
+|-------|----------|
+| `drivers.currentAssignment` | **รถประจำ** — คงไว้ แต่กลายเป็นแค่ **ค่า default** ตอน assign ไม่ใช่ filter |
+| `tasks.truckId` + `licensePlate` + `truckType` | **รถของงานนี้** (admin เลือก → คนขับยืนยัน/แก้ตอนเช็คอิน) |
+| `drivers.activeTruck` **(ใหม่)** | **รถที่รับผิดชอบตอนนี้** `{truckId, truckPlate, taskId}` — เขียนตอนเช็คอิน ลบตอนจบงาน |
+
+`activeTruck` จำเป็นเพราะ Firestore rules **query task ไม่ได้** — maintenance gate เดิมอ่าน `currentAssignment` อย่างเดียว ถ้าคนขับวิ่งรถ B แต่ผูกรถ A จะโดน permission-denied
+
+**Flow ใหม่:** แอดมินเลือก **ประเภทรถ → ทะเบียน (จาก fleet)**, driver dropdown แสดง**ทุกคน**; คนขับ**ยืนยันหรือแก้รถได้ตอนเช็คอิน**; คนขับที่สร้างงานเอง**ต้องเลือกรถ** (เฉพาะรถของบริษัท/พาร์ทเนอร์ตัวเอง ตาม `subcontractorId`)
+
+**ไฟล์หลัก:**
+
+| ไฟล์ | สิ่งที่เปลี่ยน |
+|------|---------------|
+| `logitrack-web/lib/truckType.ts` (+ `.test.ts`) | **ใหม่ — SSOT** map `trucks.type` ("6 Wheels") → task enum ("6WH"); ไม่รู้จัก = คืน `undefined` (ห้ามเดา) |
+| `logitrack-web/validate/taskSchema.ts` | เพิ่ม `truckId`, export `TASK_TRUCK_TYPE_ENUM` |
+| `logitrack-web/validate/driverSchema.ts` | เพิ่ม `activeTruck` + `currentAssignment.truckModel` |
+| `shared-docs/schemas/taskSchema.ts` | **แก้ของเก่าที่ stale** (enum `4WH`/`PICKUP` + ขาด jobCategory/runOrder/helperDriverIds) |
+| `features/tasks/components/TruckPlateField.tsx` | **ใหม่** — combobox ค้นหาทะเบียนจาก fleet (filter ตามประเภทรถ) |
+| `FirstMileTaskDialog.tsx` / `LineHaulTaskDialog.tsx` | ลบ binding filter ออกจาก driver dropdown; plate เป็น combobox; เลือกทะเบียนแล้ว derive `truckType` จาก truck doc |
+| `functions/src/tasks.ts` | รับ `truckId`/`licensePlate`/`driverName`/`driverPhone`; **strip `undefined` ก่อน write** (Admin SDK reject undefined; เดิม `driverName: undefined` ค้างอยู่) |
+| `app/app/{first-mile,line-haul}/import-dialog.tsx` | resolve ทะเบียน → fleet (`truckId`); ทะเบียนที่ไม่มีในระบบ = reject พร้อมเหตุผล (ทะเบียนว่าง = import ได้ ค่อย assign ทีหลัง); แก้ header collision `plate` |
+| `firestore.rules` | maintenance gate อ่าน `activeTruck.truckId` ‖ `currentAssignment.truckId` (null-safe ด้วย `is map`) |
+| `logitrack-mobile/lib/core/utils/truck_type.dart` | **ใหม่** — mirror ของ `lib/truckType.ts` |
+| `logitrack-mobile/lib/features/home/data/repositories/trucks_repository.dart` | **ใหม่** — รถของบริษัทตัวเอง (scope `subcontractorId`) |
+| `logitrack-mobile/lib/components/truck_picker_field.dart` | **ใหม่** — ตัวเลือกรถ (ค้นหาทะเบียน) |
+| `check_in_page.dart` | **2 flow:** งานที่แอดมินมอบ (default = รถของ task, แก้ได้) + สร้างงานเอง (บังคับเลือกรถ); เขียน `activeTruck` |
+| `driver_repository.dart` | `setActiveTruck()` / `clearActiveTruck()` (ใช้ `FieldValue.delete()` ไม่ใช่ null) |
+| `vehicle_expense_page.dart` | อ่าน `activeTruck` ก่อน `currentAssignment` |
+| `delivery_trip_repository.dart` | ล้าง `activeTruck` ตอนจบงาน (ทั้ง single + multi-stop) |
+
+**Pattern:** ดู `.vibe-rules.md` → Confirmed Patterns → "🚚 Vehicle identity" (MANDATORY)
+
+---
+
 ### ⚠️ สิ่งที่ยังค้างอยู่ (Pending)
 
 1. **RBAC — กำหนด `security_view_mobile_clients` ให้ role ใน Firestore `permissions_config`**  
