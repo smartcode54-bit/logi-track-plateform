@@ -311,12 +311,12 @@ export default {
     "trucks.edit.error": "อัปเดตข้อมูลรถล้มเหลว โปรดลองอีกครั้ง",
 
     // Truck Types
-    "trucks.type.pickup": "รถกระบะ",
-    "trucks.type.4wheels": "4 ล้อ จัมโบ้",
-    "trucks.type.6wheels": "6 ล้อ",
-    "trucks.type.10wheels": "10 ล้อ",
-    "trucks.type.18wheels": "18 ล้อ",
-    "trucks.type.van": "รถตู้",
+    "trucks.type.pickup": "4W",
+    "trucks.type.4wheels": "4WJ",
+    "trucks.type.6wheels": "6W",
+    "trucks.type.10wheels": "10W",
+    "trucks.type.18wheels": "18W",
+    "trucks.type.van": "VAN",
 
     // Fuel Types
     "trucks.fuel.diesel": "ดีเซล",

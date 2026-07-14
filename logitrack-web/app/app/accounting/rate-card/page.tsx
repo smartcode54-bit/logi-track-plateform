@@ -79,7 +79,8 @@ import {
     latestFleetDieselFromMonthlySnapshots,
     pickFleetBangchakDieselReference,
 } from "@/lib/bangchakFleetReferenceFuel";
-import { SOC_DESTINATIONS } from "@/validate/taskSchema";
+import { SOC_DESTINATIONS, TASK_TRUCK_TYPE_ENUM } from "@/validate/taskSchema";
+import { taskTruckTypeFromTruckDoc } from "@/lib/truckType";
 import {
     computeFinalRateThb,
     selectFuelAdjustmentForBillingDate,
@@ -168,14 +169,13 @@ function fuelSnapshotSourceLabel(source: string, t: (key: string) => string): st
     return source.trim();
 }
 
-function displayVehicleTypeCode(fullName: string): string {
-    const mapping: Record<string, string> = {
-        "4 Wheels Jumbo": "4WJ",
-        "6 Wheels": "6W",
-        "10 Wheels": "10W",
-        "2 Wheels": "2W",
-    };
-    return mapping[fullName.trim()] ?? fullName.trim();
+/**
+ * Legacy rate entries stored the truck master's full name ("6 Wheels"); tasks carry the class code
+ * ("6WH") and billing matches on that. Show the code, falling back to the stored string when it maps
+ * to nothing we recognise, so an odd legacy row stays visible instead of rendering blank.
+ */
+function displayVehicleTypeCode(storedClass: string): string {
+    return taskTruckTypeFromTruckDoc(storedClass) ?? storedClass.trim();
 }
 
 export default function AccountingRateCardPage() {
@@ -185,7 +185,6 @@ export default function AccountingRateCardPage() {
     const [importOpen, setImportOpen] = useState(false);
     const [customers, setCustomers] = useState<RateCardCustomerOption[]>([]);
     const [hubs, setHubs] = useState<HubOption[]>([]);
-    const [truckTypes, setTruckTypes] = useState<string[]>([]);
     const [entries, setEntries] = useState<CustomerRateEntryRow[]>([]);
     const [fuelAdjustments, setFuelAdjustments] = useState<CustomerFuelRateAdjustmentRow[]>([]);
     const [fuelSnapshots, setFuelMonthlySnapshots] = useState<FuelMonthlySnapshotRow[]>([]);
@@ -327,13 +326,12 @@ export default function AccountingRateCardPage() {
     const loadData = async () => {
         setLoading(true);
         try {
-            const [customerRows, entryRows, fuelRows, snapshotRows, hubRows, truckRows, serviceFeeRows, standbyRateRows] = await Promise.all([
+            const [customerRows, entryRows, fuelRows, snapshotRows, hubRows, serviceFeeRows, standbyRateRows] = await Promise.all([
                 getCustomers(),
                 getCustomerRateEntries(),
                 getCustomerFuelRateAdjustments(),
                 getFuelMonthlySnapshots(36),
                 getDocs(collection(db, COLLECTIONS.HUBS)),
-                getDocs(collection(db, COLLECTIONS.TRUCKS)),
                 getCustomerServiceFees(),
                 getStandbyRateEntries(),
             ]);
@@ -355,15 +353,6 @@ export default function AccountingRateCardPage() {
                     const name = String(data.source_name_en ?? data.source_name_th ?? data.hubName ?? "").trim();
                     return { id, name: name || undefined };
                 }).filter((x) => x.id)
-            );
-            setTruckTypes(
-                Array.from(
-                    new Set(
-                        truckRows.docs
-                            .map((d) => String(d.data().type ?? "").trim())
-                            .filter(Boolean)
-                    )
-                ).sort((a, b) => a.localeCompare(b))
             );
         } finally {
             setLoading(false);
@@ -445,11 +434,17 @@ export default function AccountingRateCardPage() {
         () => Array.from(new Set(entries.map((e) => e.vehicleClass))).sort((a, b) => a.localeCompare(b)),
         [entries]
     );
+    /**
+     * The classes a rate card may be written against are the ones a task can carry
+     * (TASK_TRUCK_TYPE_ENUM) — billing matches tasks.truckType to entry.vehicleClass, so offering the
+     * truck master's names here ("Pickup", "6 Wheels") produced rate cards no task could ever match.
+     * Classes already present in existing entries are kept so legacy rows stay selectable.
+     */
     const manualVehicleClassOptions = useMemo(() => {
-        const options = truckTypes.length > 0 ? truckTypes : vehicleOptions;
-        if (options.length === 0) return ["4WJ"];
-        return options;
-    }, [truckTypes, vehicleOptions]);
+        const options = new Set<string>(TASK_TRUCK_TYPE_ENUM);
+        vehicleOptions.forEach((v) => options.add(v));
+        return Array.from(options).sort((a, b) => a.localeCompare(b));
+    }, [vehicleOptions]);
     const entriesTotalPages = Math.max(1, Math.ceil(filteredEntries.length / entriesPerPage));
     const paginatedEntries = useMemo(() => {
         const start = (entriesPage - 1) * entriesPerPage;
@@ -457,23 +452,13 @@ export default function AccountingRateCardPage() {
     }, [filteredEntries, entriesPage, entriesPerPage]);
 
     const editVehicleClassOptions = useMemo(() => {
-        const options = new Set<string>();
-        // Add all truck types
-        if (truckTypes.length > 0) {
-            truckTypes.forEach((t) => options.add(t));
-        }
-        // Add all vehicle options from entries
-        vehicleOptions.forEach((v) => options.add(v));
-        // Add current value if not empty
+        const options = new Set<string>(manualVehicleClassOptions);
+        // Keep the row's own class selectable even if it is a legacy value.
         if (editEntryForm.vehicleClass?.trim()) {
             options.add(editEntryForm.vehicleClass.trim());
         }
-        // Always have at least 4WJ
-        if (options.size === 0) {
-            options.add("4WJ");
-        }
         return Array.from(options).sort((a, b) => a.localeCompare(b));
-    }, [truckTypes, vehicleOptions, editEntryForm.vehicleClass]);
+    }, [manualVehicleClassOptions, editEntryForm.vehicleClass]);
     const entriesRangeStart = filteredEntries.length === 0 ? 0 : (entriesPage - 1) * entriesPerPage + 1;
     const entriesRangeEnd = Math.min(entriesPage * entriesPerPage, filteredEntries.length);
 
