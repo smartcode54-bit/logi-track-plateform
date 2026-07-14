@@ -11,6 +11,7 @@ import { useLanguage } from "@/context/language";
 import { COLLECTIONS } from "@/lib/collections";
 import { taskService, TaskTruck } from "@/features/tasks/services/taskService";
 import { taskTruckTypeFromTruckDoc } from "@/lib/truckType";
+import { jobCategoryFromCell } from "@/lib/jobCategory";
 
 /** Plates are typed inconsistently (spaces, dashes, case) — compare on a normalized form. */
 const normalizePlate = (plate: unknown) =>
@@ -104,6 +105,8 @@ export function LineHaulImportDialog({ onSuccess }: ImportDialogProps) {
                 const licensePlate = getValue(['license', 'ทะเบียน']);
                 const driverName = getValue(['driver', 'name', 'คนขับ']);
                 const driverPhone = getValue(['phone', 'tel', 'เบอร์']);
+                // "ประเภทงาน" (job), not "ประเภทรถ" (truck) — the two headers must not be confused.
+                const jobCategory = jobCategoryFromCell(getValue(['job category', 'ประเภทงาน', 'jobcategory']));
 
                 // Resolve the plate to a real truck. A blank plate is fine — the task is imported
                 // unassigned and an admin picks the vehicle later. A plate that isn't in the fleet
@@ -143,10 +146,12 @@ export function LineHaulImportDialog({ onSuccess }: ImportDialogProps) {
 
                 // Validate essentials
                 const plateUnknown = !!plateKey && !matchedTruck;
-                const isValid = !!(matchedSOC && sourceHub) && !plateUnknown;
+                const isValid = !!(matchedSOC && sourceHub) && !plateUnknown && !!jobCategory;
                 const invalidReason = plateUnknown
                     ? t("firstMile.import.plateNotInFleet")
-                    : undefined;
+                    : !jobCategory
+                        ? t("firstMile.import.jobCategoryUnknown")
+                        : undefined;
 
                 return {
                     id: index, // Temp ID
@@ -156,6 +161,7 @@ export function LineHaulImportDialog({ onSuccess }: ImportDialogProps) {
                     time,
                     truckType,
                     truckId: matchedTruck?.id,
+                    jobCategory,
                     taskId: shipmentId,
                     licensePlate: matchedTruck?.licensePlate ?? licensePlate,
                     driverName,
@@ -179,6 +185,7 @@ export function LineHaulImportDialog({ onSuccess }: ImportDialogProps) {
             "Pickup Location (จุดรับงาน)",
             "Destination (ปลายทาง)",
             "Time (เวลา)",
+            "Job Category (ประเภทงาน: หลัก/เสริม)",
             "Truck Type (ประเภทรถ)",
             "Shipment ID (เลขงาน)",
             "License Plate (ทะเบียน)",
@@ -215,6 +222,8 @@ export function LineHaulImportDialog({ onSuccess }: ImportDialogProps) {
                         sourceHub: row.sourceHub,
                         destination: row.destination, // Need to ensure it matches Enum if likely
                         time: row.time || "",
+                        // Blank in the sheet means หลัก; billing reads this to pick the rate card.
+                        jobCategory: row.jobCategory,
                         truckType: row.truckType || "",
                         // Only set when the plate resolved to a fleet truck; blank means "assign later".
                         ...(row.truckId ? { truckId: row.truckId } : {}),
@@ -325,6 +334,7 @@ export function LineHaulImportDialog({ onSuccess }: ImportDialogProps) {
                                                 <TableHead>{t("firstMile.import.table.source")}</TableHead>
                                                 <TableHead>{t("firstMile.import.table.dest")}</TableHead>
                                                 <TableHead>{t("firstMile.import.table.time")}</TableHead>
+                                                <TableHead>{t("firstMile.import.table.jobCategory")}</TableHead>
                                                 <TableHead>{t("firstMile.import.table.truckType")}</TableHead>
                                                 <TableHead>{t("firstMile.import.table.taskId")}</TableHead>
                                                 <TableHead>{t("firstMile.import.table.driver")}</TableHead>
@@ -343,6 +353,11 @@ export function LineHaulImportDialog({ onSuccess }: ImportDialogProps) {
                                                         </span>
                                                     </TableCell>
                                                     <TableCell>{row.time}</TableCell>
+                                                    <TableCell>
+                                                        {row.jobCategory
+                                                            ? t(`firstMile.task.jobCategory.${row.jobCategory === "SUPPLEMENTARY" ? "supplementary" : "primary"}`)
+                                                            : <span className="text-red-500">{t("firstMile.import.unknown")}</span>}
+                                                    </TableCell>
                                                     <TableCell>{row.truckType}</TableCell>
                                                     <TableCell className="text-xs">{row.taskId}</TableCell>
                                                     <TableCell>{row.driverName}</TableCell>

@@ -51,6 +51,7 @@ export default {
     "firstMile.import.unknown": "ไม่ทราบ",
     "firstMile.import.invalid": "ไม่ถูกต้อง",
     "firstMile.import.plateNotInFleet": "ไม่พบทะเบียนนี้ในระบบรถ",
+    "firstMile.import.jobCategoryUnknown": "ประเภทงานไม่ถูกต้อง (ใช้ หลัก หรือ เสริม)",
 
     // Import Table Headers
     "firstMile.import.table.row": "แถว",
@@ -58,6 +59,7 @@ export default {
     "firstMile.import.table.source": "จุดรับงาน",
     "firstMile.import.table.dest": "ปลายทาง",
     "firstMile.import.table.time": "เวลา",
+    "firstMile.import.table.jobCategory": "ประเภทงาน",
     "firstMile.import.table.truckType": "ประเภทรถ",
     "firstMile.import.table.taskId": "รหัสงาน First Mile",
     "firstMile.import.table.driver": "คนขับ",

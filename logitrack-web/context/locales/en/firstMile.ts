@@ -51,6 +51,7 @@ export default {
     "firstMile.import.unknown": "Unknown",
     "firstMile.import.invalid": "Invalid",
     "firstMile.import.plateNotInFleet": "Plate not in fleet",
+    "firstMile.import.jobCategoryUnknown": "Unknown job category (use หลัก / เสริม)",
 
     // Import Table Headers
     "firstMile.import.table.row": "Row",
@@ -58,6 +59,7 @@ export default {
     "firstMile.import.table.source": "Source",
     "firstMile.import.table.dest": "Dest",
     "firstMile.import.table.time": "Time",
+    "firstMile.import.table.jobCategory": "Job Category",
     "firstMile.import.table.truckType": "Truck Type",
     "firstMile.import.table.taskId": "First Mile Task ID",
     "firstMile.import.table.driver": "Driver",
