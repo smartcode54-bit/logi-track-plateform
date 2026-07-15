@@ -1071,10 +1071,27 @@ class _TaskCheckInPageState extends State<TaskCheckInPage> {
       }
 
       if (mounted) {
+        // Blocking confirmation — must be acknowledged before we pop, so a successful
+        // check-in can never "disappear silently" behind the navigation.
+        await showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            icon: const Icon(Icons.check_circle, color: Colors.green, size: 48),
+            title: Text('checkin_submit_success_title'.tr()),
+            content: Text(
+              'checkin_submit_success_body'.tr(args: [_taskDisplayId]),
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: Text('loading_phase_submit_success_ok'.tr()),
+              ),
+            ],
+          ),
+        );
+        if (!mounted) return;
         Navigator.pop(context, true);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Check-in saved'.tr())));
       }
     } catch (e) {
       if (mounted) {
@@ -1854,10 +1871,27 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
       }
 
       if (mounted) {
+        // Blocking confirmation — must be acknowledged before we pop, so a successful
+        // check-in can never "disappear silently" behind the navigation.
+        await showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            icon: const Icon(Icons.check_circle, color: Colors.green, size: 48),
+            title: Text('checkin_submit_success_title'.tr()),
+            content: Text(
+              'checkin_submit_success_body'.tr(args: [newTaskId]),
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: Text('loading_phase_submit_success_ok'.tr()),
+              ),
+            ],
+          ),
+        );
+        if (!mounted) return;
         Navigator.pop(context, true);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Check-in saved'.tr())));
       }
     } catch (e) {
       if (mounted) {

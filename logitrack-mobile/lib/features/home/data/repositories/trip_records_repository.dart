@@ -39,14 +39,21 @@ class DuplicateCheckResult {
 /// Check if [tripId] or [sealCode] already exists in trip_records.
 /// - tripId: document with id [tripId] exists → block always, regardless of driver.
 /// - sealCode: another trip (different document) has the same sealCode; only checked if [sealCode] is not null/empty.
+///
+/// Reads are forced to [Source.server]: Firestore's default cache-fallback `.get()` would
+/// otherwise answer from the on-device cache while offline — and that cache already reflects
+/// this device's own not-yet-synced pending writes, which is not the same thing as a
+/// genuinely server-committed duplicate. Forcing the server means this check now correctly
+/// throws (caller must handle) instead of silently returning a false positive when offline.
 Future<DuplicateCheckResult> checkDuplicateTripIdAndSeal({
   required String tripId,
   String? sealCode,
   String? currentDriverId,
 }) async {
   final col = FirebaseFirestore.instance.collection(tripRecordsCollection);
+  const serverOnly = GetOptions(source: Source.server);
 
-  final tripDoc = await col.doc(tripId).get();
+  final tripDoc = await col.doc(tripId).get(serverOnly);
   final docExists = tripDoc.exists;
   final existingDriverId = tripDoc.data()?['driverId'] as String?;
   // Block duplicate trip ID unconditionally — same driver is not an exception.
@@ -59,7 +66,7 @@ Future<DuplicateCheckResult> checkDuplicateTripIdAndSeal({
     final sealQuery = await col
         .where('sealCode', isEqualTo: seal)
         .limit(2)
-        .get();
+        .get(serverOnly);
     for (final doc in sealQuery.docs) {
       if (doc.id != tripId) {
         sealCodeExists = true;

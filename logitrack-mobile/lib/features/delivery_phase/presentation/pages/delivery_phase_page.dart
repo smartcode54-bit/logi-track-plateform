@@ -629,13 +629,41 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
         deliveredLng: position.longitude,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('delivery_saved'.tr())));
+      setState(() => _saving = false);
+
+      final destName = widget.savedTripSummary?.destination?.trim() ?? '';
+      // Blocking confirmation — must be acknowledged before we clear the draft and
+      // navigate away, so a successful submit can never "disappear silently."
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          icon: const Icon(Icons.check_circle, color: Colors.green, size: 48),
+          title: Text('delivery_submit_success_title'.tr()),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('delivery_submit_success_body'.tr()),
+              const SizedBox(height: 12),
+              Text('Trip ID: $tripId', style: const TextStyle(fontWeight: FontWeight.w600)),
+              if (destName.isNotEmpty)
+                Text('Destination: $destName', style: const TextStyle(fontWeight: FontWeight.w600)),
+            ],
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: Text('loading_phase_submit_success_ok'.tr()),
+            ),
+          ],
+        ),
+      );
+      if (!mounted) return;
+
       DraftStorageService.instance.clearDeliveryDraft();
       MainLayoutScope.of(context)?.onDeliveryCompleted?.call();
       setState(() {
-        _saving = false;
         _deliveryPhotos.clear();
       });
     } catch (e) {

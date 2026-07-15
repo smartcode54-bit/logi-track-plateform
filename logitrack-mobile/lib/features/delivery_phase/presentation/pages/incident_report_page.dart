@@ -159,12 +159,25 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
         truckLicensePlate: widget.savedTripSummary?.truckLicensePlate,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+      setState(() => _saving = false);
+      // Blocking confirmation — must be acknowledged before we pop, so a successful
+      // submit can never "disappear silently."
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          icon: const Icon(Icons.check_circle, color: Colors.green, size: 48),
+          title: Text('incident_submit_success_title'.tr()),
           content: Text('incident_saved'.tr()),
-          backgroundColor: Colors.green,
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: Text('loading_phase_submit_success_ok'.tr()),
+            ),
+          ],
         ),
       );
+      if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) {
