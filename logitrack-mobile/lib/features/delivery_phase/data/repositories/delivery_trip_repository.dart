@@ -3,7 +3,18 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../core/services/cloud_functions_service.dart';
 import '../../../../core/services/mobile_client_heartbeat_service.dart';
 import '../../../home/data/models/trip_record.dart';
+import '../../../home/data/repositories/driver_repository.dart';
 import '../../../home/data/repositories/trip_records_repository.dart';
+
+/// The job is over, so the driver is no longer responsible for its truck — drop the pointer and
+/// let the fuel/expense forms fall back to their home truck. Best-effort: an uncleared activeTruck
+/// only means the next expense defaults to the truck they last drove.
+Future<void> _releaseActiveTruck(String? driverId) async {
+  if (driverId == null || driverId.isEmpty) return;
+  try {
+    await DriverRepository().clearActiveTruck(driverId);
+  } catch (_) {}
+}
 
 /// Merge Firestore photo maps: drop existing entries whose [type] is in [replacedTypes], append [newPhotoMaps].
 List<Map<String, dynamic>> mergeTripPhotosReplacingTypes({
@@ -114,6 +125,7 @@ Future<void> submitDeliveryPhaseRecord({
       if (did != null && did.isNotEmpty) {
         await MobileClientHeartbeatService.instance.onJobAction(did);
       }
+      await _releaseActiveTruck(did);
     } catch (_) {}
   }
 }
@@ -227,6 +239,7 @@ Future<bool> submitDeliveryStopRecord({
               await MobileClientHeartbeatService.instance
                   .onJobAction(driverId);
             }
+            await _releaseActiveTruck(taskData['driverId'] as String?);
           } catch (_) {}
         }
       }

@@ -32,6 +32,10 @@ export const TASK_TYPE_ENUM = ["FIRST_MILE", "LINE_HAUL"] as const;
 /** หลัก/เสริม, set explicitly by admin at assign time. Absent = legacy task, billing derives it (ADR-0005/0006). */
 export const TASK_JOB_CATEGORY_ENUM = ["PRIMARY", "SUPPLEMENTARY"] as const;
 
+/** Vehicle class carried on a task. Billing reads this to select the rate card (see billingCompute). */
+export const TASK_TRUCK_TYPE_ENUM = ["4W", "4WJ", "6WH", "10WH", "18WH", "VAN"] as const;
+export type TaskTruckType = typeof TASK_TRUCK_TYPE_ENUM[number];
+
 // Multi-delivery support
 export const deliveryStopSchema = z.object({
     index: z.number().int().min(1),
@@ -72,8 +76,10 @@ export const taskSchema = z.object({
     /** หลัก/เสริม, chosen by admin at assign time. Optional — absent means billing derives it (ADR-0005/0006). */
     jobCategory: z.enum(TASK_JOB_CATEGORY_ENUM).default("PRIMARY").optional(),
 
-    // Vehicle Requirements
-    truckType: z.enum(["4WH", "4WJ", "6WH", "10WH", "18WH", "PICKUP", "VAN"]).optional(), // Based on image
+    // Vehicle for this job — chosen per task, NOT derived from drivers.currentAssignment.
+    // truckId is the trucks/{id} doc; licensePlate + truckType are denormalized snapshots of it.
+    truckId: z.string().optional(),
+    truckType: z.enum(TASK_TRUCK_TYPE_ENUM).optional(),
 
     // Shipment Info
     taskId: z.string().optional(),

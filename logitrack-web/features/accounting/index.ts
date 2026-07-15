@@ -5,3 +5,4 @@ export type { TollExpenseImportDialogProps } from "./components/TollExpenseImpor
 export { EditBillingDialog } from "./components/EditBillingDialog";
 export type { EditBillingDialogProps } from "./components/EditBillingDialog";
 export * from "./api/billing";
+export * from "./api/expenses";

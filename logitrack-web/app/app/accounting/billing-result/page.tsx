@@ -6,12 +6,14 @@ import { useEffect, useMemo, useState } from "react";
 import {
     getBillingStatements,
     updateBillingStatementStatus,
+    deleteBillingStatement,
     type BillingStatement,
     type BillingStatementStatus,
 } from "@/lib/billingStatement";
 import { getCustomers } from "@/features/customers/api/customers";
 import type { Customer } from "@/validate/customerSchema";
-import { downloadBillingZip, type BillingCustomer } from "@/lib/billingDocument";
+import { downloadBillingZip, downloadReceiptPdf, type BillingCustomer } from "@/lib/billingDocument";
+import { fetchBillingTripRows } from "@/features/accounting";
 import { useLanguage } from "@/context/language";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -38,7 +40,7 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import { Label } from "@/components/ui/label";
-import { Loader2, MoreHorizontal, RefreshCw, TrendingUp, FileText, Clock, AlertTriangle } from "lucide-react";
+import { Loader2, MoreHorizontal, RefreshCw, TrendingUp, FileText, Clock, AlertTriangle, Trash2, Receipt } from "lucide-react";
 import { format, differenceInDays } from "date-fns";
 import { toast } from "sonner";
 import { WITHHOLDING_TAX_RATE } from "@/lib/billingConfig";
@@ -106,6 +108,8 @@ export default function BillingResultPage() {
     const [loading, setLoading] = useState(false);
     const [updatingId, setUpdatingId] = useState<string | null>(null);
     const [redownloadingId, setRedownloadingId] = useState<string | null>(null);
+    const [issuingReceiptId, setIssuingReceiptId] = useState<string | null>(null);
+    const [deletingId, setDeletingId] = useState<string | null>(null);
 
     // Filters
     const [filterCustomerId, setFilterCustomerId] = useState<string>("all");
@@ -195,6 +199,21 @@ export default function BillingResultPage() {
         }
     }
 
+    function toBillingCustomer(customer: Customer): BillingCustomer {
+        return {
+            id: customer.id!,
+            name: customer.name,
+            address: customer.address,
+            taxId: customer.taxId,
+            branchType: customer.branchType,
+            branchNumber: customer.branchNumber,
+            contactName: customer.contactName,
+            contactPhone: customer.contactPhone,
+            paymentTermsDays: customer.paymentTermsDays,
+            invoiceNote: customer.invoiceNote,
+        };
+    }
+
     async function handleRedownload(stmt: BillingStatement) {
         if (!stmt.id) return;
         const customer = customers.find((c) => c.id === stmt.customerId);
@@ -202,23 +221,49 @@ export default function BillingResultPage() {
 
         setRedownloadingId(stmt.id);
         try {
-            const billingCustomer: BillingCustomer = {
-                id: customer.id!,
-                name: customer.name,
-                address: customer.address,
-                taxId: customer.taxId,
-                branchType: customer.branchType,
-                branchNumber: customer.branchNumber,
-                contactName: customer.contactName,
-                contactPhone: customer.contactPhone,
-                paymentTermsDays: customer.paymentTermsDays,
-                invoiceNote: customer.invoiceNote,
-            };
-            // Re-download with empty trips — the invoice number comes from the saved statement
-            // For a proper re-download we'd need saved trip rows; for now generate with original number
-            await downloadBillingZip([], billingCustomer, stmt.period, stmt.invoiceNumber);
+            // billing_statements only stores summary totals, not line items — re-fetch the
+            // actual trip/standby rows for this customer + period so the redownloaded ZIP
+            // has real line items instead of an empty invoice.
+            const trips = await fetchBillingTripRows(stmt.customerId, stmt.period);
+            await downloadBillingZip(trips, toBillingCustomer(customer), stmt.period, stmt.invoiceNumber);
+        } catch (e) {
+            console.error(e);
+            toast.error(t("accounting.billingResult.action.redownloadError"));
         } finally {
             setRedownloadingId(null);
+        }
+    }
+
+    async function handleIssueReceipt(stmt: BillingStatement) {
+        if (!stmt.id) return;
+        const customer = customers.find((c) => c.id === stmt.customerId);
+        if (!customer) return;
+
+        setIssuingReceiptId(stmt.id);
+        try {
+            const trips = await fetchBillingTripRows(stmt.customerId, stmt.period);
+            await downloadReceiptPdf(trips, toBillingCustomer(customer), stmt.period, stmt.invoiceNumber);
+        } catch (e) {
+            console.error(e);
+            toast.error(t("accounting.billingResult.action.issueReceiptError"));
+        } finally {
+            setIssuingReceiptId(null);
+        }
+    }
+
+    async function handleDelete(stmt: BillingStatement) {
+        if (!stmt.id) return;
+        if (!window.confirm(t("accounting.billingResult.confirmDelete"))) return;
+
+        setDeletingId(stmt.id);
+        try {
+            await deleteBillingStatement(stmt.id);
+            setStatements((prev) => prev.filter((s) => s.id !== stmt.id));
+        } catch (e) {
+            console.error(e);
+            toast.error(t("accounting.billingResult.action.deleteError"));
+        } finally {
+            setDeletingId(null);
         }
     }
 
@@ -397,6 +442,8 @@ export default function BillingResultPage() {
                                             const dueDate = toDate(stmt.dueDate);
                                             const isUpdating = updatingId === stmt.id;
                                             const isRedownloading = redownloadingId === stmt.id;
+                                            const isIssuingReceipt = issuingReceiptId === stmt.id;
+                                            const isDeleting = deletingId === stmt.id;
                                             const mm = String(stmt.period.month).padStart(2, "0");
                                             const periodLabel = `${mm}/${stmt.period.year}`;
 
@@ -474,6 +521,29 @@ export default function BillingResultPage() {
                                                                             ? t("accounting.billingResult.action.redownloading")
                                                                             : t("accounting.billingResult.action.redownload")}
                                                                     </DropdownMenuItem>
+                                                                    {stmt.status === "sent" && (
+                                                                        <DropdownMenuItem
+                                                                            disabled={isIssuingReceipt}
+                                                                            onClick={() => handleIssueReceipt(stmt)}
+                                                                        >
+                                                                            <Receipt className="h-4 w-4" />
+                                                                            {isIssuingReceipt
+                                                                                ? t("accounting.billingResult.action.issuingReceipt")
+                                                                                : t("accounting.billingResult.action.issueReceipt")}
+                                                                        </DropdownMenuItem>
+                                                                    )}
+                                                                    {stmt.status === "draft" && (
+                                                                        <DropdownMenuItem
+                                                                            className="text-destructive"
+                                                                            disabled={isDeleting}
+                                                                            onClick={() => handleDelete(stmt)}
+                                                                        >
+                                                                            <Trash2 className="h-4 w-4" />
+                                                                            {isDeleting
+                                                                                ? t("accounting.billingResult.action.deleting")
+                                                                                : t("accounting.billingResult.action.delete")}
+                                                                        </DropdownMenuItem>
+                                                                    )}
                                                                 </DropdownMenuContent>
                                                             </DropdownMenu>
                                                         )}

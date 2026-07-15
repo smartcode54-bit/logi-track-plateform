@@ -25,8 +25,13 @@ interface CreateOrUpdateTaskRequest {
     date: string; // ISO date string
     time: string; // HH:MM format
     taskType: "FIRST_MILE" | "LINE_HAUL";
-    truckType?: "4WH" | "4WJ" | "6WH" | "10WH" | "18WH" | "PICKUP" | "VAN";
+    /** Vehicle for this job. truckId is trucks/{id}; licensePlate + truckType are snapshots of it. */
+    truckType?: "4W" | "4WJ" | "6WH" | "10WH" | "18WH" | "VAN";
+    truckId?: string;
+    licensePlate?: string;
     driverId?: string;
+    driverName?: string;
+    driverPhone?: string;
     /** Helper (training/assisting) Auth UIDs — at most one. See ADR-0001. */
     helperDriverIds?: string[];
     isMultiDelivery?: boolean;
@@ -130,13 +135,17 @@ export const createOrUpdateTask = onCall(
             date: new Date(data.date),
             time: data.time.trim(),
             taskType: data.taskType,
+            // Vehicle for this job — chosen per task, not derived from drivers.currentAssignment.
             truckType: data.truckType,
+            truckId: data.truckId,
+            licensePlate: data.licensePlate,
             driverId: data.driverId,
             // At most one helper; persist as an array for array-contains queries.
             helperDriverIds: Array.isArray(data.helperDriverIds)
                 ? data.helperDriverIds.filter(Boolean).slice(0, 1)
                 : [],
-            driverName: undefined, // Will be fetched separately if needed
+            driverName: data.driverName,
+            driverPhone: data.driverPhone,
             status: data.driverId ? "Assigned" : "Pending",
             isMultiDelivery,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -169,18 +178,25 @@ export const createOrUpdateTask = onCall(
             }));
         }
 
+        // Firestore rejects undefined values (ignoreUndefinedProperties is not enabled).
+        // On update, omitting a key leaves the stored value untouched — which is what we want
+        // for optional fields an older client may not send.
+        const writeDoc = Object.fromEntries(
+            Object.entries(taskDoc).filter(([, value]) => value !== undefined)
+        );
+
         try {
             let taskId: string;
             if (data.id) {
                 // Update existing task
-                await db.collection(COL_TASKS).doc(data.id).update(taskDoc);
+                await db.collection(COL_TASKS).doc(data.id).update(writeDoc);
                 taskId = data.id;
                 logger.info("[createOrUpdateTask] Task updated", { taskId, isMultiDelivery });
             } else {
                 // Create new task
-                taskDoc.createdAt = admin.firestore.FieldValue.serverTimestamp();
+                writeDoc.createdAt = admin.firestore.FieldValue.serverTimestamp();
                 const docRef = db.collection(COL_TASKS).doc();
-                await docRef.set(taskDoc);
+                await docRef.set(writeDoc);
                 taskId = docRef.id;
                 logger.info("[createOrUpdateTask] Task created", { taskId, isMultiDelivery });
             }

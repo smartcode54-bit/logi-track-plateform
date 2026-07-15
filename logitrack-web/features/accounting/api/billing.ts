@@ -4,7 +4,9 @@ import { db } from "@/firebase/client";
 import {
     collection,
     deleteDoc,
+    documentId,
     getDocs,
+    getDocsFromServer,
     query,
     orderBy,
     doc,
@@ -14,74 +16,17 @@ import {
     Timestamp,
     writeBatch,
     where,
+    type QuerySnapshot,
+    type DocumentData,
 } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { functions } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { normalizeDestinationCode, normalizeVehicleClass } from "@/lib/billingCompute";
 import { driverDisplayName } from "@/lib/driverName";
-
-export type VehicleExpenseType = "fuel" | "other";
-
-export type VehicleExpenseStatus = "PENDING" | "APPROVED" | "REJECTED";
-
-export interface VehicleExpenseRow {
-    id: string;
-    driverId: string;
-    driverName?: string;
-    truckId?: string;
-    licensePlate?: string;
-    type: VehicleExpenseType;
-    date: Date;
-    amount: number;
-    volumeLiters?: number;
-    pricePerLiter?: number;
-    odometer?: number;
-    stationTaxId?: string;
-    taxInvId?: string;
-    refillLocation?: string;
-    note?: string;
-    category?: string;
-    description?: string;
-    status: VehicleExpenseStatus;
-    adminNote?: string;
-    createdAt?: Date;
-    updatedAt?: Date;
-    receiptPhotoUrl?: string;
-    odometerPhotoUrl?: string;
-    /** Toll import / admin — sequence from source file */
-    tollImportSequence?: number;
-    tollLocation?: string;
-    tollLane?: string;
-    tollSourceType?: string;
-}
-
-export interface DriverOption {
-    id: string;
-    name: string;
-}
-
-export interface TruckOption {
-    id: string;
-    licensePlate: string;
-}
-
-/** Driver row for toll import: filterId matches vehicle_expenses.driverId (authUid ?? doc id). */
-export interface DriverWithTruckAssignment {
-    filterId: string;
-    name: string;
-    truckId?: string;
-}
-
-export interface TollImportRowInput {
-    tollImportSequence?: number;
-    tollLocation?: string;
-    tollLane?: string;
-    tollSourceType?: string;
-    date: Date;
-    amount: number;
-    description?: string;
-}
+import { billingHubLabelFromFirestoreData } from "@/lib/hubDisplay";
+import { SOC_DESTINATIONS, normalizeSocIdToKey } from "@/validate/taskSchema";
+import type { BillingTripRow } from "@/lib/billingDocument";
 
 export interface CustomerRateEntryInput {
     hubId: string;
@@ -155,177 +100,7 @@ function parseDateOnly(value: Date): Date {
     return new Date(Date.UTC(value.getFullYear(), value.getMonth(), value.getDate(), 0, 0, 0, 0));
 }
 
-export async function getVehicleExpensesByType(type: VehicleExpenseType): Promise<VehicleExpenseRow[]> {
-    try {
-        const q = query(
-            collection(db, COLLECTIONS.VEHICLE_EXPENSES),
-            orderBy("date", "desc")
-        );
-        const snapshot = await getDocs(q);
-        const byType = snapshot.docs.filter((doc) => (doc.data().type as string) === type);
-        const [driversSnapshot, trucksSnapshot] = await Promise.all([
-            getDocs(collection(db, COLLECTIONS.DRIVERS)),
-            getDocs(collection(db, COLLECTIONS.TRUCKS)),
-        ]);
-        const driverNameByKey = new Map<string, string>();
-        driversSnapshot.forEach((docSnap) => {
-            const d = docSnap.data();
-            const name = driverDisplayName(d, docSnap.id);
-            driverNameByKey.set(docSnap.id, name);
-            const authId = (d.authId ?? d.authUid) as string | undefined;
-            if (authId) driverNameByKey.set(authId, name);
-        });
-        const truckPlateMap = new Map<string, string>();
-        trucksSnapshot.forEach((docSnap) => {
-            const d = docSnap.data();
-            truckPlateMap.set(docSnap.id, (d.licensePlate as string) ?? "");
-        });
-
-        return byType.map((doc) => {
-            const d = doc.data();
-            const driverId = d.driverId ?? "";
-            // ใช้เฉพาะ snapshot ที่บันทึกไว้ในเอกสาร — ไม่ fallback ไป assignment ปัจจุบันของคนขับ
-            // มิฉะนั้นรายการเก่าจะเปลี่ยนรถ/ทะเบียนตามเมื่อคนขับถูกย้ายไปคันใหม่
-            const truckId = (d.truckId as string | undefined) ?? undefined;
-            const driverName = driverNameByKey.get(driverId);
-            // truckLicensePlate ที่ snapshot ไว้มาก่อน; ถ้าไม่มี ค่อยใช้ทะเบียนของรถที่ระบุไว้ในเอกสาร
-            // (ทะเบียนต่อรถคงที่ ปลอดภัยกว่าการ resolve ผ่านคนขับ)
-            const storedPlate = d.truckLicensePlate as string | undefined;
-            const licensePlate = storedPlate || (truckId ? truckPlateMap.get(truckId) : undefined);
-            return {
-                id: doc.id,
-                driverId,
-                driverName: driverName ?? undefined,
-                truckId: truckId ?? undefined,
-                licensePlate: licensePlate ?? undefined,
-                type: (d.type as VehicleExpenseType) ?? type,
-                date: parseDate(d.date) ?? new Date(),
-                amount: Number(d.amount) ?? 0,
-                volumeLiters: d.volumeLiters != null ? Number(d.volumeLiters) : undefined,
-                pricePerLiter: d.pricePerLiter != null ? Number(d.pricePerLiter) : undefined,
-                odometer: d.odometer != null ? Number(d.odometer) : undefined,
-                stationTaxId: (d.stationTaxId as string) ?? undefined,
-                taxInvId: (d.taxInvId as string) ?? undefined,
-                refillLocation: (d.refillLocation as string) ?? undefined,
-                note: d.note ?? undefined,
-                category: d.category ?? undefined,
-                description: d.description ?? undefined,
-                status: ((d.status as string) ?? "PENDING") as VehicleExpenseStatus,
-                adminNote: (d.adminNote as string) ?? undefined,
-                createdAt: parseDate(d.createdAt),
-                updatedAt: parseDate(d.updatedAt),
-                receiptPhotoUrl: (d.receiptPhotoUrl as string) ?? undefined,
-                odometerPhotoUrl: (d.odometerPhotoUrl as string) ?? undefined,
-                tollImportSequence: d.tollImportSequence != null ? Number(d.tollImportSequence) : undefined,
-                tollLocation: (d.tollLocation as string) ?? undefined,
-                tollLane: (d.tollLane as string) ?? undefined,
-                tollSourceType: (d.tollSourceType as string) ?? undefined,
-            };
-        });
-    } catch (err) {
-        console.error("Error fetching vehicle expenses:", err);
-        return [];
-    }
-}
-
-export async function getDriversForFilter(): Promise<DriverOption[]> {
-    try {
-        const snapshot = await getDocs(collection(db, COLLECTIONS.DRIVERS));
-        return snapshot.docs.map((docSnap) => {
-            const d = docSnap.data();
-            const name = driverDisplayName(d, docSnap.id);
-            const authId = (d.authId ?? d.authUid) as string | undefined;
-            return { id: authId ?? docSnap.id, name };
-        }).filter((x) => x.name);
-    } catch (err) {
-        console.error("Error fetching drivers:", err);
-        return [];
-    }
-}
-
-export async function getTrucksForFilter(): Promise<TruckOption[]> {
-    try {
-        const snapshot = await getDocs(collection(db, COLLECTIONS.TRUCKS));
-        return snapshot.docs.map((doc) => ({
-            id: doc.id,
-            licensePlate: (doc.data().licensePlate as string) ?? doc.id,
-        })).filter((x) => x.licensePlate);
-    } catch (err) {
-        console.error("Error fetching trucks:", err);
-        return [];
-    }
-}
-
-/** สำหรับ import ค่าผ่านทาง: ดึงคนขับทั้งหมดพร้อม truck จาก currentAssignment (หรือ legacy truckId) */
-export async function getDriversWithTruckAssignments(): Promise<DriverWithTruckAssignment[]> {
-    try {
-        const snapshot = await getDocs(collection(db, COLLECTIONS.DRIVERS));
-        return snapshot.docs.map((docSnap) => {
-            const d = docSnap.data();
-            const name = driverDisplayName(d, docSnap.id);
-            const authId = (d.authId ?? d.authUid) as string | undefined;
-            const filterId = authId ?? docSnap.id;
-            const assignment = d.currentAssignment ?? (Array.isArray(d.currentAssignments) && d.currentAssignments.length > 0 ? d.currentAssignments[0] : null);
-            const truckId = (assignment?.truckId as string | undefined) ?? (d.truckId as string | undefined);
-            return { filterId, name, truckId };
-        }).filter((x) => x.name);
-    } catch (err) {
-        console.error("Error fetching drivers with trucks:", err);
-        return [];
-    }
-}
-
 const BATCH_LIMIT = 450;
-
-function tollImportDescription(row: TollImportRowInput): string {
-    if (row.description?.trim()) return row.description.trim();
-    const parts: string[] = [];
-    if (row.tollSourceType?.trim()) parts.push(row.tollSourceType.trim());
-    if (row.tollLocation?.trim()) parts.push(row.tollLocation.trim());
-    if (row.tollLane?.trim()) parts.push(row.tollLane.trim());
-    return parts.length > 0 ? parts.join(" · ") : "Toll";
-}
-
-/** สร้างรายการค่าผ่านทางแบบ batch (admin import) */
-export async function batchCreateTollExpenseImports(
-    rows: TollImportRowInput[],
-    driverFilterId: string,
-    truckId: string,
-    status: VehicleExpenseStatus = "PENDING"
-): Promise<void> {
-    if (!driverFilterId.trim() || !truckId.trim()) {
-        throw new Error("batchCreateTollExpenseImports: driver and truck required");
-    }
-    const col = collection(db, COLLECTIONS.VEHICLE_EXPENSES);
-    for (let i = 0; i < rows.length; i += BATCH_LIMIT) {
-        const chunk = rows.slice(i, i + BATCH_LIMIT);
-        const batch = writeBatch(db);
-        for (const row of chunk) {
-            const ref = doc(col);
-            const desc = tollImportDescription(row);
-            const payload: Record<string, unknown> = {
-                driverId: driverFilterId.trim(),
-                truckId: truckId.trim(),
-                type: "other",
-                category: "toll",
-                date: Timestamp.fromDate(row.date),
-                amount: Number(row.amount),
-                status,
-                description: desc,
-                createdAt: serverTimestamp(),
-                updatedAt: serverTimestamp(),
-            };
-            if (row.tollImportSequence != null && Number.isFinite(row.tollImportSequence)) {
-                payload.tollImportSequence = row.tollImportSequence;
-            }
-            if (row.tollLocation?.trim()) payload.tollLocation = row.tollLocation.trim();
-            if (row.tollLane?.trim()) payload.tollLane = row.tollLane.trim();
-            if (row.tollSourceType?.trim()) payload.tollSourceType = row.tollSourceType.trim();
-            batch.set(ref, payload);
-        }
-        await batch.commit();
-    }
-}
 
 export async function batchCreateCustomerRateEntries(
     customerId: string,
@@ -588,116 +363,6 @@ export async function updateCustomerFuelRateAdjustment(
         fuelBandThbPerBaht: input.fuelBandThbPerBaht ?? null,
         updatedAt: serverTimestamp(),
     });
-}
-
-/** ดึงรายการ vehicle expenses ทั้ง fuel และ other สำหรับหน้าตรวจสอบ (filter ตาม status ได้) */
-export async function getVehicleExpensesForAudit(statusFilter?: VehicleExpenseStatus | "all"): Promise<VehicleExpenseRow[]> {
-    try {
-        const fuelRows = await getVehicleExpensesByType("fuel");
-        const otherRows = await getVehicleExpensesByType("other");
-        const all = [...fuelRows, ...otherRows].sort((a, b) => (b.date.getTime()) - (a.date.getTime()));
-        if (statusFilter && statusFilter !== "all") {
-            return all.filter((r) => r.status === statusFilter);
-        }
-        return all;
-    } catch (err) {
-        console.error("Error fetching vehicle expenses for audit:", err);
-        return [];
-    }
-}
-
-/** อัปเดตสถานะรายการค่าใช้จ่าย (อนุมัติ/ปฏิเสธ) */
-export async function updateVehicleExpenseStatus(
-    id: string,
-    status: VehicleExpenseStatus,
-    adminNote?: string
-): Promise<void> {
-    const ref = doc(db, COLLECTIONS.VEHICLE_EXPENSES, id);
-    await updateDoc(ref, {
-        status,
-        ...(adminNote != null && adminNote.trim() !== "" ? { adminNote: adminNote.trim() } : {}),
-        updatedAt: serverTimestamp(),
-    });
-}
-
-const BATCH_STATUS_CHUNK = 450;
-
-/** อัปเดตสถานะหลายรายการพร้อมกัน (สูงสุด ~450 รายการต่อ commit ตามขีดจำกัด batch ของ Firestore) */
-export async function batchUpdateVehicleExpenseStatuses(
-    items: { id: string; status: VehicleExpenseStatus; adminNote?: string }[]
-): Promise<void> {
-    if (items.length === 0) return;
-    for (let i = 0; i < items.length; i += BATCH_STATUS_CHUNK) {
-        const chunk = items.slice(i, i + BATCH_STATUS_CHUNK);
-        const batch = writeBatch(db);
-        let ops = 0;
-        for (const u of chunk) {
-            const normalizedId = u.id.trim();
-            if (!normalizedId) continue;
-            const ref = doc(db, COLLECTIONS.VEHICLE_EXPENSES, normalizedId);
-            const payload: Record<string, unknown> = {
-                status: u.status,
-                updatedAt: serverTimestamp(),
-            };
-            if (u.adminNote != null && u.adminNote.trim() !== "") {
-                payload.adminNote = u.adminNote.trim();
-            }
-            batch.update(ref, payload);
-            ops += 1;
-        }
-        if (ops > 0) await batch.commit();
-    }
-}
-
-/** อัปเดตรายการค่าใช้จ่าย (ทุก field ที่แก้ได้) */
-export async function updateVehicleExpense(
-    id: string,
-    data: Partial<{
-        date: Date;
-        amount: number;
-        volumeLiters: number;
-        pricePerLiter: number;
-        odometer: number;
-        distanceKm: number;
-        stationTaxId: string;
-        taxInvId: string;
-        refillLocation: string;
-        note: string;
-        category: string;
-        description: string;
-        status: VehicleExpenseStatus;
-        adminNote: string;
-        truckId: string;
-        truckLicensePlate: string;
-        tollImportSequence: number;
-        tollLocation: string;
-        tollLane: string;
-        tollSourceType: string;
-    }>
-): Promise<void> {
-    const ref = doc(db, COLLECTIONS.VEHICLE_EXPENSES, id);
-    const payload: Record<string, unknown> = { updatedAt: serverTimestamp() };
-    if (data.date != null) payload.date = Timestamp.fromDate(data.date instanceof Date ? data.date : new Date(data.date));
-    if (data.amount != null) payload.amount = Number(data.amount);
-    if (data.volumeLiters != null) payload.volumeLiters = Number(data.volumeLiters);
-    if (data.pricePerLiter != null) payload.pricePerLiter = Number(data.pricePerLiter);
-    if (data.odometer != null) payload.odometer = Number(data.odometer);
-    if (data.distanceKm != null) payload.distanceKm = Number(data.distanceKm);
-    if (data.stationTaxId !== undefined) payload.stationTaxId = data.stationTaxId;
-    if (data.taxInvId !== undefined) payload.taxInvId = data.taxInvId;
-    if (data.refillLocation !== undefined) payload.refillLocation = data.refillLocation;
-    if (data.note !== undefined) payload.note = data.note;
-    if (data.category !== undefined) payload.category = data.category;
-    if (data.description !== undefined) payload.description = data.description;
-    if (data.status != null) payload.status = data.status;
-    if (data.adminNote !== undefined) payload.adminNote = data.adminNote;
-    if (data.truckId !== undefined) payload.truckId = data.truckId;
-    if (data.truckLicensePlate !== undefined) payload.truckLicensePlate = data.truckLicensePlate;
-    if (data.tollImportSequence != null) payload.tollImportSequence = Number(data.tollImportSequence);
-    if (data.tollLocation !== undefined) payload.tollLocation = data.tollLocation;
-    if (data.tollLane !== undefined) payload.tollLane = data.tollLane;
-    if (data.tollSourceType !== undefined) payload.tollSourceType = data.tollSourceType;
-    await updateDoc(ref, payload);
 }
 
 export interface WriteTripBillingInput {
@@ -975,4 +640,272 @@ export interface MissingBillingRow {
     lookupVehicleClass?: string;
     computedRate?: number;
     failureReason?: string;
+}
+
+// ─── Shared trip-row fetcher for Billing Document / Result pages ──────────────
+
+function toBillingDate(val: unknown): Date | undefined {
+    if (!val) return undefined;
+    if (val instanceof Date) return val;
+    if (typeof (val as { toDate?: () => Date }).toDate === "function") {
+        return (val as { toDate: () => Date }).toDate();
+    }
+    return undefined;
+}
+
+/** Extra keys so billing destination codes (e.g. SPK890103) resolve to hub rows whose source_id includes a Thai suffix. */
+function extraDestinationLookupKeys(sourceId: string): string[] {
+    const u = sourceId.trim().toUpperCase();
+    const norm = normalizeDestinationCode(sourceId);
+    if (!norm || norm === u) return [];
+    if (/^SPK-[A-Z0-9]+$/.test(u)) return [];
+    return [norm];
+}
+
+/**
+ * Fetch billed trip/standby/multidrop-stop rows for one customer + period, resolved to
+ * display-ready `BillingTripRow[]` (driver names, hub display names, origin codes). Used
+ * by the Billing Document page (initial download) and the Billing Result page (redownload,
+ * issue receipt) so both always regenerate from the same real data instead of an empty array.
+ */
+export async function fetchBillingTripRows(
+    customerId: string | "all",
+    period: { month: number; year: number }
+): Promise<BillingTripRow[]> {
+    const start = new Date(period.year, period.month - 1, 1);
+    const end = new Date(period.year, period.month, 1);
+
+    // ── Hub display-name / code maps (rebuilt per call — same shape as billing-document page) ──
+    const hubNameMap = new Map<string, string>();
+    const hubCodeMap = new Map<string, string>();
+    const hubsSnap = await getDocs(collection(db, COLLECTIONS.HUBS));
+    hubsSnap.forEach((d) => {
+        const data = d.data();
+        const label = billingHubLabelFromFirestoreData(data);
+        const sourceId = String(data.source_id ?? data.hubId ?? data.hubCode ?? "").trim();
+        if (data.source_id) hubNameMap.set(String(data.source_id).trim().toUpperCase(), label);
+        if (data.hubId) hubNameMap.set(String(data.hubId).trim().toUpperCase(), label);
+        if (data.hubCode) hubNameMap.set(String(data.hubCode).trim().toUpperCase(), label);
+        for (const extra of extraDestinationLookupKeys(sourceId)) hubNameMap.set(extra, label);
+        hubNameMap.set(d.id, label);
+        hubNameMap.set(d.id.toUpperCase(), label);
+
+        if (sourceId) {
+            const codeKey = sourceId.toUpperCase();
+            hubCodeMap.set(codeKey, sourceId);
+            hubCodeMap.set(label.trim().toUpperCase(), sourceId);
+            for (const nameField of [data.source_name_en, data.source_name_th, data.hubName, data.hubTHName]) {
+                const name = typeof nameField === "string" ? nameField.trim() : "";
+                if (name) hubCodeMap.set(name.toUpperCase(), sourceId);
+            }
+            hubCodeMap.set(d.id.toUpperCase(), sourceId);
+        }
+    });
+
+    const resolveDisplayName = (code: string | undefined): string => {
+        if (!code) return "-";
+        const trimmed = code.trim();
+        if (!trimmed) return "-";
+        const upper = trimmed.toUpperCase();
+        if (hubNameMap.get(upper)) return hubNameMap.get(upper)!;
+        if (trimmed !== upper && hubNameMap.get(trimmed)) return hubNameMap.get(trimmed)!;
+        const norm = normalizeDestinationCode(trimmed);
+        if (norm && norm !== upper && hubNameMap.get(norm)) return hubNameMap.get(norm)!;
+        const socKey = normalizeSocIdToKey(upper);
+        if (socKey && (SOC_DESTINATIONS as Record<string, string>)[socKey]) {
+            return (SOC_DESTINATIONS as Record<string, string>)[socKey];
+        }
+        return trimmed;
+    };
+
+    const resolveHubCode = (value: string | undefined): string => {
+        const trimmed = (value ?? "").trim();
+        if (!trimmed) return trimmed;
+        return hubCodeMap.get(trimmed.toUpperCase()) ?? trimmed;
+    };
+
+    // ── trip_records + standby_records for this customer (or all) + period ───────
+    const tripConstraints = [
+        where("status", "==", "delivered"),
+        where("deliveredTimestamp", ">=", Timestamp.fromDate(start)),
+        where("deliveredTimestamp", "<", Timestamp.fromDate(end)),
+    ];
+    if (customerId !== "all") tripConstraints.push(where("billingCustomerId", "==", customerId));
+    const tripSnap = await getDocsFromServer(
+        query(collection(db, COLLECTIONS.TRIP_RECORDS), ...tripConstraints)
+    );
+
+    let standbySnap: QuerySnapshot<DocumentData> | null = null;
+    try {
+        standbySnap = await getDocsFromServer(
+            query(
+                collection(db, COLLECTIONS.STANDBY_RECORDS),
+                where("status", "==", "completed"),
+                where("endedAt", ">=", Timestamp.fromDate(start)),
+                where("endedAt", "<", Timestamp.fromDate(end))
+            )
+        );
+    } catch (e) {
+        console.warn("[fetchBillingTripRows] standby_records query failed (index may be building):", e);
+    }
+
+    // ── Batch-fetch linked tasks (driverName/licensePlate/customer denormalized) ──
+    type TaskInfo = { truckType?: string; driverName?: string; driverPhone?: string; truckLicensePlate?: string; sourceHub?: string; destination?: string };
+    const taskMap = new Map<string, TaskInfo>();
+    const taskIds = new Set<string>();
+    tripSnap.forEach((d) => { const tid = d.data().taskId; if (tid) taskIds.add(tid); });
+    standbySnap?.forEach((d) => { const tid = d.data().taskId; if (tid) taskIds.add(tid); });
+
+    const allTaskIds = Array.from(taskIds);
+    const taskIdChunks: string[][] = [];
+    for (let i = 0; i < allTaskIds.length; i += 30) taskIdChunks.push(allTaskIds.slice(i, i + 30));
+    await Promise.allSettled(taskIdChunks.map(async (chunk) => {
+        const taskSnap = await getDocs(query(collection(db, COLLECTIONS.TASKS), where(documentId(), "in", chunk)));
+        taskSnap.forEach((taskDoc) => {
+            const t = taskDoc.data();
+            taskMap.set(taskDoc.id, {
+                truckType: t.truckType,
+                driverName: t.driverName,
+                driverPhone: t.driverPhone,
+                truckLicensePlate: t.licensePlate,
+                sourceHub: t.sourceHub,
+                destination: t.destination,
+            });
+        });
+    }));
+
+    // ── Drivers: resolve names to Thai + subcontractor name ───────────────────────
+    const driverNameByKey = new Map<string, string>();
+    const driverSubByKey = new Map<string, string>();
+    try {
+        const driversSnap = await getDocs(collection(db, COLLECTIONS.DRIVERS));
+        driversSnap.forEach((ds) => {
+            const dd = ds.data();
+            const name = driverDisplayName(dd, ds.id);
+            const sub = (dd.subcontractorName as string | undefined)?.trim();
+            driverNameByKey.set(ds.id, name);
+            if (sub) driverSubByKey.set(ds.id, sub);
+            const authId = (dd.authId ?? dd.authUid) as string | undefined;
+            if (authId) {
+                driverNameByKey.set(authId, name);
+                if (sub) driverSubByKey.set(authId, sub);
+            }
+        });
+    } catch (e) {
+        console.warn("[fetchBillingTripRows] failed to load drivers for Thai name resolution:", e);
+    }
+    const resolveDriverName = (driverId: unknown, fallback?: string): string | undefined => {
+        const key = String(driverId ?? "").trim();
+        return (key && driverNameByKey.get(key)) || fallback;
+    };
+    const resolveSubcontractor = (driverId: unknown): string | undefined => {
+        const key = String(driverId ?? "").trim();
+        return key ? driverSubByKey.get(key) : undefined;
+    };
+
+    const rows: BillingTripRow[] = [];
+
+    tripSnap.forEach((d) => {
+        const data = d.data();
+        if (!Number(data.billingEstimateThb)) return; // skip no-billing trips
+
+        const taskInfo = data.taskId ? taskMap.get(data.taskId) : undefined;
+        const hubId = data.billingLookupHubId ?? "";
+
+        if (data.billingIsMultiDelivery && Array.isArray(data.billingMultiDeliveryBreakdown) && data.billingMultiDeliveryBreakdown.length > 0) {
+            for (const stop of data.billingMultiDeliveryBreakdown as { stopIndex: number; destination: string; baseRateThb: number; finalRateThb: number }[]) {
+                if (!stop.finalRateThb) continue;
+                const destCode = stop.destination ?? "";
+                rows.push({
+                    id: `${d.id}_s${stop.stopIndex}`,
+                    taskId: data.taskId,
+                    spxTripId: data.spxTripId ? `${data.spxTripId}-s${stop.stopIndex}` : undefined,
+                    deliveredTimestamp: toBillingDate(data.deliveredTimestamp),
+                    billingEstimateThb: stop.finalRateThb,
+                    billingBaseRateThb: stop.baseRateThb || undefined,
+                    billingLookupHubId: hubId,
+                    billingLookupDestination: destCode,
+                    billingCustomerId: data.billingCustomerId,
+                    vehicleClass: taskInfo?.truckType,
+                    driverName: resolveDriverName(data.driverId, taskInfo?.driverName),
+                    driverPhone: taskInfo?.driverPhone,
+                    subcontractorName: resolveSubcontractor(data.driverId),
+                    jobCategory: data.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
+                    truckLicensePlate: taskInfo?.truckLicensePlate,
+                    hubDisplayName: resolveDisplayName(hubId),
+                    originHubCode: resolveHubCode(hubId || (taskInfo?.sourceHub as string | undefined) || ""),
+                    destinationDisplayName: resolveDisplayName(destCode),
+                    rowType: "multidrop_stop",
+                    stopIndex: stop.stopIndex,
+                });
+            }
+            return;
+        }
+
+        const dest = data.billingLookupDestination ?? "";
+        rows.push({
+            id: d.id,
+            taskId: data.taskId,
+            spxTripId: data.spxTripId,
+            deliveredTimestamp: toBillingDate(data.deliveredTimestamp),
+            billingEstimateThb: Number(data.billingEstimateThb),
+            billingBaseRateThb: Number(data.billingBaseRateThb) || undefined,
+            billingLookupHubId: hubId,
+            billingLookupDestination: dest,
+            billingRateMultiplier: Number(data.billingRateMultiplier) || undefined,
+            billingAddThbPerTrip: Number(data.billingAddThbPerTrip) || undefined,
+            billingCustomerId: data.billingCustomerId,
+            vehicleClass: taskInfo?.truckType,
+            driverName: resolveDriverName(data.driverId, taskInfo?.driverName),
+            driverPhone: taskInfo?.driverPhone,
+            subcontractorName: resolveSubcontractor(data.driverId),
+            jobCategory: data.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
+            truckLicensePlate: taskInfo?.truckLicensePlate,
+            hubDisplayName: resolveDisplayName(hubId),
+            originHubCode: resolveHubCode(hubId || (taskInfo?.sourceHub as string | undefined) || ""),
+            destinationDisplayName: resolveDisplayName(dest),
+            rowType: "trip",
+        });
+    });
+
+    standbySnap?.forEach((d) => {
+        const data = d.data();
+        const billingAmt = Number(data.billingEstimateThb);
+        if (!billingAmt) return;
+
+        const cid = (data.billingCustomerId as string | undefined)?.trim() || undefined;
+        if (customerId !== "all" && cid !== customerId) return;
+
+        const taskInfo = data.taskId ? taskMap.get(data.taskId) : undefined;
+
+        rows.push({
+            id: d.id,
+            taskId: data.taskId ?? undefined,
+            spxTripId: (data.spxTripId as string | undefined)
+                ?? (data.migratedFromSpxTripId as string | undefined)
+                ?? (data.migratedFromTripId as string | undefined)
+                ?? undefined,
+            deliveredTimestamp: toBillingDate(data.endedAt) ?? toBillingDate(data.startedAt) ?? undefined,
+            billingEstimateThb: billingAmt,
+            billingCustomerId: cid,
+            vehicleClass: taskInfo?.truckType,
+            driverName: resolveDriverName(data.driverId, taskInfo?.driverName),
+            driverPhone: taskInfo?.driverPhone,
+            subcontractorName: resolveSubcontractor(data.driverId),
+            truckLicensePlate: taskInfo?.truckLicensePlate,
+            hubDisplayName: resolveDisplayName(
+                (taskInfo?.sourceHub as string | undefined) ?? (data.startLocation as string | undefined)
+            ),
+            originHubCode: resolveHubCode(
+                (taskInfo?.sourceHub as string | undefined) ?? (data.startLocation as string | undefined) ?? ""
+            ),
+            destinationDisplayName: resolveDisplayName(
+                (taskInfo?.destination as string | undefined) ?? (data.endLocation as string | undefined)
+            ),
+            rowType: "standby",
+        });
+    });
+
+    rows.sort((a, b) => (a.deliveredTimestamp?.getTime() ?? 0) - (b.deliveredTimestamp?.getTime() ?? 0));
+    return rows;
 }

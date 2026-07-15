@@ -41,7 +41,9 @@ import { useLanguage } from "@/context/language";
 import { useLineHaulTask } from "../hooks/useLineHaulTask";
 import DeliveryStopsEditor from "./DeliveryStopsEditor";
 import { HelperDriverField } from "./HelperDriverField";
-import { Task as FirstMileTask } from "@/validate/taskSchema";
+import { TruckPlateField } from "./TruckPlateField";
+import { taskTruckTypeFromTruckDoc } from "@/lib/truckType";
+import { Task as FirstMileTask, TASK_TRUCK_TYPE_ENUM } from "@/validate/taskSchema";
 
 export interface LineHaulTaskDialogProps {
     mode: "create" | "edit";
@@ -379,31 +381,60 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                             />
                         )}
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {/* Truck Type */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            {/* Truck Type — narrows the plate list below. */}
                             <FormField
                                 control={form.control}
                                 name="truckType"
                                 render={({ field }) => (
                                     <FormItem>
                                         <FormLabel>Truck Type</FormLabel>
-                                        <Select onValueChange={field.onChange} value={field.value ?? "PICKUP"}>
+                                        <Select
+                                            onValueChange={(val) => {
+                                                field.onChange(val);
+                                                // Drop a plate that no longer matches the type, so the two never disagree.
+                                                const picked = trucks.find((truck) => truck.id === form.getValues("truckId"));
+                                                if (picked && taskTruckTypeFromTruckDoc(picked.type) !== val) {
+                                                    form.setValue("truckId", "");
+                                                    form.setValue("licensePlate", "");
+                                                }
+                                            }}
+                                            value={field.value ?? "4W"}
+                                        >
                                             <FormControl>
                                                 <SelectTrigger>
                                                     <SelectValue placeholder="Select Truck Type" />
                                                 </SelectTrigger>
                                             </FormControl>
                                             <SelectContent className="z-[1005]" position="popper">
-                                                <SelectItem value="PICKUP">Pickup</SelectItem>
-                                                <SelectItem value="4WJ">4WJ</SelectItem>
-                                                <SelectItem value="6WH">6WH</SelectItem>
-                                                <SelectItem value="10WH">10WH</SelectItem>
-                                                <SelectItem value="18WH">18WH</SelectItem>
-                                                <SelectItem value="VAN">Van</SelectItem>
+                                                {TASK_TRUCK_TYPE_ENUM.map((truckType) => (
+                                                    <SelectItem key={truckType} value={truckType}>{truckType}</SelectItem>
+                                                ))}
                                             </SelectContent>
                                         </Select>
                                         <FormMessage />
                                     </FormItem>
+                                )}
+                            />
+
+                            {/* License plate — the actual vehicle for this job, picked from the fleet. */}
+                            <FormField
+                                control={form.control}
+                                name="truckId"
+                                render={({ field }) => (
+                                    <TruckPlateField
+                                        trucks={trucks}
+                                        truckType={watchedTruckType}
+                                        value={field.value}
+                                        licensePlate={form.watch("licensePlate")}
+                                        onSelect={(truck) => {
+                                            field.onChange(truck.id);
+                                            form.setValue("licensePlate", truck.licensePlate ?? "");
+                                            // Re-derive the class from the truck doc — billing reads truckType.
+                                            const derived = taskTruckTypeFromTruckDoc(truck.type);
+                                            if (derived) form.setValue("truckType", derived);
+                                        }}
+                                    />
                                 )}
                             />
 
@@ -425,7 +456,7 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
 
                         <div className="border-t pt-2 mt-2">
                             <h3 className="text-sm font-medium mb-3">Driver Info</h3>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <FormField
                                     control={form.control}
                                     name="driverName"
@@ -438,7 +469,6 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                                         field.onChange("");
                                                         form.setValue("driverId", "");
                                                         form.setValue("driverPhone", "");
-                                                        form.setValue("licensePlate", "");
                                                         return;
                                                     }
                                                     const selectedDriver = drivers.find(d => d.id === val);
@@ -446,8 +476,15 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                                         field.onChange(`${selectedDriver.firstName} ${selectedDriver.lastName}`);
                                                         form.setValue("driverId", selectedDriver.id);
                                                         form.setValue("driverPhone", selectedDriver.mobile || "");
-                                                        if (selectedDriver.currentAssignment?.truckPlate) {
-                                                            form.setValue("licensePlate", selectedDriver.currentAssignment.truckPlate);
+                                                        // The driver's home truck is a DEFAULT only — it never overrides a
+                                                        // plate already picked for this job, and never filters this list.
+                                                        const home = selectedDriver.currentAssignment;
+                                                        if (home?.truckId && !form.getValues("truckId")) {
+                                                            const homeTruck = trucks.find((truck) => truck.id === home.truckId);
+                                                            const derived = taskTruckTypeFromTruckDoc(homeTruck?.type);
+                                                            form.setValue("truckId", home.truckId);
+                                                            form.setValue("licensePlate", home.truckPlate ?? homeTruck?.licensePlate ?? "");
+                                                            if (derived) form.setValue("truckType", derived);
                                                         }
                                                     } else {
                                                         field.onChange(val);
@@ -464,45 +501,21 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                                 </FormControl>
                                                 <SelectContent className="z-[1005]" position="popper">
                                                     <SelectItem value="__none__">Select Driver</SelectItem>
-                                                    {(() => {
-                                                        const getMappedTruckType = (fmType: string) => {
-                                                            if (fmType === "4WH" || fmType === "4WJ") return "4 Wheels Jumbo";
-                                                            if (fmType === "6WH") return "6 Wheels";
-                                                            if (fmType === "10WH") return "10 Wheels";
-                                                            if (fmType === "18WH") return "18 Wheels";
-                                                            if (fmType === "PICKUP") return "Pickup";
-                                                            if (fmType === "VAN") return "Van";
-                                                            return fmType;
-                                                        };
-                                                        const filtered = drivers.filter(driver => {
-                                                            if (!watchedTruckType) return true;
-                                                            const targetType = getMappedTruckType(watchedTruckType);
-                                                            const assignedTruckId = driver.currentAssignment?.truckId;
-                                                            if (!assignedTruckId) return false;
-                                                            const truck = trucks.find(t => t.id === assignedTruckId);
-                                                            if (!truck) return false;
-                                                            if (targetType === "4 Wheels Jumbo") {
-                                                                return truck.type === "4 Wheels" || truck.type === "4 Wheels Jumbo";
-                                                            }
-                                                            return truck.type === targetType;
-                                                        });
-                                                        const list = mode === "edit" && filtered.length === 0 ? drivers : filtered;
-                                                        return list.map((driver) => {
-                                                            const isActive = driver.id ? activeTaskDriverIds.has(driver.id) : false;
-                                                            return (
-                                                                <SelectItem key={driver.id} value={driver.id || "unknown"}>
-                                                                    <span className="flex items-center gap-2">
-                                                                        {driver.firstName} {driver.lastName}
-                                                                        {isActive && (
-                                                                            <span className="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full font-medium">
-                                                                                {t("firstMile.task.driverOnRun")}
-                                                                            </span>
-                                                                        )}
-                                                                    </span>
-                                                                </SelectItem>
-                                                            );
-                                                        });
-                                                    })()}
+                                                    {drivers.map((driver) => {
+                                                        const isActive = driver.id ? activeTaskDriverIds.has(driver.id) : false;
+                                                        return (
+                                                            <SelectItem key={driver.id} value={driver.id || "unknown"}>
+                                                                <span className="flex items-center gap-2">
+                                                                    {driver.firstName} {driver.lastName}
+                                                                    {isActive && (
+                                                                        <span className="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full font-medium">
+                                                                            {t("firstMile.task.driverOnRun")}
+                                                                        </span>
+                                                                    )}
+                                                                </span>
+                                                            </SelectItem>
+                                                        );
+                                                    })}
                                                 </SelectContent>
                                             </Select>
                                             <FormMessage />
@@ -517,19 +530,6 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                             <FormLabel>Phone</FormLabel>
                                             <FormControl>
                                                 <Input placeholder="09xxxxxxx" {...field} readOnly className="bg-muted" />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                                <FormField
-                                    control={form.control}
-                                    name="licensePlate"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>License Plate</FormLabel>
-                                            <FormControl>
-                                                <Input placeholder="e.g. 1กก-1234" {...field} readOnly className="bg-muted" />
                                             </FormControl>
                                             <FormMessage />
                                         </FormItem>

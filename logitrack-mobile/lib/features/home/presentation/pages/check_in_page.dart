@@ -10,8 +10,11 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../data/repositories/task_repository.dart';
 import '../../data/repositories/checkin_repository.dart';
 import '../../data/repositories/trip_records_repository.dart';
+import '../../data/repositories/driver_repository.dart';
+import '../../data/repositories/trucks_repository.dart';
 import '../../data/services/draft_storage_service.dart';
 import '../../data/repositories/hubs_repository.dart';
+import '../../../../components/truck_picker_field.dart';
 import '../../../../core/presentation/widgets/searchable_hub_picker.dart';
 
 enum TaskFilter { all, fm, lh }
@@ -729,8 +732,15 @@ class _TaskCheckInPageState extends State<TaskCheckInPage> {
 
   // Driver data (fetched once)
   Map<String, dynamic>? _driverData;
-  Map<String, dynamic>? _assignedTruck;
-  String _truckType = '';
+
+  // The truck for THIS job. Defaults to the truck the admin put on the task; the driver may
+  // correct it here if they actually took a different vehicle — they are responsible for the
+  // truck they confirm, for this job only (it does not re-bind them to it).
+  final _trucksRepository = TrucksRepository();
+  final _driverRepository = DriverRepository();
+  List<SelectableTruck> _selectableTrucks = [];
+  SelectableTruck? _selectedTruck;
+  bool _trucksLoading = true;
 
   // Helper selection (main driver picks helpers who train/assist on this job)
   List<Map<String, String>> _allDrivers = [];
@@ -841,26 +851,55 @@ class _TaskCheckInPageState extends State<TaskCheckInPage> {
           .collection('drivers')
           .doc(widget.driverId)
           .get();
-      if (drvDoc.exists) {
-        _driverData = drvDoc.data();
-        final truckId = _driverData?['currentAssignment']?['truckId'];
-        if (truckId != null) {
-          final truckDoc = await FirebaseFirestore.instance
-              .collection('trucks')
-              .doc(truckId)
-              .get();
-          if (truckDoc.exists) _assignedTruck = truckDoc.data();
-          final tt = _assignedTruck?['type'] as String? ?? '';
-          _truckType = _truckTypeMap[tt] ?? tt;
-          if (_truckType.isEmpty) _truckType = '-';
-        }
-      }
-    } catch (_) {}
+      if (drvDoc.exists) _driverData = drvDoc.data();
+      await _loadTrucks();
+    } catch (_) {
+      if (mounted) setState(() => _trucksLoading = false);
+    }
 
     // Open camera right away
     if (mounted && !_cameraOpened) {
       _cameraOpened = true;
       _openCamera();
+    }
+  }
+
+  /// Loads the trucks this driver may run and preselects the one for this job.
+  ///
+  /// Order matters: the TASK's truck wins. The driver's home binding is only a fallback for
+  /// legacy tasks created before the vehicle was chosen at assign time.
+  Future<void> _loadTrucks() async {
+    try {
+      final fleet = await _trucksRepository.fetchSelectableTrucks(
+        subcontractorId: _driverData?['subcontractorId'] as String?,
+      );
+
+      final taskTruckId = (widget.taskData['truckId'] as String? ?? '').trim();
+      final homeTruckId =
+          (_driverData?['currentAssignment']?['truckId'] as String? ?? '').trim();
+      final wantedId = taskTruckId.isNotEmpty ? taskTruckId : homeTruckId;
+
+      SelectableTruck? preselected;
+      if (wantedId.isNotEmpty) {
+        for (final truck in fleet) {
+          if (truck.id == wantedId) {
+            preselected = truck;
+            break;
+          }
+        }
+        // The task's truck may sit outside this driver's company list (admin override) —
+        // still show it as the default rather than silently dropping the admin's choice.
+        preselected ??= await _trucksRepository.fetchTruck(wantedId);
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _selectableTrucks = fleet;
+        _selectedTruck = preselected;
+        _trucksLoading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _trucksLoading = false);
     }
   }
 
@@ -963,25 +1002,50 @@ class _TaskCheckInPageState extends State<TaskCheckInPage> {
     return widget.taskData['driverName'] as String? ?? '-';
   }
 
-  String get _licensePlate {
-    return _driverData?['currentAssignment']?['truckPlate'] as String? ??
-        widget.taskData['licensePlate'] as String? ??
-        '-';
+  /// The class of the truck confirmed for THIS job (the picker below shows the plate itself).
+  /// Never the driver's home binding — they may be running a different vehicle today.
+  String get _truckType {
+    final confirmed = _selectedTruck?.taskTruckType;
+    if (confirmed != null && confirmed.isNotEmpty) return confirmed;
+    final fromTask = (widget.taskData['truckType'] as String? ?? '').trim();
+    return fromTask.isNotEmpty ? fromTask : '-';
   }
 
   String get _truckModel {
-    return _driverData?['currentAssignment']?['truckModel'] as String? ??
-        _assignedTruck?['model'] as String? ??
-        '-';
+    final model = _selectedTruck?.model;
+    return (model != null && model.isNotEmpty) ? model : '-';
   }
 
   Future<void> _submit() async {
     if (_photoBytes == null) return;
 
+    final truck = _selectedTruck;
+    if (truck == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('truck_required'.tr()),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
     setState(() => _submitting = true);
     try {
       final position = await getCurrentPosition();
       final timestamp = DateTime.now();
+
+      // Stamp the confirmed truck onto the task before checking in: the loading phase reads the
+      // truck from the task, so this is what ends up on the trip record and on billing.
+      await FirebaseFirestore.instance
+          .collection('tasks')
+          .doc(widget.taskId)
+          .update({
+        'truckId': truck.id,
+        'licensePlate': truck.licensePlate,
+        if (truck.taskTruckType != null) 'truckType': truck.taskTruckType,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
 
       await submitCheckIn(
         taskId: widget.taskId,
@@ -992,6 +1056,19 @@ class _TaskCheckInPageState extends State<TaskCheckInPage> {
         helperDriverIds: _selectedHelperIds.isEmpty ? null : _selectedHelperIds.toList(),
       );
       await DraftStorageService.instance.saveActiveCheckInTaskId(widget.taskId);
+
+      // "The truck I'm responsible for right now" — drives the fuel/expense forms and the
+      // maintenance rule. Non-fatal: the task already carries the truck.
+      try {
+        await _driverRepository.setActiveTruck(
+          driverId: widget.driverId,
+          truckId: truck.id,
+          truckPlate: truck.licensePlate,
+          taskId: widget.taskId,
+        );
+      } catch (e) {
+        debugPrint('setActiveTruck failed (non-fatal): $e');
+      }
 
       if (mounted) {
         // Blocking confirmation — must be acknowledged before we pop, so a successful
@@ -1108,13 +1185,7 @@ class _TaskCheckInPageState extends State<TaskCheckInPage> {
                   _previewRow(
                     Icons.local_shipping,
                     'checkin_truck_type'.tr(),
-                    _truckType.isNotEmpty ? '$_truckType ($_truckModel)' : '-',
-                  ),
-                  const Divider(height: 20),
-                  _previewRow(
-                    Icons.credit_card,
-                    'checkin_license_plate'.tr(),
-                    _licensePlate,
+                    _truckType != '-' ? '$_truckType ($_truckModel)' : '-',
                   ),
                   const Divider(height: 20),
                   _previewRow(Icons.person, 'checkin_driver'.tr(), _driverName),
@@ -1125,6 +1196,23 @@ class _TaskCheckInPageState extends State<TaskCheckInPage> {
                     DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now()),
                   ),
                 ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Truck for this job — defaults to the truck the admin assigned; the driver confirms
+          // it, or corrects it if they actually took a different vehicle.
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: TruckPickerField(
+                trucks: _selectableTrucks,
+                selected: _selectedTruck,
+                loading: _trucksLoading,
+                enabled: !_submitting,
+                onChanged: (truck) => setState(() => _selectedTruck = truck),
               ),
             ),
           ),
@@ -1369,16 +1457,7 @@ class _TaskCheckInPageState extends State<TaskCheckInPage> {
   }
 }
 
-/// Truck type mapping: Firestore trucks.type → task abbreviation
-const _truckTypeMap = <String, String>{
-  'Pickup': 'PICKUP',
-  '4 Wheels': '4WJ',
-  '4 Wheels Jumbo': '4WJ',
-  '6 Wheels': '6WH',
-  '10 Wheels': '10WH',
-  '18 Wheels': '18WH',
-  'Van': 'VAN',
-};
+// Truck type mapping lives in core/utils/truck_type.dart (shared with the web helper).
 
 enum _CheckInStep { form, preview }
 
@@ -1403,14 +1482,21 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
 
   String? _origin;
   String? _dest;
-  String _truckType = '';
   bool _loading = true;
   bool _submitting = false;
 
   List<HubDoc> _socs = [];
   List<HubDoc> _hubs = [];
   Map<String, dynamic>? _driverData;
-  Map<String, dynamic>? _assignedTruck;
+
+  // The driver picks the truck for the job they are creating. Defaults to their home truck when
+  // they have one, but it is required — a self-created task with no real truck would bill against
+  // the wrong vehicle class.
+  final _trucksRepository = TrucksRepository();
+  final _driverRepository = DriverRepository();
+  List<SelectableTruck> _selectableTrucks = [];
+  SelectableTruck? _selectedTruck;
+  bool _trucksLoading = true;
 
   // Photo data for preview
   Uint8List? _photoBytes;
@@ -1574,20 +1660,8 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
           .collection('drivers')
           .doc(widget.driverId)
           .get();
-      if (drvDoc.exists) {
-        _driverData = drvDoc.data();
-        final truckId = _driverData?['currentAssignment']?['truckId'];
-        if (truckId != null) {
-          final truckDoc = await FirebaseFirestore.instance
-              .collection('trucks')
-              .doc(truckId)
-              .get();
-          if (truckDoc.exists) _assignedTruck = truckDoc.data();
-          final tt = _assignedTruck?['type'] as String? ?? '';
-          _truckType = _truckTypeMap[tt] ?? tt;
-          if (_truckType.isEmpty) _truckType = 'PICKUP';
-        }
-      }
+      if (drvDoc.exists) _driverData = drvDoc.data();
+      await _loadTrucks();
 
       final all = await fetchAllHubs();
 
@@ -1611,26 +1685,61 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
     }
   }
 
+  /// Trucks the driver may run, defaulting to their home truck when they have one.
+  Future<void> _loadTrucks() async {
+    try {
+      final fleet = await _trucksRepository.fetchSelectableTrucks(
+        subcontractorId: _driverData?['subcontractorId'] as String?,
+      );
+      final homeTruckId =
+          (_driverData?['currentAssignment']?['truckId'] as String? ?? '').trim();
+
+      SelectableTruck? preselected;
+      for (final truck in fleet) {
+        if (truck.id == homeTruckId) {
+          preselected = truck;
+          break;
+        }
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _selectableTrucks = fleet;
+        _selectedTruck = preselected;
+        _trucksLoading = false;
+      });
+    } catch (e) {
+      debugPrint('Error loading trucks: $e');
+      if (mounted) setState(() => _trucksLoading = false);
+    }
+  }
+
   String get _driverName {
     return '${_driverData?['firstName'] ?? ''} ${_driverData?['lastName'] ?? ''}'
         .trim();
   }
 
-  String get _licensePlate {
-    return _driverData?['currentAssignment']?['truckPlate'] as String? ?? '-';
-  }
+  String get _licensePlate => _selectedTruck?.licensePlate ?? '-';
 
-  String get _truckModel {
-    return _driverData?['currentAssignment']?['truckModel'] as String? ??
-        _assignedTruck?['model'] as String? ??
-        '-';
-  }
+  String get _truckType => _selectedTruck?.taskTruckType ?? '-';
+
+  String get _truckModel => _selectedTruck?.model ?? '-';
 
   Future<void> _takePhotoAndPreview() async {
     if (_origin == null || _dest == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('checkin_select_origin_dest'.tr()),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+    // Without a real truck the task would bill against a guessed vehicle class.
+    if (_selectedTruck == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('truck_required'.tr()),
           backgroundColor: Colors.orange,
         ),
       );
@@ -1681,6 +1790,9 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
   Future<void> _submit() async {
     if (_origin == null || _dest == null || _photoBytes == null) return;
 
+    final truck = _selectedTruck;
+    if (truck == null) return; // guarded at _takePhotoAndPreview, re-checked before the write
+
     setState(() => _submitting = true);
     try {
       final now = DateTime.now();
@@ -1722,11 +1834,14 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
         'destination': _dest,
         'sourceHub': _origin,
         'status': 'Pending',
-        'truckType': _truckType,
+        // The truck the driver picked for this job — a real fleet truck, so billing resolves the
+        // right vehicle class and the trip record carries a usable truckId.
+        'truckId': truck.id,
+        'licensePlate': truck.licensePlate,
+        if (truck.taskTruckType != null) 'truckType': truck.taskTruckType,
         'driverId': widget.driverId,
         'driverName': _driverName,
         'driverPhone': _driverData?['mobile'] ?? '',
-        'licensePlate': _licensePlate,
         'runOrder': runOrder,
         ...hubLinkFields,
       });
@@ -1741,6 +1856,19 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
         helperDriverIds: _selectedHelperIds.isEmpty ? null : _selectedHelperIds.toList(),
       );
       await DraftStorageService.instance.saveActiveCheckInTaskId(docRef.id);
+
+      // "The truck I'm responsible for right now" — drives the fuel/expense forms and the
+      // maintenance rule. Non-fatal: the task already carries the truck.
+      try {
+        await _driverRepository.setActiveTruck(
+          driverId: widget.driverId,
+          truckId: truck.id,
+          truckPlate: truck.licensePlate,
+          taskId: docRef.id,
+        );
+      } catch (e) {
+        debugPrint('setActiveTruck failed (non-fatal): $e');
+      }
 
       if (mounted) {
         // Blocking confirmation — must be acknowledged before we pop, so a successful
@@ -1836,22 +1964,30 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
                               : 'checkin_driver'.tr(),
                           style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '${'checkin_license_plate'.tr()}: $_licensePlate',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                        if (_truckType.isNotEmpty)
+                        if (_truckType != '-') ...[
+                          const SizedBox(height: 2),
                           Text(
                             '${'checkin_truck_type'.tr()}: $_truckType ($_truckModel)',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
+                        ],
                       ],
                     ),
                   ),
                 ],
               ),
             ),
+          ),
+          const SizedBox(height: 16),
+
+          // Truck for this job — required. The driver is responsible for the truck they pick,
+          // for this job only; it does not bind them to it.
+          TruckPickerField(
+            trucks: _selectableTrucks,
+            selected: _selectedTruck,
+            loading: _trucksLoading,
+            enabled: !_submitting,
+            onChanged: (truck) => setState(() => _selectedTruck = truck),
           ),
           const SizedBox(height: 24),
 

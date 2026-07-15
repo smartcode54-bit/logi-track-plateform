@@ -333,7 +333,9 @@ export default function DriverMonitorDashboard() {
         if (trip?.truckLicensePlate) return trip.truckLicensePlate;
         if (!driverId) return "-";
         const driver = getDriver(driverId);
-        return driver?.currentAssignment?.truckPlate ?? "-";
+        // Fall back to the truck the driver is running RIGHT NOW, never to their home binding:
+        // currentAssignment would restamp a historical row with today's truck.
+        return driver?.activeTruck?.truckPlate ?? "-";
     };
 
     const openShareLinePreview = async () => {

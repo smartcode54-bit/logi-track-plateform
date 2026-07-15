@@ -2,10 +2,43 @@ import { describe, expect, it } from "vitest";
 import {
     computeFinalRateThb,
     computeTripBillingFromParts,
+    normalizeVehicleClass,
     selectFuelAdjustmentForBillingDate,
     type BillingRateEntry,
     type FuelRateAdjustment,
 } from "./billingCompute";
+
+describe("normalizeVehicleClass", () => {
+    it("folds the truck master's names onto the class a task carries", () => {
+        expect(normalizeVehicleClass("Pickup")).toBe("4W");
+        expect(normalizeVehicleClass("4 Wheels Jumbo")).toBe("4WJ");
+        expect(normalizeVehicleClass("6 Wheels")).toBe("6WH");
+        expect(normalizeVehicleClass("10 Wheels")).toBe("10WH");
+        expect(normalizeVehicleClass("18 Wheels")).toBe("18WH");
+    });
+
+    it("folds the codes an earlier normalize pass produced", () => {
+        // These matched no task: the enum has 6WH/10WH, never 6W/10W.
+        expect(normalizeVehicleClass("6W")).toBe("6WH");
+        expect(normalizeVehicleClass("10W")).toBe("10WH");
+    });
+
+    it("folds the pre-2026-07 names for 4W", () => {
+        expect(normalizeVehicleClass("PICKUP")).toBe("4W");
+        expect(normalizeVehicleClass("4WH")).toBe("4W");
+    });
+
+    it("leaves a current class untouched, so both sides of a lookup agree", () => {
+        for (const code of ["4W", "4WJ", "6WH", "10WH", "18WH", "VAN"]) {
+            expect(normalizeVehicleClass(code)).toBe(code);
+        }
+    });
+
+    it("defaults a missing class to 4WJ", () => {
+        expect(normalizeVehicleClass("")).toBe("4WJ");
+        expect(normalizeVehicleClass(null)).toBe("4WJ");
+    });
+});
 
 describe("computeFinalRateThb", () => {
     it("rounds to 2 decimal places like billing snapshot", () => {
@@ -149,5 +182,38 @@ describe("jobCategory dimension (ADR-0005 — supplementary trips)", () => {
             "PRIMARY"
         );
         expect(result!.finalRateThb).toBe(1000);
+    });
+
+    it("SUPPLEMENTARY is a fixed rate — a fuel adjustment does NOT change it", () => {
+        const fuel: FuelRateAdjustment[] = [
+            {
+                id: "f1",
+                customerId: "c1",
+                effectiveFromMs: new Date("2020-01-01").getTime(),
+                rateMultiplier: 1.1,
+                addThbPerTrip: 50,
+            },
+        ];
+        const supp = computeTripBillingFromParts(
+            { deliveredTimestamp: deliveredMs },
+            task("WANGTHONGLANG12"),
+            entries,
+            fuel,
+            "SUPPLEMENTARY"
+        );
+        expect(supp!.finalRateThb).toBe(1250);
+        expect(supp!.rateMultiplier).toBe(1);
+        expect(supp!.addThbPerTrip).toBe(0);
+        expect(supp!.fuelAdjustmentId).toBeUndefined();
+
+        // Same fuel rule still applies normally to a PRIMARY route.
+        const primary = computeTripBillingFromParts(
+            { deliveredTimestamp: deliveredMs },
+            task("SOCE"),
+            entries,
+            fuel,
+            "PRIMARY"
+        );
+        expect(primary!.finalRateThb).toBe(computeFinalRateThb(1000, 1.1, 50));
     });
 });
