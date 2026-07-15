@@ -201,12 +201,18 @@ class _MainLayoutState extends State<MainLayout> with RouteAware, WidgetsBinding
         await user.getIdToken(true);
       } on FirebaseAuthException catch (e) {
         debugPrint('[MainLayout] token refresh on resume: ${e.code}');
-        await FirebaseAuth.instance.signOut();
-        return;
+        // Only sign out when the credential is genuinely revoked/invalid.
+        // Transient errors (e.g. network-request-failed while the radio is
+        // still reconnecting after the screen wakes) must NOT log the driver
+        // out — the existing token stays valid and works once online.
+        if (_isRevokedAuthCode(e.code)) {
+          await FirebaseAuth.instance.signOut();
+          return;
+        }
       } catch (e) {
+        // Unknown/transient failure (App Check, connectivity) — keep the
+        // session and retry on the next resume.
         debugPrint('[MainLayout] token refresh on resume: $e');
-        await FirebaseAuth.instance.signOut();
-        return;
       }
     }
     if (!mounted) return;
@@ -217,6 +223,19 @@ class _MainLayoutState extends State<MainLayout> with RouteAware, WidgetsBinding
     // เผื่อเที่ยวถูกปิด/แก้จากเครื่องอื่นตอนแอปพัก — เคลียร์งานค้างให้รับงานรอบใหม่ได้
     await _validatePendingDeliveryAndClearIfDelivered();
   }
+
+  /// True only for auth error codes that mean the session is no longer valid
+  /// (account disabled, refresh token revoked/expired). Network and other
+  /// transient errors are excluded so a wake-from-sleep offline blip does not
+  /// force a logout.
+  static bool _isRevokedAuthCode(String code) => const {
+        'user-disabled',
+        'user-token-expired',
+        'user-not-found',
+        'invalid-user-token',
+        'token-expired',
+        'user-token-revoked',
+      }.contains(code);
 
   @override
   void dispose() {
