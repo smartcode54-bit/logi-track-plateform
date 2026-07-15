@@ -80,9 +80,9 @@ import {
     pickFleetBangchakDieselReference,
 } from "@/lib/bangchakFleetReferenceFuel";
 import { SOC_DESTINATIONS, TASK_TRUCK_TYPE_ENUM } from "@/validate/taskSchema";
-import { taskTruckTypeFromTruckDoc } from "@/lib/truckType";
 import {
     computeFinalRateThb,
+    normalizeVehicleClass,
     selectFuelAdjustmentForBillingDate,
     type FuelRateAdjustment,
 } from "@/lib/billingCompute";
@@ -170,12 +170,43 @@ function fuelSnapshotSourceLabel(source: string, t: (key: string) => string): st
 }
 
 /**
- * Legacy rate entries stored the truck master's full name ("6 Wheels"); tasks carry the class code
- * ("6WH") and billing matches on that. Show the code, falling back to the stored string when it maps
- * to nothing we recognise, so an odd legacy row stays visible instead of rendering blank.
+ * Legacy rate entries stored the truck master's full name ("6 Wheels", "4 WHEELS JUMBO"); tasks carry
+ * the class code ("6WH", "4WJ") and billing matches on that. Use the same normalizer billing uses so
+ * the table label matches the dropdown/filter values exactly; unknown legacy codes pass through
+ * uppercased rather than rendering blank.
  */
 function displayVehicleTypeCode(storedClass: string): string {
-    return taskTruckTypeFromTruckDoc(storedClass) ?? storedClass.trim();
+    return normalizeVehicleClass(storedClass);
+}
+
+/** Per-class badge colors so the Vehicle column is scannable; light + dark variants. */
+function vehicleClassBadgeClasses(code: string): string {
+    switch (code) {
+        case "4W":
+            return "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
+        case "4WJ":
+            return "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300";
+        case "6WH":
+            return "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300";
+        case "10WH":
+            return "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300";
+        case "18WH":
+            return "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300";
+        case "VAN":
+            return "bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300";
+        default:
+            return "bg-muted text-muted-foreground";
+    }
+}
+
+/** Order dropdowns by the task enum (4W → VAN); unknown legacy codes fall to the end, then alpha. */
+const VEHICLE_CLASS_ORDER: Record<string, number> = Object.fromEntries(
+    TASK_TRUCK_TYPE_ENUM.map((code, i) => [code, i])
+);
+function compareVehicleClass(a: string, b: string): number {
+    const ia = VEHICLE_CLASS_ORDER[a] ?? Number.MAX_SAFE_INTEGER;
+    const ib = VEHICLE_CLASS_ORDER[b] ?? Number.MAX_SAFE_INTEGER;
+    return ia !== ib ? ia - ib : a.localeCompare(b);
 }
 
 export default function AccountingRateCardPage() {
@@ -375,7 +406,7 @@ export default function AccountingRateCardPage() {
             list = list.filter((e) => e.destinationCode === filterDestinationCode);
         }
         if (filterVehicleClass !== "all") {
-            list = list.filter((e) => e.vehicleClass === filterVehicleClass);
+            list = list.filter((e) => normalizeVehicleClass(e.vehicleClass) === filterVehicleClass);
         }
         if (filterSearch.trim()) {
             const q = filterSearch.trim().toLowerCase();
@@ -431,7 +462,7 @@ export default function AccountingRateCardPage() {
         [filterLocationOptions, t]
     );
     const vehicleOptions = useMemo(
-        () => Array.from(new Set(entries.map((e) => e.vehicleClass))).sort((a, b) => a.localeCompare(b)),
+        () => Array.from(new Set(entries.map((e) => normalizeVehicleClass(e.vehicleClass)))).sort(compareVehicleClass),
         [entries]
     );
     /**
@@ -443,7 +474,7 @@ export default function AccountingRateCardPage() {
     const manualVehicleClassOptions = useMemo(() => {
         const options = new Set<string>(TASK_TRUCK_TYPE_ENUM);
         vehicleOptions.forEach((v) => options.add(v));
-        return Array.from(options).sort((a, b) => a.localeCompare(b));
+        return Array.from(options).sort(compareVehicleClass);
     }, [vehicleOptions]);
     const entriesTotalPages = Math.max(1, Math.ceil(filteredEntries.length / entriesPerPage));
     const paginatedEntries = useMemo(() => {
@@ -455,9 +486,9 @@ export default function AccountingRateCardPage() {
         const options = new Set<string>(manualVehicleClassOptions);
         // Keep the row's own class selectable even if it is a legacy value.
         if (editEntryForm.vehicleClass?.trim()) {
-            options.add(editEntryForm.vehicleClass.trim());
+            options.add(normalizeVehicleClass(editEntryForm.vehicleClass));
         }
-        return Array.from(options).sort((a, b) => a.localeCompare(b));
+        return Array.from(options).sort(compareVehicleClass);
     }, [manualVehicleClassOptions, editEntryForm.vehicleClass]);
     const entriesRangeStart = filteredEntries.length === 0 ? 0 : (entriesPage - 1) * entriesPerPage + 1;
     const entriesRangeEnd = Math.min(entriesPage * entriesPerPage, filteredEntries.length);
@@ -837,7 +868,7 @@ export default function AccountingRateCardPage() {
         setEditEntryForm({
             rateThb: String(entry.rateThb),
             distanceKm: entry.distanceKm != null ? String(entry.distanceKm) : "",
-            vehicleClass: entry.vehicleClass,
+            vehicleClass: normalizeVehicleClass(entry.vehicleClass),
             effectiveFrom: format(entry.effectiveFrom, "yyyy-MM-dd"),
         });
     };
@@ -1502,16 +1533,23 @@ export default function AccountingRateCardPage() {
                                     <TableCell>{customerNameById.get(row.customerId) ?? row.customerId}</TableCell>
                                     <TableCell>{formatSource(row.hubId)}</TableCell>
                                     <TableCell>{formatDestination(row.destinationCode)}</TableCell>
-                                    <TableCell className="font-mono text-xs">{displayVehicleTypeCode(row.vehicleClass)}</TableCell>
+                                    <TableCell>
+                                        <Badge
+                                            variant="secondary"
+                                            className={`font-mono text-xs ${vehicleClassBadgeClasses(displayVehicleTypeCode(row.vehicleClass))}`}
+                                        >
+                                            {displayVehicleTypeCode(row.vehicleClass)}
+                                        </Badge>
+                                    </TableCell>
                                     <TableCell>
                                         {row.jobCategory === "SUPPLEMENTARY" ? (
-                                            <Badge variant="secondary" className="bg-amber-100 text-amber-800">
+                                            <Badge variant="secondary" className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
                                                 {t("accounting.rateCard.jobCategory.supplementary", "เสริม")}
                                             </Badge>
                                         ) : (
-                                            <span className="text-xs text-muted-foreground">
+                                            <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
                                                 {t("accounting.rateCard.jobCategory.primary", "หลัก")}
-                                            </span>
+                                            </Badge>
                                         )}
                                     </TableCell>
                                     <TableCell className="text-right">฿{row.rateThb.toLocaleString()}</TableCell>
