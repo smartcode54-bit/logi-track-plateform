@@ -390,7 +390,7 @@ export default function DriverMonitorDashboard() {
     const buildExportTable = (list: TripRecord[]) => {
         const headers = [
             t("driverMonitor.table.tripId"),
-            t("driverMonitor.table.createdAt"),
+            t("driverMonitor.table.checkInAt"),
             t("driverMonitor.table.driver"),
             t("driverMonitor.table.licensePlate"),
             t("driverMonitor.table.jobType"),
@@ -415,7 +415,7 @@ export default function DriverMonitorDashboard() {
         const rows: (string | number | null | undefined)[][] = [];
 
         for (const trip of list) {
-            const created = toDateLocal((trip.id && checkInAtByTaskId[trip.id]) || trip.createdAt);
+            const created = toDateLocal(checkInAtByTaskId[trip.taskId ?? ""] ?? checkInAtByTaskId[trip.id ?? ""] ?? trip.createdAt);
             const jobLabel = JOB_TYPE_LABEL[trip.jobType] || trip.jobType;
             const statusLabel = t(`driverMonitor.status.${trip.status}` as any);
             const billing = getBillingForTrip(trip.id);
@@ -813,7 +813,8 @@ export default function DriverMonitorDashboard() {
                             <TableHeader className="bg-muted/50">
                                 <TableRow className="border-b border-border/50">
                                     <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.tripId")}</TableHead>
-                                    <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.createdAt")}</TableHead>
+                                    <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.checkInAt")}</TableHead>
+                                    <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.depart")}</TableHead>
                                     <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.driver")}</TableHead>
                                     <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.licensePlate")}</TableHead>
                                     <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.jobType")}</TableHead>
@@ -823,7 +824,6 @@ export default function DriverMonitorDashboard() {
                                     <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.partnerCode")}</TableHead>
                                     <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.status")}</TableHead>
                                     <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("driverMonitor.table.deliveredTime")}</TableHead>
-                                    <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider text-right">{t("driverMonitor.table.estimatedRevenue")}</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -851,7 +851,10 @@ export default function DriverMonitorDashboard() {
                                         >
                                             <TableCell><span className="font-mono text-xs">{trip.spxTripId || trip.id?.slice(0, 10) || "-"}</span></TableCell>
                                             <TableCell className="text-sm text-muted-foreground">
-                                                {formatTimestamp((trip.id && checkInAtByTaskId[trip.id]) || trip.createdAt)}
+                                                {formatTimestamp(checkInAtByTaskId[trip.taskId ?? ""] ?? checkInAtByTaskId[trip.id ?? ""] ?? trip.createdAt)}
+                                            </TableCell>
+                                            <TableCell className="text-sm text-muted-foreground">
+                                                {formatTimestamp(trip.createdAt)}
                                             </TableCell>
                                             <TableCell><span className="font-medium text-sm">{getDriverName(trip.driverId)}</span></TableCell>
                                             <TableCell><span className="font-mono text-sm text-muted-foreground">{getLicensePlate(trip.driverId, trip)}</span></TableCell>
@@ -911,9 +914,6 @@ export default function DriverMonitorDashboard() {
                                             </TableCell>
                                             <TableCell className="text-sm text-muted-foreground">
                                                 {formatTimestamp(trip.status === "delivered" && trip.deliveredTimestamp ? trip.deliveredTimestamp : trip.updatedAt)}
-                                            </TableCell>
-                                            <TableCell className="text-sm text-right font-medium">
-                                                {formatMoney(getBillingForTrip(trip.id)?.finalRateThb ?? trip.billingEstimateThb)}
                                             </TableCell>
                                         </TableRow>
                                     ))
