@@ -2823,7 +2823,7 @@ export default function AccountingRateCardPage() {
                                     <SelectTrigger>
                                         <SelectValue />
                                     </SelectTrigger>
-                                    <SelectContent>
+                                    <SelectContent className="z-[1005]" position="popper">
                                         {editVehicleClassOptions.map((vc) => (
                                             <SelectItem key={vc} value={vc}>{displayVehicleTypeCode(vc)}</SelectItem>
                                         ))}
