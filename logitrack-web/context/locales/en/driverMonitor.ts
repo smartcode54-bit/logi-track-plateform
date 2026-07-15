@@ -43,6 +43,8 @@ export default {
     "driverMonitor.table.tripId": "Trip ID",
     "driverMonitor.table.date": "Date",
     "driverMonitor.table.createdAt": "Created",
+    "driverMonitor.table.checkInAt": "Check-in",
+    "driverMonitor.table.depart": "Depart",
     "driverMonitor.table.deliveredTime": "Delivered",
     "driverMonitor.table.driver": "Driver",
     "driverMonitor.table.licensePlate": "License Plate",

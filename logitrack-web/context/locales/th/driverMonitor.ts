@@ -43,6 +43,8 @@ export default {
     "driverMonitor.table.tripId": "รหัสเที่ยว",
     "driverMonitor.table.date": "วันที่",
     "driverMonitor.table.createdAt": "สร้างเมื่อ",
+    "driverMonitor.table.checkInAt": "เช็คอิน",
+    "driverMonitor.table.depart": "ออกเดินทาง",
     "driverMonitor.table.deliveredTime": "ส่งเมื่อ",
     "driverMonitor.table.driver": "คนขับ",
     "driverMonitor.table.licensePlate": "ทะเบียนรถ",

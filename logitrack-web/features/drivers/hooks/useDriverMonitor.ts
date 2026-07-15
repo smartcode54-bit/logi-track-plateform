@@ -283,6 +283,11 @@ export function useDriverMonitor() {
     >({});
     const [tripBillingByTripId, setTripBillingByTripId] = useState<Record<string, TripBillingComputed>>({});
     const [billingDebugByTripId, setBillingDebugByTripId] = useState<Record<string, BillingDebugInfo>>({});
+    // Check-in time per task, keyed by BOTH the task doc id and task.taskId so a trip resolves via
+    // trip.taskId (its task doc id) — see the Driver Monitor "Check-in" column. Built from the same
+    // full-coverage taskById the billing effect assembles (realtime tasks + older fetched tasks), so
+    // every loaded trip resolves, not just the most recent 500.
+    const [checkInAtByTaskId, setCheckInAtByTaskId] = useState<Record<string, Date | null>>({});
 
     const [dateFrom, setDateFrom] = useState<Date>(() => defaultDateRange().from);
     const [dateTo, setDateTo] = useState<Date>(() => defaultDateRange().to);
@@ -500,6 +505,15 @@ export function useDriverMonitor() {
                 }
             }
 
+            // Build the check-in lookup from the full-coverage taskById (keyed by both id and taskId),
+            // coercing whatever the task carries (raw Timestamp for older fetched tasks) to a Date.
+            const checkInMap: Record<string, Date | null> = {};
+            taskById.forEach((task, key) => {
+                const at = toDate((task as Task & { checkInAt?: unknown }).checkInAt);
+                if (at) checkInMap[key] = at;
+            });
+            if (!cancelled) setCheckInAtByTaskId(checkInMap);
+
             // Normalize task destination: display name → PDP code
             // e.g. "ประเวศ18" → "SPK890146" when tasks store display name instead of code
             const resolveTask = (task: Task | null | undefined): Task | null => {
@@ -688,15 +702,6 @@ export function useDriverMonitor() {
     useEffect(() => {
         setCurrentPage(1);
     }, [itemsPerPage]);
-
-    const checkInAtByTaskId = useMemo(() => {
-        const map: Record<string, Date | null> = {};
-        tasks.forEach((t) => {
-            const at = (t as Task & { checkInAt?: Date | null }).checkInAt;
-            if (t.id && at) map[t.id] = at;
-        });
-        return map;
-    }, [tasks]);
 
     const setDateRange = useCallback((from: Date, to: Date) => {
         const c = clampDateRange(from, to);
