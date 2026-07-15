@@ -83,6 +83,7 @@ import { SOC_DESTINATIONS, TASK_TRUCK_TYPE_ENUM } from "@/validate/taskSchema";
 import { taskTruckTypeFromTruckDoc } from "@/lib/truckType";
 import {
     computeFinalRateThb,
+    normalizeVehicleClass,
     selectFuelAdjustmentForBillingDate,
     type FuelRateAdjustment,
 } from "@/lib/billingCompute";
@@ -176,6 +177,16 @@ function fuelSnapshotSourceLabel(source: string, t: (key: string) => string): st
  */
 function displayVehicleTypeCode(storedClass: string): string {
     return taskTruckTypeFromTruckDoc(storedClass) ?? storedClass.trim();
+}
+
+/** Order dropdowns by the task enum (4W → VAN); unknown legacy codes fall to the end, then alpha. */
+const VEHICLE_CLASS_ORDER: Record<string, number> = Object.fromEntries(
+    TASK_TRUCK_TYPE_ENUM.map((code, i) => [code, i])
+);
+function compareVehicleClass(a: string, b: string): number {
+    const ia = VEHICLE_CLASS_ORDER[a] ?? Number.MAX_SAFE_INTEGER;
+    const ib = VEHICLE_CLASS_ORDER[b] ?? Number.MAX_SAFE_INTEGER;
+    return ia !== ib ? ia - ib : a.localeCompare(b);
 }
 
 export default function AccountingRateCardPage() {
@@ -375,7 +386,7 @@ export default function AccountingRateCardPage() {
             list = list.filter((e) => e.destinationCode === filterDestinationCode);
         }
         if (filterVehicleClass !== "all") {
-            list = list.filter((e) => e.vehicleClass === filterVehicleClass);
+            list = list.filter((e) => normalizeVehicleClass(e.vehicleClass) === filterVehicleClass);
         }
         if (filterSearch.trim()) {
             const q = filterSearch.trim().toLowerCase();
@@ -431,7 +442,7 @@ export default function AccountingRateCardPage() {
         [filterLocationOptions, t]
     );
     const vehicleOptions = useMemo(
-        () => Array.from(new Set(entries.map((e) => e.vehicleClass))).sort((a, b) => a.localeCompare(b)),
+        () => Array.from(new Set(entries.map((e) => normalizeVehicleClass(e.vehicleClass)))).sort(compareVehicleClass),
         [entries]
     );
     /**
@@ -443,7 +454,7 @@ export default function AccountingRateCardPage() {
     const manualVehicleClassOptions = useMemo(() => {
         const options = new Set<string>(TASK_TRUCK_TYPE_ENUM);
         vehicleOptions.forEach((v) => options.add(v));
-        return Array.from(options).sort((a, b) => a.localeCompare(b));
+        return Array.from(options).sort(compareVehicleClass);
     }, [vehicleOptions]);
     const entriesTotalPages = Math.max(1, Math.ceil(filteredEntries.length / entriesPerPage));
     const paginatedEntries = useMemo(() => {
@@ -455,9 +466,9 @@ export default function AccountingRateCardPage() {
         const options = new Set<string>(manualVehicleClassOptions);
         // Keep the row's own class selectable even if it is a legacy value.
         if (editEntryForm.vehicleClass?.trim()) {
-            options.add(editEntryForm.vehicleClass.trim());
+            options.add(normalizeVehicleClass(editEntryForm.vehicleClass));
         }
-        return Array.from(options).sort((a, b) => a.localeCompare(b));
+        return Array.from(options).sort(compareVehicleClass);
     }, [manualVehicleClassOptions, editEntryForm.vehicleClass]);
     const entriesRangeStart = filteredEntries.length === 0 ? 0 : (entriesPage - 1) * entriesPerPage + 1;
     const entriesRangeEnd = Math.min(entriesPage * entriesPerPage, filteredEntries.length);
@@ -837,7 +848,7 @@ export default function AccountingRateCardPage() {
         setEditEntryForm({
             rateThb: String(entry.rateThb),
             distanceKm: entry.distanceKm != null ? String(entry.distanceKm) : "",
-            vehicleClass: entry.vehicleClass,
+            vehicleClass: normalizeVehicleClass(entry.vehicleClass),
             effectiveFrom: format(entry.effectiveFrom, "yyyy-MM-dd"),
         });
     };
