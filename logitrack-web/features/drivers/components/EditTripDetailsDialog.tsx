@@ -29,6 +29,15 @@ import { toast } from "sonner";
 import { HelperDriverField } from "@/features/tasks/components/HelperDriverField";
 import type { Driver } from "@/validate/driverSchema";
 import { assignRound, bangkokParts } from "@/lib/compensationCompute";
+import { useAuth } from "@/context/auth";
+import { isAdmin } from "@/lib/permissions";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 
 type PeriodRound = { period: string; round: "R1" | "R2" };
 const PAYOUT_LOCKED = new Set(["APPROVED", "PAID"]);
@@ -84,6 +93,9 @@ export function EditTripDetailsDialog({
     destinationOptions = [],
 }: EditTripDetailsDialogProps) {
     const { t } = useLanguage();
+    const auth = useAuth();
+    // Billing category (หลัก/เสริม) is admin-only — stricter than canEditTripDetails (R3/N2).
+    const canEditCategory = isAdmin(auth?.customClaims ?? null);
     const [loading, setLoading] = useState(false);
     // จัดการงานค้าง (ปุ่มเดียว → dialog เลือกผล + เคลียร์ทั้งคนขับ)
     const [resolveOpen, setResolveOpen] = useState(false);
@@ -96,6 +108,9 @@ export function EditTripDetailsDialog({
     const [partnerCode, setPartnerCode] = useState("");
     const [localOrigin, setLocalOrigin] = useState(trip.origin ?? "");
     const [localDestination, setLocalDestination] = useState(trip.destination ?? "");
+    const [localJobCategory, setLocalJobCategory] = useState<"PRIMARY" | "SUPPLEMENTARY">(
+        trip.jobCategory ?? "PRIMARY"
+    );
 
     // Delivered timestamp
     const toLocalDatetimeString = (ts: unknown): string => {
@@ -243,6 +258,7 @@ export function EditTripDetailsDialog({
             setReplaceByType({});
             setLocalOrigin(trip.origin ?? "");
             setLocalDestination(trip.destination ?? "");
+            setLocalJobCategory(trip.jobCategory ?? "PRIMARY");
             setLocalDeliveredAt(toLocalDatetimeString(trip.deliveredTimestamp));
             setLocalStops(trip.deliveryStopsProgress ?? []);
             originalStopCountRef.current = trip.deliveryStopsProgress?.length ?? 0;
@@ -364,7 +380,13 @@ export function EditTripDetailsDialog({
             sealCode !== (trip.sealCode ?? "") ||
             partnerChanged ||
             deliveredAtChanged;
-        if (!hasPhotoChanges && !hasMetaChanges && !hasStopsChanged && !hasRouteChanges && !helperChanged) {
+        // Billing category (หลัก/เสริม): admin-only, delivered trips only (R2). Re-derives price
+        // server-side via the setTripJobCategory callable.
+        const categoryChanged =
+            canEditCategory &&
+            trip.status === "delivered" &&
+            localJobCategory !== (trip.jobCategory ?? "PRIMARY");
+        if (!hasPhotoChanges && !hasMetaChanges && !hasStopsChanged && !hasRouteChanges && !helperChanged && !categoryChanged) {
             onOpenChange(false);
             if (onSuccess) onSuccess();
             return;
@@ -509,8 +531,36 @@ export function EditTripDetailsDialog({
                 }
             }
 
-            // Trigger billing recompute if route changed on a delivered trip
-            if (hasRouteChanges && trip.status === "delivered") {
+            // Category change (หลัก/เสริม): re-derive price via the admin-only callable. Runs AFTER
+            // the route/stops sync above so it recomputes against the updated task + trip. The server
+            // is atomic — a missing target-category rate card throws and changes nothing (R5).
+            if (categoryChanged) {
+                const catLabel = t(
+                    localJobCategory === "PRIMARY"
+                        ? "driverMonitor.editTrip.jobCategoryPrimary"
+                        : "driverMonitor.editTrip.jobCategorySupplementary"
+                );
+                try {
+                    const fn = httpsCallable<
+                        { tripId: string; jobCategory: "PRIMARY" | "SUPPLEMENTARY" },
+                        { ok: boolean; skipped?: boolean; billingEstimateThb?: number }
+                    >(functions, "setTripJobCategory");
+                    await fn({ tripId: trip.id, jobCategory: localJobCategory });
+                    toast.success(t("driverMonitor.editTrip.jobCategorySaved"));
+                } catch (err) {
+                    const e = err as { code?: string; message?: string };
+                    const isNoRate = typeof e.code === "string" && e.code.includes("failed-precondition");
+                    toast.error(
+                        isNoRate
+                            ? t("driverMonitor.editTrip.jobCategoryNoRate", { category: catLabel })
+                            : e.message || t("driverMonitor.editTrip.jobCategoryNoRate", { category: catLabel })
+                    );
+                }
+            }
+
+            // Trigger billing recompute if route changed on a delivered trip. Skipped when the
+            // category change already recomputed this trip (R8).
+            if (hasRouteChanges && trip.status === "delivered" && !categoryChanged) {
                 try {
                     const fn = httpsCallable<
                         { tripId: string },
@@ -522,8 +572,9 @@ export function EditTripDetailsDialog({
                 }
             }
 
-            // Trigger billing recompute if stops changed and >= 3 delivered
-            if (hasStopsChanged) {
+            // Trigger billing recompute if stops changed and >= 3 delivered (skip if category
+            // change already recomputed — R8).
+            if (hasStopsChanged && !categoryChanged) {
                 const deliveredCount = localStops.filter(
                     (s) => s.status === "delivered" && s.destination.trim()
                 ).length;
@@ -796,6 +847,35 @@ export function EditTripDetailsDialog({
                                     <span className="text-xs text-muted-foreground">{t("driverMonitor.editTrip.jobTypeAutoDetected")}</span>
                                 </div>
                             </div>
+                            {canEditCategory && (
+                                <div className="space-y-1.5">
+                                    <label className="text-xs text-muted-foreground">
+                                        {t("driverMonitor.editTrip.jobCategoryLabel")}
+                                    </label>
+                                    <Select
+                                        value={localJobCategory}
+                                        onValueChange={(v) => setLocalJobCategory(v as "PRIMARY" | "SUPPLEMENTARY")}
+                                        disabled={trip.status !== "delivered"}
+                                    >
+                                        <SelectTrigger className="h-9">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent className="z-[1005]" position="popper">
+                                            <SelectItem value="PRIMARY">
+                                                {t("driverMonitor.editTrip.jobCategoryPrimary")}
+                                            </SelectItem>
+                                            <SelectItem value="SUPPLEMENTARY">
+                                                {t("driverMonitor.editTrip.jobCategorySupplementary")}
+                                            </SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <p className="text-xs text-muted-foreground">
+                                        {trip.status === "delivered"
+                                            ? t("driverMonitor.editTrip.jobCategoryRecomputeHint")
+                                            : t("driverMonitor.editTrip.jobCategoryDeliveredOnly")}
+                                    </p>
+                                </div>
+                            )}
                         </div>
 
                         {/* Helper (training / assisting) — admin retro-assign on the linked task */}

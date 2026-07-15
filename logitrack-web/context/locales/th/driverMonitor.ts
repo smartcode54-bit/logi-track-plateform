@@ -154,6 +154,15 @@ export default {
     "driverMonitor.editTrip.jobTypeLabel": "ประเภทงาน",
     "driverMonitor.editTrip.jobTypeAutoDetected": "(อัตโนมัติจากต้นทาง)",
 
+    // Edit Trip Dialog - Job Category (หลัก/เสริม) — admin only, delivered trips
+    "driverMonitor.editTrip.jobCategoryLabel": "ประเภทงาน (หลัก/เสริม)",
+    "driverMonitor.editTrip.jobCategoryPrimary": "หลัก",
+    "driverMonitor.editTrip.jobCategorySupplementary": "เสริม",
+    "driverMonitor.editTrip.jobCategoryDeliveredOnly": "แก้ไขได้เมื่อส่งงานสำเร็จแล้ว",
+    "driverMonitor.editTrip.jobCategoryRecomputeHint": "การเปลี่ยนค่านี้จะคำนวณราคาวางบิลใหม่จาก Rate Card ที่ตรงกัน",
+    "driverMonitor.editTrip.jobCategoryNoRate": "ไม่พบ Rate Card ({category}) สำหรับเส้นทาง/ประเภทรถ/วันที่นี้ — ยังไม่มีการเปลี่ยนแปลง",
+    "driverMonitor.editTrip.jobCategorySaved": "อัปเดตประเภทงานและคำนวณราคาใหม่แล้ว",
+
     // Edit Trip Dialog - Delivery Stops
     "driverMonitor.editTrip.deliveryStopsSection": "จุดส่งมอบ",
     "driverMonitor.editTrip.addStop": "เพิ่มจุดส่ง",

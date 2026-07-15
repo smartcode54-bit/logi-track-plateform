@@ -427,6 +427,257 @@ export const computeTripBillingSnapshot = onCall<ComputeBillingRequest, Promise<
     }
 );
 
+interface SetTripJobCategoryRequest {
+    tripId: string;
+    jobCategory: "PRIMARY" | "SUPPLEMENTARY";
+}
+
+/**
+ * HTTPS Callable (admin only): change a delivered trip's หลัก/เสริม (jobCategory) and re-derive its
+ * price from the target category's rate card — the sanctioned manual escape hatch of ADR-0005/0006
+ * (see shared-docs/adr/0002-edit-job-category-on-delivered-trip.md).
+ *
+ * Atomic: computes the new price FIRST for the explicit target category (no PRIMARY↔SUPPLEMENTARY
+ * fallback). If no rate matches, throws and writes NOTHING — the trip keeps its old category + price.
+ * On success writes `tasks.jobCategory` (source of truth, ADR-0006) AND the trip billing snapshot in
+ * one batch, setting `billingManualOverride` true for SUPPLEMENTARY (re-freeze) and false for PRIMARY
+ * (explicitly un-freeze so a future recompute is allowed). This is the ONLY path that moves a frozen
+ * price; the guards in computeTripBillingSnapshot / backfill are left untouched.
+ */
+export const setTripJobCategory = onCall<SetTripJobCategoryRequest, Promise<ComputeBillingResponse>>(
+    {
+        region: "asia-southeast1",
+        enforceAppCheck: false, // Web admin calls without App Check token; auth + admin checked below
+    },
+    async (request): Promise<ComputeBillingResponse> => {
+        if (!request.auth) {
+            throw new HttpsError("unauthenticated", "Must be authenticated");
+        }
+        const isAdmin =
+            request.auth.token.admin === true || request.auth.token["role"] === "admin";
+        if (!isAdmin) {
+            throw new HttpsError("permission-denied", "Admin only");
+        }
+        const tripId = request.data?.tripId?.trim();
+        if (!tripId) {
+            throw new HttpsError("invalid-argument", "tripId is required");
+        }
+        const targetCategory: "PRIMARY" | "SUPPLEMENTARY" =
+            request.data?.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY";
+
+        const db = admin.firestore();
+        const tripRef = db.collection(COL_TRIP_RECORDS).doc(tripId);
+        const [tripSnap, hubMaps] = await Promise.all([tripRef.get(), buildHubMaps(db)]);
+        if (!tripSnap.exists) {
+            throw new HttpsError("not-found", "Trip not found");
+        }
+        const data = tripSnap.data() as Record<string, unknown>;
+        if (data.status !== "delivered") {
+            throw new HttpsError("failed-precondition", "Trip is not delivered yet");
+        }
+
+        const taskId = typeof data.taskId === "string" ? data.taskId.trim() : "";
+        if (!taskId) {
+            throw new HttpsError("failed-precondition", "Trip missing taskId");
+        }
+        const taskRef = db.collection(COL_TASKS).doc(taskId);
+        const taskSnap = await taskRef.get();
+        if (!taskSnap.exists) {
+            throw new HttpsError("not-found", "Task not found");
+        }
+        const t = taskSnap.data() as Record<string, unknown>;
+
+        // No-op when the task and trip already carry the target category (nothing to recompute).
+        const currentTaskCategory =
+            t.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : t.jobCategory === "PRIMARY" ? "PRIMARY" : undefined;
+        if (currentTaskCategory === targetCategory && data.jobCategory === targetCategory) {
+            return {
+                ok: true,
+                skipped: true,
+                billingEstimateThb:
+                    typeof data.billingEstimateThb === "number" ? (data.billingEstimateThb as number) : undefined,
+            };
+        }
+
+        // Resolve billing inputs — identical resolution to tryWriteBillingSnapshotFromTripData.
+        const rawDestination = typeof t.destination === "string" ? t.destination : undefined;
+        const rawSourceHub = typeof t.sourceHub === "string" ? t.sourceHub : undefined;
+        const nameToCode = hubMaps.nameToCode;
+        const codeToName = hubMaps.codeToName;
+        const resolvedSourceHub = resolveNameToCode(rawSourceHub, nameToCode);
+        const resolvedDestination = resolveNameToCode(rawDestination, nameToCode);
+        const taskInput: TaskBillingInput = {
+            sourceHub: resolvedSourceHub,
+            destination: resolvedDestination,
+            truckType: typeof t.truckType === "string" ? t.truckType : undefined,
+            sourceHubLinkedCustomerId:
+                typeof t.sourceHubLinkedCustomerId === "string" ? t.sourceHubLinkedCustomerId : undefined,
+            destinationLinkedCustomerId:
+                typeof t.destinationLinkedCustomerId === "string" ? t.destinationLinkedCustomerId : undefined,
+        };
+        const customerId =
+            taskInput.sourceHubLinkedCustomerId?.trim() || taskInput.destinationLinkedCustomerId?.trim() || "";
+        if (!customerId) {
+            throw new HttpsError("failed-precondition", "Task has no linked customer");
+        }
+
+        const [rateSnap, fuelSnap] = await Promise.all([
+            db.collection(COL_RATE_ENTRIES).where("customerId", "==", customerId).get(),
+            db.collection(COL_FUEL_ADJ).where("customerId", "==", customerId).get(),
+        ]);
+        const rateEntries = rateSnap.docs.map((d) => mapRateDoc(customerId, d));
+        const fuelAdjustments = fuelSnap.docs.map((d) => mapFuelDoc(customerId, d));
+
+        const tripParts: TripBillingTimestamps = {
+            deliveredTimestamp: data.deliveredTimestamp,
+            createdAt: data.createdAt,
+        };
+
+        const noRateError = (): HttpsError => {
+            const hubId = extractHubId(taskInput.sourceHub);
+            const destination = normalizeDestinationCode(taskInput.destination);
+            const vehicleClass = normalizeStoredCode(taskInput.truckType || "4WJ");
+            logger.warn("[setTripJobCategory] no matching rate row for target category", {
+                tripId,
+                taskId,
+                targetCategory,
+                customerId,
+                hubId,
+                destination,
+                vehicleClass,
+                rateRowsForCustomer: rateEntries.length,
+            });
+            return new HttpsError(
+                "failed-precondition",
+                `No ${targetCategory} rate: ${hubId} → ${destination} (${vehicleClass})`
+            );
+        };
+
+        // Compute FIRST; only build the write payload if a rate matches the target category.
+        let tripUpdate: Record<string, unknown>;
+        let newBillingEstimateThb: number;
+
+        const isMultiDelivery = data.isMultiDelivery === true;
+        const deliveryStopsProgress = Array.isArray(data.deliveryStopsProgress) ? data.deliveryStopsProgress : [];
+
+        if (isMultiDelivery && deliveryStopsProgress.length >= 2) {
+            const stops: DeliveryStopForBilling[] = deliveryStopsProgress
+                .filter((stop: any) => stop.destination && stop.status === "delivered")
+                .map((stop: any) => ({
+                    index: typeof stop.index === "number" ? stop.index : 1,
+                    destination: String(stop.destination ?? ""),
+                }));
+            if (stops.length < 2) {
+                throw new HttpsError("failed-precondition", "Multi-delivery trip has < 2 delivered stops");
+            }
+
+            // Flat extra-stop service fee (customer_service_fees, feeType "extra_stop") — same lookup
+            // as the delivery path so re-derivation matches the original computation exactly.
+            let extraStopFeeThb: number | undefined;
+            try {
+                const feeSnap = await db.collection(COL_SERVICE_FEES).where("customerId", "==", customerId).get();
+                const extraStopDoc = feeSnap.docs.find((d) => d.data().feeType === "extra_stop");
+                if (extraStopDoc) {
+                    const amt = Number(extraStopDoc.data().amountThb ?? 0);
+                    if (Number.isFinite(amt) && amt >= 0) extraStopFeeThb = amt;
+                }
+            } catch (e) {
+                logger.warn("[setTripJobCategory] failed to load extra_stop service fee", {
+                    customerId,
+                    error: String(e),
+                });
+            }
+
+            const mVehicleClass = normalizeVehicleClass(taskInput.truckType || "4WJ");
+            const multiComputed = computeMultiDeliveryBilling(
+                tripParts,
+                taskInput,
+                stops,
+                mVehicleClass,
+                rateEntries,
+                fuelAdjustments,
+                extraStopFeeThb,
+                targetCategory
+            );
+            if (!multiComputed) throw noRateError();
+
+            tripUpdate = {
+                billingEstimateThb: multiComputed.totalBillingThb,
+                billingBaseRateThb: multiComputed.baseRateThb,
+                billingStopChargeThb: multiComputed.stopChargeThb,
+                billingIsMultiDelivery: true,
+                billingLookupHubId: extractHubId(taskInput.sourceHub),
+                billingLookupDestination: multiComputed.stopBreakdown[0]?.destination ?? null,
+                billingMultiDeliveryBreakdown: multiComputed.stopBreakdown.map((stop) => ({
+                    stopIndex: stop.stopIndex,
+                    destination: stop.destination,
+                    baseRateThb: stop.baseRateThb,
+                    finalRateThb: stop.finalRateThb,
+                })),
+                billingFuelAdjustmentId: multiComputed.fuelAdjustmentId ?? null,
+                billingRateMultiplier: multiComputed.rateMultiplier,
+                billingCustomerId: multiComputed.customerId,
+            };
+            newBillingEstimateThb = multiComputed.totalBillingThb;
+        } else {
+            // Single-delivery. Mirror the delivery path's codeToName retry, but for the explicit
+            // target category only (no PRIMARY↔SUPPLEMENTARY fallback — the admin chose the category).
+            const computeForCategory = (cat: "PRIMARY" | "SUPPLEMENTARY") => {
+                let c = computeTripBillingFromParts(tripParts, taskInput, rateEntries, fuelAdjustments, cat);
+                if (!c && codeToName && rawDestination) {
+                    const altDest =
+                        codeToName.get((resolvedDestination ?? rawDestination).trim()) ??
+                        codeToName.get(rawDestination.trim());
+                    if (altDest && altDest !== resolvedDestination) {
+                        c = computeTripBillingFromParts(
+                            tripParts,
+                            { ...taskInput, destination: altDest },
+                            rateEntries,
+                            fuelAdjustments,
+                            cat
+                        );
+                    }
+                }
+                return c;
+            };
+            const computed = computeForCategory(targetCategory);
+            if (!computed) throw noRateError();
+
+            tripUpdate = {
+                billingEstimateThb: computed.finalRateThb,
+                billingBaseRateThb: computed.baseRateThb,
+                billingRateImportId: computed.rateImportId,
+                billingLookupHubId: computed.lookupHubId,
+                billingLookupDestination: computed.lookupDestination,
+                billingFuelAdjustmentId: computed.fuelAdjustmentId ?? null,
+                billingRateMultiplier: computed.rateMultiplier,
+                billingAddThbPerTrip: computed.addThbPerTrip,
+                billingEffectiveFromDateStr: computed.effectiveFromDateStr ?? null,
+                billingCustomerId: computed.customerId,
+            };
+            newBillingEstimateThb = computed.finalRateThb;
+        }
+
+        // Atomic write: task category (source of truth) + trip snapshot together. billingManualOverride
+        // is set explicitly — true re-freezes SUPPLEMENTARY, false un-freezes PRIMARY (so a later
+        // recompute is allowed). Compute already succeeded, so no partial-write on the common failure.
+        const batch = db.batch();
+        batch.update(taskRef, {
+            jobCategory: targetCategory,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        batch.update(tripRef, {
+            ...tripUpdate,
+            jobCategory: targetCategory,
+            billingManualOverride: targetCategory === "SUPPLEMENTARY",
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        await batch.commit();
+
+        return { ok: true, billingEstimateThb: newBillingEstimateThb };
+    }
+);
+
 interface BackfillBillingRequest {
     /** Inclusive start date, calendar day in Asia/Bangkok (yyyy-MM-dd). */
     fromDateStr: string;

@@ -154,6 +154,15 @@ export default {
     "driverMonitor.editTrip.jobTypeLabel": "Job Type",
     "driverMonitor.editTrip.jobTypeAutoDetected": "(auto from origin)",
 
+    // Edit Trip Dialog - Job Category (หลัก/เสริม) — admin only, delivered trips
+    "driverMonitor.editTrip.jobCategoryLabel": "Job Category (Primary/Supplementary)",
+    "driverMonitor.editTrip.jobCategoryPrimary": "Primary (หลัก)",
+    "driverMonitor.editTrip.jobCategorySupplementary": "Supplementary (เสริม)",
+    "driverMonitor.editTrip.jobCategoryDeliveredOnly": "Editable after the trip is delivered",
+    "driverMonitor.editTrip.jobCategoryRecomputeHint": "Changing this re-computes the billing price from the matching rate card",
+    "driverMonitor.editTrip.jobCategoryNoRate": "No {category} rate card for this route/vehicle/date — nothing changed",
+    "driverMonitor.editTrip.jobCategorySaved": "Job category updated and price re-computed",
+
     // Edit Trip Dialog - Delivery Stops
     "driverMonitor.editTrip.deliveryStopsSection": "Delivery Stops",
     "driverMonitor.editTrip.addStop": "Add Delivery Stop",

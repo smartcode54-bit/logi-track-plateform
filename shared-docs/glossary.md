@@ -82,14 +82,41 @@ The mobile stage after check-in where the driver records loading and the `trip_r
 ## Denormalization (in this codebase)
 
 Copying a value from its source-of-truth document onto a consuming document to avoid a cross-document
-join at read time (e.g. `truckId`/`licensePlate` onto transactions; `checkInAt` onto `trip_records`
-per ADR 0001). Kept consistent by a write-time mechanism — here, a Firestore `onCreate` trigger plus a
-one-time backfill for history.
+join at read time (e.g. `truckId`/`licensePlate` onto transactions). Kept consistent by the **writing
+client** and/or a one-time **backfill callable** — this project has **no Firestore document triggers**
+(the database region `asia-southeast3` supports none; every reactive write is an app-invoked callable).
+Note: `checkInAt` is deliberately **not** denormalized — it was considered for `trip_records` under
+ADR 0001 but kept on the task and resolved by a live join instead, precisely because no trigger could
+make a write-time copy authoritative (see [[`checkInAt`]] / ADR 0001 Update).
 
 ## Driver Monitor
 
 The web admin page at `/app/driver-monitor` (`app/app/driver-monitor/page.tsx` +
 `features/drivers/components/DriverMonitorDashboard.tsx`, data via
 `features/drivers/hooks/useDriverMonitor.ts`). Lists trip_records in a date range with driver, route,
-status, billing, and the timestamp column that ADR 0001 retargets from [[`createdAt` (trip_record)]]
-to [[`checkInAt`]].
+status, billing, and the check-in timestamp column that ADR 0001 fixes to show the task's
+[[`checkInAt`]] via a corrected live join (instead of the trip's [[`createdAt` (trip_record)]]).
+
+## jobCategory (หลัก/เสริม)
+
+The billing classification of a trip: `"PRIMARY"` (หลัก, the contracted route) or `"SUPPLEMENTARY"`
+(เสริม, a separately-agreed ad-hoc trip). It selects **which rate card** bills the trip
+(`selectBillingRateEntry` filters on it, `functions/src/core/billingCompute.ts:157`), whether the
+**fuel multiplier** applies (SUPPLEMENTARY skips it), and — for SUPPLEMENTARY — triggers the
+[[Frozen price]] behavior.
+
+**Source of truth is the *task*** (`tasks.jobCategory`, set at assign time per ADR-0006). The value on
+`trip_records.jobCategory` is a **derived snapshot**, written at billing time by
+`tripBillingOnDelivered.ts` from the linked task. **Not** the same axis as `jobType`
+(`first_mile | line_haul`) — reusing that field was explicitly rejected (ADR-0005). Correcting it on an
+already-billed trip is a dedicated admin action that re-derives the price (ADR 0002).
+
+## Frozen price
+
+A billing snapshot that must not move on recompute. Any trip whose [[jobCategory (หลัก/เสริม)]]
+resolves to `SUPPLEMENTARY` is also written with `billingManualOverride: true`; the recompute guard
+`tripFrozen = billingManualOverride === true || jobCategory === "SUPPLEMENTARY"` makes even a
+`forceRecompute` (bulk backfill, fuel re-import) skip it (`tripBillingOnDelivered.ts:126-129`). The
+freeze protects separately-agreed เสริม prices. It is deliberately escapable **only** by an explicit
+admin edit — the `setTripJobCategory` callable in ADR 0002 — which is the one path allowed to move a
+frozen price, by re-deriving it and clearing the override when the category becomes PRIMARY.
