@@ -298,6 +298,13 @@ export function EditTripDetailsDialog({
         localDestination !== (trip.destination ?? "") ||
         localJobType !== trip.jobType;
 
+    // Billing category (หลัก/เสริม): admin-only, delivered trips only (R2). Derived once here so
+    // both the Save button's `hasChanges` gate and handleSave use the same condition.
+    const jobCategoryChanged =
+        canEditCategory &&
+        trip.status === "delivered" &&
+        localJobCategory !== (trip.jobCategory ?? "PRIMARY");
+
     const handleOriginChange = (value: string) => setLocalOrigin(value);
 
     const handleSwap = () => {
@@ -380,13 +387,7 @@ export function EditTripDetailsDialog({
             sealCode !== (trip.sealCode ?? "") ||
             partnerChanged ||
             deliveredAtChanged;
-        // Billing category (หลัก/เสริม): admin-only, delivered trips only (R2). Re-derives price
-        // server-side via the setTripJobCategory callable.
-        const categoryChanged =
-            canEditCategory &&
-            trip.status === "delivered" &&
-            localJobCategory !== (trip.jobCategory ?? "PRIMARY");
-        if (!hasPhotoChanges && !hasMetaChanges && !hasStopsChanged && !hasRouteChanges && !helperChanged && !categoryChanged) {
+        if (!hasPhotoChanges && !hasMetaChanges && !hasStopsChanged && !hasRouteChanges && !helperChanged && !jobCategoryChanged) {
             onOpenChange(false);
             if (onSuccess) onSuccess();
             return;
@@ -534,7 +535,7 @@ export function EditTripDetailsDialog({
             // Category change (หลัก/เสริม): re-derive price via the admin-only callable. Runs AFTER
             // the route/stops sync above so it recomputes against the updated task + trip. The server
             // is atomic — a missing target-category rate card throws and changes nothing (R5).
-            if (categoryChanged) {
+            if (jobCategoryChanged) {
                 const catLabel = t(
                     localJobCategory === "PRIMARY"
                         ? "driverMonitor.editTrip.jobCategoryPrimary"
@@ -560,7 +561,7 @@ export function EditTripDetailsDialog({
 
             // Trigger billing recompute if route changed on a delivered trip. Skipped when the
             // category change already recomputed this trip (R8).
-            if (hasRouteChanges && trip.status === "delivered" && !categoryChanged) {
+            if (hasRouteChanges && trip.status === "delivered" && !jobCategoryChanged) {
                 try {
                     const fn = httpsCallable<
                         { tripId: string },
@@ -574,7 +575,7 @@ export function EditTripDetailsDialog({
 
             // Trigger billing recompute if stops changed and >= 3 delivered (skip if category
             // change already recomputed — R8).
-            if (hasStopsChanged && !categoryChanged) {
+            if (hasStopsChanged && !jobCategoryChanged) {
                 const deliveredCount = localStops.filter(
                     (s) => s.status === "delivered" && s.destination.trim()
                 ).length;
@@ -741,7 +742,8 @@ export function EditTripDetailsDialog({
         partnerCode.trim() !== initialPartnerEffectiveRef.current.trim() ||
         hasStopsChanged ||
         hasRouteChanges ||
-        helperChanged;
+        helperChanged ||
+        jobCategoryChanged;
 
     return (
         <>

@@ -44,15 +44,33 @@ function normalizeDestinationCode(destination) {
     }
     return u;
 }
+/**
+ * Folds every spelling a vehicle class was ever stored in onto the class a task carries today
+ * (TASK_TRUCK_TYPE_ENUM: 4W, 4WJ, 6WH, 10WH, 18WH, VAN).
+ *
+ * Both sides of the rate lookup pass through here, so a rate entry only matches a trip when the two
+ * land on the same code. Rate cards written from the old truck-master dropdown ("Pickup", "6 Wheels")
+ * and from an earlier normalize pass ("6W", "10W") therefore matched nothing at all — the codes they
+ * produced are not in the enum. They are mapped here rather than left to rot, since an unmatched
+ * rate card shows up as "No rate" on a trip that does have a price agreed.
+ *
+ * PICKUP and 4WH are the pre-2026-07 names for 4W.
+ */
 function normalizeVehicleClass(vehicleClass) {
     const u = normalizeCode(vehicleClass || "4WJ");
     if (!u)
         return "4WJ";
-    // Map full truck type names to short codes
     const mapping = {
+        "PICKUP": "4W",
+        "4WH": "4W",
+        "4 WHEELS": "4WJ",
         "4 WHEELS JUMBO": "4WJ",
-        "6 WHEELS": "6W",
-        "10 WHEELS": "10W",
+        "6 WHEELS": "6WH",
+        "6W": "6WH",
+        "10 WHEELS": "10WH",
+        "10W": "10WH",
+        "18 WHEELS": "18WH",
+        "18W": "18WH",
         "2 WHEELS": "2W",
     };
     return mapping[u] ?? u;
@@ -136,7 +154,11 @@ function computeMultiDeliveryBilling(trip, task, deliveryStops, vehicleClass, ra
     const hubId = extractHubId(task.sourceHub);
     const normalizedVehicleClass = normalizeVehicleClass(vehicleClass || "4WJ");
     const billDateMs = getTripBillingDateMs(trip);
-    const matchedAdjustment = selectFuelAdjustmentForBillingDate(customerId, billDateMs, fuelAdjustments);
+    // Supplementary (เสริม) rate cards are fixed, separately-agreed prices (ADR-0005) —
+    // they never move with primary fuel-rate adjustments.
+    const matchedAdjustment = jobCategory === "SUPPLEMENTARY"
+        ? null
+        : selectFuelAdjustmentForBillingDate(customerId, billDateMs, fuelAdjustments);
     const rateMultiplier = matchedAdjustment?.rateMultiplier ?? 1;
     const addThbPerTrip = matchedAdjustment?.addThbPerTrip ?? 0;
     const useFlatExtraStopFee = typeof extraStopFeeThb === "number" && extraStopFeeThb >= 0;
@@ -270,7 +292,11 @@ function computeTripBillingFromParts(trip, task, rateEntries, fuelAdjustments, j
     const matchedRate = selectBillingRateEntry(customerId, hubId, destination, vehicleClass, billDateMs, rateEntries, jobCategory);
     if (!matchedRate)
         return null;
-    const matchedAdjustment = selectFuelAdjustmentForBillingDate(customerId, billDateMs, fuelAdjustments);
+    // Supplementary (เสริม) rate cards are fixed, separately-agreed prices (ADR-0005) —
+    // they never move with primary fuel-rate adjustments.
+    const matchedAdjustment = jobCategory === "SUPPLEMENTARY"
+        ? null
+        : selectFuelAdjustmentForBillingDate(customerId, billDateMs, fuelAdjustments);
     const multiplier = matchedAdjustment?.rateMultiplier ?? 1;
     const addThbPerTrip = matchedAdjustment?.addThbPerTrip ?? 0;
     const finalRate = computeFinalRateThb(matchedRate.rateThb, multiplier, addThbPerTrip);

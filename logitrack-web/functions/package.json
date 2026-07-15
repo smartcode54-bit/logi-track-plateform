@@ -21,10 +21,6 @@
         "firebase-functions": "^7.2.5"
     },
     "devDependencies": {
-        "@types/jest": "^30.0.0",
-        "firebase-functions-test": "^3.4.1",
-        "jest": "^30.3.0",
-        "ts-jest": "^29.4.6",
         "typescript": "^5.0.0"
     },
     "private": true

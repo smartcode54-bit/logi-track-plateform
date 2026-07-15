@@ -110,13 +110,17 @@ async (request) => {
         date: new Date(data.date),
         time: data.time.trim(),
         taskType: data.taskType,
+        // Vehicle for this job — chosen per task, not derived from drivers.currentAssignment.
         truckType: data.truckType,
+        truckId: data.truckId,
+        licensePlate: data.licensePlate,
         driverId: data.driverId,
         // At most one helper; persist as an array for array-contains queries.
         helperDriverIds: Array.isArray(data.helperDriverIds)
             ? data.helperDriverIds.filter(Boolean).slice(0, 1)
             : [],
-        driverName: undefined, // Will be fetched separately if needed
+        driverName: data.driverName,
+        driverPhone: data.driverPhone,
         status: data.driverId ? "Assigned" : "Pending",
         isMultiDelivery,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -145,19 +149,23 @@ async (request) => {
             status: "pending",
         }));
     }
+    // Firestore rejects undefined values (ignoreUndefinedProperties is not enabled).
+    // On update, omitting a key leaves the stored value untouched — which is what we want
+    // for optional fields an older client may not send.
+    const writeDoc = Object.fromEntries(Object.entries(taskDoc).filter(([, value]) => value !== undefined));
     try {
         let taskId;
         if (data.id) {
             // Update existing task
-            await db.collection(COL_TASKS).doc(data.id).update(taskDoc);
+            await db.collection(COL_TASKS).doc(data.id).update(writeDoc);
             taskId = data.id;
             firebase_functions_1.logger.info("[createOrUpdateTask] Task updated", { taskId, isMultiDelivery });
         }
         else {
             // Create new task
-            taskDoc.createdAt = admin.firestore.FieldValue.serverTimestamp();
+            writeDoc.createdAt = admin.firestore.FieldValue.serverTimestamp();
             const docRef = db.collection(COL_TASKS).doc();
-            await docRef.set(taskDoc);
+            await docRef.set(writeDoc);
             taskId = docRef.id;
             firebase_functions_1.logger.info("[createOrUpdateTask] Task created", { taskId, isMultiDelivery });
         }
