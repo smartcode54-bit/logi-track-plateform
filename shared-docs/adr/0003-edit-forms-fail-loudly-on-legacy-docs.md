@@ -1,6 +1,7 @@
 # ADR 0003 — Edit forms fail loudly on legacy docs (never relax the schema to make old data saveable)
 
-- **Status:** Accepted (2026-07-17) — web fix implemented, Cloud Function change pending deploy
+- **Status:** Accepted (2026-07-17) — implemented and verified on dev (`logi-track-wrt-dev`); prod
+  deploy pending
 - **Deciders:** Samart Kas (product owner), Claude
 - **Area:** logitrack-web (`EditDriverForm`, `validate/driverSchema.ts`), Cloud Functions
   (`updateDriverAccount`), `drivers` collection + Firebase Auth
@@ -118,8 +119,10 @@ left guessing why it did not.
   [0004](0004-shared-oninvalid-handler-for-all-forms.md). The audit found no second live bug (the
   only other post-hoc required field, `source_name_th`, was already handled in `hub-dialog`); the
   rule was applied to all 12 forms via a shared helper anyway.
-- Deploy `updateDriverAccount` (`--only functions:logi-truck:updateDriverAccount`); the client fix
-  ships with the next web build and stands alone without it.
+- ~~Deploy `updateDriverAccount` and verify the fix in a browser.~~ **Done on dev (2026-07-17)** —
+  deployed to `logi-track-wrt-dev` and confirmed against a legacy driver doc: Save now names the
+  blocking field instead of dying silently, and the email persists once `fullNameTh` is supplied.
+  **Prod (`logitrack-prod`) deploy still pending.**
 - Consider a read-only admin report of driver docs failing `driverSchema`, so the backlog of legacy
   docs is visible before an admin stumbles into one.
 - ADR files are covered by the repo-wide `*.md` gitignore rule — commit with `git add -f`.

@@ -13,8 +13,8 @@ Companion glossary: [../glossary.md](../glossary.md).
 | [0000](0000-adr-conventions.md) | ADR & glossary conventions (one standard) | Accepted 2026-07-15 |
 | [0001](0001-checkin-time-on-trip-records.md) | Denormalize check-in time onto `trip_records`; drive the Driver Monitor "Check-in" column by it | Accepted 2026-07-15 (impl pending) |
 | [0002](0002-edit-job-category-on-delivered-trip.md) | Edit หลัก/เสริม on a delivered trip (re-derive price via an atomic admin callable) | Accepted 2026-07-15 (impl pending) |
-| [0003](0003-edit-forms-fail-loudly-on-legacy-docs.md) | Edit forms fail loudly on legacy docs (never relax the schema to make old data saveable) | Accepted 2026-07-17 (web done, deploy pending) |
-| [0004](0004-shared-oninvalid-handler-for-all-forms.md) | One shared `onInvalid` handler for every form (close the class, not the instance) | Accepted 2026-07-17 |
+| [0003](0003-edit-forms-fail-loudly-on-legacy-docs.md) | Edit forms fail loudly on legacy docs (never relax the schema to make old data saveable) | Accepted 2026-07-17 (dev verified, prod pending) |
+| [0004](0004-shared-oninvalid-handler-for-all-forms.md) | One shared `onInvalid` handler for every form (close the class, not the instance) | Accepted 2026-07-17 (dev verified) |
 
 **Next free number: `0005`.** Take the next unused number, never reuse or renumber (see
 [conventions](0000-adr-conventions.md)).

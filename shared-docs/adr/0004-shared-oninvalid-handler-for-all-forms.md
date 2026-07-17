@@ -1,6 +1,6 @@
 # ADR 0004 — One shared `onInvalid` handler for every form (close the class, not the instance)
 
-- **Status:** Accepted (2026-07-17) — implemented, commit `3fef379`
+- **Status:** Accepted (2026-07-17) — implemented (commit `3fef379`), verified on dev
 - **Deciders:** Samart Kas (product owner), Claude
 - **Area:** logitrack-web — all 12 `zodResolver` forms (drivers, customers, subcontractors, trucks,
   hubs, tasks, company profile), `lib/formInvalidHandler.ts`, `context/locales/{en,th}/common.ts`
@@ -83,9 +83,9 @@ Facts established during the audit (all `path:line` in `logitrack-web/`):
 
 **Negative / risks**
 - **Behavior changed in 12 forms to fix a bug reported in one.** Mitigated by scope: only the
-  *invalid* path changes; a valid submit is byte-for-byte what it was. Still, this shipped without
-  any form being driven in a browser — the helper is unit-tested and the schema behavior proven by
-  parsing real docs, but the first real click is unverified.
+  *invalid* path changes; a valid submit is byte-for-byte what it was. Verified on dev against the
+  driver edit form (2026-07-17); the other 11 forms rest on the shared helper's unit tests and the
+  identical wiring, not on individual clicks.
 - The toast surfaces the raw Zod message, so a schema change that drops a custom message regresses
   the wording to Zod's default (inherited from ADR 0003, now spread across 12 forms).
 - Forms that never used `zodResolver` are untouched and keep whatever behavior they had —
@@ -96,8 +96,9 @@ Facts established during the audit (all `path:line` in `logitrack-web/`):
   whose only defect was stylistic.
 
 **Follow-ups**
-- Drive at least one form in a browser to confirm the toast and focus behave (an old driver doc with
-  no `fullNameTh` is the sharpest case).
+- ~~Drive at least one form in a browser to confirm the toast and focus behave.~~ **Done on dev
+  (2026-07-17)** — driver edit form, legacy doc with no `fullNameTh`: toast named the field, save
+  succeeded once filled. The remaining 11 forms are unverified by click.
 - Consider scroll-into-view in the helper — `setFocus` does not scroll for fields inside a collapsed
   section or a long dialog.
 - If a non-`zodResolver` form ever grows validation, route it through the same helper rather than a
