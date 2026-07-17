@@ -114,8 +114,10 @@ left guessing why it did not.
   shares `driverSchema` — the two forms can drift.
 
 **Follow-ups**
-- Audit other `zodResolver` forms for a missing `onInvalid` (`EditTripDetailsDialog`, hub/task
-  dialogs, customer/company forms). Same one-line trap.
+- ~~Audit other `zodResolver` forms for a missing `onInvalid`.~~ **Done** — see
+  [0004](0004-shared-oninvalid-handler-for-all-forms.md). The audit found no second live bug (the
+  only other post-hoc required field, `source_name_th`, was already handled in `hub-dialog`); the
+  rule was applied to all 12 forms via a shared helper anyway.
 - Deploy `updateDriverAccount` (`--only functions:logi-truck:updateDriverAccount`); the client fix
   ships with the next web build and stands alone without it.
 - Consider a read-only admin report of driver docs failing `driverSchema`, so the backlog of legacy
