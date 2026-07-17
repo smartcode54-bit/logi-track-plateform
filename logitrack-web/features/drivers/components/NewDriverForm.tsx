@@ -2,6 +2,7 @@
 
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { createInvalidHandler } from "@/lib/formInvalidHandler";
 import { driverSchema, Driver } from "@/validate/driverSchema";
 import { createDriver } from "@/features/drivers/api/drivers";
 import { useRouter } from "next/navigation";
@@ -217,7 +218,7 @@ export default function NewDriverForm() {
                 <div className="flex-1 overflow-y-auto p-6 md:p-8 relative">
                     <div className="max-w-3xl mx-auto pb-24">
                         <Form {...form}>
-                            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+                            <form onSubmit={form.handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-8">
 
                                 {/* Step 1: Personal Info */}
                                 {currentStep === 1 && (
@@ -516,7 +517,7 @@ export default function NewDriverForm() {
                         <Button type="button" variant="outline" onClick={currentStep === 1 ? () => router.push('/app/drivers') : prevStep} className="bg-background">
                             {currentStep === 1 ? t("drivers.form.cancel") : t("drivers.form.back")}
                         </Button>
-                        <Button type="button" className="bg-blue-600 hover:bg-blue-700 text-white min-w-[140px]" onClick={currentStep === 4 ? form.handleSubmit(onSubmit) : nextStep} disabled={isSubmitting}>
+                        <Button type="button" className="bg-blue-600 hover:bg-blue-700 text-white min-w-[140px]" onClick={currentStep === 4 ? form.handleSubmit(onSubmit, createInvalidHandler(form, t)) : nextStep} disabled={isSubmitting}>
                             {isSubmitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {t("drivers.form.saving")}</> : currentStep === 4 ? t("drivers.form.completeRegistration") : t("drivers.form.nextStep")}
                         </Button>
                     </div>

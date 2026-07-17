@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { format } from "date-fns";
 import { CalendarIcon, Loader2, Check, ChevronsUpDown, Search } from "lucide-react";
+import { createInvalidHandler } from "@/lib/formInvalidHandler";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -94,7 +95,7 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
                 </DialogHeader>
 
                 <Form {...form}>
-                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                    <form onSubmit={form.handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-4">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {/* Date Field */}
                             <FormField

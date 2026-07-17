@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { createInvalidHandler } from "@/lib/formInvalidHandler";
 import { Loader2, Plus, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -190,7 +191,7 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
                 </DialogHeader>
 
                 <Form {...form}>
-                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                    <form onSubmit={form.handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-4">
                         <div className="grid grid-cols-2 gap-4">
                             <FormField
                                 control={form.control}

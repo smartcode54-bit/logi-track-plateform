@@ -4,6 +4,7 @@ import { PagePermissionGuard } from "@/components/page-permission-guard";
 import { CAPABILITIES } from "@/lib/capabilities";
 import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
+import { createInvalidHandler } from "@/lib/formInvalidHandler";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   getOwnerCompany,
@@ -59,14 +60,7 @@ export default function CompanyProfilePage() {
     signature: useRef<HTMLInputElement>(null),
   };
 
-  const {
-    register,
-    handleSubmit,
-    setValue,
-    watch,
-    reset,
-    formState: { errors },
-  } = useForm({
+  const form = useForm({
     resolver: zodResolver(CompanyFormSchema),
     defaultValues: {
       nameTh: "",
@@ -86,6 +80,15 @@ export default function CompanyProfilePage() {
       isActive: true,
     },
   });
+
+  const {
+    register,
+    handleSubmit,
+    setValue,
+    watch,
+    reset,
+    formState: { errors },
+  } = form;
 
   const branchType = watch("branchType");
 
@@ -254,7 +257,7 @@ export default function CompanyProfilePage() {
           )}
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        <form onSubmit={handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-6">
 
           {/* ── Section 1: Corporate Identity ── */}
           <Card>

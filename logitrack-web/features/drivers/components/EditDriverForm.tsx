@@ -1,7 +1,8 @@
 "use client";
 
-import { useForm, type FieldErrors, type Path } from "react-hook-form";
+import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { createInvalidHandler } from "@/lib/formInvalidHandler";
 import { driverSchema, Driver } from "@/validate/driverSchema";
 import { getDriverByIdClient, updateDriver } from "@/features/drivers/api/drivers";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -240,28 +241,7 @@ export default function EditDriverForm() {
         }
     };
 
-    /**
-     * Without this, a driver doc that fails schema validation (e.g. an older doc with no
-     * fullNameTh) makes Save a no-op with no feedback — the edit looks saved but never reaches
-     * Firestore. Name the blocking field so the admin can fix it.
-     */
-    const onInvalid = (errors: FieldErrors<Driver>) => {
-        const keys = Object.keys(errors);
-        if (keys.length === 0) return;
-        const firstKey = keys[0];
-        const firstError = (errors as Record<string, { message?: string }>)[firstKey];
-        toast.error(
-            t("drivers.toast.validationError", {
-                count: keys.length,
-                field: firstError?.message || firstKey,
-            })
-        );
-        try {
-            form.setFocus(firstKey as Path<Driver>);
-        } catch {
-            // Fields rendered by DatePicker are not focusable inputs — the toast still names them.
-        }
-    };
+    const onInvalid = createInvalidHandler(form, t);
 
     const employmentType = form.watch("employmentType");
 

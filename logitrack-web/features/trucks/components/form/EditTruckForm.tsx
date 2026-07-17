@@ -20,6 +20,7 @@ import {
 import { useLanguage } from "@/context/language";
 import { useAuth } from "@/context/auth";
 import { truckSchema, TruckFormValues, TruckValidatedData, truckDefaultValues } from "@/validate/truckSchema";
+import { createInvalidHandler } from "@/lib/formInvalidHandler";
 
 import { IdentificationSection } from "./IdentificationSection";
 import { VehicleDetailsSection } from "./VehicleDetailsSection";
@@ -84,6 +85,11 @@ export default function EditTruckForm() {
 
                 if (truckData) {
                     const formValues: any = {
+                        // reset() replaces every value, so a key absent from the doc would land as
+                        // undefined instead of falling back to defaultValues — the schema then
+                        // reports a type error rather than the authored "X is required" message,
+                        // and the save is vetoed by a field the admin never touched (ADR 0003).
+                        ...truckDefaultValues,
                         ...truckData,
                         year: String(truckData.year || ""),
                         seats: String(truckData.seats || ""),
@@ -211,7 +217,7 @@ export default function EditTruckForm() {
                 </div>
 
                 <Form {...form}>
-                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                    <form onSubmit={form.handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-6">
                         {error && (
                             <div className="bg-destructive/15 text-destructive px-4 py-3 rounded-md border border-destructive/50">
                                 <p className="text-sm font-medium">{error}</p>

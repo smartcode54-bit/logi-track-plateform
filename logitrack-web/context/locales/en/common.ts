@@ -79,6 +79,7 @@ export default {
     "common.delete": "Delete",
     "common.refresh": "Refresh",
     "common.actions": "Actions",
+    "common.toast.validationError": "Cannot save: {count} field(s) need attention. First problem: {field}",
     "common.show": "Show",
     "common.hide": "Hide",
     "common.joinedAt": "Joined At",

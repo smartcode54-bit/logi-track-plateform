@@ -29,6 +29,7 @@ import Image from "next/image";
 import { toast } from "sonner";
 import { useForm, useFieldArray, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { createInvalidHandler } from "@/lib/formInvalidHandler";
 import { customerSchema, type Customer } from "@/validate/customerSchema";
 import { useLanguage } from "@/context/language";
 import { getCustomerIdFromPathname } from "@/features/customers/utils/customerRouteId";
@@ -160,7 +161,7 @@ export default function EditCustomerForm() {
             </div>
 
             <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                <form onSubmit={form.handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-6">
                     {/* ── Basic info ── */}
                     <Card>
                         <CardHeader>

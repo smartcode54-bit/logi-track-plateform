@@ -2,6 +2,7 @@
 
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { createInvalidHandler } from "@/lib/formInvalidHandler";
 import { subcontractorSchema, SubcontractorFormValues, SubcontractorValidatedData, subcontractorDefaultValues } from "@/validate/subcontractorSchema";
 import { getSubcontractorById, updateSubcontractor } from "../services/subcontractorService";
 import { useRouter, useParams } from "next/navigation";
@@ -115,7 +116,7 @@ export default function SubcontractorEdit() {
                 </div>
 
                 <Form {...form}>
-                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+                    <form onSubmit={form.handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-8">
                         <Card>
                             <CardHeader>
                                 <CardTitle>{t("subcontractors.edit.basicInfo")}</CardTitle>

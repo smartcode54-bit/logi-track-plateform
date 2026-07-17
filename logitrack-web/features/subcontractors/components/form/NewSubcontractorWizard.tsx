@@ -2,6 +2,7 @@
 
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { createInvalidHandler } from "@/lib/formInvalidHandler";
 import { subcontractorSchema, SubcontractorFormValues, SubcontractorValidatedData, subcontractorDefaultValues } from "@/validate/subcontractorSchema";
 import { createSubcontractor } from "../../services/subcontractorService";
 import { useRouter } from "next/navigation";
@@ -149,7 +150,7 @@ export default function NewSubcontractorWizard() {
                 <div className="flex-1 overflow-y-auto p-6 md:p-8 relative">
                     <div className="max-w-3xl mx-auto pb-24">
                         <Form {...form}>
-                            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+                            <form onSubmit={form.handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-8">
                                 {/* Step 1: Company Profile */}
                                 {currentStep === 1 && (
                                     <div className="space-y-6">
@@ -617,7 +618,7 @@ export default function NewSubcontractorWizard() {
                         <Button
                             type="button"
                             className="bg-blue-600 hover:bg-blue-700 text-white min-w-[140px]"
-                            onClick={currentStep === 4 ? form.handleSubmit(onSubmit) : nextStep}
+                            onClick={currentStep === 4 ? form.handleSubmit(onSubmit, createInvalidHandler(form, t)) : nextStep}
                             disabled={isSubmitting}
                         >
                             {isSubmitting ? t("subcontractors.form.saving") : currentStep === 4 ? t("subcontractors.form.completeRegistration") : t("subcontractors.form.nextStep")}

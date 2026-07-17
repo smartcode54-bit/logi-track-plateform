@@ -135,7 +135,6 @@ export default {
     "drivers.toast.registerError": "ไม่สามารถลงทะเบียนพนักงานขับรถได้",
     "drivers.toast.updateSuccess": "อัปเดตพนักงานขับรถสำเร็จ",
     "drivers.toast.updateError": "ไม่สามารถอัปเดตพนักงานขับรถได้",
-    "drivers.toast.validationError": "บันทึกไม่ได้: มี {count} ช่องที่จำเป็นยังว่างหรือไม่ถูกต้อง ช่องแรกที่มีปัญหา: {field}",
     "drivers.toast.notFound": "ไม่พบพนักงานขับรถ",
     "drivers.toast.loadError": "ไม่สามารถโหลดข้อมูลพนักงานขับรถได้",
     "drivers.toast.noId": "ไม่ได้ระบุรหัสพนักงานขับรถ",

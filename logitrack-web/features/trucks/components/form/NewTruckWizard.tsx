@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/context/language";
 import { useAuth } from "@/context/auth";
 import { truckSchema, TruckFormValues, truckDefaultValues } from "@/validate/truckSchema";
+import { createInvalidHandler } from "@/lib/formInvalidHandler";
 import { uploadTruckFile, saveNewTruckToFirestoreClient } from "../../services/truckService";
 import { getSubcontractors } from "@/features/subcontractors/services/subcontractorService";
 
@@ -202,7 +203,7 @@ export default function NewTruckWizard() {
 
                     <div className="flex-1 overflow-y-auto p-8 relative">
                         <div className="max-w-3xl mx-auto pb-24">
-                            <form onSubmit={handleSubmit(onSubmit as any)}>
+                            <form onSubmit={handleSubmit(onSubmit as any, createInvalidHandler(methods, t))}>
                                 {currentStep === 1 && <Step1Specs onFileSelect={handleFileSelect} />}
                                 {currentStep === 2 && <Step2Compliance onFileSelect={handleFileSelect} />}
                                 {currentStep === 3 && <Step3Maintenance />}
@@ -222,7 +223,7 @@ export default function NewTruckWizard() {
                             <Button
                                 type="button"
                                 className="bg-blue-600 hover:bg-blue-700 text-white min-w-[140px]"
-                                onClick={currentStep === 4 ? handleSubmit(onSubmit as any) : nextStep}
+                                onClick={currentStep === 4 ? handleSubmit(onSubmit as any, createInvalidHandler(methods, t)) : nextStep}
                                 disabled={isSubmitting}
                             >
                                 {isSubmitting ? t("trucks.wizard.saving") : currentStep === 4 ? t("trucks.wizard.save") : t("trucks.wizard.next")}
