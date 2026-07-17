@@ -1,7 +1,8 @@
 # ADR 0003 — Edit forms fail loudly on legacy docs (never relax the schema to make old data saveable)
 
-- **Status:** Accepted (2026-07-17) — implemented and verified on dev (`logi-track-wrt-dev`); prod
-  deploy pending
+- **Status:** Accepted (2026-07-17) — implemented and verified on dev (`logi-track-wrt-dev`);
+  `updateDriverAccount` deployed to prod. **The client fix is not yet live in prod** — it ships with
+  the next hosting build.
 - **Deciders:** Samart Kas (product owner), Claude
 - **Area:** logitrack-web (`EditDriverForm`, `validate/driverSchema.ts`), Cloud Functions
   (`updateDriverAccount`), `drivers` collection + Firebase Auth
@@ -122,7 +123,10 @@ left guessing why it did not.
 - ~~Deploy `updateDriverAccount` and verify the fix in a browser.~~ **Done on dev (2026-07-17)** —
   deployed to `logi-track-wrt-dev` and confirmed against a legacy driver doc: Save now names the
   blocking field instead of dying silently, and the email persists once `fullNameTh` is supplied.
-  **Prod (`logitrack-prod`) deploy still pending.**
+  `updateDriverAccount` also deployed to prod (`logitrack-prod`) on 2026-07-17.
+- **Ship the client fix to prod.** The prod deploy covered the Cloud Function only, which carries
+  just the email-conflict message. Until a hosting build reaches `logitrack-prod`, prod admins still
+  get the silent no-op this ADR exists to fix.
 - Consider a read-only admin report of driver docs failing `driverSchema`, so the backlog of legacy
   docs is visible before an admin stumbles into one.
 - ADR files are covered by the repo-wide `*.md` gitignore rule — commit with `git add -f`.
