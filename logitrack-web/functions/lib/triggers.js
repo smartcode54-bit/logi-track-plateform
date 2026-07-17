@@ -200,6 +200,12 @@ exports.updateDriverAccount = (0, https_1.onCall)({
                 }
                 catch (authError) {
                     console.error("[updateDriverAccount] Error updating Auth user:", authError);
+                    // Abort the whole update rather than let drivers.email drift from the Auth
+                    // record — the driver logs in with the Auth email, so a divergence locks
+                    // them out silently.
+                    if (authError.code === "auth/email-already-exists") {
+                        throw new https_1.HttpsError("already-exists", `Email ${wantEmail} is already used by another account. No changes were saved.`);
+                    }
                     throw new https_1.HttpsError("aborted", "Failed to update Auth user credentials: " + authError.message);
                 }
             }

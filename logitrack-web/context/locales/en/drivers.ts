@@ -135,6 +135,7 @@ export default {
     "drivers.toast.registerError": "Failed to register driver",
     "drivers.toast.updateSuccess": "Driver updated successfully",
     "drivers.toast.updateError": "Failed to update driver",
+    "drivers.toast.validationError": "Cannot save: {count} required field(s) are missing or invalid. First problem: {field}",
     "drivers.toast.notFound": "Driver not found",
     "drivers.toast.loadError": "Failed to load driver data",
     "drivers.toast.noId": "No driver ID provided",

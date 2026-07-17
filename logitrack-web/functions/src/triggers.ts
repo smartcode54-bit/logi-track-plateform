@@ -190,6 +190,15 @@ export const updateDriverAccount = onCall(
                         await admin.auth().updateUser(authId, authUpdates);
                     } catch (authError: any) {
                         console.error("[updateDriverAccount] Error updating Auth user:", authError);
+                        // Abort the whole update rather than let drivers.email drift from the Auth
+                        // record — the driver logs in with the Auth email, so a divergence locks
+                        // them out silently.
+                        if (authError.code === "auth/email-already-exists") {
+                            throw new HttpsError(
+                                "already-exists",
+                                `Email ${wantEmail} is already used by another account. No changes were saved.`
+                            );
+                        }
                         throw new HttpsError("aborted", "Failed to update Auth user credentials: " + authError.message);
                     }
                 }

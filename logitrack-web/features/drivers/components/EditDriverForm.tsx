@@ -1,6 +1,6 @@
 "use client";
 
-import { useForm } from "react-hook-form";
+import { useForm, type FieldErrors, type Path } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { driverSchema, Driver } from "@/validate/driverSchema";
 import { getDriverByIdClient, updateDriver } from "@/features/drivers/api/drivers";
@@ -39,6 +39,25 @@ import { COLLECTIONS } from "@/lib/collections";
 import Image from "next/image";
 import { useLanguage } from "@/context/language";
 
+/**
+ * Reset() replaces every value, so a key absent from the Firestore doc becomes `undefined`
+ * rather than falling back to defaultValues. Older driver docs predate required fields such as
+ * fullNameTh, which then fail validation with no visible cause. Merge these under the fetched doc.
+ */
+const FORM_DEFAULTS: Partial<Driver> = {
+    firstName: "",
+    lastName: "",
+    fullNameTh: "",
+    mobile: "",
+    email: "",
+    idCard: "",
+    truckLicenseId: "",
+    contractYears: "" as any,
+    status: "Active",
+    employmentType: "FULL_TIME",
+    customerDriverIds: { SPX: { appId: "", workId: "" } },
+};
+
 export default function EditDriverForm() {
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -70,19 +89,7 @@ export default function EditDriverForm() {
 
     const form = useForm<Driver>({
         resolver: zodResolver(driverSchema) as any,
-        defaultValues: {
-            firstName: "",
-            lastName: "",
-            fullNameTh: "",
-            mobile: "",
-            email: "",
-            idCard: "",
-            truckLicenseId: "",
-            contractYears: "" as any,
-            status: "Active",
-            employmentType: "FULL_TIME",
-            customerDriverIds: { SPX: { appId: "", workId: "" } },
-        },
+        defaultValues: FORM_DEFAULTS as Driver,
         mode: "onChange",
     });
 
@@ -99,6 +106,7 @@ export default function EditDriverForm() {
                 if (driver) {
                     setDriverAuthId((driver as any).authId || null);
                     const formData = {
+                        ...FORM_DEFAULTS,
                         ...driver,
                         email: driver.email || "",
                         contractYears: driver.contractYears || ("" as any),
@@ -225,9 +233,33 @@ export default function EditDriverForm() {
             router.push(`/app/drivers/view?id=${driverId}`);
         } catch (error) {
             console.error(error);
-            toast.error(t("drivers.toast.updateError"));
+            const reason = (error as { message?: string })?.message;
+            toast.error(reason ? `${t("drivers.toast.updateError")}: ${reason}` : t("drivers.toast.updateError"));
         } finally {
             setIsSubmitting(false);
+        }
+    };
+
+    /**
+     * Without this, a driver doc that fails schema validation (e.g. an older doc with no
+     * fullNameTh) makes Save a no-op with no feedback — the edit looks saved but never reaches
+     * Firestore. Name the blocking field so the admin can fix it.
+     */
+    const onInvalid = (errors: FieldErrors<Driver>) => {
+        const keys = Object.keys(errors);
+        if (keys.length === 0) return;
+        const firstKey = keys[0];
+        const firstError = (errors as Record<string, { message?: string }>)[firstKey];
+        toast.error(
+            t("drivers.toast.validationError", {
+                count: keys.length,
+                field: firstError?.message || firstKey,
+            })
+        );
+        try {
+            form.setFocus(firstKey as Path<Driver>);
+        } catch {
+            // Fields rendered by DatePicker are not focusable inputs — the toast still names them.
         }
     };
 
@@ -263,7 +295,7 @@ export default function EditDriverForm() {
                 </div>
 
                 <Form {...form}>
-                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                    <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="space-y-6">
                         <Card>
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
