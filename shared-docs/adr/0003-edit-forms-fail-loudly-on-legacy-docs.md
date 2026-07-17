@@ -1,8 +1,8 @@
 # ADR 0003 — Edit forms fail loudly on legacy docs (never relax the schema to make old data saveable)
 
-- **Status:** Accepted (2026-07-17) — implemented and verified on dev (`logi-track-wrt-dev`);
-  `updateDriverAccount` deployed to prod. **The client fix is not yet live in prod** — it ships with
-  the next hosting build.
+- **Status:** Accepted (2026-07-17) — implemented, verified on dev (`logi-track-wrt-dev`), and
+  shipped to prod (`logitrack-prod`): `updateDriverAccount` plus the hosting build carrying the
+  client fix.
 - **Deciders:** Samart Kas (product owner), Claude
 - **Area:** logitrack-web (`EditDriverForm`, `validate/driverSchema.ts`), Cloud Functions
   (`updateDriverAccount`), `drivers` collection + Firebase Auth
@@ -124,9 +124,15 @@ left guessing why it did not.
   deployed to `logi-track-wrt-dev` and confirmed against a legacy driver doc: Save now names the
   blocking field instead of dying silently, and the email persists once `fullNameTh` is supplied.
   `updateDriverAccount` also deployed to prod (`logitrack-prod`) on 2026-07-17.
-- **Ship the client fix to prod.** The prod deploy covered the Cloud Function only, which carries
-  just the email-conflict message. Until a hosting build reaches `logitrack-prod`, prod admins still
-  get the silent no-op this ADR exists to fix.
+- ~~Ship the client fix to prod.~~ **Done (2026-07-17 18:24)** — hosting, functions and Firestore
+  rules deployed to `logitrack-prod`; prod admins now get the named-field toast instead of the
+  silent no-op. Getting here first required unblocking CI (see below).
+- **CI had been red since `469cfc1`, silently blocking every deploy.** That commit dropped the Jest
+  devDependencies from `functions/package.json` without regenerating `pnpm-lock.yaml`, so CI aborted
+  at `pnpm install --frozen-lockfile` before any check ran; `Deploy` triggers on CI success and was
+  skipped six times. Nothing had shipped to hosting since. Fixed in `4a86496`. **Lesson: a red CI
+  here does not just fail a check — it silently stops delivery, and nobody notices until someone asks
+  why a fix isn't live.**
 - Consider a read-only admin report of driver docs failing `driverSchema`, so the backlog of legacy
   docs is visible before an admin stumbles into one.
 - ADR files are covered by the repo-wide `*.md` gitignore rule — commit with `git add -f`.
