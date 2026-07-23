@@ -34,6 +34,27 @@ import {
     normalizeDestinationCode,
 } from "@/lib/billingRates";
 import { normalizeVehicleClass } from "@/lib/billingCompute";
+import {
+    PLATE_FILTER_ALL,
+    buildPlateFilterOptions,
+    resolveTripPlate,
+    rowMatchesPlateFilter,
+    type PlateFilterOption,
+} from "@/lib/truckPlate";
+import {
+    VEHICLE_CLASS_FILTER_ALL,
+    buildVehicleClassOptions,
+    rowMatchesVehicleClass,
+    type VehicleClassOption,
+} from "@/lib/vehicleClass";
+import {
+    PLACE_FILTER_ALL,
+    buildPlaceFilterOptions,
+    rowMatchesPlaceFilter,
+    valueMatchesPlaceFilter,
+    type PlaceFilterOption,
+    type PlaceMaps,
+} from "@/lib/placeFilter";
 
 export interface BillingDebugInfo {
     taskFound: boolean;
@@ -71,16 +92,51 @@ export function effectivePartnerCode(trip: TripRecord): string {
     return ocr || "";
 }
 
-/** Criteria for export dialog — independent from on-screen filters */
-export type ExportFilterCriteria = {
-    dateFrom: Date | null;
-    dateTo: Date | null;
+/**
+ * The filters applied to a trip, on screen and in the export dialog alike.
+ *
+ * Passed as one object rather than as positional arguments: the list has grown past the point where
+ * call sites can be read safely, and every filter added since has to reach two call sites.
+ */
+export type ClientFilterCriteria = {
     driverFilter: string;
     statusFilter: string;
     jobTypeFilter: string;
     partnerFilter: string;
+    /** PLATE_FILTER_ALL | `id:<truckId>` | `plate:<raw>` | PLATE_FILTER_NONE */
+    plateFilter: string;
+    /** VEHICLE_CLASS_FILTER_ALL | normalised class code | VEHICLE_CLASS_FILTER_NONE */
+    vehicleClassFilter: string;
+    /** PLACE_FILTER_ALL | `code:<CODE>` | `raw:<string>` | PLACE_FILTER_NONE */
+    originFilter: string;
+    /** Same shape as originFilter; matches ANY delivery stop of a multi-drop trip (ADR 0006 §5). */
+    destinationFilter: string;
     searchQuery: string;
 };
+
+/** Criteria for export dialog — independent from on-screen filters */
+export type ExportFilterCriteria = ClientFilterCriteria & {
+    dateFrom: Date | null;
+    dateTo: Date | null;
+};
+
+/** Everything the predicate needs that is not a user-chosen filter value. */
+type FilterDeps = {
+    incidentReportsByTripId: Record<string, { description: string; delayCause: string | null; createdAt: Date | null }>;
+    getDriver: (driverId?: string) => Driver | null;
+    getTripTruck: (trip: TripRecord) => TripTruck;
+    placeMaps: PlaceMaps;
+    customerScopeId?: string | null;
+};
+
+/**
+ * The truck a trip ran on, for display and filtering.
+ *
+ * Resolved from the trip's own snapshot then its task — never from `drivers.activeTruck`, which is
+ * live state and would restamp historical rows with today's truck (ADR 0005 §6). `vehicleClass` is
+ * the RAW class string (trip.truckType ‖ task.truckType); the filter normalises it (lib/vehicleClass).
+ */
+export type TripTruck = { truckId?: string | null; plate?: string | null; vehicleClass?: string | null };
 
 export function defaultDateRange(): { from: Date; to: Date } {
     const to = endOfDay(new Date());
@@ -134,17 +190,31 @@ function tripInDateRange(trip: TripRecord, from: Date, to: Date): boolean {
     return tripDate >= startOfDay(from) && tripDate <= endOfDay(to);
 }
 
+/** The destinations a trip can be matched by: every delivery stop, or its single planned destination. */
+export function tripDestinations(trip: TripRecord): Array<string | null | undefined> {
+    const stops = trip.deliveryStopsProgress ?? [];
+    if (stops.length > 0) return stops.map((s) => s.destination);
+    return [trip.destination];
+}
+
 function tripMatchesClientFilters(
     trip: TripRecord,
-    driverFilter: string,
-    statusFilter: string,
-    jobTypeFilter: string,
-    partnerFilter: string,
-    searchQuery: string,
-    incidentReportsByTripId: Record<string, { description: string; delayCause: string | null; createdAt: Date | null }>,
-    getDriver: (driverId?: string) => Driver | null,
-    customerScopeId?: string | null
+    filters: ClientFilterCriteria,
+    deps: FilterDeps
 ): boolean {
+    const {
+        driverFilter,
+        statusFilter,
+        jobTypeFilter,
+        partnerFilter,
+        plateFilter,
+        vehicleClassFilter,
+        originFilter,
+        destinationFilter,
+        searchQuery,
+    } = filters;
+    const { incidentReportsByTripId, getDriver, getTripTruck, placeMaps, customerScopeId } = deps;
+
     // Customer scope: only show trips for their customer
     if (customerScopeId && trip.billingCustomerId !== customerScopeId) {
         return false;
@@ -167,6 +237,27 @@ function tripMatchesClientFilters(
         } else if (pc !== partnerFilter) {
             return false;
         }
+    }
+
+    if (plateFilter !== PLATE_FILTER_ALL && !rowMatchesPlateFilter(getTripTruck(trip), plateFilter)) {
+        return false;
+    }
+
+    if (vehicleClassFilter !== VEHICLE_CLASS_FILTER_ALL && !rowMatchesVehicleClass(getTripTruck(trip).vehicleClass, vehicleClassFilter)) {
+        return false;
+    }
+
+    if (originFilter !== PLACE_FILTER_ALL && !rowMatchesPlaceFilter([trip.origin], originFilter, placeMaps)) {
+        return false;
+    }
+
+    // A multi-drop trip matches if ANY stop matches — matching only the planned destination would
+    // make it unfindable by the stops it actually served (ADR 0006 §5).
+    if (
+        destinationFilter !== PLACE_FILTER_ALL &&
+        !rowMatchesPlaceFilter(tripDestinations(trip), destinationFilter, placeMaps)
+    ) {
+        return false;
     }
 
     if (driverFilter !== "all") {
@@ -199,23 +290,23 @@ function tripMatchesClientFilters(
 function tripMatchesExportCriteria(
     trip: TripRecord,
     criteria: ExportFilterCriteria,
-    incidentReportsByTripId: Record<string, { description: string; delayCause: string | null; createdAt: Date | null }>,
-    getDriver: (driverId?: string) => Driver | null,
-    customerScopeId?: string | null
+    deps: FilterDeps
 ): boolean {
     if (criteria.dateFrom && criteria.dateTo && !tripInDateRange(trip, criteria.dateFrom, criteria.dateTo)) {
         return false;
     }
+    // Criteria persisted by an older session can lack the newer filters — default them to "all"
+    // rather than letting `undefined` fall through as a non-matching selection.
     return tripMatchesClientFilters(
         trip,
-        criteria.driverFilter,
-        criteria.statusFilter,
-        criteria.jobTypeFilter,
-        criteria.partnerFilter,
-        criteria.searchQuery,
-        incidentReportsByTripId,
-        getDriver,
-        customerScopeId
+        {
+            ...criteria,
+            plateFilter: criteria.plateFilter ?? PLATE_FILTER_ALL,
+            vehicleClassFilter: criteria.vehicleClassFilter ?? VEHICLE_CLASS_FILTER_ALL,
+            originFilter: criteria.originFilter ?? PLACE_FILTER_ALL,
+            destinationFilter: criteria.destinationFilter ?? PLACE_FILTER_ALL,
+        },
+        deps
     );
 }
 
@@ -260,6 +351,43 @@ export async function fetchTripsForDateRange(from: Date, to: Date): Promise<Trip
     return all;
 }
 
+/**
+ * Resolves the truck per trip for a set of trips fetched OUTSIDE the loaded window (wide-range
+ * export). The on-screen path gets this for free from the hook's `taskById` join; an export over a
+ * wider range has no such map, and without it a plate-filtered export would silently drop every row
+ * whose plate lives on its task rather than on the trip snapshot.
+ */
+async function fetchTruckByTripId(tripsToResolve: TripRecord[]): Promise<Record<string, TripTruck>> {
+    const map: Record<string, TripTruck> = {};
+    // Fetch the task when either the plate OR the vehicle class is missing from the trip snapshot
+    // (both usually live on the task, not the trip).
+    const needTask = tripsToResolve.filter((t) => t.id && t.taskId && (!t.truckLicensePlate || !t.truckType));
+    const taskInfo = new Map<string, { truckId?: string; licensePlate?: string; truckType?: string }>();
+
+    const taskIds = Array.from(new Set(needTask.map((t) => t.taskId as string)));
+    for (let i = 0; i < taskIds.length; i += 30) {
+        const chunk = taskIds.slice(i, i + 30);
+        const snap = await getDocs(
+            query(collection(db, COLLECTIONS.TASKS), where(documentId(), "in", chunk))
+        );
+        snap.docs.forEach((d) => {
+            const data = d.data();
+            taskInfo.set(d.id, { truckId: data.truckId, licensePlate: data.licensePlate, truckType: data.truckType });
+        });
+    }
+
+    tripsToResolve.forEach((trip) => {
+        if (!trip.id) return;
+        const info = trip.taskId ? taskInfo.get(trip.taskId) : undefined;
+        map[trip.id] = {
+            truckId: trip.truckId || info?.truckId || null,
+            plate: resolveTripPlate({ tripPlate: trip.truckLicensePlate, taskPlate: info?.licensePlate }),
+            vehicleClass: trip.truckType || info?.truckType || null,
+        };
+    });
+    return map;
+}
+
 export function useDriverMonitor() {
     const { customerScopeId, isCustomer } = useCustomerScope();
 
@@ -296,7 +424,14 @@ export function useDriverMonitor() {
     const [statusFilter, setStatusFilter] = useState("all");
     const [jobTypeFilter, setJobTypeFilter] = useState<string>("all");
     const [partnerFilter, setPartnerFilter] = useState<string>("all");
+    const [plateFilter, setPlateFilter] = useState<string>(PLATE_FILTER_ALL);
+    const [vehicleClassFilter, setVehicleClassFilter] = useState<string>(VEHICLE_CLASS_FILTER_ALL);
+    const [originFilter, setOriginFilter] = useState<string>(PLACE_FILTER_ALL);
+    const [destinationFilter, setDestinationFilter] = useState<string>(PLACE_FILTER_ALL);
     const [searchQuery, setSearchQuery] = useState("");
+
+    /** trip doc id → the truck that trip ran on, resolved from the trip snapshot then its task. */
+    const [truckByTripId, setTruckByTripId] = useState<Record<string, TripTruck>>({});
 
     const [detailTrip, setDetailTrip] = useState<TripRecord | null>(null);
     /** Index into [detailTrip.photos] when the photo preview dialog is open. */
@@ -429,6 +564,33 @@ export function useDriverMonitor() {
         return Array.from(set).sort((a, b) => a.localeCompare(b));
     }, [trips]);
 
+    const getTripTruck = useCallback(
+        (trip: TripRecord): TripTruck => {
+            if (trip.id && truckByTripId[trip.id]) return truckByTripId[trip.id];
+            // Before the task join resolves (or for a trip fetched outside the loaded window),
+            // fall back to the trip's own snapshot only.
+            return {
+                truckId: trip.truckId ?? null,
+                plate: resolveTripPlate({ tripPlate: trip.truckLicensePlate }),
+                vehicleClass: trip.truckType ?? null,
+            };
+        },
+        [truckByTripId]
+    );
+
+    /**
+     * Plate + vehicle-class options come from the loaded rows (same approach as partnerOptions), so
+     * every option matches at least one trip and orphan plates / the no-class bucket stay reachable.
+     */
+    const plateOptions = useMemo<PlateFilterOption[]>(
+        () => buildPlateFilterOptions(trips.map(getTripTruck)),
+        [trips, getTripTruck]
+    );
+    const vehicleClassOptions = useMemo<VehicleClassOption[]>(
+        () => buildVehicleClassOptions(trips.map((t) => getTripTruck(t).vehicleClass)),
+        [trips, getTripTruck]
+    );
+
     const sourceIdToName = useMemo(() => buildHubCodeToDisplayMapFromEntries(hubs), [hubs]);
 
     const getSourceDisplayName = useCallback(
@@ -448,6 +610,37 @@ export function useDriverMonitor() {
         });
         return map;
     }, [hubs]);
+
+    /**
+     * The two maps the origin/destination resolver reads. Kept as SEPARATE directions on purpose:
+     * merging code→name into name→code is what produced the "No rate" billing failure
+     * (CLAUDE.md §39), where a value that was already a code got turned back into a display name.
+     */
+    const placeMaps = useMemo<PlaceMaps>(
+        () => ({ codeToLabel: sourceIdToName, nameToCode: hubDisplayNameToCode }),
+        [sourceIdToName, hubDisplayNameToCode]
+    );
+
+    /**
+     * Origin/destination options, resolved to place identity so one hub is one option however it was
+     * spelled. Built from the loaded trips (never the `hubs` master) so every option matches ≥1 trip
+     * and unresolvable values stay reachable rather than being merged away (ADR 0006 §2-4).
+     */
+    const originOptions = useMemo<PlaceFilterOption[]>(
+        () => buildPlaceFilterOptions(trips.map((t) => [t.origin]), placeMaps),
+        [trips, placeMaps]
+    );
+    const destinationOptions = useMemo<PlaceFilterOption[]>(
+        () => buildPlaceFilterOptions(trips.map(tripDestinations), placeMaps),
+        [trips, placeMaps]
+    );
+
+    /** Per-stop predicate for the Excel export, so a filtered file totals exactly what was filtered. */
+    const matchesDestinationFilter = useCallback(
+        (rawDestination: string | null | undefined, selected: string): boolean =>
+            valueMatchesPlaceFilter(rawDestination, selected, placeMaps),
+        [placeMaps]
+    );
 
     useEffect(() => {
         const q = query(
@@ -513,6 +706,25 @@ export function useDriverMonitor() {
                 if (at) checkInMap[key] = at;
             });
             if (!cancelled) setCheckInAtByTaskId(checkInMap);
+
+            // Truck per trip, from the same full-coverage taskById: the trip's own snapshot wins,
+            // else the plate/truckId stamped on its task at check-in. Never activeTruck — that is
+            // live state and would relabel historical rows with today's truck (ADR 0005 §6).
+            const truckMap: Record<string, TripTruck> = {};
+            trips.forEach((trip) => {
+                if (!trip.id) return;
+                const task = taskById.get(trip.taskId || "") ?? taskById.get(trip.id || "");
+                const taskTruck = task as (Task & { truckId?: string; licensePlate?: string; truckType?: string }) | undefined;
+                truckMap[trip.id] = {
+                    truckId: trip.truckId || taskTruck?.truckId || null,
+                    plate: resolveTripPlate({
+                        tripPlate: trip.truckLicensePlate,
+                        taskPlate: taskTruck?.licensePlate,
+                    }),
+                    vehicleClass: trip.truckType || taskTruck?.truckType || null,
+                };
+            });
+            if (!cancelled) setTruckByTripId(truckMap);
 
             // Normalize task destination: display name → PDP code
             // e.g. "ประเวศ18" → "SPK890146" when tasks store display name instead of code
@@ -649,44 +861,82 @@ export function useDriverMonitor() {
         return trips.filter((trip) =>
             tripMatchesClientFilters(
                 trip,
-                driverFilter,
-                statusFilter,
-                jobTypeFilter,
-                partnerFilter,
-                searchQuery,
-                incidentReportsByTripId,
-                getDriver,
-                customerScopeId
+                {
+                    driverFilter,
+                    statusFilter,
+                    jobTypeFilter,
+                    partnerFilter,
+                    plateFilter,
+                    vehicleClassFilter,
+                    originFilter,
+                    destinationFilter,
+                    searchQuery,
+                },
+                { incidentReportsByTripId, getDriver, getTripTruck, placeMaps, customerScopeId }
             )
         );
-    }, [trips, driverFilter, statusFilter, jobTypeFilter, partnerFilter, searchQuery, incidentReportsByTripId, getDriver, customerScopeId]);
+    }, [trips, driverFilter, statusFilter, jobTypeFilter, partnerFilter, plateFilter, vehicleClassFilter, originFilter, destinationFilter, searchQuery, incidentReportsByTripId, getDriver, getTripTruck, placeMaps, customerScopeId]);
 
     const getTripsForExport = useCallback(
         (criteria: ExportFilterCriteria): TripRecord[] => {
             return trips.filter((trip) =>
-                tripMatchesExportCriteria(trip, criteria, incidentReportsByTripId, getDriver, customerScopeId)
+                tripMatchesExportCriteria(trip, criteria, {
+                    incidentReportsByTripId,
+                    getDriver,
+                    getTripTruck,
+                    placeMaps,
+                    customerScopeId,
+                })
             );
         },
-        [trips, incidentReportsByTripId, getDriver]
+        [trips, incidentReportsByTripId, getDriver, getTripTruck, placeMaps, customerScopeId]
     );
 
     const getTripsForExportResolved = useCallback(
         async (criteria: ExportFilterCriteria): Promise<TripRecord[]> => {
             const { from: lf, to: lt } = clampDateRange(dateFrom, dateTo);
             let base: TripRecord[];
+            let outOfWindow = false;
             if (!criteria.dateFrom || !criteria.dateTo) {
                 base = trips;
             } else if (!isExportRangeCoveredByLoaded(criteria.dateFrom, criteria.dateTo, lf, lt)) {
                 const { from, to } = clampDateRange(criteria.dateFrom, criteria.dateTo);
                 base = await fetchTripsForDateRange(from, to);
+                outOfWindow = true;
             } else {
                 base = trips;
             }
+
+            // Trips fetched outside the loaded window have no entry in truckByTripId, so resolve
+            // their tasks before filtering — otherwise a plate or vehicle-class filter would drop
+            // every row whose plate/class lives on the task rather than on the trip snapshot.
+            const truckFilterActive =
+                (criteria.plateFilter ?? PLATE_FILTER_ALL) !== PLATE_FILTER_ALL ||
+                (criteria.vehicleClassFilter ?? VEHICLE_CLASS_FILTER_ALL) !== VEHICLE_CLASS_FILTER_ALL;
+            let resolveTruck = getTripTruck;
+            if (outOfWindow && truckFilterActive) {
+                const fetched = await fetchTruckByTripId(base);
+                resolveTruck = (trip: TripRecord) =>
+                    (trip.id ? fetched[trip.id] : undefined) ?? {
+                        truckId: trip.truckId ?? null,
+                        plate: resolveTripPlate({ tripPlate: trip.truckLicensePlate }),
+                        vehicleClass: trip.truckType ?? null,
+                    };
+            }
+
+            // Origin/destination need no such join — they live on the trip doc itself and resolve
+            // against maps already in memory (ADR 0006 §Consequences).
             return base.filter((trip) =>
-                tripMatchesExportCriteria(trip, criteria, incidentReportsByTripId, getDriver)
+                tripMatchesExportCriteria(trip, criteria, {
+                    incidentReportsByTripId,
+                    getDriver,
+                    getTripTruck: resolveTruck,
+                    placeMaps,
+                    customerScopeId,
+                })
             );
         },
-        [trips, dateFrom, dateTo, incidentReportsByTripId, getDriver]
+        [trips, dateFrom, dateTo, incidentReportsByTripId, getDriver, getTripTruck, placeMaps, customerScopeId]
     );
 
     const paginatedTrips = useMemo(() => {
@@ -697,7 +947,7 @@ export function useDriverMonitor() {
 
     useEffect(() => {
         setCurrentPage(1);
-    }, [dateFrom, dateTo, statusFilter, jobTypeFilter, partnerFilter, searchQuery, driverFilter]);
+    }, [dateFrom, dateTo, statusFilter, jobTypeFilter, partnerFilter, plateFilter, vehicleClassFilter, originFilter, destinationFilter, searchQuery, driverFilter]);
 
     useEffect(() => {
         setCurrentPage(1);
@@ -749,6 +999,20 @@ export function useDriverMonitor() {
         partnerFilter,
         setPartnerFilter,
         partnerOptions,
+        plateFilter,
+        setPlateFilter,
+        plateOptions,
+        vehicleClassFilter,
+        setVehicleClassFilter,
+        vehicleClassOptions,
+        originFilter,
+        setOriginFilter,
+        originOptions,
+        destinationFilter,
+        setDestinationFilter,
+        destinationOptions,
+        matchesDestinationFilter,
+        getTripTruck,
         searchQuery,
         setSearchQuery,
         detailTrip,

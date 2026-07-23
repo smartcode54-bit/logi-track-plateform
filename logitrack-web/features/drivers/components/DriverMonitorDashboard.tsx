@@ -34,6 +34,11 @@ import { getMultiDeliveryProgress, getMultiDeliveryProgressLabel } from "../util
 import { SOC_KEYS } from "@/validate/taskSchema";
 import { COLLECTIONS } from "@/lib/collections";
 import { db } from "@/firebase/client";
+import { PLATE_FILTER_ALL } from "@/lib/truckPlate";
+import { PlateFilterCombobox } from "@/components/plate-filter-combobox";
+import { VEHICLE_CLASS_FILTER_ALL, VEHICLE_CLASS_FILTER_NONE } from "@/lib/vehicleClass";
+import { PLACE_FILTER_ALL } from "@/lib/placeFilter";
+import { PlaceFilterCombobox } from "@/components/place-filter-combobox";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -148,6 +153,10 @@ export default function DriverMonitorDashboard() {
             statusFilter: "all",
             jobTypeFilter: "all",
             partnerFilter: "all",
+            plateFilter: PLATE_FILTER_ALL,
+            vehicleClassFilter: VEHICLE_CLASS_FILTER_ALL,
+            originFilter: PLACE_FILTER_ALL,
+            destinationFilter: PLACE_FILTER_ALL,
             searchQuery: "",
         };
     };
@@ -174,6 +183,23 @@ export default function DriverMonitorDashboard() {
         partnerFilter,
         setPartnerFilter,
         partnerOptions,
+        plateFilter,
+        setPlateFilter,
+        plateOptions,
+        vehicleClassFilter,
+        setVehicleClassFilter,
+        vehicleClassOptions,
+        originFilter,
+        setOriginFilter,
+        // Renamed: `destinationOptions` below is the hubs+SOC MASTER list for the stops editor.
+        // Filter options come from the loaded rows instead — a master list is right for *choosing*
+        // a destination and wrong for *filtering* by one (ADR 0006 §2).
+        originOptions: originFilterOptions,
+        destinationFilter,
+        setDestinationFilter,
+        destinationOptions: destinationFilterOptions,
+        matchesDestinationFilter,
+        getTripTruck,
         searchQuery,
         setSearchQuery,
         detailTrip,
@@ -298,6 +324,10 @@ export default function DriverMonitorDashboard() {
             statusFilter,
             jobTypeFilter,
             partnerFilter,
+            plateFilter,
+            vehicleClassFilter,
+            originFilter,
+            destinationFilter,
             searchQuery: "",
         });
         setExportOpen(true);
@@ -328,14 +358,18 @@ export default function DriverMonitorDashboard() {
         return `${driver.firstName} ${driver.lastName}`.trim() || "-";
     };
 
-    const getLicensePlate = (driverId?: string, trip?: { truckLicensePlate?: string }) => {
-        // Prefer snapshot stored at trip creation time — unaffected by truck reassignment
-        if (trip?.truckLicensePlate) return trip.truckLicensePlate;
-        if (!driverId) return "-";
-        const driver = getDriver(driverId);
-        // Fall back to the truck the driver is running RIGHT NOW, never to their home binding:
-        // currentAssignment would restamp a historical row with today's truck.
-        return driver?.activeTruck?.truckPlate ?? "-";
+    /**
+     * The plate to display for a trip — the same resolution the plate filter uses, so what you see
+     * is what you filter (ADR 0005 §7).
+     *
+     * Resolves the trip's own snapshot, then the plate on its task. It deliberately does NOT fall
+     * back to `drivers.activeTruck`: that is live state, so it would relabel a historical row with
+     * whatever the driver happens to be in today and make the filter return trips that truck never
+     * ran (ADR 0005 §6, ADR 0003 §5 — an honest gap beats an invented value).
+     */
+    const getLicensePlate = (trip?: TripRecord) => {
+        if (!trip) return "-";
+        return getTripTruck(trip).plate ?? "-";
     };
 
     const openShareLinePreview = async () => {
@@ -387,7 +421,13 @@ export default function DriverMonitorDashboard() {
     const formatMoney = (amount?: number | null) =>
         typeof amount === "number" ? `฿${amount.toLocaleString()}` : "-";
 
-    const buildExportTable = (list: TripRecord[]) => {
+    /**
+     * @param destinationFilter the selection the rows were filtered by. A multi-drop trip emits one
+     * row per stop, so a destination-filtered file must drop the stops that did not match — otherwise
+     * a "trips to ประเวศ18" export contains rows for other places and anyone summing it gets a wrong
+     * number (ADR 0006 §6). On screen the row stays whole; only the file narrows.
+     */
+    const buildExportTable = (list: TripRecord[], destinationFilter: string) => {
         const headers = [
             t("driverMonitor.table.tripId"),
             t("driverMonitor.table.checkInAt"),
@@ -425,7 +465,7 @@ export default function DriverMonitorDashboard() {
                 trip.spxTripId || trip.id?.slice(0, 10) || "",
                 created ? format(created, "dd/MM/yyyy HH:mm") : "",
                 getDriverName(trip.driverId),
-                getLicensePlate(trip.driverId, trip),
+                getLicensePlate(trip),
                 jobLabel,
                 getSourceDisplayName(trip.origin),
                 "", // destination — filled per stop below
@@ -439,8 +479,24 @@ export default function DriverMonitorDashboard() {
 
             if (stops.length > 0) {
                 const totalBilling = billing ? billing.finalRateThb : trip.billingEstimateThb;
+                // Computed over ALL stops, not the emitted ones: it decides which row reads its
+                // timestamp from the empty_container photo, which is a property of the real last
+                // stop of the trip and does not change because the view was narrowed.
                 const lastStopIndex = Math.max(...stops.map((s) => s.index));
-                stops.forEach((stop) => {
+
+                const emitted =
+                    destinationFilter === PLACE_FILTER_ALL
+                        ? stops
+                        : stops.filter((s) => matchesDestinationFilter(s.destination, destinationFilter));
+                if (emitted.length === 0) continue;
+
+                // Revenue lands on the first row emitted for this trip — with a filter active, stop 1
+                // may not be emitted, and hanging the amount off it would silently drop the trip's
+                // revenue from the file (ADR 0006 §6 / spec R11). Unfiltered this is stop 1, exactly
+                // as before.
+                const revenueStopIndex = Math.min(...emitted.map((s) => s.index));
+
+                emitted.forEach((stop) => {
                     let stopDeliveredStr = "";
                     if (stop.index === lastStopIndex) {
                         const emptyContainerPhoto = stop.photos?.find((p) => p.type === "empty_container");
@@ -453,7 +509,7 @@ export default function DriverMonitorDashboard() {
                     }
                     const row: (string | number | null | undefined)[] = [...baseRow];
                     row[6] = getSourceDisplayName(stop.destination);
-                    row[10] = stop.index === 1 ? (totalBilling ?? null) : null;
+                    row[10] = stop.index === revenueStopIndex ? (totalBilling ?? null) : null;
                     row.push(
                         t("driverMonitor.table.multiDropYes"),
                         stop.index,
@@ -486,7 +542,7 @@ export default function DriverMonitorDashboard() {
         setExportLoading(true);
         try {
             const list = await getTripsForExportResolved(criteria);
-            const { headers, rows } = buildExportTable(list);
+            const { headers, rows } = buildExportTable(list, criteria.destinationFilter);
             const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, "Trips");
@@ -500,7 +556,7 @@ export default function DriverMonitorDashboard() {
         setExportLoading(true);
         try {
             const list = await getTripsForExportResolved(criteria);
-            const { headers, rows } = buildExportTable(list);
+            const { headers, rows } = buildExportTable(list, criteria.destinationFilter);
             const lines = [headers, ...rows].map((line) => line.map((c) => escapeCsvCell(String(c))).join(","));
             const blob = new Blob(["\uFEFF" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
             const url = URL.createObjectURL(blob);
@@ -788,6 +844,46 @@ export default function DriverMonitorDashboard() {
                         </SelectContent>
                     </Select>
 
+                    <PlateFilterCombobox
+                        options={plateOptions}
+                        value={plateFilter}
+                        onChange={setPlateFilter}
+                        keyPrefix="driverMonitor.filter"
+                        className="w-[200px]"
+                    />
+
+                    <Select value={vehicleClassFilter} onValueChange={setVehicleClassFilter}>
+                        <SelectTrigger className="w-[200px] h-9">
+                            <SelectValue placeholder={t("driverMonitor.filter.vehicleClass")} />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value={VEHICLE_CLASS_FILTER_ALL}>{t("driverMonitor.filter.allVehicleClasses")}</SelectItem>
+                            {vehicleClassOptions.map((o) => (
+                                <SelectItem key={o.value} value={o.value}>
+                                    {(o.value === VEHICLE_CLASS_FILTER_NONE ? t("driverMonitor.filter.vehicleClassNotSpecified") : o.label)} ({o.count})
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+
+                    <PlaceFilterCombobox
+                        kind="origin"
+                        options={originFilterOptions}
+                        value={originFilter}
+                        onChange={setOriginFilter}
+                        keyPrefix="driverMonitor.filter"
+                        className="w-[200px]"
+                    />
+
+                    <PlaceFilterCombobox
+                        kind="destination"
+                        options={destinationFilterOptions}
+                        value={destinationFilter}
+                        onChange={setDestinationFilter}
+                        keyPrefix="driverMonitor.filter"
+                        className="w-[200px]"
+                    />
+
                     <div className="relative flex-1">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
@@ -857,7 +953,7 @@ export default function DriverMonitorDashboard() {
                                                 {formatTimestamp(trip.createdAt)}
                                             </TableCell>
                                             <TableCell><span className="font-medium text-sm">{getDriverName(trip.driverId)}</span></TableCell>
-                                            <TableCell><span className="font-mono text-sm text-muted-foreground">{getLicensePlate(trip.driverId, trip)}</span></TableCell>
+                                            <TableCell><span className="font-mono text-sm text-muted-foreground">{getLicensePlate(trip)}</span></TableCell>
                                             <TableCell>
                                                 <Badge variant="secondary" className={cn("font-medium border", JOB_TYPE_COLOR[trip.jobType] || "bg-gray-500/10 text-gray-500")}>
                                                     {JOB_TYPE_LABEL[trip.jobType] || trip.jobType}
@@ -1137,6 +1233,62 @@ export default function DriverMonitorDashboard() {
                                         ))}
                                     </SelectContent>
                                 </Select>
+                            </div>
+                            <div className="space-y-1.5 sm:col-span-2 lg:col-span-1">
+                                <span className="text-xs font-medium text-muted-foreground">
+                                    {t("driverMonitor.filter.licensePlate")}
+                                </span>
+                                <PlateFilterCombobox
+                                    options={plateOptions}
+                                    value={exportFilters.plateFilter}
+                                    onChange={(v) => setExportFilters((f) => ({ ...f, plateFilter: v }))}
+                                    keyPrefix="driverMonitor.filter"
+                                />
+                            </div>
+                            <div className="space-y-1.5 sm:col-span-2 lg:col-span-1">
+                                <span className="text-xs font-medium text-muted-foreground">
+                                    {t("driverMonitor.filter.vehicleClass")}
+                                </span>
+                                <Select
+                                    value={exportFilters.vehicleClassFilter}
+                                    onValueChange={(v) => setExportFilters((f) => ({ ...f, vehicleClassFilter: v }))}
+                                >
+                                    <SelectTrigger className="h-9">
+                                        <SelectValue placeholder={t("driverMonitor.filter.vehicleClass")} />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value={VEHICLE_CLASS_FILTER_ALL}>{t("driverMonitor.filter.allVehicleClasses")}</SelectItem>
+                                        {vehicleClassOptions.map((o) => (
+                                            <SelectItem key={o.value} value={o.value}>
+                                                {(o.value === VEHICLE_CLASS_FILTER_NONE ? t("driverMonitor.filter.vehicleClassNotSpecified") : o.label)} ({o.count})
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-1.5 sm:col-span-2 lg:col-span-1">
+                                <span className="text-xs font-medium text-muted-foreground">
+                                    {t("driverMonitor.filter.origin")}
+                                </span>
+                                <PlaceFilterCombobox
+                                    kind="origin"
+                                    options={originFilterOptions}
+                                    value={exportFilters.originFilter}
+                                    onChange={(v) => setExportFilters((f) => ({ ...f, originFilter: v }))}
+                                    keyPrefix="driverMonitor.filter"
+                                />
+                            </div>
+                            <div className="space-y-1.5 sm:col-span-2 lg:col-span-1">
+                                <span className="text-xs font-medium text-muted-foreground">
+                                    {t("driverMonitor.filter.destination")}
+                                </span>
+                                <PlaceFilterCombobox
+                                    kind="destination"
+                                    options={destinationFilterOptions}
+                                    value={exportFilters.destinationFilter}
+                                    onChange={(v) => setExportFilters((f) => ({ ...f, destinationFilter: v }))}
+                                    keyPrefix="driverMonitor.filter"
+                                />
                             </div>
                         </div>
 

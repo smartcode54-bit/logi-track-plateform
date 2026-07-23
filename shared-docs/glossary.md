@@ -120,3 +120,107 @@ resolves to `SUPPLEMENTARY` is also written with `billingManualOverride: true`; 
 freeze protects separately-agreed เสริม prices. It is deliberately escapable **only** by an explicit
 admin edit — the `setTripJobCategory` callable in ADR 0002 — which is the one path allowed to move a
 frozen price, by re-deriving it and clearing the override when the category becomes PRIMARY.
+
+## Licence plate (ทะเบียนรถ)
+
+A **display string**, not an identity. Stored denormalized in several places with different
+provenance: `trucks.licensePlate` (fleet master, canonical), `tasks.licensePlate` (the truck assigned
+to *that job*, rewritten by the driver at check-in — `check_in_page.dart:1040-1048`),
+`trip_records.truckLicensePlate` (snapshot copied from the task at loading —
+`loading_phase_page.dart:208,1392`), and `drivers.activeTruck.truckPlate` / 
+`drivers.currentAssignment.truckPlate`.
+
+There is **no normalisation helper anywhere in the codebase** — `70-1234`, `70 - 1234`, and
+`70-1234 กรุงเทพมหานคร` are three distinct values. Never compare plates to establish that two rows
+concern the same vehicle; use [[Truck identity]]. Introducing a normaliser was considered and rejected
+in [ADR 0005](adr/0005-truck-plate-filter-billing-document-driver-monitor.md) because stripping the
+province suffix can *collide* across provinces.
+
+## Truck identity
+
+`trucks/{truckId}` — the only stable identifier for a vehicle. Carried on
+`tasks.truckId`, `trip_records.truckId` (`validate/tripRecordSchema.ts:91`), and
+`drivers.activeTruck.truckId`. Survives plate re-registration and formatting drift, which
+[[Licence plate]] does not. Filtering, grouping, and joining on a vehicle must key on `truckId`;
+plates are for display and for the [[Orphan plate]] fallback only. Introduced platform-wide by the
+per-task truck work (`CLAUDE.md` §40, merge `ae34000`, 2026-07-15) — rows predating it may carry a
+plate with no `truckId`.
+
+## Orphan plate
+
+A `licensePlate` string on a task or trip with **no corresponding `trucks` doc** — either a legacy row
+written before [[Truck identity]] existed, or one whose truck was since deleted. Named and handled
+explicitly in `features/tasks/components/TruckPlateField.tsx:47,52`. Their existence is why the
+invariant *"every plate corresponds to exactly one truck"* is false, and why plate-based UI must give
+orphans a reachable fallback bucket rather than dropping them
+([ADR 0005](adr/0005-truck-plate-filter-billing-document-driver-monitor.md) §4).
+
+## Invoice set vs preview set
+
+On `/app/accounting/billing-document`, two derived row sets that must be kept apart:
+
+- **Invoice set** — customer + month, narrowed only by the charge-type and [[jobCategory (หลัก/เสริม)]]
+  toggles. This is what `handleDownload` bills: it feeds `saveBillingStatement` (a **write** that
+  consumes an invoice number and persists `tripCount` / `totalAmount`) and `downloadBillingZip`.
+- **Preview set** — the invoice set narrowed further by **review-only** filters such as truck plate.
+  Affects the on-screen table and summary cards only.
+
+A filter is a *billing dimension* only if a customer could legitimately be invoiced for that subset
+alone. Plate is not; it is a review dimension, and Download is disabled while a plate filter is active
+so the two sets can never silently diverge into a wrong invoice
+([ADR 0005](adr/0005-truck-plate-filter-billing-document-driver-monitor.md) §1-3).
+
+## `activeTruck`
+
+`drivers/{id}.activeTruck` = `{truckId, truckPlate, taskId}` — **"the truck this driver is responsible
+for right now."** Written at check-in (`check_in_page.dart:1062-1071`), cleared when the job ends. It
+exists because Firestore rules cannot query tasks, so the maintenance gate needs the current truck
+readable on the driver doc.
+
+It is **live state**, and therefore invalid as a fallback when resolving a *historical* row's truck:
+a driver mid-trip on truck B would restamp every plate-less past trip of theirs as B, and any filter
+or export built on it yields different rows on different days. Distinct from
+`currentAssignment` (the driver's *home* truck binding, a default at assign time) and from
+`tasks.truckId` (the truck for *that job*) — the three must never be collapsed. See
+[ADR 0005](adr/0005-truck-plate-filter-billing-document-driver-monitor.md) §6.
+
+## Place identity
+
+The canonical key for a physical location: a hub `source_id` or a SOC key. It is **not** what
+`trip_records.origin` / `.destination` contain — those are `z.string().optional()`
+(`validate/tripRecordSchema.ts:82-83`) holding whatever the writer produced: a hub's English display
+name from the picker (`loading_phase_page.dart:1836` → `:1377-1378`), OCR text such as
+`ALANG-A - วังทองหลาง` (`ocr_screenshot_service.dart:219-220,450-456`), or an actual code
+(`add_delivery_stop_dialog.dart:79`).
+
+So one place can be stored as `SPK890146`, `ประเวศ18`, **and** `ALANG-A - วังทองหลาง`. Grouping,
+filtering, or joining on a place must first resolve the raw value to its identity — via the
+**`nameToCode` direction only**, never the merged bidirectional map that caused the "No rate" billing
+failure (`CLAUDE.md` §39). Same relationship to its display string as [[Truck identity]] has to
+[[Licence plate]]. Rows that resolve to nothing are an [[Unresolved place]]. Defined in
+[ADR 0006](adr/0006-origin-destination-filter-driver-monitor.md) §1.
+
+## Unresolved place
+
+An `origin` / `destination` string that resolves to no hub or SOC — typically OCR noise, a renamed
+hub, or a value predating the master record. `resolveHubOrSocDisplay`
+(`logitrack-web/lib/hubDisplay.ts:61-73`) **returns such a value unchanged**, so on screen it is
+indistinguishable from a real place name.
+
+Distinct from an *absent* value (`null` — e.g. a hub with no `source_name_en`, since the picker writes
+`sourceNameEn` and empty becomes `null` at `loading_phase_page.dart:1377-1378`). The two must not be
+merged: place-filter UI gives **each distinct unresolvable string its own reachable option** and
+absent values a single "not specified" bucket — the same split as [[Orphan plate]] versus a missing
+plate ([ADR 0006](adr/0006-origin-destination-filter-driver-monitor.md) §4).
+
+## Delivery stop
+
+One entry of `trip_records.deliveryStopsProgress[]` (`validate/tripRecordSchema.ts:57-59`):
+`{index, destination, status, deliveredAt, …}`. A multi-drop trip therefore has **N destinations, not
+one**, and `trip.destination` is only meaningful when the array is empty.
+
+Two consequences that must be kept apart: a trip **matches** a destination filter if *any* stop
+matches, but a filtered **export** emits only the matching stop rows — the export loop
+(`DriverMonitorDashboard.tsx:449-481`) already writes one spreadsheet row per stop, so exporting all N
+would put other destinations into a file someone will sum
+([ADR 0006](adr/0006-origin-destination-filter-driver-monitor.md) §5-6).

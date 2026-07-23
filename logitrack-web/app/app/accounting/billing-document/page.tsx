@@ -27,6 +27,18 @@ import { format } from "date-fns";
 import { WITHHOLDING_TAX_RATE } from "@/lib/billingConfig";
 import { toast } from "sonner";
 import { useAuth } from "@/context/auth";
+import {
+    PLATE_FILTER_ALL,
+    buildPlateFilterOptions,
+    rowMatchesPlateFilter,
+} from "@/lib/truckPlate";
+import { PlateFilterCombobox } from "@/components/plate-filter-combobox";
+import {
+    VEHICLE_CLASS_FILTER_ALL,
+    VEHICLE_CLASS_FILTER_NONE,
+    buildVehicleClassOptions,
+    rowMatchesVehicleClass,
+} from "@/lib/vehicleClass";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -53,6 +65,41 @@ const MONTHS = [
     { value: 12, label: "ธันวาคม / December" },
 ];
 
+type BillingTotals = {
+    grandTotal: number;
+    withholdingTax: number;
+    totalNet: number;
+    breakdown: {
+        tripOnlyCount: number; tripSubtotal: number;
+        standbyCount: number; standbySubtotal: number;
+        multiDropCount: number; multiDropSubtotal: number;
+    };
+};
+
+/**
+ * Totals for a set of billing rows. Called for the preview set (what the screen shows) and,
+ * independently, for the invoice set (what handleDownload bills) so a plate review filter can never
+ * change the billed amount — see ADR 0005 §1-3 and glossary "Invoice set vs preview set".
+ */
+function computeBillingTotals(rows: BillingTripRow[]): BillingTotals {
+    const sum = (arr: BillingTripRow[]) => arr.reduce((s, r) => s + r.billingEstimateThb, 0);
+    const tripRows      = rows.filter((r) => r.rowType === "trip");
+    const standbyRows   = rows.filter((r) => r.rowType === "standby");
+    const multiDropRows = rows.filter((r) => r.rowType === "multidrop_stop");
+    const grandTotal = sum(rows);
+    const withholdingTax = Math.round(grandTotal * WITHHOLDING_TAX_RATE * 100) / 100;
+    return {
+        grandTotal,
+        withholdingTax,
+        totalNet: grandTotal - withholdingTax,
+        breakdown: {
+            tripOnlyCount: tripRows.length,   tripSubtotal: sum(tripRows),
+            standbyCount: standbyRows.length, standbySubtotal: sum(standbyRows),
+            multiDropCount: multiDropRows.length, multiDropSubtotal: sum(multiDropRows),
+        },
+    };
+}
+
 export default function BillingDocumentPage() {
     const { t } = useLanguage();
     const auth = useAuth();
@@ -77,6 +124,12 @@ export default function BillingDocumentPage() {
     const [loading, setLoading] = useState(false);
     const [generating, setGenerating] = useState(false);
     const [ownerProvider, setOwnerProvider] = useState<BillingProviderInfo | undefined>(undefined);
+
+    // Plate and vehicle class are REVIEW filters, not billing dimensions (ADR 0005 §7): they narrow
+    // the on-screen preview only, and Download is blocked while either is active so the invoice can
+    // never bill a subset.
+    const [plateFilter, setPlateFilter] = useState<string>(PLATE_FILTER_ALL);
+    const [vehicleClassFilter, setVehicleClassFilter] = useState<string>(VEHICLE_CLASS_FILTER_ALL);
 
     // Load customers + owner company once
     useEffect(() => {
@@ -132,6 +185,26 @@ export default function BillingDocumentPage() {
         });
     }, [trips, selectedCustomerId, includeTrips, includeStandby, includeMultiDrop, includePrimary, includeSupplementary]);
 
+    // Review-filter options come from the invoice set, so every option provably matches ≥1 billable
+    // row (orphan plates / a no-class bucket stay reachable) — same approach as elsewhere.
+    const plateOptions = useMemo(
+        () => buildPlateFilterOptions(filteredTrips.map((r) => ({ truckId: r.truckId, plate: r.truckLicensePlate }))),
+        [filteredTrips]
+    );
+    const vehicleClassOptions = useMemo(
+        () => buildVehicleClassOptions(filteredTrips.map((r) => r.vehicleClass)),
+        [filteredTrips]
+    );
+
+    // Preview set — the invoice set narrowed by the plate + vehicle-class review filters. Drives the
+    // table + summary cards ONLY; handleDownload always bills filteredTrips (invoice set). ADR 0005 §1-3.
+    const previewTrips = useMemo(() => {
+        return filteredTrips.filter((r) =>
+            rowMatchesPlateFilter({ truckId: r.truckId, plate: r.truckLicensePlate }, plateFilter) &&
+            rowMatchesVehicleClass(r.vehicleClass, vehicleClassFilter)
+        );
+    }, [filteredTrips, plateFilter, vehicleClassFilter]);
+
     // Count per type (before type-toggle filter, but after customer filter) for checkbox labels
     const typeCounts = useMemo(() => {
         const base = selectedCustomerId === "all" ? trips : trips.filter((r) => r.billingCustomerId === selectedCustomerId);
@@ -152,24 +225,12 @@ export default function BillingDocumentPage() {
         };
     }, [trips, selectedCustomerId]);
 
-    const breakdown = useMemo(() => {
-        const tripRows      = filteredTrips.filter((r) => r.rowType === "trip");
-        const standbyRows   = filteredTrips.filter((r) => r.rowType === "standby");
-        const multiDropRows = filteredTrips.filter((r) => r.rowType === "multidrop_stop");
-        const sum = (arr: BillingTripRow[]) => arr.reduce((s, r) => s + r.billingEstimateThb, 0);
-        return {
-            tripOnlyCount:   tripRows.length,
-            tripSubtotal:    sum(tripRows),
-            standbyCount:    standbyRows.length,
-            standbySubtotal: sum(standbyRows),
-            multiDropCount:  multiDropRows.length,
-            multiDropSubtotal: sum(multiDropRows),
-        };
-    }, [filteredTrips]);
-
-    const grandTotal = useMemo(() => filteredTrips.reduce((s, t) => s + t.billingEstimateThb, 0), [filteredTrips]);
-    const withholdingTax = Math.round(grandTotal * WITHHOLDING_TAX_RATE * 100) / 100;
-    const totalNet = grandTotal - withholdingTax;
+    // Display totals reflect the PREVIEW set (plate-narrowed). The invoice set's totals are computed
+    // separately inside handleDownload so the two can never silently diverge (ADR 0005 §1-3).
+    const { grandTotal, withholdingTax, totalNet, breakdown } = useMemo(
+        () => computeBillingTotals(previewTrips),
+        [previewTrips]
+    );
 
     const selectedCustomer = useMemo<BillingCustomer | null>(() => {
         if (selectedCustomerId === "all") return null;
@@ -195,6 +256,11 @@ export default function BillingDocumentPage() {
         try {
             const period: BillingPeriod = { month: selectedMonth, year: selectedYear };
 
+            // Bill the INVOICE set (filteredTrips), independent of the plate review filter. The
+            // Download guard already forbids reaching here while a plate filter is active, but binding
+            // the statement to its own totals keeps a wrong invoice impossible even if that changes.
+            const invoice = computeBillingTotals(filteredTrips);
+
             // Save billing statement (registry) before download
             const customerForStatement = customers.find((c) => c.id === selectedCustomer.id);
             let invoiceNumber: string | undefined;
@@ -205,11 +271,11 @@ export default function BillingDocumentPage() {
                     customerName: selectedCustomer.name,
                     customerCode: customerForStatement?.code ?? selectedCustomer.id,
                     period,
-                    totalAmount: grandTotal,
-                    withholdingTax,
-                    netAmount: totalNet,
+                    totalAmount: invoice.grandTotal,
+                    withholdingTax: invoice.withholdingTax,
+                    netAmount: invoice.totalNet,
                     tripCount: filteredTrips.length,
-                    ...breakdown,
+                    ...invoice.breakdown,
                     paymentTermsDays: selectedCustomer.paymentTermsDays,
                     generatedBy: auth?.currentUser?.uid,
                 });
@@ -228,7 +294,11 @@ export default function BillingDocumentPage() {
         }
     }
 
-    const canDownload = selectedCustomerId !== "all" && filteredTrips.length > 0;
+    // A review filter (plate or vehicle class) narrows the preview only — never the invoice — so
+    // Download is blocked while one is active, keeping the invoice and preview sets from diverging
+    // into a wrong bill (ADR 0005 §3).
+    const reviewFilterActive = plateFilter !== PLATE_FILTER_ALL || vehicleClassFilter !== VEHICLE_CLASS_FILTER_ALL;
+    const canDownload = selectedCustomerId !== "all" && filteredTrips.length > 0 && !reviewFilterActive;
 
     return (
         <PagePermissionGuard capability={CAPABILITIES.accounting_billing_document}>
@@ -286,6 +356,40 @@ export default function BillingDocumentPage() {
                                 </SelectContent>
                             </Select>
                         </div>
+
+                        {/* ── Plate review filter (narrows preview only; blocks Download — ADR 0005) ── */}
+                        {trips.length > 0 && (
+                            <div className="space-y-1">
+                                <Label>{t("accounting.billingDocument.filters.licensePlate")}</Label>
+                                <PlateFilterCombobox
+                                    options={plateOptions}
+                                    value={plateFilter}
+                                    onChange={setPlateFilter}
+                                    keyPrefix="accounting.billingDocument.filters"
+                                    className="w-52"
+                                />
+                            </div>
+                        )}
+
+                        {/* ── Vehicle-class review filter (same guard as plate — ADR 0005) ── */}
+                        {trips.length > 0 && (
+                            <div className="space-y-1">
+                                <Label>{t("accounting.billingDocument.filters.vehicleClass")}</Label>
+                                <Select value={vehicleClassFilter} onValueChange={setVehicleClassFilter}>
+                                    <SelectTrigger className="w-52">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value={VEHICLE_CLASS_FILTER_ALL}>{t("accounting.billingDocument.filters.allVehicleClasses")}</SelectItem>
+                                        {vehicleClassOptions.map((o) => (
+                                            <SelectItem key={o.value} value={o.value}>
+                                                {(o.value === VEHICLE_CLASS_FILTER_NONE ? t("accounting.billingDocument.filters.vehicleClassNotSpecified") : o.label)} ({o.count})
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        )}
 
                         {/* ── Charge type toggles ── */}
                         {trips.length > 0 && (
@@ -397,7 +501,7 @@ export default function BillingDocumentPage() {
                             <Card>
                                 <CardContent className="pt-4">
                                     <p className="text-xs text-muted-foreground">{t("accounting.billingDocument.summary.tripCount")}</p>
-                                    <p className="text-2xl font-bold">{filteredTrips.length}</p>
+                                    <p className="text-2xl font-bold">{previewTrips.length}</p>
                                 </CardContent>
                             </Card>
                             <Card>
@@ -445,13 +549,18 @@ export default function BillingDocumentPage() {
                                 <p className="text-xs text-amber-600">{t("accounting.billingDocument.download.selectCustomerWarning")}</p>
                             </CardContent>
                         )}
+                        {reviewFilterActive && (
+                            <CardContent className="pt-0">
+                                <p className="text-xs text-amber-600">{t("accounting.billingDocument.download.reviewFilterActive")}</p>
+                            </CardContent>
+                        )}
                     </Card>
                 )}
 
                 {/* ── Trip preview table ── */}
                 {filteredTrips.length > 0 ? (
                     <Card>
-                        <CardHeader><CardTitle className="text-base">{t("accounting.billingDocument.table.title", { count: filteredTrips.length })}</CardTitle></CardHeader>
+                        <CardHeader><CardTitle className="text-base">{t("accounting.billingDocument.table.title", { count: previewTrips.length })}</CardTitle></CardHeader>
                         <CardContent className="p-0">
                             <Table>
                                 <TableHeader>
@@ -466,7 +575,7 @@ export default function BillingDocumentPage() {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {filteredTrips.map((trip) => {
+                                    {previewTrips.map((trip) => {
                                         // hubDisplayName / destinationDisplayName already resolved by fetchBillingTripRows at load time.
                                         // J&T: show the source-hub CODE (SPK-GW) to match the Excel export (ADR-0005).
                                         const isJntCustomer = /j&t|jnt|j and t/i.test(selectedCustomer?.name ?? "");

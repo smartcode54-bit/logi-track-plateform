@@ -750,7 +750,7 @@ export async function fetchBillingTripRows(
     }
 
     // ── Batch-fetch linked tasks (driverName/licensePlate/customer denormalized) ──
-    type TaskInfo = { truckType?: string; driverName?: string; driverPhone?: string; truckLicensePlate?: string; sourceHub?: string; destination?: string };
+    type TaskInfo = { truckType?: string; driverName?: string; driverPhone?: string; truckLicensePlate?: string; truckId?: string; sourceHub?: string; destination?: string };
     const taskMap = new Map<string, TaskInfo>();
     const taskIds = new Set<string>();
     tripSnap.forEach((d) => { const tid = d.data().taskId; if (tid) taskIds.add(tid); });
@@ -768,6 +768,7 @@ export async function fetchBillingTripRows(
                 driverName: t.driverName,
                 driverPhone: t.driverPhone,
                 truckLicensePlate: t.licensePlate,
+                truckId: t.truckId,
                 sourceHub: t.sourceHub,
                 destination: t.destination,
             });
@@ -832,6 +833,7 @@ export async function fetchBillingTripRows(
                     subcontractorName: resolveSubcontractor(data.driverId),
                     jobCategory: data.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
                     truckLicensePlate: taskInfo?.truckLicensePlate,
+            truckId: taskInfo?.truckId,
                     hubDisplayName: resolveDisplayName(hubId),
                     originHubCode: resolveHubCode(hubId || (taskInfo?.sourceHub as string | undefined) || ""),
                     destinationDisplayName: resolveDisplayName(destCode),
@@ -861,6 +863,7 @@ export async function fetchBillingTripRows(
             subcontractorName: resolveSubcontractor(data.driverId),
             jobCategory: data.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
             truckLicensePlate: taskInfo?.truckLicensePlate,
+            truckId: taskInfo?.truckId,
             hubDisplayName: resolveDisplayName(hubId),
             originHubCode: resolveHubCode(hubId || (taskInfo?.sourceHub as string | undefined) || ""),
             destinationDisplayName: resolveDisplayName(dest),
@@ -893,6 +896,7 @@ export async function fetchBillingTripRows(
             driverPhone: taskInfo?.driverPhone,
             subcontractorName: resolveSubcontractor(data.driverId),
             truckLicensePlate: taskInfo?.truckLicensePlate,
+            truckId: taskInfo?.truckId,
             hubDisplayName: resolveDisplayName(
                 (taskInfo?.sourceHub as string | undefined) ?? (data.startLocation as string | undefined)
             ),

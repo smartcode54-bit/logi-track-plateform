@@ -54,6 +54,9 @@ export interface BillingTripRow {
   /** ผู้รับเหมา (Sup) ของคนขับ — แสดงในคอลัมน์ Sup ของ Excel detail; "-" ถ้าเป็นรถตัวเอง */
   subcontractorName?: string;
   truckLicensePlate?: string;
+  /** trucks/{id} for the vehicle that ran this row — the identity the plate filter matches on
+   *  (a plate string is not an identity). See ADR 0005 §4-5. */
+  truckId?: string;
   hubDisplayName?: string;
   /** Source-hub CODE (source_id) resolved by the page — used for the J&T origin-code rule (ADR-0005). */
   originHubCode?: string;
