@@ -22,7 +22,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Download, FileText, Loader2, RefreshCw } from "lucide-react";
+import { Download, FileText, Loader2, RefreshCw, X } from "lucide-react";
 import { format } from "date-fns";
 import { WITHHOLDING_TAX_RATE } from "@/lib/billingConfig";
 import { toast } from "sonner";
@@ -388,6 +388,27 @@ export default function BillingDocumentPage() {
                                         ))}
                                     </SelectContent>
                                 </Select>
+                            </div>
+                        )}
+
+                        {/* Clears the REVIEW filters only — never the charge-type / หลัก-เสริม
+                            toggles below, which compose the invoice itself (ADR 0005 §1-3). Appears
+                            exactly when Download is blocked, so it is the one-click way to unblock. */}
+                        {reviewFilterActive && (
+                            <div className="space-y-1">
+                                <Label>&nbsp;</Label>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                        setPlateFilter(PLATE_FILTER_ALL);
+                                        setVehicleClassFilter(VEHICLE_CLASS_FILTER_ALL);
+                                    }}
+                                    className="h-9 whitespace-nowrap text-muted-foreground"
+                                >
+                                    <X className="h-4 w-4 mr-1.5" />
+                                    {t("accounting.billingDocument.filters.clearReviewFilters")}
+                                </Button>
                             </div>
                         )}
 

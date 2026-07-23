@@ -19,9 +19,9 @@ import {
     Pencil,
     RefreshCw,
     Download,
-    Calendar as CalendarIcon,
     Clipboard,
     Copy,
+    X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -42,8 +42,7 @@ import { PlaceFilterCombobox } from "@/components/place-filter-combobox";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Calendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { ChevronDown } from "lucide-react";
 import {
@@ -200,6 +199,8 @@ export default function DriverMonitorDashboard() {
         destinationOptions: destinationFilterOptions,
         matchesDestinationFilter,
         getTripTruck,
+        activeClientFilterCount,
+        clearClientFilters,
         searchQuery,
         setSearchQuery,
         detailTrip,
@@ -731,46 +732,16 @@ export default function DriverMonitorDashboard() {
 
                     <div className="flex flex-col gap-2">
                         <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-xs text-muted-foreground whitespace-nowrap">{t("driverMonitor.filter.dateFrom")}</span>
-                            <Popover>
-                                <PopoverTrigger asChild>
-                                    <Button variant="outline" className="h-9 w-[150px] justify-start font-normal" type="button">
-                                        <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
-                                        {format(dateFrom, "dd/MM/yyyy")}
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0" align="start">
-                                    <Calendar
-                                        mode="single"
-                                        selected={dateFrom}
-                                        onSelect={(d) => {
-                                            if (d) setDateRange(d, dateTo);
-                                        }}
-                                        locale={dateLocale}
-                                        initialFocus
-                                    />
-                                </PopoverContent>
-                            </Popover>
-                            <span className="text-xs text-muted-foreground whitespace-nowrap">{t("driverMonitor.filter.dateTo")}</span>
-                            <Popover>
-                                <PopoverTrigger asChild>
-                                    <Button variant="outline" className="h-9 w-[150px] justify-start font-normal" type="button">
-                                        <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
-                                        {format(dateTo, "dd/MM/yyyy")}
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0" align="start">
-                                    <Calendar
-                                        mode="single"
-                                        selected={dateTo}
-                                        onSelect={(d) => {
-                                            if (d) setDateRange(dateFrom, d);
-                                        }}
-                                        locale={dateLocale}
-                                        initialFocus
-                                    />
-                                </PopoverContent>
-                            </Popover>
+                            <span className="text-xs text-muted-foreground whitespace-nowrap">{t("driverMonitor.filter.dateRange")}</span>
+                            {/* One control, two months in view: a range that crosses a month boundary
+                                is picked in one go instead of paging two separate calendars. */}
+                            <DateRangePicker
+                                from={dateFrom}
+                                to={dateTo}
+                                onChange={setDateRange}
+                                locale={dateLocale}
+                                className="w-[230px]"
+                            />
                             <Button
                                 type="button"
                                 variant="secondary"
@@ -893,6 +864,20 @@ export default function DriverMonitorDashboard() {
                             onChange={(e) => setSearchQuery(e.target.value)}
                         />
                     </div>
+
+                    {/* Resets every client-side filter — not the date range, which is the query
+                        window and has its own presets. */}
+                    {activeClientFilterCount > 0 && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={clearClientFilters}
+                            className="h-9 whitespace-nowrap text-muted-foreground"
+                        >
+                            <X className="h-4 w-4 mr-1.5" />
+                            {t("driverMonitor.filter.clearAll", { count: activeClientFilterCount })}
+                        </Button>
+                    )}
 
                 </div>
 
@@ -1092,56 +1077,17 @@ export default function DriverMonitorDashboard() {
                         <div className="space-y-1.5">
                             <span className="text-xs font-medium text-muted-foreground">{t("driverMonitor.export.dateRange")}</span>
                             <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-xs text-muted-foreground">{t("driverMonitor.filter.dateFrom")}</span>
-                                <Popover>
-                                    <PopoverTrigger asChild>
-                                        <Button variant="outline" className="h-9 w-[150px] justify-start font-normal" type="button">
-                                            <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
-                                            {exportFilters.dateFrom ? format(exportFilters.dateFrom, "dd/MM/yyyy") : "—"}
-                                        </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0" align="start">
-                                        <Calendar
-                                            mode="single"
-                                            selected={exportFilters.dateFrom ?? undefined}
-                                            onSelect={(d) => {
-                                                if (!d) return;
-                                                setExportFilters((f) => {
-                                                    const to = f.dateTo ?? d;
-                                                    const c = clampDateRange(d, to);
-                                                    return { ...f, dateFrom: c.from, dateTo: c.to };
-                                                });
-                                            }}
-                                            locale={dateLocale}
-                                            initialFocus
-                                        />
-                                    </PopoverContent>
-                                </Popover>
-                                <span className="text-xs text-muted-foreground">{t("driverMonitor.filter.dateTo")}</span>
-                                <Popover>
-                                    <PopoverTrigger asChild>
-                                        <Button variant="outline" className="h-9 w-[150px] justify-start font-normal" type="button">
-                                            <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
-                                            {exportFilters.dateTo ? format(exportFilters.dateTo, "dd/MM/yyyy") : "—"}
-                                        </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0" align="start">
-                                        <Calendar
-                                            mode="single"
-                                            selected={exportFilters.dateTo ?? undefined}
-                                            onSelect={(d) => {
-                                                if (!d) return;
-                                                setExportFilters((f) => {
-                                                    const from = f.dateFrom ?? d;
-                                                    const c = clampDateRange(from, d);
-                                                    return { ...f, dateFrom: c.from, dateTo: c.to };
-                                                });
-                                            }}
-                                            locale={dateLocale}
-                                            initialFocus
-                                        />
-                                    </PopoverContent>
-                                </Popover>
+                                <span className="text-xs text-muted-foreground">{t("driverMonitor.filter.dateRange")}</span>
+                                <DateRangePicker
+                                    from={exportFilters.dateFrom}
+                                    to={exportFilters.dateTo}
+                                    onChange={(from, to) => {
+                                        const c = clampDateRange(from, to);
+                                        setExportFilters((f) => ({ ...f, dateFrom: c.from, dateTo: c.to }));
+                                    }}
+                                    locale={dateLocale}
+                                    className="w-[230px]"
+                                />
                                 <Button
                                     type="button"
                                     variant="secondary"

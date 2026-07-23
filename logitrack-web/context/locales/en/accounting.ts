@@ -524,6 +524,8 @@ export default {
     "accounting.billingDocument.filters.vehicleClass": "Vehicle type",
     "accounting.billingDocument.filters.allVehicleClasses": "All vehicle types",
     "accounting.billingDocument.filters.vehicleClassNotSpecified": "Not specified",
+    "accounting.billingDocument.filters.clearFilter": "Clear filter",
+    "accounting.billingDocument.filters.clearReviewFilters": "Clear review filters",
     "accounting.billingDocument.summary.tripCount": "Trips",
     "accounting.billingDocument.summary.total": "Total (THB)",
     "accounting.billingDocument.summary.withholdingTax": "Withholding tax 1%",

@@ -55,6 +55,9 @@ export default {
     "driverMonitor.filter.placeNotInMaster": "ไม่มีในระบบ",
     "driverMonitor.filter.placeSearch": "ค้นหาสถานที่...",
     "driverMonitor.filter.placeNoResults": "ไม่พบสถานที่",
+    "driverMonitor.filter.dateRange": "ช่วงวันที่",
+    "driverMonitor.filter.clearFilter": "ล้างตัวกรอง",
+    "driverMonitor.filter.clearAll": "ล้างตัวกรองทั้งหมด ({count})",
 
     // Table Headers
     "driverMonitor.table.tripId": "รหัสเที่ยว",

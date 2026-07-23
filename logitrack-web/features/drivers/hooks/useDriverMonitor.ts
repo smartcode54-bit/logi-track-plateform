@@ -877,6 +877,51 @@ export function useDriverMonitor() {
         );
     }, [trips, driverFilter, statusFilter, jobTypeFilter, partnerFilter, plateFilter, vehicleClassFilter, originFilter, destinationFilter, searchQuery, incidentReportsByTripId, getDriver, getTripTruck, placeMaps, customerScopeId]);
 
+    /**
+     * How many client-side filters are narrowing the table right now — drives the "clear all" button.
+     *
+     * The date range is NOT counted: it is the Firestore query window rather than a predicate over
+     * loaded rows, so clearing it would refetch. It has its own presets next to it.
+     */
+    const activeClientFilterCount = useMemo(
+        () =>
+            [
+                driverFilter !== "all",
+                statusFilter !== "all",
+                jobTypeFilter !== "all",
+                partnerFilter !== "all",
+                plateFilter !== PLATE_FILTER_ALL,
+                vehicleClassFilter !== VEHICLE_CLASS_FILTER_ALL,
+                originFilter !== PLACE_FILTER_ALL,
+                destinationFilter !== PLACE_FILTER_ALL,
+                searchQuery.trim() !== "",
+            ].filter(Boolean).length,
+        [
+            driverFilter,
+            statusFilter,
+            jobTypeFilter,
+            partnerFilter,
+            plateFilter,
+            vehicleClassFilter,
+            originFilter,
+            destinationFilter,
+            searchQuery,
+        ]
+    );
+
+    /** Resets every filter counted above. Lives here because the hook owns the "cleared" sentinels. */
+    const clearClientFilters = useCallback(() => {
+        setDriverFilter("all");
+        setStatusFilter("all");
+        setJobTypeFilter("all");
+        setPartnerFilter("all");
+        setPlateFilter(PLATE_FILTER_ALL);
+        setVehicleClassFilter(VEHICLE_CLASS_FILTER_ALL);
+        setOriginFilter(PLACE_FILTER_ALL);
+        setDestinationFilter(PLACE_FILTER_ALL);
+        setSearchQuery("");
+    }, []);
+
     const getTripsForExport = useCallback(
         (criteria: ExportFilterCriteria): TripRecord[] => {
             return trips.filter((trip) =>
@@ -1013,6 +1058,8 @@ export function useDriverMonitor() {
         destinationOptions,
         matchesDestinationFilter,
         getTripTruck,
+        activeClientFilterCount,
+        clearClientFilters,
         searchQuery,
         setSearchQuery,
         detailTrip,

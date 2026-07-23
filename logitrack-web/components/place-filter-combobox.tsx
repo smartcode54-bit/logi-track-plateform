@@ -72,6 +72,7 @@ export function PlaceFilterCombobox({
             className={className}
             label={label}
             fallbackLabel={(v) => v.replace(/^(code|raw):/, "")}
+            clearLabel={t(`${keyPrefix}.clearFilter` as never)}
         />
     );
 }

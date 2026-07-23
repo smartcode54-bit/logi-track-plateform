@@ -60,6 +60,7 @@ export function PlateFilterCombobox({
             className={className}
             label={label}
             fallbackLabel={(v) => v.replace(/^(id|plate):/, "")}
+            clearLabel={t(`${keyPrefix}.clearFilter` as never)}
         />
     );
 }

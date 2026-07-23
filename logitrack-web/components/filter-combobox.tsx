@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { Check, ChevronsUpDown, Search } from "lucide-react";
+import { Check, ChevronsUpDown, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /** One selectable option. `badge` is rendered next to the label (e.g. "not in fleet"). */
@@ -29,6 +29,8 @@ export interface FilterComboboxProps {
     label?: string;
     /** Fallback trigger text when the selection has no matching option — see `triggerText`. */
     fallbackLabel?: (value: string) => string;
+    /** Tooltip/aria-label for the inline clear (✕). Omit to leave the control without one. */
+    clearLabel?: string;
 }
 
 /**
@@ -53,6 +55,7 @@ export function FilterCombobox({
     className,
     label,
     fallbackLabel,
+    clearLabel,
 }: FilterComboboxProps) {
     const [open, setOpen] = useState(false);
     const [search, setSearch] = useState("");
@@ -97,7 +100,28 @@ export function FilterCombobox({
                     {icon}
                     <span className="truncate">{triggerText}</span>
                 </span>
-                <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+                <span className="flex shrink-0 items-center gap-1">
+                    {/* Clearing the filter is one click from the trigger, no need to reopen and hunt
+                        for the "all" row. A bare icon rather than a <button>: this sits inside the
+                        trigger button, and nesting buttons is invalid HTML (same reason
+                        ui/date-picker and tasks/HelperDriverField do it this way). */}
+                    {value !== allValue && clearLabel && (
+                        <span
+                            role="button"
+                            aria-label={clearLabel}
+                            title={clearLabel}
+                            className="opacity-60 hover:opacity-100 hover:text-destructive"
+                            onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                select(allValue);
+                            }}
+                        >
+                            <X className="h-4 w-4" />
+                        </span>
+                    )}
+                    <ChevronsUpDown className="h-4 w-4 opacity-50" />
+                </span>
             </button>
 
             {open && (

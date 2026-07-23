@@ -55,6 +55,9 @@ export default {
     "driverMonitor.filter.placeNotInMaster": "not in master",
     "driverMonitor.filter.placeSearch": "Search place...",
     "driverMonitor.filter.placeNoResults": "No places found",
+    "driverMonitor.filter.dateRange": "Date range",
+    "driverMonitor.filter.clearFilter": "Clear filter",
+    "driverMonitor.filter.clearAll": "Clear all filters ({count})",
 
     // Table Headers
     "driverMonitor.table.tripId": "Trip ID",

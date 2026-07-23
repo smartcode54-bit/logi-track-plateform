@@ -524,6 +524,8 @@ export default {
     "accounting.billingDocument.filters.vehicleClass": "ประเภทรถ",
     "accounting.billingDocument.filters.allVehicleClasses": "ทุกประเภทรถ",
     "accounting.billingDocument.filters.vehicleClassNotSpecified": "ไม่ระบุ",
+    "accounting.billingDocument.filters.clearFilter": "ล้างตัวกรอง",
+    "accounting.billingDocument.filters.clearReviewFilters": "ล้างตัวกรองตรวจสอบ",
     "accounting.billingDocument.summary.tripCount": "จำนวนเที่ยว",
     "accounting.billingDocument.summary.total": "ยอดรวม (THB)",
     "accounting.billingDocument.summary.withholdingTax": "หัก ณ ที่จ่าย 1%",
