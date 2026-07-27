@@ -27,10 +27,12 @@ class JobRecordPage extends StatelessWidget {
         backgroundColor: darkNavy,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+      body: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // Header Summary Card matching home screen styling but with Navy palette
             Card(
@@ -172,6 +174,7 @@ class JobRecordPage extends StatelessWidget {
             ),
           ],
         ),
+      ),
       ),
     );
   }

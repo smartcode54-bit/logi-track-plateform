@@ -715,10 +715,12 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
             ? const Center(child: CircularProgressIndicator())
             : Stack(
                 children: [
-                  AbsorbPointer(
-                    absorbing: _saving,
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(16.0),
+                  SafeArea(
+                    top: false,
+                    child: AbsorbPointer(
+                      absorbing: _saving,
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(16.0),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
@@ -983,6 +985,7 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
                         ],
                       ),
                     ),
+                  ),
                   ),
                   if (_saving)
                     Positioned.fill(child: ModalBarrier(color: Colors.black38)),

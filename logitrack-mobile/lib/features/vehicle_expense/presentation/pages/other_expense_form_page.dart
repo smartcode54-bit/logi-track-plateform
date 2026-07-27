@@ -272,10 +272,12 @@ class _OtherExpenseFormPageState extends State<OtherExpenseFormPage> {
       ),
       body: Stack(
         children: [
-          Form(
-            key: _formKey,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16.0),
+          SafeArea(
+            top: false,
+            child: Form(
+              key: _formKey,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -603,6 +605,7 @@ class _OtherExpenseFormPageState extends State<OtherExpenseFormPage> {
                 ],
               ),
             ),
+          ),
           ),
           // ตอน Save: disable ทุก input + overlay spinning + กำลังบันทึก...
           if (_saving)

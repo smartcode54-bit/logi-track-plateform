@@ -66,6 +66,9 @@ class ChatListPage extends StatelessWidget {
             );
           }
           return ListView.builder(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewPadding.bottom,
+            ),
             itemCount: openChats.length,
             itemBuilder: (context, index) {
               final doc = openChats[index];

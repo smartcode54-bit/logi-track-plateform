@@ -1100,9 +1100,12 @@ class _TaskCheckInPageState extends State<TaskCheckInPage> {
           onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: _step == _TaskCheckInStep.camera
-          ? const Center(child: CircularProgressIndicator())
-          : _buildPreview(),
+      body: SafeArea(
+        top: false,
+        child: _step == _TaskCheckInStep.camera
+            ? const Center(child: CircularProgressIndicator())
+            : _buildPreview(),
+      ),
     );
   }
 
@@ -1890,11 +1893,14 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
           },
         ),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _step == _CheckInStep.form
-          ? _buildFormStep()
-          : _buildPreviewStep(),
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _step == _CheckInStep.form
+            ? _buildFormStep()
+            : _buildPreviewStep(),
+      ),
     );
   }
 

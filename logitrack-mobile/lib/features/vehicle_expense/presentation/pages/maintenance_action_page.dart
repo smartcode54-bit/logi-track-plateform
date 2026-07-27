@@ -186,10 +186,12 @@ class _MaintenanceActionPageState extends State<MaintenanceActionPage> {
       ),
       body: _saving
           ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16.0),
-              child: Form(
-                key: _formKey,
+          : SafeArea(
+              top: false,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16.0),
+                child: Form(
+                  key: _formKey,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -362,6 +364,7 @@ class _MaintenanceActionPageState extends State<MaintenanceActionPage> {
                   ],
                 ),
               ),
+            ),
             ),
     );
   }

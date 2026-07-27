@@ -504,10 +504,12 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
       ),
       body: Stack(
         children: [
-          Form(
-            key: _formKey,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16.0),
+          SafeArea(
+            top: false,
+            child: Form(
+              key: _formKey,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -855,6 +857,7 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
                 ],
               ),
             ),
+          ),
           ),
           if (_saving)
             Positioned.fill(

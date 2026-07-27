@@ -185,7 +185,10 @@ class _HubsReferencePageState extends State<HubsReferencePage> {
                         : RefreshIndicator(
                             onRefresh: _load,
                             child: ListView.builder(
-                              padding: const EdgeInsets.only(bottom: 24),
+                              padding: EdgeInsets.only(
+                                bottom:
+                                    24 + MediaQuery.of(context).viewPadding.bottom,
+                              ),
                               itemCount: _visible.length,
                               itemBuilder: (context, i) {
                                 final h = _visible[i];

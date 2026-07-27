@@ -68,7 +68,12 @@ class _BroadcastDetailPageState extends State<BroadcastDetailPage> {
         title: Text('broadcast_detail_title'.tr()),
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+        padding: EdgeInsets.fromLTRB(
+          20,
+          20,
+          20,
+          20 + MediaQuery.of(context).viewPadding.bottom,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [

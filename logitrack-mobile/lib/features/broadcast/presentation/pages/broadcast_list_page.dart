@@ -111,7 +111,10 @@ class _BroadcastListPageState extends State<BroadcastListPage> {
             }
             return ListView.builder(
               physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.symmetric(vertical: 8),
+            padding: EdgeInsets.only(
+              top: 8,
+              bottom: 8 + MediaQuery.of(context).viewPadding.bottom,
+            ),
             itemCount: docs.length,
             itemBuilder: (context, index) {
               final doc = docs[index];

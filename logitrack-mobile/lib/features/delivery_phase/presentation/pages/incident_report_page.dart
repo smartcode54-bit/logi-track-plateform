@@ -201,10 +201,12 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
         ),
         body: Stack(
           children: [
-            AbsorbPointer(
-              absorbing: _saving,
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16.0),
+            SafeArea(
+              top: false,
+              child: AbsorbPointer(
+                absorbing: _saving,
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(16.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -289,6 +291,7 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
                     ),
                   ],
                 ),
+              ),
               ),
             ),
             if (_saving)

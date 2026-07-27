@@ -46,10 +46,12 @@ class _WorkingHolidayCalendarPageState extends State<WorkingHolidayCalendarPage>
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _MonthView(
+      body: SafeArea(
+        top: false,
+        child: TabBarView(
+          controller: _tabController,
+          children: [
+            _MonthView(
             repo: _repo,
             displayYear: _displayYear,
             displayMonth: _displayMonth,
@@ -71,6 +73,7 @@ class _WorkingHolidayCalendarPageState extends State<WorkingHolidayCalendarPage>
             },
           ),
         ],
+      ),
       ),
     );
   }

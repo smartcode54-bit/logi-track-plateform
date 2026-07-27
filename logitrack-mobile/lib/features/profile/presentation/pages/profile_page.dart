@@ -100,7 +100,7 @@ class _ProfilePageState extends State<ProfilePage> {
           onPressed: () => Navigator.of(context).pop(),
         ),
       ),
-      body: _buildBody(context),
+      body: SafeArea(top: false, child: _buildBody(context)),
     );
   }
 

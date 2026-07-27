@@ -167,9 +167,12 @@ class _NewLeaveRequestPageState extends State<NewLeaveRequestPage> {
       appBar: AppBar(
         title: Text('leave_request_new'.tr()),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: _showReview ? _buildReview() : _buildForm(),
+      body: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: _showReview ? _buildReview() : _buildForm(),
+        ),
       ),
     );
   }
