@@ -20,6 +20,11 @@ const eslintConfig = defineConfig([
     "functions/lib/**",
     "functions/scripts/**",
     "functions/run-backfill.js",
+    // Vendored AI agent tooling (BMAD/WDS skills, templates) — not app code,
+    // ships CommonJS + its own rule set. Linting it only breaks CI.
+    "_bmad/**",
+    ".claude/**",
+    ".agents/**",
   ]),
   {
     rules: {

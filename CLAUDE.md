@@ -21,7 +21,7 @@ Also read `shared-docs/database-migration-plan.md` to understand the planned dat
 
 ---
 
-## Session Handover Summary (อัปเดตล่าสุด: 15 มิ.ย. 2026 — V2.7.0-web)
+## Session Handover Summary (อัปเดตล่าสุด: 27 ก.ค. 2026 — V2.10.0-web / mobile 2.9.2+1)
 
 > เอกสารนี้สรุปสิ่งที่ทำไปแล้วตั้งแต่ `shared-docs/.vibe-rules.md` ถูกสร้าง เพื่อให้ Antigravity และ AI อื่นๆ สามารถ sync ต่อได้ทันที
 
@@ -29,11 +29,29 @@ Also read `shared-docs/database-migration-plan.md` to understand the planned dat
 
 ### 🌐 สถานะโปรเจกต์ปัจจุบัน
 
-- **เวอร์ชัน Flutter (logitrack-mobile)**: `pubspec.yaml` = **2.6.2+1** — truck identifiers denormalized บนทุก transaction + OtherExpense ส่ง truckId/plate ครบ
-- **เวอร์ชัน Next.js (logitrack-web)**: **V2.7.0-web** (`package.json`) — Deploy ผ่าน Firebase Hosting + GitHub Actions (dev/prod workflows); rebrand sidebar "Logistics Pro" → "LogiTrack Pro"
+- **เวอร์ชัน Flutter (logitrack-mobile)**: `pubspec.yaml` = **2.9.2+1** — per-task truck selection (`tasks.truckId` + `drivers.activeTruck`) + คง session เมื่อ token refresh ล้มชั่วคราว
+- **เวอร์ชัน Next.js (logitrack-web)**: **V2.10.0-web** (`package.json`) — Deploy ผ่าน Firebase Hosting + GitHub Actions (dev auto หลัง CI เขียว / prod manual `workflow_dispatch`)
 - **Route path**: ย้ายจาก `app/admin/` → `app/app/` (internal structure เปลี่ยน, URL ผู้ใช้ยังเดิม)
 - **Firestore Rules**: `logitrack-web/firestore.rules` — เป็น SSOT ทุก collection
 - **Monorepo Structure**: `logitrack-platform/` ครอบ `logitrack-web/` + `logitrack-mobile/` + `shared-docs/`
+
+---
+
+### 📐 ADR — บันทึกการตัดสินใจเชิงสถาปัตยกรรม
+
+ADR ตัวจริงอยู่ที่ **`shared-docs/adr/`** (ชื่อไฟล์ `NNNN-kebab-case.md` ไม่มี prefix อื่น) — **อ่านก่อนแตะเรื่องที่ ADR ครอบคลุม** และเขียน ADR ใหม่เมื่อมีการตัดสินใจที่ย้อนกลับยาก
+
+| ADR | เรื่อง |
+|-----|-------|
+| `0000-adr-conventions.md` | กติกาการเขียน/ตั้งชื่อ ADR |
+| `0001-checkin-time-on-trip-records.md` | เก็บเวลาเช็คอินบน `trip_records` |
+| `0002-edit-job-category-on-delivered-trip.md` | แก้ หลัก/เสริม บนเที่ยวที่ส่งแล้ว + re-derive ราคาแบบ atomic |
+| `0003-edit-forms-fail-loudly-on-legacy-docs.md` | ฟอร์มแก้ไขต้อง fail ดังๆ เมื่อเจอ doc เก่าที่ schema ไม่ครบ |
+| `0004-shared-oninvalid-handler-for-all-forms.md` | `onInvalid` handler กลางตัวเดียวสำหรับทุกฟอร์ม |
+| `0005-truck-plate-filter-billing-document-driver-monitor.md` | ฟิลเตอร์ทะเบียนรถใน Billing Document + Driver Monitor |
+| `0006-origin-destination-filter-driver-monitor.md` | ฟิลเตอร์ต้นทาง/ปลายทางใน Driver Monitor |
+
+ศัพท์ในโดเมน (หลัก/เสริม, SOC, hub, standby ฯลฯ) → **`shared-docs/glossary.md`**
 
 ---
 
@@ -831,6 +849,64 @@ Pages ที่ wrap: first-mile, line-haul, driver-monitor, incident-reports, t
 
 ---
 
+#### 41. Rate Card: Vehicle Class ตรงกับที่ task ถืออยู่ — [14–15 ก.ค. 2026]
+
+ต่อจาก #40 — rate card เคยเสนอ "ชื่อประเภทรถ" จาก truck master ซึ่งไม่ตรงกับ enum ที่ task ใช้ ทำให้ lookup ราคาไม่เจอ
+
+- `rate-card`: เสนอ **task vehicle classes** (ไม่ใช่ชื่อจาก truck master), dedup + เรียงตาม task enum, badge สี Vehicle/Job type, เติม i18n ที่ขาด
+- `billing`: fold legacy vehicle classes ลงบน class ที่ task ถือจริง
+- `tasks` import: รับคอลัมน์ **หลัก/เสริม** (`jobCategory`) จาก Excel template
+- Select ใน edit-entry dialog ยกขึ้นเหนือ overlay (pattern z-index เดิม — ดู #9)
+
+**Commits:** `52e4f40`, `dbad116`, `6c1cb56`, `53455ce`, `766675f`, `6a265df`, `f9201be`, `da631ef`
+
+---
+
+#### 42. Driver Monitor: คอลัมน์เช็คอิน/ออกเดินทาง + แก้ หลัก/เสริม บนเที่ยวที่ส่งแล้ว — [15–16 ก.ค. 2026]
+
+- Driver Monitor เพิ่มคอลัมน์ check-in + depart, ถอด estimated revenue ออก (`7853401`) — ดู **ADR 0001**
+- แก้ `jobCategory` (หลัก/เสริม) บนเที่ยวที่ **delivered แล้ว** และ re-derive ราคาแบบ atomic (`71446cc`) — ดู **ADR 0002**
+- Fix: ปุ่ม Save เปิดใช้งานเมื่อแก้แค่ job category (`469cfc1`)
+- Mobile: คง session ไว้เมื่อ token refresh ล้มแบบชั่วคราว แทนที่จะเตะออก (`803881c`, v2.9.2+1)
+
+---
+
+#### 43. ฟอร์มต้อง fail ดังๆ — validation errors ไม่เงียบอีกต่อไป — [17 ก.ค. 2026]
+
+**อาการ:** แก้โปรไฟล์คนขับแล้วกด Save ไม่มีอะไรเกิดขึ้น ไม่มี error — เพราะ doc เก่าขาดฟิลด์ที่ schema ใหม่บังคับ react-hook-form จึงบล็อก submit เงียบๆ
+
+- `ac1070d` — surface validation errors ให้เห็นจริง (ADR 0003)
+- `3fef379` — **`onInvalid` handler กลางตัวเดียว** ใช้ร่วมทุกฟอร์ม ไม่ให้ฟอร์มไหน save เงียบได้อีก (ADR 0004) — test: `lib/formInvalidHandler.test.ts`
+
+**Pattern:** ฟอร์มใหม่ทุกตัวต้องผูก shared `onInvalid` handler — อย่าเขียน handler เองต่อฟอร์ม
+
+---
+
+#### 44. ฟิลเตอร์ทะเบียนรถ + ต้นทาง/ปลายทาง — [22–23 ก.ค. 2026] — V2.10.0-web
+
+- **ทะเบียนรถ** ใน Billing Document + Driver Monitor (ADR 0005) — helper `lib/truckPlate.ts` (+ test)
+- **ต้นทาง/ปลายทาง** ใน Driver Monitor (ADR 0006) — helper `lib/placeFilter.ts` (+ test)
+- `27896ee` — ปุ่มล้างฟิลเตอร์ + date range picker ทั้ง Driver Monitor และ Billing Document
+
+---
+
+#### 45. CI: ปลด lint block จาก agent tooling — [27 ก.ค. 2026]
+
+**อาการ:** CI บน `main` แดง 2 รันติด (23 ก.ค.) → job Deploy ถูก `skipped` (deploy.yml รอ `workflow_run.conclusion == 'success'`) → **dev auto-deploy หยุดตั้งแต่ 17 ก.ค.**
+
+**สาเหตุ:** ESLint 14 errors — ไม่มีอันไหนอยู่ในโค้ดแอปเลย ทั้งหมดมาจาก AI agent tooling ที่ commit ไว้ใต้ `logitrack-web/`:
+
+| ที่มา | error |
+|------|-------|
+| `.agents/skills/wds-5-.../dev-mode.js` + `.claude/skills/wds-5-.../dev-mode.js` | rule `n/no-unsupported-features/node-builtins` ไม่มีนิยาม (ไม่ได้ติดตั้ง `eslint-plugin-n`) |
+| `_bmad/wds/scripts/wds-*.js` (6 ไฟล์) | `@typescript-eslint/no-require-imports` |
+
+**แก้:** `logitrack-web/eslint.config.mjs` — เพิ่ม `_bmad/**`, `.claude/**`, `.agents/**` เข้า `globalIgnores` → เหลือ 0 errors / 518 warnings
+
+**หมายเหตุ:** `.claude/` **ที่ root ไม่เกี่ยว** — นั่นคือ tooling ของโปรเจกต์จริง (spec-architect agent, `/spec-new`, `/spec-build`, firebase skills) ต้อง track ต่อ; ที่ ignore คือชุด BMAD/WDS ที่ติดตั้งซ้ำเข้าไปใน `logitrack-web/` เท่านั้น
+
+---
+
 ### ⚠️ สิ่งที่ยังค้างอยู่ (Pending)
 
 1. **RBAC — กำหนด `security_view_mobile_clients` ให้ role ใน Firestore `permissions_config`**  
@@ -844,6 +920,19 @@ Pages ที่ wrap: first-mile, line-haul, driver-monitor, incident-reports, t
 
 4. **Standby Transaction: Mobile + Billing integration**  
    Web admin page สร้างแล้ว แต่ Mobile flow ("Standby งานหมด" button + StandbyPage), billing line item, และ rate ยังไม่ implement
+
+5. **Mobile ไม่มี CI เลย**  
+   `.github/workflows/ci.yml` filter paths แค่ `logitrack-web/**` + `shared-docs/**` → `flutter analyze` / `flutter test` ไม่เคยรันบน CI  
+   สถานะปัจจุบัน (27 ก.ค. 2026): **0 errors, 17 warnings, 102 infos** — warning ที่ควรเก็บ เช่น dead code + `dead_null_aware_expression` ใน `delivery_phase_page_multi.dart:298,311`, unused import ใน `loading_phase_page.dart` / `standby_page.dart`
+
+6. **`dart format` drift ฝั่ง mobile**  
+   60 ไฟล์ใต้ `lib/` ยังไม่ตรงกับ `dart format` (บางไฟล์ต่าง 100–300 บรรทัด) → **ห้ามรัน format ปนกับ commit ฟีเจอร์** เพราะ diff จะกลบเนื้อจริง ควรทำเป็น commit แยกล้วนๆ ครั้งเดียว
+
+7. **GitHub Actions ใช้ Node 20 (deprecated)**  
+   `actions/checkout@v4`, `setup-node@v4`, `pnpm/action-setup@v4` ถูก force ไปรันบน Node 24 แล้วและขึ้น deprecation warning ทุกรัน — ยังไม่พัง แต่ควรอัป
+
+8. **BMAD/WDS tooling ถูก track ใต้ `logitrack-web/` (261 ไฟล์)**  
+   `.claude/` 213 + `_bmad/` 31 + `.agents/` 17 — ตอนนี้แค่ถูก ignore จาก ESLint (#45) แต่ยังอยู่ใน git ต้องตัดสินใจว่าจะ track ต่อ (แชร์ให้ทีม) หรือ untrack
 
 ---
 

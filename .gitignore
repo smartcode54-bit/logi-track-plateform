@@ -37,3 +37,12 @@ file example/
 # Claude Code worktrees (local only, not for version control)
 .claude/worktrees/
 logitrack-mobile/.claude/worktrees/
+
+# JVM crash dumps (Gradle/Android toolchain) — never useful in version control
+hs_err_pid*.log
+replay_pid*.log
+
+# Local scratch dumps from grep/refactor sessions
+grep_*.txt
+files_to_refactor.txt
+**/tmp_*.mjs
