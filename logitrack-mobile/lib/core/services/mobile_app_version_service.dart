@@ -128,27 +128,63 @@ class MobileAppVersionService {
   }
 
   /// Undismissable by design — the only way forward is installing the new APK.
+  ///
+  /// The download button is the driver's **only** exit from this dialog, so it must never fail
+  /// silently. It deliberately does **not** gate on `canLaunchUrl`: on Android 11+ that returns
+  /// false for https unless the VIEW intent is declared in AndroidManifest `<queries>`, and the
+  /// guard made the button do nothing at all. Every other `launchUrl` call in this app launches
+  /// directly for the same reason. If the launch still fails, the raw URL is shown so the driver
+  /// can copy it instead of being stranded.
   Future<void> _showBlockingDialog(BuildContext context, String apkUrl) {
     return showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => PopScope(
         canPop: false,
-        child: AlertDialog(
-          title: Text('mobile_force_update_title'.tr()),
-          content: Text('mobile_force_update_body'.tr()),
-          actions: [
-            if (apkUrl.isNotEmpty)
-              TextButton(
-                onPressed: () async {
-                  final uri = Uri.tryParse(apkUrl);
-                  if (uri != null && await canLaunchUrl(uri)) {
-                    await launchUrl(uri, mode: LaunchMode.externalApplication);
-                  }
-                },
-                child: Text('mobile_force_update_download'.tr()),
+        child: StatefulBuilder(
+          builder: (ctx, setState) {
+            var launchFailed = false;
+
+            Future<void> openDownload() async {
+              var ok = false;
+              final uri = Uri.tryParse(apkUrl);
+              if (uri != null) {
+                try {
+                  ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+                } catch (_) {
+                  ok = false;
+                }
+              }
+              if (!ok) setState(() => launchFailed = true);
+            }
+
+            return AlertDialog(
+              title: Text('mobile_force_update_title'.tr()),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('mobile_force_update_body'.tr()),
+                  if (launchFailed) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      'mobile_force_update_open_failed'.tr(),
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    SelectableText(apkUrl, style: const TextStyle(fontSize: 12)),
+                  ],
+                ],
               ),
-          ],
+              actions: [
+                if (apkUrl.isNotEmpty)
+                  TextButton(
+                    onPressed: openDownload,
+                    child: Text('mobile_force_update_download'.tr()),
+                  ),
+              ],
+            );
+          },
         ),
       ),
     );

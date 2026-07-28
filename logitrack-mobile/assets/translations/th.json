@@ -38,6 +38,7 @@
     "mobile_force_update_title": "ต้องอัปเดตแอป",
     "mobile_force_update_body": "เวอร์ชันแอปของคุณต่ำเกินไป กรุณาดาวน์โหลด APK เวอร์ชันล่าสุดเพื่อใช้งานต่อ",
     "mobile_force_update_download": "ดาวน์โหลด APK",
+    "mobile_force_update_open_failed": "เปิดเบราว์เซอร์ไม่สำเร็จ กรุณาคัดลอกลิงก์นี้ไปเปิดเอง:",
     "app_title": "LogiTrack - Drive",
     "welcome_user": "ยินดีต้อนรับ, {}",
     "quick_actions": "เมนูด่วน",

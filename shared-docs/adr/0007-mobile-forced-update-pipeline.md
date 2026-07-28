@@ -155,6 +155,17 @@ down mid-delivery, which contradicts decision 1. The check runs at login and on 
 - Blocking the fleet takes a deliberate second step by an admin, with the blast radius shown first.
 - **The gate hardening ships *in* the next APK**, so it protects the *next* forced update, not the
   first one. It must land in the same build that becomes the first script-published release.
+- **The force button cannot be used on the currently-deployed fleet, and the first rollout must be
+  manual.** Dev rehearsal on 2026-07-28 found the download button dead: `AndroidManifest.xml`
+  declared `<queries>` only for `PROCESS_TEXT`, so on Android 11+ package visibility made
+  `canLaunchUrl()` return false for every https URL, and the button was gated on it — pressing it did
+  nothing at all. Every other `launchUrl` call in the app launches directly, which is why only this
+  one failed. Fixed by declaring the VIEW intent, dropping the `canLaunchUrl` gate, and showing the
+  raw URL if the launch still fails. **The broken code is in every APK drivers currently run**, so
+  forcing an update today would strand the whole fleet on an undismissable dialog with a dead button.
+  The fix cannot be delivered by the mechanism it fixes, so the sequence is: publish the fixed build,
+  distribute the link by hand (LINE / broadcast), watch the Mobile Clients page until most
+  installations have moved, and only then use the force button for stragglers.
 - Version comparison now exists twice — `pub_semver` on mobile, `lib/mobileVersion.ts` on web. The TS
   side is hand-rolled (no `semver` dependency) and covered by `lib/mobileVersion.test.ts`; the test
   that matters is `2.10.0 > 2.9.3`, the lexicographic trap that would otherwise mark the newest build

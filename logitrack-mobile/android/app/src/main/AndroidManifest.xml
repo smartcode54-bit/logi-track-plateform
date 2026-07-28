@@ -47,5 +47,16 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- Opening http(s) links (url_launcher). Without this, Android 11+ package visibility
+             makes canLaunchUrl() return false for every web URL, so any code that gates on it
+             silently does nothing — which is how the force-update download button came to be dead. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="http"/>
+        </intent>
     </queries>
 </manifest>
