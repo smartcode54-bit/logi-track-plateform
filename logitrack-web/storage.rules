@@ -80,6 +80,16 @@ service firebase.storage {
       allow write: if isAppCheckVerified() && request.auth != null;
     }
 
+    // Driver APK releases (scripts/publish-mobile-release.mjs).
+    // Unlike every block above, write is closed: the only writer is the Admin SDK, which bypasses
+    // rules entirely. Allowing authenticated writes here would let any driver replace the APK the
+    // whole fleet is being forced to install. Read is open because the force-update dialog opens the
+    // download link in an external browser.
+    match /app_releases/{allPaths=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     // Default: deny all other paths
     match /{allPaths=**} {
       allow read, write: if false;

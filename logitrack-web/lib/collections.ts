@@ -126,7 +126,22 @@ export const COLLECTIONS = {
      * companyType = "subcontractor" → partner tenants
      */
     COMPANIES: "companies",
+
+    /** App-wide settings, one doc per concern (see MOBILE_APP_SETTINGS_DOC) */
+    SETTINGS: "settings",
 } as const;
+
+/**
+ * Doc id under COLLECTIONS.SETTINGS holding the driver-app release state.
+ *
+ * Two writers with deliberately disjoint fields — see
+ * shared-docs/adr/0007-mobile-forced-update-pipeline.md:
+ *  - `scripts/publish-mobile-release.mjs` writes `latestVersion` and everything about the built APK.
+ *  - The admin page writes `minAllowedVersion` (the floor that actually blocks the app).
+ * The release script must never touch `minAllowedVersion`, or publishing a build would lock out the
+ * fleet without anyone deciding to.
+ */
+export const MOBILE_APP_SETTINGS_DOC = "mobile_app";
 
 /** Type for collection names */
 export type CollectionName = typeof COLLECTIONS[keyof typeof COLLECTIONS];

@@ -10,9 +10,14 @@
     "deploy:prod": "node -e \"require('fs').copyFileSync('envs/.env.prod.web','logitrack-web/.env.production')\" && pnpm --filter logi-track run deploy:prod",
     "prepare": "husky",
     "mobile:dev": "node -e \"var fs=require('fs'); if(fs.existsSync('envs/.env.dev.mobile')) fs.copyFileSync('envs/.env.dev.mobile','logitrack-mobile/.env.dev');\"",
-    "build:mobile:prod": "node -e \"require('fs').copyFileSync('envs/.env.prod.mobile','logitrack-mobile/.env.prod')\" && cd logitrack-mobile && flutter build apk --split-per-abi",
+    "build:mobile:dev": "node -e \"require('fs').copyFileSync('envs/.env.dev.mobile','logitrack-mobile/.env.dev')\" && cd logitrack-mobile && flutter build apk --release --flavor dev --dart-define=FLAVOR=dev",
+    "build:mobile:prod": "node -e \"require('fs').copyFileSync('envs/.env.prod.mobile','logitrack-mobile/.env.prod')\" && cd logitrack-mobile && flutter build apk --release --flavor prod --dart-define=FLAVOR=prod",
     "backfill:task-hub-customers:dry-run": "pnpm --filter logi-track run backfill:task-hub-customers:dry-run",
-    "backfill:task-hub-customers:apply": "pnpm --filter logi-track run backfill:task-hub-customers:apply"
+    "backfill:task-hub-customers:apply": "pnpm --filter logi-track run backfill:task-hub-customers:apply",
+    "release:mobile:dev:dry-run": "pnpm --filter logi-track run release:mobile:dev:dry-run",
+    "release:mobile:dev:apply": "pnpm --filter logi-track run release:mobile:dev:apply",
+    "release:mobile:prod:dry-run": "pnpm --filter logi-track run release:mobile:prod:dry-run",
+    "release:mobile:prod:apply": "pnpm --filter logi-track run release:mobile:prod:apply"
   },
   "devDependencies": {
     "husky": "^9.1.7"

@@ -907,16 +907,42 @@ Pages ที่ wrap: first-mile, line-haul, driver-monitor, incident-reports, t
 
 ---
 
+#### 46. Mobile Forced-Update Pipeline — [28 ก.ค. 2026] — ดู **ADR 0007**
+
+build → ประกาศเวอร์ชันขึ้น Firestore อัตโนมัติ → แอดมินเห็นว่าใครตกรุ่น → กดปุ่มบังคับเมื่อพร้อม
+
+**หลักการที่ห้ามพัง:** `settings/mobile_app` มี **2 writer ที่เขียน field คนละชุด** — script **ห้ามแตะ `minAllowedVersion`** (มี assert ในโค้ด) เพราะนั่นคือ field เดียวที่ mobile อ่านเพื่อบล็อก การ publish บิลด์จึงล็อกใครไม่ได้ ต้องมีคนกดปุ่ม
+
+| ไฟล์ | สิ่งที่เปลี่ยน |
+|------|---------------|
+| `package.json` (root) | **🐛 แก้ flavor bug** — เติม `--flavor prod --dart-define=FLAVOR=prod`, ถอด `--split-per-abi`, เพิ่ม `build:mobile:dev` + 4 script `release:mobile:*` |
+| `logitrack-web/scripts/publish-mobile-release.mjs` | **ใหม่** — อ่าน version จาก pubspec, เลือก APK จาก `output-metadata.json`, sha256 แบบ stream, อัป Storage, HEAD เช็คลิงก์ก่อนเขียน Firestore; `--project=dev\|prod` required |
+| `logitrack-web/storage.rules` | block `app_releases/**` — `read: true` / **`write: false`** (writer เดียวคือ Admin SDK) |
+| `logitrack-web/lib/mobileVersion.ts` (+ test) | **ใหม่** — เทียบ semver เขียนเอง ไม่ลง `semver`; 24 tests เคสสำคัญ `2.10.0 > 2.9.3` |
+| `logitrack-web/lib/firestoreWrite.ts` | **ใหม่** — ยก `stripUndefined` ออกจาก `companies.ts` มาใช้ร่วม |
+| `logitrack-web/app/app/security-center/mobile-release/page.tsx` | **ใหม่** — หน้าคุมเวอร์ชัน + ปุ่มบังคับ |
+| `logitrack-web/features/mobile-release/api/mobileAppSettings.ts` | **ใหม่** — `setDoc(merge)` ไม่ใช่ `updateDoc` (doc อาจยังไม่มี) |
+| `logitrack-web/app/app/security-center/mobile-clients/page.tsx` | badge blocked/outdated/ahead + สรุปเหนือตาราง + **badge แดงเมื่อ `flavor === "dev"`** |
+| `logitrack-mobile/.../mobile_app_version_service.dart` | cache floor ลง SharedPreferences (TTL 30 วัน) ปิดช่องหลบด้วย airplane mode |
+| capability + i18n | `security_manage_mobile_release` (admin only) 6 จุด + en/th ครบ (337 คีย์เท่ากันทั้งสองภาษา) |
+
+**🔴 Guard ที่สำคัญที่สุด:** ปุ่มบังคับ**กดไม่ได้ถ้า `apkDownloadUrl` ว่าง** — mobile render ปุ่มดาวน์โหลดเฉพาะเมื่อ URL ไม่ว่าง บังคับโดยไม่มีลิงก์ = คนขับติด dialog ที่ออกไม่ได้
+
+**⚠️ Sequencing:** gate hardening เป็นโค้ด mobile → ไปกับ APK ตัวถัดไป **ป้องกัน force ครั้งหน้า ไม่ใช่ครั้งแรก**
+
+---
+
 ### ⚠️ สิ่งที่ยังค้างอยู่ (Pending)
 
 1. **RBAC — กำหนด `security_view_mobile_clients` ให้ role ใน Firestore `permissions_config`**  
    ยังต้องทำผ่าน Role Matrix UI ใน Admin dashboard (ไม่มี seed script)
 
-2. **"เวอร์ชันล่าสุดที่ปล่อย" จาก CI**  
-   ยังไม่ได้ implement การเขียน `latestAndroidBuild` จาก GitHub Actions ลง `settings/mobile_app` — ตารางจึงยังไม่มีคอลัมน์ "เก่ากว่าที่ควร" แบบ auto
+2. ~~**"เวอร์ชันล่าสุดที่ปล่อย" จาก CI**~~ — **ทำแล้วบางส่วน (#46 / ADR 0007)**  
+   `scripts/publish-mobile-release.mjs` เขียน `latestVersion` ลง `settings/mobile_app` และหน้า Mobile Clients มี badge blocked/outdated/ahead แล้ว  
+   **ที่ยังเหลือ:** ต้องรัน script เองบนเครื่อง — ยังไม่มี CI build mobile (ดูข้อ 5) จึงยังไม่ auto จากทุก build
 
 3. **OTA / APK Auto-update**  
-   ยังไม่ implement (ตัดสินใจออกจาก scope ไว้ก่อน)
+   ยังไม่ implement — flow ปัจจุบันคือบังคับให้ผู้ใช้กดโหลด APK เอง (ADR 0007) ไม่ใช่ OTA จริง
 
 4. **Standby Transaction: Mobile + Billing integration**  
    Web admin page สร้างแล้ว แต่ Mobile flow ("Standby งานหมด" button + StandbyPage), billing line item, และ rate ยังไม่ implement

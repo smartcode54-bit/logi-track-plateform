@@ -188,6 +188,7 @@ const SECURITY_CAPABILITIES: { id: string; title: string; description: string; d
     { id: "security_manage_api_keys", title: "Manage API Keys", description: "Create and revoke API keys for integrations", defaultPermissions: { ADMIN: true, MANAGER: false, OPERATION_STAFF: false, OPERATOR: false, DRIVER: false, PARTNER: false, CUSTOMER: false } },
     { id: "security_view_status", title: "View System Status", description: "View real-time service health and uptime", defaultPermissions: { ADMIN: true, MANAGER: false, OPERATION_STAFF: false, OPERATOR: false, DRIVER: false, PARTNER: false, CUSTOMER: false } },
     { id: "security_view_mobile_clients", title: "View Mobile Clients", description: "Driver app versions and last-seen per device (Security Center)", defaultPermissions: { ADMIN: true, MANAGER: false, OPERATION_STAFF: false, OPERATOR: false, DRIVER: false, PARTNER: true, CUSTOMER: false } },
+    { id: "security_manage_mobile_release", title: "Manage Mobile Release", description: "Set the minimum driver-app version — can lock the whole fleet out of older builds", defaultPermissions: { ADMIN: true, MANAGER: false, OPERATION_STAFF: false, OPERATOR: false, DRIVER: false, PARTNER: false, CUSTOMER: false } },
 ];
 
 function getDefaultPermissions(): Record<string, CapabilityPermission> {

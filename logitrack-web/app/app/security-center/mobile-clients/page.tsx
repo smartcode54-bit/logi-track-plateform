@@ -19,7 +19,11 @@ import { CAPABILITIES } from "@/lib/capabilities";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Loader2, Smartphone } from "lucide-react";
+import { countVersionStatuses, getVersionStatus, type VersionStatus } from "@/lib/mobileVersion";
+import { subscribeMobileAppSettings } from "@/features/mobile-release/api/mobileAppSettings";
+import type { MobileAppSettings } from "@/validate/mobileAppSettingsSchema";
 
 const MAX_ROWS = 200;
 
@@ -28,6 +32,13 @@ function formatLastSeen(v: unknown): string {
     if (v instanceof Timestamp) return v.toDate().toLocaleString();
     return String(v);
 }
+
+/** `current` and `unknown` get no badge — a wall of green hides the rows that need attention. */
+const STATUS_BADGE: Partial<Record<VersionStatus, { variant: "destructive" | "secondary" | "outline"; key: string }>> = {
+    blocked: { variant: "destructive", key: "securityCenter.mobileClients.badge.blocked" },
+    outdated: { variant: "secondary", key: "securityCenter.mobileClients.badge.outdated" },
+    ahead: { variant: "outline", key: "securityCenter.mobileClients.badge.ahead" },
+};
 
 export default function MobileClientsPage() {
     const { t } = useLanguage();
@@ -43,6 +54,17 @@ export default function MobileClientsPage() {
     const [rows, setRows] = useState<Array<{ id: string; path: string; data: Record<string, unknown> }>>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [release, setRelease] = useState<MobileAppSettings | null>(null);
+
+    // Live-follow the published release so badges update the moment a build is published or the
+    // floor is raised, without the operator reloading the page.
+    useEffect(() => {
+        if (permLoading || !hasPermission) return;
+        return subscribeMobileAppSettings(setRelease, (e) =>
+            // Non-fatal: the table still lists installations, just without status badges.
+            console.error("[MobileClients] release settings listen failed", e),
+        );
+    }, [hasPermission, permLoading]);
 
     useEffect(() => {
         if (permLoading) return;
@@ -94,6 +116,14 @@ export default function MobileClientsPage() {
         );
         return () => unsub();
     }, [hasPermission, permLoading, isAdmin, role, partnerScopeId]);
+
+    const latestVersion = release?.latestVersion ?? "";
+    const minAllowedVersion = release?.minAllowedVersion ?? "";
+    const statusCounts = countVersionStatuses(
+        rows.map((row) => row.data.appVersion),
+        latestVersion,
+        minAllowedVersion,
+    );
 
     if (permLoading) {
         return (
@@ -153,7 +183,15 @@ export default function MobileClientsPage() {
             <Card>
                 <CardHeader>
                     <CardTitle>{t("securityCenter.mobileClients.title")}</CardTitle>
-                    <CardDescription>{t("securityCenter.mobileClients.subtitle")}</CardDescription>
+                    <CardDescription>
+                        {latestVersion
+                            ? t("securityCenter.mobileClients.summary", {
+                                  blocked: statusCounts.blocked,
+                                  outdated: statusCounts.outdated,
+                                  current: statusCounts.current,
+                              })
+                            : t("securityCenter.mobileClients.summaryNoRelease")}
+                    </CardDescription>
                 </CardHeader>
                 <CardContent>
                     {loading ? (
@@ -179,7 +217,15 @@ export default function MobileClientsPage() {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {rows.map((row) => (
+                                    {rows.map((row) => {
+                                        const status = getVersionStatus(
+                                            row.data.appVersion,
+                                            latestVersion,
+                                            minAllowedVersion,
+                                        );
+                                        const badge = STATUS_BADGE[status];
+                                        const isDevBuild = String(row.data.flavor ?? "") === "dev";
+                                        return (
                                         <TableRow key={`${row.path}`}>
                                             <TableCell className="font-medium">
                                                 {String(row.data.driverName ?? "—")}
@@ -191,9 +237,24 @@ export default function MobileClientsPage() {
                                                 {row.data.partnerId ? String(row.data.partnerId) : "—"}
                                             </TableCell>
                                             <TableCell>{String(row.data.platform ?? "—")}</TableCell>
-                                            <TableCell>{String(row.data.appVersion ?? "—")}</TableCell>
+                                            <TableCell>
+                                                <span className="flex items-center gap-2 whitespace-nowrap">
+                                                    {String(row.data.appVersion ?? "—")}
+                                                    {badge && (
+                                                        <Badge variant={badge.variant}>{t(badge.key)}</Badge>
+                                                    )}
+                                                </span>
+                                            </TableCell>
                                             <TableCell>{String(row.data.buildNumber ?? "—")}</TableCell>
-                                            <TableCell>{String(row.data.flavor ?? "—")}</TableCell>
+                                            <TableCell>
+                                                {isDevBuild ? (
+                                                    <Badge variant="destructive">
+                                                        {t("securityCenter.mobileClients.badge.devFlavor")}
+                                                    </Badge>
+                                                ) : (
+                                                    String(row.data.flavor ?? "—")
+                                                )}
+                                            </TableCell>
                                             <TableCell className="whitespace-nowrap text-sm">
                                                 {formatLastSeen(row.data.lastSeenAt)}
                                             </TableCell>
@@ -201,7 +262,8 @@ export default function MobileClientsPage() {
                                                 {row.id}
                                             </TableCell>
                                         </TableRow>
-                                    ))}
+                                        );
+                                    })}
                                 </TableBody>
                             </Table>
                         </div>

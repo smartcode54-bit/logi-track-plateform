@@ -17,8 +17,9 @@ Companion glossary: [../glossary.md](../glossary.md).
 | [0004](0004-shared-oninvalid-handler-for-all-forms.md) | One shared `onInvalid` handler for every form (close the class, not the instance) | Accepted 2026-07-17 (dev verified) |
 | [0005](0005-truck-plate-filter-billing-document-driver-monitor.md) | Filter by truck licence plate on Billing Document and Driver Monitor (identity, provenance, and the invoice guard) | Accepted 2026-07-20 (impl local, pending verify) |
 | [0006](0006-origin-destination-filter-driver-monitor.md) | Filter by origin and destination on Driver Monitor (place identity over free text) | Accepted 2026-07-20 (impl local, pending verify) |
+| [0007](0007-mobile-forced-update-pipeline.md) | Mobile forced-update pipeline (announce with the build, enforce with a button) | Accepted 2026-07-28 (impl local, pending verify) |
 
-**Next free number: `0007`.** Take the next unused number, never reuse or renumber (see
+**Next free number: `0008`.** Take the next unused number, never reuse or renumber (see
 [conventions](0000-adr-conventions.md)).
 
 ## Legacy — BMAD, module-scoped (`logitrack-web/_bmad-output/planning-artifacts/adr/`)

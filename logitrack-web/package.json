@@ -22,7 +22,11 @@
     "backfill:trip-partner-jwt:dry-run": "node scripts/backfill-trip-partner-code-jwt.mjs --dry-run",
     "backfill:trip-partner-jwt:apply": "node scripts/backfill-trip-partner-code-jwt.mjs",
     "backfill:task-hub-customers:dry-run": "node scripts/backfill-task-hub-linked-customers.mjs --dry-run",
-    "backfill:task-hub-customers:apply": "node scripts/backfill-task-hub-linked-customers.mjs"
+    "backfill:task-hub-customers:apply": "node scripts/backfill-task-hub-linked-customers.mjs",
+    "release:mobile:dev:dry-run": "node scripts/publish-mobile-release.mjs --project=dev --dry-run",
+    "release:mobile:dev:apply": "node scripts/publish-mobile-release.mjs --project=dev",
+    "release:mobile:prod:dry-run": "node scripts/publish-mobile-release.mjs --project=prod --dry-run",
+    "release:mobile:prod:apply": "node scripts/publish-mobile-release.mjs --project=prod"
   },
   "dependencies": {
     "@fullcalendar/daygrid": "^6.1.20",

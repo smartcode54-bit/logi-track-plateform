@@ -16,20 +16,10 @@ import {
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
+import { stripUndefined } from "@/lib/firestoreWrite";
 import type { Company, CompanyFormValues } from "@/validate/companySchema";
 
 export type CompanyWithId = Company & { id: string };
-
-/**
- * Remove `undefined` values from an object before writing to Firestore.
- * Firestore throws "Unsupported field value: undefined" if any field is undefined.
- * Fields with empty string ("") are kept — only true `undefined` is stripped.
- */
-function stripUndefined<T extends Record<string, unknown>>(obj: T): Partial<T> {
-  return Object.fromEntries(
-    Object.entries(obj).filter(([, v]) => v !== undefined)
-  ) as Partial<T>;
-}
 
 /**
  * Fetch the OWNER company (the logistics operator's own company profile).

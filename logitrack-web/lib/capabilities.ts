@@ -43,6 +43,7 @@ export const CAPABILITIES = {
   security_manage_api_keys: "security:manage_api_keys",
   security_view_status: "security:view_status",
   security_view_mobile_clients: "security:view_mobile_clients",
+  security_manage_mobile_release: "security:manage_mobile_release",
 
   // Accounting
   accounting_view_fuel: "accounting:view_fuel",
@@ -222,6 +223,11 @@ export const CAPABILITY_META: Record<
     description: "Driver app versions and last seen (per device)",
     module: "Security",
   },
+  [CAPABILITIES.security_manage_mobile_release]: {
+    title: "Manage Mobile Release",
+    description: "Set the minimum driver-app version — can lock the whole fleet out of older builds",
+    module: "Security",
+  },
   [CAPABILITIES.accounting_view_fuel]: {
     title: "View Fuel",
     description: "Fuel accounting",
@@ -355,6 +361,7 @@ export const ROUTE_CAPABILITIES: Record<string, CapabilityId> = {
   "/app/security-center/api-keys": CAPABILITIES.security_manage_api_keys,
   "/app/security-center/status": CAPABILITIES.security_view_status,
   "/app/security-center/mobile-clients": CAPABILITIES.security_view_mobile_clients,
+  "/app/security-center/mobile-release": CAPABILITIES.security_manage_mobile_release,
   "/app/utilities": CAPABILITIES.security_view_overview,
   "/app/utilities/backfill": CAPABILITIES.security_view_overview,
   "/app/accounting/fuel": CAPABILITIES.accounting_view_fuel,

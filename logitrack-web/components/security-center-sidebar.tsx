@@ -10,6 +10,7 @@ import {
     ShieldCheck,
     Layers,
     Smartphone,
+    Rocket,
 } from "lucide-react"
 
 import {
@@ -40,6 +41,7 @@ const securityItems = [
     { titleKey: "securityCenter.apiKeys", url: "/app/security-center/api-keys", icon: Key, capability: CAPABILITIES.security_manage_api_keys },
     { titleKey: "securityCenter.systemStatus", url: "/app/security-center/status", icon: Server, capability: CAPABILITIES.security_view_status },
     { titleKey: "securityCenter.mobileClients", url: "/app/security-center/mobile-clients", icon: Smartphone, capability: CAPABILITIES.security_view_mobile_clients },
+    { titleKey: "securityCenter.mobileRelease", url: "/app/security-center/mobile-release", icon: Rocket, capability: CAPABILITIES.security_manage_mobile_release },
 ]
 
 export function SecurityCenterSidebar() {
