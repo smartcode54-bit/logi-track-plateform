@@ -1,6 +1,7 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../../../../core/theme/theme_controller.dart';
 import '../../../../core/services/fcm_service.dart';
 import '../../../../features/auth/data/repositories/auth_repository.dart';
@@ -27,12 +28,35 @@ class _HomePageState extends State<HomePage> {
   String? _error;
   int? _lastReadBroadcastMs;
 
+  /// Shown in the drawer so a driver can read their app version without logging out —
+  /// the login screen used to be the only place it appeared. Matters when support asks
+  /// "which version are you on?" during a rollout.
+  String _appVersion = '';
+
   @override
   void initState() {
     super.initState();
     _fetchDriverData();
     _setupFcmForeground();
     _loadLastReadBroadcast();
+    _loadAppVersion();
+  }
+
+  Future<void> _loadAppVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      // Tag non-prod builds: a dev APK loose on a real driver's phone talks to the dev project,
+      // and this is the fastest way for support to spot it.
+      const flavor = String.fromEnvironment('FLAVOR', defaultValue: 'dev');
+      final suffix = flavor == 'prod' ? '' : ' · ${flavor.toUpperCase()}';
+      if (mounted) {
+        setState(
+          () => _appVersion = 'v${info.version} (${info.buildNumber})$suffix',
+        );
+      }
+    } catch (_) {
+      // Version is a nice-to-have caption; never let it break the drawer.
+    }
   }
 
   Future<void> _loadLastReadBroadcast() async {
@@ -208,6 +232,19 @@ class _HomePageState extends State<HomePage> {
                 }
               },
             ),
+            // App version caption. Lives here rather than in the DrawerHeader because that header
+            // is a fixed 160dp and a fourth line overflows once the system font scale is raised.
+            if (_appVersion.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: Text(
+                  _appVersion,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).hintColor,
+                  ),
+                ),
+              ),
           ],
         ),
       ),
