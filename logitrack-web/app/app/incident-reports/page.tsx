@@ -366,8 +366,8 @@ export default function IncidentReportsPage() {
                                         onClick={() => setDetailReport(report)}
                                     >
                                         <TableCell>
-                                            <span className="font-mono text-xs text-muted-foreground">
-                                                {report.tripId?.slice(0, 10) || "-"}
+                                            <span className="font-mono text-xs text-muted-foreground whitespace-nowrap">
+                                                {report.tripId || "-"}
                                             </span>
                                         </TableCell>
                                         <TableCell className="text-sm">
