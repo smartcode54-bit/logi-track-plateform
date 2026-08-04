@@ -16,6 +16,7 @@ import {
     type TripBillingTimestamps,
     type DeliveryStopForBilling,
 } from "./core/billingCompute";
+import { loadBillingPeriodLocks } from "./core/billingPeriodLock";
 
 const COL_TASKS = "tasks";
 const COL_RATE_ENTRIES = "customer_rate_entries";
@@ -683,7 +684,7 @@ interface BackfillBillingRequest {
     fromDateStr: string;
     /** Inclusive end date, calendar day in Asia/Bangkok (yyyy-MM-dd). */
     toDateStr: string;
-    /** Max trip_records documents to read (ordered by createdAt desc). Default 500, max 2000. */
+    /** Max trip_records documents to read within the deliveredTimestamp range. Default 500, max 2000. */
     maxScan?: number;
     /** Max successful writes per invocation (stops attempting more writes after this). Default 200, max 500. */
     maxWrite?: number;
@@ -705,6 +706,9 @@ interface BackfillBillingResponse {
     written: number;
     skipped: number;
     failed: number;
+    /** Rows left untouched because their period already carries a sent/paid invoice (ADR 0008 §5). */
+    blocked: number;
+    blockedInvoices: string[];
     failures: BackfillBillingFailure[];
     /** true if eligible > written (more work may remain — widen range or run again) */
     capped: boolean;
@@ -726,8 +730,13 @@ function bangkokBoundsToTimestamps(fromDateStr: string, toDateStr: string): {
 }
 
 /**
- * Admin-only: scan trip_records by createdAt (Bangkok calendar range), write billing snapshots
- * for delivered trips missing billingEstimateThb (same rules as computeTripBillingSnapshot).
+ * Admin-only: scan delivered trip_records by `deliveredTimestamp` (Bangkok calendar range) and write
+ * billing snapshots (same rules as computeTripBillingSnapshot).
+ *
+ * The scan axis is `deliveredTimestamp`, not `createdAt` (ADR 0008 §3-4): the Billing Document groups
+ * an invoice by delivery date, so scanning by creation date recomputed a different set than the
+ * invoice contains — a trip created 30 June and delivered 1 July is on the July invoice yet was never
+ * touched by a "recompute July" run. That mismatch is why prices appeared not to update.
  */
 export const backfillTripBillingSnapshots = onCall<BackfillBillingRequest, Promise<BackfillBillingResponse>>(
     {
@@ -754,19 +763,36 @@ export const backfillTripBillingSnapshots = onCall<BackfillBillingRequest, Promi
         const db = admin.firestore();
         const { start, end } = bangkokBoundsToTimestamps(fromDateStr, toDateStr);
 
-        const [snap, hubMaps] = await Promise.all([
-            db.collection(COL_TRIP_RECORDS)
-                .where("createdAt", ">=", start)
-                .where("createdAt", "<=", end)
-                .orderBy("createdAt", "desc")
-                .limit(maxScan)
-                .get(),
-            buildHubMaps(db),
-        ]);
+        // Surface the real Firestore error rather than a bare INTERNAL (ADR 0008 §8) — the
+        // `status` + `deliveredTimestamp` scan needs a composite index the old `createdAt`-only scan
+        // did not, and Firestore's message carries the URL that creates it.
+        let snap: admin.firestore.QuerySnapshot;
+        let hubMaps: HubMaps;
+        let locks: Awaited<ReturnType<typeof loadBillingPeriodLocks>>;
+        try {
+            [snap, hubMaps, locks] = await Promise.all([
+                // No explicit orderBy — see the note in standbyBilling.ts: the range already implies
+                // ascending order, served by the same (status, deliveredTimestamp) index the Billing
+                // Document's trip query uses, so this needs no new index deployment.
+                db.collection(COL_TRIP_RECORDS)
+                    .where("status", "==", "delivered")
+                    .where("deliveredTimestamp", ">=", start)
+                    .where("deliveredTimestamp", "<=", end)
+                    .limit(maxScan)
+                    .get(),
+                buildHubMaps(db),
+                loadBillingPeriodLocks(db),
+            ]);
+        } catch (e) {
+            const message = e instanceof Error ? e.message : String(e);
+            logger.error("[billingSnapshot] backfill query failed", { message });
+            throw new HttpsError("failed-precondition", `Trip backfill query failed: ${message}`);
+        }
 
         // Pre-fetch all tasks in parallel to avoid sequential reads in the loop
         const eligibleDocs = snap.docs.filter((doc) => {
             const data = doc.data() as Record<string, unknown>;
+            // status is already constrained by the query; keep the guard for defence in depth.
             if (data.status !== "delivered") return false;
             if (filterCustomerId && data.billingCustomerId !== filterCustomerId) return false;
             if (!forceRecompute && typeof data.billingEstimateThb === "number") return false;
@@ -786,7 +812,9 @@ export const backfillTripBillingSnapshots = onCall<BackfillBillingRequest, Promi
         let written = 0;
         let skipped = 0;
         let failed = 0;
+        let blocked = 0;
         let attempted = 0;
+        const blockedInvoices = new Set<string>();
         const failures: BackfillBillingFailure[] = [];
         const rateCache = new Map<string, { rateEntries: BillingRateEntry[]; fuelAdjustments: FuelRateAdjustment[] }>();
 
@@ -795,6 +823,21 @@ export const backfillTripBillingSnapshots = onCall<BackfillBillingRequest, Promi
             eligible++;
 
             if (written >= maxWrite) continue;
+
+            // ADR 0008 §5 — a priced row in a sent/paid period keeps its number. Only bulk recompute
+            // is gated here; the single-trip callable stays open because ADR 0002 made an explicit
+            // admin edit the one sanctioned way to move a settled price.
+            if (typeof data.billingEstimateThb === "number") {
+                const lock = locks.lockFor(
+                    typeof data.billingCustomerId === "string" ? data.billingCustomerId : "",
+                    timestampLikeToMillis(data.deliveredTimestamp)
+                );
+                if (lock) {
+                    blocked++;
+                    blockedInvoices.add(lock.invoiceNumber);
+                    continue;
+                }
+            }
 
             attempted++;
             const result = await tryWriteBillingSnapshotFromTripData(db, doc.id, data, doc.ref, hubMaps, forceRecompute, rateCache, taskCache);
@@ -816,6 +859,8 @@ export const backfillTripBillingSnapshots = onCall<BackfillBillingRequest, Promi
             written,
             skipped,
             failed,
+            blocked,
+            blockedInvoices: [...blockedInvoices],
             failures,
             capped: eligible > attempted,
         };

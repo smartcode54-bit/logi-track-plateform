@@ -117,6 +117,11 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
 
   /// เก็บ task ID + เวลาเช็คอิน สำหรับส่งต่อไปยัง StandbyPage
   String? _activeTaskId;
+
+  /// ลูกค้าที่ผูกกับงานปัจจุบัน (จาก task) — ใช้เป็นตัวเลือกแรกตอนบันทึก standby (ADR 0008 §1).
+  /// เก็บแยกจาก [_activeTaskId] เพราะ standby ต้องเก็บลูกค้าลง record ของตัวเอง ไม่ใช่ให้ฝั่ง
+  /// server ไปไล่หาผ่าน task ตอนคำนวณราคา (task ถูกยกเลิก/ลบทีหลังได้ → บิลหาย)
+  String? _taskLinkedCustomerId;
   DateTime? _taskCheckedInAt;
 
   // Truck snapshot from task (set during _lockJobTypeByActiveTask)
@@ -198,9 +203,18 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       final deliveryStops = data?['deliveryStops'] as List? ?? [];
       final checkInAt = data?['checkInAt'] as Timestamp?;
 
+      final linkedCustomerId =
+          (data?['sourceHubLinkedCustomerId'] as String?)?.trim().isNotEmpty == true
+              ? (data?['sourceHubLinkedCustomerId'] as String).trim()
+              : (data?['destinationLinkedCustomerId'] as String?)?.trim();
+
       if (mounted) {
         setState(() {
           _activeTaskId = activeTaskId;
+          _taskLinkedCustomerId =
+              (linkedCustomerId != null && linkedCustomerId.isNotEmpty)
+                  ? linkedCustomerId
+                  : null;
           if (checkInAt != null) {
             _taskCheckedInAt = checkInAt.toDate();
           }
@@ -2112,12 +2126,36 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                         final canStandby = !_saving &&
                             originText.isNotEmpty &&
                             destText.isNotEmpty;
+                        // ADR 0008 §1 — resolve ลูกค้าตอนนี้ แล้วเก็บลง record: task ก่อน แล้วค่อย
+                        // ตกไปที่ hub ต้นทาง (`hubs.linkedCustomerId`). ใช้ hub docs ที่หน้านี้โหลด
+                        // ไว้อยู่แล้ว จึงไม่ต้อง fetch เพิ่มและไม่ต้อง match string ชุดใหม่
+                        HubDoc? originHub;
+                        for (final h in _allHubs) {
+                          if (h.sourceNameEn == originText ||
+                              h.sourceId == originText) {
+                            originHub = h;
+                            break;
+                          }
+                        }
+                        final rawHubCustomerId =
+                            originHub?.linkedCustomerId?.trim();
+                        final hubCustomerId =
+                            (rawHubCustomerId != null && rawHubCustomerId.isNotEmpty)
+                                ? rawHubCustomerId
+                                : null;
+                        final standbyCustomerId =
+                            _taskLinkedCustomerId ?? hubCustomerId;
+                        final standbyCustomerFrom = _taskLinkedCustomerId != null
+                            ? 'task'
+                            : (hubCustomerId != null ? 'origin_hub' : null);
                         return OutlinedButton.icon(
                           onPressed: canStandby
                               ? () => Navigator.of(context).push(
                                     MaterialPageRoute(
                                       builder: (_) => StandbyPage(
                                         taskId: _activeTaskId,
+                                        customerId: standbyCustomerId,
+                                        customerResolvedFrom: standbyCustomerFrom,
                                         tripId: _tripIdController.text
                                                 .trim()
                                                 .isEmpty

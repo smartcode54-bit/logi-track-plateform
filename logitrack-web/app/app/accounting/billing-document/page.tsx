@@ -14,7 +14,13 @@ import {
 } from "@/lib/billingDocument";
 import { saveBillingStatement } from "@/lib/billingStatement";
 import { getOwnerCompany } from "@/features/companies/api/companies";
-import { getCustomerServiceFees, fetchBillingTripRows } from "@/features/accounting";
+import {
+    getCustomerServiceFees,
+    fetchBillingTripRows,
+    fetchStandbyBillingDiagnostics,
+    UnpricedStandbyPanel,
+    type StandbyBillingDiagnostics,
+} from "@/features/accounting";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -103,6 +109,9 @@ function computeBillingTotals(rows: BillingTripRow[]): BillingTotals {
 export default function BillingDocumentPage() {
     const { t } = useLanguage();
     const auth = useAuth();
+    // Same gate the Income page uses for its inline billing edits — repairing a standby price is the
+    // same class of operation, so it stays on the same claim rather than inventing a new capability.
+    const isAdmin = auth?.customClaims?.admin === true;
 
     const now = new Date();
     const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
@@ -111,6 +120,9 @@ export default function BillingDocumentPage() {
 
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [trips, setTrips] = useState<BillingTripRow[]>([]);
+    // Standby that produced no billable row. Kept OUT of `trips` on purpose so an unpriced record can
+    // never reach the invoice set (ADR 0008 §6, ADR 0005 §1-3).
+    const [standbyDiagnostics, setStandbyDiagnostics] = useState<StandbyBillingDiagnostics | null>(null);
 
     // ── Type toggles (which charge types to include in billing) ──────────────
     const [includeTrips,     setIncludeTrips]     = useState(true);
@@ -159,8 +171,13 @@ export default function BillingDocumentPage() {
     async function loadTrips() {
         setLoading(true);
         try {
-            const rows = await fetchBillingTripRows(selectedCustomerId, { month: selectedMonth, year: selectedYear });
+            const period = { month: selectedMonth, year: selectedYear };
+            const [rows, diagnostics] = await Promise.all([
+                fetchBillingTripRows(selectedCustomerId, period),
+                fetchStandbyBillingDiagnostics(selectedCustomerId, period),
+            ]);
             setTrips(rows);
+            setStandbyDiagnostics(diagnostics);
         } catch (e) {
             console.error("[billing] fetchBillingTripRows failed:", e);
             toast.error(t("accounting.billingDocument.loadError", "Failed to load trips — please try again."));
@@ -489,6 +506,14 @@ export default function BillingDocumentPage() {
                         </Button>
                     </CardContent>
                 </Card>
+
+                {/* ── Standby that produced no billable row (ADR 0008 §6) — never part of the invoice set ── */}
+                <UnpricedStandbyPanel
+                    diagnostics={standbyDiagnostics}
+                    customers={customers.map((c) => ({ id: c.id!, name: c.name }))}
+                    onFixed={loadTrips}
+                    canRepair={isAdmin}
+                />
 
                 {/* ── Summary cards ── */}
                 {trips.length > 0 && (

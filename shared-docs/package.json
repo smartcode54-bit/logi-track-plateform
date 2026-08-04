@@ -1,6 +1,6 @@
 {
   "name": "shared-docs",
-  "version": "2.10.0",
+  "version": "3.1.0",
   "description": "",
   "main": "index.js",
   "exports": {

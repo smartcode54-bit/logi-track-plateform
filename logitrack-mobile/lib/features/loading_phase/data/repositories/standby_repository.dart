@@ -23,6 +23,12 @@ Future<String> _uploadStandbyPhoto({
 /// บันทึก standby record เมื่อ driver เช็คอินแล้วไม่มีงานจัดส่ง
 /// [worksheetImage] = ใบงานลูกค้า, [siteImage] = รูปถ่ายหน้างาน
 /// ผลข้างเคียง: อัพเดต tasks/{taskId} → Completed, trip_records/{tripId} → standby
+///
+/// [customerId] คือลูกค้าที่จะวางบิล — **ต้องเก็บลงตัว record เอง** (ADR 0008 §1) ไม่ใช่ไปหา
+/// ผ่าน task ตอนคำนวณราคา เพราะ task ถูกแก้/ยกเลิก/ลบทีหลังได้ และ standby ที่ไม่มี task
+/// ก็เป็นเหตุการณ์ที่เกิดจริงและต้องเก็บเงินได้ ถ้า resolve ไม่ได้ให้บันทึกแล้วติดธงไว้
+/// (`customerResolved: false`) — ห้ามบล็อกคนขับ (ADR 0008 §2) เพราะรูปหลักฐานสำคัญกว่า
+/// และคนขับที่หน้างานแก้ master data ไม่ได้อยู่แล้ว
 Future<void> submitStandbyRecord({
   required String driverId,
   required String? taskId,
@@ -37,6 +43,9 @@ Future<void> submitStandbyRecord({
   double? lng,
   String? truckId,
   String? truckLicensePlate,
+  String? customerId,
+  /// ที่มาของ [customerId] — 'task' | 'origin_hub' | 'manual'
+  String? customerResolvedFrom,
 }) async {
   final db = FirebaseFirestore.instance;
   final col = db.collection(_standbyCollection);
@@ -73,10 +82,19 @@ Future<void> submitStandbyRecord({
 
   final batch = db.batch();
 
+  final resolvedCustomerId = customerId?.trim();
+  final hasCustomer = resolvedCustomerId != null && resolvedCustomerId.isNotEmpty;
+
   final docData = {
     'driverId': driverId,
     'taskId': taskId,
     'tripId': tripId,
+    // ADR 0008 §1-2 — ราคาถูกคิดจากฟิลด์นี้ ไม่ต้องพึ่ง task; ธง customerResolved บอกฝั่งเว็บว่า
+    // record ไหนต้องให้แอดมินเลือกลูกค้าให้ (ห้ามเดา/ห้ามใส่ลูกค้า default — ADR 0008 §7)
+    if (hasCustomer) 'customerId': resolvedCustomerId,
+    'customerResolved': hasCustomer,
+    if (hasCustomer && customerResolvedFrom != null)
+      'customerResolvedFrom': customerResolvedFrom,
     'startLocation': startLocation,
     'endLocation': endLocation,
     'startedAt': Timestamp.fromDate(startedAt),

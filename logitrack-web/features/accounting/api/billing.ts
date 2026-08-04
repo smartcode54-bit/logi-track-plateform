@@ -913,3 +913,258 @@ export async function fetchBillingTripRows(
     rows.sort((a, b) => (a.deliveredTimestamp?.getTime() ?? 0) - (b.deliveredTimestamp?.getTime() ?? 0));
     return rows;
 }
+
+// ─── Standby billing diagnostics (ADR 0008 §6, §8-9) ──────────────────────────
+//
+// `fetchBillingTripRows` returns only rows that can actually be billed. Anything failing a billing
+// precondition used to be dropped there with no counter and no warning, so unbilled work was
+// indistinguishable from no work. These diagnostics are a SEPARATE channel on purpose: a row with no
+// price must never be able to reach the invoice set (ADR 0005), so it is never mixed into the rows
+// the download path bills.
+
+export type StandbyIssueReason =
+    /** No customerId on the record and none resolvable through its task — nothing can price it. */
+    | "no_customer"
+    /** Customer known, but no standby_rate_entries row and no "standby" customer_service_fees entry. */
+    | "no_rate"
+    /** Customer and rate both exist — billing simply has not been computed yet. */
+    | "not_computed"
+    /** No endedAt at all: excluded by every period range query, so invisible in every month. */
+    | "no_ended_at";
+
+export interface StandbyBillingIssue {
+    id: string;
+    reason: StandbyIssueReason;
+    driverId?: string;
+    driverName?: string;
+    startLocation?: string;
+    endLocation?: string;
+    startedAt?: Date;
+    endedAt?: Date;
+    createdAt?: Date;
+    durationMinutes?: number;
+    /** Resolved customer (direct field or via task), when one was found. */
+    customerId?: string;
+}
+
+export interface StandbyBillingDiagnostics {
+    /** Completed standby inside the period that produced no billable row. */
+    unpriced: StandbyBillingIssue[];
+    /** Completed standby with no `endedAt` — belongs to no month at all. Not period-scoped. */
+    missingEndedAt: StandbyBillingIssue[];
+    /** True when the standby query itself failed (missing/building index, rules) — ADR 0008 §8. */
+    queryFailed: boolean;
+    queryError?: string;
+}
+
+/** How many recent standby docs to scan when hunting for records with no `endedAt`. */
+const STANDBY_DIAGNOSTIC_SCAN_LIMIT = 300;
+
+function standbyIssueFromDoc(
+    id: string,
+    data: DocumentData,
+    reason: StandbyIssueReason,
+    driverNameByKey: Map<string, string>,
+    resolvedCustomerId?: string
+): StandbyBillingIssue {
+    return {
+        id,
+        reason,
+        driverId: typeof data.driverId === "string" ? data.driverId : undefined,
+        driverName: driverNameByKey.get(String(data.driverId ?? "").trim()),
+        startLocation: typeof data.startLocation === "string" ? data.startLocation : undefined,
+        endLocation: typeof data.endLocation === "string" ? data.endLocation : undefined,
+        startedAt: toBillingDate(data.startedAt),
+        endedAt: toBillingDate(data.endedAt),
+        createdAt: toBillingDate(data.createdAt),
+        durationMinutes: typeof data.durationMinutes === "number" ? data.durationMinutes : undefined,
+        customerId: resolvedCustomerId,
+    };
+}
+
+/**
+ * Why standby is missing from a billing period. Runs the same period query the Billing Document uses,
+ * then classifies every completed record that produced no price, so the admin is told which fix
+ * applies — assign a customer, add a standby rate, or just run the compute.
+ */
+export async function fetchStandbyBillingDiagnostics(
+    customerId: string | "all",
+    period: { month: number; year: number }
+): Promise<StandbyBillingDiagnostics> {
+    const start = new Date(period.year, period.month - 1, 1);
+    const end = new Date(period.year, period.month, 1);
+
+    let periodSnap: QuerySnapshot<DocumentData>;
+    let recentSnap: QuerySnapshot<DocumentData>;
+    try {
+        [periodSnap, recentSnap] = await Promise.all([
+            getDocsFromServer(
+                query(
+                    collection(db, COLLECTIONS.STANDBY_RECORDS),
+                    where("status", "==", "completed"),
+                    where("endedAt", ">=", Timestamp.fromDate(start)),
+                    where("endedAt", "<", Timestamp.fromDate(end))
+                )
+            ),
+            // Records with no `endedAt` cannot be found by a range filter — Firestore never returns
+            // documents that lack the field — so they are hunted through a bounded recent scan.
+            getDocsFromServer(
+                query(
+                    collection(db, COLLECTIONS.STANDBY_RECORDS),
+                    where("status", "==", "completed"),
+                    orderBy("createdAt", "desc"),
+                    limit(STANDBY_DIAGNOSTIC_SCAN_LIMIT)
+                )
+            ),
+        ]);
+    } catch (e) {
+        return {
+            unpriced: [],
+            missingEndedAt: [],
+            queryFailed: true,
+            queryError: e instanceof Error ? e.message : String(e),
+        };
+    }
+
+    const candidates: Array<{ id: string; data: DocumentData }> = [];
+    periodSnap.forEach((d) => {
+        const data = d.data();
+        if (Number(data.billingEstimateThb)) return;
+        candidates.push({ id: d.id, data });
+    });
+
+    const orphans: Array<{ id: string; data: DocumentData }> = [];
+    recentSnap.forEach((d) => {
+        const data = d.data();
+        if (data.endedAt) return;
+        orphans.push({ id: d.id, data });
+    });
+
+    if (candidates.length === 0 && orphans.length === 0) {
+        return { unpriced: [], missingEndedAt: [], queryFailed: false };
+    }
+
+    // Resolve the customer exactly the way the Cloud Function does: direct field, else via the task.
+    const all = [...candidates, ...orphans];
+    const taskIds = new Set<string>();
+    all.forEach(({ data }) => {
+        if (typeof data.customerId === "string" && data.customerId.trim()) return;
+        const tid = typeof data.taskId === "string" ? data.taskId.trim() : "";
+        if (tid) taskIds.add(tid);
+    });
+
+    const taskCustomerById = new Map<string, string>();
+    const taskIdList = [...taskIds];
+    const taskIdChunks: string[][] = [];
+    for (let i = 0; i < taskIdList.length; i += 30) taskIdChunks.push(taskIdList.slice(i, i + 30));
+    await Promise.allSettled(
+        taskIdChunks.map(async (chunk) => {
+            const snap = await getDocs(
+                query(collection(db, COLLECTIONS.TASKS), where(documentId(), "in", chunk))
+            );
+            snap.forEach((t) => {
+                const d = t.data();
+                const cid =
+                    (typeof d.sourceHubLinkedCustomerId === "string" ? d.sourceHubLinkedCustomerId.trim() : "") ||
+                    (typeof d.destinationLinkedCustomerId === "string" ? d.destinationLinkedCustomerId.trim() : "");
+                if (cid) taskCustomerById.set(t.id, cid);
+            });
+        })
+    );
+
+    const resolveCustomer = (data: DocumentData): string | undefined => {
+        const direct = typeof data.customerId === "string" ? data.customerId.trim() : "";
+        if (direct) return direct;
+        const tid = typeof data.taskId === "string" ? data.taskId.trim() : "";
+        return tid ? taskCustomerById.get(tid) : undefined;
+    };
+
+    // Which customers actually have a standby price configured (rate entry or flat service fee)?
+    const customersWithRate = new Set<string>();
+    await Promise.allSettled([
+        (async () => {
+            const snap = await getDocs(collection(db, COLLECTIONS.STANDBY_RATE_ENTRIES));
+            snap.forEach((d) => {
+                const cid = String(d.data().customerId ?? "").trim();
+                if (cid) customersWithRate.add(cid);
+            });
+        })(),
+        (async () => {
+            const snap = await getDocs(collection(db, COLLECTIONS.CUSTOMER_SERVICE_FEES));
+            snap.forEach((d) => {
+                const data = d.data();
+                if (data.feeType !== "standby") return;
+                const cid = String(data.customerId ?? "").trim();
+                if (cid) customersWithRate.add(cid);
+            });
+        })(),
+    ]);
+
+    const driverNameByKey = new Map<string, string>();
+    try {
+        const driversSnap = await getDocs(collection(db, COLLECTIONS.DRIVERS));
+        driversSnap.forEach((ds) => {
+            const dd = ds.data();
+            const name = driverDisplayName(dd, ds.id);
+            driverNameByKey.set(ds.id, name);
+            const authId = (dd.authId ?? dd.authUid) as string | undefined;
+            if (authId) driverNameByKey.set(authId, name);
+        });
+    } catch (e) {
+        console.warn("[fetchStandbyBillingDiagnostics] driver name lookup failed:", e);
+    }
+
+    const classify = (data: DocumentData): { reason: StandbyIssueReason; customerId?: string } => {
+        const cid = resolveCustomer(data);
+        if (!cid) return { reason: "no_customer" };
+        if (!customersWithRate.has(cid)) return { reason: "no_rate", customerId: cid };
+        return { reason: "not_computed", customerId: cid };
+    };
+
+    const unpriced = candidates
+        .filter(({ data }) => {
+            // With one customer selected, surface only records that belong to it — or that cannot be
+            // placed at all, since those are exactly the ones at risk of never being billed.
+            if (customerId === "all") return true;
+            const cid = resolveCustomer(data);
+            return !cid || cid === customerId;
+        })
+        .map(({ id, data }) => {
+            const { reason, customerId: cid } = classify(data);
+            return standbyIssueFromDoc(id, data, reason, driverNameByKey, cid);
+        });
+
+    const missingEndedAt = orphans.map(({ id, data }) =>
+        standbyIssueFromDoc(id, data, "no_ended_at", driverNameByKey, resolveCustomer(data))
+    );
+
+    return { unpriced, missingEndedAt, queryFailed: false };
+}
+
+/**
+ * Admin repair for one unpriced standby (ADR 0008 §7 — case by case, never a bulk default customer):
+ * stamp the chosen customer on the record, then price it through the existing callable.
+ */
+export async function assignStandbyCustomerAndPrice(
+    standbyId: string,
+    newCustomerId: string
+): Promise<{ ok: boolean; billingEstimateThb?: number; error?: string; blocked?: boolean; invoiceNumber?: string }> {
+    const id = standbyId.trim();
+    const cid = newCustomerId.trim();
+    if (!id) throw new Error("standbyId is required");
+    if (!cid) throw new Error("customerId is required");
+
+    await updateDoc(doc(db, COLLECTIONS.STANDBY_RECORDS, id), {
+        customerId: cid,
+        customerResolved: true,
+        customerResolvedFrom: "manual",
+        updatedAt: serverTimestamp(),
+    });
+
+    const fn = httpsCallable<
+        { standbyId: string; forceRecompute?: boolean },
+        { ok: boolean; billingEstimateThb?: number; error?: string; blocked?: boolean; invoiceNumber?: string }
+    >(functions, "computeStandbyBillingSnapshot");
+    const res = await fn({ standbyId: id, forceRecompute: true });
+    return res.data;
+}

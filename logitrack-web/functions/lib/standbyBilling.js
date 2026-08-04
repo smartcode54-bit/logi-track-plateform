@@ -47,11 +47,13 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.backfillStandbyBillingSnapshots = exports.autoComputeStandbyBilling = exports.computeStandbyBillingSnapshot = void 0;
+exports.standbyBillingDateMs = standbyBillingDateMs;
 const admin = __importStar(require("firebase-admin"));
 const firebase_functions_1 = require("firebase-functions");
 const https_1 = require("firebase-functions/v2/https");
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const billingCompute_1 = require("./core/billingCompute");
+const billingPeriodLock_1 = require("./core/billingPeriodLock");
 const COL_STANDBY_RECORDS = "standby_records";
 const COL_STANDBY_RATES = "standby_rate_entries";
 const COL_TASKS = "tasks";
@@ -109,12 +111,25 @@ async function resolveStandbyCustomerId(db, data) {
         return "";
     }
 }
-/** Shared core: compute and persist billing for one standby record (idempotent). */
-async function tryWriteStandbyBillingSnapshot(db, recordId, data, docRef, rateEntries, serviceFeeByCustomer) {
+/**
+ * The billing date of a standby is when the service completed — `endedAt` (ADR 0008 §3). This is the
+ * same axis the Billing Document groups by, so the rate that priced a record is always the rate
+ * effective in the period it is billed in. `createdAt` is provenance only and must NOT decide a
+ * period: the admin backfill dialog writes it as `serverTimestamp()`, i.e. the day someone typed a
+ * past event in, so using it would bill a June standby in August at August rates.
+ */
+function standbyBillingDateMs(data) {
+    return ((0, billingCompute_1.timestampLikeToMillis)(data.endedAt) ||
+        (0, billingCompute_1.timestampLikeToMillis)(data.startedAt) ||
+        (0, billingCompute_1.timestampLikeToMillis)(data.createdAt));
+}
+/** Shared core: compute and persist billing for one standby record (idempotent unless forced). */
+async function tryWriteStandbyBillingSnapshot(db, recordId, data, docRef, rateEntries, serviceFeeByCustomer, forceRecompute, locks) {
     if (data.status !== "completed") {
         return { ok: true, skipped: true, error: "Standby record is not completed yet" };
     }
-    if (typeof data.billingEstimateThb === "number") {
+    const hasPrice = typeof data.billingEstimateThb === "number";
+    if (!forceRecompute && hasPrice) {
         return { ok: true, skipped: true, billingEstimateThb: data.billingEstimateThb };
     }
     const customerId = await resolveStandbyCustomerId(db, data);
@@ -122,10 +137,24 @@ async function tryWriteStandbyBillingSnapshot(db, recordId, data, docRef, rateEn
         firebase_functions_1.logger.warn("[standbyBilling] no customerId on record", { recordId });
         return { ok: false, error: "No customerId — set customerId on the standby record or link a task" };
     }
-    // Use createdAt (or startedAt) as the billing date
-    const billDateMs = (0, billingCompute_1.timestampLikeToMillis)(data.createdAt) ||
-        (0, billingCompute_1.timestampLikeToMillis)(data.startedAt) ||
-        Date.now();
+    const billDateMs = standbyBillingDateMs(data) || Date.now();
+    // ADR 0008 §5: only a draft period may be repriced. An already-priced row in a sent/paid period
+    // keeps its number — the invoice is in the customer's hands and the system must not contradict
+    // it. Checked against the customer it was BILLED under, which is what built that invoice.
+    if (hasPrice && locks) {
+        const billedCustomerId = (typeof data.billingCustomerId === "string" && data.billingCustomerId.trim()) || customerId;
+        const lock = locks.lockFor(billedCustomerId, billDateMs);
+        if (lock) {
+            return {
+                ok: true,
+                skipped: true,
+                blocked: true,
+                invoiceNumber: lock.invoiceNumber,
+                billingEstimateThb: data.billingEstimateThb,
+                error: `Period already invoiced (${lock.invoiceNumber}, ${lock.status}) — cancel or credit-note it before repricing`,
+            };
+        }
+    }
     const computed = (0, billingCompute_1.computeStandbyBilling)(billDateMs, customerId, rateEntries);
     if (computed) {
         await docRef.update({
@@ -154,7 +183,8 @@ async function tryWriteStandbyBillingSnapshot(db, recordId, data, docRef, rateEn
 }
 /**
  * HTTPS Callable: compute and persist billing for a single completed standby record.
- * Idempotent: if billingEstimateThb already exists, returns skipped: true.
+ * Idempotent by default: if billingEstimateThb already exists, returns skipped: true. Used by the
+ * Billing Document repair panel right after an admin assigns a customer to an unpriced record.
  */
 exports.computeStandbyBillingSnapshot = (0, https_1.onCall)({
     region: "asia-southeast1",
@@ -168,10 +198,11 @@ exports.computeStandbyBillingSnapshot = (0, https_1.onCall)({
         throw new https_1.HttpsError("invalid-argument", "standbyId is required");
     }
     const db = admin.firestore();
-    const [docSnap, ratesSnap, feesSnap] = await Promise.all([
+    const [docSnap, ratesSnap, feesSnap, locks] = await Promise.all([
         db.collection(COL_STANDBY_RECORDS).doc(standbyId).get(),
         db.collection(COL_STANDBY_RATES).get(),
         db.collection(COL_SERVICE_FEES).get(),
+        (0, billingPeriodLock_1.loadBillingPeriodLocks)(db),
     ]);
     if (!docSnap.exists) {
         throw new https_1.HttpsError("not-found", "Standby record not found");
@@ -179,12 +210,12 @@ exports.computeStandbyBillingSnapshot = (0, https_1.onCall)({
     const rateEntries = ratesSnap.docs.map(mapStandbyRateDoc);
     const serviceFeeByCustomer = buildStandbyServiceFeeMap(feesSnap);
     const data = docSnap.data();
-    return tryWriteStandbyBillingSnapshot(db, standbyId, data, docSnap.ref, rateEntries, serviceFeeByCustomer);
+    return tryWriteStandbyBillingSnapshot(db, standbyId, data, docSnap.ref, rateEntries, serviceFeeByCustomer, request.data?.forceRecompute === true, locks);
 });
 // ─── Scheduled: auto-compute for recently completed standby records ───────────
 /**
- * Scheduled: scan standby_records completed in the last 30 minutes that have no billing yet.
- * Runs every 15 minutes.
+ * Scheduled: scan standby_records that ENDED in the last 30 minutes and have no billing yet.
+ * Runs every 15 minutes. Scans by `endedAt` — the same axis everything else uses (ADR 0008 §3).
  */
 exports.autoComputeStandbyBilling = (0, scheduler_1.onSchedule)({
     schedule: "every 15 minutes",
@@ -197,7 +228,7 @@ exports.autoComputeStandbyBilling = (0, scheduler_1.onSchedule)({
     const [snap, ratesSnap, feesSnap] = await Promise.all([
         db.collection(COL_STANDBY_RECORDS)
             .where("status", "==", "completed")
-            .where("createdAt", ">=", since)
+            .where("endedAt", ">=", since)
             .limit(100)
             .get(),
         db.collection(COL_STANDBY_RATES).get(),
@@ -238,8 +269,9 @@ function bangkokBoundsToTimestamps(fromDateStr, toDateStr) {
     };
 }
 /**
- * Admin-only: scan standby_records by createdAt and write billing for completed records
- * missing billingEstimateThb.
+ * Admin-only: scan completed standby_records by `endedAt` — the axis the Billing Document groups by
+ * (ADR 0008 §3-4) — and write billing. With `forceRecompute` it also rewrites existing prices,
+ * except in periods that already carry a sent/paid invoice.
  */
 exports.backfillStandbyBillingSnapshots = (0, https_1.onCall)({
     region: "asia-southeast1",
@@ -255,38 +287,67 @@ exports.backfillStandbyBillingSnapshots = (0, https_1.onCall)({
     }
     const maxScan = Math.min(Math.max(1, request.data?.maxScan ?? 500), 2000);
     const maxWrite = Math.min(Math.max(1, request.data?.maxWrite ?? 200), 500);
+    const forceRecompute = request.data?.forceRecompute === true;
     const db = admin.firestore();
     const { start, end } = bangkokBoundsToTimestamps(fromDateStr, toDateStr);
-    const [snap, ratesSnap, feesSnap] = await Promise.all([
-        db.collection(COL_STANDBY_RECORDS)
-            .where("createdAt", ">=", start)
-            .where("createdAt", "<=", end)
-            .orderBy("createdAt", "desc")
-            .limit(maxScan)
-            .get(),
-        db.collection(COL_STANDBY_RATES).get(),
-        db.collection(COL_SERVICE_FEES).get(),
-    ]);
+    // Surface the real Firestore error instead of a bare INTERNAL (ADR 0008 §8). The
+    // `status == completed` + `endedAt` range query needs the composite index that the old
+    // `createdAt`-only scan never did, so a missing/​building index is the expected failure here —
+    // and Firestore's message carries the console URL that creates it.
+    let snap;
+    let ratesSnap;
+    let feesSnap;
+    let locks;
+    try {
+        [snap, ratesSnap, feesSnap, locks] = await Promise.all([
+            // No explicit orderBy: the range on `endedAt` already implies ascending order on it,
+            // which is served by the SAME composite index the Billing Document's own standby
+            // query uses (status + endedAt) — so this needs no new index deployment. An explicit
+            // `orderBy(endedAt, "desc")` would ask for a differently-ordered index.
+            db.collection(COL_STANDBY_RECORDS)
+                .where("status", "==", "completed")
+                .where("endedAt", ">=", start)
+                .where("endedAt", "<=", end)
+                .limit(maxScan)
+                .get(),
+            db.collection(COL_STANDBY_RATES).get(),
+            db.collection(COL_SERVICE_FEES).get(),
+            (0, billingPeriodLock_1.loadBillingPeriodLocks)(db),
+        ]);
+    }
+    catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        firebase_functions_1.logger.error("[standbyBilling] backfill query failed", { message });
+        throw new https_1.HttpsError("failed-precondition", `Standby backfill query failed: ${message}`);
+    }
     const rateEntries = ratesSnap.docs.map(mapStandbyRateDoc);
     const serviceFeeByCustomer = buildStandbyServiceFeeMap(feesSnap);
     let eligible = 0;
     let written = 0;
     let skipped = 0;
     let failed = 0;
+    let blocked = 0;
     let attempted = 0;
+    const blockedInvoices = new Set();
     const failures = [];
     for (const doc of snap.docs) {
         const data = doc.data();
+        // status is already constrained by the query; keep the guard for defence in depth.
         if (data.status !== "completed")
             continue;
-        if (typeof data.billingEstimateThb === "number")
+        if (!forceRecompute && typeof data.billingEstimateThb === "number")
             continue;
         eligible++;
         if (written >= maxWrite)
             continue;
         attempted++;
-        const result = await tryWriteStandbyBillingSnapshot(db, doc.id, data, doc.ref, rateEntries, serviceFeeByCustomer);
-        if (result.ok === true && result.skipped !== true && result.billingEstimateThb != null) {
+        const result = await tryWriteStandbyBillingSnapshot(db, doc.id, data, doc.ref, rateEntries, serviceFeeByCustomer, forceRecompute, locks);
+        if (result.blocked === true) {
+            blocked++;
+            if (result.invoiceNumber)
+                blockedInvoices.add(result.invoiceNumber);
+        }
+        else if (result.ok === true && result.skipped !== true && result.billingEstimateThb != null) {
             written++;
         }
         else if (result.skipped === true) {
@@ -305,6 +366,8 @@ exports.backfillStandbyBillingSnapshots = (0, https_1.onCall)({
         written,
         skipped,
         failed,
+        blocked,
+        blockedInvoices: [...blockedInvoices],
         failures,
         capped: eligible > attempted,
     };

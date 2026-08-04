@@ -28,6 +28,9 @@ interface StandbyBackfillResult {
     written: number;
     skipped: number;
     failed: number;
+    /** Rows left untouched because their period already carries a sent/paid invoice (ADR 0008 §5). */
+    blocked?: number;
+    blockedInvoices?: string[];
     failures: Array<{ standbyId: string; error?: string }>;
     capped: boolean;
 }
@@ -47,6 +50,9 @@ export default function BackfillPage() {
     const [standbyLoading, setStandbyLoading] = useState(false);
     const [standbyResult, setStandbyResult] = useState<StandbyBackfillResult | null>(null);
     const [standbyError, setStandbyError] = useState<string | null>(null);
+    // ADR 0008 §5 — without this, an existing standby price could never be corrected, which is why
+    // recomputing after a rate change appeared to do nothing.
+    const [standbyForce, setStandbyForce] = useState(false);
 
     const runStandbyBillingBackfill = async () => {
         if (!auth?.currentUser) return;
@@ -55,7 +61,11 @@ export default function BackfillPage() {
         setStandbyResult(null);
         try {
             const fn = httpsCallable(functions, "backfillStandbyBillingSnapshots");
-            const res = await fn({ fromDateStr: standbyFrom, toDateStr: standbyTo });
+            const res = await fn({
+                fromDateStr: standbyFrom,
+                toDateStr: standbyTo,
+                forceRecompute: standbyForce,
+            });
             setStandbyResult(res.data as StandbyBackfillResult);
         } catch (err) {
             setStandbyError(err instanceof Error ? err.message : String(err));
@@ -169,10 +179,10 @@ export default function BackfillPage() {
                         <div className="rounded-lg bg-orange-50 p-4 text-sm text-orange-900">
                             <p className="font-medium mb-2">What this does:</p>
                             <ul className="list-disc list-inside space-y-1 text-xs">
-                                <li>Scans standby_records with status=completed in the date range</li>
-                                <li>Skips records that already have billingEstimateThb</li>
+                                <li>Scans standby_records with status=completed by <strong>endedAt</strong> in the date range (same axis the invoice groups by — ADR 0008)</li>
+                                <li>Skips records that already have billingEstimateThb, unless &quot;Force recompute&quot; is ticked</li>
                                 <li>Looks up standby rate from standby_rate_entries by customerId + date</li>
-                                <li>Writes billingEstimateThb to each record (idempotent)</li>
+                                <li>Never rewrites a price in a period that already has a sent/paid invoice</li>
                             </ul>
                         </div>
 
@@ -186,6 +196,18 @@ export default function BackfillPage() {
                                 <Input type="date" value={standbyTo} onChange={(e) => setStandbyTo(e.target.value)} />
                             </div>
                         </div>
+
+                        <label className="flex items-center gap-2 text-sm cursor-pointer">
+                            <input
+                                type="checkbox"
+                                className="h-4 w-4"
+                                checked={standbyForce}
+                                onChange={(e) => setStandbyForce(e.target.checked)}
+                            />
+                            <span>
+                                Force recompute — overwrite existing prices (draft periods only)
+                            </span>
+                        </label>
 
                         {standbyError && (
                             <Alert variant="destructive">
@@ -207,6 +229,7 @@ export default function BackfillPage() {
                                             ["Written", standbyResult.written],
                                             ["Skipped", standbyResult.skipped],
                                             ["Failed", standbyResult.failed],
+                                            ["Blocked (invoiced)", standbyResult.blocked ?? 0],
                                         ].map(([label, val]) => (
                                             <div key={String(label)}>
                                                 <div className="text-xs opacity-75">{label}</div>
@@ -214,6 +237,16 @@ export default function BackfillPage() {
                                             </div>
                                         ))}
                                     </div>
+                                    {(standbyResult.blocked ?? 0) > 0 && (
+                                        <p className="text-xs mt-2 text-orange-700">
+                                            ⚠ {standbyResult.blocked} record(s) left unchanged — their period already has a
+                                            sent/paid invoice
+                                            {standbyResult.blockedInvoices?.length
+                                                ? ` (${standbyResult.blockedInvoices.join(", ")})`
+                                                : ""}
+                                            . Cancel or credit-note it first.
+                                        </p>
+                                    )}
                                     {standbyResult.capped && (
                                         <p className="text-xs mt-2 text-orange-700">⚠ More eligible records remain — run again or widen date range.</p>
                                     )}

@@ -209,6 +209,24 @@ function compareVehicleClass(a: string, b: string): number {
     return ia !== ib ? ia - ib : a.localeCompare(b);
 }
 
+/**
+ * Combined result of a "recompute billing" run. One button now drives two backfills — trips and
+ * standby — because both land on the same invoice (ADR 0008 §5).
+ */
+interface RecomputeStats {
+    scanned: number;
+    eligible?: number;
+    written: number;
+    skipped: number;
+    failed: number;
+    /** Rows left alone because their period already carries a sent/paid invoice. */
+    blocked?: number;
+    blockedInvoices?: string[];
+    /** Of `written`, how many were standby — so the admin can see standby was actually covered. */
+    standbyWritten?: number;
+    failures?: { tripId: string; error?: string }[];
+}
+
 export default function AccountingRateCardPage() {
     const { t, language } = useLanguage();
     const { hasPermission: canEdit } = usePermission(CAPABILITIES.accounting_edit_rate_card);
@@ -275,7 +293,7 @@ export default function AccountingRateCardPage() {
     const [recomputeToDate, setRecomputeToDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
     const [recomputeCustomerId, setRecomputeCustomerId] = useState("all");
     const [recomputeLoading, setRecomputeLoading] = useState(false);
-    const [recomputeResult, setRecomputeResult] = useState<{ scanned: number; eligible: number; written: number; skipped: number; failed: number } | null>(null);
+    const [recomputeResult, setRecomputeResult] = useState<RecomputeStats | null>(null);
     const [recomputeError, setRecomputeError] = useState<string | null>(null);
 
     // Rate entry edit/delete state
@@ -623,16 +641,39 @@ export default function AccountingRateCardPage() {
         setRecomputeResult(null);
         setRecomputeError(null);
         try {
-            const fn = httpsCallable(functions, "backfillTripBillingSnapshots", { timeout: 540000 });
-            const res = await fn({
+            const tripFn = httpsCallable(functions, "backfillTripBillingSnapshots", { timeout: 540000 });
+            // Standby is priced from its own rate table but shows up on the same invoice, so a
+            // "recompute after a rate change" that skipped it left the document half-updated
+            // (ADR 0008 §5). Both run over the same window, both forced.
+            const standbyFn = httpsCallable(functions, "backfillStandbyBillingSnapshots", { timeout: 540000 });
+            const range = {
                 fromDateStr: recomputeFromDate,
                 toDateStr: recomputeToDate,
                 forceRecompute: true,
-                customerId: recomputeCustomerId !== "all" ? recomputeCustomerId : undefined,
                 maxScan: 2000,
                 maxWrite: 500,
+            };
+
+            const [tripRes, standbyRes] = await Promise.all([
+                tripFn({ ...range, customerId: recomputeCustomerId !== "all" ? recomputeCustomerId : undefined }),
+                standbyFn(range),
+            ]);
+
+            const trip = tripRes.data as RecomputeStats;
+            const standby = standbyRes.data as RecomputeStats;
+            // Present one combined figure — the admin recomputed "the invoice", not two collections.
+            setRecomputeResult({
+                scanned: trip.scanned + standby.scanned,
+                eligible: (trip.eligible ?? 0) + (standby.eligible ?? 0),
+                written: trip.written + standby.written,
+                skipped: trip.skipped + standby.skipped,
+                failed: trip.failed + standby.failed,
+                blocked: (trip.blocked ?? 0) + (standby.blocked ?? 0),
+                blockedInvoices: [
+                    ...new Set([...(trip.blockedInvoices ?? []), ...(standby.blockedInvoices ?? [])]),
+                ],
+                standbyWritten: standby.written,
             });
-            setRecomputeResult(res.data as { scanned: number; eligible: number; written: number; skipped: number; failed: number });
         } catch (err) {
             setRecomputeError(err instanceof Error ? err.message : String(err));
         } finally {
@@ -1778,13 +1819,27 @@ export default function AccountingRateCardPage() {
                             {recomputeResult && (
                                 <div className="rounded-md bg-green-500/10 border border-green-500/30 p-3 text-sm space-y-1">
                                     <p className="font-semibold text-green-600">✅ เสร็จแล้ว</p>
-                                    <p>สแกน: {recomputeResult.scanned} trips</p>
-                                    <p>อัปเดตสำเร็จ: <span className="font-bold">{recomputeResult.written}</span></p>
+                                    <p>สแกน: {recomputeResult.scanned} รายการ (เที่ยว + standby)</p>
+                                    <p>
+                                        อัปเดตสำเร็จ: <span className="font-bold">{recomputeResult.written}</span>
+                                        {typeof recomputeResult.standbyWritten === "number" && (
+                                            <span className="text-muted-foreground"> (standby {recomputeResult.standbyWritten})</span>
+                                        )}
+                                    </p>
                                     <p>ข้าม (ไม่มี rate card): {recomputeResult.skipped}</p>
+                                    {(recomputeResult.blocked ?? 0) > 0 && (
+                                        <p className="text-orange-600">
+                                            ⚠ ไม่แก้ {recomputeResult.blocked} รายการ — งวดนั้นออกใบแจ้งหนี้ไปแล้ว
+                                            {recomputeResult.blockedInvoices?.length
+                                                ? ` (${recomputeResult.blockedInvoices.join(", ")})`
+                                                : ""}
+                                            {" "}ต้องยกเลิก/ออกใบลดหนี้ก่อน
+                                        </p>
+                                    )}
                                     {recomputeResult.failed > 0 && (
                                         <>
                                             <p className="text-red-500">ล้มเหลว: {recomputeResult.failed}</p>
-                                            {(recomputeResult as { failures?: { tripId: string; error?: string }[] }).failures?.slice(0, 5).map((f) => (
+                                            {recomputeResult.failures?.slice(0, 5).map((f) => (
                                                 <p key={f.tripId} className="text-red-400 text-xs font-mono break-all">• {f.tripId}: {f.error ?? "unknown"}</p>
                                             ))}
                                         </>

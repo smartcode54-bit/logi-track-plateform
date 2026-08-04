@@ -224,3 +224,72 @@ matches, but a filtered **export** emits only the matching stop rows — the exp
 (`DriverMonitorDashboard.tsx:449-481`) already writes one spreadsheet row per stop, so exporting all N
 would put other destinations into a file someone will sum
 ([ADR 0006](adr/0006-origin-destination-filter-driver-monitor.md) §5-6).
+
+## Standby
+
+A billable event where a driver checked in and then **had no delivery to run** ("งานหมด"). Stored in
+its own collection `standby_records`, written by mobile `submitStandbyRecord`
+(`standby_repository.dart:26-113`), which also flips the linked task to `Completed` and the linked
+trip to `status: "standby"`. Priced as a **flat rate per event**, independent of duration —
+`computeStandbyBilling` (`core/billingCompute.ts:380-394`) picks the customer's
+`standby_rate_entries` row effective on the [[Billing date]], falling back to the oldest entry
+(`selectStandbyRateEntry:359-374`) and then to `customer_service_fees` with `feeType: "standby"`
+(`standbyBilling.ts:136-147`).
+
+A standby is **not** a trip: it never appears in the `trip_records` query behind the Billing Document,
+which filters `status == "delivered"` (`billing.ts:729`). Old standby that still lives as
+`trip_records.status == "standby"` is therefore invisible to billing until migrated
+(`functions/scripts/migrate-standby-trips.js`).
+
+**Invariant ([ADR 0008](adr/0008-standby-billing-visibility-and-recompute-semantics.md) §1):** a
+standby record carries its own `customerId`. It must remain billable after its task is edited,
+cancelled, or deleted — a standby with no task is a legitimate event, not bad data.
+
+## Billing date
+
+The single timestamp that decides **which rate applies and which invoice a row lands on**: the moment
+the service completed — `deliveredTimestamp` for a [[`trip_record`]], `endedAt` for a [[Standby]].
+
+Before [ADR 0008](adr/0008-standby-billing-visibility-and-recompute-semantics.md) three different
+fields were doing this job in three places (rate selection, page grouping, recompute scan), which is
+why a recompute could miss exactly the rows an invoice contained. `createdAt` is **provenance only**
+and must never decide a period — it is `serverTimestamp()` in the admin backfill dialog
+(`standby-backfill-dialog.tsx:338`), i.e. the day someone typed a past event in, not the day it
+happened. See [[`createdAt` (trip_record)]].
+
+## Billing period
+
+A `(customerId, {month, year})` pair — the unit an invoice is issued for. Materialised as a
+`billing_statements` doc holding **totals only, no line items** (`lib/billingStatement.ts:33-62`),
+numbered `{CUSTOMER_CODE}-{YYYYMM}-{SEQ}`. A row belongs to the period its [[Billing date]] falls in.
+
+Because statements store no row ids, there is currently **no way to ask which rows a given invoice
+was built from** — the reason the recompute guard in
+[ADR 0008](adr/0008-standby-billing-visibility-and-recompute-semantics.md) §5 is period-level rather
+than row-level.
+
+## Draft period
+
+A [[Billing period]] whose `billing_statements` doc is absent or `status: "draft"` — as opposed to
+`sent` / `paid`, which mean a document is already in the customer's hands
+(`lib/billingStatement.ts:31`).
+
+**Invariant ([ADR 0008](adr/0008-standby-billing-visibility-and-recompute-semantics.md) §5):**
+recompute may rewrite prices **only** in a draft period. In a sent/paid period the write is refused
+and reported with the invoice number; correcting it requires cancelling or credit-noting that invoice
+first. This sits *on top of* [[Frozen price]] — a frozen row stays frozen even in a draft period.
+
+## Unpriced standby
+
+A [[Standby]] record that cannot produce a billable row: no `billingEstimateThb`, because no customer
+could be resolved (no `customerId`, no `taskId`, or a task with no linked customer —
+`standbyBilling.ts:62-86`) or no standby rate / service fee exists for that customer.
+
+Today such a record is **discarded without a trace** at `billing.ts:877`, so unbilled work is
+indistinguishable from no work.
+[ADR 0008](adr/0008-standby-billing-visibility-and-recompute-semantics.md) §6 makes it visible on the
+Billing Document and excluded from the [[Invoice set vs preview set|invoice set]]; §7 requires it be
+fixed case-by-case, never by assigning a default customer.
+
+Distinct from a **stale** price: an unpriced record is missing *input*, so no amount of recompute can
+fix it — the opposite of the defect recompute exists to solve.

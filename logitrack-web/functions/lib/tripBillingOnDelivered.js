@@ -39,6 +39,7 @@ const firebase_functions_1 = require("firebase-functions");
 const https_1 = require("firebase-functions/v2/https");
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const billingCompute_1 = require("./core/billingCompute");
+const billingPeriodLock_1 = require("./core/billingPeriodLock");
 const COL_TASKS = "tasks";
 const COL_RATE_ENTRIES = "customer_rate_entries";
 const COL_FUEL_ADJ = "customer_fuel_rate_adjustments";
@@ -599,8 +600,13 @@ function bangkokBoundsToTimestamps(fromDateStr, toDateStr) {
     };
 }
 /**
- * Admin-only: scan trip_records by createdAt (Bangkok calendar range), write billing snapshots
- * for delivered trips missing billingEstimateThb (same rules as computeTripBillingSnapshot).
+ * Admin-only: scan delivered trip_records by `deliveredTimestamp` (Bangkok calendar range) and write
+ * billing snapshots (same rules as computeTripBillingSnapshot).
+ *
+ * The scan axis is `deliveredTimestamp`, not `createdAt` (ADR 0008 §3-4): the Billing Document groups
+ * an invoice by delivery date, so scanning by creation date recomputed a different set than the
+ * invoice contains — a trip created 30 June and delivered 1 July is on the July invoice yet was never
+ * touched by a "recompute July" run. That mismatch is why prices appeared not to update.
  */
 exports.backfillTripBillingSnapshots = (0, https_1.onCall)({
     region: "asia-southeast1",
@@ -621,18 +627,36 @@ exports.backfillTripBillingSnapshots = (0, https_1.onCall)({
     const filterCustomerId = request.data?.customerId?.trim() ?? "";
     const db = admin.firestore();
     const { start, end } = bangkokBoundsToTimestamps(fromDateStr, toDateStr);
-    const [snap, hubMaps] = await Promise.all([
-        db.collection(COL_TRIP_RECORDS)
-            .where("createdAt", ">=", start)
-            .where("createdAt", "<=", end)
-            .orderBy("createdAt", "desc")
-            .limit(maxScan)
-            .get(),
-        buildHubMaps(db),
-    ]);
+    // Surface the real Firestore error rather than a bare INTERNAL (ADR 0008 §8) — the
+    // `status` + `deliveredTimestamp` scan needs a composite index the old `createdAt`-only scan
+    // did not, and Firestore's message carries the URL that creates it.
+    let snap;
+    let hubMaps;
+    let locks;
+    try {
+        [snap, hubMaps, locks] = await Promise.all([
+            // No explicit orderBy — see the note in standbyBilling.ts: the range already implies
+            // ascending order, served by the same (status, deliveredTimestamp) index the Billing
+            // Document's trip query uses, so this needs no new index deployment.
+            db.collection(COL_TRIP_RECORDS)
+                .where("status", "==", "delivered")
+                .where("deliveredTimestamp", ">=", start)
+                .where("deliveredTimestamp", "<=", end)
+                .limit(maxScan)
+                .get(),
+            buildHubMaps(db),
+            (0, billingPeriodLock_1.loadBillingPeriodLocks)(db),
+        ]);
+    }
+    catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        firebase_functions_1.logger.error("[billingSnapshot] backfill query failed", { message });
+        throw new https_1.HttpsError("failed-precondition", `Trip backfill query failed: ${message}`);
+    }
     // Pre-fetch all tasks in parallel to avoid sequential reads in the loop
     const eligibleDocs = snap.docs.filter((doc) => {
         const data = doc.data();
+        // status is already constrained by the query; keep the guard for defence in depth.
         if (data.status !== "delivered")
             return false;
         if (filterCustomerId && data.billingCustomerId !== filterCustomerId)
@@ -652,7 +676,9 @@ exports.backfillTripBillingSnapshots = (0, https_1.onCall)({
     let written = 0;
     let skipped = 0;
     let failed = 0;
+    let blocked = 0;
     let attempted = 0;
+    const blockedInvoices = new Set();
     const failures = [];
     const rateCache = new Map();
     for (const doc of eligibleDocs) {
@@ -660,6 +686,17 @@ exports.backfillTripBillingSnapshots = (0, https_1.onCall)({
         eligible++;
         if (written >= maxWrite)
             continue;
+        // ADR 0008 §5 — a priced row in a sent/paid period keeps its number. Only bulk recompute
+        // is gated here; the single-trip callable stays open because ADR 0002 made an explicit
+        // admin edit the one sanctioned way to move a settled price.
+        if (typeof data.billingEstimateThb === "number") {
+            const lock = locks.lockFor(typeof data.billingCustomerId === "string" ? data.billingCustomerId : "", (0, billingCompute_1.timestampLikeToMillis)(data.deliveredTimestamp));
+            if (lock) {
+                blocked++;
+                blockedInvoices.add(lock.invoiceNumber);
+                continue;
+            }
+        }
         attempted++;
         const result = await tryWriteBillingSnapshotFromTripData(db, doc.id, data, doc.ref, hubMaps, forceRecompute, rateCache, taskCache);
         if (result.ok === true && result.skipped !== true && result.billingEstimateThb != null) {
@@ -681,6 +718,8 @@ exports.backfillTripBillingSnapshots = (0, https_1.onCall)({
         written,
         skipped,
         failed,
+        blocked,
+        blockedInvoices: [...blockedInvoices],
         failures,
         capped: eligible > attempted,
     };

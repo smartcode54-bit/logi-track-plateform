@@ -20,6 +20,8 @@ class StandbyPage extends StatefulWidget {
     required this.startedAt,
     this.truckId,
     this.truckLicensePlate,
+    this.customerId,
+    this.customerResolvedFrom,
   });
 
   final String? taskId;
@@ -29,6 +31,13 @@ class StandbyPage extends StatefulWidget {
   final DateTime startedAt;
   final String? truckId;
   final String? truckLicensePlate;
+
+  /// ลูกค้าที่จะวางบิลของ standby นี้ — resolve มาแล้วจากหน้าก่อนหน้า (ADR 0008 §1).
+  /// null = resolve ไม่ได้ → record จะถูกบันทึกพร้อมธง customerResolved:false ไม่บล็อกการบันทึก
+  final String? customerId;
+
+  /// ที่มาของ [customerId] — 'task' | 'origin_hub'
+  final String? customerResolvedFrom;
 
   @override
   State<StandbyPage> createState() => _StandbyPageState();
@@ -149,6 +158,8 @@ class _StandbyPageState extends State<StandbyPage> {
         lng: _lng,
         truckId: widget.truckId,
         truckLicensePlate: widget.truckLicensePlate,
+        customerId: widget.customerId,
+        customerResolvedFrom: widget.customerResolvedFrom,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

@@ -4,5 +4,7 @@ export { TollExpenseImportDialog } from "./components/TollExpenseImportDialog";
 export type { TollExpenseImportDialogProps } from "./components/TollExpenseImportDialog";
 export { EditBillingDialog } from "./components/EditBillingDialog";
 export type { EditBillingDialogProps } from "./components/EditBillingDialog";
+export { UnpricedStandbyPanel } from "./components/UnpricedStandbyPanel";
+export type { UnpricedStandbyPanelProps } from "./components/UnpricedStandbyPanel";
 export * from "./api/billing";
 export * from "./api/expenses";
