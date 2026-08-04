@@ -589,6 +589,8 @@ export default {
     "accounting.billingResult.stats.sent": "ส่งแล้ว",
     "accounting.billingResult.stats.paid": "ชำระแล้ว",
     "accounting.billingResult.stats.overdue": "เกินกำหนด",
+    "accounting.billingResult.stats.invoiceCount": "{count} ใบ",
+    "accounting.billingResult.stats.excludingCancelled": "ไม่รวมที่ยกเลิก {count} ใบ",
     "accounting.billingResult.table.invoiceNumber": "เลขที่",
     "accounting.billingResult.table.customer": "ลูกค้า",
     "accounting.billingResult.table.period": "ช่วงเวลา",

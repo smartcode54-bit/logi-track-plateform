@@ -158,17 +158,34 @@ export default function BillingResultPage() {
         let sentCount = 0;
         let paidCount = 0;
         let overdueCount = 0;
+        let cancelledCount = 0;
 
         for (const s of filtered) {
-            totalAmount += s.netAmount;
             const eff = effectiveStatus(s);
+            // A cancelled invoice is void — it must not move any figure here. The status counters
+            // already excluded it (no `else if` matches "cancelled"), but the total was still adding
+            // its netAmount, so the headline number claimed money that was never billed.
+            if (eff === "cancelled") {
+                cancelledCount++;
+                continue;
+            }
+            totalAmount += s.netAmount;
             if (eff === "draft") draftCount++;
             else if (eff === "sent") sentCount++;
             else if (eff === "paid") paidCount++;
             else if (eff === "overdue") overdueCount++;
         }
 
-        return { totalAmount, draftCount, sentCount, paidCount, overdueCount };
+        return {
+            totalAmount,
+            draftCount,
+            sentCount,
+            paidCount,
+            overdueCount,
+            cancelledCount,
+            /** Invoices actually behind `totalAmount` — the table below still lists cancelled ones. */
+            countedCount: filtered.length - cancelledCount,
+        };
     }, [filtered]);
 
     // ── Actions ──
@@ -369,7 +386,17 @@ export default function BillingResultPage() {
                                 {t("accounting.billingResult.stats.total")}
                             </div>
                             <p className="text-xl font-bold">฿{formatThb(stats.totalAmount)}</p>
-                            <p className="text-xs text-muted-foreground">{filtered.length} invoices</p>
+                            <p className="text-xs text-muted-foreground">
+                                {t("accounting.billingResult.stats.invoiceCount", { count: String(stats.countedCount) })}
+                                {stats.cancelledCount > 0 && (
+                                    <>
+                                        {" · "}
+                                        {t("accounting.billingResult.stats.excludingCancelled", {
+                                            count: String(stats.cancelledCount),
+                                        })}
+                                    </>
+                                )}
+                            </p>
                         </CardContent>
                     </Card>
                     <Card>

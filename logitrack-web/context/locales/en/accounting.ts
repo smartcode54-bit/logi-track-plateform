@@ -589,6 +589,8 @@ export default {
     "accounting.billingResult.stats.sent": "Sent",
     "accounting.billingResult.stats.paid": "Paid",
     "accounting.billingResult.stats.overdue": "Overdue",
+    "accounting.billingResult.stats.invoiceCount": "{count} invoices",
+    "accounting.billingResult.stats.excludingCancelled": "excluding {count} cancelled",
     "accounting.billingResult.table.invoiceNumber": "Invoice No.",
     "accounting.billingResult.table.customer": "Customer",
     "accounting.billingResult.table.period": "Period",

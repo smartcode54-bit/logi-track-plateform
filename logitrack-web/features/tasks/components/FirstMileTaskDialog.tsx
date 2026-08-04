@@ -44,6 +44,7 @@ import { useLanguage } from "@/context/language";
 import { useFirstMileTask } from "../hooks/useFirstMileTask";
 import { Task as FirstMileTask, TASK_TRUCK_TYPE_ENUM } from "@/validate/taskSchema";
 import { taskTruckTypeFromTruckDoc } from "@/lib/truckType";
+import { driverDisplayName, matchDriverOptionId } from "@/lib/driverName";
 import DeliveryStopsEditor from "./DeliveryStopsEditor";
 import { HelperDriverField } from "./HelperDriverField";
 import { TruckPlateField } from "./TruckPlateField";
@@ -492,7 +493,11 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
                                                     }
                                                     const selectedDriver = drivers.find(d => d.id === val);
                                                     if (selectedDriver) {
-                                                        field.onChange(`${selectedDriver.firstName} ${selectedDriver.lastName}`);
+                                                        // Store the THAI name: `tasks.driverName` is the last-resort
+                                                        // fallback when billing cannot find the driver master, and it
+                                                        // used to be `firstName lastName`, so that fallback could never
+                                                        // produce a Thai name on an invoice or Excel export.
+                                                        field.onChange(driverDisplayName(selectedDriver, selectedDriver.id));
                                                         form.setValue("driverId", selectedDriver.id);
                                                         form.setValue("driverPhone", selectedDriver.mobile || "");
                                                         // The driver's home truck is a DEFAULT only — it never overrides a
@@ -509,7 +514,7 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
                                                         field.onChange(val);
                                                     }
                                                 }}
-                                                value={drivers.find(d => `${d.firstName} ${d.lastName}` === field.value)?.id ?? "__none__"}
+                                                value={matchDriverOptionId(drivers, form.watch("driverId"), field.value) ?? "__none__"}
                                             >
                                                 <FormControl>
                                                     <SelectTrigger>
@@ -525,7 +530,7 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
                                                         return (
                                                             <SelectItem key={driver.id} value={driver.id || "unknown"}>
                                                                 <span className="flex items-center gap-2">
-                                                                    {driver.firstName} {driver.lastName}
+                                                                    {driverDisplayName(driver, driver.id)}
                                                                     {isActive && (
                                                                         <span className="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full font-medium">
                                                                             {t("firstMile.task.driverOnRun")}

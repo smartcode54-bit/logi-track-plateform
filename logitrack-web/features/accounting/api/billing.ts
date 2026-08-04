@@ -750,7 +750,7 @@ export async function fetchBillingTripRows(
     }
 
     // ── Batch-fetch linked tasks (driverName/licensePlate/customer denormalized) ──
-    type TaskInfo = { truckType?: string; driverName?: string; driverPhone?: string; truckLicensePlate?: string; truckId?: string; sourceHub?: string; destination?: string };
+    type TaskInfo = { truckType?: string; driverId?: string; driverName?: string; driverPhone?: string; truckLicensePlate?: string; truckId?: string; sourceHub?: string; destination?: string };
     const taskMap = new Map<string, TaskInfo>();
     const taskIds = new Set<string>();
     tripSnap.forEach((d) => { const tid = d.data().taskId; if (tid) taskIds.add(tid); });
@@ -765,6 +765,8 @@ export async function fetchBillingTripRows(
             const t = taskDoc.data();
             taskMap.set(taskDoc.id, {
                 truckType: t.truckType,
+                // Driver DOC ID chosen in the assign dialog — the most reliable key into the master.
+                driverId: t.driverId,
                 driverName: t.driverName,
                 driverPhone: t.driverPhone,
                 truckLicensePlate: t.licensePlate,
@@ -795,14 +797,28 @@ export async function fetchBillingTripRows(
     } catch (e) {
         console.warn("[fetchBillingTripRows] failed to load drivers for Thai name resolution:", e);
     }
-    const resolveDriverName = (driverId: unknown, fallback?: string): string | undefined => {
-        const key = String(driverId ?? "").trim();
-        return (key && driverNameByKey.get(key)) || fallback;
+    /**
+     * Try every identifier that might point at the driver master before giving up.
+     *
+     * The last resort — `tasks.driverName` — is written by the assign dialogs as
+     * `${firstName} ${lastName}` and therefore can NEVER be Thai, so any miss here silently turns a
+     * Thai report row into a Latin one. `trip_records.driverId` alone is not enough: it can be
+     * absent, or hold an auth uid that no longer matches the driver doc's `authId`. `tasks.driverId`
+     * is the driver DOC ID the admin picked in the dialog, so it resolves those cases.
+     */
+    const lookupDriver = <T,>(map: Map<string, T>, candidates: unknown[]): T | undefined => {
+        for (const candidate of candidates) {
+            const key = String(candidate ?? "").trim();
+            if (!key) continue;
+            const hit = map.get(key);
+            if (hit !== undefined) return hit;
+        }
+        return undefined;
     };
-    const resolveSubcontractor = (driverId: unknown): string | undefined => {
-        const key = String(driverId ?? "").trim();
-        return key ? driverSubByKey.get(key) : undefined;
-    };
+    const resolveDriverName = (candidates: unknown[], fallback?: string): string | undefined =>
+        lookupDriver(driverNameByKey, candidates) ?? fallback;
+    const resolveSubcontractor = (candidates: unknown[]): string | undefined =>
+        lookupDriver(driverSubByKey, candidates);
 
     const rows: BillingTripRow[] = [];
 
@@ -828,9 +844,9 @@ export async function fetchBillingTripRows(
                     billingLookupDestination: destCode,
                     billingCustomerId: data.billingCustomerId,
                     vehicleClass: taskInfo?.truckType,
-                    driverName: resolveDriverName(data.driverId, taskInfo?.driverName),
+                    driverName: resolveDriverName([data.driverId, taskInfo?.driverId], taskInfo?.driverName),
                     driverPhone: taskInfo?.driverPhone,
-                    subcontractorName: resolveSubcontractor(data.driverId),
+                    subcontractorName: resolveSubcontractor([data.driverId, taskInfo?.driverId]),
                     jobCategory: data.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
                     truckLicensePlate: taskInfo?.truckLicensePlate,
             truckId: taskInfo?.truckId,
@@ -858,9 +874,9 @@ export async function fetchBillingTripRows(
             billingAddThbPerTrip: Number(data.billingAddThbPerTrip) || undefined,
             billingCustomerId: data.billingCustomerId,
             vehicleClass: taskInfo?.truckType,
-            driverName: resolveDriverName(data.driverId, taskInfo?.driverName),
+            driverName: resolveDriverName([data.driverId, taskInfo?.driverId], taskInfo?.driverName),
             driverPhone: taskInfo?.driverPhone,
-            subcontractorName: resolveSubcontractor(data.driverId),
+            subcontractorName: resolveSubcontractor([data.driverId, taskInfo?.driverId]),
             jobCategory: data.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
             truckLicensePlate: taskInfo?.truckLicensePlate,
             truckId: taskInfo?.truckId,
@@ -892,9 +908,9 @@ export async function fetchBillingTripRows(
             billingEstimateThb: billingAmt,
             billingCustomerId: cid,
             vehicleClass: taskInfo?.truckType,
-            driverName: resolveDriverName(data.driverId, taskInfo?.driverName),
+            driverName: resolveDriverName([data.driverId, taskInfo?.driverId], taskInfo?.driverName),
             driverPhone: taskInfo?.driverPhone,
-            subcontractorName: resolveSubcontractor(data.driverId),
+            subcontractorName: resolveSubcontractor([data.driverId, taskInfo?.driverId]),
             truckLicensePlate: taskInfo?.truckLicensePlate,
             truckId: taskInfo?.truckId,
             hubDisplayName: resolveDisplayName(

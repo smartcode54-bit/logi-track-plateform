@@ -541,21 +541,22 @@ export function generateDetailExcelBuffer(
     : WITHHOLDING_TAX_RATE;
   const withholdingTax = Math.round(grandTotal * whtRate * 100) / 100;
 
-  // ── Display rules (ADR-0005) ─────────────────────────────────────────────────
-  // (1) J&T only: source-hub origin shows the hub code (SPK_GW) instead of the
-  //     resolved billing name (J&T EXPRESS บางปู).
+  // ── Display rules ────────────────────────────────────────────────────────────
+  // (1) Origin shows the hub CODE (e.g. SPK-GW) for every customer, not the resolved billing name
+  //     (J&T EXPRESS บางปู). Was J&T-only; generalised on request 2026-08-04. Destination is
+  //     deliberately left as the display NAME — the two ends of the route are not symmetric here.
   // (2) Global: vehicle class PICKUP renders as 4WH.
-  const isJnt = /j&t|jnt|j and t/i.test(customerName);
   const displayVehicleClass = (vc?: string) => ((vc ?? "-") === "PICKUP" ? "4WH" : (vc ?? "-"));
   // "Sub" column: subcontractor name when the trip was run by a subcontractor; otherwise the
   // owner company's short name (e.g. WRT) for own-fleet trips (ADR-0005).
   const ownerShortName = (provider?.shortName ?? "").trim();
   const subText = (subcontractorName?: string) =>
     subcontractorName && subcontractorName.trim() ? subcontractorName.trim() : (ownerShortName || "-");
+  // `originHubCode` is the hub's `source_id`, resolved at load time by `fetchBillingTripRows`.
+  // Falls back to the raw lookup id, then the display name, so a hub missing from the master data
+  // still prints something identifiable rather than "-".
   const originLabel = (t: BillingTripRow) =>
-    isJnt
-      ? (t.originHubCode || t.billingLookupHubId || t.hubDisplayName || "-")
-      : (t.hubDisplayName ?? t.billingLookupHubId ?? "-");
+    t.originHubCode || t.billingLookupHubId || t.hubDisplayName || "-";
 
   // ── Aggregate multidrop_stop rows into one row per trip ──────────────────────
   // The billing page expands a multi-delivery trip into one row per billed stop.
