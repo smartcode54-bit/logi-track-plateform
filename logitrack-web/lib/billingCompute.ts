@@ -14,6 +14,8 @@ export interface BillingRateEntry {
     effectiveFromMs: number;
     /** หลัก/เสริม. Missing = "PRIMARY" (legacy rows). See ADR-0005. */
     jobCategory?: "PRIMARY" | "SUPPLEMENTARY";
+    /** Voided announcement — never selected for pricing (ADR 0009 §1). */
+    voided?: boolean;
 }
 
 export type JobCategory = "PRIMARY" | "SUPPLEMENTARY";
@@ -24,6 +26,10 @@ export interface FuelRateAdjustment {
     effectiveFromMs: number;
     rateMultiplier: number;
     addThbPerTrip: number;
+    /** Retail diesel price this round was announced against — the band is derived from it. */
+    referenceFuelPriceThb?: number;
+    /** Voided announcement — never selected for pricing (ADR 0009 §1). */
+    voided?: boolean;
 }
 
 export interface TripBillingComputed {
@@ -37,6 +43,46 @@ export interface TripBillingComputed {
     rateMultiplier: number;
     addThbPerTrip: number;
     effectiveFromDateStr?: string;
+    /**
+     * The [[Rate round]] that priced this trip: the effective date of the fuel announcement that
+     * applied, or of the rate entry when no fuel adjustment did (ADR 0009 §4).
+     */
+    roundEffectiveFromDateStr: string;
+    fuelBandLowerThb?: number;
+    fuelBandUpperThb?: number;
+    referenceFuelPriceThb?: number;
+}
+
+/** Round + band provenance denormalized onto a priced record (ADR 0009 §4). */
+export interface BillingRoundProvenance {
+    roundEffectiveFromDateStr: string;
+    fuelBandLowerThb?: number;
+    fuelBandUpperThb?: number;
+    referenceFuelPriceThb?: number;
+}
+
+/**
+ * Derive the round + band a record was priced under. Shared by the single- and multi-delivery
+ * paths so both persist the identical field set.
+ */
+export function resolveBillingRoundProvenance(
+    rateEntryEffectiveFromMs: number,
+    adjustment: FuelRateAdjustment | null
+): BillingRoundProvenance {
+    // The round is the FUEL ANNOUNCEMENT that priced this trip, because that is what carries the
+    // band the invoice legend prints. It is NOT max(rateEntry, adjustment): a rate card imported
+    // after the announcements would then stamp its own date on every trip, collapsing a month's
+    // rounds into one and hiding them completely. The rate entry's date is the round only when no
+    // fuel adjustment applied at all.
+    const roundMs = adjustment?.effectiveFromMs ?? rateEntryEffectiveFromMs;
+    const price = adjustment?.referenceFuelPriceThb;
+    const band = typeof price === "number" ? fuelBandRange(price) : null;
+    return {
+        roundEffectiveFromDateStr: bangkokDateStrFromMillis(roundMs),
+        fuelBandLowerThb: band?.lowerThb,
+        fuelBandUpperThb: band?.upperThb,
+        referenceFuelPriceThb: typeof price === "number" ? price : undefined,
+    };
 }
 
 export interface TripBillingTimestamps {
@@ -108,6 +154,64 @@ export function normalizeVehicleClass(vehicleClass: string | null | undefined): 
     return mapping[u] ?? u;
 }
 
+// ─── Bangkok calendar dates ──────────────────────────────────────────────────
+
+/** Thailand is a fixed UTC+07:00 with no DST, so a constant offset is exact. */
+const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
+
+/**
+ * `yyyy-MM-dd` of an instant **in Bangkok**.
+ *
+ * Not interchangeable with `toISOString().slice(0, 10)`: since ADR 0009 §2 an `effectiveFrom` is
+ * Bangkok midnight, i.e. 17:00Z on the *previous* day, so the UTC form reports the wrong date.
+ */
+export function bangkokDateStrFromMillis(ms: number): string {
+    return new Date(ms + BANGKOK_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+// ─── Fuel bands (ADR 0009 §3) ────────────────────────────────────────────────
+
+/**
+ * Lower integer of the ฿1.00 fuel band containing `priceThb`.
+ *
+ * The contract band is **upper-inclusive** — `41.01–42.00` is one band, named `41`. `Math.floor`
+ * classifies into `[n, n+1)` instead and so pushes a price of exactly `x.00` one band too high,
+ * overcharging every trip of that round (Thai diesel sits on round numbers under price caps).
+ * Working in integer satang keeps the boundary exact and free of binary-float drift.
+ */
+export function fuelBandFloor(priceThb: number): number {
+    if (!Number.isFinite(priceThb)) return NaN;
+    const satang = Math.round(priceThb * 100);
+    return Math.ceil(satang / 100) - 1;
+}
+
+/** Inclusive bounds of the band containing `priceThb` — e.g. 42.00 → `{ 41.01, 42 }`. */
+export function fuelBandRange(priceThb: number): { lowerThb: number; upperThb: number } | null {
+    const floor = fuelBandFloor(priceThb);
+    if (!Number.isFinite(floor)) return null;
+    return {
+        lowerThb: Math.round((floor + 0.01) * 100) / 100,
+        upperThb: floor + 1,
+    };
+}
+
+/**
+ * Per-trip fuel surcharge in THB. `baselineBandFloor` names the band that carries +0, so `41`
+ * means `41.01–42.00` → +0. Deliberately **signed**: diesel below the baseline is a real discount
+ * and is never clamped to zero.
+ */
+export function computeFuelSurchargeThb(
+    priceThb: number,
+    baselineBandFloor: number,
+    thbPerBaht: number
+): number {
+    const floor = fuelBandFloor(priceThb);
+    if (!Number.isFinite(floor) || !Number.isFinite(baselineBandFloor) || !Number.isFinite(thbPerBaht)) {
+        return NaN;
+    }
+    return Math.round((floor - baselineBandFloor) * thbPerBaht * 100) / 100;
+}
+
 /** Milliseconds from Firestore Timestamp, Date, number, or similar. */
 export function timestampLikeToMillis(val: unknown): number {
     if (!val) return 0;
@@ -150,6 +254,7 @@ export function selectBillingRateEntry(
     const normalizedVehicleClass = normalizeVehicleClass(vehicleClass);
     const candidates = rateEntries.filter(
         (entry) =>
+            entry.voided !== true &&
             entry.customerId === customerId &&
             entry.hubId === hubId &&
             entry.destinationCode === destinationCode &&
@@ -175,7 +280,12 @@ export function selectFuelAdjustmentForBillingDate(
     fuelAdjustments: FuelRateAdjustment[]
 ): FuelRateAdjustment | null {
     const matched = fuelAdjustments
-        .filter((adj) => adj.customerId === customerId && adj.effectiveFromMs <= billDateMs)
+        .filter(
+            (adj) =>
+                adj.voided !== true &&
+                adj.customerId === customerId &&
+                adj.effectiveFromMs <= billDateMs
+        )
         .sort((a, b) => b.effectiveFromMs - a.effectiveFromMs);
     return matched[0] ?? null;
 }
@@ -205,6 +315,15 @@ export interface MultiDeliveryBillingResult {
     stopBreakdown: MultiDeliveryStopBilling[];
     rateMultiplier: number;
     fuelAdjustmentId?: string;
+    // Parity with the single-delivery snapshot (ADR 0009 §4) — this path used to omit all of
+    // these, leaving multidrop rows with no provenance to print on an invoice.
+    addThbPerTrip: number;
+    rateImportId: string;
+    effectiveFromDateStr?: string;
+    roundEffectiveFromDateStr: string;
+    fuelBandLowerThb?: number;
+    fuelBandUpperThb?: number;
+    referenceFuelPriceThb?: number;
 }
 
 /**
@@ -248,6 +367,8 @@ export function computeMultiDeliveryBilling(
     let baseRateThb = 0;
     let stopChargeThb = 0;
     const stopBreakdown: MultiDeliveryStopBilling[] = [];
+    // The rate entry that produced the base leg — carries the round this trip was priced under.
+    let baseRateEntry: BillingRateEntry | null = null;
 
     if (useFlatExtraStopFee) {
         // Flat extra-stop fee mode: the trip's BASE rate comes from the PLANNED
@@ -275,6 +396,7 @@ export function computeMultiDeliveryBilling(
             }
         }
         if (!baseMatch) return null; // no rate card for any stop → cannot bill
+        baseRateEntry = baseMatch;
 
         const baseFinal = computeFinalRateThb(baseMatch.rateThb, rateMultiplier, addThbPerTrip);
         baseRateThb = baseFinal;
@@ -312,6 +434,7 @@ export function computeMultiDeliveryBilling(
             const finalRate = computeFinalRateThb(baseRate, rateMultiplier, addThbPerTrip);
             if (idx === 0) {
                 baseRateThb = finalRate;
+                baseRateEntry = matchedRate;
             } else {
                 stopChargeThb += finalRate;
             }
@@ -324,7 +447,7 @@ export function computeMultiDeliveryBilling(
         });
     }
 
-    if (baseRateThb === 0 || stopBreakdown.length === 0) return null;
+    if (baseRateThb === 0 || stopBreakdown.length === 0 || !baseRateEntry) return null;
 
     return {
         customerId,
@@ -334,6 +457,12 @@ export function computeMultiDeliveryBilling(
         stopBreakdown,
         rateMultiplier,
         fuelAdjustmentId: matchedAdjustment?.id,
+        addThbPerTrip,
+        rateImportId: baseRateEntry.importId,
+        effectiveFromDateStr: matchedAdjustment
+            ? bangkokDateStrFromMillis(matchedAdjustment.effectiveFromMs)
+            : undefined,
+        ...resolveBillingRoundProvenance(baseRateEntry.effectiveFromMs, matchedAdjustment),
     };
 }
 
@@ -389,7 +518,7 @@ export function computeStandbyBilling(
         customerId,
         rateThb: matched.rateThb,
         rateEntryId: matched.id,
-        effectiveFromDateStr: new Date(matched.effectiveFromMs).toISOString().slice(0, 10),
+        effectiveFromDateStr: bangkokDateStrFromMillis(matched.effectiveFromMs),
     };
 }
 
@@ -442,7 +571,8 @@ export function computeTripBillingFromParts(
         rateMultiplier: multiplier,
         addThbPerTrip,
         effectiveFromDateStr: matchedAdjustment
-            ? new Date(matchedAdjustment.effectiveFromMs).toISOString().slice(0, 10)
+            ? bangkokDateStrFromMillis(matchedAdjustment.effectiveFromMs)
             : undefined,
+        ...resolveBillingRoundProvenance(matchedRate.effectiveFromMs, matchedAdjustment),
     };
 }

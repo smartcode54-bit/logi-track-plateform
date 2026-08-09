@@ -135,6 +135,17 @@ export const tripRecordSchema = z.object({
         baseRateThb: z.number(),
         finalRateThb: z.number(),
     })).optional(),
+    // Rate round + fuel band provenance (ADR 0009 §4). Denormalized at compute time: the invoice
+    // must never resolve a band by following billingFuelAdjustmentId, because that row can be
+    // voided or superseded and would then contradict the frozen amount printed beside it.
+    /** `yyyy-MM-dd` the price of this trip last changed — the later of rate-entry / fuel-adjustment. */
+    billingRoundEffectiveFromDateStr: z.string().optional(),
+    /** Inclusive lower bound of the ฿1.00 diesel band, e.g. 41.01 for the band 41.01–42.00. */
+    billingFuelBandLowerThb: z.number().optional(),
+    /** Inclusive upper bound of the same band, e.g. 42. */
+    billingFuelBandUpperThb: z.number().optional(),
+    /** The announced retail diesel price the band was derived from. */
+    billingReferenceFuelPriceThb: z.number().optional(),
 
     createdAt: z.any().optional(),
     updatedAt: z.any().optional(),

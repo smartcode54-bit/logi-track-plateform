@@ -4,9 +4,14 @@
  * Duplicated from `logitrack-web/lib/billingCompute.ts` — keep in sync when changing either file.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.resolveBillingRoundProvenance = resolveBillingRoundProvenance;
 exports.extractHubId = extractHubId;
 exports.normalizeDestinationCode = normalizeDestinationCode;
 exports.normalizeVehicleClass = normalizeVehicleClass;
+exports.bangkokDateStrFromMillis = bangkokDateStrFromMillis;
+exports.fuelBandFloor = fuelBandFloor;
+exports.fuelBandRange = fuelBandRange;
+exports.computeFuelSurchargeThb = computeFuelSurchargeThb;
 exports.timestampLikeToMillis = timestampLikeToMillis;
 exports.getTripBillingDateMs = getTripBillingDateMs;
 exports.resolveTaskCustomerId = resolveTaskCustomerId;
@@ -17,6 +22,26 @@ exports.computeMultiDeliveryBilling = computeMultiDeliveryBilling;
 exports.selectStandbyRateEntry = selectStandbyRateEntry;
 exports.computeStandbyBilling = computeStandbyBilling;
 exports.computeTripBillingFromParts = computeTripBillingFromParts;
+/**
+ * Derive the round + band a record was priced under. Shared by the single- and multi-delivery
+ * paths so both persist the identical field set.
+ */
+function resolveBillingRoundProvenance(rateEntryEffectiveFromMs, adjustment) {
+    // The round is the FUEL ANNOUNCEMENT that priced this trip, because that is what carries the
+    // band the invoice legend prints. It is NOT max(rateEntry, adjustment): a rate card imported
+    // after the announcements would then stamp its own date on every trip, collapsing a month's
+    // rounds into one and hiding them completely. The rate entry's date is the round only when no
+    // fuel adjustment applied at all.
+    const roundMs = adjustment?.effectiveFromMs ?? rateEntryEffectiveFromMs;
+    const price = adjustment?.referenceFuelPriceThb;
+    const band = typeof price === "number" ? fuelBandRange(price) : null;
+    return {
+        roundEffectiveFromDateStr: bangkokDateStrFromMillis(roundMs),
+        fuelBandLowerThb: band?.lowerThb,
+        fuelBandUpperThb: band?.upperThb,
+        referenceFuelPriceThb: typeof price === "number" ? price : undefined,
+    };
+}
 function normalizeCode(v) {
     return (v ?? "").trim().toUpperCase();
 }
@@ -75,6 +100,55 @@ function normalizeVehicleClass(vehicleClass) {
     };
     return mapping[u] ?? u;
 }
+// ─── Bangkok calendar dates ──────────────────────────────────────────────────
+/** Thailand is a fixed UTC+07:00 with no DST, so a constant offset is exact. */
+const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
+/**
+ * `yyyy-MM-dd` of an instant **in Bangkok**.
+ *
+ * Not interchangeable with `toISOString().slice(0, 10)`: since ADR 0009 §2 an `effectiveFrom` is
+ * Bangkok midnight, i.e. 17:00Z on the *previous* day, so the UTC form reports the wrong date.
+ */
+function bangkokDateStrFromMillis(ms) {
+    return new Date(ms + BANGKOK_OFFSET_MS).toISOString().slice(0, 10);
+}
+// ─── Fuel bands (ADR 0009 §3) ────────────────────────────────────────────────
+/**
+ * Lower integer of the ฿1.00 fuel band containing `priceThb`.
+ *
+ * The contract band is **upper-inclusive** — `41.01–42.00` is one band, named `41`. `Math.floor`
+ * classifies into `[n, n+1)` instead and so pushes a price of exactly `x.00` one band too high,
+ * overcharging every trip of that round (Thai diesel sits on round numbers under price caps).
+ * Working in integer satang keeps the boundary exact and free of binary-float drift.
+ */
+function fuelBandFloor(priceThb) {
+    if (!Number.isFinite(priceThb))
+        return NaN;
+    const satang = Math.round(priceThb * 100);
+    return Math.ceil(satang / 100) - 1;
+}
+/** Inclusive bounds of the band containing `priceThb` — e.g. 42.00 → `{ 41.01, 42 }`. */
+function fuelBandRange(priceThb) {
+    const floor = fuelBandFloor(priceThb);
+    if (!Number.isFinite(floor))
+        return null;
+    return {
+        lowerThb: Math.round((floor + 0.01) * 100) / 100,
+        upperThb: floor + 1,
+    };
+}
+/**
+ * Per-trip fuel surcharge in THB. `baselineBandFloor` names the band that carries +0, so `41`
+ * means `41.01–42.00` → +0. Deliberately **signed**: diesel below the baseline is a real discount
+ * and is never clamped to zero.
+ */
+function computeFuelSurchargeThb(priceThb, baselineBandFloor, thbPerBaht) {
+    const floor = fuelBandFloor(priceThb);
+    if (!Number.isFinite(floor) || !Number.isFinite(baselineBandFloor) || !Number.isFinite(thbPerBaht)) {
+        return NaN;
+    }
+    return Math.round((floor - baselineBandFloor) * thbPerBaht * 100) / 100;
+}
 /** Milliseconds from Firestore Timestamp, Date, number, or similar. */
 function timestampLikeToMillis(val) {
     if (!val)
@@ -107,7 +181,8 @@ function resolveTaskCustomerId(task) {
 }
 function selectBillingRateEntry(customerId, hubId, destinationCode, vehicleClass, billDateMs, rateEntries, jobCategory = "PRIMARY") {
     const normalizedVehicleClass = normalizeVehicleClass(vehicleClass);
-    const candidates = rateEntries.filter((entry) => entry.customerId === customerId &&
+    const candidates = rateEntries.filter((entry) => entry.voided !== true &&
+        entry.customerId === customerId &&
         entry.hubId === hubId &&
         entry.destinationCode === destinationCode &&
         normalizeVehicleClass(entry.vehicleClass) === normalizedVehicleClass &&
@@ -126,7 +201,9 @@ function selectBillingRateEntry(customerId, hubId, destinationCode, vehicleClass
 }
 function selectFuelAdjustmentForBillingDate(customerId, billDateMs, fuelAdjustments) {
     const matched = fuelAdjustments
-        .filter((adj) => adj.customerId === customerId && adj.effectiveFromMs <= billDateMs)
+        .filter((adj) => adj.voided !== true &&
+        adj.customerId === customerId &&
+        adj.effectiveFromMs <= billDateMs)
         .sort((a, b) => b.effectiveFromMs - a.effectiveFromMs);
     return matched[0] ?? null;
 }
@@ -152,7 +229,7 @@ function computeMultiDeliveryBilling(trip, task, deliveryStops, vehicleClass, ra
     if (!customerId)
         return null;
     const hubId = extractHubId(task.sourceHub);
-    const normalizedVehicleClass = normalizeVehicleClass(vehicleClass || "4WJ");
+    const normalizedVehicleClass = normalizeVehicleClass(vehicleClass);
     const billDateMs = getTripBillingDateMs(trip);
     // Supplementary (เสริม) rate cards are fixed, separately-agreed prices (ADR-0005) —
     // they never move with primary fuel-rate adjustments.
@@ -165,6 +242,8 @@ function computeMultiDeliveryBilling(trip, task, deliveryStops, vehicleClass, ra
     let baseRateThb = 0;
     let stopChargeThb = 0;
     const stopBreakdown = [];
+    // The rate entry that produced the base leg — carries the round this trip was priced under.
+    let baseRateEntry = null;
     if (useFlatExtraStopFee) {
         // Flat extra-stop fee mode: the trip's BASE rate comes from the PLANNED
         // destination (task.destination), independent of the order the stops were
@@ -196,6 +275,7 @@ function computeMultiDeliveryBilling(trip, task, deliveryStops, vehicleClass, ra
         }
         if (!baseMatch)
             return null; // no rate card for any stop → cannot bill
+        baseRateEntry = baseMatch;
         const baseFinal = computeFinalRateThb(baseMatch.rateThb, rateMultiplier, addThbPerTrip);
         baseRateThb = baseFinal;
         stopBreakdown.push({ stopIndex: 1, destination: baseDest, baseRateThb: baseMatch.rateThb, finalRateThb: baseFinal });
@@ -225,6 +305,7 @@ function computeMultiDeliveryBilling(trip, task, deliveryStops, vehicleClass, ra
             const finalRate = computeFinalRateThb(baseRate, rateMultiplier, addThbPerTrip);
             if (idx === 0) {
                 baseRateThb = finalRate;
+                baseRateEntry = matchedRate;
             }
             else {
                 stopChargeThb += finalRate;
@@ -237,7 +318,7 @@ function computeMultiDeliveryBilling(trip, task, deliveryStops, vehicleClass, ra
             });
         });
     }
-    if (baseRateThb === 0 || stopBreakdown.length === 0)
+    if (baseRateThb === 0 || stopBreakdown.length === 0 || !baseRateEntry)
         return null;
     return {
         customerId,
@@ -247,6 +328,12 @@ function computeMultiDeliveryBilling(trip, task, deliveryStops, vehicleClass, ra
         stopBreakdown,
         rateMultiplier,
         fuelAdjustmentId: matchedAdjustment?.id,
+        addThbPerTrip,
+        rateImportId: baseRateEntry.importId,
+        effectiveFromDateStr: matchedAdjustment
+            ? bangkokDateStrFromMillis(matchedAdjustment.effectiveFromMs)
+            : undefined,
+        ...resolveBillingRoundProvenance(baseRateEntry.effectiveFromMs, matchedAdjustment),
     };
 }
 /** Select the standby rate effective on or before billDateMs; fallback to oldest if none match. */
@@ -276,7 +363,7 @@ function computeStandbyBilling(billDateMs, customerId, rateEntries) {
         customerId,
         rateThb: matched.rateThb,
         rateEntryId: matched.id,
-        effectiveFromDateStr: new Date(matched.effectiveFromMs).toISOString().slice(0, 10),
+        effectiveFromDateStr: bangkokDateStrFromMillis(matched.effectiveFromMs),
     };
 }
 function computeTripBillingFromParts(trip, task, rateEntries, fuelAdjustments, jobCategory = "PRIMARY") {
@@ -287,7 +374,7 @@ function computeTripBillingFromParts(trip, task, rateEntries, fuelAdjustments, j
         return null;
     const hubId = extractHubId(task.sourceHub);
     const destination = normalizeDestinationCode(task.destination);
-    const vehicleClass = normalizeVehicleClass(task.truckType || "4WJ");
+    const vehicleClass = normalizeVehicleClass(task.truckType);
     const billDateMs = getTripBillingDateMs(trip);
     const matchedRate = selectBillingRateEntry(customerId, hubId, destination, vehicleClass, billDateMs, rateEntries, jobCategory);
     if (!matchedRate)
@@ -311,8 +398,9 @@ function computeTripBillingFromParts(trip, task, rateEntries, fuelAdjustments, j
         rateMultiplier: multiplier,
         addThbPerTrip,
         effectiveFromDateStr: matchedAdjustment
-            ? new Date(matchedAdjustment.effectiveFromMs).toISOString().slice(0, 10)
+            ? bangkokDateStrFromMillis(matchedAdjustment.effectiveFromMs)
             : undefined,
+        ...resolveBillingRoundProvenance(matchedRate.effectiveFromMs, matchedAdjustment),
     };
 }
 //# sourceMappingURL=billingCompute.js.map

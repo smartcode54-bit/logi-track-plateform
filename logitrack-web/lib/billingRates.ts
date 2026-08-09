@@ -102,6 +102,9 @@ export async function fetchRateEntriesForCustomers(
                 vehicleClass: normalizeVehicleClass(String(d.vehicleClass ?? "4WJ")),
                 rateThb: Number(d.rateThb ?? 0),
                 effectiveFromMs: toMillis(d.effectiveFrom),
+                // Without this a voided announcement would still price the web preview, and the
+                // preview would disagree with the server (ADR 0009 §1).
+                voided: d.voided === true,
             });
         });
     });
@@ -139,6 +142,11 @@ export async function fetchFuelAdjustmentsForCustomers(
                 effectiveFromMs: toMillis(d.effectiveFrom),
                 rateMultiplier: Number(d.rateMultiplier ?? 1),
                 addThbPerTrip: Number(d.addThbPerTrip ?? 0),
+                referenceFuelPriceThb:
+                    d.referenceFuelPriceThbPerLitre != null
+                        ? Number(d.referenceFuelPriceThbPerLitre)
+                        : undefined,
+                voided: d.voided === true,
             });
         });
     });

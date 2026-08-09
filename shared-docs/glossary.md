@@ -293,3 +293,63 @@ fixed case-by-case, never by assigning a default customer.
 
 Distinct from a **stale** price: an unpriced record is missing *input*, so no amount of recompute can
 fix it — the opposite of the defect recompute exists to solve.
+
+## Rate round
+
+รอบปรับราคา — one price announcement, valid over the **half-open interval**
+`[effectiveFrom, nextEffectiveFrom)`. A [[Billing period]] may contain several; the owner confirmed
+more than two in a month is normal when diesel moves.
+
+A round is selected per record, never per month: the newest row whose `effectiveFromMs <=` the
+[[Billing date]] wins (`lib/billingCompute.ts:141-170` for the rate card, `:172-181` for the
+surcharge). N rounds therefore produce N price slices, and the invoice splits into N lines for an
+affected route because `groupToLineItems` keys on `vehicleClass::route::unitPrice`
+(`lib/billingDocument.ts:244`).
+
+**Invariant ([ADR 0009](adr/0009-multiple-rate-rounds-within-one-billing-period.md) §2):**
+`effectiveFrom` is **Bangkok midnight**, and the intervals are half-open — no instant belongs to two
+rounds, none to zero. Rows written before that ADR store `Date.UTC(...)`
+(`features/accounting/api/billing.ts:99-101`), i.e. **07:00 ICT**, so every boundary has a 7-hour
+window that was priced at the previous round. See [[Announcement row]].
+
+## Fuel band
+
+ช่วงราคาน้ำมัน — a ฿1.00 range of the retail diesel price, written `36.01–37.00`, that maps to a flat
+per-trip surcharge. Uniform steps, uniform ฿-per-step; the band is the **half-open-above** interval
+`(n, n+1]` identified by its lower integer `n`. `baselineBandFloor` names the band that carries `+0`,
+so `41` means `41.01–42.00` → `+0`.
+
+The surcharge is **signed**: diesel below the baseline is a genuine discount and is never clamped to
+zero.
+
+**Invariant ([ADR 0009](adr/0009-multiple-rate-rounds-within-one-billing-period.md) §3):** the band
+floor is `Math.ceil(satang / 100) - 1` on integer satang. `Math.floor(price)`
+(`app/app/accounting/rate-card/page.tsx:589`) classifies into `[n, n+1)` instead and so puts a price
+of exactly `x.00` — common under Thai price caps — one band too high, overcharging the whole round.
+
+**Invariant (§4):** the band is denormalized onto each priced record
+(`billingFuelBandLowerThb` / `billingFuelBandUpperThb` / `billingReferenceFuelPriceThb`) at compute
+time. It is never resolved at render time by following `billingFuelAdjustmentId`, because that doc is
+mutable — see [[Announcement row]] and [[Frozen price]].
+
+## Announcement row
+
+A row in `customer_rate_entries` or `customer_fuel_rate_adjustments`: the record that an announcement
+*was made*, not the current opinion of what a price should be.
+
+**Invariant ([ADR 0009](adr/0009-multiple-rate-rounds-within-one-billing-period.md) §1):**
+announcement rows are **immutable**. A mistake is corrected by writing a new row; a round that should
+not exist is **voided** (`voidedAt`, `voidedReason`), never deleted. The in-place
+`updateCustomerFuelRateAdjustment` / `deleteCustomerFuelRateAdjustment`
+(`features/accounting/api/billing.ts:333-364`) are withdrawn from this path — editing one silently
+changes the meaning of every [[Frozen price]] already computed from it.
+
+Two rows sharing an `effectiveFrom` are **not** resolved by recency: the sort key ties, the sort is
+stable, and the winner is whichever auto-generated document id Firestore returns first
+(`functions/src/tripBillingOnDelivered.ts:195-201` — no `orderBy`). Immutability plus a later
+`effectiveFrom` is what keeps [[Rate round]] intervals disjoint.
+
+Distinct from `fuel_daily_snapshots/{yyyy-MM-dd}`, the create-only observation of what diesel
+actually cost that day (`functions/src/core/persistFuelMonthlySnapshot.ts:69-82`) — the *input* an
+announcement is priced from (§5), as opposed to `fuel_monthly_snapshots/{yyyy-MM}`, which is
+overwritten on every sync (`:58-66`) and is therefore not a billing input at all.

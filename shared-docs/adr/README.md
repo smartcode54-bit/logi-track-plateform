@@ -19,8 +19,9 @@ Companion glossary: [../glossary.md](../glossary.md).
 | [0006](0006-origin-destination-filter-driver-monitor.md) | Filter by origin and destination on Driver Monitor (place identity over free text) | Accepted 2026-07-20 (impl local, pending verify) |
 | [0007](0007-mobile-forced-update-pipeline.md) | Mobile forced-update pipeline (announce with the build, enforce with a button) | Accepted 2026-07-28 (impl local, pending verify) |
 | [0008](0008-standby-billing-visibility-and-recompute-semantics.md) | Standby billing: self-contained records, a service-completion billing date, and draft-only recompute | Accepted 2026-08-04 (impl pending) |
+| [0009](0009-multiple-rate-rounds-within-one-billing-period.md) | Multiple rate rounds inside one billing period (fuel bands, half-open dates, immutable announcements) | Accepted 2026-08-04 (impl pending) |
 
-**Next free number: `0009`.** Take the next unused number, never reuse or renumber (see
+**Next free number: `0010`.** Take the next unused number, never reuse or renumber (see
 [conventions](0000-adr-conventions.md)).
 
 ## Legacy — BMAD, module-scoped (`logitrack-web/_bmad-output/planning-artifacts/adr/`)

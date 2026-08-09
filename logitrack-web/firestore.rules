@@ -134,16 +134,32 @@ service cloud.firestore {
       allow write: if isAppCheckVerified() && request.auth != null && isWebAdmin();
     }
 
+    // Announcement rows are IMMUTABLE (ADR 0009 §1). A row records that a price *was announced*,
+    // and every frozen trip amount points at one for provenance — editing it in place silently
+    // changes the meaning of money already invoiced, and deleting it destroys the audit trail.
+    // Correct a price by creating a new row with a later effectiveFrom; retire one by voiding it.
+    // Enforced here rather than only in the UI, so it holds for scripts and the console too.
+    function isVoidOnlyUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['voided', 'voidedAt', 'voidedBy', 'voidedReason', 'updatedAt']);
+    }
+
     // Customer-specific route rate cards for billing estimates.
     match /customer_rate_entries/{docId} {
       allow read: if request.auth != null && isWebAdmin();
-      allow write: if isAppCheckVerified() && request.auth != null && isWebAdmin();
+      allow create: if isAppCheckVerified() && request.auth != null && isWebAdmin();
+      allow update: if isAppCheckVerified() && request.auth != null && isWebAdmin()
+        && isVoidOnlyUpdate();
+      allow delete: if false;
     }
 
     // Customer fuel-price-linked billing adjustments by effective date.
     match /customer_fuel_rate_adjustments/{docId} {
       allow read: if request.auth != null && isWebAdmin();
-      allow write: if isAppCheckVerified() && request.auth != null && isWebAdmin();
+      allow create: if isAppCheckVerified() && request.auth != null && isWebAdmin();
+      allow update: if isAppCheckVerified() && request.auth != null && isWebAdmin()
+        && isVoidOnlyUpdate();
+      allow delete: if false;
     }
 
     // Standby billing rates (fixed rate per event, per customer, by effective date).

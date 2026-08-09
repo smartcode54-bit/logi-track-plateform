@@ -88,6 +88,7 @@ function mapRateDoc(customerId, doc) {
         rateThb: Number(d.rateThb ?? 0),
         effectiveFromMs: (0, billingCompute_1.timestampLikeToMillis)(d.effectiveFrom),
         jobCategory: d.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
+        voided: d.voided === true,
     };
 }
 function mapFuelDoc(customerId, doc) {
@@ -98,6 +99,10 @@ function mapFuelDoc(customerId, doc) {
         effectiveFromMs: (0, billingCompute_1.timestampLikeToMillis)(d.effectiveFrom),
         rateMultiplier: Number(d.rateMultiplier ?? 1),
         addThbPerTrip: Number(d.addThbPerTrip ?? 0),
+        // The band printed on an invoice is derived from this price and denormalized onto the
+        // trip, so it can never be contradicted by a later edit of the announcement (ADR 0009 §4).
+        referenceFuelPriceThb: d.referenceFuelPriceThbPerLitre != null ? Number(d.referenceFuelPriceThbPerLitre) : undefined,
+        voided: d.voided === true,
     };
 }
 /** Shared core: persist billing snapshot from already-read trip fields (idempotent). */
@@ -271,6 +276,15 @@ async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hu
             billingFuelAdjustmentId: multiComputed.fuelAdjustmentId ?? null,
             billingRateMultiplier: multiComputed.rateMultiplier,
             billingCustomerId: multiComputed.customerId,
+            // Parity with the single-delivery branch (ADR 0009 §4): this path used to write none
+            // of the following, so multidrop rows had no round to print on an invoice.
+            billingAddThbPerTrip: multiComputed.addThbPerTrip,
+            billingRateImportId: multiComputed.rateImportId,
+            billingEffectiveFromDateStr: multiComputed.effectiveFromDateStr ?? null,
+            billingRoundEffectiveFromDateStr: multiComputed.roundEffectiveFromDateStr,
+            billingFuelBandLowerThb: multiComputed.fuelBandLowerThb ?? null,
+            billingFuelBandUpperThb: multiComputed.fuelBandUpperThb ?? null,
+            billingReferenceFuelPriceThb: multiComputed.referenceFuelPriceThb ?? null,
             jobCategory: resolvedCategory,
             ...overrideFor(resolvedCategory),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -347,6 +361,10 @@ async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hu
             billingRateMultiplier: computed.rateMultiplier,
             billingAddThbPerTrip: computed.addThbPerTrip,
             billingEffectiveFromDateStr: computed.effectiveFromDateStr ?? null,
+            billingRoundEffectiveFromDateStr: computed.roundEffectiveFromDateStr,
+            billingFuelBandLowerThb: computed.fuelBandLowerThb ?? null,
+            billingFuelBandUpperThb: computed.fuelBandUpperThb ?? null,
+            billingReferenceFuelPriceThb: computed.referenceFuelPriceThb ?? null,
             billingCustomerId: computed.customerId,
             jobCategory: resolvedCategory,
             ...overrideFor(resolvedCategory),

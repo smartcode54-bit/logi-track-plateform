@@ -66,6 +66,67 @@ export interface BillingTripRow {
   stopIndex?: number;
   /** หลัก/เสริม — SUPPLEMENTARY rows show "เสริม" in หมายเหตุ (ADR-0005). */
   jobCategory?: "PRIMARY" | "SUPPLEMENTARY";
+  // Rate round + fuel band, denormalized onto the trip when it was priced (ADR 0009 §4).
+  // Read straight off the record: resolving them at render time through
+  // `billingFuelAdjustmentId` could print a band that contradicts the frozen amount beside it.
+  /** `yyyy-MM-dd` the price of this row last changed — groups rows into rounds. */
+  billingRoundEffectiveFromDateStr?: string;
+  billingFuelBandLowerThb?: number;
+  billingFuelBandUpperThb?: number;
+  billingReferenceFuelPriceThb?: number;
+}
+
+/** One price round present in a billing period — the invoice legend (ADR 0009 §6). */
+export interface BillingRound {
+  /** Display label, assigned by date order at render time and never stored. */
+  label: string;
+  effectiveFromDateStr: string;
+  fuelBandLowerThb?: number;
+  fuelBandUpperThb?: number;
+  addThbPerTrip?: number;
+  firstDeliveredAt?: Date;
+  lastDeliveredAt?: Date;
+}
+
+/**
+ * Collect the distinct rounds a period's rows were priced under, oldest first.
+ *
+ * Labels are derived here rather than stored: a stored `R2` would renumber the moment a round is
+ * voided or a back-dated row appears, and would then disagree with an invoice already sent.
+ */
+export function collectBillingRounds(trips: BillingTripRow[]): BillingRound[] {
+  const byDate = new Map<string, BillingRound>();
+  for (const t of trips) {
+    const key = t.billingRoundEffectiveFromDateStr;
+    if (!key) continue;
+    const existing = byDate.get(key);
+    const d = t.deliveredTimestamp;
+    if (existing) {
+      if (d) {
+        if (!existing.firstDeliveredAt || d < existing.firstDeliveredAt) existing.firstDeliveredAt = d;
+        if (!existing.lastDeliveredAt || d > existing.lastDeliveredAt) existing.lastDeliveredAt = d;
+      }
+      continue;
+    }
+    byDate.set(key, {
+      label: "",
+      effectiveFromDateStr: key,
+      fuelBandLowerThb: t.billingFuelBandLowerThb,
+      fuelBandUpperThb: t.billingFuelBandUpperThb,
+      addThbPerTrip: t.billingAddThbPerTrip,
+      firstDeliveredAt: d,
+      lastDeliveredAt: d,
+    });
+  }
+  return Array.from(byDate.values())
+    .sort((a, b) => a.effectiveFromDateStr.localeCompare(b.effectiveFromDateStr))
+    .map((r, i) => ({ ...r, label: `R${i + 1}` }));
+}
+
+/** `37.01–38.00`, or "-" when the row carries no band (legacy rows, or a percent-only round). */
+export function formatFuelBand(lowerThb?: number, upperThb?: number): string {
+  if (typeof lowerThb !== "number" || typeof upperThb !== "number") return "-";
+  return `${lowerThb.toFixed(2)}–${upperThb.toFixed(2)}`;
 }
 
 export interface BillingCustomer {
@@ -190,6 +251,8 @@ interface LineItem {
   dates: Date[];
   /** Standby lists each working day (14,17,20); others use a min–max range (2-31). */
   enumerateDays: boolean;
+  /** Round label (R1/R2/…) resolved from the legend; "" when the rows carry no round. */
+  roundLabel: string;
 }
 
 const beYear = (d: Date) => d.getFullYear() + 543;
@@ -224,8 +287,15 @@ function formatLineItemDates(dates: Date[], enumerateDays: boolean): string {
   return `${min.getDate()}/${min.getMonth() + 1}/${beYear(min)}-${max.getDate()}/${max.getMonth() + 1}/${beYear(max)}`;
 }
 
-/** Group trips by vehicleClass + route for the invoice body table. */
-function groupToLineItems(trips: BillingTripRow[]): LineItem[] {
+/**
+ * Group trips by vehicleClass + route for the invoice body table.
+ *
+ * The grouping key is unchanged (ADR 0009 §6): the round is a *label* on an existing group, not a
+ * new way to total, so `count × unitPrice = total` still holds on every line. A route priced in two
+ * rounds already produced two lines, because the unit price is part of the key.
+ */
+export function groupToLineItems(trips: BillingTripRow[], rounds: BillingRound[] = []): LineItem[] {
+  const roundLabelByDate = new Map(rounds.map((r) => [r.effectiveFromDateStr, r.label]));
   const map = new Map<string, LineItem>();
   for (const t of trips) {
     const isStandby = t.rowType === "standby";
@@ -241,7 +311,11 @@ function groupToLineItems(trips: BillingTripRow[]): LineItem[] {
                 : baseRoute;
     // Use final (adjusted) rate as unit price so quantity × unitPrice = total
     const unitPrice = t.billingEstimateThb;
-    const key = `${vc}::${route}::${unitPrice}`;
+    // The round joins the key so a line can never span two rounds. Price alone is not enough:
+    // two rounds can land on the same unit price for a route (a round that only moved other
+    // routes), and those rows would then merge into one line carrying an arbitrary round label.
+    const roundKey = t.billingRoundEffectiveFromDateStr ?? "";
+    const key = `${vc}::${route}::${unitPrice}::${roundKey}`;
     const d = t.deliveredTimestamp;
     const existing = map.get(key);
     if (existing) {
@@ -249,7 +323,16 @@ function groupToLineItems(trips: BillingTripRow[]): LineItem[] {
       existing.total += t.billingEstimateThb;
       if (d) existing.dates.push(d);
     } else {
-      map.set(key, { vehicleClass: vc, route, count: 1, unitPrice, total: t.billingEstimateThb, dates: d ? [d] : [], enumerateDays: isStandby });
+      map.set(key, {
+        vehicleClass: vc,
+        route,
+        count: 1,
+        unitPrice,
+        total: t.billingEstimateThb,
+        dates: d ? [d] : [],
+        enumerateDays: isStandby,
+        roundLabel: roundLabelByDate.get(t.billingRoundEffectiveFromDateStr ?? "") ?? "",
+      });
     }
   }
   return Array.from(map.values());
@@ -346,32 +429,79 @@ async function buildInvoicePdf(
     y += 5;
   }
 
+  // ── Rate rounds legend (ADR 0009 §6) ──
+  // A month can contain several price rounds. Without this the customer sees the same route on two
+  // lines at two prices and no stated reason; the legend is that reason.
+  const rounds = collectBillingRounds(trips);
+  const showRounds = rounds.length > 1;
+  if (showRounds) {
+    doc.setFont("Sarabun", "bold");
+    doc.setFontSize(9);
+    y += 5;
+    doc.text("เรตตามช่วงราคาน้ำมัน (ดีเซล)", 14, y);
+    doc.setFont("Sarabun", "normal");
+    doc.setFontSize(8);
+    for (const r of rounds) {
+      y += 4.5;
+      const span =
+        r.firstDeliveredAt && r.lastDeliveredAt
+          ? formatLineItemDates([r.firstDeliveredAt, r.lastDeliveredAt], false)
+          : r.effectiveFromDateStr;
+      const band = formatFuelBand(r.fuelBandLowerThb, r.fuelBandUpperThb);
+      const adj =
+        typeof r.addThbPerTrip === "number"
+          ? `ปรับ ${r.addThbPerTrip >= 0 ? "+" : ""}${formatThb(r.addThbPerTrip)}/เที่ยว`
+          : "";
+      doc.text(`${r.label}   ${span}   ${band} ฿/L   ${adj}`.trimEnd(), 18, y);
+    }
+    y += 2;
+  }
+
   // ── Line items table ──
-  const lineItems = groupToLineItems(trips);
+  const lineItems = groupToLineItems(trips, rounds);
+  // The `รอบ` column costs ~12mm, which comes out of the auto-width `รายการ` column. It is only
+  // drawn when the period actually has more than one round, so a normal month is unchanged.
+  const head = showRounds
+    ? ["ลำดับ", "รอบ", "ประเภทรถ", "รายการ", "วันที่จัดส่ง", "จำนวน", "ราคา/หน่วย", "รวม"]
+    : ["ลำดับ", "ประเภทรถ", "รายการ", "วันที่จัดส่ง", "จำนวน", "ราคา/หน่วย", "รวม"];
   autoTable(doc, {
     startY: Math.max(y + 5, 80),
-    head: [["ลำดับ", "ประเภทรถ", "รายการ", "วันที่จัดส่ง", "จำนวน", "ราคา/หน่วย", "รวม"]],
-    body: lineItems.map((item, i) => [
-      String(i + 1),
-      item.vehicleClass,
-      item.route,
-      formatLineItemDates(item.dates, item.enumerateDays),
-      String(item.count),
-      formatThb(item.unitPrice),
-      formatThb(item.total),
-    ]),
+    head: [head],
+    body: lineItems.map((item, i) => {
+      const base = [
+        item.vehicleClass,
+        item.route,
+        formatLineItemDates(item.dates, item.enumerateDays),
+        String(item.count),
+        formatThb(item.unitPrice),
+        formatThb(item.total),
+      ];
+      return showRounds
+        ? [String(i + 1), item.roundLabel || "-", ...base]
+        : [String(i + 1), ...base];
+    }),
     theme: "striped",
     styles: { font: "Sarabun", fontStyle: "normal", fontSize: 9 },
     headStyles: { fillColor: [30, 80, 160], textColor: 255, fontSize: 9, font: "Sarabun", fontStyle: "bold" },
     bodyStyles: { fontSize: 9, font: "Sarabun", fontStyle: "normal" },
-    columnStyles: {
-      0: { cellWidth: 10, halign: "center" },
-      1: { cellWidth: 20 },
-      3: { cellWidth: 28, halign: "center" },
-      4: { cellWidth: 14, halign: "center" },
-      5: { cellWidth: 24, halign: "right" },
-      6: { cellWidth: 24, halign: "right" },
-    },
+    columnStyles: showRounds
+      ? {
+          0: { cellWidth: 10, halign: "center" },
+          1: { cellWidth: 12, halign: "center" },
+          2: { cellWidth: 20 },
+          4: { cellWidth: 28, halign: "center" },
+          5: { cellWidth: 14, halign: "center" },
+          6: { cellWidth: 24, halign: "right" },
+          7: { cellWidth: 24, halign: "right" },
+        }
+      : {
+          0: { cellWidth: 10, halign: "center" },
+          1: { cellWidth: 20 },
+          3: { cellWidth: 28, halign: "center" },
+          4: { cellWidth: 14, halign: "center" },
+          5: { cellWidth: 24, halign: "right" },
+          6: { cellWidth: 24, halign: "right" },
+        },
   });
 
   // ── Totals footer ──
@@ -582,8 +712,17 @@ export function generateDetailExcelBuffer(
     dropFeeThb: number;     // ค่าโยก
     transportFeeThb: number;// ค่าขนส่ง/เที่ยว
     totalThb: number;       // ยอดรวม
+    round: string;          // รอบ (R1/R2/…) — ADR 0009 §7
+    fuelBand: string;       // ช่วงราคาน้ำมัน ("37.01–38.00"); "-" when the row carries no band
     remark: string;         // หมายเหตุ ("เสริม" สำหรับ SUPPLEMENTARY)
   }
+
+  // Rounds are labelled from the same source the invoice legend uses, so R2 on the detail sheet
+  // and R2 on the PDF are always the same round.
+  const detailRounds = collectBillingRounds(trips);
+  const roundLabelByDate = new Map(detailRounds.map((r) => [r.effectiveFromDateStr, r.label]));
+  const roundLabelOf = (t: BillingTripRow) =>
+    roundLabelByDate.get(t.billingRoundEffectiveFromDateStr ?? "") ?? "-";
 
   const multidropGroups = new Map<string, BillingTripRow[]>();
   const detailRows: DetailRow[] = [];
@@ -610,6 +749,8 @@ export function generateDetailExcelBuffer(
       dropFeeThb: 0,
       transportFeeThb: t.billingEstimateThb,
       totalThb: t.billingEstimateThb,
+      round: roundLabelOf(t),
+      fuelBand: formatFuelBand(t.billingFuelBandLowerThb, t.billingFuelBandUpperThb),
       remark: t.jobCategory === "SUPPLEMENTARY" ? "เสริม" : "",
     });
   }
@@ -632,6 +773,8 @@ export function generateDetailExcelBuffer(
       dropFeeThb,
       transportFeeThb,
       totalThb: transportFeeThb + dropFeeThb,
+      round: roundLabelOf(base),
+      fuelBand: formatFuelBand(base.billingFuelBandLowerThb, base.billingFuelBandUpperThb),
       remark: base.jobCategory === "SUPPLEMENTARY" ? "เสริม" : "",
     });
   }
@@ -653,6 +796,8 @@ export function generateDetailExcelBuffer(
     { header: "ค่าโยก",          wch: 11 },
     { header: "ค่าขนส่ง/เที่ยว",  wch: 14 },
     { header: "ยอดรวม",          wch: 14 },
+    { header: "รอบ",             wch: 7  },
+    { header: "ช่วงราคาน้ำมัน",   wch: 16 },
     { header: "หมายเหตุ",        wch: 14 },
   ];
   const NC = COLS.length;
@@ -705,6 +850,8 @@ export function generateDetailExcelBuffer(
       cell(r.dropFeeThb ? r.dropFeeThb : "",                          { ...dsNum, numFmt: "#,##0.00" }), // ค่าโยก: เว้นว่างถ้าไม่มี
       cell(r.transportFeeThb,                                         { ...dsNum, numFmt: "#,##0.00" }),
       cell(r.totalThb,                                                { ...dsNum, numFmt: "#,##0.00" }),
+      cell(r.round,                                                    dsCenter), // รอบ (ADR 0009 §7)
+      cell(r.fuelBand,                                                 dsCenter), // ช่วงราคาน้ำมัน
       cell(r.remark,                                                   dsCenter), // หมายเหตุ ("เสริม")
     ]);
   });
@@ -713,11 +860,14 @@ export function generateDetailExcelBuffer(
   rows.push(Array(NC).fill(cell("", {})));
   const footerLabelStyle = { font: FONT_BOLD, fill: FOOTER_FILL, border: ALL_BORDERS, alignment: { horizontal: "right" } };
   const footerNumStyle   = { font: FONT_BOLD, fill: FOOTER_FILL, border: ALL_BORDERS, alignment: { horizontal: "right" }, numFmt: "#,##0.00" };
-  // Label sits on ค่าขนส่ง/เที่ยว (col 11, right-aligned), amount under ยอดรวม (col 12).
+  // Anchored by header name, not by an offset from the last column: the totals must stay under
+  // ยอดรวม when columns are appended (ADR 0009 §7 added รอบ + ช่วงราคาน้ำมัน after it).
+  const TOTAL_COL = COLS.findIndex((c) => c.header === "ยอดรวม");
+  const LABEL_COL = COLS.findIndex((c) => c.header === "ค่าขนส่ง/เที่ยว");
   const makeFooter = (label: string, amount: number): XLSX.CellObject[] => {
     const row: XLSX.CellObject[] = Array(NC).fill(cell("", {}));
-    row[NC - 3] = { ...cell(label, footerLabelStyle), s: footerLabelStyle } as XLSX.CellObject;
-    row[NC - 2] = cell(amount, footerNumStyle);
+    row[LABEL_COL] = { ...cell(label, footerLabelStyle), s: footerLabelStyle } as XLSX.CellObject;
+    row[TOTAL_COL] = cell(amount, footerNumStyle);
     return row;
   };
   rows.push(makeFooter("ยอดรวมทั้งหมด", grandTotal));

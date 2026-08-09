@@ -364,6 +364,7 @@ export const ROUTE_CAPABILITIES: Record<string, CapabilityId> = {
   "/app/security-center/mobile-release": CAPABILITIES.security_manage_mobile_release,
   "/app/utilities": CAPABILITIES.security_view_overview,
   "/app/utilities/backfill": CAPABILITIES.security_view_overview,
+  "/app/utilities/billing-impact": CAPABILITIES.security_view_overview,
   "/app/accounting/fuel": CAPABILITIES.accounting_view_fuel,
   "/app/accounting/other": CAPABILITIES.accounting_view_other,
   "/app/accounting/audit": CAPABILITIES.accounting_audit_expense,

@@ -5,6 +5,7 @@ import {
     collection,
     deleteDoc,
     documentId,
+    getDoc,
     getDocs,
     getDocsFromServer,
     query,
@@ -23,6 +24,7 @@ import { httpsCallable } from "firebase/functions";
 import { functions } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { normalizeDestinationCode, normalizeVehicleClass } from "@/lib/billingCompute";
+import { bangkokMidnightFromPickedDate, pickedDateToDateStr } from "@/lib/billingDate";
 import { driverDisplayName } from "@/lib/driverName";
 import { billingHubLabelFromFirestoreData } from "@/lib/hubDisplay";
 import { SOC_DESTINATIONS, normalizeSocIdToKey } from "@/validate/taskSchema";
@@ -39,11 +41,21 @@ export interface CustomerRateEntryInput {
     jobCategory?: "PRIMARY" | "SUPPLEMENTARY";
 }
 
-export interface CustomerRateEntryRow extends CustomerRateEntryInput {
+/** Void state shared by both announcement collections (ADR 0009 §1). */
+export interface AnnouncementVoidState {
+    voided?: boolean;
+    voidedAt?: Date;
+    voidedBy?: string;
+    voidedReason?: string;
+}
+
+export interface CustomerRateEntryRow extends CustomerRateEntryInput, AnnouncementVoidState {
     id: string;
     customerId: string;
     importId: string;
     effectiveFrom: Date;
+    /** `yyyy-MM-dd` the announcement was made for; absent on rows written before ADR 0009. */
+    effectiveFromDateStr?: string;
     importedAt?: Date;
 }
 
@@ -59,8 +71,12 @@ export interface CustomerFuelRateAdjustmentInput {
     fuelBandThbPerBaht?: number;
 }
 
-export interface CustomerFuelRateAdjustmentRow extends CustomerFuelRateAdjustmentInput {
+export interface CustomerFuelRateAdjustmentRow
+    extends CustomerFuelRateAdjustmentInput,
+        AnnouncementVoidState {
     id: string;
+    /** `yyyy-MM-dd` the announcement was made for; absent on rows written before ADR 0009. */
+    effectiveFromDateStr?: string;
     createdAt?: Date;
     updatedAt?: Date;
 }
@@ -96,8 +112,18 @@ function normalizeCode(v: string): string {
     return (v ?? "").trim().toUpperCase();
 }
 
-function parseDateOnly(value: Date): Date {
-    return new Date(Date.UTC(value.getFullYear(), value.getMonth(), value.getDate(), 0, 0, 0, 0));
+/**
+ * The instant an announcement takes effect: **Bangkok midnight** of the picked day (ADR 0009 §2).
+ *
+ * Was `Date.UTC(...)`, i.e. 07:00 ICT, which priced every overnight delivery on a switch day at the
+ * previous round. `effectiveFromDateStr` is stored alongside it as the human-readable fact, so the
+ * calendar day survives independently of any future timezone policy.
+ */
+function effectiveFromFields(value: Date): { effectiveFrom: Timestamp; effectiveFromDateStr: string } {
+    return {
+        effectiveFrom: Timestamp.fromDate(bangkokMidnightFromPickedDate(value)),
+        effectiveFromDateStr: pickedDateToDateStr(value),
+    };
 }
 
 const BATCH_LIMIT = 450;
@@ -112,7 +138,7 @@ export async function batchCreateCustomerRateEntries(
     if (rows.length === 0) throw new Error("No rows to import");
 
     const importId = `rc_${Date.now()}`;
-    const effectiveFromTs = Timestamp.fromDate(parseDateOnly(effectiveFrom));
+    const effective = effectiveFromFields(effectiveFrom);
     const colRef = collection(db, COLLECTIONS.CUSTOMER_RATE_ENTRIES);
     let written = 0;
 
@@ -134,7 +160,7 @@ export async function batchCreateCustomerRateEntries(
                 rateThb: Number(row.rateThb),
                 distanceKm: row.distanceKm != null ? Number(row.distanceKm) : null,
                 jobCategory: row.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
-                effectiveFrom: effectiveFromTs,
+                ...effective,
                 importedAt: serverTimestamp(),
                 createdAt: serverTimestamp(),
                 updatedAt: serverTimestamp(),
@@ -160,7 +186,7 @@ export async function createCustomerRateEntry(
     if (!Number.isFinite(row.rateThb)) throw new Error("rateThb is required");
 
     const importId = `manual_${Date.now()}`;
-    const effectiveFromTs = Timestamp.fromDate(parseDateOnly(effectiveFrom));
+    const effective = effectiveFromFields(effectiveFrom);
     const ref = doc(collection(db, COLLECTIONS.CUSTOMER_RATE_ENTRIES));
     await writeBatch(db)
         .set(ref, {
@@ -173,7 +199,7 @@ export async function createCustomerRateEntry(
             rateThb: Number(row.rateThb),
             distanceKm: row.distanceKm != null ? Number(row.distanceKm) : null,
             jobCategory: row.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
-            effectiveFrom: effectiveFromTs,
+            ...effective,
             importedAt: serverTimestamp(),
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
@@ -203,7 +229,12 @@ export async function getCustomerRateEntries(customerId?: string): Promise<Custo
             distanceKm: d.distanceKm != null ? Number(d.distanceKm) : undefined,
             jobCategory: (d.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY") as "PRIMARY" | "SUPPLEMENTARY",
             effectiveFrom: parseDate(d.effectiveFrom) ?? new Date(0),
+            effectiveFromDateStr: d.effectiveFromDateStr != null ? String(d.effectiveFromDateStr) : undefined,
             importedAt: parseDate(d.importedAt),
+            voided: d.voided === true,
+            voidedAt: parseDate(d.voidedAt),
+            voidedBy: d.voidedBy != null ? String(d.voidedBy) : undefined,
+            voidedReason: d.voidedReason != null ? String(d.voidedReason) : undefined,
         };
     }).sort((a, b) => {
         const byDate = b.effectiveFrom.getTime() - a.effectiveFrom.getTime();
@@ -212,32 +243,27 @@ export async function getCustomerRateEntries(customerId?: string): Promise<Custo
     });
 }
 
-export async function deleteCustomerRateEntry(id: string): Promise<void> {
-    const ref = doc(db, COLLECTIONS.CUSTOMER_RATE_ENTRIES, id);
-    await deleteDoc(ref);
-}
-
-export async function updateCustomerRateEntry(
-    id: string,
-    updates: Partial<Pick<CustomerRateEntryInput, "rateThb" | "distanceKm" | "vehicleClass">> & {
-        effectiveFrom?: Date;
-    }
-): Promise<void> {
-    const ref = doc(db, COLLECTIONS.CUSTOMER_RATE_ENTRIES, id);
-    const payload: Record<string, unknown> = { updatedAt: serverTimestamp() };
-    if (updates.rateThb != null && Number.isFinite(updates.rateThb)) {
-        payload.rateThb = Number(updates.rateThb);
-    }
-    if (updates.distanceKm != null && Number.isFinite(updates.distanceKm)) {
-        payload.distanceKm = Number(updates.distanceKm);
-    }
-    if (updates.vehicleClass?.trim()) {
-        payload.vehicleClass = normalizeVehicleClass(updates.vehicleClass);
-    }
-    if (updates.effectiveFrom) {
-        payload.effectiveFrom = Timestamp.fromDate(parseDateOnly(updates.effectiveFrom));
-    }
-    await updateDoc(ref, payload);
+/**
+ * Void a rate-card announcement (ADR 0009 §1).
+ *
+ * Replaces the former `updateCustomerRateEntry` / `deleteCustomerRateEntry`. An announcement row
+ * records that a price *was announced*; editing it in place silently changes the meaning of every
+ * frozen amount already computed from it, and deleting it destroys the provenance an invoice is
+ * defended with. A wrong rate is corrected by importing a new row with a later effective date; a
+ * round that should never have existed is voided.
+ */
+export async function voidCustomerRateEntry(id: string, reason: string, voidedBy: string): Promise<void> {
+    const normalizedId = id.trim();
+    if (!normalizedId) throw new Error("Rate entry id is required");
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) throw new Error("A reason is required to void an announcement");
+    await updateDoc(doc(db, COLLECTIONS.CUSTOMER_RATE_ENTRIES, normalizedId), {
+        voided: true,
+        voidedAt: serverTimestamp(),
+        voidedBy,
+        voidedReason: trimmedReason,
+        updatedAt: serverTimestamp(),
+    });
 }
 
 export async function createCustomerFuelRateAdjustment(
@@ -253,7 +279,7 @@ export async function createCustomerFuelRateAdjustment(
     const batch = writeBatch(db);
     batch.set(ref, {
         customerId,
-        effectiveFrom: Timestamp.fromDate(parseDateOnly(input.effectiveFrom)),
+        ...effectiveFromFields(input.effectiveFrom),
         rateMultiplier: Number(input.rateMultiplier),
         addThbPerTrip: Number(input.addThbPerTrip ?? 0),
         referenceFuelPriceThbPerLitre:
@@ -295,10 +321,53 @@ export async function getCustomerFuelRateAdjustments(
             fuelBandEnabled: Boolean(d.fuelBandEnabled ?? false),
             fuelBandBaselineFuelFloor: d.fuelBandBaselineFuelFloor != null ? Number(d.fuelBandBaselineFuelFloor) : undefined,
             fuelBandThbPerBaht: d.fuelBandThbPerBaht != null ? Number(d.fuelBandThbPerBaht) : undefined,
+            effectiveFromDateStr: d.effectiveFromDateStr != null ? String(d.effectiveFromDateStr) : undefined,
             createdAt: parseDate(d.createdAt),
             updatedAt: parseDate(d.updatedAt),
+            voided: d.voided === true,
+            voidedAt: parseDate(d.voidedAt),
+            voidedBy: d.voidedBy != null ? String(d.voidedBy) : undefined,
+            voidedReason: d.voidedReason != null ? String(d.voidedReason) : undefined,
         };
     }).sort((a, b) => b.effectiveFrom.getTime() - a.effectiveFrom.getTime());
+}
+
+/**
+ * The retail fuel prices captured on one Bangkok day (ADR 0009 §5).
+ *
+ * An announcement must be priced from the diesel price of **its own effective date**. The monthly
+ * doc cannot answer that: it is overwritten on every sync, so entering a round on the 20th that
+ * takes effect on the 16th would read the 20th's price and land in the wrong band. Daily docs are
+ * written create-only and never overwritten.
+ *
+ * Returns `null` when that day was never captured — the caller must show that plainly rather than
+ * substitute another day's price.
+ */
+export async function getFuelDailySnapshot(dayKey: string): Promise<FuelMonthlySnapshotRow | null> {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) return null;
+    const snap = await getDoc(doc(db, COLLECTIONS.FUEL_DAILY_SNAPSHOTS, dayKey));
+    if (!snap.exists()) return null;
+    const d = snap.data();
+    if (d.status === "error") return null;
+    const rawItems = d.items;
+    const items: FuelMonthlySnapshotItem[] = Array.isArray(rawItems)
+        ? rawItems.map((i: Record<string, unknown>) => ({
+              nameTh: String(i.nameTh ?? ""),
+              nameEn: String(i.nameEn ?? ""),
+              price: Number(i.price ?? 0),
+              unit: String(i.unit ?? ""),
+          }))
+        : [];
+    return {
+        id: dayKey,
+        monthKey: String(d.monthKey ?? dayKey.slice(0, 7)),
+        capturedAt: parseDate(d.capturedAt),
+        fetchedAtIso: d.fetchedAtIso != null ? String(d.fetchedAtIso) : undefined,
+        source: String(d.source ?? ""),
+        locale: String(d.locale ?? "th"),
+        status: "ok",
+        items,
+    };
 }
 
 export async function getFuelMonthlySnapshots(limitCount = 36): Promise<FuelMonthlySnapshotRow[]> {
@@ -330,37 +399,27 @@ export async function getFuelMonthlySnapshots(limitCount = 36): Promise<FuelMont
     });
 }
 
-export async function deleteCustomerFuelRateAdjustment(id: string): Promise<void> {
-    const normalizedId = id.trim();
-    if (!normalizedId) throw new Error("Adjustment id is required");
-    await deleteDoc(doc(db, COLLECTIONS.CUSTOMER_FUEL_RATE_ADJUSTMENTS, normalizedId));
-}
-
-export async function updateCustomerFuelRateAdjustment(
+/**
+ * Void a fuel-adjustment announcement (ADR 0009 §1) — replaces the former update/delete pair.
+ *
+ * The old `updateCustomerFuelRateAdjustment` overwrote the whole field set with no version, so a
+ * trip priced under band 41.01–42.00 could later print a band of 43.01–44.00 beside an amount that
+ * was never computed from it. Correct a round by announcing a new one.
+ */
+export async function voidCustomerFuelRateAdjustment(
     id: string,
-    input: CustomerFuelRateAdjustmentInput
+    reason: string,
+    voidedBy: string
 ): Promise<void> {
     const normalizedId = id.trim();
-    const customerId = input.customerId.trim();
     if (!normalizedId) throw new Error("Adjustment id is required");
-    if (!customerId) throw new Error("Customer is required");
-    if (!Number.isFinite(input.rateMultiplier) || input.rateMultiplier <= 0) {
-        throw new Error("rateMultiplier must be greater than 0");
-    }
-
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) throw new Error("A reason is required to void an announcement");
     await updateDoc(doc(db, COLLECTIONS.CUSTOMER_FUEL_RATE_ADJUSTMENTS, normalizedId), {
-        customerId,
-        effectiveFrom: Timestamp.fromDate(parseDateOnly(input.effectiveFrom)),
-        rateMultiplier: Number(input.rateMultiplier),
-        addThbPerTrip: Number(input.addThbPerTrip ?? 0),
-        referenceFuelPriceThbPerLitre:
-            input.referenceFuelPriceThbPerLitre != null
-                ? Number(input.referenceFuelPriceThbPerLitre)
-                : null,
-        announcementNote: input.announcementNote?.trim() || "",
-        fuelBandEnabled: input.fuelBandEnabled ?? false,
-        fuelBandBaselineFuelFloor: input.fuelBandBaselineFuelFloor ?? null,
-        fuelBandThbPerBaht: input.fuelBandThbPerBaht ?? null,
+        voided: true,
+        voidedAt: serverTimestamp(),
+        voidedBy,
+        voidedReason: trimmedReason,
         updatedAt: serverTimestamp(),
     });
 }
@@ -828,6 +887,23 @@ export async function fetchBillingTripRows(
 
         const taskInfo = data.taskId ? taskMap.get(data.taskId) : undefined;
         const hubId = data.billingLookupHubId ?? "";
+        // Round + band provenance as frozen onto the record (ADR 0009 §4). Built once and spread
+        // into EVERY row type: a multidrop stop belongs to the same round as its parent trip, and
+        // omitting it here is what made the invoice legend and the รอบ column stay empty.
+        const roundProvenance = {
+            billingRoundEffectiveFromDateStr:
+                data.billingRoundEffectiveFromDateStr != null
+                    ? String(data.billingRoundEffectiveFromDateStr)
+                    : undefined,
+            billingFuelBandLowerThb:
+                data.billingFuelBandLowerThb != null ? Number(data.billingFuelBandLowerThb) : undefined,
+            billingFuelBandUpperThb:
+                data.billingFuelBandUpperThb != null ? Number(data.billingFuelBandUpperThb) : undefined,
+            billingReferenceFuelPriceThb:
+                data.billingReferenceFuelPriceThb != null
+                    ? Number(data.billingReferenceFuelPriceThb)
+                    : undefined,
+        };
 
         if (data.billingIsMultiDelivery && Array.isArray(data.billingMultiDeliveryBreakdown) && data.billingMultiDeliveryBreakdown.length > 0) {
             for (const stop of data.billingMultiDeliveryBreakdown as { stopIndex: number; destination: string; baseRateThb: number; finalRateThb: number }[]) {
@@ -853,6 +929,7 @@ export async function fetchBillingTripRows(
                     hubDisplayName: resolveDisplayName(hubId),
                     originHubCode: resolveHubCode(hubId || (taskInfo?.sourceHub as string | undefined) || ""),
                     destinationDisplayName: resolveDisplayName(destCode),
+                    ...roundProvenance,
                     rowType: "multidrop_stop",
                     stopIndex: stop.stopIndex,
                 });
@@ -873,6 +950,7 @@ export async function fetchBillingTripRows(
             billingRateMultiplier: Number(data.billingRateMultiplier) || undefined,
             billingAddThbPerTrip: Number(data.billingAddThbPerTrip) || undefined,
             billingCustomerId: data.billingCustomerId,
+            ...roundProvenance,
             vehicleClass: taskInfo?.truckType,
             driverName: resolveDriverName([data.driverId, taskInfo?.driverId], taskInfo?.driverName),
             driverPhone: taskInfo?.driverPhone,

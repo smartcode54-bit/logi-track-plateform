@@ -26,6 +26,7 @@ export * from "./monthlyFuelPriceSnapshot";
 export * from "./syncBangchakFuelMonthlySnapshot";
 export * from "./tripBillingOnDelivered";
 export * from "./backfillCustomerLinks";
+export * from "./billingRoundMigration";
 export * from "./tasks";
 export * from "./multiDeliveryTrips";
 export * from "./standbyBilling";

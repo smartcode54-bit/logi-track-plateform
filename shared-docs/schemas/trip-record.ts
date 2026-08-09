@@ -94,8 +94,32 @@ export const tripRecordSchema = z.object({
     billingFuelAdjustmentId: z.string().optional(),
     billingRateMultiplier: z.number().optional(),
     billingAddThbPerTrip: z.number().optional(),
+    /** Effective date of the *fuel adjustment* that applied — not of the rate round. */
     billingEffectiveFromDateStr: z.string().optional(),
     billingCustomerId: z.string().optional(),
+    // Multi-delivery billing snapshot (only when isMultiDelivery = true)
+    billingStopChargeThb: z.number().optional(),
+    billingIsMultiDelivery: z.boolean().optional(),
+    billingMultiDeliveryBreakdown: z
+        .array(
+            z.object({
+                stopIndex: z.number(),
+                destination: z.string(),
+                baseRateThb: z.number(),
+                finalRateThb: z.number(),
+            })
+        )
+        .optional(),
+    // Rate round + fuel band provenance (ADR 0009 §4) — denormalized at compute time so an
+    // invoice never has to follow billingFuelAdjustmentId into a row that may have moved.
+    /** `yyyy-MM-dd` the price of this trip last changed — the later of rate-entry / fuel-adjustment. */
+    billingRoundEffectiveFromDateStr: z.string().optional(),
+    /** Inclusive lower bound of the ฿1.00 diesel band, e.g. 41.01 for the band 41.01–42.00. */
+    billingFuelBandLowerThb: z.number().optional(),
+    /** Inclusive upper bound of the same band, e.g. 42. */
+    billingFuelBandUpperThb: z.number().optional(),
+    /** The announced retail diesel price the band was derived from. */
+    billingReferenceFuelPriceThb: z.number().optional(),
 
     // Audit
     createdAt: z.date().optional(),

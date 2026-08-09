@@ -5,7 +5,9 @@ import { format, isValid, parseISO } from "date-fns";
 import { enUS, th as thDateLocale } from "date-fns/locale";
 import * as XLSX from "xlsx";
 import {
+    Ban,
     Calculator,
+    Copy,
     Download,
     Loader2,
     MoreHorizontal,
@@ -16,6 +18,7 @@ import {
     Upload,
 } from "lucide-react";
 import { useLanguage } from "@/context/language";
+import { useAuth } from "@/context/auth";
 import { usePermission } from "@/hooks/usePermission";
 import { CAPABILITIES } from "@/lib/capabilities";
 import { getCustomers } from "@/features/customers/api/customers";
@@ -45,13 +48,12 @@ import {
 import {
     createCustomerFuelRateAdjustment,
     createCustomerRateEntry,
-    deleteCustomerFuelRateAdjustment,
-    deleteCustomerRateEntry,
     getCustomerFuelRateAdjustments,
     getCustomerRateEntries,
     getFuelMonthlySnapshots,
-    updateCustomerFuelRateAdjustment,
-    updateCustomerRateEntry,
+    getFuelDailySnapshot,
+    voidCustomerFuelRateAdjustment,
+    voidCustomerRateEntry,
     createCustomerServiceFee,
     deleteCustomerServiceFee,
     getCustomerServiceFees,
@@ -82,6 +84,8 @@ import {
 import { SOC_DESTINATIONS, TASK_TRUCK_TYPE_ENUM } from "@/validate/taskSchema";
 import {
     computeFinalRateThb,
+    computeFuelSurchargeThb,
+    fuelBandRange,
     normalizeVehicleClass,
     selectFuelAdjustmentForBillingDate,
     type FuelRateAdjustment,
@@ -230,6 +234,8 @@ interface RecomputeStats {
 export default function AccountingRateCardPage() {
     const { t, language } = useLanguage();
     const { hasPermission: canEdit } = usePermission(CAPABILITIES.accounting_edit_rate_card);
+    // Recorded as `voidedBy` so a retired announcement names who retired it.
+    const currentUser = useAuth()?.currentUser ?? null;
     const [loading, setLoading] = useState(true);
     const [importOpen, setImportOpen] = useState(false);
     const [customers, setCustomers] = useState<RateCardCustomerOption[]>([]);
@@ -252,8 +258,16 @@ export default function AccountingRateCardPage() {
     const [rateCalAsOfStr, setRateCalAsOfStr] = useState(() => format(new Date(), "yyyy-MM-dd"));
     const [adjustmentError, setAdjustmentError] = useState<string | null>(null);
     const [savingAdjustment, setSavingAdjustment] = useState(false);
-    const [deletingAdjustmentId, setDeletingAdjustmentId] = useState<string | null>(null);
-    const [editingAdjustmentId, setEditingAdjustmentId] = useState<string | null>(null);
+    // Voiding an announcement (ADR 0009 §1) — the only way to retire a round. There is no edit
+    // path: a correction is announced as a new row with its own effective date.
+    const [voidTarget, setVoidTarget] = useState<{
+        kind: "entry" | "adjustment";
+        id: string;
+        label: string;
+    } | null>(null);
+    const [voidReason, setVoidReason] = useState("");
+    const [voidSaving, setVoidSaving] = useState(false);
+    const [voidError, setVoidError] = useState<string | null>(null);
     const [manualRateError, setManualRateError] = useState<string | null>(null);
     const [savingManualRate, setSavingManualRate] = useState(false);
     const [manualRateForm, setManualRateForm] = useState<{
@@ -296,16 +310,9 @@ export default function AccountingRateCardPage() {
     const [recomputeResult, setRecomputeResult] = useState<RecomputeStats | null>(null);
     const [recomputeError, setRecomputeError] = useState<string | null>(null);
 
-    // Rate entry edit/delete state
-    const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
-    const [editEntryForm, setEditEntryForm] = useState({
-        rateThb: "",
-        distanceKm: "",
-        vehicleClass: "",
-        effectiveFrom: "",
-    });
-    const [savingEntry, setSavingEntry] = useState(false);
-    const [deletingEntryId, setDeletingEntryId] = useState<string | null>(null);
+    // Fuel price for the announcement's own effective date (ADR 0009 §5)
+    const [dailyFuelPrice, setDailyFuelPrice] = useState<number | null>(null);
+    const [dailyFuelState, setDailyFuelState] = useState<"idle" | "loading" | "found" | "missing">("idle");
     // Service Fees state
     const [serviceFees, setServiceFees] = useState<CustomerServiceFeeRow[]>([]);
     const [serviceFeeDialogOpen, setServiceFeeDialogOpen] = useState(false);
@@ -412,6 +419,50 @@ export default function AccountingRateCardPage() {
         void loadData();
     }, []);
 
+    /**
+     * Load the diesel price of the announcement's **own** effective date (ADR 0009 §5).
+     *
+     * The monthly snapshot cannot answer this — it is overwritten on every sync, so entering a
+     * round on the 20th that takes effect on the 16th would read the 20th's price and land in the
+     * wrong band. When the day was never captured the field is left empty and the UI says so;
+     * silently substituting another day's price is what this replaces.
+     */
+    useEffect(() => {
+        const dateStr = adjustmentForm.effectiveFrom;
+        if (!dateStr || !fuelAdjustmentDialogOpen) {
+            setDailyFuelState("idle");
+            setDailyFuelPrice(null);
+            return;
+        }
+        let cancelled = false;
+        setDailyFuelState("loading");
+        void (async () => {
+            try {
+                const snap = await getFuelDailySnapshot(dateStr);
+                if (cancelled) return;
+                const row = snap ? pickFleetBangchakDieselReference(snap.items) : undefined;
+                const price = row != null && Number.isFinite(row.price) ? row.price : null;
+                if (price == null) {
+                    setDailyFuelPrice(null);
+                    setDailyFuelState("missing");
+                    return;
+                }
+                setDailyFuelPrice(price);
+                setDailyFuelState("found");
+                setAdjustmentForm((p) => ({ ...p, referenceFuelPrice: String(price) }));
+            } catch (err) {
+                console.error(err);
+                if (!cancelled) {
+                    setDailyFuelPrice(null);
+                    setDailyFuelState("missing");
+                }
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [adjustmentForm.effectiveFrom, fuelAdjustmentDialogOpen]);
+
     const filteredEntries = useMemo(() => {
         let list = entries;
         if (filterCustomerId !== "all") {
@@ -500,14 +551,6 @@ export default function AccountingRateCardPage() {
         return filteredEntries.slice(start, start + entriesPerPage);
     }, [filteredEntries, entriesPage, entriesPerPage]);
 
-    const editVehicleClassOptions = useMemo(() => {
-        const options = new Set<string>(manualVehicleClassOptions);
-        // Keep the row's own class selectable even if it is a legacy value.
-        if (editEntryForm.vehicleClass?.trim()) {
-            options.add(normalizeVehicleClass(editEntryForm.vehicleClass));
-        }
-        return Array.from(options).sort(compareVehicleClass);
-    }, [manualVehicleClassOptions, editEntryForm.vehicleClass]);
     const entriesRangeStart = filteredEntries.length === 0 ? 0 : (entriesPage - 1) * entriesPerPage + 1;
     const entriesRangeEnd = Math.min(entriesPage * entriesPerPage, filteredEntries.length);
 
@@ -535,6 +578,46 @@ export default function AccountingRateCardPage() {
         () => latestFleetDieselFromMonthlySnapshots(fuelSnapshots),
         [fuelSnapshots]
     );
+
+    /**
+     * Fuel rounds of the selected customer as ordered **half-open** intervals (ADR 0009 §2, §8):
+     * a round runs `[effectiveFrom, nextEffectiveFrom)`, so no day belongs to two rounds and none
+     * to zero. Voided rounds stay listed — they are part of the history — but are not treated as
+     * boundaries, because pricing skips them.
+     */
+    const rateRounds = useMemo(() => {
+        if (filterCustomerId === "all") return [];
+        const rows = fuelAdjustments
+            .filter((r) => r.customerId === filterCustomerId)
+            .sort((a, b) => a.effectiveFrom.getTime() - b.effectiveFrom.getTime());
+        const liveDates = rows.filter((r) => !r.voided).map((r) => r.effectiveFrom.getTime());
+        return rows.map((r, i) => {
+            const nextLive = liveDates.find((ms) => ms > r.effectiveFrom.getTime());
+            const band =
+                r.referenceFuelPriceThbPerLitre != null
+                    ? fuelBandRange(r.referenceFuelPriceThbPerLitre)
+                    : null;
+            const add = r.addThbPerTrip ?? 0;
+            const pct = (r.rateMultiplier - 1) * 100;
+            return {
+                id: r.id,
+                label: `R${i + 1}`,
+                voided: r.voided === true,
+                fromStr: r.effectiveFromDateStr ?? format(r.effectiveFrom, "yyyy-MM-dd"),
+                untilStr:
+                    nextLive != null
+                        ? format(new Date(nextLive), "yyyy-MM-dd")
+                        : t("accounting.rateCard.rounds.openEnded"),
+                bandLabel: band
+                    ? `${band.lowerThb.toFixed(2)}–${band.upperThb.toFixed(2)}`
+                    : "-",
+                adjustmentLabel:
+                    add !== 0
+                        ? `${add > 0 ? "+" : ""}${add.toLocaleString()} ฿/เที่ยว`
+                        : `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`,
+            };
+        });
+    }, [fuelAdjustments, filterCustomerId, t]);
 
     useEffect(() => {
         setEntriesPage(1);
@@ -584,12 +667,14 @@ export default function AccountingRateCardPage() {
         const rateMultiplier = isPercentMode ? 1 + ratePercent / 100 : 1;
         let addThbPerTrip = isPercentMode ? 0 : Number(adjustmentForm.addThbPerTrip);
 
-        // Auto-calculate addThbPerTrip from fuel band (fixed_thb mode only)
+        // Auto-calculate addThbPerTrip from the fuel band (fixed_thb mode only).
+        // Delegated to the shared helper: the old inline `Math.floor` classified into [n, n+1)
+        // while the contract band is (n, n+1], so a price of exactly x.00 was charged one band
+        // too high for the whole round (ADR 0009 §3).
         if (!isPercentMode && adjustmentForm.fuelBandEnabled && referenceFuelPrice != null) {
-            const fuelBand = Math.floor(referenceFuelPrice);
             const baselineFloor = parseInt(adjustmentForm.fuelBandBaselineFuelFloor) || 41;
             const thbPerBaht = parseFloat(adjustmentForm.fuelBandThbPerBaht) || 10;
-            addThbPerTrip = (fuelBand - baselineFloor) * thbPerBaht;
+            addThbPerTrip = computeFuelSurchargeThb(referenceFuelPrice, baselineFloor, thbPerBaht);
         }
 
         if (
@@ -620,11 +705,8 @@ export default function AccountingRateCardPage() {
                     ? parseFloat(adjustmentForm.fuelBandThbPerBaht)
                     : undefined,
             };
-            if (editingAdjustmentId) {
-                await updateCustomerFuelRateAdjustment(editingAdjustmentId, payload);
-            } else {
-                await createCustomerFuelRateAdjustment(payload);
-            }
+            // Always a new row — announcements are immutable (ADR 0009 §1).
+            await createCustomerFuelRateAdjustment(payload);
             setFuelAdjustmentDialogOpen(false);
             handleCancelEditAdjustment();
             await loadData();
@@ -681,23 +763,40 @@ export default function AccountingRateCardPage() {
         }
     };
 
-    const handleDeleteAdjustment = async (id: string) => {
-        if (!canEdit) return;
-        setAdjustmentError(null);
-        setDeletingAdjustmentId(id);
+    /**
+     * Void an announcement (ADR 0009 §1). Replaces delete: the row is the record that a price *was
+     * announced*, and every frozen trip amount computed from it points here for provenance.
+     */
+    const handleConfirmVoid = async () => {
+        if (!canEdit || !voidTarget) return;
+        const reason = voidReason.trim();
+        if (!reason) return;
+        setVoidSaving(true);
+        setVoidError(null);
         try {
-            await deleteCustomerFuelRateAdjustment(id);
+            const actor = currentUser?.email || currentUser?.uid || "unknown";
+            if (voidTarget.kind === "adjustment") {
+                await voidCustomerFuelRateAdjustment(voidTarget.id, reason, actor);
+            } else {
+                await voidCustomerRateEntry(voidTarget.id, reason, actor);
+            }
+            setVoidTarget(null);
+            setVoidReason("");
             await loadData();
         } catch (err) {
             console.error(err);
-            setAdjustmentError(t("accounting.rateCard.fuelAdjustments.form.deleteError"));
+            setVoidError(t("accounting.rateCard.void.error"));
         } finally {
-            setDeletingAdjustmentId(null);
+            setVoidSaving(false);
         }
     };
 
-    const handleEditAdjustment = (row: CustomerFuelRateAdjustmentRow) => {
-        const effectiveFrom = format(row.effectiveFrom, "yyyy-MM-dd");
+    /**
+     * Prefill the form from an existing round so the admin can announce a **corrected** one.
+     * This used to update the row in place, which silently changed the meaning of every amount
+     * already computed from it.
+     */
+    const handleAnnounceLikeAdjustment = (row: CustomerFuelRateAdjustmentRow) => {
         const ratePercent = ((row.rateMultiplier - 1) * 100).toFixed(2);
         const latest = latestFleetDieselFromMonthlySnapshots(fuelSnapshots);
         // Detect adjustment type: if addThbPerTrip is set (non-zero) or fuelBand is enabled → fixed_thb mode
@@ -705,12 +804,13 @@ export default function AccountingRateCardPage() {
             (row.fuelBandEnabled || (row.addThbPerTrip != null && row.addThbPerTrip !== 0))
                 ? "fixed_thb"
                 : "percent";
-        setEditingAdjustmentId(row.id);
         setAdjustmentError(null);
         setAdjustmentForm({
             adjustmentType,
             customerId: row.customerId,
-            effectiveFrom,
+            // Blank on purpose: a correction is a NEW round and needs its own effective date,
+            // and the daily-price lookup (§5) keys on that date.
+            effectiveFrom: "",
             ratePercent,
             addThbPerTrip: row.addThbPerTrip != null ? String(row.addThbPerTrip) : "0",
             referenceFuelPrice:
@@ -728,8 +828,9 @@ export default function AccountingRateCardPage() {
     };
 
     const handleCancelEditAdjustment = () => {
-        setEditingAdjustmentId(null);
         setAdjustmentError(null);
+        setDailyFuelState("idle");
+        setDailyFuelPrice(null);
         setAdjustmentForm({
             adjustmentType: "percent",
             customerId: "",
@@ -891,46 +992,23 @@ export default function AccountingRateCardPage() {
         }
     };
 
-    const handleDeleteEntry = async (id: string) => {
-        if (!confirm(t("accounting.rateCard.entry.confirmDelete"))) return;
-        setDeletingEntryId(id);
-        try {
-            await deleteCustomerRateEntry(id);
-            await loadData();
-        } catch (err) {
-            console.error(err);
-        } finally {
-            setDeletingEntryId(null);
-        }
-    };
-
-    const handleStartEditEntry = (entry: CustomerRateEntryRow) => {
-        setEditingEntryId(entry.id);
-        setEditEntryForm({
+    /**
+     * Prefill the manual-add form from an existing rate row so a corrected price is announced as a
+     * NEW row with its own effective date (ADR 0009 §1) instead of overwriting the old one.
+     */
+    const handleAnnounceLikeEntry = (entry: CustomerRateEntryRow) => {
+        setManualRateError(null);
+        setManualRateForm({
+            customerId: entry.customerId,
+            hubId: entry.hubId,
+            destinationCode: entry.destinationCode,
+            vehicleClass: normalizeVehicleClass(entry.vehicleClass),
             rateThb: String(entry.rateThb),
             distanceKm: entry.distanceKm != null ? String(entry.distanceKm) : "",
-            vehicleClass: normalizeVehicleClass(entry.vehicleClass),
-            effectiveFrom: format(entry.effectiveFrom, "yyyy-MM-dd"),
+            jobCategory: entry.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
+            // Left blank on purpose — a correction needs its own effective date.
+            effectiveFrom: "",
         });
-    };
-
-    const handleSaveEntry = async () => {
-        if (!editingEntryId) return;
-        setSavingEntry(true);
-        try {
-            await updateCustomerRateEntry(editingEntryId, {
-                rateThb: Number(editEntryForm.rateThb),
-                distanceKm: editEntryForm.distanceKm ? Number(editEntryForm.distanceKm) : undefined,
-                vehicleClass: editEntryForm.vehicleClass,
-                effectiveFrom: parseDateInput(editEntryForm.effectiveFrom) ?? undefined,
-            });
-            setEditingEntryId(null);
-            await loadData();
-        } catch (err) {
-            console.error(err);
-        } finally {
-            setSavingEntry(false);
-        }
     };
 
     const handleExportData = () => {
@@ -1570,8 +1648,20 @@ export default function AccountingRateCardPage() {
                                           )
                                         : null;
                                 return (
-                                <TableRow key={row.id}>
-                                    <TableCell>{customerNameById.get(row.customerId) ?? row.customerId}</TableCell>
+                                // Voided rate rows remain visible as history, struck through
+                                // because pricing no longer selects them (ADR 0009 §1).
+                                <TableRow
+                                    key={row.id}
+                                    className={row.voided ? "opacity-50 line-through" : undefined}
+                                >
+                                    <TableCell>
+                                        {customerNameById.get(row.customerId) ?? row.customerId}
+                                        {row.voided && (
+                                            <Badge variant="destructive" className="ml-2 no-underline">
+                                                {t("accounting.rateCard.void.badge")}
+                                            </Badge>
+                                        )}
+                                    </TableCell>
                                     <TableCell>{formatSource(row.hubId)}</TableCell>
                                     <TableCell>{formatDestination(row.destinationCode)}</TableCell>
                                     <TableCell>
@@ -1632,31 +1722,30 @@ export default function AccountingRateCardPage() {
                                         <TableCell>
                                             <DropdownMenu>
                                                 <DropdownMenuTrigger asChild>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        className="h-8 w-8"
-                                                        disabled={deletingEntryId === row.id}
-                                                    >
-                                                        {deletingEntryId === row.id ? (
-                                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                                        ) : (
-                                                            <MoreHorizontal className="h-4 w-4" />
-                                                        )}
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                                                        <MoreHorizontal className="h-4 w-4" />
                                                     </Button>
                                                 </DropdownMenuTrigger>
                                                 <DropdownMenuContent align="end">
-                                                    <DropdownMenuItem onClick={() => handleStartEditEntry(row)}>
-                                                        <Pencil className="h-4 w-4 mr-2" />
-                                                        {t("accounting.rateCard.entry.edit")}
+                                                    <DropdownMenuItem onClick={() => handleAnnounceLikeEntry(row)}>
+                                                        <Copy className="h-4 w-4 mr-2" />
+                                                        {t("accounting.rateCard.entry.announceCorrection")}
                                                     </DropdownMenuItem>
-                                                    <DropdownMenuItem
-                                                        onClick={() => void handleDeleteEntry(row.id)}
-                                                        className="text-destructive focus:text-destructive"
-                                                    >
-                                                        <Trash2 className="h-4 w-4 mr-2" />
-                                                        {t("accounting.rateCard.entry.delete")}
-                                                    </DropdownMenuItem>
+                                                    {!row.voided && (
+                                                        <DropdownMenuItem
+                                                            onClick={() =>
+                                                                setVoidTarget({
+                                                                    kind: "entry",
+                                                                    id: row.id,
+                                                                    label: `${row.hubId} → ${row.destinationCode} (${row.vehicleClass})`,
+                                                                })
+                                                            }
+                                                            className="text-destructive focus:text-destructive"
+                                                        >
+                                                            <Ban className="h-4 w-4 mr-2" />
+                                                            {t("accounting.rateCard.void.action")}
+                                                        </DropdownMenuItem>
+                                                    )}
                                                 </DropdownMenuContent>
                                             </DropdownMenu>
                                         </TableCell>
@@ -1726,6 +1815,59 @@ export default function AccountingRateCardPage() {
                 </CardContent>
             </Card>
 
+            {/* Rate rounds for the selected customer (ADR 0009 §8). Rendered as ordered half-open
+                intervals so a gap or an overlap is visible before a month is invoiced, not after. */}
+            {filterCustomerId !== "all" && rateRounds.length > 0 && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle>{t("accounting.rateCard.rounds.title")}</CardTitle>
+                        <p className="text-sm text-muted-foreground mt-1">
+                            {t("accounting.rateCard.rounds.subtitle")}
+                        </p>
+                    </CardHeader>
+                    <CardContent>
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>{t("accounting.rateCard.rounds.round")}</TableHead>
+                                    <TableHead>{t("accounting.rateCard.rounds.period")}</TableHead>
+                                    <TableHead>{t("accounting.rateCard.rounds.fuelBand")}</TableHead>
+                                    <TableHead className="text-right">
+                                        {t("accounting.rateCard.rounds.adjustment")}
+                                    </TableHead>
+                                    <TableHead>{t("accounting.rateCard.rounds.status")}</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {rateRounds.map((r) => (
+                                    <TableRow key={r.id} className={r.voided ? "opacity-50" : undefined}>
+                                        <TableCell className="font-medium">{r.label}</TableCell>
+                                        <TableCell className="font-mono text-xs">
+                                            {r.fromStr} → {r.untilStr}
+                                        </TableCell>
+                                        <TableCell className="font-mono text-xs">{r.bandLabel}</TableCell>
+                                        <TableCell className="text-right font-mono text-xs">
+                                            {r.adjustmentLabel}
+                                        </TableCell>
+                                        <TableCell>
+                                            {r.voided ? (
+                                                <Badge variant="destructive">
+                                                    {t("accounting.rateCard.void.badge")}
+                                                </Badge>
+                                            ) : (
+                                                <Badge variant="secondary">
+                                                    {t("accounting.rateCard.rounds.active")}
+                                                </Badge>
+                                            )}
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </CardContent>
+                </Card>
+            )}
+
             <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0">
                     <div>
@@ -1752,8 +1894,9 @@ export default function AccountingRateCardPage() {
                                 size="sm"
                                 onClick={() => {
                                     const latest = latestFleetDieselFromMonthlySnapshots(fuelSnapshots);
-                                    setEditingAdjustmentId(null);
                                     setAdjustmentError(null);
+                                    setDailyFuelState("idle");
+                                    setDailyFuelPrice(null);
                                     setAdjustmentForm({
                                         adjustmentType: "percent",
                                         customerId: "",
@@ -1873,9 +2016,7 @@ export default function AccountingRateCardPage() {
                         <DialogContent className="sm:max-w-xl">
                             <DialogHeader>
                                 <DialogTitle>
-                                    {editingAdjustmentId
-                                        ? t("accounting.rateCard.fuelAdjustments.dialog.editTitle")
-                                        : t("accounting.rateCard.fuelAdjustments.dialog.createTitle")}
+                                    {t("accounting.rateCard.fuelAdjustments.dialog.createTitle")}
                                 </DialogTitle>
                                 <DialogDescription>
                                     {t("accounting.rateCard.fuelAdjustments.dialog.description")}
@@ -2101,7 +2242,10 @@ export default function AccountingRateCardPage() {
                                                                 const refPrice = parseFloat(adjustmentForm.referenceFuelPrice);
                                                                 const baseline = parseInt(adjustmentForm.fuelBandBaselineFuelFloor) || 41;
                                                                 const thbPerBaht = parseFloat(adjustmentForm.fuelBandThbPerBaht) || 10;
-                                                                const currentBand = Math.floor(refPrice);
+                                                                // (n, n+1] — see ADR 0009 §3. Math.floor put x.00 in the wrong row.
+                                                                const currentBand = fuelBandRange(refPrice)?.lowerThb != null
+                                                                    ? Math.round((fuelBandRange(refPrice)!.lowerThb - 0.01) * 100) / 100
+                                                                    : Number.NaN;
                                                                 const rows = [];
                                                                 for (let i = -2; i <= 2; i++) {
                                                                     const band = baseline + i;
@@ -2117,7 +2261,7 @@ export default function AccountingRateCardPage() {
                                                                             }`}
                                                                         >
                                                                             <span className={`text-foreground ${isCurrent ? "font-semibold text-blue-600 dark:text-blue-400" : ""}`}>
-                                                                                {band}.xx ฿/L
+                                                                                {(band + 0.01).toFixed(2)}–{(band + 1).toFixed(2)} ฿/L
                                                                             </span>
                                                                             <span className={`${
                                                                                 adj > 0 ? "text-green-600 dark:text-green-400" :
@@ -2180,6 +2324,28 @@ export default function AccountingRateCardPage() {
                                                 }))
                                             }
                                         />
+                                        {/* The price of the round's OWN effective date (ADR 0009 §5). A missing
+                                            day is stated plainly — never filled from another day. */}
+                                        {dailyFuelState === "loading" && (
+                                            <p className="text-xs text-muted-foreground leading-snug">
+                                                {t("accounting.rateCard.fuelAdjustments.form.dailyPriceLoading")}
+                                            </p>
+                                        )}
+                                        {dailyFuelState === "found" && dailyFuelPrice != null && (
+                                            <p className="text-xs text-emerald-600 dark:text-emerald-400 leading-snug">
+                                                {t("accounting.rateCard.fuelAdjustments.form.dailyPriceFound", {
+                                                    date: adjustmentForm.effectiveFrom,
+                                                    price: dailyFuelPrice.toLocaleString(),
+                                                })}
+                                            </p>
+                                        )}
+                                        {dailyFuelState === "missing" && (
+                                            <p className="text-xs text-amber-600 dark:text-amber-400 leading-snug">
+                                                {t("accounting.rateCard.fuelAdjustments.form.dailyPriceMissing", {
+                                                    date: adjustmentForm.effectiveFrom,
+                                                })}
+                                            </p>
+                                        )}
                                         {latestSyncedFleetFuel != null && (
                                             <p className="text-xs text-muted-foreground leading-snug">
                                                 {t("accounting.rateCard.fuelAdjustments.form.referenceLatestHint", {
@@ -2224,16 +2390,12 @@ export default function AccountingRateCardPage() {
                                 >
                                     {savingAdjustment ? (
                                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                    ) : editingAdjustmentId ? (
-                                        <Pencil className="h-4 w-4 mr-2" />
                                     ) : (
                                         <Plus className="h-4 w-4 mr-2" />
                                     )}
                                     {savingAdjustment
                                         ? t("accounting.rateCard.fuelAdjustments.form.saving")
-                                        : editingAdjustmentId
-                                          ? t("accounting.rateCard.fuelAdjustments.form.update")
-                                          : t("accounting.rateCard.fuelAdjustments.form.save")}
+                                        : t("accounting.rateCard.fuelAdjustments.form.save")}
                                 </Button>
                             </DialogFooter>
                         </DialogContent>
@@ -2256,9 +2418,21 @@ export default function AccountingRateCardPage() {
                         </TableHeader>
                         <TableBody>
                             {filteredAdjustments.map((row) => (
-                                <TableRow key={row.id}>
+                                // Voided rounds stay listed — they are part of the history — but are
+                                // struck through, because pricing skips them (ADR 0009 §1).
+                                <TableRow
+                                    key={row.id}
+                                    className={row.voided ? "opacity-50 line-through" : undefined}
+                                >
                                     <TableCell>{customerOnlyNameById.get(row.customerId) ?? row.customerId}</TableCell>
-                                    <TableCell>{format(row.effectiveFrom, "dd/MM/yyyy")}</TableCell>
+                                    <TableCell>
+                                        {format(row.effectiveFrom, "dd/MM/yyyy")}
+                                        {row.voided && (
+                                            <Badge variant="destructive" className="ml-2 no-underline">
+                                                {t("accounting.rateCard.void.badge")}
+                                            </Badge>
+                                        )}
+                                    </TableCell>
                                     <TableCell className="text-right">
                                         <div className="flex flex-col items-end gap-0.5">
                                             <span className="tabular-nums font-medium">
@@ -2294,31 +2468,30 @@ export default function AccountingRateCardPage() {
                                         <TableCell className="text-right">
                                             <DropdownMenu>
                                                 <DropdownMenuTrigger asChild>
-                                                    <Button
-                                                        type="button"
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        disabled={deletingAdjustmentId === row.id}
-                                                    >
-                                                        {deletingAdjustmentId === row.id ? (
-                                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                                        ) : (
-                                                            <MoreHorizontal className="h-4 w-4" />
-                                                        )}
+                                                    <Button type="button" variant="ghost" size="icon">
+                                                        <MoreHorizontal className="h-4 w-4" />
                                                     </Button>
                                                 </DropdownMenuTrigger>
                                                 <DropdownMenuContent align="end">
-                                                    <DropdownMenuItem onClick={() => handleEditAdjustment(row)}>
-                                                        <Pencil className="h-4 w-4 mr-2" />
-                                                        {t("accounting.rateCard.fuelAdjustments.table.edit")}
+                                                    <DropdownMenuItem onClick={() => handleAnnounceLikeAdjustment(row)}>
+                                                        <Copy className="h-4 w-4 mr-2" />
+                                                        {t("accounting.rateCard.entry.announceCorrection")}
                                                     </DropdownMenuItem>
-                                                    <DropdownMenuItem
-                                                        className="text-destructive focus:text-destructive"
-                                                        onClick={() => void handleDeleteAdjustment(row.id)}
-                                                    >
-                                                        <Trash2 className="h-4 w-4 mr-2" />
-                                                        {t("accounting.rateCard.fuelAdjustments.table.delete")}
-                                                    </DropdownMenuItem>
+                                                    {!row.voided && (
+                                                        <DropdownMenuItem
+                                                            className="text-destructive focus:text-destructive"
+                                                            onClick={() =>
+                                                                setVoidTarget({
+                                                                    kind: "adjustment",
+                                                                    id: row.id,
+                                                                    label: `${customerNameById.get(row.customerId) ?? row.customerId} · ${format(row.effectiveFrom, "dd/MM/yyyy")}`,
+                                                                })
+                                                            }
+                                                        >
+                                                            <Ban className="h-4 w-4 mr-2" />
+                                                            {t("accounting.rateCard.void.action")}
+                                                        </DropdownMenuItem>
+                                                    )}
                                                 </DropdownMenuContent>
                                             </DropdownMenu>
                                         </TableCell>
@@ -2880,66 +3053,52 @@ export default function AccountingRateCardPage() {
                 onImported={() => void loadData()}
             />
 
-            {/* Edit Entry Dialog */}
-            <Dialog open={editingEntryId !== null} onOpenChange={(open) => !open && setEditingEntryId(null)}>
+            {/* Void announcement dialog — ADR 0009 §1: rows are immutable, so retiring one is
+                the only destructive action, and it must say why. */}
+            <Dialog
+                open={voidTarget !== null}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setVoidTarget(null);
+                        setVoidReason("");
+                        setVoidError(null);
+                    }
+                }}
+            >
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>{t("accounting.rateCard.entry.editTitle")}</DialogTitle>
-                        <DialogDescription>{t("accounting.rateCard.entry.editDescription")}</DialogDescription>
+                        <DialogTitle>{t("accounting.rateCard.void.title")}</DialogTitle>
+                        <DialogDescription>{t("accounting.rateCard.void.description")}</DialogDescription>
                     </DialogHeader>
-                    <div className="grid gap-4 py-4">
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-1.5">
-                                <Label>{t("accounting.rateCard.table.rateThb")}</Label>
-                                <Input
-                                    type="number"
-                                    value={editEntryForm.rateThb}
-                                    onChange={(e) => setEditEntryForm((p) => ({ ...p, rateThb: e.target.value }))}
-                                />
-                            </div>
-                            <div className="space-y-1.5">
-                                <Label>{t("accounting.rateCard.table.distanceKm")}</Label>
-                                <Input
-                                    type="number"
-                                    value={editEntryForm.distanceKm}
-                                    onChange={(e) => setEditEntryForm((p) => ({ ...p, distanceKm: e.target.value }))}
-                                />
-                            </div>
+                    <div className="grid gap-4 py-2">
+                        <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm font-mono">
+                            {voidTarget?.label}
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-1.5">
-                                <Label>{t("accounting.rateCard.table.vehicleClass")}</Label>
-                                <Select
-                                    value={editEntryForm.vehicleClass}
-                                    onValueChange={(v) => setEditEntryForm((p) => ({ ...p, vehicleClass: v }))}
-                                >
-                                    <SelectTrigger>
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent className="z-[1005]" position="popper">
-                                        {editVehicleClassOptions.map((vc) => (
-                                            <SelectItem key={vc} value={vc}>{displayVehicleTypeCode(vc)}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div className="space-y-1.5">
-                                <Label>{t("accounting.rateCard.table.effectiveFrom")}</Label>
-                                <Input
-                                    type="date"
-                                    value={editEntryForm.effectiveFrom}
-                                    onChange={(e) => setEditEntryForm((p) => ({ ...p, effectiveFrom: e.target.value }))}
-                                />
-                            </div>
+                        <div className="space-y-1.5">
+                            <Label>{t("accounting.rateCard.void.reasonLabel")}</Label>
+                            <Input
+                                value={voidReason}
+                                onChange={(e) => setVoidReason(e.target.value)}
+                                placeholder={t("accounting.rateCard.void.reasonPlaceholder")}
+                            />
                         </div>
+                        {voidError && (
+                            <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                                {voidError}
+                            </div>
+                        )}
                     </div>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setEditingEntryId(null)}>
+                        <Button variant="outline" onClick={() => setVoidTarget(null)}>
                             {t("accounting.detail.close")}
                         </Button>
-                        <Button onClick={() => void handleSaveEntry()} disabled={savingEntry}>
-                            {savingEntry && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                            {t("accounting.detail.save")}
+                        <Button
+                            variant="destructive"
+                            onClick={() => void handleConfirmVoid()}
+                            disabled={voidSaving || !voidReason.trim()}
+                        >
+                            {voidSaving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                            {t("accounting.rateCard.void.confirm")}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
