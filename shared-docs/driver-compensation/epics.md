@@ -3,9 +3,9 @@ stepsCompleted: [1, 2, 3, 4]
 status: 'complete'
 completedAt: '2026-06-18'
 inputDocuments:
-  - _bmad-output/planning-artifacts/prds/prd-logitrack-web-2026-06-18/prd.md
-  - _bmad-output/planning-artifacts/prds/prd-logitrack-web-2026-06-18/.decision-log.md
-  - _bmad-output/planning-artifacts/architecture.md
+  - prd.md
+  - decision-log.md
+  - architecture.md
 feature: 'Driver Compensation (คิดค่าตอบแทนคนขับ)'
 ---
 

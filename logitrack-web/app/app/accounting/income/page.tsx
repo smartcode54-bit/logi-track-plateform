@@ -425,6 +425,15 @@ export default function AccountingIncomePage() {
                     const taskId = typeof d.taskId === "string" ? d.taskId : undefined;
                     const task = taskId ? taskMap.get(taskId) : undefined;
 
+                    // หลัก/เสริม resolved trip → task (ADR 0010): the trip's own value wins; fall back
+                    // to the authoritative task value; undefined ⇒ the UI shows the "unverified" marker.
+                    const resolvedJobCategory: "PRIMARY" | "SUPPLEMENTARY" | undefined =
+                        d.jobCategory === "SUPPLEMENTARY" || d.jobCategory === "PRIMARY"
+                            ? d.jobCategory
+                            : task?.jobCategory === "SUPPLEMENTARY" || task?.jobCategory === "PRIMARY"
+                            ? task.jobCategory
+                            : undefined;
+
                     const sourceHub = task?.sourceHub ?? undefined;
                     const destination = task?.destination ?? undefined;
                     const truckType = task?.truckType ?? undefined;
@@ -496,6 +505,7 @@ export default function AccountingIncomePage() {
                         lookupVehicleClass,
                         computedRate,
                         failureReason,
+                        jobCategory: resolvedJobCategory,
                     };
                 });
 
@@ -705,6 +715,9 @@ export default function AccountingIncomePage() {
                 ? getDestinationDisplayName(row.lookupDestination, hubNameMap)
                 : "",
             [t("accounting.income.missing.table.vehicleClass")]: row.lookupVehicleClass ?? "",
+            [t("accounting.income.missing.table.jobCategory")]: row.jobCategory
+                ? t(`accounting.billingDocument.badge.jobCategory${row.jobCategory === "SUPPLEMENTARY" ? "Supplementary" : "Primary"}`)
+                : t("accounting.billingDocument.badge.jobCategoryUnknown"),
             [t("accounting.income.table.deliveredAt")]: row.deliveredTimestamp
                 ? format(row.deliveredTimestamp, "dd/MM/yyyy HH:mm")
                 : "",
@@ -1233,7 +1246,9 @@ export default function AccountingIncomePage() {
                                                         {t("accounting.billingDocument.badge.jobCategoryPrimary")}
                                                     </Badge>
                                                 ) : (
-                                                    "—"
+                                                    <Badge variant="outline" className="text-[10px] py-0 px-1 bg-red-50 text-red-700 border-red-300 dark:bg-red-950/30 dark:text-red-400">
+                                                        {t("accounting.billingDocument.badge.jobCategoryUnknown")}
+                                                    </Badge>
                                                 )}
                                             </TableCell>
                                             <TableCell className="text-right">
@@ -1465,6 +1480,7 @@ export default function AccountingIncomePage() {
                                         <TableHead>{t("accounting.income.missing.table.lookupHub")}</TableHead>
                                         <TableHead>{t("accounting.income.missing.table.lookupDestination")}</TableHead>
                                         <TableHead>{t("accounting.income.missing.table.vehicleClass")}</TableHead>
+                                        <TableHead>{t("accounting.income.missing.table.jobCategory")}</TableHead>
                                         <TableHead>{t("accounting.income.table.deliveredAt")}</TableHead>
                                         <TableHead>{t("accounting.income.missing.table.computedRate")}</TableHead>
                                         <TableHead>{t("accounting.income.missing.table.reason")}</TableHead>
@@ -1487,6 +1503,21 @@ export default function AccountingIncomePage() {
                                                     : "—"}
                                             </TableCell>
                                             <TableCell className="font-mono text-xs">{row.lookupVehicleClass || "—"}</TableCell>
+                                            <TableCell>
+                                                {row.jobCategory === "SUPPLEMENTARY" ? (
+                                                    <Badge variant="outline" className="text-[10px] py-0 px-1 bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/30 dark:text-amber-400">
+                                                        {t("accounting.billingDocument.badge.jobCategorySupplementary")}
+                                                    </Badge>
+                                                ) : row.jobCategory === "PRIMARY" ? (
+                                                    <Badge variant="outline" className="text-[10px] py-0 px-1 bg-slate-50 text-slate-700 border-slate-300 dark:bg-slate-900/30 dark:text-slate-300">
+                                                        {t("accounting.billingDocument.badge.jobCategoryPrimary")}
+                                                    </Badge>
+                                                ) : (
+                                                    <Badge variant="outline" className="text-[10px] py-0 px-1 bg-red-50 text-red-700 border-red-300 dark:bg-red-950/30 dark:text-red-400">
+                                                        {t("accounting.billingDocument.badge.jobCategoryUnknown")}
+                                                    </Badge>
+                                                )}
+                                            </TableCell>
                                             <TableCell>
                                                 {row.deliveredTimestamp
                                                     ? format(row.deliveredTimestamp, "dd/MM/yyyy HH:mm")

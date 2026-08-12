@@ -132,6 +132,9 @@ export default function BillingDocumentPage() {
     // ── Job category toggles (หลัก/เสริม) — standby rows have no jobCategory, unaffected ──
     const [includePrimary,      setIncludePrimary]      = useState(true);
     const [includeSupplementary, setIncludeSupplementary] = useState(true);
+    // Rows whose หลัก/เสริม couldn't be resolved from trip OR task (ADR 0010) — their own visible
+    // bucket, never silently folded into หลัก.
+    const [includeUnverified,   setIncludeUnverified]   = useState(true);
 
     const [loading, setLoading] = useState(false);
     const [generating, setGenerating] = useState(false);
@@ -193,14 +196,15 @@ export default function BillingDocumentPage() {
             if (r.rowType === "standby"        && !includeStandby)   return false;
             if (r.rowType === "multidrop_stop" && !includeMultiDrop) return false;
             // Job category only applies to trip / multidrop_stop rows — standby has no jobCategory.
+            // Unresolved (undefined) is its own bucket (ADR 0010), not folded into หลัก.
             if (r.rowType !== "standby") {
-                const isSupplementary = r.jobCategory === "SUPPLEMENTARY";
-                if (isSupplementary && !includeSupplementary) return false;
-                if (!isSupplementary && !includePrimary) return false;
+                if (r.jobCategory === "SUPPLEMENTARY") { if (!includeSupplementary) return false; }
+                else if (r.jobCategory === "PRIMARY") { if (!includePrimary) return false; }
+                else { if (!includeUnverified) return false; }
             }
             return true;
         });
-    }, [trips, selectedCustomerId, includeTrips, includeStandby, includeMultiDrop, includePrimary, includeSupplementary]);
+    }, [trips, selectedCustomerId, includeTrips, includeStandby, includeMultiDrop, includePrimary, includeSupplementary, includeUnverified]);
 
     // Review-filter options come from the invoice set, so every option provably matches ≥1 billable
     // row (orphan plates / a no-class bucket stay reachable) — same approach as elsewhere.
@@ -237,8 +241,9 @@ export default function BillingDocumentPage() {
         const base = (selectedCustomerId === "all" ? trips : trips.filter((r) => r.billingCustomerId === selectedCustomerId))
             .filter((r) => r.rowType !== "standby");
         return {
-            primary:      base.filter((r) => r.jobCategory !== "SUPPLEMENTARY").length,
+            primary:       base.filter((r) => r.jobCategory === "PRIMARY").length,
             supplementary: base.filter((r) => r.jobCategory === "SUPPLEMENTARY").length,
+            unverified:    base.filter((r) => r.jobCategory !== "PRIMARY" && r.jobCategory !== "SUPPLEMENTARY").length,
         };
     }, [trips, selectedCustomerId]);
 
@@ -496,6 +501,18 @@ export default function BillingDocumentPage() {
                                             <Badge variant="secondary" className="text-xs px-1.5 py-0">{jobCategoryCounts.supplementary}</Badge>
                                         </span>
                                     </label>
+                                    {jobCategoryCounts.unverified > 0 && (
+                                        <label className="flex items-center gap-2 cursor-pointer text-sm">
+                                            <Checkbox
+                                                checked={includeUnverified}
+                                                onCheckedChange={(v) => setIncludeUnverified(!!v)}
+                                            />
+                                            <span className="flex items-center gap-1.5 text-red-600">
+                                                {t("accounting.billingDocument.badge.jobCategoryUnknown")}
+                                                <Badge variant="secondary" className="text-xs px-1.5 py-0">{jobCategoryCounts.unverified}</Badge>
+                                            </span>
+                                        </label>
+                                    )}
                                 </div>
                             </div>
                         )}
@@ -666,9 +683,13 @@ export default function BillingDocumentPage() {
                                                     <Badge variant="outline" className="text-amber-400 border-amber-600">
                                                         {t("accounting.billingDocument.badge.jobCategorySupplementary")}
                                                     </Badge>
-                                                ) : (
+                                                ) : trip.jobCategory === "PRIMARY" ? (
                                                     <Badge variant="outline">
                                                         {t("accounting.billingDocument.badge.jobCategoryPrimary")}
+                                                    </Badge>
+                                                ) : (
+                                                    <Badge variant="outline" className="text-red-600 border-red-500">
+                                                        {t("accounting.billingDocument.badge.jobCategoryUnknown")}
                                                     </Badge>
                                                 )}
                                             </TableCell>

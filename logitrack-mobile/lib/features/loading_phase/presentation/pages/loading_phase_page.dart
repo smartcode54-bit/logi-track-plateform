@@ -128,6 +128,8 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
   String? _truckId;
   String? _truckLicensePlate;
   String? _truckType;
+  // หลัก/เสริม snapshot from the fulfilled task (ADR 0010) — seeded onto the trip at creation.
+  String? _jobCategory;
 
   Timer? _draftSaveTimer;
   static const Duration _draftDebounce = Duration(milliseconds: 800);
@@ -222,6 +224,8 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
           _truckLicensePlate = data?['licensePlate'] as String?;
           _truckType = data?['truckType'] as String?;
           _truckId = data?['truckId'] as String?;
+          // หลัก/เสริม snapshot from the task (ADR 0010) — recorded like the truck snapshot.
+          _jobCategory = data?['jobCategory'] as String?;
           if (taskType != null) {
             _jobType = (taskType == 'LINE_HAUL')
                 ? jobTypeLineHaul
@@ -1406,6 +1410,8 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         truckId: _truckId,
         truckLicensePlate: _truckLicensePlate,
         truckType: _truckType,
+        // Seed the trip's jobCategory from the task (ADR 0010); PRIMARY when self-created / absent.
+        jobCategory: _jobCategory ?? 'PRIMARY',
         ocrData: TripOcrData(
           tripId: tripId,
           sealCode: sealCode.isEmpty ? null : sealCode,

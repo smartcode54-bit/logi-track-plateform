@@ -57,6 +57,8 @@ class TripRecord {
   final String? truckId;
   final String? truckLicensePlate;
   final String? truckType;
+  // หลัก/เสริม copied from the fulfilled task at creation (ADR 0010). Source of truth is the task.
+  final String? jobCategory;
   final String? distance;
   final int? parcelCount;
   final String? sealTime;
@@ -165,6 +167,7 @@ class TripRecord {
       truckId: map['truckId'] as String?,
       truckLicensePlate: map['truckLicensePlate'] as String?,
       truckType: map['truckType'] as String?,
+      jobCategory: map['jobCategory'] as String?,
       distance: map['distance'] as String?,
       parcelCount: (map['parcelCount'] as num?)?.toInt(),
       sealTime: map['sealTime'] as String?,
@@ -204,6 +207,7 @@ class TripRecord {
     this.truckId,
     this.truckLicensePlate,
     this.truckType,
+    this.jobCategory,
     this.distance,
     this.parcelCount,
     this.sealTime,
@@ -243,6 +247,7 @@ class TripRecord {
       if (truckId != null) 'truckId': truckId,
       if (truckLicensePlate != null) 'truckLicensePlate': truckLicensePlate,
       if (truckType != null) 'truckType': truckType,
+      if (jobCategory != null) 'jobCategory': jobCategory,
       if (distance != null) 'distance': distance,
       if (parcelCount != null) 'parcelCount': parcelCount,
       if (sealTime != null) 'sealTime': sealTime,

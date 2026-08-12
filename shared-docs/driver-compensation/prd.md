@@ -8,7 +8,7 @@ project: logitrack-web
 
 # Driver Compensation PRD (คิดค่าตอบแทนคนขับ)
 
-> ✅ Final (Fast path; light reviewer pass applied — criticals/highs resolved). Remaining OQ2,5,6,8,9,10 deferred (non-blocking) to architecture/build — see §11 & `.decision-log.md`. Tech-how → `addendum.md`.
+> ✅ Final (Fast path; light reviewer pass applied — criticals/highs resolved). Remaining OQ2,5,6,8,9,10 deferred (non-blocking) to architecture/build — see §11 & `decision-log.md`. Tech-how → `addendum.md`.
 
 ## 1. Overview
 A system that computes each driver's pay per pay cycle from data the platform already captures — completed trips, fuel efficiency, trip volume — plus deductions (social security, penalties), then lets admins review/approve payouts and lets drivers see their own pay in the mobile app. Brownfield: reuses `trip_records`, `standby_records`, fuel records, `working_holiday_calendar`, `drivers`, and the existing `transactions` ledger.

@@ -128,6 +128,38 @@ export default function BackfillPage() {
         }
     };
 
+    interface TripJobCategoryResult {
+        success: boolean;
+        totalProcessed: number;
+        alreadySet: number;
+        updated: number;
+        copiedFromTask: number;
+        defaultedPrimary: number;
+        taskMissing: number;
+        errors: number;
+        errorDetails: string[];
+    }
+
+    const [jcLoading, setJcLoading] = useState(false);
+    const [jcResult, setJcResult] = useState<TripJobCategoryResult | null>(null);
+    const [jcError, setJcError] = useState<string | null>(null);
+
+    const runBackfillTripJobCategory = async () => {
+        if (!auth?.currentUser) return;
+        setJcLoading(true);
+        setJcError(null);
+        setJcResult(null);
+        try {
+            const fn = httpsCallable(functions, "backfillTripJobCategoryFromTask");
+            const res = await fn({});
+            setJcResult(res.data as TripJobCategoryResult);
+        } catch (err) {
+            setJcError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setJcLoading(false);
+        }
+    };
+
     const runBackfillTaskCustomerLinks = async () => {
         if (!auth?.currentUser) return;
 
@@ -508,6 +540,86 @@ export default function BackfillPage() {
                                 {ttLoading ? "Running..." : "Run Migration"}
                             </Button>
                             {ttResult && <Button variant="outline" onClick={() => setTtResult(null)}>Clear</Button>}
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {/* Backfill Trip Job Category (หลัก/เสริม) */}
+                <Card className="border-l-4 border-l-amber-500">
+                    <CardHeader>
+                        <div className="flex items-start justify-between">
+                            <div>
+                                <CardTitle className="flex items-center gap-2">
+                                    <Zap className="h-5 w-5 text-amber-500" />
+                                    Backfill Trip Job Category (หลัก/เสริม)
+                                </CardTitle>
+                                <CardDescription>
+                                    Copies each trip&apos;s jobCategory from its linked task (ADR 0010). Fixes trips that
+                                    never got a value because billing was skipped/failed, so the invoice stops guessing หลัก.
+                                </CardDescription>
+                            </div>
+                            <Badge variant="outline">Admin Only</Badge>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="rounded-lg bg-amber-50 p-4 text-sm text-amber-900">
+                            <p className="font-medium mb-2">What this does:</p>
+                            <ul className="list-disc list-inside space-y-1 text-xs">
+                                <li>Scans trip_records missing jobCategory (idempotent — skips ones already set)</li>
+                                <li>Copies PRIMARY/SUPPLEMENTARY from the linked task</li>
+                                <li>Defaults PRIMARY only when the task is missing or has no category</li>
+                            </ul>
+                        </div>
+
+                        {jcError && (
+                            <Alert variant="destructive">
+                                <AlertCircle className="h-4 w-4" />
+                                <AlertTitle>Error</AlertTitle>
+                                <AlertDescription>{jcError}</AlertDescription>
+                            </Alert>
+                        )}
+
+                        {jcResult && (
+                            <Alert className="border-green-200 bg-green-50">
+                                <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                <AlertTitle className="text-green-900">Backfill Complete</AlertTitle>
+                                <AlertDescription className="text-green-800 mt-2">
+                                    <div className="grid grid-cols-3 gap-3 text-sm font-mono">
+                                        {[
+                                            ["Processed", jcResult.totalProcessed],
+                                            ["Already set", jcResult.alreadySet],
+                                            ["Updated", jcResult.updated],
+                                            ["Copied from task", jcResult.copiedFromTask],
+                                            ["Defaulted PRIMARY", jcResult.defaultedPrimary],
+                                            ["Task missing", jcResult.taskMissing],
+                                            ["Errors", jcResult.errors],
+                                        ].map(([label, val]) => (
+                                            <div key={String(label)}>
+                                                <div className="text-xs opacity-75">{label}</div>
+                                                <div className="text-lg font-bold">{val}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    {jcResult.errors > 0 && jcResult.errorDetails?.length > 0 && (
+                                        <div className="mt-3 text-xs">
+                                            <p className="font-semibold mb-1">Error Details:</p>
+                                            <div className="bg-white bg-opacity-50 rounded p-2 max-h-32 overflow-y-auto">
+                                                {jcResult.errorDetails.map((err, i) => (
+                                                    <div key={i} className="break-words">• {err}</div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </AlertDescription>
+                            </Alert>
+                        )}
+
+                        <div className="flex gap-2">
+                            <Button onClick={runBackfillTripJobCategory} disabled={jcLoading} className="gap-2 bg-amber-600 hover:bg-amber-700">
+                                {jcLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+                                {jcLoading ? "Running..." : "Run Backfill"}
+                            </Button>
+                            {jcResult && <Button variant="outline" onClick={() => setJcResult(null)}>Clear</Button>}
                         </div>
                     </CardContent>
                 </Card>

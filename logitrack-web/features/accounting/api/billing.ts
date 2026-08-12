@@ -699,6 +699,8 @@ export interface MissingBillingRow {
     lookupVehicleClass?: string;
     computedRate?: number;
     failureReason?: string;
+    /** หลัก/เสริม resolved trip → task (ADR 0010); undefined ⇒ show the loud "unverified" marker. */
+    jobCategory?: "PRIMARY" | "SUPPLEMENTARY";
 }
 
 // ─── Shared trip-row fetcher for Billing Document / Result pages ──────────────
@@ -809,7 +811,7 @@ export async function fetchBillingTripRows(
     }
 
     // ── Batch-fetch linked tasks (driverName/licensePlate/customer denormalized) ──
-    type TaskInfo = { truckType?: string; driverId?: string; driverName?: string; driverPhone?: string; truckLicensePlate?: string; truckId?: string; sourceHub?: string; destination?: string };
+    type TaskInfo = { truckType?: string; driverId?: string; driverName?: string; driverPhone?: string; truckLicensePlate?: string; truckId?: string; sourceHub?: string; destination?: string; jobCategory?: "PRIMARY" | "SUPPLEMENTARY" };
     const taskMap = new Map<string, TaskInfo>();
     const taskIds = new Set<string>();
     tripSnap.forEach((d) => { const tid = d.data().taskId; if (tid) taskIds.add(tid); });
@@ -832,6 +834,13 @@ export async function fetchBillingTripRows(
                 truckId: t.truckId,
                 sourceHub: t.sourceHub,
                 destination: t.destination,
+                // Authoritative หลัก/เสริม (ADR 0010): the trip's copy falls back to this when absent.
+                jobCategory:
+                    t.jobCategory === "SUPPLEMENTARY"
+                        ? "SUPPLEMENTARY"
+                        : t.jobCategory === "PRIMARY"
+                        ? "PRIMARY"
+                        : undefined,
             });
         });
     }));
@@ -879,6 +888,15 @@ export async function fetchBillingTripRows(
     const resolveSubcontractor = (candidates: unknown[]): string | undefined =>
         lookupDriver(driverSubByKey, candidates);
 
+    // หลัก/เสริม resolution (ADR 0010): the trip's own value wins; when it never got one (billing
+    // skipped/failed, or a legacy trip), fall back to the authoritative task value. Neither present
+    // ⇒ undefined, so the UI shows a loud "unverified" marker instead of silently guessing หลัก.
+    const resolveJobCategory = (
+        tripVal: unknown,
+        taskVal: "PRIMARY" | "SUPPLEMENTARY" | undefined
+    ): "PRIMARY" | "SUPPLEMENTARY" | undefined =>
+        tripVal === "SUPPLEMENTARY" || tripVal === "PRIMARY" ? tripVal : taskVal;
+
     const rows: BillingTripRow[] = [];
 
     tripSnap.forEach((d) => {
@@ -923,7 +941,7 @@ export async function fetchBillingTripRows(
                     driverName: resolveDriverName([data.driverId, taskInfo?.driverId], taskInfo?.driverName),
                     driverPhone: taskInfo?.driverPhone,
                     subcontractorName: resolveSubcontractor([data.driverId, taskInfo?.driverId]),
-                    jobCategory: data.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
+                    jobCategory: resolveJobCategory(data.jobCategory, taskInfo?.jobCategory),
                     truckLicensePlate: taskInfo?.truckLicensePlate,
             truckId: taskInfo?.truckId,
                     hubDisplayName: resolveDisplayName(hubId),
@@ -955,7 +973,7 @@ export async function fetchBillingTripRows(
             driverName: resolveDriverName([data.driverId, taskInfo?.driverId], taskInfo?.driverName),
             driverPhone: taskInfo?.driverPhone,
             subcontractorName: resolveSubcontractor([data.driverId, taskInfo?.driverId]),
-            jobCategory: data.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
+            jobCategory: resolveJobCategory(data.jobCategory, taskInfo?.jobCategory),
             truckLicensePlate: taskInfo?.truckLicensePlate,
             truckId: taskInfo?.truckId,
             hubDisplayName: resolveDisplayName(hubId),

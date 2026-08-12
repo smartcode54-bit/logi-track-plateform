@@ -1,6 +1,6 @@
 # Story 3.6: Helper / training-day pay
 
-> **Backfill story** — the helper-pay capability was built across commits `f31bde0 → 0d10735 → 5dc4370 → fbfebf0 → e171b36` with **no FR and no story** in `epics.md`. This story documents the capability as decided in the 2026-06-24 grilling session, marks what is already done, and lists the gaps still open. See [ADR-0001](../adr/ADR-0001-helper-pay-data-model.md) and the [glossary](../glossary.md).
+> **Backfill story** — the helper-pay capability was built across commits `f31bde0 → 0d10735 → 5dc4370 → fbfebf0 → e171b36` with **no FR and no story** in `epics.md`. This story documents the capability as decided in the 2026-06-24 grilling session, marks what is already done, and lists the gaps still open. See [ADR 0011](../../adr/0011-helper-pay-data-model.md) and the [glossary](../../glossary.md).
 
 **Epic:** 3 (Review, Approval, Ledger & Export) — settles in payout runs.
 

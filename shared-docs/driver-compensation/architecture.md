@@ -4,8 +4,8 @@ lastStep: 8
 status: 'complete'
 completedAt: '2026-06-18'
 inputDocuments:
-  - _bmad-output/planning-artifacts/prds/prd-logitrack-web-2026-06-18/prd.md
-  - _bmad-output/planning-artifacts/prds/prd-logitrack-web-2026-06-18/.decision-log.md
+  - prd.md
+  - decision-log.md
 workflowType: 'architecture'
 project_name: 'logitrack-web'
 user_name: 'Smart.dev'

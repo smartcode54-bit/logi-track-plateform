@@ -5,6 +5,8 @@ import * as admin from "firebase-admin";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { logger } from "firebase-functions";
 
+import { resolveJobCategoryWrite } from "./core/jobCategoryWrite";
+
 const COL_TASKS = "tasks";
 
 interface DeliveryStopPayload {
@@ -131,7 +133,6 @@ export const createOrUpdateTask = onCall(
         const taskDoc: Record<string, unknown> = {
             sourceHub: data.sourceHub.trim().toUpperCase(),
             destination: data.destination.trim().toUpperCase(),
-            jobCategory: data.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
             date: new Date(data.date),
             time: data.time.trim(),
             taskType: data.taskType,
@@ -163,6 +164,13 @@ export const createOrUpdateTask = onCall(
 
         if (runOrder !== undefined) {
             taskDoc.runOrder = runOrder;
+        }
+
+        // หลัก/เสริม (ADR 0010 R2): write jobCategory only when the client sent it (or default
+        // PRIMARY on create). Never coerce on update — that silently reset เสริม → หลัก.
+        const jobCategoryToWrite = resolveJobCategoryWrite(data.jobCategory, !data.id);
+        if (jobCategoryToWrite !== undefined) {
+            taskDoc.jobCategory = jobCategoryToWrite;
         }
 
         // Add delivery stops for multi-delivery

@@ -32,6 +32,8 @@ Future<void> submitLoadingPhaseRecord({
   String? truckId,
   String? truckLicensePlate,
   String? truckType,
+  // หลัก/เสริม copied from the fulfilled task (ADR 0010). Null defaults to PRIMARY at the caller.
+  String? jobCategory,
 }) async {
   final photoFutures = stepPhotos.entries.map((entry) async {
     final type = entry.key;
@@ -87,6 +89,7 @@ Future<void> submitLoadingPhaseRecord({
     truckId: truckId,
     truckLicensePlate: truckLicensePlate,
     truckType: truckType,
+    jobCategory: jobCategory,
     origin: origin,
     destination: destination,
     distance: distanceValue,

@@ -20,22 +20,23 @@ Companion glossary: [../glossary.md](../glossary.md).
 | [0007](0007-mobile-forced-update-pipeline.md) | Mobile forced-update pipeline (announce with the build, enforce with a button) | Accepted 2026-07-28 (impl local, pending verify) |
 | [0008](0008-standby-billing-visibility-and-recompute-semantics.md) | Standby billing: self-contained records, a service-completion billing date, and draft-only recompute | Accepted 2026-08-04 (impl pending) |
 | [0009](0009-multiple-rate-rounds-within-one-billing-period.md) | Multiple rate rounds inside one billing period (fuel bands, half-open dates, immutable announcements) | Accepted 2026-08-04 (impl pending) |
+| [0010](0010-job-category-carried-on-trip-independent-of-billing.md) | jobCategory must live on the trip independently of billing (seed at creation, display falls back to the task, fail loud) | Accepted 2026-08-09 (impl local, pending verify) |
+| [0011](0011-helper-pay-data-model.md) | Helper / training-day pay — data model (`tasks.helperDriverIds`) | Accepted 2026-06-24 |
+| [0012](0012-helper-day-window.md) | Helper / training-day pay — the "day" is a 12:00→11:59 work window | Accepted 2026-06-26 |
+| [0013](0013-payroll-lineitem-breakdown.md) | Payroll line items carry a self-contained breakdown | Accepted 2026-06-26 |
+| [0014](0014-cash-advance.md) | Cash advance (เบิกล่วงหน้า) — recorded, deducted next pay round | Accepted 2026-06-26 (impl pending) |
+| [0015](0015-supplementary-trips.md) | Supplementary trips (เที่ยวเสริม) — jobCategory, separate rate card, frozen pricing | Accepted 2026-06-30 |
+| [0016](0016-explicit-job-category-at-assign.md) | Explicit หลัก/เสริม selection at task assign time (supersedes 0015 #3) | Accepted 2026-07-02 |
+| [0017](0017-retire-bmad-wds-tooling.md) | Retire the BMAD/WDS tooling vendored into the repo | Accepted 2026-08-09 |
 
-**Next free number: `0010`.** Take the next unused number, never reuse or renumber (see
+**Next free number: `0018`.** Take the next unused number, never reuse or renumber (see
 [conventions](0000-adr-conventions.md)).
 
-## Legacy — BMAD, module-scoped (`logitrack-web/_bmad-output/planning-artifacts/adr/`)
+## Migrated from BMAD (formerly `logitrack-web/_bmad-output/planning-artifacts/adr/`)
 
-Historical records produced by the BMAD planning pipeline for the **driver-compensation** module.
-They are a **separate numbering namespace** — this table's `ADR-0001` is *not* the same document as
-canonical `0001` above. Kept in place (they cross-link each other and are cited by BMAD
-epics/stories); not renumbered or moved. New cross-cutting decisions go in the canonical set above.
-
-| # | Title | Status |
-|---|-------|--------|
-| [ADR-0001](../../logitrack-web/_bmad-output/planning-artifacts/adr/ADR-0001-helper-pay-data-model.md) | Helper / training-day pay — data model | Accepted 2026-06-24 |
-| [ADR-0002](../../logitrack-web/_bmad-output/planning-artifacts/adr/ADR-0002-helper-day-window.md) | Helper / training-day pay — the "day" is a 12:00→11:59 work window | Accepted 2026-06-26 |
-| [ADR-0003](../../logitrack-web/_bmad-output/planning-artifacts/adr/ADR-0003-payroll-lineitem-breakdown.md) | Payroll line items carry a self-contained breakdown | Accepted 2026-06-26 |
-| [ADR-0004](../../logitrack-web/_bmad-output/planning-artifacts/adr/ADR-0004-cash-advance.md) | Cash advance (เบิกล่วงหน้า) — recorded, deducted next pay round | Accepted 2026-06-26 |
-| [ADR-0005](../../logitrack-web/_bmad-output/planning-artifacts/adr/ADR-0005-supplementary-trips.md) | Supplementary trips (เที่ยวเสริม) — jobCategory, separate rate card, frozen pricing | Accepted 2026-06-30 |
-| [ADR-0006](../../logitrack-web/_bmad-output/planning-artifacts/adr/ADR-0006-explicit-job-category-at-assign.md) | Explicit หลัก/เสริม selection at task assign time (supersedes ADR-0005 #3) | Accepted 2026-07-02 |
+The six module-scoped ADRs the BMAD pipeline produced for the **driver-compensation** module were
+**migrated into the canonical set above as 0011–0016** on 2026-08-09, and the BMAD output folder was
+retired — see [0017](0017-retire-bmad-wds-tooling.md). Mapping: `ADR-0001`→`0011`, `ADR-0002`→`0012`,
+`ADR-0003`→`0013`, `ADR-0004`→`0014`, `ADR-0005`→`0015`, `ADR-0006`→`0016`. Their planning companions
+(PRD, architecture, epics, stories, decision-log) now live under
+[`../driver-compensation/`](../driver-compensation/). There is no longer a second ADR namespace.

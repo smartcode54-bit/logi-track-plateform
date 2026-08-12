@@ -957,8 +957,9 @@ build → ประกาศเวอร์ชันขึ้น Firestore อ�
 7. **GitHub Actions ใช้ Node 20 (deprecated)**  
    `actions/checkout@v4`, `setup-node@v4`, `pnpm/action-setup@v4` ถูก force ไปรันบน Node 24 แล้วและขึ้น deprecation warning ทุกรัน — ยังไม่พัง แต่ควรอัป
 
-8. **BMAD/WDS tooling ถูก track ใต้ `logitrack-web/` (261 ไฟล์)**  
-   `.claude/` 213 + `_bmad/` 31 + `.agents/` 17 — ตอนนี้แค่ถูก ignore จาก ESLint (#45) แต่ยังอยู่ใน git ต้องตัดสินใจว่าจะ track ต่อ (แชร์ให้ทีม) หรือ untrack
+8. ~~**BMAD/WDS tooling ถูก track ใต้ `logitrack-web/` (261 ไฟล์)**~~ — **เอาออกแล้ว (9 ส.ค. 2026 — ADR 0017)**  
+   ลบ `logitrack-web/.claude/skills/` + `_bmad/` + `.agents/` (บนดิสก์จริง ~2,141 ไฟล์ เพราะส่วนใหญ่ถูก `*.md` gitignore ไม่ได้ track) — เก็บ `logitrack-web/.claude/settings.json` + `settings.local.json` ไว้ (ไม่ใช่ BMAD). ADR ของ BMAD 6 ตัว migrate เข้า canonical `shared-docs/adr/0011–0016`, glossary fold เข้า `shared-docs/glossary.md`, ส่วน PRD/architecture/epics/stories/decision-log ย้ายไป `shared-docs/driver-compensation/`. ดู **ADR 0017** และ #47.  
+   **หมายเหตุ:** skills ชุด `bmad-*` ยังติดตั้ง global อยู่ (`~/.claude/skills/`) → ยังโผล่ในเมนู skill (การลบระดับเครื่องเป็น opt-in แยก); `~/.claude/commands/` ไม่มี WDS leak. ยังไม่ได้ใส่ `.gitignore` กัน `_bmad-output/` ถูกสร้างซ้ำ (follow-up ใน ADR 0017)
 
 ---
 

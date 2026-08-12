@@ -105,11 +105,17 @@ The billing classification of a trip: `"PRIMARY"` (หลัก, the contracted 
 **fuel multiplier** applies (SUPPLEMENTARY skips it), and — for SUPPLEMENTARY — triggers the
 [[Frozen price]] behavior.
 
-**Source of truth is the *task*** (`tasks.jobCategory`, set at assign time per ADR-0006). The value on
-`trip_records.jobCategory` is a **derived snapshot**, written at billing time by
-`tripBillingOnDelivered.ts` from the linked task. **Not** the same axis as `jobType`
-(`first_mile | line_haul`) — reusing that field was explicitly rejected (ADR-0005). Correcting it on an
-already-billed trip is a dedicated admin action that re-derives the price (ADR 0002).
+**Source of truth is the *task*** (`tasks.jobCategory`, set at assign time per [ADR 0016](adr/0016-explicit-job-category-at-assign.md)). The value on
+`trip_records.jobCategory` is a **denormalized cache** of it. That cache is (a) **seeded at trip
+creation** by the mobile client copying the task value, (b) **refreshed at billing time** by
+`tripBillingOnDelivered.ts`, and (c) **corrected** by the `setTripJobCategory` callable (ADR 0002).
+Before ADR 0010 the cache had only writer (b) — a fragile, retry-less, early-returning price
+computation — so a trip whose billing was skipped or failed ("No rate", not-yet-billed, etc.) carried
+**no** category, and readers silently defaulted it to หลัก (dangerous on an invoice) or showed `—`.
+Per **ADR 0010** every reader now resolves `trip.jobCategory` → `task.jobCategory` → a loud "unknown"
+marker, never a guessed หลัก. **Not** the same axis as `jobType` (`first_mile | line_haul`) — reusing
+that field was explicitly rejected ([ADR 0015](adr/0015-supplementary-trips.md)). Correcting it on an already-billed trip is a dedicated
+admin action that re-derives the price (ADR 0002).
 
 ## Frozen price
 
@@ -353,3 +359,96 @@ Distinct from `fuel_daily_snapshots/{yyyy-MM-dd}`, the create-only observation o
 actually cost that day (`functions/src/core/persistFuelMonthlySnapshot.ts:69-82`) — the *input* an
 announcement is priced from (§5), as opposed to `fuel_monthly_snapshots/{yyyy-MM}`, which is
 overwritten on every sync (`:58-66`) and is therefore not a billing input at all.
+
+---
+
+# Driver compensation
+
+> Folded in from the BMAD driver-compensation glossary on 2026-08-09 when that pipeline was retired
+> ([ADR 0017](adr/0017-retire-bmad-wds-tooling.md)). Grounded in the compensation compute engine
+> (`lib/compensationCompute.ts` ↔ `functions/src/core/compensationCompute.ts`) and the payroll UI.
+
+## Helper (ผู้ช่วย)
+
+A driver who rides along on another driver's task to **assist or to train**, without being the
+assigned (main) driver of that task. "Helper" and "trainee/training" are the **same role for pay
+purposes** — there is no separate rate or rule; intent does not change compensation. See
+[[Helper assignment]], [[Helper-day]].
+
+## Main driver (คนขับหลัก)
+
+The driver assigned to a task (`tasks.driverId`). Earns trip pay for the task, **not** helper pay.
+
+## Helper assignment
+
+Designating the [[Helper]] for a task. Stored on `tasks.helperDriverIds` (Auth UID). **Exactly one
+helper per task** — the field stays an array **only** for Firestore `array-contains` index
+compatibility and is capped at length 1 ([ADR 0011](adr/0011-helper-pay-data-model.md)). Primary path:
+the **admin** sets it when assigning the task; fallback: the **main driver** may set it at check-in
+(mobile) when the admin hasn't. Admin can review/edit before the payout run is generated.
+
+## Helper-day (วันทำงานของผู้ช่วย)
+
+**One** unit of helper pay = **one work window** on which a driver acted as helper, regardless of how
+many tasks they helped on in that window. The "day" is **not** the calendar day; it is the **work
+window 12:00:00 of day D → 11:59:59 of day D+1** (Asia/Bangkok), **keyed to day D**, so a shift that
+crosses midnight is one day ([ADR 0012](adr/0012-helper-day-window.md)). Anchored by the main driver's
+task **`checkInAt`**; if absent, fall back to **`tasks.date`** at 12:00. De-duplicated to one per
+[[Window key]]. A helper still earns the day even if **no trip was delivered** in the window
+(check-in is proof of work).
+
+## Window key (D)
+
+The day a [[Helper-day]] window starts (its 12:00 side): `bangkokDateKey(checkInAt − 12h)`. Determines
+both de-duplication and [[Round (R1 / R2)]] membership — a check-in at 11:00 on the 16th keys to the
+15th → R1 ([ADR 0012](adr/0012-helper-day-window.md)).
+
+## Eligible helper-day
+
+A [[Window key]] on which the driver had **no own assigned task / delivered trip** in the same window.
+A driving window always pays as trips, never additionally as a helper-day; the exclusion is evaluated
+**per window key**, not per calendar day. `helperDayRateThb` (default 400) is the flat THB per eligible
+helper-day; the payroll line-item category is `HELPER_PAY` (`EARNING`).
+
+## Line-item breakdown
+
+Every payroll line item stores its own breakdown at **generation time** (`quantity`, `unitRate`,
+`description`, `meta`) so the detail view (`PayrollReviewDialog`) shows *how* each figure was reached
+and stays correct even if config later changes ([ADR 0013](adr/0013-payroll-lineitem-breakdown.md)).
+The UI falls back to name+amount for older payrolls that lack the fields. **Trip-pay split:**
+`TRIP_COMMISSION` is emitted as **two** lines when both apply — weekday (`weekdayRateThb`) and holiday
+(`holidayRateThb`). **Penalty breakdown:** penalty lines carry `meta =
+{ installmentIndex, installmentsTotal, remainingThb, totalThb }`.
+
+## Cash advance (เบิกล่วงหน้า)
+
+Money paid to a driver **before** a pay round closes, recorded by admin/HR at the withdrawal date and
+deducted **in full, once**, in the **next** pay round — no installments, no interest, no carry-over
+([ADR 0014](adr/0014-cash-advance.md); collection `driver_advances`, **implementation pending**). The
+**deduction round** is computed once at creation from `withdrawnAt` (Asia/Bangkok): withdrawn day ≤ 15
+→ **R2 same month**; day ≥ 16 → **R1 next month** — so **R1 can now carry a deduction**, breaking the
+old "deductions only in R2" assumption. The **advance cap** (≤ ½ of earnings so far) is enforced by
+admin/HR judgement, **not the system**. Payroll line-item category `CASH_ADVANCE` (`DEDUCTION`).
+
+## Round (R1 / R2)
+
+Semi-monthly pay window: **R1** = days 1–15, **R2** = 16–end. [[Helper-day]]s are assigned to a round
+by their [[Window key]] day D, not the raw check-in timestamp
+([ADR 0012](adr/0012-helper-day-window.md)).
+
+## Recompute (payroll)
+
+Re-running `generateDriverPayoutRun` for a period+round. Overwrites `DRAFT` payouts only; an `APPROVED`
+payout is corrected via a post-approval adjustment (Story 3.4). Distinct from billing
+[[Rate round|recompute]], which concerns trip prices.
+
+## เที่ยวเสริม (supplementary trip)
+
+A trip billed at a **separately agreed price** that does not come from the primary rate card; keyed by
+[[jobCategory (หลัก/เสริม)]] `= SUPPLEMENTARY` and given [[Frozen price]] treatment once it has
+happened ([ADR 0015](adr/0015-supplementary-trips.md), explicit at assign time per
+[ADR 0016](adr/0016-explicit-job-category-at-assign.md)). The **supplementary rate card** is not a
+separate collection — it is `customer_rate_entries` rows tagged `jobCategory = SUPPLEMENTARY`, a filter
+dimension on `selectBillingRateEntry`. **Report display rules (Excel detail):** for J&T the source-hub
+origin shows the hub **code** (`SPK-GW`) not the billing name; vehicle class **`PICKUP` displays as
+`4WH`**; supplementary rows carry **`เสริม`** in หมายเหตุ.

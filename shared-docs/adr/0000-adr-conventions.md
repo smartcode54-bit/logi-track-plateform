@@ -70,14 +70,18 @@ the spec (`/spec-new`, `/spec-build`) records *what to build*; neither replaces 
 `/grill-with-docs` skill is the go-forward tool for producing ADRs, because it already writes here in
 this format.
 
-### Legacy BMAD ADRs
+### Legacy BMAD ADRs — migrated 2026-08-09 (see [0017](0017-retire-bmad-wds-tooling.md))
 
-The six ADRs under `logitrack-web/_bmad-output/planning-artifacts/adr/` (`ADR-0001`..`ADR-0006`) are
-**kept in place as historical, module-scoped records** for driver-compensation. They are a **separate
-numbering namespace** — their `0001` is *not* this folder's `0001`. They are **not** renumbered or
-moved (they cross-link each other by relative `./ADR-000N` paths, and BMAD epics/stories reference
-them). New cross-cutting decisions go here, in `shared-docs/adr/`. See [README.md](README.md) for the
-index that spans both.
+> **Update (2026-08-09).** The condition named in "Alternatives considered" below was met: the BMAD
+> output folder was retired. The six ADRs formerly under
+> `logitrack-web/_bmad-output/planning-artifacts/adr/` (`ADR-0001`..`ADR-0006`) were **migrated into
+> this canonical set as `0011`..`0016`** (mapping in [README.md](README.md)), and the separate BMAD
+> numbering namespace no longer exists. This does not change the core decision above — it *completes*
+> it. See [0017](0017-retire-bmad-wds-tooling.md).
+
+Originally these six were kept in place as historical, module-scoped records for driver-compensation,
+in a separate numbering namespace. They have since been folded into the canonical set (with provenance
+notes and rewritten cross-links); their planning companions live under `shared-docs/driver-compensation/`.
 
 ## Consequences
 
@@ -91,10 +95,11 @@ index that spans both.
 
 ## Alternatives considered
 
-- **Physically migrate the six BMAD ADRs into `shared-docs/adr/` (renumber 0002–0007, fix links).**
-  Rejected as default: breaks their internal `./ADR-000N` cross-links and the BMAD epics/stories that
-  cite them, for little gain over an index that links out to them. Can be revisited if the BMAD
-  output folder is ever retired.
+- **Physically migrate the six BMAD ADRs into `shared-docs/adr/` (renumber, fix links).**
+  Rejected *as the default at the time*: breaks their internal `./ADR-000N` cross-links and the BMAD
+  epics/stories that cite them, for little gain over an index that links out to them. Noted as
+  revisitable "if the BMAD output folder is ever retired" — which happened on 2026-08-09, so this was
+  carried out: they are now `0011`..`0016` (see [0017](0017-retire-bmad-wds-tooling.md)).
 - **Keep two parallel systems and just document both.** Rejected: leaves the numbering collision and
   glossary drift unaddressed.
 

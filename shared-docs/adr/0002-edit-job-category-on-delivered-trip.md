@@ -15,7 +15,7 @@ billed เสริม (frozen) that should have been หลัก.
 Facts established during grilling (all `path:line` in `logitrack-web/`):
 
 1. **`jobCategory` is authored on the *task*, not the trip.** Per
-   [ADR-0006](../../logitrack-web/_bmad-output/planning-artifacts/adr/ADR-0006-explicit-job-category-at-assign.md)
+   [ADR 0016](0016-explicit-job-category-at-assign.md)
    it's an optional field on `tasks`, set by a หลัก/เสริม dropdown in the assign dialogs. At delivery,
    `tripBillingOnDelivered.ts:185-186` reads `t.jobCategory` off the **linked task** and stamps the
    resolved value onto `trip_records.jobCategory` (`:306`, `:383`). **The trip's category is a derived
@@ -55,8 +55,8 @@ Facts established during grilling (all `path:line` in `logitrack-web/`):
 **Owner-asserted invariants** (confirmed in grilling): (a) the price is the *output* of the category,
 not an independent value the admin is preserving — changing category means the current price is
 suspect; (b) a wrong เสริม price is fixed by an **explicit manual edit**, which is exactly the escape
-hatch [ADR-0005](../../logitrack-web/_bmad-output/planning-artifacts/adr/ADR-0005-supplementary-trips.md)
-consequences and ADR-0006 #6 ("no retroactive promotion") pointed to but never built.
+hatch [ADR 0015](0015-supplementary-trips.md)
+consequences and ADR 0016 #6 ("no retroactive promotion") pointed to but never built.
 
 ## Decision
 
@@ -78,7 +78,7 @@ consequences and ADR-0006 #6 ("no retroactive promotion") pointed to but never b
      branching in `tryWriteBillingSnapshotFromTripData`;
    - **if no matching rate entry exists for the target category, throws (`HttpsError`) and writes
      nothing** — the trip keeps its old category and old price. "Fail loudly," no partial state;
-   - **only on success**, writes `task.jobCategory` (the source of truth, ADR-0006) **and** the trip's
+   - **only on success**, writes `task.jobCategory` (the source of truth, ADR 0016) **and** the trip's
      billing snapshot (`billingEstimateThb`, lookup keys, `jobCategory`) **together**. It sets
      `billingManualOverride: true` when the resolved category is SUPPLEMENTARY (re-freeze) and
      **clears** `billingManualOverride` when PRIMARY (so the trip is no longer frozen).
@@ -93,7 +93,7 @@ consequences and ADR-0006 #6 ("no retroactive promotion") pointed to but never b
 ## Consequences
 
 **Positive**
-- The sanctioned manual escape hatch that ADR-0005/0006 described finally exists: a mis-categorized
+- The sanctioned manual escape hatch that ADR 0015/0016 described finally exists: a mis-categorized
   billed trip can be corrected, and the correction is durable because it writes the authoritative task
   field.
 - Atomic compute-then-write means task and trip never disagree, and a missing target rate card can
@@ -119,7 +119,7 @@ consequences and ADR-0006 #6 ("no retroactive promotion") pointed to but never b
 - Confirm the admin-role check helper available in Cloud Functions and apply it to the new callable.
 - `billingCompute` is duplicated across `lib/billingCompute.ts` and `functions/src/core/billingCompute.ts`
   (must stay in sync) — the callable lives on the functions side and adds no new duplication.
-- The เสริม report remark already handled by `generateDetailExcelBuffer` (ADR-0005 #9) needs no change.
+- The เสริม report remark already handled by `generateDetailExcelBuffer` (ADR 0015 #9) needs no change.
 
 ## Alternatives considered
 
@@ -135,7 +135,7 @@ consequences and ADR-0006 #6 ("no retroactive promotion") pointed to but never b
 - **Put the editor on the income page `EditBillingDialog`.** Rejected: owner chose the driver-monitor
   `EditTripDetailsDialog`, which already owns the task-write + recompute machinery.
 - **Introduce a trip-level category override with new billing-engine precedence (trip wins over task).**
-  Rejected: adds a new precedence rule and invariant to the billing engine and contradicts ADR-0006's
+  Rejected: adds a new precedence rule and invariant to the billing engine and contradicts ADR 0016's
   "task value is authoritative." Writing the task keeps one source of truth.
 - **Allow editing category on any status, including pre-delivery.** Rejected for v1: pre-delivery there
   is no price to derive and the assign dialog already sets category; scope stays "fix a billed trip."
@@ -143,7 +143,7 @@ consequences and ADR-0006 #6 ("no retroactive promotion") pointed to but never b
 ## Related
 
 - Glossary: [../glossary.md](../glossary.md) — [[jobCategory (หลัก/เสริม)]], [[Frozen price]].
-- Supersedes nothing; **extends** ADR-0006 (adds a correction path for an already-billed trip) and
-  realizes the manual-edit escape hatch noted in ADR-0005 consequences.
-- [ADR-0005 — Supplementary trips](../../logitrack-web/_bmad-output/planning-artifacts/adr/ADR-0005-supplementary-trips.md),
-  [ADR-0006 — Explicit หลัก/เสริม at assign](../../logitrack-web/_bmad-output/planning-artifacts/adr/ADR-0006-explicit-job-category-at-assign.md).
+- Supersedes nothing; **extends** ADR 0016 (adds a correction path for an already-billed trip) and
+  realizes the manual-edit escape hatch noted in ADR 0015 consequences.
+- [ADR 0015 — Supplementary trips](0015-supplementary-trips.md),
+  [ADR 0016 — Explicit หลัก/เสริม at assign](0016-explicit-job-category-at-assign.md).

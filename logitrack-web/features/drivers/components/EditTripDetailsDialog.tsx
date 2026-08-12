@@ -233,6 +233,14 @@ export function EditTripDetailsDialog({
         setHelperIds(ids);
         setInitialHelperIds(ids);
 
+        // R6 (ADR 0010): the selector prefills from the trip; when the trip never got a category
+        // (billing skipped/failed), fall back to the authoritative task value so the editor shows
+        // the truth instead of a defaulted หลัก. Runs after the open effect's initial prefill.
+        const taskCat = data?.jobCategory;
+        if (!trip.jobCategory && (taskCat === "PRIMARY" || taskCat === "SUPPLEMENTARY")) {
+            setLocalJobCategory(taskCat);
+        }
+
         const date = toDate(data?.date);
         const pr = date ? periodRoundForDate(date) : null;
         setPeriodRound(pr);

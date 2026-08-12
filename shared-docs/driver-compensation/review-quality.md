@@ -2,7 +2,7 @@
 
 **Reviewer:** Senior product/engineering reviewer
 **Date:** 2026-06-18
-**Artifact reviewed:** `prd.md` (status: final, Fast path) + `.decision-log.md`
+**Artifact reviewed:** `prd.md` (status: final, Fast path) + `decision-log.md`
 **Gate verdict:** **NEEDS-WORK**
 
 This is a payroll-domain feature where calculation correctness is the entire value proposition, yet the PRD leaves several money-affecting edge cases unspecified and contains at least one hard contradiction with its own decision log. The structure, scope discipline, and brownfield reuse mapping are genuinely good — but the gaps below are the kind that produce wrong pay, and the PRD's own SM1/SM2 and Risk #1 ("wrong pay erodes driver trust") make these blocking, not cosmetic. Several would block story writing for the payout-generation epic.
