@@ -21,7 +21,7 @@ Also read `shared-docs/database-migration-plan.md` to understand the planned dat
 
 ---
 
-## Session Handover Summary (อัปเดตล่าสุด: 29 ก.ค. 2026 — V3.0.1-web / mobile 2.9.3+1)
+## Session Handover Summary (อัปเดตล่าสุด: 12 ส.ค. 2026 — **V3.1.0-web-n-mobile** — web + mobile ใช้เลขเวอร์ชันเดียวกันแล้ว)
 
 > เอกสารนี้สรุปสิ่งที่ทำไปแล้วตั้งแต่ `shared-docs/.vibe-rules.md` ถูกสร้าง เพื่อให้ Antigravity และ AI อื่นๆ สามารถ sync ต่อได้ทันที
 
@@ -29,8 +29,9 @@ Also read `shared-docs/database-migration-plan.md` to understand the planned dat
 
 ### 🌐 สถานะโปรเจกต์ปัจจุบัน
 
-- **เวอร์ชัน Flutter (logitrack-mobile)**: `pubspec.yaml` = **2.9.3+1** — SafeArea/gesture inset ทุกหน้า + force-update pipeline (ADR 0007) + เวอร์ชันใน drawer
-- **เวอร์ชัน Next.js (logitrack-web)**: **V3.0.1-web** (`package.json` + `functions/package.json` — bump คู่กันเสมอ) — Deploy ผ่าน Firebase Hosting + GitHub Actions (dev auto หลัง CI เขียว / prod manual `workflow_dispatch`)
+- **Release label ปัจจุบัน**: **V3.1.0-web-n-mobile** — ตั้งแต่รุ่นนี้ web กับ mobile **เดินเลขเวอร์ชันร่วมกัน** (`3.1.0`) ป้าย `-web-n-mobile` เป็น**ชื่อรุ่นในเอกสารเท่านั้น** — **ห้ามใส่ลงฟิลด์ `version`** เพราะทั้ง pnpm และ `pub_semver` (force-update gate, ADR 0007) parse แบบ semver เคร่งครัด
+- **เวอร์ชัน Flutter (logitrack-mobile)**: `pubspec.yaml` = **3.1.0+1** — SafeArea/gesture inset ทุกหน้า + force-update pipeline (ADR 0007) + เวอร์ชันใน drawer
+- **เวอร์ชัน Next.js (logitrack-web)**: **3.1.0** (`package.json` + `functions/package.json` + `shared-docs/package.json` + root `package.json` — bump พร้อมกันเสมอ) — Deploy ผ่าน Firebase Hosting + GitHub Actions (dev auto หลัง CI เขียว / prod manual `workflow_dispatch`)
 - **Route path**: ย้ายจาก `app/admin/` → `app/app/` (internal structure เปลี่ยน, URL ผู้ใช้ยังเดิม)
 - **Firestore Rules**: `logitrack-web/firestore.rules` — เป็น SSOT ทุก collection
 - **Monorepo Structure**: `logitrack-platform/` ครอบ `logitrack-web/` + `logitrack-mobile/` + `shared-docs/`
