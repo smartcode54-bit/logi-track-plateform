@@ -1,6 +1,6 @@
 # ADR 0018 — Driver self-download of trip evidence photos to the phone gallery
 
-- **Status:** Accepted (2026-08-22) — implemented (mobile, code + analyzer-clean); pending device build/QA. Built via spec `mobile-download-trip-photos`.
+- **Status:** Accepted (2026-08-22) — **shipped 2026-08-23** (device-tested by owner, committed + pushed to `main`). Built via spec `mobile-download-trip-photos`. Includes follow-ups: per-photo step labels, full-screen swipe gallery, delivery-delay section (green "no delay" banner + 404 drop), Trip History server-first refresh, and a bottom-bar safe-area sweep.
 - **Deciders:** Samart Kas (product owner), Claude
 - **Area:** logitrack-mobile (Trip History + a new per-trip photo viewer), Firebase Storage (read only). No web, no Cloud Functions, no schema change.
 

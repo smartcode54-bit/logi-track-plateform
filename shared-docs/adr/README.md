@@ -28,7 +28,7 @@ Companion glossary: [../glossary.md](../glossary.md).
 | [0015](0015-supplementary-trips.md) | Supplementary trips (เที่ยวเสริม) — jobCategory, separate rate card, frozen pricing | Accepted 2026-06-30 |
 | [0016](0016-explicit-job-category-at-assign.md) | Explicit หลัก/เสริม selection at task assign time (supersedes 0015 #3) | Accepted 2026-07-02 |
 | [0017](0017-retire-bmad-wds-tooling.md) | Retire the BMAD/WDS tooling vendored into the repo | Accepted 2026-08-09 |
-| [0018](0018-driver-self-download-trip-photos.md) | Driver self-download of trip evidence photos to the phone gallery (bulk, workflow-ordered, own trips only; incident photos added by amendment) | Accepted 2026-08-22 (impl local, pending device QA) |
+| [0018](0018-driver-self-download-trip-photos.md) | Driver self-download of trip evidence photos to the phone gallery (bulk, workflow-ordered, own trips only; incident photos added by amendment) | Accepted 2026-08-22 (shipped 2026-08-23) |
 
 **Next free number: `0019`.** Take the next unused number, never reuse or renumber (see
 [conventions](0000-adr-conventions.md)).

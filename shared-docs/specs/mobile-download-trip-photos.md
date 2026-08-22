@@ -1,6 +1,6 @@
 # Spec: Mobile — driver self-download of trip photos
 
-> **Status:** ✅ Done (2026-08-22). Verified: `flutter analyze` clean · ordering unit tests 8/8 · dev-flavor debug APK builds (gal native integration OK). Interactive on-device QA (gallery save / permission dialog) still pending — no Android/iOS device attached, only Windows+web targets.
+> **Status:** ✅ Done — **shipped 2026-08-23** (device-tested by owner, committed + pushed to `main`). Verified: `flutter analyze` clean · ordering unit tests 8/8 · dev-flavor APK builds · on-device QA passed (viewer, download to gallery, swipe, delay-report banner).
 > **Owner:** Samart Kas
 > **Created:** 2026-08-22
 > **Domain:** trip_history (logitrack-mobile)
