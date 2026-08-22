@@ -227,6 +227,23 @@ export default {
     "driverMonitor.editTrip.resolveDoneBulk": "เคลียร์งานค้างอื่นเพิ่มอีก {n} เที่ยว",
     "driverMonitor.editTrip.resolveError": "จัดการงานค้างไม่สำเร็จ",
 
+    "driverMonitor.editTrip.tripIdLabel": "Trip ID (รหัสเอกสาร)",
+    "driverMonitor.editTrip.renameAction": "แก้ไข Trip ID",
+    "driverMonitor.editTrip.renameTitle": "แก้ไข Trip ID",
+    "driverMonitor.editTrip.renameDesc": "ใช้เมื่อคนขับพิมพ์ Trip ID ผิด ข้อมูล รูปภาพ และการวางบิลของเที่ยวนี้จะถูกย้ายไปทั้งหมด",
+    "driverMonitor.editTrip.renameCurrent": "Trip ID ปัจจุบัน",
+    "driverMonitor.editTrip.renameNew": "Trip ID ใหม่",
+    "driverMonitor.editTrip.renameWarning": "เที่ยวนี้จะย้ายไปอยู่ที่ Trip ID ใหม่ และรหัสเดิมจะหายไป ลิงก์หรือไฟล์ที่อ้างรหัสเดิมจะเปิดไม่ได้อีก",
+    "driverMonitor.editTrip.renameConfirm": "แก้ไข Trip ID",
+    "driverMonitor.editTrip.renameDone": "เปลี่ยน Trip ID เป็น {id} แล้ว",
+    "driverMonitor.editTrip.renameDoneIncidents": "อัปเดตรายงานเหตุการณ์อีก {n} รายการ",
+    "driverMonitor.editTrip.renameError": "แก้ไข Trip ID ไม่สำเร็จ",
+
+    "driverMonitor.editTrip.partnerCodePlaceholder": "เลือกลูกค้า / พาร์ทเนอร์",
+    "driverMonitor.editTrip.partnerCodeSearch": "ค้นหารหัสหรือชื่อ…",
+    "driverMonitor.editTrip.partnerCodeEmpty": "ไม่พบลูกค้าที่ตรงกัน",
+    "driverMonitor.editTrip.partnerCodeUnlisted": "ไม่อยู่ในรายการลูกค้า",
+
     "driverMonitor.preview.downloadCurrent": "ดาวน์โหลดรูปนี้",
     "driverMonitor.preview.downloadAllZip": "ดาวน์โหลดทั้งหมด (ZIP)",
     "driverMonitor.preview.downloadCurrentLoading": "กำลังดาวน์โหลด…",

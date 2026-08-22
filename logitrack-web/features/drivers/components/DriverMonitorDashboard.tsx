@@ -1701,6 +1701,7 @@ export default function DriverMonitorDashboard() {
                     onOpenChange={setEditTripDialogOpen}
                     trip={detailTrip}
                     getSourceDisplayName={getSourceDisplayName}
+                    partnerCodeOptions={partnerOptions}
                     onSuccess={async () => {
                         setEditTripDialogOpen(false);
                         // Refetch trip to show updated delivery stops

@@ -62,6 +62,7 @@ __exportStar(require("./syncBangchakFuelMonthlySnapshot"), exports);
 __exportStar(require("./tripBillingOnDelivered"), exports);
 __exportStar(require("./backfillCustomerLinks"), exports);
 __exportStar(require("./backfillTripJobCategory"), exports);
+__exportStar(require("./renameTripRecord"), exports);
 __exportStar(require("./billingRoundMigration"), exports);
 __exportStar(require("./tasks"), exports);
 __exportStar(require("./multiDeliveryTrips"), exports);

@@ -227,6 +227,23 @@ export default {
     "driverMonitor.editTrip.resolveDoneBulk": "Also cleared {n} other stuck trip(s).",
     "driverMonitor.editTrip.resolveError": "Failed to resolve stuck job.",
 
+    "driverMonitor.editTrip.tripIdLabel": "Trip ID (document ID)",
+    "driverMonitor.editTrip.renameAction": "Change Trip ID",
+    "driverMonitor.editTrip.renameTitle": "Change Trip ID",
+    "driverMonitor.editTrip.renameDesc": "Use this when the driver typed the wrong Trip ID. The trip keeps all of its data, photos and billing.",
+    "driverMonitor.editTrip.renameCurrent": "Current Trip ID",
+    "driverMonitor.editTrip.renameNew": "New Trip ID",
+    "driverMonitor.editTrip.renameWarning": "The trip moves to the new ID and the old one stops existing. Links or exports that reference the old ID will no longer resolve.",
+    "driverMonitor.editTrip.renameConfirm": "Change Trip ID",
+    "driverMonitor.editTrip.renameDone": "Trip ID changed to {id}.",
+    "driverMonitor.editTrip.renameDoneIncidents": "Also updated {n} incident report(s).",
+    "driverMonitor.editTrip.renameError": "Failed to change the Trip ID.",
+
+    "driverMonitor.editTrip.partnerCodePlaceholder": "Select a customer / partner",
+    "driverMonitor.editTrip.partnerCodeSearch": "Search code or name…",
+    "driverMonitor.editTrip.partnerCodeEmpty": "No matching customer.",
+    "driverMonitor.editTrip.partnerCodeUnlisted": "not in the customer list",
+
     "driverMonitor.preview.downloadCurrent": "Download this image",
     "driverMonitor.preview.downloadAllZip": "Download all as ZIP",
     "driverMonitor.preview.downloadCurrentLoading": "Downloading…",

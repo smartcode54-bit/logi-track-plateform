@@ -25,6 +25,7 @@ import { effectivePartnerCode } from "@/features/drivers/hooks/useDriverMonitor"
 import { ReportIncidentModal } from "@/app/app/chat/components/ReportIncidentModal";
 import { ImagePreviewGallery } from "@/components/accounting/ImagePreviewGallery";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
+import { getCustomers } from "@/features/customers/api/customers";
 import { toast } from "sonner";
 import { HelperDriverField } from "@/features/tasks/components/HelperDriverField";
 import type { Driver } from "@/validate/driverSchema";
@@ -49,6 +50,12 @@ interface EditTripDetailsDialogProps {
     trip: TripRecord;
     getSourceDisplayName?: (code: string | null | undefined) => string;
     onSuccess?: () => void;
+    /**
+     * Partner codes already present on loaded trips (the Driver Monitor filter list). Merged into the
+     * ช่องทาง picker so codes that predate the customer master stay selectable instead of being lost
+     * the moment an admin opens the dialog.
+     */
+    partnerCodeOptions?: readonly string[];
     destinationOptions?: Array<{
         value: string;
         label: string;
@@ -91,6 +98,7 @@ export function EditTripDetailsDialog({
     getSourceDisplayName,
     onSuccess,
     destinationOptions = [],
+    partnerCodeOptions = [],
 }: EditTripDetailsDialogProps) {
     const { t } = useLanguage();
     const auth = useAuth();
@@ -102,7 +110,14 @@ export function EditTripDetailsDialog({
     const [resolveOutcome, setResolveOutcome] = useState<"delivered" | "cancelled">("cancelled");
     const [resolveClearAll, setResolveClearAll] = useState(false);
     const [resolving, setResolving] = useState(false);
+    // แก้ Trip ID ที่พิมพ์ผิด — the trip ID is the Firestore document ID, so this is a server-side
+    // copy → re-point → delete, not a field edit. Admin-only, delivered trips only.
+    const [renameOpen, setRenameOpen] = useState(false);
+    const [renameNewId, setRenameNewId] = useState("");
+    const [renaming, setRenaming] = useState(false);
     const [replaceByType, setReplaceByType] = useState<Record<string, File>>({});
+    // ช่องทาง (partnerCode) picker source: the customer master, searchable by code or name.
+    const [customerOptions, setCustomerOptions] = useState<Array<{ code: string; name: string }>>([]);
     const [spxTripId, setSpxTripId] = useState(trip.spxTripId ?? "");
     const [sealCode, setSealCode] = useState(trip.sealCode ?? "");
     const [partnerCode, setPartnerCode] = useState("");
@@ -208,6 +223,23 @@ export function EditTripDetailsDialog({
         }
     };
 
+    /**
+     * Customer master for the ช่องทาง picker. Failure is non-fatal: the picker still offers the codes
+     * already in use, so a customers read error cannot stop an admin from editing the trip.
+     */
+    const loadCustomerOptions = async () => {
+        try {
+            const customers = await getCustomers();
+            setCustomerOptions(
+                customers
+                    .filter((c) => (c.code ?? "").trim())
+                    .map((c) => ({ code: c.code.trim(), name: (c.name ?? "").trim() }))
+            );
+        } catch {
+            setCustomerOptions([]);
+        }
+    };
+
     // Resolve the linked task doc (helper lives on tasks.helperDriverIds) + derive the
     // pay period/round from the task date so we can lock edits once the payout is final.
     const loadHelperContext = async (taskId: string) => {
@@ -277,6 +309,7 @@ export function EditTripDetailsDialog({
             }
             setHelperError(null);
             fetchDrivers();
+            void loadCustomerOptions();
             if (trip.taskId) {
                 loadHelperContext(trip.taskId);
             } else {
@@ -290,6 +323,33 @@ export function EditTripDetailsDialog({
         }
         dialogWasOpenRef.current = open;
     }, [open, trip]);
+
+    /**
+     * ช่องทาง options: the customer master first (searchable by code or name), then any code already
+     * in use that has no customer behind it — including this trip's own value, so opening the dialog
+     * can never silently drop a legacy code. Selecting the current entry again clears the field.
+     */
+    const partnerComboOptions: ComboboxOption[] = useMemo(() => {
+        const options: ComboboxOption[] = customerOptions.map((c) => ({
+            value: c.code,
+            label: c.name ? `${c.code} — ${c.name}` : c.code,
+        }));
+        const known = new Set(options.map((o) => o.value));
+        const extras = new Set<string>();
+        [...partnerCodeOptions, partnerCode].forEach((code) => {
+            const trimmed = (code ?? "").trim();
+            if (trimmed && !known.has(trimmed)) extras.add(trimmed);
+        });
+        [...extras]
+            .sort((a, b) => a.localeCompare(b))
+            .forEach((code) =>
+                options.push({
+                    value: code,
+                    label: `${code} — ${t("driverMonitor.editTrip.partnerCodeUnlisted", "not in the customer list")}`,
+                })
+            );
+        return options;
+    }, [customerOptions, partnerCodeOptions, partnerCode, t]);
 
     const helperChanged = (helperIds[0] ?? "") !== (initialHelperIds[0] ?? "");
 
@@ -743,6 +803,48 @@ export function EditTripDetailsDialog({
         }
     };
 
+    /**
+     * แก้ Trip ID ที่ พขร. พิมพ์ผิด. The value is the Firestore document ID, which cannot be updated —
+     * the callable copies the doc to the new ID, rewrites `spxTripId`, re-points incident reports and
+     * deletes the original, all in one batch. Closes the dialog on success because `trip.id` (the prop
+     * this component is keyed on) no longer exists.
+     */
+    const handleRename = async () => {
+        const currentId = trip.id;
+        const nextId = renameNewId.trim();
+        if (!currentId || !nextId || nextId === currentId) return;
+        setRenaming(true);
+        try {
+            const fn = httpsCallable<
+                { oldId: string; newId: string },
+                { ok: boolean; incidentReportsRepointed: number }
+            >(functions, "renameTripRecord");
+            const { data } = await fn({ oldId: currentId, newId: nextId });
+            const repointed = data?.incidentReportsRepointed ?? 0;
+            toast.success(
+                t("driverMonitor.editTrip.renameDone", "Trip ID changed to {id}.").replace("{id}", nextId) +
+                    (repointed > 0
+                        ? " " +
+                          t(
+                              "driverMonitor.editTrip.renameDoneIncidents",
+                              "Also updated {n} incident report(s)."
+                          ).replace("{n}", String(repointed))
+                        : "")
+            );
+            setRenameOpen(false);
+            onOpenChange(false);
+            if (onSuccess) onSuccess();
+        } catch (e) {
+            console.error("Failed to rename trip:", e);
+            // The callable's precondition messages (duplicate ID, not delivered) are the useful part —
+            // surface them instead of a generic failure.
+            const msg = e instanceof Error ? e.message : "";
+            toast.error(msg || t("driverMonitor.editTrip.renameError", "Failed to change the Trip ID."));
+        } finally {
+            setRenaming(false);
+        }
+    };
+
     const hasChanges =
         Object.keys(replaceByType).length > 0 ||
         spxTripId !== (trip.spxTripId ?? "") ||
@@ -766,14 +868,40 @@ export function EditTripDetailsDialog({
 
                 <div className="space-y-6 py-2">
                     <div className="space-y-4">
+                        {/* Trip ID = the Firestore document ID. Read-only here; correcting a typo is a
+                            server-side move, offered only to admins on a delivered trip. */}
+                        <div className="flex items-end justify-between gap-3 rounded-lg border bg-muted/30 p-3">
+                            <div className="space-y-1 min-w-0">
+                                <label className="text-xs text-muted-foreground block">
+                                    {t("driverMonitor.editTrip.tripIdLabel", "Trip ID (document ID)")}
+                                </label>
+                                <p className="font-mono text-sm truncate">{trip.id}</p>
+                            </div>
+                            {canEditCategory && trip.status === "delivered" && (
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="shrink-0"
+                                    onClick={() => {
+                                        setRenameNewId(trip.id ?? "");
+                                        setRenameOpen(true);
+                                    }}
+                                >
+                                    {t("driverMonitor.editTrip.renameAction", "Change Trip ID")}
+                                </Button>
+                            )}
+                        </div>
                         <div className="grid grid-cols-2 gap-x-4 gap-y-4 text-sm">
                             <div className="col-span-2 space-y-2">
                                 <label className="text-muted-foreground block">{t("driverMonitor.detail.partnerCode")}</label>
-                                <Input
+                                <Combobox
+                                    options={partnerComboOptions}
                                     value={partnerCode}
-                                    onChange={(e) => setPartnerCode(e.target.value)}
-                                    placeholder="e.g. JWT, TTP"
-                                    className="font-mono text-xs max-w-md"
+                                    onSelect={setPartnerCode}
+                                    placeholder={t("driverMonitor.editTrip.partnerCodePlaceholder", "Select a customer / partner")}
+                                    searchPlaceholder={t("driverMonitor.editTrip.partnerCodeSearch", "Search code or name…")}
+                                    emptyText={t("driverMonitor.editTrip.partnerCodeEmpty", "No matching customer.")}
+                                    className="max-w-md font-mono text-xs"
                                 />
                             </div>
                             <div className="space-y-2">
@@ -1235,6 +1363,65 @@ export function EditTripDetailsDialog({
                     <Button onClick={handleResolve} disabled={resolving}>
                         {resolving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                         {t("driverMonitor.editTrip.resolveConfirm", "Confirm")}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+
+        {/* แก้ Trip ID ที่พิมพ์ผิด — moves the document, so it is confirmed on its own. */}
+        <Dialog open={renameOpen} onOpenChange={(o) => !renaming && setRenameOpen(o)}>
+            <DialogContent className="max-w-md">
+                <DialogHeader>
+                    <DialogTitle>
+                        {t("driverMonitor.editTrip.renameTitle", "Change Trip ID")}
+                    </DialogTitle>
+                    <DialogDescription>
+                        {t(
+                            "driverMonitor.editTrip.renameDesc",
+                            "Use this when the driver typed the wrong Trip ID. The trip keeps all of its data, photos and billing."
+                        )}
+                    </DialogDescription>
+                </DialogHeader>
+
+                <div className="space-y-3 py-1">
+                    <div className="space-y-1">
+                        <label className="text-xs text-muted-foreground block">
+                            {t("driverMonitor.editTrip.renameCurrent", "Current Trip ID")}
+                        </label>
+                        <p className="font-mono text-sm text-muted-foreground">{trip.id}</p>
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-xs text-muted-foreground block">
+                            {t("driverMonitor.editTrip.renameNew", "New Trip ID")}
+                        </label>
+                        <Input
+                            value={renameNewId}
+                            onChange={(e) => setRenameNewId(e.target.value)}
+                            placeholder="e.g. ZXZB26011192271"
+                            className="font-mono text-sm"
+                            disabled={renaming}
+                        />
+                    </div>
+                    <p className="text-xs text-amber-500">
+                        {t(
+                            "driverMonitor.editTrip.renameWarning",
+                            "The trip moves to the new ID and the old one stops existing. Links or exports that reference the old ID will no longer resolve."
+                        )}
+                    </p>
+                </div>
+
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => setRenameOpen(false)} disabled={renaming}>
+                        {t("firstMile.task.cancel", "Cancel")}
+                    </Button>
+                    <Button
+                        onClick={handleRename}
+                        disabled={
+                            renaming || !renameNewId.trim() || renameNewId.trim() === trip.id
+                        }
+                    >
+                        {renaming && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        {t("driverMonitor.editTrip.renameConfirm", "Change Trip ID")}
                     </Button>
                 </DialogFooter>
             </DialogContent>

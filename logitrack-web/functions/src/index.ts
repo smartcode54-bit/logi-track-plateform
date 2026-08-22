@@ -27,6 +27,7 @@ export * from "./syncBangchakFuelMonthlySnapshot";
 export * from "./tripBillingOnDelivered";
 export * from "./backfillCustomerLinks";
 export * from "./backfillTripJobCategory";
+export * from "./renameTripRecord";
 export * from "./billingRoundMigration";
 export * from "./tasks";
 export * from "./multiDeliveryTrips";
