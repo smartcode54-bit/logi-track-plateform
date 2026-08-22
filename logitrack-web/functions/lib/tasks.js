@@ -40,6 +40,7 @@ exports.getNextRunOrderForDriver = exports.createOrUpdateTask = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const firebase_functions_1 = require("firebase-functions");
+const jobCategoryWrite_1 = require("./core/jobCategoryWrite");
 const COL_TASKS = "tasks";
 /**
  * Callable: Create or update a task (single or multi-delivery). Admin only.
@@ -106,7 +107,6 @@ async (request) => {
     const taskDoc = {
         sourceHub: data.sourceHub.trim().toUpperCase(),
         destination: data.destination.trim().toUpperCase(),
-        jobCategory: data.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
         date: new Date(data.date),
         time: data.time.trim(),
         taskType: data.taskType,
@@ -136,6 +136,12 @@ async (request) => {
     };
     if (runOrder !== undefined) {
         taskDoc.runOrder = runOrder;
+    }
+    // หลัก/เสริม (ADR 0010 R2): write jobCategory only when the client sent it (or default
+    // PRIMARY on create). Never coerce on update — that silently reset เสริม → หลัก.
+    const jobCategoryToWrite = (0, jobCategoryWrite_1.resolveJobCategoryWrite)(data.jobCategory, !data.id);
+    if (jobCategoryToWrite !== undefined) {
+        taskDoc.jobCategory = jobCategoryToWrite;
     }
     // Add delivery stops for multi-delivery
     if (isMultiDelivery && data.deliveryStops) {
