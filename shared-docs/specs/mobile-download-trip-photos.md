@@ -1,6 +1,6 @@
 # Spec: Mobile — driver self-download of trip photos
 
-> **Status:** 🟡 Draft
+> **Status:** ✅ Done (code implemented 2026-08-22; runtime AC pending device QA — no mobile CI)
 > **Owner:** Samart Kas
 > **Created:** 2026-08-22
 > **Domain:** trip_history (logitrack-mobile)
@@ -129,27 +129,29 @@ Ground: loading types `loading_phase_page.dart:32,36`; delivery `delivery_phase_
 - `logitrack-mobile/assets/translations/th.json`
 
 ## 6. Task breakdown
-- [ ] **T1.** เพิ่ม `gal` ใน pubspec + `flutter pub get`; ตั้ง iOS `NSPhotoLibraryAddUsageDescription` + Android manifest permission (API ≤28).
-- [ ] **T2.** `trip_photo_order.dart`: `tripPhotoWorkflowRank(type)` (+ unit ordering, incident group 4) และ `resolveAssignedRoundStamp(trip)` (fetch task by taskId, fallback createdAt).
-- [ ] **T2b.** `trip_incident_photos.dart`: query `incidentReport where tripId == trip.id` → adapter 3 URL fields → `{url, type, createdAt}` (skip null).
-- [ ] **T3.** `trip_photo_download_service.dart`: รวม trip + incident → sort ตาม rank → fetch bytes (http) → `Gal.putImageBytes(album:'LogiTrack', name:...)`; permission gate; best-effort; คืน `{saved,total,failures}`.
-- [ ] **T4.** `trip_photos_page.dart`: grid เรียงตาม rank (section trip + section incident) + full-screen viewer + ปุ่มดาวน์โหลด (ซ่อนเมื่อ 0 รูป) + progress + snackbar X/Y + จอ permission-denied.
-- [ ] **T5.** `trip_history_page.dart`: ListTile `onTap` → `TripPhotosPage(trip)` เฉพาะ First Mile/Line Haul.
-- [ ] **T6.** i18n en + th (ตาราง §4).
-- [ ] **T7.** bump `pubspec.yaml` version.
-- [ ] **T8.** อัปเดต `.vibe-rules.md` Change Log + set ADR 0018 → shipped/impl note.
+- [x] **T1.** เพิ่ม `gal ^2.3.0` ใน pubspec (`flutter pub get` → gal 2.3.3); iOS `NSPhotoLibraryAddUsageDescription` + Android `WRITE_EXTERNAL_STORAGE` maxSdk 28.
+- [x] **T2.** `trip_photo_order.dart`: `tripPhotoWorkflowRank(type)` + `incidentPhotoRank(seq,type)` (group 4) + `resolveAssignedRoundStamp(trip)` (fetch task, fallback createdAt).
+- [x] **T2b.** `trip_incident_photos.dart`: query `incidentReport where tripId == trip.id` → adapter 3 URL fields → `IncidentPhoto{url,type,reportSeq}` (skip null, order by createdAt).
+- [x] **T3.** `trip_photo_download_service.dart`: `loadOrderedTripPhotos` (trip + incident, sorted) + `saveTripPhotosToGallery` (permission gate → http bytes → `Gal.putImageBytes(album:'LogiTrack', name:...)`, best-effort, X/Y result).
+- [x] **T4.** `trip_photos_page.dart`: grid (trip section + incident section) + full-screen `InteractiveViewer` + ปุ่มดาวน์โหลด (ซ่อนเมื่อ 0 รูป) + progress + snackbar X/Y + permission-denied action.
+- [x] **T5.** `trip_history_page.dart`: ListTile `onTap` → `TripPhotosPage(trip)` (เฉพาะ `_SectionCard` = First Mile/Line Haul; Standby card ไม่มี).
+- [x] **T6.** i18n en + th — 9 คีย์ `trip_photos_*` (รวม `trip_photos_incident_section` ที่เพิ่มสำหรับ section header).
+- [x] **T7.** bump `pubspec.yaml` `3.2.0+1 → 3.2.0+2` (build number; ชื่อ 3.2.0 คงไว้ตามเลขร่วม).
+- [x] **T8.** `.vibe-rules.md` Change Log + spec Status ✅ + ADR 0018 impl note.
 
 ## 7. Acceptance criteria (ตรวจรับ)
-- [ ] **AC1. (R1,R7,R8)** แตะเที่ยว First Mile/Line Haul ของตัวเองในหน้า Trip History → เปิดหน้ารูปของเที่ยวนั้น; เที่ยวคนอื่นไม่ปรากฏ (query เดิม); การ์ด Standby ไม่มี onTap นี้.
-- [ ] **AC2. (R2,R11)** รูปแสดงครบทุกใบของเที่ยว (loading + delivery + ทุก stop) เรียงตาม workflow rank; **ถ้าเที่ยวมี incident → รูป incident โผล่เป็นกลุ่มท้ายสุด**; แตะดูเต็มจอ/zoom ได้.
-- [ ] **AC3. (R3,R4)** กด "ดาวน์โหลดทั้งเที่ยว" → รูปทั้งหมด **รวม incident** ไปอยู่อัลบั้ม `LogiTrack` ในแกลเลอรี; ชื่อไฟล์มี Trip ID + roundStamp + ลำดับ (incident มี `incident{S}` ในชื่อ).
-- [ ] **AC3b. (R11)** เที่ยวที่ไม่มี incident → ไม่มี section/รูป incident และไม่ error; incident ที่ `tripId==null` ไม่ปรากฏในเที่ยวใด.
-- [ ] **AC4. (R5)** เที่ยวที่มี `taskId` → roundStamp = task.date+time; เที่ยว manual/legacy ที่ไม่มี `taskId` → roundStamp = createdAt; ทั้งสองกรณีโหลดสำเร็จ.
-- [ ] **AC5. (R6)** ตัดเน็ตกลางคัน/มีรูป url เสีย → เซฟเท่าที่ได้ + แจ้ง "เซฟ X/Y"; ถ้า 0 → error ให้ลองใหม่ (ไม่ crash, ไม่ค้าง spinner).
-- [ ] **AC6. (R9)** ปฏิเสธ permission → ข้อความ + ปุ่มเปิดการตั้งค่า; ไม่ crash; กดใหม่หลังอนุญาตแล้วเซฟได้.
-- [ ] **AC7. (R10)** เที่ยวที่ยังไม่มีรูป → ปุ่มดาวน์โหลดซ่อน/disable และแสดง `trip_photos_empty`.
-- [ ] **AC8. (N1)** ทุกสตริงมีทั้ง en + th; สลับภาษาแล้วไม่มี key ดิบ.
-- [ ] **AC9. (N4)** `dart analyze` ไม่มี error ใหม่.
+- [~] **AC1. (R1,R7,R8)** โค้ด: onTap อยู่บน `_SectionCard` ListTile เท่านั้น (First Mile/Line Haul), Standby ไม่มี; query เดิม scope เที่ยวตัวเอง. **ต้อง QA บน device.**
+- [~] **AC2. (R2,R11)** โค้ด: viewer แยก section trip/incident, sort ตาม rank. **ต้อง QA บน device.**
+- [~] **AC3. (R3,R4)** โค้ด: `saveTripPhotosToGallery` → album `LogiTrack`, ชื่อไฟล์ `LogiTrack_{tripId}_{roundStamp}_{NN}-...` (incident มี `incident{S}`). **ต้อง QA บน device (gallery จริง).**
+- [~] **AC3b. (R11)** โค้ด: `fetchIncidentPhotosForTrip` คืน `[]` เมื่อไม่มี/tripId ว่าง → ไม่มี section/error. **ต้อง QA บน device.**
+- [~] **AC4. (R5)** โค้ด: `resolveAssignedRoundStamp` ดึง task แล้ว fallback `createdAt`, ไม่ throw. **ต้อง QA บน device.**
+- [~] **AC5. (R6)** โค้ด: loop best-effort ต่อรูป, `savedNone` → error copy. **ต้อง QA บน device (เน็ตหลุด).**
+- [~] **AC6. (R9)** โค้ด: `Gal.requestAccess(toAlbum:true)` → `PhotoPermissionDeniedException` → snackbar + settings action. **ต้อง QA บน device.**
+- [~] **AC7. (R10)** โค้ด: ปุ่ม (bottomNavigationBar) render เฉพาะเมื่อ `_items.isNotEmpty`; ว่าง → `trip_photos_empty`. **ต้อง QA บน device.**
+- [x] **AC8. (N1)** 9 คีย์ครบ en + th; JSON parse ผ่านทั้งสองไฟล์.
+- [x] **AC9. (N4)** `flutter analyze lib/features/trip_history` = 0 error, 0 issue ใหม่ (4 ไฟล์ใหม่สะอาด; เหลือ 10 infos/warnings เดิมใน `trip_history_page.dart`).
+
+> `[~]` = โค้ดครบตาม requirement + analyzer สะอาด แต่เป็นพฤติกรรม runtime ที่ต้องยืนยันบนเครื่องจริง (ไม่มี mobile CI, รัน device ที่นี่ไม่ได้).
 
 ## 8. Risks & rollback
 | Risk | Mitigation / rollback |
