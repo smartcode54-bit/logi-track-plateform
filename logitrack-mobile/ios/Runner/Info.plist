@@ -45,5 +45,7 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>LogiTrack saves your trip evidence photos to your photo library so you can keep a copy.</string>
 </dict>
 </plist>

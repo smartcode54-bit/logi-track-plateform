@@ -540,6 +540,9 @@ class _DelayCausePickerSheetState extends State<_DelayCausePickerSheet> {
                 Expanded(
                   child: ListView.builder(
                     controller: scrollController,
+                    padding: EdgeInsets.only(
+                      bottom: MediaQuery.of(context).viewPadding.bottom,
+                    ),
                     itemCount: filtered.length,
                     itemBuilder: (context, index) {
                       final optionKey = filtered[index];

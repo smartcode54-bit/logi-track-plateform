@@ -7,6 +7,7 @@ import '../../../home/data/models/trip_record.dart' show TripRecord, DeliverySto
 import '../../../home/data/repositories/driver_repository.dart';
 import '../../../home/data/repositories/hubs_repository.dart';
 import '../../../home/data/repositories/trip_records_repository.dart';
+import 'trip_photos_page.dart';
 
 const String _tripPartnerFilterAll = '__ALL__';
 const String _tripPartnerFilterUnspecified = '__NONE__';
@@ -584,6 +585,11 @@ class _SectionCard extends StatelessWidget {
                   }
 
                   return ListTile(
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => TripPhotosPage(trip: t),
+                      ),
+                    ),
                     title: Text(
                       tripId,
                       style: const TextStyle(

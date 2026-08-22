@@ -1,6 +1,6 @@
 # Spec: Mobile — driver self-download of trip photos
 
-> **Status:** ✅ Done (code implemented 2026-08-22; runtime AC pending device QA — no mobile CI)
+> **Status:** ✅ Done (2026-08-22). Verified: `flutter analyze` clean · ordering unit tests 8/8 · dev-flavor debug APK builds (gal native integration OK). Interactive on-device QA (gallery save / permission dialog) still pending — no Android/iOS device attached, only Windows+web targets.
 > **Owner:** Samart Kas
 > **Created:** 2026-08-22
 > **Domain:** trip_history (logitrack-mobile)
@@ -44,7 +44,8 @@
 - **R8.** ครอบ `trip_records` (First Mile + Line Haul) **+ `incidentReport` ที่ผูกด้วย `tripId`**. ไม่แตะการ์ด Standby.
 - **R9.** ก่อนเซฟ ขอ permission add-only (`Gal.requestAccess(toAlbum: true)`). ถ้า deny → snackbar/dialog อธิบาย + ปุ่ม "เปิดการตั้งค่า". ไม่ crash.
 - **R10.** ปุ่มดาวน์โหลด **ซ่อน/disable** เมื่อเที่ยวมี 0 รูป (นับรวม trip photos + incident photos).
-- **R11.** ดึง incident ของเที่ยวด้วย query `collection('incidentReport').where('tripId', isEqualTo: trip.id)` (`incidentReportCollection = 'incidentReport'` — camelCase, ไม่ใช่ `incident_reports`). แต่ละ report แปลง 3 ฟิลด์ URL (`mapPhotoUrl`/`situation1PhotoUrl`/`situation2PhotoUrl`) เป็น `{url, type}` เฉพาะที่ไม่ว่าง; เที่ยวที่ไม่มี incident → ไม่เพิ่มอะไร (ไม่ error). Incident ที่ `tripId == null` ไม่ผูกเที่ยว → ไม่ปรากฏ (ถูกต้อง).
+- **R11.** ดึง incident ของเที่ยว (`incidentReportCollection = 'incidentReport'` — camelCase, ไม่ใช่ `incident_reports`). **🔴 ต้อง query ด้วย `where('driverId', isEqualTo: authUid)` แล้ว filter `tripId == trip.id` ใน memory** — ไม่ใช่ `where('tripId', ...)` ตรงๆ เพราะ `incidentReport` read rule gate ต่อ doc ที่ `driverId == auth.uid` (`firestore.rules:93-99`); Firestore **ปฏิเสธทั้ง query** ถ้า constraint ไม่การันตีว่าทุก match อ่านได้ → query แบบ tripId เดียวจะโดน permission-denied เงียบๆ (คืน []). incident เขียน `driverId = auth uid` เสมอ (`incident_report_page.dart:146`). แต่ละ report แปลง 3 ฟิลด์ URL (`mapPhotoUrl`/`situation1PhotoUrl`/`situation2PhotoUrl`) เป็น `{url, type}` เฉพาะที่ไม่ว่าง; ไม่มี incident / `tripId == null` → ไม่ปรากฏ (ไม่ error).
+- **R12.** แต่ละ thumbnail แสดง **label ของขั้นตอน** (localized) ใต้ภาพ และเป็น caption ในจอเต็ม: loading/delivery step names, multi-stop = "จุดส่ง #{n}: {step}", incident = "แผนที่เหตุการณ์"/"ภาพเหตุการณ์ {n}", unknown/legacy → raw type. Label = UI เท่านั้น (ชื่อไฟล์ยังใช้ `{type}` ASCII-safe).
 
 **Non-functional** (perf / security / i18n / cost)
 - **N1.** i18n ครบทั้ง `en` และ `th` (flat keys ใน `assets/translations/{en,th}.json`, easy_localization `.tr()`).
@@ -110,7 +111,9 @@ Ground: loading types `loading_phase_page.dart:32,36`; delivery `delivery_phase_
 | `trip_photos_permission_denied` | Allow photo access to save images | อนุญาตการเข้าถึงรูปภาพเพื่อบันทึก |
 | `trip_photos_permission_settings` | Open settings | เปิดการตั้งค่า |
 
-(`{saved}`/`{total}` ผ่าน `.tr(namedArgs: {...})`.) Step-label ต่อ thumbnail = optional (ดู §9).
+(`{saved}`/`{total}` ผ่าน `.tr(namedArgs: {...})`.)
+
+**Step-label keys (R12, เพิ่ม 2026-08-22):** `trip_photos_step_runsheet`, `_runsheet_extra` (`{n}`), `_pre_close`, `_closing`, `_seal`, `_pre_open`, `_opening`, `_empty_container`, `_runsheet_received`, `_stop` (`{n}`,`{step}`), `_incident_map`, `_incident_situation` (`{n}`) — ครบ en+th.
 
 ## 5. Affected files
 
@@ -119,6 +122,7 @@ Ground: loading types `loading_phase_page.dart:32,36`; delivery `delivery_phase_
 - `logitrack-mobile/lib/features/trip_history/data/services/trip_photo_download_service.dart`
 - `logitrack-mobile/lib/features/trip_history/data/trip_photo_order.dart` (rank + roundStamp helper)
 - `logitrack-mobile/lib/features/trip_history/data/trip_incident_photos.dart` (query `incidentReport` by tripId + adapter)
+- `logitrack-mobile/test/trip_photo_order_test.dart` (unit tests for the workflow ordering)
 
 **แก้**
 - `logitrack-mobile/lib/features/trip_history/presentation/pages/trip_history_page.dart` (ListTile onTap → push)
@@ -141,7 +145,7 @@ Ground: loading types `loading_phase_page.dart:32,36`; delivery `delivery_phase_
 
 ## 7. Acceptance criteria (ตรวจรับ)
 - [~] **AC1. (R1,R7,R8)** โค้ด: onTap อยู่บน `_SectionCard` ListTile เท่านั้น (First Mile/Line Haul), Standby ไม่มี; query เดิม scope เที่ยวตัวเอง. **ต้อง QA บน device.**
-- [~] **AC2. (R2,R11)** โค้ด: viewer แยก section trip/incident, sort ตาม rank. **ต้อง QA บน device.**
+- [x] **AC2 ordering (R2,R11)** — **unit-tested 8/8** (`test/trip_photo_order_test.dart`): rank ลำดับ loading→delivery→multi-stop(by index)→incident→unknown + end-to-end scrambled sort. (viewer rendering ยัง QA บน device.)
 - [~] **AC3. (R3,R4)** โค้ด: `saveTripPhotosToGallery` → album `LogiTrack`, ชื่อไฟล์ `LogiTrack_{tripId}_{roundStamp}_{NN}-...` (incident มี `incident{S}`). **ต้อง QA บน device (gallery จริง).**
 - [~] **AC3b. (R11)** โค้ด: `fetchIncidentPhotosForTrip` คืน `[]` เมื่อไม่มี/tripId ว่าง → ไม่มี section/error. **ต้อง QA บน device.**
 - [~] **AC4. (R5)** โค้ด: `resolveAssignedRoundStamp` ดึง task แล้ว fallback `createdAt`, ไม่ throw. **ต้อง QA บน device.**
@@ -166,8 +170,18 @@ Ground: loading types `loading_phase_page.dart:32,36`; delivery `delivery_phase_
 
 ## 9. Open questions / follow-ups
 - **Version number:** pubspec บนดิสก์ = `3.1.0+1` แต่ handover ใน CLAUDE.md อ้าง `3.2.0+1` — ยืนยันเลขที่จะ bump จริงก่อน build (ผูกกับ ADR 0007 force-update gate).
-- **Step label ต่อ thumbnail** (เช่น "ปิดตู้", "ซีล", "จุดส่ง #1") — optional enhancement; ต้องเพิ่ม i18n map ต่อ type ถ้าทำ. v1 ไม่บังคับ.
+- ~~**Step label ต่อ thumbnail**~~ — **ทำแล้ว 2026-08-22 (R12)**: label ใต้ทุก thumbnail + caption จอเต็ม, `tripPhotoStepLabel()` ใน `trip_photos_page.dart`.
 - **Package `gal` vs `saver_gallery`** — spec เลือก `gal` (album + add-only access ครบ). เปลี่ยนได้ถ้า build เจอปัญหา iOS.
 - หลัง build เสร็จ: ต่อยอด standby/incident photos และใช้หน้านี้เป็น read-only proof view ทั่วไป (นอก scope).
+
+**Follow-ups (2026-08-22, หลัง build):**
+- **Section rename:** `รูปเหตุการณ์` → **`รายงานการจัดส่งล่าช้า`** (key `trip_photos_incident_section` → `trip_photos_delay_section`). Section แสดงเสมอ; ไม่มี incident → แบนเนอร์เขียว **"การจัดส่งปกติ ไม่มีรายงานการจัดส่งล่าช้า"** (`trip_photos_no_delay`) แทนการเรียก Image (กัน 404 placeholder).
+- **Safe-area sweep (นอก scope spec นี้ แต่ทำพร้อมกัน):** wrap `SafeArea(top:false)` แถบปุ่มก้น review sheet (loading/refuel/other_expense) + bottom padding ให้ list picker (hub/incident) กันปุ่ม/รายการทับ Android nav bar (edge-to-edge). ดู Change Log 2026-08-22.
+
+**QA notes (2026-08-22):**
+- **🐛 Fix (incident ไม่โผล่ preview/download):** query เดิม `where('tripId', ...)` โดน Firestore ปฏิเสธทั้ง query เพราะ `incidentReport` read rule gate ที่ `driverId` (rules ไม่ใช่ filter) → คืน [] เงียบๆ. เปลี่ยนเป็น `where('driverId', == authUid)` + filter `tripId` ใน memory (R11). **Pattern:** query ข้าม collection ที่ rule gate ต่อ owner ต้อง constrain ด้วย owner field เสมอ.
+- Hardening ที่เพิ่มระหว่าง QA: `http.get` มี `.timeout(30s)` ต่อรูป (กัน url ค้างทำทั้งชุดค้าง); thumbnail ใช้ `cacheWidth: 400` (กัน OOM เมื่อ grid มีรูป full-res หลายใบบนเครื่อง RAM น้อย).
+- **iOS watch-item:** Info.plist ใส่แค่ `NSPhotoLibraryAddUsageDescription` (add-only ตาม ADR). `gal` ออกแบบให้สร้าง/ใส่อัลบั้มด้วย add-only ได้ — แต่ต้อง **ยืนยันบน iOS device จริง** ว่าอัลบั้ม `LogiTrack` ถูกสร้างได้ด้วย add-only; ถ้าบาง iOS version ต้องการ full access ค่อยเพิ่ม `NSPhotoLibraryUsageDescription`.
+- **On-device QA ที่ยังเหลือ:** เซฟลงแกลเลอรีจริง + อัลบั้ม `LogiTrack`, จอ permission-deny + ปุ่มเปิดตั้งค่า, best-effort X/Y เมื่อเน็ตหลุด, เที่ยว multi-stop/incident แสดง+โหลดครบ. (สร้าง APK ได้แล้ว แต่ไม่มี device attach ในสภาพแวดล้อมนี้ — มีแค่ Windows/web target.)
 
 > ⚠️ ไฟล์นี้อยู่ใต้ `shared-docs/specs/` ซึ่งโดน `*.md` gitignore — ตอน commit ต้อง `git add -f shared-docs/specs/mobile-download-trip-photos.md`.

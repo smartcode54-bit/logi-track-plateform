@@ -83,10 +83,19 @@ Future<DuplicateCheckResult> checkDuplicateTripIdAndSeal({
 Future<List<TripRecord>> getTripHistoryByDriver(String driverId) async {
   if (driverId.isEmpty) return [];
   try {
-    final snapshot = await FirebaseFirestore.instance
+    final query = FirebaseFirestore.instance
         .collection(tripRecordsCollection)
-        .where('driverId', isEqualTo: driverId)
-        .get();
+        .where('driverId', isEqualTo: driverId);
+    // Prefer fresh server data so admin edits/deletions reflect on refresh —
+    // the default offline cache would otherwise keep showing deleted trips (and
+    // their now-404 photo URLs). Fall back to cache when the server is
+    // unreachable so a driver in low signal still sees their history.
+    QuerySnapshot<Map<String, dynamic>> snapshot;
+    try {
+      snapshot = await query.get(const GetOptions(source: Source.server));
+    } catch (_) {
+      snapshot = await query.get();
+    }
     final list = snapshot.docs
         .map((doc) => TripRecord.fromMap(doc.data(), id: doc.id))
         .toList();

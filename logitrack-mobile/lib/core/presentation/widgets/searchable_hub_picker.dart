@@ -333,6 +333,9 @@ class _SearchableHubSheetState extends State<SearchableHubSheet> {
 
                   return ListView.builder(
                     controller: scrollController,
+                    padding: EdgeInsets.only(
+                      bottom: MediaQuery.of(context).viewPadding.bottom,
+                    ),
                     itemCount: itemCount,
                     itemBuilder: (context, index) {
                       if (showAddNew && index == filtered.length) {
