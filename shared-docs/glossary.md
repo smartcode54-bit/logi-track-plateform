@@ -360,6 +360,46 @@ actually cost that day (`functions/src/core/persistFuelMonthlySnapshot.ts:69-82`
 announcement is priced from (§5), as opposed to `fuel_monthly_snapshots/{yyyy-MM}`, which is
 overwritten on every sync (`:58-66`) and is therefore not a billing input at all.
 
+## Evidence photo
+
+A photo captured by the driver during a trip's loading or delivery phase and stored under
+`trip_records`. It is **not a raw snapshot**: `photo_overlay_service.dart:177` bakes a burned-in
+overlay (GPS, reverse-geocoded address, Thai-era timestamp, `LogiTrack Pro` branding, a Google-Maps
+QR) into the JPEG **before** upload, and the pre-overlay original is never stored. Uploaded to
+`trip_records/{tripId}/{photoType}.jpg` (`trip_records_repository.dart:10,217-228`), referenced in
+`trip_records.photos[]` as `{url, type, geocoding}` (`trip_record.dart:274`), and served from a
+**public-read** Storage path (`storage.rules:35`).
+
+**Completeness invariant:** the flat `photos[]` array is the whole set. Multi-drop delivery writes each
+stop's photos to **both** `deliveryStopsProgress[].photos` **and** the merged flat `photos[]`
+(`delivery_trip_repository.dart:187-195`), so enumerating `TripRecord.photos` yields loading +
+single-delivery + per-stop with no join. Defined in
+[ADR 0018](adr/0018-driver-self-download-trip-photos.md).
+
+## Photo type
+
+The `type` string on an [[Evidence photo]], identifying the workflow step. Loading: `runsheet`,
+`runsheet_extra_1..3` (`loading_phase_page.dart:36`), `pre_close`, `closing`, `seal`
+(`loading_phase_page.dart:32`). Single delivery: `pre_open`, `opening`, `empty_container`,
+`runsheet_received` (`delivery_phase_page.dart:22`). Multi-stop: `stop_{index}_{type}`.
+
+**Order invariant:** the stored `photos[]` order is **insertion/replace order**, not workflow order —
+the array is built by `mergeTripPhotosReplacingTypes` (`delivery_trip_repository.dart:187`). Any
+"in workflow order" presentation (e.g. the bulk photo download in
+[ADR 0018](adr/0018-driver-self-download-trip-photos.md) §3) must sort by an **explicit type-rank**
+(loading → single delivery → multi-stop by ascending index), with unknown/legacy types last.
+
+## Assigned round
+
+รอบเวลาของงานตาม assign — the dispatch slot an admin set when assigning the job: the task's `date` +
+`time` (HH:MM) (`validate/taskSchema.ts:61-63`). It lives **only on the task**; `trip_records` carries
+`taskId` but not the time, and the trip's `createdAt`/`std` is when the driver *saved loading*, not the
+assigned slot (`trip_record.dart:73-84`). Resolve it by fetching the task via
+[[`taskId` vs `id`|`trip.taskId`]] at read time and **fall back to `trip.createdAt`** when there is no
+`taskId` (driver-created manual trips, legacy rows) — same fetch-not-denormalize choice as
+[[`checkInAt`]]. Used to label downloaded evidence-photo files in
+[ADR 0018](adr/0018-driver-self-download-trip-photos.md) §4-5.
+
 ---
 
 # Driver compensation
