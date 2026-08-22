@@ -4,6 +4,15 @@
 - **Deciders:** Samart Kas (product owner), Claude
 - **Area:** logitrack-mobile (Trip History + a new per-trip photo viewer), Firebase Storage (read only). No web, no Cloud Functions, no schema change.
 
+> **Amendment (2026-08-22).** The owner extended the scope during spec-writing: **incident photos linked
+> to the trip are now included** in the viewer and the bulk download. This reverses the "incident out of
+> scope" half of Decision 1 / the corresponding "Alternatives considered" rejection below — standby stays
+> out. Incidents live in the **`incidentReport`** collection (camelCase; not `incident_reports`), linked
+> by `incidentReport.tripId == trip.id`, storing photos as **three nullable URL fields**
+> (`mapPhotoUrl` / `situation1PhotoUrl` / `situation2PhotoUrl`, `incident_report_repository.dart:81-96`),
+> read-public at `incident_reports/**` (`storage.rules:41`). They sort as a trailing workflow group
+> (after multi-stop). Specced in `shared-docs/specs/mobile-download-trip-photos.md` (R11).
+
 ## Context
 
 The owner wants drivers (พขร.) to **download their own work-record photos from the mobile app** —
