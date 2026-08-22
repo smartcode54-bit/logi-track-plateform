@@ -68,3 +68,6 @@ playwright-mcp.json
 
 # Firebase
 .firebase/
+
+# Generated per-deploy by functions/scripts/generate-manifest.js — project-specific, never commit
+/functions/functions.yaml
