@@ -48,6 +48,7 @@ import {
 import type { Task } from "@/validate/taskSchema";
 import type { TripRecord } from "@/validate/tripRecordSchema";
 import { primaryHubLabelFromFirestoreData } from "@/lib/hubDisplay";
+import { resolveDisplayJobCategory } from "@/lib/jobCategory";
 import { EditBillingDialog } from "@/features/accounting";
 import { toast } from "sonner";
 
@@ -86,6 +87,8 @@ interface IncomeRow {
     billingEffectiveFromDateStr?: string;
     billingCustomerId?: string;
     truckType?: string;
+    /** Needed for the ADR 0010 trip → task fallback when the trip's own cache is blank. */
+    taskId?: string;
     jobCategory?: "PRIMARY" | "SUPPLEMENTARY";
     deliveredTimestamp?: Date;
     billingIsMultiDelivery?: boolean;
@@ -334,12 +337,9 @@ export default function AccountingIncomePage() {
                             : undefined,
                         billingCustomerId: d.billingCustomerId ? String(d.billingCustomerId) : undefined,
                         truckType: d.truckType ? String(d.truckType) : undefined,
-                        jobCategory:
-                            d.jobCategory === "SUPPLEMENTARY"
-                                ? "SUPPLEMENTARY"
-                                : d.jobCategory === "PRIMARY"
-                                ? "PRIMARY"
-                                : undefined,
+                        taskId: typeof d.taskId === "string" && d.taskId.trim() ? d.taskId : undefined,
+                        // Left raw here; the trip → task fallback runs below, once the tasks are loaded.
+                        jobCategory: resolveDisplayJobCategory(d.jobCategory),
                         deliveredTimestamp: toDate(d.deliveredTimestamp),
                         billingIsMultiDelivery: d.billingIsMultiDelivery === true,
                         totalDeliveryStops: typeof d.totalDeliveryStops === "number" ? d.totalDeliveryStops : undefined,
@@ -382,31 +382,57 @@ export default function AccountingIncomePage() {
                 console.warn("[income] standby_records query failed (index may still be building):", standbyErr);
             }
 
-            setRows(withBilling);
+            // Tasks are needed for two independent reasons, so they are fetched once, together:
+            //   1. every unbilled trip, to compute why its billing is missing;
+            //   2. any *billed* trip whose own jobCategory cache is blank, for the ADR 0010 R2
+            //      trip → task fallback. Only those trips are looked up, not all 500 — legacy trips
+            //      billed before billing started writing jobCategory are the minority.
+            // Standby rows are excluded: a standby event has no task and no หลัก/เสริม at all.
+            const missingTaskIds = new Set<string>();
+            withoutBilling.forEach(({ tripDoc }) => {
+                const id = tripDoc.data.taskId;
+                if (typeof id === "string" && id.trim().length > 0) missingTaskIds.add(id);
+            });
+            const fallbackTaskIds = new Set<string>();
+            withBilling.forEach((row) => {
+                if (row.recordType === "standby" || row.jobCategory || !row.taskId) return;
+                fallbackTaskIds.add(row.taskId);
+            });
+
+            const taskMap = new Map<string, Task>();
+            const taskIdsToLoad = [...new Set([...missingTaskIds, ...fallbackTaskIds])];
+            if (taskIdsToLoad.length > 0) {
+                const taskChunks = chunkArray(taskIdsToLoad, 30);
+                const taskSnapshots = await Promise.all(
+                    taskChunks.map(chunk =>
+                        getDocs(query(collection(db, COLLECTIONS.TASKS), where(documentId(), "in", chunk)))
+                    )
+                );
+                taskSnapshots.forEach(snap => {
+                    snap.docs.forEach(d => {
+                        taskMap.set(d.id, d.data() as Task);
+                    });
+                });
+            }
+
+            setRows(
+                withBilling.map((row) => {
+                    if (row.recordType === "standby" || row.jobCategory || !row.taskId) return row;
+                    const resolved = resolveDisplayJobCategory(
+                        undefined,
+                        taskMap.get(row.taskId)?.jobCategory
+                    );
+                    return resolved ? { ...row, jobCategory: resolved } : row;
+                })
+            );
 
             if (withoutBilling.length > 0) {
-                const taskIds = withoutBilling
-                    .map((t) => t.tripDoc.data.taskId)
-                    .filter((id): id is string => typeof id === "string" && id.trim().length > 0);
-                const uniqueTaskIds = [...new Set(taskIds)];
-
-                const taskMap = new Map<string, Task>();
-                if (uniqueTaskIds.length > 0) {
-                    const taskChunks = chunkArray(uniqueTaskIds, 30);
-                    const taskSnapshots = await Promise.all(
-                        taskChunks.map(chunk =>
-                            getDocs(query(collection(db, COLLECTIONS.TASKS), where(documentId(), "in", chunk)))
-                        )
-                    );
-                    taskSnapshots.forEach(snap => {
-                        snap.docs.forEach(d => {
-                            taskMap.set(d.id, d.data() as Task);
-                        });
-                    });
-                }
-
+                // Scoped to the unbilled trips' tasks only — pulling rate cards for customers that
+                // appear solely via the jobCategory fallback would be wasted reads.
                 const customerIdsFromTasks = new Set<string>();
-                taskMap.forEach((task) => {
+                missingTaskIds.forEach((taskId) => {
+                    const task = taskMap.get(taskId);
+                    if (!task) return;
                     if (task.sourceHubLinkedCustomerId) customerIdsFromTasks.add(task.sourceHubLinkedCustomerId);
                     if (task.destinationLinkedCustomerId) customerIdsFromTasks.add(task.destinationLinkedCustomerId);
                 });
@@ -427,12 +453,7 @@ export default function AccountingIncomePage() {
 
                     // หลัก/เสริม resolved trip → task (ADR 0010): the trip's own value wins; fall back
                     // to the authoritative task value; undefined ⇒ the UI shows the "unverified" marker.
-                    const resolvedJobCategory: "PRIMARY" | "SUPPLEMENTARY" | undefined =
-                        d.jobCategory === "SUPPLEMENTARY" || d.jobCategory === "PRIMARY"
-                            ? d.jobCategory
-                            : task?.jobCategory === "SUPPLEMENTARY" || task?.jobCategory === "PRIMARY"
-                            ? task.jobCategory
-                            : undefined;
+                    const resolvedJobCategory = resolveDisplayJobCategory(d.jobCategory, task?.jobCategory);
 
                     const sourceHub = task?.sourceHub ?? undefined;
                     const destination = task?.destination ?? undefined;
@@ -1237,7 +1258,11 @@ export default function AccountingIncomePage() {
                                                 {row.truckType || "—"}
                                             </TableCell>
                                             <TableCell className="text-sm">
-                                                {row.jobCategory === "SUPPLEMENTARY" ? (
+                                                {row.recordType === "standby" ? (
+                                                    // A standby event is not a หลัก/เสริม job — flagging it
+                                                    // "ตรวจสอบ" would be a false alarm on every standby row.
+                                                    <span className="text-muted-foreground">—</span>
+                                                ) : row.jobCategory === "SUPPLEMENTARY" ? (
                                                     <Badge variant="outline" className="text-[10px] py-0 px-1 bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/30 dark:text-amber-400">
                                                         {t("accounting.billingDocument.badge.jobCategorySupplementary")}
                                                     </Badge>
