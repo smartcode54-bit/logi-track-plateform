@@ -62,14 +62,17 @@ Future<void> submitDeliveryPhaseRecord({
       photoType: type,
       imageBytes: photo.bytes,
     );
+    // Screenshot types (e.g. arrived) carry no geocoding — they are not overlaid captures (ADR 0019).
     return TripPhoto(
       url: url,
       type: type,
-      geocoding: TripPhotoGeocoding(
-        lat: photo.lat,
-        lng: photo.lng,
-        timestamp: photo.timestamp,
-      ),
+      geocoding: isScreenshotPhotoType(type)
+          ? null
+          : TripPhotoGeocoding(
+              lat: photo.lat,
+              lng: photo.lng,
+              timestamp: photo.timestamp,
+            ),
     );
   });
   final newPhotos = await Future.wait(photoFutures);
@@ -265,14 +268,17 @@ Future<void> resubmitDeliveryPhotos({
       photoType: type,
       imageBytes: photo.bytes,
     );
+    // Screenshot types (e.g. arrived) carry no geocoding — they are not overlaid captures (ADR 0019).
     return TripPhoto(
       url: url,
       type: type,
-      geocoding: TripPhotoGeocoding(
-        lat: photo.lat,
-        lng: photo.lng,
-        timestamp: photo.timestamp,
-      ),
+      geocoding: isScreenshotPhotoType(type)
+          ? null
+          : TripPhotoGeocoding(
+              lat: photo.lat,
+              lng: photo.lng,
+              timestamp: photo.timestamp,
+            ),
     );
   });
   final newPhotos = await Future.wait(photoFutures);

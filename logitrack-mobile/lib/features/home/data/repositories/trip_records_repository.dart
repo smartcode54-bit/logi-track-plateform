@@ -236,6 +236,16 @@ Future<String> uploadTripPhoto({
   return ref.getDownloadURL();
 }
 
+/// Un-overlaid customer-app screenshot photo types (ADR 0019). These are captured from the
+/// customer's app (camera or gallery), NOT stamped with GPS/time overlay, so they must NOT carry
+/// geocoding metadata (stamping the current location on an image captured elsewhere = false
+/// provenance). Covers the flat types and the per-stop `stop_{index}_arrived`.
+bool isScreenshotPhotoType(String type) {
+  final t = type.trim();
+  if (t == 'checkin_app' || t == 'truck_release' || t == 'arrived') return true;
+  return RegExp(r'^stop_\d+_arrived$').hasMatch(t);
+}
+
 /// Input สำหรับรูปที่ถ่ายแล้ว (bytes + geocoding) — ใช้ร่วมโดย Loading และ Delivery
 class StampedPhotoInput {
   final List<int> bytes;

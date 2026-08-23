@@ -19,7 +19,10 @@ import 'incident_report_page.dart';
 import 'delivery_phase_page_multi.dart';
 
 /// ขั้นตอนรูป Delivery (ถ่ายภาพเหมือนการรับงาน)
+/// `arrived` = แคปหน้าจอ "มาถึง" จากแอปลูกค้า (ADR 0019) — เป็นขั้นแรกก่อนถ่ายรูปส่ง และ **ไม่ประทับ
+/// overlay** (ดู branch ใน `_takeDeliveryPhoto`); geocoding ถูกตัดใน `submitDeliveryPhaseRecord`
 const List<String> _deliveryPhotoStepKeys = [
+  'arrived',
   'pre_open',
   'opening',
   'empty_container',
@@ -78,7 +81,7 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
         (h) => h.sourceId.toUpperCase() == trimmed.toUpperCase() ||
                h.sourceNameEn.toUpperCase() == trimmed.toUpperCase(),
       );
-      return '${hub.sourceId} - ${hub.sourceNameEn}';
+      return hub.codeWithName;
     } catch (_) {
       // Hub not found, return code as-is
       return trimmed;
@@ -485,6 +488,8 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
 
     final picker = ImagePicker();
     final isRunsheetReceived = stepKey == 'runsheet_received';
+    // arrived is a customer-app screenshot → compress without overlay (ADR 0019).
+    final isScreenshot = stepKey == 'arrived';
     final xfile = await picker.pickImage(source: source, imageQuality: 85);
     if (xfile == null || !mounted) return;
     List<int> imageBytes = await xfile.readAsBytes();
@@ -501,7 +506,7 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
       }
     }
     Uint8List compressed;
-    if (isRunsheetReceived) {
+    if (isRunsheetReceived || isScreenshot) {
       compressed = await compressImageForUpload(imageBytes);
     } else {
       if (_cachedOverlayPosition == null || _cachedOverlayContext == null) {
@@ -532,7 +537,9 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
           content: Text(
             isRunsheetReceived
                 ? 'delivery_runsheet_uploaded'.tr()
-                : 'loading_phase_photo_stamped'.tr(),
+                : isScreenshot
+                    ? 'loading_phase_photo_added'.tr()
+                    : 'loading_phase_photo_stamped'.tr(),
           ),
         ),
       );
@@ -917,6 +924,15 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
                           const SizedBox(height: 16),
 
                           // Photo capture tiles (ถ่ายภาพแทนการเช็ค)
+                          // "มาถึง" — customer-app screenshot, first step (ADR 0019)
+                          _buildPhotoCaptureTile(
+                            title: 'delivery_photo_arrived'.tr(),
+                            subtitle: 'delivery_photo_arrived_desc'.tr(),
+                            stepKey: 'arrived',
+                            icon: Icons.screenshot,
+                            useGallery: true,
+                          ),
+                          const SizedBox(height: 12),
                           _buildPhotoCaptureTile(
                             title: 'delivery_photo_pre_open'.tr(),
                             subtitle: 'delivery_photo_pre_open_desc'.tr(),

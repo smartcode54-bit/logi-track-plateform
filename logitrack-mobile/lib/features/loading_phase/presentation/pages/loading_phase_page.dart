@@ -29,7 +29,14 @@ import '../../../../core/services/cloud_functions_service.dart';
 import '../../../delivery_phase/presentation/dialogs/add_delivery_stop_dialog.dart';
 
 /// ขั้นตอนรูป Loading (ไม่รวม runsheet ที่ย้ายขึ้นไปข้างบน)
-const List<String> _cameraPhotoStepKeys = ['pre_close', 'closing', 'seal'];
+/// `truck_release` = แคปหน้าจอ "ปล่อยรถ" จากแอปลูกค้า (ADR 0019) — เป็นขั้นสุดท้ายก่อนบันทึก และ
+/// **ไม่ประทับ overlay** (ดู branch ใน `_takeStepPhoto`); geocoding ถูกตัดใน `submitLoadingPhaseRecord`
+const List<String> _cameraPhotoStepKeys = [
+  'pre_close',
+  'closing',
+  'seal',
+  'truck_release',
+];
 
 /// รูปรันชีท/เอกสารมือ: อัปโหลดได้หลายใบ (สอดคล้อง `runsheet` + `runsheet_extra_*` ใน trip_records)
 const int _kMaxRunsheetPhotos = 4;
@@ -124,6 +131,10 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
   String? _taskLinkedCustomerId;
   DateTime? _taskCheckedInAt;
 
+  /// Un-overlaid check-in customer-app screenshot from the task (ADR 0019) — copied forward into
+  /// trip_records.photos[] as `checkin_app` when this loading is saved.
+  String? _checkInAppScreenshotUrl;
+
   // Truck snapshot from task (set during _lockJobTypeByActiveTask)
   String? _truckId;
   String? _truckLicensePlate;
@@ -204,6 +215,8 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       final isMultiDelivery = data?['isMultiDelivery'] as bool? ?? false;
       final deliveryStops = data?['deliveryStops'] as List? ?? [];
       final checkInAt = data?['checkInAt'] as Timestamp?;
+      final checkInAppScreenshotUrl =
+          data?['checkInAppScreenshotUrl'] as String?;
 
       final linkedCustomerId =
           (data?['sourceHubLinkedCustomerId'] as String?)?.trim().isNotEmpty == true
@@ -220,6 +233,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
           if (checkInAt != null) {
             _taskCheckedInAt = checkInAt.toDate();
           }
+          _checkInAppScreenshotUrl = checkInAppScreenshotUrl;
           // Snapshot truck info from task (written at check-in time)
           _truckLicensePlate = data?['licensePlate'] as String?;
           _truckType = data?['truckType'] as String?;
@@ -776,30 +790,47 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     if (xfile == null || !mounted) return;
     final imageBytes = await xfile.readAsBytes();
     if (!mounted) return;
-    if (_cachedOverlayPosition == null || _cachedOverlayContext == null) {
-      try {
-        final pos = await getCurrentPosition();
-        final ctx = await fetchOverlayContext(pos.latitude, pos.longitude);
-        if (mounted) {
-          setState(() {
-            _cachedOverlayPosition = pos;
-            _cachedOverlayContext = ctx;
-          });
-        }
-      } catch (_) {}
+    // truck_release is a customer-app screenshot → compress without overlay (ADR 0019); the others
+    // are overlaid evidence captures.
+    final bool isScreenshot = stepKey == 'truck_release';
+    Uint8List compressed;
+    if (isScreenshot) {
+      compressed = await stampOverlayAndCompressForEvidence(
+        imageBytes,
+        skipOverlay: true,
+      );
+    } else {
+      if (_cachedOverlayPosition == null || _cachedOverlayContext == null) {
+        try {
+          final pos = await getCurrentPosition();
+          final ctx = await fetchOverlayContext(pos.latitude, pos.longitude);
+          if (mounted) {
+            setState(() {
+              _cachedOverlayPosition = pos;
+              _cachedOverlayContext = ctx;
+            });
+          }
+        } catch (_) {}
+      }
+      if (!mounted) return;
+      compressed = await stampOverlayAndCompressForEvidence(
+        imageBytes,
+        position: _cachedOverlayPosition,
+        overlayContext: _cachedOverlayContext,
+      );
     }
-    if (!mounted) return;
-    final compressed = await stampOverlayAndCompressForEvidence(
-      imageBytes,
-      position: _cachedOverlayPosition,
-      overlayContext: _cachedOverlayContext,
-    );
     if (!mounted) return;
     setState(() => _stepPhotos[stepKey] = compressed);
     _saveLoadingDraft();
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('loading_phase_photo_stamped'.tr())));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          isScreenshot
+              ? 'loading_phase_photo_added'.tr()
+              : 'loading_phase_photo_stamped'.tr(),
+        ),
+      ),
+    );
   }
 
   bool get _hasDuplicateError =>
@@ -1412,6 +1443,8 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         truckType: _truckType,
         // Seed the trip's jobCategory from the task (ADR 0010); PRIMARY when self-created / absent.
         jobCategory: _jobCategory ?? 'PRIMARY',
+        // Copy the check-in customer-app screenshot forward into photos[] as `checkin_app` (ADR 0019).
+        checkInAppScreenshotUrl: _checkInAppScreenshotUrl,
         ocrData: TripOcrData(
           tripId: tripId,
           sealCode: sealCode.isEmpty ? null : sealCode,
@@ -1503,6 +1536,8 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         return 'loading_phase_photo_closing';
       case 'seal':
         return 'loading_phase_photo_seal';
+      case 'truck_release':
+        return 'loading_phase_photo_truck_release';
       default:
         return stepKey;
     }
@@ -1516,6 +1551,8 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         return 'loading_phase_photo_closing_desc';
       case 'seal':
         return 'loading_phase_photo_seal_desc';
+      case 'truck_release':
+        return 'loading_phase_photo_truck_release_desc';
       default:
         return stepKey;
     }

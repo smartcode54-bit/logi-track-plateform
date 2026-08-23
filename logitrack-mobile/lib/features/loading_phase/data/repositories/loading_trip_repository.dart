@@ -34,6 +34,9 @@ Future<void> submitLoadingPhaseRecord({
   String? truckType,
   // หลัก/เสริม copied from the fulfilled task (ADR 0010). Null defaults to PRIMARY at the caller.
   String? jobCategory,
+  // Un-overlaid check-in customer-app screenshot copied forward from the task (ADR 0019). Referenced,
+  // not re-uploaded — it already lives at checkin/{taskId}/... written at check-in.
+  String? checkInAppScreenshotUrl,
 }) async {
   final photoFutures = stepPhotos.entries.map((entry) async {
     final type = entry.key;
@@ -43,17 +46,26 @@ Future<void> submitLoadingPhaseRecord({
       photoType: type,
       imageBytes: photo.bytes,
     );
+    // Screenshot types (e.g. truck_release) carry no geocoding — they are not overlaid captures.
     return TripPhoto(
       url: url,
       type: type,
-      geocoding: TripPhotoGeocoding(
-        lat: photo.lat,
-        lng: photo.lng,
-        timestamp: photo.timestamp,
-      ),
+      geocoding: isScreenshotPhotoType(type)
+          ? null
+          : TripPhotoGeocoding(
+              lat: photo.lat,
+              lng: photo.lng,
+              timestamp: photo.timestamp,
+            ),
     );
   });
-  final photos = await Future.wait(photoFutures);
+  final photos = <TripPhoto>[...await Future.wait(photoFutures)];
+  // Copy the check-in customer-app screenshot forward so all three ADR-0019 screenshots live in the
+  // trip photo set (web display + ADR-0018 download). Best-effort: absent on legacy / pre-rollout tasks.
+  final checkInShot = checkInAppScreenshotUrl?.trim();
+  if (checkInShot != null && checkInShot.isNotEmpty) {
+    photos.add(TripPhoto(url: checkInShot, type: 'checkin_app'));
+  }
   final now = DateTime.now();
   // STD = CreateAt (เวลาบันทึก)
   final std = now;

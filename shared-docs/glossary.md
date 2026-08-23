@@ -376,6 +376,12 @@ stop's photos to **both** `deliveryStopsProgress[].photos` **and** the merged fl
 single-delivery + per-stop with no join. Defined in
 [ADR 0018](adr/0018-driver-self-download-trip-photos.md).
 
+**Overlay caveat ([ADR 0019](adr/0019-app-screenshots-as-mandatory-evidence.md)):** as of ADR 0019
+`photos[]` is a **mixed** set — overlaid captures *plus* un-overlaid [[Customer-app screenshot]]s
+(`checkin_app`, `truck_release`, `arrived` / `stop_{i}_arrived`). "Every entry is an overlaid capture"
+is no longer true; a consumer that assumes the baked overlay (e.g. the ADR-0018 download) must expect
+some entries without it.
+
 ## Photo type
 
 The `type` string on an [[Evidence photo]], identifying the workflow step. Loading: `runsheet`,
@@ -383,11 +389,36 @@ The `type` string on an [[Evidence photo]], identifying the workflow step. Loadi
 (`loading_phase_page.dart:32`). Single delivery: `pre_open`, `opening`, `empty_container`,
 `runsheet_received` (`delivery_phase_page.dart:22`). Multi-stop: `stop_{index}_{type}`.
 
+Extended by [ADR 0019](adr/0019-app-screenshots-as-mandatory-evidence.md) with four **un-overlaid**
+[[Customer-app screenshot]] types: `checkin_app` (ranked first), `truck_release` (end of the loading
+group), and `arrived` / `stop_{i}_arrived` (start of each delivery / stop group).
+
 **Order invariant:** the stored `photos[]` order is **insertion/replace order**, not workflow order —
 the array is built by `mergeTripPhotosReplacingTypes` (`delivery_trip_repository.dart:187`). Any
 "in workflow order" presentation (e.g. the bulk photo download in
 [ADR 0018](adr/0018-driver-self-download-trip-photos.md) §3) must sort by an **explicit type-rank**
-(loading → single delivery → multi-stop by ascending index), with unknown/legacy types last.
+(loading → single delivery → multi-stop by ascending index), with unknown/legacy types last. The
+ADR-0019 types must be added to that rank or they fall into the unknown-last bucket.
+
+## Customer-app screenshot
+
+A driver-supplied image of **the customer's own app** (SPX / J&T hub app), attached as extra proof at
+three workflow moments ([ADR 0019](adr/0019-app-screenshots-as-mandatory-evidence.md)): at
+[[check-in]] (`checkin_app` — "มาถึง / เข้า stand"), at loading save (`truck_release` — "ปล่อยรถ"), and
+before the first delivery photo (`arrived` / `stop_{i}_arrived` — "มาถึง"). Distinct from an
+[[Evidence photo]]: it is **un-overlaid** (`skipOverlay: true`), because it was captured elsewhere and
+stamping the driver's current GPS/time would fabricate provenance; it may come from **camera OR
+gallery**; and it is **mandatory** — its gate blocks save/check-in/delivery.
+
+**What "mandatory" does and does not mean:** it guarantees *an image is attached*, not that it is the
+*correct* image. Un-overlaid + gallery-allowed means a stale or reused screenshot passes the gate;
+this reuse gap is accepted (ADR 0019 §6). A hard anti-reuse boundary would be a separate ADR.
+
+**Storage:** the check-in one has no `trip_record` yet ([[Check-in]] is task-level), so it is written
+to `tasks.checkInAppScreenshotUrl` and **copied forward** into `trip_records.photos[]` as
+`{url, type:'checkin_app'}` at the [[Loading phase]] — a best-effort
+[[Denormalization (in this codebase)|denormalization]] with the task as source of truth. The other two
+are written straight into `trip_records.photos[]`. See [[Photo type]] for the rank.
 
 ## Assigned round
 

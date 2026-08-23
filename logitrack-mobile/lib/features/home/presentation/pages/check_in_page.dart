@@ -85,9 +85,8 @@ class _CheckInPageState extends State<CheckInPage> {
       final hubs = await fetchAllHubs();
       final map = <String, String>{};
       for (final h in hubs) {
-        map[h.sourceId] = h.sourceNameTh.isNotEmpty
-            ? h.sourceNameTh
-            : h.sourceNameEn;
+        // Thai → English → linked customer name → code (avoids showing the bare J&T code).
+        map[h.sourceId] = h.displayName;
       }
       if (mounted) setState(() => _hubNameMap = map);
     } catch (_) {}
@@ -727,6 +726,8 @@ class TaskCheckInPage extends StatefulWidget {
 class _TaskCheckInPageState extends State<TaskCheckInPage> {
   _TaskCheckInStep _step = _TaskCheckInStep.camera;
   Uint8List? _photoBytes;
+  // Customer-app screenshot ("arrived / entered stand"), un-overlaid, mandatory (ADR 0019).
+  Uint8List? _appScreenshotBytes;
   bool _submitting = false;
   bool _cameraOpened = false;
 
@@ -954,6 +955,97 @@ class _TaskCheckInPageState extends State<TaskCheckInPage> {
     }
   }
 
+  /// Pick the customer-app screenshot ("arrived / entered stand") — camera or gallery, un-overlaid
+  /// (ADR 0019). Stored raw for preview; compressed without overlay at upload time.
+  Future<void> _pickAppScreenshot() async {
+    if (kIsWeb) return;
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: Text('refuel_receipt_take_photo'.tr()),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: Text('refuel_receipt_from_gallery'.tr()),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null || !mounted) return;
+    final picker = ImagePicker();
+    final xfile = await picker.pickImage(source: source, imageQuality: 85);
+    if (xfile == null) return;
+    final bytes = await xfile.readAsBytes();
+    if (mounted) setState(() => _appScreenshotBytes = bytes);
+  }
+
+  Widget _buildAppScreenshotCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.screenshot, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'checkin_app_screenshot_title'.tr(),
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                Text(
+                  '*',
+                  style: TextStyle(
+                    color: Colors.red[700],
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'checkin_app_screenshot_desc'.tr(),
+              style: TextStyle(color: Colors.grey[600], fontSize: 12),
+            ),
+            const SizedBox(height: 8),
+            if (_appScreenshotBytes != null) ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.memory(
+                  _appScreenshotBytes!,
+                  height: 140,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+            OutlinedButton.icon(
+              onPressed: _submitting ? null : _pickAppScreenshot,
+              icon: const Icon(Icons.add_a_photo, size: 20),
+              label: Text(
+                _appScreenshotBytes == null
+                    ? 'checkin_app_screenshot_add'.tr()
+                    : 'checkin_retake'.tr(),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   String get _taskDisplayId =>
       widget.taskData['taskId'] as String? ??
       widget.taskData['FirstMileTaskId'] as String? ??
@@ -1019,6 +1111,17 @@ class _TaskCheckInPageState extends State<TaskCheckInPage> {
   Future<void> _submit() async {
     if (_photoBytes == null) return;
 
+    // Customer-app screenshot is mandatory (ADR 0019).
+    if (_appScreenshotBytes == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('checkin_app_screenshot_required'.tr()),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
     final truck = _selectedTruck;
     if (truck == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1053,6 +1156,7 @@ class _TaskCheckInPageState extends State<TaskCheckInPage> {
         lat: position.latitude,
         lng: position.longitude,
         timestamp: timestamp,
+        appScreenshotBytes: _appScreenshotBytes,
         helperDriverIds: _selectedHelperIds.isEmpty ? null : _selectedHelperIds.toList(),
       );
       await DraftStorageService.instance.saveActiveCheckInTaskId(widget.taskId);
@@ -1134,6 +1238,10 @@ class _TaskCheckInPageState extends State<TaskCheckInPage> {
                 fit: BoxFit.cover,
               ),
             ),
+          const SizedBox(height: 16),
+
+          // Customer-app screenshot ("arrived / entered stand") — mandatory (ADR 0019)
+          _buildAppScreenshotCard(),
           const SizedBox(height: 16),
 
           // Task info card
@@ -1486,6 +1594,8 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
 
   // Photo data for preview
   Uint8List? _photoBytes;
+  // Customer-app screenshot ("arrived / entered stand"), un-overlaid, mandatory (ADR 0019).
+  Uint8List? _appScreenshotBytes;
 
   // Helper selection (main driver picks helpers who train/assist on this job)
   List<Map<String, String>> _allDrivers = [];
@@ -1773,8 +1883,110 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
     }
   }
 
+  /// Pick the customer-app screenshot ("arrived / entered stand") — camera or gallery, un-overlaid
+  /// (ADR 0019). Stored raw for preview; compressed without overlay at upload time.
+  Future<void> _pickAppScreenshot() async {
+    if (kIsWeb) return;
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: Text('refuel_receipt_take_photo'.tr()),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: Text('refuel_receipt_from_gallery'.tr()),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null || !mounted) return;
+    final picker = ImagePicker();
+    final xfile = await picker.pickImage(source: source, imageQuality: 85);
+    if (xfile == null) return;
+    final bytes = await xfile.readAsBytes();
+    if (mounted) setState(() => _appScreenshotBytes = bytes);
+  }
+
+  Widget _buildAppScreenshotCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.screenshot, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'checkin_app_screenshot_title'.tr(),
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                Text(
+                  '*',
+                  style: TextStyle(
+                    color: Colors.red[700],
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'checkin_app_screenshot_desc'.tr(),
+              style: TextStyle(color: Colors.grey[600], fontSize: 12),
+            ),
+            const SizedBox(height: 8),
+            if (_appScreenshotBytes != null) ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.memory(
+                  _appScreenshotBytes!,
+                  height: 140,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+            OutlinedButton.icon(
+              onPressed: _submitting ? null : _pickAppScreenshot,
+              icon: const Icon(Icons.add_a_photo, size: 20),
+              label: Text(
+                _appScreenshotBytes == null
+                    ? 'checkin_app_screenshot_add'.tr()
+                    : 'checkin_retake'.tr(),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _submit() async {
     if (_origin == null || _dest == null || _photoBytes == null) return;
+
+    // Customer-app screenshot is mandatory (ADR 0019).
+    if (_appScreenshotBytes == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('checkin_app_screenshot_required'.tr()),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
 
     final truck = _selectedTruck;
     if (truck == null) return; // guarded at _takePhotoAndPreview, re-checked before the write
@@ -1839,6 +2051,7 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
         lat: pos.latitude,
         lng: pos.longitude,
         timestamp: now,
+        appScreenshotBytes: _appScreenshotBytes,
         helperDriverIds: _selectedHelperIds.isEmpty ? null : _selectedHelperIds.toList(),
       );
       await DraftStorageService.instance.saveActiveCheckInTaskId(docRef.id);
@@ -2057,10 +2270,10 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
         ? _socs.where((h) => h.sourceId == _dest).firstOrNull
         : _hubs.where((h) => h.sourceId == _dest).firstOrNull;
     final originDisplay = originResolved != null
-        ? '${originResolved.sourceId} - ${originResolved.sourceNameEn}'
+        ? originResolved.codeWithName
         : _origin ?? '-';
     final destDisplay = destResolved != null
-        ? '${destResolved.sourceId} - ${destResolved.sourceNameEn}'
+        ? destResolved.codeWithName
         : _dest ?? '-';
 
     return SingleChildScrollView(
@@ -2087,6 +2300,10 @@ class _ManualCheckInPageState extends State<ManualCheckInPage> {
                 fit: BoxFit.cover,
               ),
             ),
+          const SizedBox(height: 16),
+
+          // Customer-app screenshot ("arrived / entered stand") — mandatory (ADR 0019)
+          _buildAppScreenshotCard(),
           const SizedBox(height: 16),
 
           // Info card

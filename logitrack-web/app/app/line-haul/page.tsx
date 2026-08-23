@@ -104,6 +104,8 @@ export default function LineHaulPage() {
                     'Hub Name Th':
                         (data.source_name_th ?? data.hubTHName ?? data.hub_th_name ?? data.station_name_th ?? "") ||
                         undefined,
+                    // J&T hubs keep their real name on the linked customer — fallback for display (ADR 0019 follow-up)
+                    linkedCustomerName: data.linkedCustomerName,
                     lat: data.latitude ?? data.lat,
                     lng: data.longitude ?? data.lng,
                     source: 'custom',

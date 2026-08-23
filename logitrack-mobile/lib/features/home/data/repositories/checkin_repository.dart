@@ -80,6 +80,9 @@ Future<void> submitCheckIn({
   required double lat,
   required double lng,
   required DateTime timestamp,
+  // Un-overlaid customer-app screenshot ("arrived / entered stand"), ADR 0019. Compressed only —
+  // never overlaid (it was captured in the customer app, not by the camera here).
+  List<int>? appScreenshotBytes,
   List<String>? helperDriverIds, // Auth UIDs of helpers selected by the main driver
 }) async {
   final ctx = await fetchOverlayContext(lat, lng);
@@ -99,10 +102,26 @@ Future<void> submitCheckIn({
   await ref.putData(compressed, SettableMetadata(contentType: 'image/jpeg'));
   final photoUrl = await ref.getDownloadURL();
 
+  String? appScreenshotUrl;
+  if (appScreenshotBytes != null && appScreenshotBytes.isNotEmpty) {
+    final shotCompressed = await compressImageForUpload(appScreenshotBytes);
+    final shotRef = FirebaseStorage.instance
+        .ref()
+        .child('checkin')
+        .child(taskId)
+        .child('app_screenshot_${timestamp.millisecondsSinceEpoch}.jpg');
+    await shotRef.putData(
+      shotCompressed,
+      SettableMetadata(contentType: 'image/jpeg'),
+    );
+    appScreenshotUrl = await shotRef.getDownloadURL();
+  }
+
   await FirebaseFirestore.instance.collection('tasks').doc(taskId).update({
     'status': 'Checked in',
     'checkInAt': Timestamp.fromDate(timestamp),
     'checkInPhotoUrl': photoUrl,
+    if (appScreenshotUrl != null) 'checkInAppScreenshotUrl': appScreenshotUrl,
     'checkInLat': lat,
     'checkInLng': lng,
     if (helperDriverIds != null) 'helperDriverIds': helperDriverIds,

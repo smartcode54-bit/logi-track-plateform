@@ -78,8 +78,13 @@ const PHOTO_TYPE_LABELS: Record<string, string> = {
     opening: "During opening",
     empty_container: "Empty container",
     runsheet_received: "Runsheet received",
+    // Un-overlaid customer-app screenshots (ADR 0019)
+    checkin_app: "Check-in (customer app)",
+    truck_release: "Truck released (customer app)",
+    arrived: "Arrived (customer app)",
 };
 
+const CHECKIN_PHASE_TYPES = ["checkin_app"] as const;
 const LOADING_PHASE_TYPES = [
     "pre_close",
     "closing",
@@ -88,8 +93,9 @@ const LOADING_PHASE_TYPES = [
     "runsheet_extra_1",
     "runsheet_extra_2",
     "runsheet_extra_3",
+    "truck_release",
 ] as const;
-const DELIVERY_PHASE_TYPES = ["pre_open", "opening", "empty_container", "runsheet_received"] as const;
+const DELIVERY_PHASE_TYPES = ["arrived", "pre_open", "opening", "empty_container", "runsheet_received"] as const;
 
 export function EditTripDetailsDialog({
     open,
@@ -1178,6 +1184,7 @@ export function EditTripDetailsDialog({
 
                         <div className="space-y-4">
                             {[
+                                { titleKey: "driverMonitor.editTrip.checkinPhase", photoTypes: CHECKIN_PHASE_TYPES },
                                 { titleKey: "driverMonitor.editTrip.loadingPhase", photoTypes: LOADING_PHASE_TYPES },
                                 { titleKey: "driverMonitor.editTrip.deliveryPhase", photoTypes: DELIVERY_PHASE_TYPES },
                             ].map((section) => (

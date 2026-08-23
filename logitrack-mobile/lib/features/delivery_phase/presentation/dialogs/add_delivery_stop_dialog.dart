@@ -198,7 +198,7 @@ class _AddDeliveryStopDialogState extends State<AddDeliveryStopDialog> {
                             selected: isSelected,
                             selectedTileColor: Colors.blue.shade50,
                             title: Text(
-                              '${hub.sourceId} - ${hub.sourceNameEn}',
+                              hub.codeWithName,
                               style: TextStyle(
                                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
                               ),

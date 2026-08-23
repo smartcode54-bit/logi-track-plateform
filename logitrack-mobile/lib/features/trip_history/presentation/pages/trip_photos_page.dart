@@ -283,6 +283,13 @@ String _baseStepLabel(String type) {
       return 'trip_photos_step_empty_container'.tr();
     case 'runsheet_received':
       return 'trip_photos_step_runsheet_received'.tr();
+    // Customer-app screenshots (ADR 0019)
+    case 'checkin_app':
+      return 'trip_photos_step_checkin_app'.tr();
+    case 'truck_release':
+      return 'trip_photos_step_truck_release'.tr();
+    case 'arrived':
+      return 'trip_photos_step_arrived'.tr();
     default:
       return type; // unknown / legacy → raw type
   }

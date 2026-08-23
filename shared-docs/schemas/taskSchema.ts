@@ -99,6 +99,10 @@ export const taskSchema = z.object({
     /** Check-in at pickup: set by driver on mobile */
     checkInAt: z.any().optional(),
     checkInPhotoUrl: z.string().optional(),
+    // Un-overlaid customer-app screenshot taken at check-in ("arrived / entered stand"), ADR 0019.
+    // Stored on the task because the trip_record does not exist yet at check-in; copied forward into
+    // trip_records.photos[] as type "checkin_app" at loading.
+    checkInAppScreenshotUrl: z.string().optional(),
     checkInLat: z.number().optional(),
     checkInLng: z.number().optional(),
 

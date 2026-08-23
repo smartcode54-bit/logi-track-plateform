@@ -158,6 +158,7 @@ export default {
     "driverMonitor.editTrip.addPhoto": "Add photo",
     "driverMonitor.editTrip.loadingPhase": "Loading phase",
     "driverMonitor.editTrip.deliveryPhase": "Delivery phase",
+    "driverMonitor.editTrip.checkinPhase": "Check-in (customer app)",
     "driverMonitor.detail.openInNewTab": "Open in new tab",
     "driverMonitor.detail.imagePreview": "Image preview",
     "driverMonitor.detail.noPhotos": "No photos available",

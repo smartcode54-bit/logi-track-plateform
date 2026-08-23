@@ -158,6 +158,7 @@ export default {
     "driverMonitor.editTrip.addPhoto": "เพิ่มรูป",
     "driverMonitor.editTrip.loadingPhase": "ขั้นตอนการโหลด",
     "driverMonitor.editTrip.deliveryPhase": "ขั้นตอนการส่ง",
+    "driverMonitor.editTrip.checkinPhase": "เช็คอิน (แอปลูกค้า)",
     "driverMonitor.detail.openInNewTab": "เปิดในแท็บใหม่",
     "driverMonitor.detail.imagePreview": "ตัวอย่างรูปภาพ",
     "driverMonitor.detail.noPhotos": "ไม่มีรูปภาพ",

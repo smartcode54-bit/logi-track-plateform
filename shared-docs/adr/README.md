@@ -29,8 +29,9 @@ Companion glossary: [../glossary.md](../glossary.md).
 | [0016](0016-explicit-job-category-at-assign.md) | Explicit หลัก/เสริม selection at task assign time (supersedes 0015 #3) | Accepted 2026-07-02 |
 | [0017](0017-retire-bmad-wds-tooling.md) | Retire the BMAD/WDS tooling vendored into the repo | Accepted 2026-08-09 |
 | [0018](0018-driver-self-download-trip-photos.md) | Driver self-download of trip evidence photos to the phone gallery (bulk, workflow-ordered, own trips only; incident photos added by amendment) | Accepted 2026-08-22 (shipped 2026-08-23) |
+| [0019](0019-app-screenshots-as-mandatory-evidence.md) | Customer-app screenshots as mandatory, un-overlaid evidence at check-in, loading, and delivery | Accepted 2026-08-23 (impl pending) |
 
-**Next free number: `0019`.** Take the next unused number, never reuse or renumber (see
+**Next free number: `0020`.** Take the next unused number, never reuse or renumber (see
 [conventions](0000-adr-conventions.md)).
 
 ## Migrated from BMAD (formerly `logitrack-web/_bmad-output/planning-artifacts/adr/`)

@@ -10,11 +10,16 @@ import '../../home/data/models/trip_record.dart';
 /// (`mergeTripPhotosReplacingTypes`), NOT workflow order, so we sort by this rank.
 ///
 /// Groups (lower sorts first):
-///   1000  loading   : runsheet, runsheet_extra_1..3, pre_close, closing, seal
-///   2000  delivery  : pre_open, opening, empty_container, runsheet_received
-///   3000  multi-stop: stop_{index}_{subtype} — by index, then subtype
+///   500   check-in  : checkin_app (un-overlaid customer-app screenshot, ADR 0019)
+///   1000  loading   : runsheet, runsheet_extra_1..3, pre_close, closing, seal, truck_release
+///   2000  delivery  : arrived, pre_open, opening, empty_container, runsheet_received
+///   3000  multi-stop: stop_{index}_{subtype} — by index, then subtype (arrived first)
 ///   4000  incident  : handled via [incidentPhotoRank] (different collection)
 ///   9000  unknown/legacy → last, stable
+const List<String> _checkinOrder = [
+  'checkin_app',
+];
+
 const List<String> _loadingOrder = [
   'runsheet',
   'runsheet_extra_1',
@@ -23,9 +28,11 @@ const List<String> _loadingOrder = [
   'pre_close',
   'closing',
   'seal',
+  'truck_release',
 ];
 
 const List<String> _deliveryOrder = [
+  'arrived',
   'pre_open',
   'opening',
   'empty_container',
@@ -35,6 +42,9 @@ const List<String> _deliveryOrder = [
 /// Sort rank for a trip photo `type`. Incident photos use [incidentPhotoRank].
 int tripPhotoWorkflowRank(String type) {
   final t = type.trim();
+
+  final ci = _checkinOrder.indexOf(t);
+  if (ci >= 0) return 500 + ci;
 
   final li = _loadingOrder.indexOf(t);
   if (li >= 0) return 1000 + li;

@@ -29,8 +29,12 @@ export const TRIP_PHOTO_TYPE_ENUM = [
     "opening",
     "empty_container",
     "runsheet_received",
+    // Un-overlaid customer-app screenshots (ADR 0019): captured from the customer app, not the camera.
+    "checkin_app", // "arrived / entered stand", copied forward from the task at loading
+    "truck_release", // "ปล่อยรถ", last loading step
+    "arrived", // "มาถึง", first delivery step (single delivery)
     // Multi-delivery photo types (per-stop): stop_{index}_pre_open, stop_{index}_opening, etc.
-    // Pattern: stop_{index}_(pre_open|opening|empty_container|runsheet_received)
+    // Pattern: stop_{index}_(arrived|pre_open|opening|empty_container|runsheet_received)
 ] as const;
 
 export const tripPhotoGeocodingSchema = z.object({

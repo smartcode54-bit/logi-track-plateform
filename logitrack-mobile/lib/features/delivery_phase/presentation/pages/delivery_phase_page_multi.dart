@@ -72,15 +72,17 @@ class _DeliveryPhasePageMultiState extends State<DeliveryPhasePageMulti> {
 
   bool get _allStopsDelivered => _stops.every((s) => s.isDelivered);
 
-  /// Photo types for last stop: before opening, during opening, cabinet empty
+  /// Photo types for last stop: arrived (customer-app screenshot), before/during opening, cabinet empty
   static const List<String> _lastStopPhotoTypes = [
+    'arrived',
     'before_open',
     'during_open',
     'empty_container',
   ];
 
-  /// Photo types for non-last stops: before opening, during opening, closing cabinet
+  /// Photo types for non-last stops: arrived (customer-app screenshot), before/during opening, closing
   static const List<String> _nonLastStopPhotoTypes = [
+    'arrived',
     'before_open',
     'during_open',
     'close_container',
@@ -101,6 +103,7 @@ class _DeliveryPhasePageMultiState extends State<DeliveryPhasePageMulti> {
 
   String _photoLabel(String type) {
     const labels = {
+      'arrived': 'delivery_photo_arrived',
       'before_open': 'delivery_photo_before_opening',
       'during_open': 'delivery_photo_during_opening',
       'close_container': 'delivery_photo_closing_cabinet',
@@ -341,21 +344,31 @@ class _DeliveryPhasePageMultiState extends State<DeliveryPhasePageMulti> {
       if (xfile == null || !mounted) return;
       final bytes = await xfile.readAsBytes();
 
-      // Fetch/reuse overlay context for GPS stamp
-      if (_cachedOverlayContext == null && _currentPosition != null) {
-        try {
-          _cachedOverlayContext = await fetchOverlayContext(
-            _currentPosition!.latitude,
-            _currentPosition!.longitude,
-          );
-        } catch (_) {}
-      }
+      // arrived is a customer-app screenshot → compress without overlay (ADR 0019).
+      final isScreenshot = photoType == 'arrived';
+      final Uint8List stamped;
+      if (isScreenshot) {
+        stamped = await stampOverlayAndCompressForEvidence(
+          bytes.toList(),
+          skipOverlay: true,
+        );
+      } else {
+        // Fetch/reuse overlay context for GPS stamp
+        if (_cachedOverlayContext == null && _currentPosition != null) {
+          try {
+            _cachedOverlayContext = await fetchOverlayContext(
+              _currentPosition!.latitude,
+              _currentPosition!.longitude,
+            );
+          } catch (_) {}
+        }
 
-      final stamped = await stampOverlayAndCompressForEvidence(
-        bytes.toList(),
-        position: _currentPosition,
-        overlayContext: _cachedOverlayContext,
-      );
+        stamped = await stampOverlayAndCompressForEvidence(
+          bytes.toList(),
+          position: _currentPosition,
+          overlayContext: _cachedOverlayContext,
+        );
+      }
 
       if (mounted) {
         setState(() {
@@ -631,15 +644,16 @@ class _DeliveryPhasePageMultiState extends State<DeliveryPhasePageMulti> {
           photoType: entry.key,
           imageBytes: entry.value.toList(),
         );
-        uploadedPhotos.add({
-          'url': url,
-          'type': entry.key,
-          'geocoding': {
+        // Screenshot types (stop_{i}_arrived) carry no geocoding — not overlaid captures (ADR 0019).
+        final photoMap = <String, dynamic>{'url': url, 'type': entry.key};
+        if (!isScreenshotPhotoType(entry.key)) {
+          photoMap['geocoding'] = {
             'lat': _currentPosition?.latitude,
             'lng': _currentPosition?.longitude,
             'timestamp': DateTime.now().toIso8601String(),
-          },
-        });
+          };
+        }
+        uploadedPhotos.add(photoMap);
       }
 
       // Write to Firestore (returns true if all stops delivered)

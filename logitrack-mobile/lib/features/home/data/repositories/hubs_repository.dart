@@ -97,6 +97,26 @@ class HubDoc {
       longitude != null &&
       latitude!.isFinite &&
       longitude!.isFinite;
+
+  /// Human-readable name for UI: Thai → English → linked customer name → code.
+  /// J&T hubs (e.g. SPK-GW) often keep their real name on the linked customer instead of
+  /// `source_name_*`, so linkedCustomerName is a fallback before the raw code — this is what
+  /// prevents "SPK-GW - SPK-GW". Values equal to the code are treated as "no real name".
+  String get displayName {
+    final th = sourceNameTh.trim();
+    if (th.isNotEmpty && th != sourceId) return th;
+    final en = sourceNameEn.trim();
+    if (en.isNotEmpty && en != sourceId) return en;
+    final cust = linkedCustomerName?.trim() ?? '';
+    if (cust.isNotEmpty && cust != sourceId) return cust;
+    return sourceId;
+  }
+
+  /// "code - name" for pickers/previews, collapsing to just the code when there is no distinct name.
+  String get codeWithName {
+    final name = displayName;
+    return name == sourceId ? sourceId : '$sourceId - $name';
+  }
 }
 
 /// ตรงกับ web `hubSourceIdHasSpxSuffix` — สถานีลงท้าย SPX → รหัสลูกค้า SPX บนงาน.

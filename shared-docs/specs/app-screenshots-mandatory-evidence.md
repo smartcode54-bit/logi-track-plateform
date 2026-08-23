@@ -1,6 +1,6 @@
 # Spec: Customer-app screenshots as mandatory evidence (check-in / loading / delivery)
 
-> **Status:** 🟡 Draft
+> **Status:** ✅ Done (code complete 2026-08-23 — device-testing by owner pending, same as ADR 0018)
 > **Owner:** Samart Kas
 > **Created:** 2026-08-23
 > **Domain:** drivers / tasks (mobile capture + web trip-details display)
@@ -117,12 +117,14 @@ store all three in the trip's photo set, and show them on the web trip-details v
   `tasks.checkInAppScreenshotUrl` — extend `submitCheckIn` in `checkin_repository.dart` (or add a sibling
   writer) to persist it. Gate both images before enabling Save.
 - **Loading** (`loading_phase_page.dart` + `loading_trip_repository.dart`): add a required `truck_release`
-  screenshot (no overlay, geocoding null). ⚠️ **Do not append `truck_release` to `_cameraPhotoStepKeys`
-  as-is** — that list routes every entry through overlaid camera capture (`:1245,:2075`). Either (a) a
-  dedicated screenshot field + a new `screenshotPhotos` param on `submitLoadingPhaseRecord` that builds a
-  `TripPhoto` with `geocoding: null`, or (b) mirror the delivery `runsheet_received` precedent (a list
-  entry whose capture branch skips overlay). `/spec-build` picks one; (a) is cleaner for the null
-  geocoding. Also pass `checkInAppScreenshotUrl` (read from the task) into `submitLoadingPhaseRecord` and
+  screenshot. **Decided: approach (b)** — mirror the delivery `runsheet_received` precedent, i.e. add
+  `truck_release` to the loading step-key handling and **branch its capture to skip overlay** (loading has
+  no such branch today — the delivery `isRunsheetReceived` branch at `delivery_phase_page.dart:487,492,504`
+  is the shape to copy; loading's `_cameraPhotoStepKeys` otherwise overlays every entry at `:1245,:2075`).
+  Because the capture flows through the existing `_stepPhotos` → `StampedPhotoInput` machinery (which
+  requires lat/lng/timestamp), `/spec-build` must **special-case `truck_release` in
+  `submitLoadingPhaseRecord` to write `geocoding: null`** (R5 — no overlay AND no location metadata on a
+  screenshot). Also pass `checkInAppScreenshotUrl` (read from the task) into `submitLoadingPhaseRecord` and
   append `TripPhoto(url, type:'checkin_app', geocoding:null)` (R6).
 - **Delivery single** (`delivery_phase_page.dart`): add `arrived` first in `_deliveryPhotoStepKeys` and
   branch its capture in `_takeDeliveryPhoto` to **skip overlay** — the same shape as the existing
@@ -176,16 +178,16 @@ Shared:
 - `shared-docs/.vibe-rules.md` (Change Log)
 
 ## 6. Task breakdown
-- [ ] T1. Schema: add `tasks.checkInAppScreenshotUrl` in `validate/taskSchema.ts` + `shared-docs/schemas/taskSchema.ts` (sync).
-- [ ] T2. Check-in (R1/R5): second required screenshot slot in `TaskCheckInPage` + `ManualCheckInPage`; write `checkInAppScreenshotUrl`; gate both images.
-- [ ] T3. Loading (R2/R5/R6): required `truck_release` screenshot (no overlay, geocoding null) + copy `checkin_app` forward; extend the save gate.
-- [ ] T4. Delivery single (R3/R5): `arrived` first, no-overlay capture branch, geocoding null, gate.
-- [ ] T5. Delivery multi (R4/R5): per-stop `stop_{i}_arrived`, no-overlay branch, per-stop gate.
-- [ ] T6. Rank (R8): extend `trip_photo_order.dart` (checkin group, truck_release, arrived).
-- [ ] T7. Web (R7): `EditTripDetailsDialog` slots + labels (checkin_app/truck_release/arrived); `DriverMonitorDashboard` preview + multi-stop; ensure both preview and edit.
-- [ ] T8. i18n en + th (web driverMonitor + mobile translations), equal key counts.
-- [ ] T9. Update `.vibe-rules.md` Change Log.
-- [ ] T10. Bump `pubspec.yaml` version.
+- [x] T1. Schema: add `tasks.checkInAppScreenshotUrl` in `validate/taskSchema.ts` + `shared-docs/schemas/taskSchema.ts` (sync).
+- [x] T2. Check-in (R1/R5): second required screenshot slot in `TaskCheckInPage` + `ManualCheckInPage`; write `checkInAppScreenshotUrl`; gate both images.
+- [x] T3. Loading (R2/R5/R6): required `truck_release` screenshot (no overlay, geocoding null) + copy `checkin_app` forward; extend the save gate.
+- [x] T4. Delivery single (R3/R5): `arrived` first, no-overlay capture branch, geocoding null, gate.
+- [x] T5. Delivery multi (R4/R5): per-stop `stop_{i}_arrived`, no-overlay branch, per-stop gate.
+- [x] T6. Rank (R8): extend `trip_photo_order.dart` (checkin group, truck_release, arrived) + viewer labels in `trip_photos_page.dart`.
+- [x] T7. Web (R7): `EditTripDetailsDialog` slots + labels (checkin_app/truck_release/arrived) + check-in section; `TRIP_PHOTO_TYPE_ENUM` extended; `DriverMonitorDashboard` preview already renders all photos generically (no change needed).
+- [x] T8. i18n en + th (web driverMonitor + mobile translations), equal key counts.
+- [x] T9. Update `.vibe-rules.md` Change Log.
+- [x] T10. Bump `pubspec.yaml` version (3.2.0+2 → 3.3.0+3).
 
 ## 7. Acceptance criteria
 
@@ -205,14 +207,16 @@ Shared:
   (…, truck_release) → delivery (arrived, …) → each stop (arrived first) — not scrambled to the tail.
 - [ ] **AC8 (N3).** A pre-rollout trip with no `checkin_app` / `truck_release` renders without error and
   is still downloadable.
-- [ ] **AC9.** `tsc --noEmit`, `dart analyze`, and CI are green; en/th key counts match.
+- [x] **AC9.** `tsc --noEmit` (0 errors), web ESLint (0 errors), Vitest (263/263), and `dart analyze` on all
+  changed files (0 errors) are green; en/th key counts match. AC1–AC8 are runtime/device checks — pending
+  owner device-test (same flow as ADR 0018).
 
 ## 8. Risks & rollback
 
 | Risk | Mitigation / rollback |
 |------|----------------------|
 | "Mandatory" only proves an image is attached, not authenticity (reuse of a stale/other screenshot) | Accepted (ADR 0019 §6). A hard anti-reuse boundary is a separate future ADR. |
-| Appending screenshot types to the overlaid step-key lists routes them through overlay capture / stamps a false location | Use a no-overlay capture branch (delivery, mirroring `runsheet_received`) or a dedicated screenshot field (loading); set `geocoding: null`. Covered in Design. |
+| Appending screenshot types to the overlaid step-key lists routes them through overlay capture / stamps a false location | Chosen approach (b) for all three: add a **no-overlay capture branch** mirroring `runsheet_received` (`delivery_phase_page.dart:487,492,504`) — loading gains an equivalent branch — and special-case each screenshot type to write `geocoding: null` at save. Covered in Design. |
 | New types omitted from `trip_photo_order.dart` → out-of-order in viewer/download | R8 / T6 explicitly extend the rank; AC7 verifies order. |
 | Legacy/in-flight trips lack the fields → null crashes or false "incomplete" | Per-phase gates (no backfill); readers null-safe (N3 / AC8). |
 | Blocking a driver mid-shift if the customer app is unavailable | Camera-or-gallery keeps capture flexible; owner chose mandatory knowingly. Rollback = revert the gate change per phase (each is an isolated required-check). |
