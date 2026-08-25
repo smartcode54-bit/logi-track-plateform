@@ -523,3 +523,117 @@ separate collection — it is `customer_rate_entries` rows tagged `jobCategory =
 dimension on `selectBillingRateEntry`. **Report display rules (Excel detail):** for J&T the source-hub
 origin shows the hub **code** (`SPK-GW`) not the billing name; vehicle class **`PICKUP` displays as
 `4WH`**; supplementary rows carry **`เสริม`** in หมายเหตุ.
+
+---
+
+# Buzzebee distribution (last-mile)
+
+> Seeded 2026-08-25 during the design behind [ADR 0020](adr/0020-buzzebee-last-mile-distribution.md) (order SSOT +
+> conservation of goods) and [ADR 0021](adr/0021-transactional-email-smtp-workspace.md) (email). This is a **new
+> line of business** distinct from hub-to-hub logistics: we distribute Buzzebee's orders to end customers.
+
+## Distribution order
+
+One Buzzebee order to deliver to an end customer — the **single source of truth for tracking**, stored as its own
+document in `distribution_orders` (**not** an element of `tasks.deliveryStops[]`; that array cannot be
+independently queried for a [[Customer portal]] or hold per-SKU lines / a [[Call history]] /an independent status).
+Carries per-SKU `items[]`, recipient + [[Zone key]] + `lat`/`lng`, `status` + immutable `statusHistory[]`, per-SKU
+[[Disposition]]s, [[Proof of delivery (signed-on-glass)|POD]], `assignedTaskId`, and `dayKey`. Its execution reuses
+the [[Task]]/[[`trip_record`]] machinery — a day's route is **one** task with `taskType: "DISTRIBUTION"` (additive
+to `TASK_TYPE_ENUM`, `validate/taskSchema.ts:30`); orders point back via `assignedTaskId`. Defined in
+[ADR 0020](adr/0020-buzzebee-last-mile-distribution.md) §1.
+
+## Work slip (ใบงานราย order)
+
+The driver-app view of one [[Distribution order]] within a day's route — adapted from the multi-drop scaffold
+(`delivery_phase_page_multi.dart`), but backed by the order document rather than a `deliveryStops[]` element. Work
+slips can be **reordered** (outer→inner) and each is completed with a [[Disposition]]. Not the same as a
+[[Delivery stop]] (a hub drop inside one trip).
+
+## Disposition
+
+The recorded outcome of every unit of goods: `delivered` · `partial` · `left_at_drop` (customer not home, left at
+the drop point, flags Buzzebee) · `postponed` · `cancelled` · `variance` (shortage/damaged/refused, **with a
+reason**). A "shortage" is a disposition-with-reason, never an unaccounted gap — this is what makes the
+[[Conservation invariant]] checkable. Tracked per SKU on the [[Distribution order]].
+
+## Conservation invariant
+
+The hard rule that **no unit of goods goes unaccounted**: for every SKU across a driver's day,
+`received = delivered + left_at_drop + returned_to_warehouse + variance(with reason)`. `expectedQty` comes from the
+Buzzebee file; the driver enters actual counts at three checkpoints — **goods receipt**, **per-order delivery**,
+**warehouse return** — each backed by a countable photo ([[Proof of delivery (signed-on-glass)]]). Enforced at
+[[Day-close]]: the day cannot close until every received unit has a [[Disposition]]. This is the answer to "how
+does the app know goods were received and delivered in full." [ADR 0020](adr/0020-buzzebee-last-mile-distribution.md) §3.
+
+## Zone key
+
+A subdistrict (**ตำบล**) level area key derived from an order's recipient address at import, used to group orders
+for [[Allocation]]. New concept — the platform previously had only three fixed SOC codes
+(`validate/taskSchema.ts:3-9`) and hub lat/lng, no zone model. Orders are also **geocoded** at import (reusing the
+server `GOOGLE_MAPS_API_KEY`, `functions/src/distances.ts:22`) so they can be plotted; a row that fails geocoding is
+flagged for manual correction before it can be allocated.
+
+## Allocation
+
+The semi-automatic step where the admin **names how many trucks are available (N)** and the system partitions the
+day's orders into N loads by spatially-contiguous [[Zone key]]s under each truck's capacity — **both** `cargoVolumeM3`
+(new field on `truckSchema`) **and** `maxLoadWeight` (`validate/truckSchema.ts:58`). It renders on a **Google Maps**
+view at ตำบล level (a new client integration — existing maps are Leaflet, `package.json:65-75`) with a per-truck
+capacity meter; the admin drag-adjusts and marks each order accepted/rejected. A proposal-then-confirm tool, **not**
+a route optimiser. [ADR 0020](adr/0020-buzzebee-last-mile-distribution.md) §5-7.
+
+## Day-close
+
+The end-of-day gate for a driver: it requires the [[Conservation invariant]] to balance for every SKU **and** an
+empty-container photo (proof nothing is left on the truck), then sets `daily_dispatch.reconciled`. Blocked with a
+remaining-items list otherwise. [ADR 0020](adr/0020-buzzebee-last-mile-distribution.md) §3.
+
+## Return manifest
+
+The record of goods a driver returns to the warehouse (`return_manifests`): item list + qty (auto-computed as
+`received − delivered − left_at_drop`, reconciled or reason-flagged), the **warehouse receiver's**
+[[Proof of delivery (signed-on-glass)|on-glass signature]], and a photo of the goods with the receiver. On submit,
+its manifest is **emailed** to the warehouse and Buzzebee via the [[Transactional email]] callable. Follows the
+`submitStandbyRecord` batch pattern; carries denormalized `truckId` like other transaction records.
+
+## Proof of delivery (signed-on-glass)
+
+Per-order evidence captured on delivery: a **countable-product photo** (the driver types the quantity; the photo
+corroborates, it does not verify — same honesty caveat as [[Customer-app screenshot]]) plus an **on-glass
+signature** — a hand-drawn signature captured on the device screen. Signature capture **does not exist in the app
+today** and is net-new; the PNG feeds the existing `uploadTripPhoto` no-overlay pipeline (like
+[[Photo type|`isScreenshotPhotoType`]]). Distinct from a photo *of* a paper signature.
+
+## Call history
+
+The in-app log of calls a driver placed to a recipient before delivery (`callHistory[]` on the
+[[Distribution order]]): `{calledAt, outcome, note}`. The call is launched with `tel:` via `url_launcher` (which
+today launches only maps/https — a `<queries>` `tel:` entry is needed in the Android manifest); the log is net-new.
+
+## Customer portal
+
+The web view where a **Buzzebee** user (role `customer` + a `customerScopeId` claim, `firestore.rules:18-21`) tracks
+**each order** — a status timeline from the order's immutable `statusHistory[]` plus its
+[[Proof of delivery (signed-on-glass)|POD]] — scoped to their own data only via `isCustomer()` and
+`useCustomerScope`. Reuses the existing customer-scoping and `PagePermissionGuard`.
+
+## Transactional email
+
+Outbound email for the distribution flow (confirm-back manifest to Buzzebee; [[Return manifest]] to warehouse +
+Buzzebee). **No email infrastructure existed before** — introduced greenfield as an `onCall` callable
+`sendTransactionalEmail` over **Google Workspace SMTP** (`nodemailer`), region `asia-southeast1`, with a
+provider-swappable transport and **server-controlled recipients** (a mobile caller selects a configured recipient
+set, never a free-text address, to avoid an open relay). **Not** a Firestore trigger (region `asia-southeast3`
+supports none) and **not** a Next.js `app/api/` route. [ADR 0021](adr/0021-transactional-email-smtp-workspace.md).
+
+## Vehicle location source
+
+The provenance of a `vehicle_locations/{truckId}` fix: `source: "cartrack"` (hardware GPS, written by the Cartrack
+scheduled sweep via Admin SDK — the only writer today, `firestore.rules:302-305`) or `source: "mobile"` (the
+driver's phone GPS, the **fallback** used **only when the truck has no `GPSVehicleId`**). Hardware is authoritative;
+the two are disjoint per truck. The phone reports (reusing `geolocator`, `pubspec.yaml:45`) only while
+[[activeTruck]] is set and debounced to ~2 min / ~1000 m, so tracking is bounded to working time on a device-less
+truck — never off-shift, never overriding a real device. That throttle is the **mobile path's only**; the Cartrack
+hardware cadence is unchanged. Keyed by [[Truck identity]] so map consumers read it unchanged.
+[ADR 0022](adr/0022-phone-gps-fallback-for-trucks-without-device.md).
