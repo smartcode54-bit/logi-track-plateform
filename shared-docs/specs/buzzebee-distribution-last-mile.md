@@ -1,12 +1,17 @@
 # Spec: Buzzebee Last-Mile Distribution
 
-> **Status:** 🟡 Draft
+> **Status:** 🟡 Draft — ⏸ **PHASE 1 IMPORT ON HOLD (2026-08-25):** waiting on the **Buzzebee order file template**.
+> Phase 1 import/allocation (R1–R2) cannot be built until the file's columns are known (per-SKU/pack fields,
+> subdistrict, order id, dimensions/volume/weight). **Billing (Phase 4 / R14) is unblocked** — the approved rate
+> card (quote QT-202608-001) is in hand → [ADR 0023](../adr/0023-buzzebee-distribution-billing.md). Phase 0
+> foundation is file-independent. Do **not** run `/spec-build` on Phase 1 until the template arrives.
 > **Owner:** Samart Kas
 > **Created:** 2026-08-25
 > **Domain:** distribution (new) — touches tasks, drivers, trucks, customers, functions, mobile
 > **Related:** [ADR 0020](../adr/0020-buzzebee-last-mile-distribution.md) (order SSOT + conservation),
 > [ADR 0021](../adr/0021-transactional-email-smtp-workspace.md) (email),
-> [ADR 0022](../adr/0022-phone-gps-fallback-for-trucks-without-device.md) (phone-GPS fallback), glossary terms
+> [ADR 0022](../adr/0022-phone-gps-fallback-for-trucks-without-device.md) (phone-GPS fallback),
+> [ADR 0023](../adr/0023-buzzebee-distribution-billing.md) (billing — approved quote QT-202608-001), glossary terms
 > [[Distribution order]] / [[Conservation invariant]] / [[Disposition]] / [[Work slip]] / [[Day-close]]
 
 ---
@@ -34,9 +39,10 @@ the mobile driver app, and a customer portal — built spec-first, in phases.
   container photo + conservation check).
 - Customer portal: Buzzebee tracks **per order** (status timeline + POD), customer-scoped.
 - Email transport (greenfield, per ADR 0021) + `cargoVolumeM3` on trucks.
+- **Billing (per ADR 0023):** per-pack × zone × tier + per-trip minimum guarantee + fuel surcharge, from the approved
+  quote QT-202608-001; new rate collections + `computeDistributionBilling` + invoice via `billing_statements`.
 
 **Out of scope (ทำทีหลัง / ไม่ทำ):**
-- **Billing/pricing for this line of business** — different model from the hub-to-hub rate card; separate ADR + spec.
 - Any **API integration** with Buzzebee (files/email chosen).
 - Barcode/QR or OCR auto-counting; full automatic route optimisation.
 - Real-time GPS trace of the delivery on the customer portal (status timeline only for now).
@@ -48,8 +54,11 @@ the mobile driver app, and a customer portal — built spec-first, in phases.
   recipient, address (with subdistrict), and **per-SKU line items** (sku, qty, optional dimensions/volume/weight);
   rows validate with a preview (invalid rows flagged); a valid import writes `distribution_orders` + one
   `order_import_batches` audit doc.
-- **R2. Geocoding at import.** Each order's address is geocoded to `lat`/`lng` + normalised subdistrict/`zoneKey`;
-  rows that fail geocoding are flagged and blocked from allocation until corrected/pin-dropped.
+- **R2. Geocoding + zoning at import.** Each order's address is geocoded to `lat`/`lng` and resolved to a
+  `zoneKey` (Zone 1/2/3) via the `distribution_zones` master, keyed on **district first** (postal codes recur across
+  zones — e.g. 50130, 50160 — so postal alone is ambiguous, ADR 0023). Addresses in the **out-of-service** set
+  (เวียงแหง/แม่แจ่ม/แม่อาย) are **rejected** (cannot be delivered or billed). Rows that fail geocoding/zoning are
+  flagged and blocked from allocation until corrected/pin-dropped.
 - **R3. Truck cargo capacity.** `trucks` gains `cargoVolumeM3` (kept alongside `maxLoadWeight`), editable in the
   truck form and read by allocation.
 - **R4. Semi-auto allocation.** Admin selects N available trucks; system partitions orders into N loads by
@@ -85,6 +94,15 @@ the mobile driver app, and a customer portal — built spec-first, in phases.
   a route is active (gated by `activeTruck`, debounced ~2 min / ~1000 m — **mobile source only**); a truck with a
   Cartrack device is never phone-tracked and its hardware sync cadence is unchanged. The distribution/dashboard maps
   consume it transparently.
+- **R14. Billing (ADR 0023, quote QT-202608-001).** Compute a per-trip charge: for each order
+  `orderCharge = packCount × perPackRate(zone, tier)` where `tier = packCount ≤ 5 ? "1_5" : "6_plus"`; per trip
+  `tripCharge = max(Σ orderCharge, zoneMinGuarantee(tripZone))` with `tripZone` = the max zone among its orders.
+  Apply the per-zone-per-pack **fuel surcharge** (diesel ±2.00 THB/L steps vs a recorded PTT-Chiang-Mai base, plus
+  ±50/trip on the minimum), effective the 1st & 16th, as effective-dated **immutable** rows. Rates live in new
+  collections (`distribution_rate_entries`, `distribution_zone_minimums`, `distribution_fuel_adjustments`); compute
+  is `computeDistributionBilling` mirrored in **both** `lib/billingCompute.ts` and
+  `functions/src/core/billingCompute.ts`; snapshot per-order + per-trip; invoice via `billing_statements`
+  (Buzzebee `paymentTermsDays: 30`). Draft-only recompute (ADR 0008). Admin rate-card UI to view/seed the table.
 
 **Non-functional** (perf / security / i18n / cost)
 - **N1. i18n complete in `en` and `th`** — a new `distribution` namespace (web) + keys in `en.json`/`th.json`
@@ -115,8 +133,14 @@ the mobile driver app, and a customer portal — built spec-first, in phases.
 - `return_manifests` — per return: `driverId`, `dayKey`, `truckId`, `items[]{sku,qty}`, `receiverSignatureUrl`,
   `photoUrl`, `emailRecipients[]`, `emailSentAt`, `submittedAt`.
 - `daily_dispatch` — per driver/day: totals (received/delivered/left/returned), `varianceItems[]`,
-  `emptyContainerPhotoUrl`, `closedAt`, `reconciled`.
-- Optional `distribution_zones` master (subdistrict → zone label + default truck).
+  `emptyContainerPhotoUrl`, `closedAt`, `reconciled`, plus billing roll-up (`tripCharges[]`, `billingTotalThb`).
+- `distribution_zones` master — **(district, postal) → zone** (Zone 1/2/3 / out_of_service), district-keyed
+  (postal codes recur across zones — ADR 0023); seeded from quote QT-202608-001.
+- **Billing rate collections (ADR 0023):** `distribution_rate_entries` (`customerId,zone,tier,perPackThb,
+  effectiveFrom`), `distribution_zone_minimums` (`customerId,zone,minGuaranteeThb,effectiveFrom`),
+  `distribution_fuel_adjustments` (`customerId,zone,perPackDeltaThb,minDeltaThb,dieselStepThb,baseDieselThb,
+  effectiveFrom`) — all effective-dated + immutable. Per-order + per-trip billing snapshot fields on
+  `distribution_orders` / `daily_dispatch`.
 - `trucks` + `cargoVolumeM3`; `tasks` + `taskType` value `"DISTRIBUTION"` (additive to `TASK_TYPE_ENUM`,
   `validate/taskSchema.ts:30`); `customers` doc `code: "BUZZEBEE"`.
 
@@ -127,8 +151,10 @@ the mobile driver app, and a customer portal — built spec-first, in phases.
 - `confirmOrdersToBuzzebee` — build Excel + call email; stamp `order_import_batches`.
 - Reuse `createOrUpdateTask` (`tasks.ts`) for assignment; return-submit and day-close writes are direct client
   writes guarded by rules (mobile pattern), with the email side effect via `sendTransactionalEmail`.
-- ⚠️ Billing: **not touched** in this spec (out of scope) — so **no** change to `lib/billingCompute.ts` /
-  `functions/src/core/billingCompute.ts`. When distribution billing is specced later, the two-file sync rule applies.
+- ⚠️ **Billing (ADR 0023, in scope):** add `computeDistributionBilling` to **both** `lib/billingCompute.ts` **and**
+  `functions/src/core/billingCompute.ts` (mandatory two-file sync); a `computeDistributionTripBilling` callable runs
+  at trip completion / day-close (no triggers); reuse `billing_statements` + invoice generation. Existing
+  hub-to-hub compute paths are untouched.
 
 **Web (Next.js)** — `app/app/distribution/**` + `features/distribution/{api,components,hooks}`:
 - Import dialog (reuse SheetJS pattern from `TollExpenseImportDialog.tsx` header probing +
@@ -167,20 +193,23 @@ by-driver / by-customer / by-status queries.
 
 ## 5. Affected files
 
-- **New (web):** `lib/collections.ts` (+4), `features/distribution/**`, `app/app/distribution/**`,
-  `validate/distributionOrderSchema.ts`, `context/locales/{en,th}/distribution.ts` (+ `index.ts`),
-  `functions/src/email.ts`, `functions/src/distribution.ts` (geocode + confirm-back), `functions/src/index.ts`
-  (exports); web `package.json` gains a Google Maps JS React wrapper (e.g. `@vis.gl/react-google-maps`) + browser
-  Maps JS key env (`NEXT_PUBLIC_*`).
+- **New (web):** `lib/collections.ts` (+7: orders, batches, returns, daily_dispatch, zones, rate_entries,
+  zone_minimums, fuel_adjustments), `features/distribution/**` (incl. `api/billing.ts` + rate-card UI),
+  `app/app/distribution/**`, `validate/distributionOrderSchema.ts` + `validate/distributionRateSchema.ts`,
+  `context/locales/{en,th}/distribution.ts` (+ `index.ts`), `functions/src/email.ts`,
+  `functions/src/distribution.ts` (geocode + confirm-back), `functions/src/distributionBilling.ts` (compute callable),
+  `functions/src/index.ts` (exports); web `package.json` gains a Google Maps JS React wrapper (e.g.
+  `@vis.gl/react-google-maps`) + browser Maps JS key env (`NEXT_PUBLIC_*`).
 - **Edit (web):** `validate/truckSchema.ts` (`cargoVolumeM3`) + truck form, `validate/taskSchema.ts`
-  (`TASK_TYPE_ENUM` += `"DISTRIBUTION"`) + `shared-docs/schemas/taskSchema.ts` (keep in sync), `firestore.rules`,
-  `firestore.indexes.json`, `lib/capabilities.ts` / `lib/roles.ts` / `components/app-sidebar.tsx` /
+  (`TASK_TYPE_ENUM` += `"DISTRIBUTION"`) + `shared-docs/schemas/taskSchema.ts` (keep in sync),
+  **`lib/billingCompute.ts` + `functions/src/core/billingCompute.ts` (`computeDistributionBilling`, two-file sync)**,
+  `firestore.rules`, `firestore.indexes.json`, `lib/capabilities.ts` / `lib/roles.ts` / `components/app-sidebar.tsx` /
   `components/page-permission-guard.tsx` (RBAC + nav), `functions/package.json` (`nodemailer`).
 - **New/edit (mobile):** `lib/features/distribution/**`, a phone-GPS reporting service (ADR 0022),
   `pubspec.yaml` (signature dep + foreground-service/background-location dep + version bump),
   `android/app/src/main/AndroidManifest.xml` (`tel:` queries + background-location permissions),
   `assets/translations/{en,th}.json`.
-- **Docs:** this spec, ADR 0020/0021/0022, `shared-docs/glossary.md`, `.vibe-rules.md` Change Log.
+- **Docs:** this spec, ADR 0020/0021/0022/0023, `shared-docs/glossary.md`, `.vibe-rules.md` Change Log.
 
 ## 6. Task breakdown
 
@@ -210,6 +239,14 @@ by-driver / by-customer / by-status queries.
 **Phase 3 — Customer portal**
 - [ ] T3.1 Customer-scoped per-order tracking page (timeline + POD), rules + guard.
 
+**Phase 4 — Billing (ADR 0023)**
+- [ ] T4.1 Rate collections + schema; seed `distribution_zones` + rate/minimum/fuel rows from quote QT-202608-001.
+- [ ] T4.2 `computeDistributionBilling` in **both** `lib/billingCompute.ts` + `functions/src/core/billingCompute.ts`
+  (pack×zone×tier + per-trip minimum + fuel surcharge); `computeDistributionTripBilling` callable at completion.
+- [ ] T4.3 Admin distribution rate-card UI (view/seed/effective-date rows) + fuel-adjustment entry.
+- [ ] T4.4 Invoice via `billing_statements` (reuse generator or a distribution layout); per-order + per-trip snapshot.
+- [ ] T4.5 `firestore.rules` + indexes for rate collections; RBAC capability.
+
 **Cross-cutting**
 - [ ] TX.1 Email transport (`email.ts`, ADR 0021) + `nodemailer` + Workspace SMTP secret.
 - [ ] TX.2 i18n en + th complete for every new string (web + mobile).
@@ -235,6 +272,10 @@ by-driver / by-customer / by-status queries.
   while on a route and disappears/stops updating when the route ends; a truck with a Cartrack device is never
   phone-tracked.
 - [ ] AC8. (R12/N2) Existing FIRST_MILE/LINE_HAUL tasks, billing, and Driver Monitor behave unchanged.
+- [ ] AC11. (R14) A completed trip prices as `Σ(packCount × perPackRate(zone,tier))` floored at the zone minimum,
+  with the fuel surcharge for the effective 1st/16th round applied; e.g. Zone 1 order of 6 packs → 6×13, a Zone 3
+  trip under 2,500 → billed 2,500; `computeDistributionBilling` gives identical results in `lib/` and
+  `functions/src/core/`; the row lands in `billing_statements` for the correct month.
 - [ ] AC9. (N1/N6) Every new string exists in en + th; `tsc --noEmit` and `dart analyze` pass; CI green.
 
 ## 8. Risks & rollback
@@ -247,14 +288,16 @@ by-driver / by-customer / by-status queries.
 | Mobile-invokable email abused as relay | Server-controlled recipients + owner-driver auth (ADR 0021 §3-4) |
 | New collections/rules mis-scoped leak data | Default-deny baseline (`firestore.rules:546`); scope tests before enabling portal |
 | Scope is large | Phased build (0→3); each phase independently shippable; feature is additive so rollback = hide nav + stop importing |
-| Billing expectation creep | Explicitly out of scope; separate ADR before any pricing code |
+| Billing model mismatch | Defined by approved quote QT-202608-001 → [ADR 0023](../adr/0023-buzzebee-distribution-billing.md); reuses effective-date/immutable/draft-only discipline |
+| Two-file billing drift (`computeDistributionBilling`) | Mandatory `lib/` ↔ `functions/src/core/` sync + a shared unit test asserting equal results |
 
 ## 9. Open questions / follow-ups
 
-- **Sample Buzzebee order file** — exact columns: does it carry per-SKU dimensions/volume/weight, a usable
-  subdistrict, and a stable order id? (drives R1/R2/R3 field mapping).
-- Zone model: derive `zoneKey` straight from subdistrict, or maintain a `distribution_zones` master with default
-  trucks? (start derived; add master if ops need it).
+- 🔴 **BLOCKER — Sample Buzzebee order file (build paused until received).** Exact columns: does it carry per-SKU
+  dimensions/volume/weight, a usable subdistrict, and a stable order id? Drives R1/R2/R3 field mapping; Phase 1
+  cannot start without it.
+- Zone model: **resolved** — `distribution_zones` master keyed on **(district, postal)**, seeded from quote
+  QT-202608-001 (postal codes recur across zones, so district decides). Same zone serves allocation + billing.
 - "Left at drop" — does Buzzebee require pre-approval, or is the checkbox + photo notification sufficient?
 - Signature: pick the `signature` package vs a hand-rolled `CustomPainter`→PNG.
 - **Maps:** distribution uses Google Maps JS. The owner wants Google's detail "ทั้งหมด" — should the existing
@@ -262,5 +305,9 @@ by-driver / by-customer / by-status queries.
   app-wide to Google Maps** (and Leaflet deps dropped) as a follow-up, or only distribution for now?
 - **Phone-GPS fallback (ADR 0022):** enable for **all** task types (any GPS-less truck with an active driver) or
   distribution-only first? And which foreground-service / background-location package + throttle (time vs distance)?
-- **Billing for distribution** — pricing model (per order / drop / day) → separate ADR + spec (follow-up).
+- **Billing (ADR 0023) — confirm 3 interpretations:** (a) a "pack" = the order's counting/quantity unit (ties to the
+  order file); (b) the per-trip minimum for a **mixed-zone** trip uses the max (farthest) zone — is that right, or
+  should allocation force one trip = one zone? (c) the fuel base = PTT Chiang Mai retail diesel — need the **base
+  price + date** and a Chiang Mai PTT feed (existing snapshots are Bangchak). Also: does the invoice reuse the
+  current billing-document generator or get its own layout?
 - Workspace SMTP daily sending limit vs expected manifest volume; SPF/DKIM/DMARC readiness of the sending domain.

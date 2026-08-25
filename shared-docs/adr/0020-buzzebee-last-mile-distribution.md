@@ -142,8 +142,9 @@ Facts established during exploration that constrain the design:
   explicit "flag + pin-drop manually" path in decision 5.
 
 **Follow-ups**
-- **Billing for this line of business is out of scope of this ADR** (per-order / per-drop / per-day pricing differs
-  from the hub-to-hub rate card) and will be its own ADR before any billing code is written.
+- **Billing for this line of business is specified separately in [ADR 0023](0023-buzzebee-distribution-billing.md)**
+  (per-pack × zone × tier + per-trip minimum + fuel surcharge, from the approved quote QT-202608-001). Note that the
+  [[Zone key]] defined here is **also** the billing zone in ADR 0023 — one shared, district-keyed taxonomy.
 - Mobile needs two capabilities it does not have today — on-glass signature capture and `tel:` call launching with
   a call log — recorded in the spec, not here.
 - Email transport is a separate greenfield decision: [ADR 0021](0021-transactional-email-smtp-workspace.md).

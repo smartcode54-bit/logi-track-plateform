@@ -637,3 +637,32 @@ the two are disjoint per truck. The phone reports (reusing `geolocator`, `pubspe
 truck — never off-shift, never overriding a real device. That throttle is the **mobile path's only**; the Cartrack
 hardware cadence is unchanged. Keyed by [[Truck identity]] so map consumers read it unchanged.
 [ADR 0022](adr/0022-phone-gps-fallback-for-trucks-without-device.md).
+
+## Delivery zone
+
+The billing + allocation area a [[Distribution order]] falls in — **Zone 1** (เมือง, 0–35 km), **Zone 2** (ชานเมือง,
+35–65 km), **Zone 3** (โซนไกล, 65–140+ km), or **out_of_service** — defined by the approved quote QT-202608-001 over
+จ.เชียงใหม่ + จ.ลำพูน. It is the **same `zoneKey`** used by [[Allocation]] and by billing (one taxonomy). Resolved
+from the `distribution_zones` master keyed on **(district, postal)** — **district decides**, because postal codes
+recur across zones (`50130` = สันกำแพง Z1 & แม่ออน Z2; `50160` = ดอยหล่อ Z2 & จอมทอง Z3). Out-of-service districts
+(เวียงแหง/แม่แจ่ม/แม่อาย) are rejected at import — undeliverable and unbillable.
+[ADR 0023](adr/0023-buzzebee-distribution-billing.md).
+
+## Distribution pack rate
+
+The Buzzebee price unit: **baht per แพ็ค (pack)**, selected by [[Delivery zone]] × **pack-count tier** (`1–5` vs
+`6+`, decided by the order's own total packs, never split per line). `orderCharge = packCount × perPackRate(zone,
+tier)`. Base table (quote QT-202608-001): Z1 18/13, Z2 24/18, Z3 35/28. A **per-zone-per-pack fuel surcharge** rides
+on top — diesel ±2.00 THB/L steps vs a recorded PTT Chiang Mai base (Z1 ±0.50 / Z2 ±1.00 / Z3 ±1.50), reviewed the
+1st & 16th — modelled as effective-dated **immutable** rows, same discipline as [[Rate round]] / [[Announcement row]]
+([ADR 0009](adr/0009-multiple-rate-rounds-within-one-billing-period.md)) but a different step and shape. Stored in
+`distribution_rate_entries` / `distribution_fuel_adjustments`; **not** `customer_rate_entries` (wrong shape).
+[ADR 0023](adr/0023-buzzebee-distribution-billing.md).
+
+## Trip minimum guarantee
+
+A revenue floor **per เที่ยววิ่ง (trip)** by [[Delivery zone]] (Z1 1,250 / Z2 1,650 / Z3 2,500; fuel ±50):
+`tripCharge = max(Σ orderCharge, zoneMinGuarantee(tripZone))`. `tripZone` = the **max (farthest) zone** among the
+trip's orders (interpretation pending owner confirmation — see spec §9). Dropping it under-bills short trips, so it
+is not optional. Stored in `distribution_zone_minimums` (effective-dated, immutable).
+[ADR 0023](adr/0023-buzzebee-distribution-billing.md).
