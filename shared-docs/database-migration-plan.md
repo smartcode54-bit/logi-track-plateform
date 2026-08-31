@@ -382,6 +382,7 @@ BigQuery ← Admin/Analytics queries (SQL เต็มรูปแบบ)
 | 24 พ.ค. 2026 | วางแผน Hybrid Architecture ไว้ | เพื่อให้มีแผนชัดเจนเมื่อถึงเวลา migrate จริง |
 | 18 มิ.ย. 2026 | เพิ่มขอบเขต **Platform Management** เข้าแผน | คำแนะนำรุ่นพี่เรื่อง scale + ประสบการณ์ deploy CI/CD ที่ต้องไล่แก้ IAM/API ด้วยมือ → ต้องทำ IaC/observability ก่อน scale (ทำได้อิสระจากการ migrate DB) |
 | 18 มิ.ย. 2026 | ยังคงไม่ migrate DB ตอนนี้ | ปัญหาที่เจอเป็นเรื่อง platform config ไม่ใช่ data layer — Firestore ยังตอบโจทย์ ให้ทำ platform hardening ก่อน |
+| 25 ส.ค. 2026 | **เลือก Supabase (Postgres) เป็น SQL host ของแพลตฟอร์ม** (แทนสมมติฐาน Cloud SQL เดิม) — เริ่มด้วย **Buzzebee distribution** เป็นโมดูล SQL-native ตัวแรก (ดู [ADR 0024](adr/0024-buzzebee-distribution-on-supabase.md)) | domain ใหม่ = ไม่มีข้อมูลเก่าให้ migrate → เสี่ยงต่ำสุดในการเริ่ม SQL. Supabase ให้ built-in pooler (แก้ connection exhaustion §161-171), Firebase third-party auth + RLS (คง Firebase Auth SSOT ตาม §288-300), client SDK ลด callable. แลกกับ vendor นอก GCP. **ผลต่อแผน:** Phase 1/2 ในอนาคตให้อ่านโดยใช้ Supabase เป็น host แทน Cloud SQL |
 
 ---
 

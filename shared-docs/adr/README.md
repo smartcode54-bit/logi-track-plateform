@@ -34,8 +34,9 @@ Companion glossary: [../glossary.md](../glossary.md).
 | [0021](0021-transactional-email-smtp-workspace.md) | Transactional email via a Google Workspace SMTP callable (greenfield; provider-swappable; server-controlled recipients) | Accepted 2026-08-25 (impl pending) |
 | [0022](0022-phone-gps-fallback-for-trucks-without-device.md) | Phone-GPS fallback for trucks without a hardware GPS device (source-tagged `vehicle_locations`, active-route only) | Accepted 2026-08-25 (impl pending) |
 | [0023](0023-buzzebee-distribution-billing.md) | Buzzebee distribution billing — per-pack × zone × tier + per-trip minimum + fuel surcharge (from approved quote QT-202608-001) | Accepted 2026-08-25 (impl pending) |
+| [0024](0024-buzzebee-distribution-on-supabase.md) | Buzzebee distribution stored in Supabase Postgres (first SQL-native domain; Firebase third-party auth + RLS; revises 0020/0023 storage) | Accepted 2026-08-25 (impl pending) |
 
-**Next free number: `0024`.** Take the next unused number, never reuse or renumber (see
+**Next free number: `0025`.** Take the next unused number, never reuse or renumber (see
 [conventions](0000-adr-conventions.md)).
 
 ## Migrated from BMAD (formerly `logitrack-web/_bmad-output/planning-artifacts/adr/`)

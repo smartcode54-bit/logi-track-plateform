@@ -11,8 +11,9 @@
 > **Related:** [ADR 0020](../adr/0020-buzzebee-last-mile-distribution.md) (order SSOT + conservation),
 > [ADR 0021](../adr/0021-transactional-email-smtp-workspace.md) (email),
 > [ADR 0022](../adr/0022-phone-gps-fallback-for-trucks-without-device.md) (phone-GPS fallback),
-> [ADR 0023](../adr/0023-buzzebee-distribution-billing.md) (billing — approved quote QT-202608-001), glossary terms
-> [[Distribution order]] / [[Conservation invariant]] / [[Disposition]] / [[Work slip]] / [[Day-close]]
+> [ADR 0023](../adr/0023-buzzebee-distribution-billing.md) (billing — approved quote QT-202608-001),
+> [ADR 0024](../adr/0024-buzzebee-distribution-on-supabase.md) (**storage: Supabase Postgres, not Firestore**),
+> glossary terms [[Distribution order]] / [[Conservation invariant]] / [[Disposition]] / [[Work slip]] / [[Day-close]]
 
 ---
 
@@ -109,8 +110,9 @@ the mobile driver app, and a customer portal — built spec-first, in phases.
   (mobile); no hardcoded UI strings.
 - **N2. Additive only** — new `taskType` value + new collections; **no change** to existing FIRST_MILE/LINE_HAUL
   tasks, billing, or Driver Monitor behaviour.
-- **N3. Firestore security** — new collections start default-denied (`firestore.rules:546`); add per-role blocks;
-  Cloud-Function-only fields (e.g. geocode results, email audit) are not client-writable where appropriate.
+- **N3. Security (Supabase RLS, ADR 0024)** — every distribution table has RLS **enabled** with explicit per-role
+  policies keyed on the Firebase JWT (default-deny; no anon access). Integrity-critical writes go through the
+  service-role server path only. RLS policy tests before the portal ships. `vehicle_locations` stays Firestore-rules.
 - **N4. Email security (ADR 0021)** — SMTP secret in Cloud env only; recipients server-controlled; mobile-invokable
   send restricted to the owning driver + configured recipient sets.
 - **N5. API versioning** — new callable params optional/defaulted; existing callables unchanged (mobile updates slowly).
@@ -118,43 +120,52 @@ the mobile driver app, and a customer portal — built spec-first, in phases.
 
 ## 4. Design
 
-> Follows `.vibe-rules.md` + feature architecture (`features/<domain>/api` ↔ `components`). Data model detail and
-> the reasoning live in [ADR 0020](../adr/0020-buzzebee-last-mile-distribution.md); this section is the build shape.
+> Follows `.vibe-rules.md` + feature architecture (`features/<domain>/api` ↔ `components`). Data-model reasoning is
+> in [ADR 0020](../adr/0020-buzzebee-last-mile-distribution.md); **storage is Supabase Postgres per
+> [ADR 0024](../adr/0024-buzzebee-distribution-on-supabase.md)** (not Firestore).
 
-**Data model (Firestore)** — new collections in `lib/collections.ts` (`COLLECTIONS.*`, never literals):
-- `distribution_orders` — SSOT per order: `buzzebeeOrderId`, `customerId` (Buzzebee), `importBatchId`,
-  `recipient {name, phone, address, subdistrict, district, province, postalCode}`, `zoneKey`, `lat`/`lng`,
-  `items[] {sku, description, expectedQty, deliveredQty?, unitVolumeM3?, unitWeightKg?}`, `totalVolumeM3`,
-  `totalWeightKg`, `status`, per-SKU `dispositions`, `pod {photos[], signatureUrl, leftAtDrop, deliveredAt}`,
-  `callHistory[] {calledAt, outcome, note}`, `assignedTaskId`, `assignedDriverId`, `dayKey`, immutable
-  `statusHistory[]`.
-- `order_import_batches` — per uploaded file: `fileName`, `uploadedBy/At`, `customerId`, totals, accepted/rejected,
-  `confirmSentAt`, email audit.
-- `return_manifests` — per return: `driverId`, `dayKey`, `truckId`, `items[]{sku,qty}`, `receiverSignatureUrl`,
-  `photoUrl`, `emailRecipients[]`, `emailSentAt`, `submittedAt`.
-- `daily_dispatch` — per driver/day: totals (received/delivered/left/returned), `varianceItems[]`,
-  `emptyContainerPhotoUrl`, `closedAt`, `reconciled`, plus billing roll-up (`tripCharges[]`, `billingTotalThb`).
-- `distribution_zones` master — **(district, postal) → zone** (Zone 1/2/3 / out_of_service), district-keyed
-  (postal codes recur across zones — ADR 0023); seeded from quote QT-202608-001.
-- **Billing rate collections (ADR 0023):** `distribution_rate_entries` (`customerId,zone,tier,perPackThb,
-  effectiveFrom`), `distribution_zone_minimums` (`customerId,zone,minGuaranteeThb,effectiveFrom`),
-  `distribution_fuel_adjustments` (`customerId,zone,perPackDeltaThb,minDeltaThb,dieselStepThb,baseDieselThb,
-  effectiveFrom`) — all effective-dated + immutable. Per-order + per-trip billing snapshot fields on
-  `distribution_orders` / `daily_dispatch`.
-- `trucks` + `cargoVolumeM3`; `tasks` + `taskType` value `"DISTRIBUTION"` (additive to `TASK_TYPE_ENUM`,
-  `validate/taskSchema.ts:30`); `customers` doc `code: "BUZZEBEE"`.
+**Data store — Supabase Postgres (ADR 0024).** The distribution domain lives in **Supabase**, bridged to the rest
+of the platform on `firebase_uid` / `taskId` (Firebase Auth stays the identity SSOT). **Object storage stays Firebase
+Storage** — Postgres holds only photo/signature **URLs**. Relational tables (Firestore nested arrays → FK'd tables):
+- `distribution_orders` — `id uuid`, `buzzebee_order_id`, `customer_id` (Buzzebee), `import_batch_id`, recipient
+  cols (`name,phone,address,subdistrict,district,province,postal_code`), `zone`, `lat/lng`, `status`, `task_id`
+  (Firestore bridge), `driver_firebase_uid`, `day_key`, timestamps.
+- `distribution_order_items` — per-SKU line, FK→order: `sku`, `description`, `expected_qty`, `delivered_qty`,
+  `unit_volume_m3`, `unit_weight_kg`.
+- `distribution_order_dispositions` — per-item outcome, FK→item: `disposition` (delivered/partial/left_at_drop/
+  postponed/cancelled/variance), `qty`, `reason`, `left_at_drop bool`.
+- `distribution_pod` — FK→order: `signature_url`, `photo_urls[]`, `delivered_at`; `distribution_call_log` (FK→order:
+  `called_at, outcome, note`); `distribution_status_history` (FK→order, append-only).
+- `return_manifests` + `return_manifest_items` (FK), `daily_dispatch` (per driver/day: totals, variance,
+  `empty_container_url`, `closed_at`, `reconciled`, `billing_total_thb`).
+- `distribution_zones` — **(district, postal) → zone** (Zone 1/2/3 / out_of_service), **district-keyed** (postal
+  recurs — ADR 0023), seeded from quote QT-202608-001.
+- **Billing (ADR 0023):** `distribution_rate_entries` (`customer_id,zone,tier,per_pack_thb,effective_from`),
+  `distribution_zone_minimums` (`…,min_guarantee_thb,…`), `distribution_fuel_adjustments`
+  (`…,per_pack_delta_thb,min_delta_thb,diesel_step_thb,base_diesel_thb,…`), `distribution_billing_snapshots`
+  (FK→order/rate). Money `NUMERIC`, ts `TIMESTAMPTZ`, effective-dated + immutable rows.
+- **Firestore/Firebase still touched (unchanged):** `trucks` + `cargoVolumeM3`, `tasks` + `taskType`
+  `"DISTRIBUTION"` (`validate/taskSchema.ts:30`), `customers` doc `code:"BUZZEBEE"`, `vehicle_locations` (ADR 0022),
+  Firebase Auth + Storage.
 
-**Cloud Functions** (all `onCall`, region `asia-southeast1`, `enforceAppCheck:false` + manual auth; `functions/src/`):
-- `sendTransactionalEmail` (`email.ts`, ADR 0021) — SMTP via Google Workspace; provider-swappable transport.
-- `geocodeDistributionOrders` — batch geocode addresses at import, reuse `GOOGLE_MAPS_API_KEY`
-  (`distances.ts:22`).
-- `confirmOrdersToBuzzebee` — build Excel + call email; stamp `order_import_batches`.
-- Reuse `createOrUpdateTask` (`tasks.ts`) for assignment; return-submit and day-close writes are direct client
-  writes guarded by rules (mobile pattern), with the email side effect via `sendTransactionalEmail`.
-- ⚠️ **Billing (ADR 0023, in scope):** add `computeDistributionBilling` to **both** `lib/billingCompute.ts` **and**
-  `functions/src/core/billingCompute.ts` (mandatory two-file sync); a `computeDistributionTripBilling` callable runs
-  at trip completion / day-close (no triggers); reuse `billing_statements` + invoice generation. Existing
-  hub-to-hub compute paths are untouched.
+**Access model (ADR 0024).**
+- **RLS-scoped client access** for reads + simple writes: `supabase-js` (web) / `supabase_flutter` (mobile) with the
+  **Firebase JWT** (Supabase configured with **Firebase as a third-party auth provider**). RLS enforces the same
+  scoping Firestore rules did: admin full; Buzzebee customer `SELECT where customer_id = jwt.customerScopeId`; driver
+  read/write only their assigned orders. **This replaces the driver's direct-Firestore POD/disposition writes.**
+- **Server-side transactions** for integrity: billing compute + snapshot, day-close **conservation reconciliation**,
+  import-batch write, confirm-back, geocode — run in Cloud Functions using a **Supabase service-role client** (key in
+  Secret Manager, pooled Supavisor endpoint, small pool + global reuse) or Postgres RPC. A client never enforces the
+  conservation equation or prices a trip.
+
+**Cloud Functions** (`onCall`, region `asia-southeast1`; `functions/src/`):
+- `sendTransactionalEmail` (`email.ts`, ADR 0021); `geocodeDistributionOrders` (reuse `GOOGLE_MAPS_API_KEY`,
+  `distances.ts:22`); `confirmOrdersToBuzzebee` (Excel + email + batch); `importDistributionOrders` (validated batch
+  insert into Supabase); `computeDistributionTripBilling` + `closeDistributionDay` (transactional). Reuse
+  `createOrUpdateTask` for assignment.
+- ⚠️ **Billing (ADR 0023):** `computeDistributionBilling` runs **server-side** reading/writing Supabase in a
+  transaction; the two-file sync (`lib/` ↔ `functions/src/core/`) applies only if a client also shows an estimate.
+  Existing hub-to-hub billing is untouched.
 
 **Web (Next.js)** — `app/app/distribution/**` + `features/distribution/{api,components,hooks}`:
 - Import dialog (reuse SheetJS pattern from `TollExpenseImportDialog.tsx` header probing +
@@ -169,6 +180,9 @@ the mobile driver app, and a customer portal — built spec-first, in phases.
 - i18n: `context/locales/{en,th}/distribution.ts` registered in `context/locales/index.ts`.
 
 **Mobile (Flutter)** — `lib/features/distribution/` (adapt `delivery_phase_page_multi.dart` scaffold):
+- Add `supabase_flutter`; distribution order reads/writes go to **Supabase under RLS** with the Firebase JWT
+  (ADR 0024), **not** Firestore. Photos/signatures still upload to Firebase Storage; POD write stores the URL in
+  Supabase. Day-close conservation + billing go through a server callable (transactional).
 - Goods-receipt page (day total + per-SKU received + photo); work-slip list (reorder); per-order POD sheet
   (countable photo + on-glass signature + per-SKU qty + left_at_drop); call button (`tel:`) + call log;
   warehouse-return page (list+qty + receiver signature + photo + submit→email); day-close (empty-container + check).
@@ -183,42 +197,50 @@ the mobile driver app, and a customer portal — built spec-first, in phases.
   `driver_repository.dart` (`activeTruck`), `cloud_functions_service.dart`; **bump `pubspec.yaml`**.
 - i18n keys added to **both** `assets/translations/en.json` and `th.json`.
 
-**Firestore Rules** — add blocks for the 4 new collections above the catch-all deny (`firestore.rules:546`):
-admin full access via `isWebAdmin()` (`:13`); Buzzebee read of its own `distribution_orders` via `isCustomer()`
-(`:18-21`) scoped by `customerScopeId`; driver create/update of their own order POD / return / day-close; email &
-geocode audit fields written server-side. **Extend `vehicle_locations` (`firestore.rules:302-305`, currently
-admin-write)** so a driver may write `vehicle_locations/{truckId}` iff `activeTruck.truckId == truckId` and
-`request.resource.data.source == 'mobile'` (ADR 0022). Add composite indexes (`firestore.indexes.json`) for by-day /
-by-driver / by-customer / by-status queries.
+**Security — Supabase RLS (ADR 0024), not Firestore rules, for distribution data.** RLS policies (keyed on the
+Firebase JWT via third-party auth) enforce: admin full; Buzzebee customer `SELECT where customer_id =
+jwt.customerScopeId`; driver read/write only orders on their assigned task/day; rate/zone/fuel tables admin-write.
+RLS policy tests are required before the customer portal is enabled. **Firestore rules only change for
+`vehicle_locations`** (`firestore.rules:302-305`) — extend so a driver may write `vehicle_locations/{truckId}` iff
+`activeTruck.truckId == truckId` and `request.resource.data.source == 'mobile'` (ADR 0022). SQL indexes replace the
+Firestore composite indexes (by-day / by-driver / by-customer / by-status) as Postgres indexes in the migration.
 
 ## 5. Affected files
 
-- **New (web):** `lib/collections.ts` (+7: orders, batches, returns, daily_dispatch, zones, rate_entries,
-  zone_minimums, fuel_adjustments), `features/distribution/**` (incl. `api/billing.ts` + rate-card UI),
-  `app/app/distribution/**`, `validate/distributionOrderSchema.ts` + `validate/distributionRateSchema.ts`,
-  `context/locales/{en,th}/distribution.ts` (+ `index.ts`), `functions/src/email.ts`,
-  `functions/src/distribution.ts` (geocode + confirm-back), `functions/src/distributionBilling.ts` (compute callable),
-  `functions/src/index.ts` (exports); web `package.json` gains a Google Maps JS React wrapper (e.g.
-  `@vis.gl/react-google-maps`) + browser Maps JS key env (`NEXT_PUBLIC_*`).
+- **New — Supabase (ADR 0024):** `supabase/migrations/**` (DDL for all distribution tables + RLS policies + indexes),
+  `supabase/config.toml`, seed for `distribution_zones` + rate rows (quote QT-202608-001); `lib/supabase/` (web
+  server + browser clients), a generated/typed schema; Firebase-third-party-auth config on the Supabase project;
+  service-role key in Secret Manager. **NOTE:** distribution data does **not** go in `lib/collections.ts`
+  (that is Firestore-only) — these are Postgres tables.
+- **New (web):** `features/distribution/**` (incl. `api/` querying Supabase + rate-card UI), `app/app/distribution/**`,
+  `validate/distributionOrderSchema.ts` + `validate/distributionRateSchema.ts` (Zod validators shared client/server),
+  `context/locales/{en,th}/distribution.ts` (+ `index.ts`), `functions/src/email.ts`, `functions/src/distribution.ts`
+  (import + geocode + confirm-back, Supabase service client), `functions/src/distributionBilling.ts` (transactional
+  compute), `functions/src/index.ts` (exports); `package.json` gains `@supabase/supabase-js` + a Google Maps JS
+  wrapper (e.g. `@vis.gl/react-google-maps`) + browser Maps JS key env.
 - **Edit (web):** `validate/truckSchema.ts` (`cargoVolumeM3`) + truck form, `validate/taskSchema.ts`
-  (`TASK_TYPE_ENUM` += `"DISTRIBUTION"`) + `shared-docs/schemas/taskSchema.ts` (keep in sync),
-  **`lib/billingCompute.ts` + `functions/src/core/billingCompute.ts` (`computeDistributionBilling`, two-file sync)**,
-  `firestore.rules`, `firestore.indexes.json`, `lib/capabilities.ts` / `lib/roles.ts` / `components/app-sidebar.tsx` /
-  `components/page-permission-guard.tsx` (RBAC + nav), `functions/package.json` (`nodemailer`).
-- **New/edit (mobile):** `lib/features/distribution/**`, a phone-GPS reporting service (ADR 0022),
-  `pubspec.yaml` (signature dep + foreground-service/background-location dep + version bump),
-  `android/app/src/main/AndroidManifest.xml` (`tel:` queries + background-location permissions),
+  (`TASK_TYPE_ENUM` += `"DISTRIBUTION"`) + `shared-docs/schemas/taskSchema.ts` (sync), `firestore.rules` (only
+  `vehicle_locations`), `lib/capabilities.ts` / `lib/roles.ts` / `components/app-sidebar.tsx` /
+  `components/page-permission-guard.tsx` (RBAC + nav), `functions/package.json` (`nodemailer` + `@supabase/supabase-js`).
+- **New/edit (mobile):** `lib/features/distribution/**` (Supabase reads/writes under RLS), a phone-GPS reporting
+  service (ADR 0022), `pubspec.yaml` (`supabase_flutter` + signature + foreground-service/background-location +
+  version bump), `android/app/src/main/AndroidManifest.xml` (`tel:` queries + background-location),
   `assets/translations/{en,th}.json`.
-- **Docs:** this spec, ADR 0020/0021/0022/0023, `shared-docs/glossary.md`, `.vibe-rules.md` Change Log.
+- **Docs:** this spec, ADR 0020/0021/0022/0023/0024, `shared-docs/glossary.md`, `shared-docs/database-migration-plan.md`
+  (Decision Log), `.vibe-rules.md` Change Log.
 
 ## 6. Task breakdown
 
-**Phase 0 — Foundation**
-- [ ] T0.1 Add 4 collections to `lib/collections.ts`; `distributionOrderSchema.ts`; `cargoVolumeM3` on truck schema+form.
+**Phase 0 — Foundation (Supabase, ADR 0024)**
+- [ ] T0.0 Provision Supabase dev + prod projects; configure **Firebase as third-party auth**; service-role key →
+  Secret Manager; `supabase/config.toml`; web + functions Supabase clients (pooled endpoint, small pool).
+- [ ] T0.1 Supabase **migrations**: all distribution tables (orders/items/dispositions/pod/returns/daily_dispatch/
+  zones/rate/snapshots) + FKs + indexes + **RLS policies**; `cargoVolumeM3` on Firestore truck schema+form.
 - [ ] T0.2 `TASK_TYPE_ENUM += "DISTRIBUTION"` (both `validate/` and `shared-docs/schemas/` copies).
-- [ ] T0.3 Zone/subdistrict derivation + `geocodeDistributionOrders` callable (reuse `GOOGLE_MAPS_API_KEY`).
-- [ ] T0.4 Buzzebee `customers` doc; RBAC capabilities + routes + sidebar; `firestore.rules` + indexes.
-- [ ] T0.5 `distribution` i18n namespace (en+th) skeleton.
+- [ ] T0.3 Zone/subdistrict derivation + `geocodeDistributionOrders` callable (reuse `GOOGLE_MAPS_API_KEY`);
+  seed `distribution_zones` + rate/minimum/fuel rows from quote QT-202608-001.
+- [ ] T0.4 Buzzebee `customers` doc; RBAC capabilities + routes + sidebar; `vehicle_locations` firestore.rules edit.
+- [ ] T0.5 `distribution` i18n namespace (en+th) skeleton; `@supabase/supabase-js` + `supabase_flutter` deps.
 
 **Phase 1 — Admin**
 - [ ] T1.1 Import dialog (parse + per-SKU + validate + preview + geocode + write orders/batch).
@@ -239,13 +261,15 @@ by-driver / by-customer / by-status queries.
 **Phase 3 — Customer portal**
 - [ ] T3.1 Customer-scoped per-order tracking page (timeline + POD), rules + guard.
 
-**Phase 4 — Billing (ADR 0023)**
-- [ ] T4.1 Rate collections + schema; seed `distribution_zones` + rate/minimum/fuel rows from quote QT-202608-001.
-- [ ] T4.2 `computeDistributionBilling` in **both** `lib/billingCompute.ts` + `functions/src/core/billingCompute.ts`
-  (pack×zone×tier + per-trip minimum + fuel surcharge); `computeDistributionTripBilling` callable at completion.
-- [ ] T4.3 Admin distribution rate-card UI (view/seed/effective-date rows) + fuel-adjustment entry.
+**Phase 4 — Billing (ADR 0023, on Supabase per ADR 0024)**
+- [ ] T4.1 Rate tables (`distribution_rate_entries` / `_zone_minimums` / `_fuel_adjustments` / `_billing_snapshots`)
+  in Supabase migrations (already created in T0.1) — verify seed from quote QT-202608-001.
+- [ ] T4.2 `computeDistributionBilling` (pack×zone×tier + per-trip minimum + fuel surcharge) run **server-side**
+  reading/writing Supabase in a transaction; `computeDistributionTripBilling` callable at completion. Two-file sync
+  only if a client also estimates.
+- [ ] T4.3 Admin distribution rate-card UI (view/seed/effective-date rows) + fuel-adjustment entry (Supabase).
 - [ ] T4.4 Invoice via `billing_statements` (reuse generator or a distribution layout); per-order + per-trip snapshot.
-- [ ] T4.5 `firestore.rules` + indexes for rate collections; RBAC capability.
+- [ ] T4.5 RLS policies for rate tables (admin-write) + RBAC capability.
 
 **Cross-cutting**
 - [ ] TX.1 Email transport (`email.ts`, ADR 0021) + `nodemailer` + Workspace SMTP secret.
@@ -276,6 +300,9 @@ by-driver / by-customer / by-status queries.
   with the fuel surcharge for the effective 1st/16th round applied; e.g. Zone 1 order of 6 packs → 6×13, a Zone 3
   trip under 2,500 → billed 2,500; `computeDistributionBilling` gives identical results in `lib/` and
   `functions/src/core/`; the row lands in `billing_statements` for the correct month.
+- [ ] AC12. (N3/ADR 0024) Distribution data reads/writes hit **Supabase** under RLS with the Firebase JWT; a Buzzebee
+  customer JWT can `SELECT` only its own orders and nothing else; a driver can write only orders on their assigned
+  task; anon/other-customer access is denied — verified by RLS policy tests. No distribution data is in Firestore.
 - [ ] AC9. (N1/N6) Every new string exists in en + th; `tsc --noEmit` and `dart analyze` pass; CI green.
 
 ## 8. Risks & rollback
@@ -286,8 +313,10 @@ by-driver / by-customer / by-status queries.
 | Geocoding fails / costs on messy Thai addresses | Flag + manual pin-drop before allocate; batch + cache; monitor Maps quota |
 | Manual counts are wrong despite the photo | Accepted (ADR 0020/0019); conservation check catches *imbalance*, not a wrong-but-balanced count |
 | Mobile-invokable email abused as relay | Server-controlled recipients + owner-driver auth (ADR 0021 §3-4) |
-| New collections/rules mis-scoped leak data | Default-deny baseline (`firestore.rules:546`); scope tests before enabling portal |
-| Scope is large | Phased build (0→3); each phase independently shippable; feature is additive so rollback = hide nav + stop importing |
+| RLS policy mis-scoped leaks cross-customer data | RLS default-deny + explicit per-role policies keyed on Firebase JWT; **RLS policy tests** before portal ships (AC12) |
+| Second vendor (Supabase) off GCP | Accepted (ADR 0024); Secret Manager for keys, separate backup/cost/observability; pooled endpoint for functions |
+| Cross-store consistency (Postgres order ↔ Firestore task/vehicle_locations/Storage) | No cross-store txn; design idempotency per flow; bridge on `taskId`/`firebase_uid`; server owns integrity writes |
+| Scope is large | Phased build (0→4); each phase independently shippable; feature is additive so rollback = hide nav + stop importing |
 | Billing model mismatch | Defined by approved quote QT-202608-001 → [ADR 0023](../adr/0023-buzzebee-distribution-billing.md); reuses effective-date/immutable/draft-only discipline |
 | Two-file billing drift (`computeDistributionBilling`) | Mandatory `lib/` ↔ `functions/src/core/` sync + a shared unit test asserting equal results |
 
@@ -310,4 +339,9 @@ by-driver / by-customer / by-status queries.
   should allocation force one trip = one zone? (c) the fuel base = PTT Chiang Mai retail diesel — need the **base
   price + date** and a Chiang Mai PTT feed (existing snapshots are Bangchak). Also: does the invoice reuse the
   current billing-document generator or get its own layout?
+- **Supabase (ADR 0024):** server operations — Cloud Functions (Supabase service client) vs Supabase Edge Functions
+  / Postgres RPC for the transactional bits (billing, day-close)? Supabase region (Singapore) + latency to functions
+  (asia-southeast1); backup/DR + cost monitoring; how the Firestore `task` ↔ Supabase `order` link stays consistent
+  (idempotent bridge). Also: do the platform's future Firestore→SQL phases now target Supabase (plan Decision Log
+  says yes)?
 - Workspace SMTP daily sending limit vs expected manifest volume; SPF/DKIM/DMARC readiness of the sending domain.

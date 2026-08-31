@@ -5,6 +5,12 @@
 - **Area:** whole platform — logitrack-web (`app/app/**`, `features/`, `functions/src/`, `firestore.rules`),
   logitrack-mobile (driver app), shared-docs (spec + glossary)
 
+> **Update (2026-08-25) — storage engine revised by [ADR 0024](0024-buzzebee-distribution-on-supabase.md).** The
+> **data model, invariants, and workflow in this ADR stand**, but the domain's data now lives in **Supabase
+> Postgres** (relational tables + RLS), **not** Firestore. Read "Firestore collection", "`firestore.rules`", and
+> the collection list below as their Supabase equivalents per ADR 0024 (`distribution_orders` → a table + FK'd
+> `distribution_order_items`, etc.). Firestore keeps only realtime/auth (`vehicle_locations`, FCM, Firebase Auth).
+
 ## Context
 
 Buzzebee hands us **orders** (สินค้าที่ต้องกระจายส่งถึงลูกค้าปลายทาง) as an Excel/Google Sheet file, and we

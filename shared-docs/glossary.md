@@ -666,3 +666,32 @@ A revenue floor **per เที่ยววิ่ง (trip)** by [[Delivery zone
 trip's orders (interpretation pending owner confirmation — see spec §9). Dropping it under-bills short trips, so it
 is not optional. Stored in `distribution_zone_minimums` (effective-dated, immutable).
 [ADR 0023](adr/0023-buzzebee-distribution-billing.md).
+
+## Supabase distribution store
+
+The **Supabase (Postgres)** database that holds the whole Buzzebee distribution domain — orders, per-SKU items,
+dispositions, POD/return/day-close records, zones, and billing rates/snapshots — as relational tables with foreign
+keys. It is the platform's **first SQL-native module** and sets Supabase as the SQL host going forward
+([ADR 0024](adr/0024-buzzebee-distribution-on-supabase.md), revising the Cloud-SQL assumption in
+`database-migration-plan.md`). It is **not** Firestore: `distribution_orders` etc. do **not** appear in
+`lib/collections.ts` (Firestore-only). Bridged to the rest of the platform on `firebase_uid` and the Firestore
+`taskId` (stored as columns); photos/signatures stay in **Firebase Storage** (URLs only in Postgres). Only realtime
++ auth stay in Firebase — [[Vehicle location source]] (`vehicle_locations`), FCM, Firebase Auth.
+
+## Firebase third-party auth (Supabase)
+
+The bridge that lets **Firebase Auth remain the identity SSOT** while using [[Supabase distribution store]]:
+Supabase is configured to accept **Firebase-issued JWTs** as a third-party auth provider, so its [[RLS scoping]]
+reads the same claims (`uid`, `role`, `customerScopeId`, `partnerScopeId`, `driverId`) the rest of the platform
+uses. **No Supabase-native accounts, no duplicated user data** — the `firebase_uid` bridge from
+`database-migration-plan.md`. [ADR 0024](adr/0024-buzzebee-distribution-on-supabase.md).
+
+## RLS scoping
+
+Row-Level Security policies on the [[Supabase distribution store]] tables — the SQL analogue of `firestore.rules`
+for distribution data. Keyed on the Firebase JWT ([[Firebase third-party auth (Supabase)]]): admin full; a Buzzebee
+customer `SELECT`s only `where customer_id = jwt.customerScopeId`; a driver reads/writes only orders on a task they
+are assigned. Default-deny, no anon access. **Integrity-critical writes bypass client RLS** and go through the
+service-role server path (billing compute, day-close [[Conservation invariant]] reconciliation) so a client can
+never price a trip or forge the conservation balance. RLS correctness is security-critical; it needs policy tests
+before the portal ships. [ADR 0024](adr/0024-buzzebee-distribution-on-supabase.md).
