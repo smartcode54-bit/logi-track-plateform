@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { format } from "date-fns";
+import { endOfDay, format, startOfDay } from "date-fns";
 import { Calendar as CalendarIcon, Plus } from "lucide-react";
 import { LineHaulImportDialog } from "./import-dialog";
 import { LineHaulTaskDialog } from "./task-dialog";
@@ -40,7 +40,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { SOC_DESTINATIONS, SOC_KEYS, Task as FirstMileTask, normalizeSocIdToKey } from "@/validate/taskSchema";
 import { buildHubCodeToDisplayMapFromHubRows, resolveHubOrSocDisplay } from "@/lib/hubDisplay";
-import { collection, getDocs, onSnapshot, query, orderBy, limit, doc, updateDoc, where } from "firebase/firestore";
+import { collection, getDocs, onSnapshot, query, orderBy, limit, doc, updateDoc, where, type QueryConstraint } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
@@ -155,30 +155,58 @@ export default function LineHaulPage() {
         }).catch(() => setDetailTrip(null));
     }, [detailTask?.id, detailTask?.taskId]);
 
-    // Listen to Tasks
+    // Listen to Tasks for the selected day.
+    //
+    // The date filter drives the Firestore query — it must not be a predicate over an
+    // already-truncated result set. This listener used to load the 100 most recently CREATED
+    // line-haul tasks and match `date` client-side, so any day that had fallen past that rolling
+    // window of 100 rendered as "no tasks" while its rows sat untouched in Firestore. How far back
+    // the page could see was therefore a function of job volume, not of any date the user picked,
+    // and nothing told them the result had been cut off. Querying the day directly removes the
+    // window entirely.
+    //
+    // With no date picked there is no window to query, so fall back to the bounded recent list:
+    // an unfiltered listener over the whole tasks collection is not something this page should open.
     useEffect(() => {
-        const q = query(
-            collection(db, COLLECTIONS.TASKS),
-            where("taskType", "==", "LINE_HAUL"),
-            orderBy("createdAt", "desc"),
-            limit(100)
+        const constraints: QueryConstraint[] = [where("taskType", "==", "LINE_HAUL")];
+        if (date) {
+            constraints.push(
+                where("date", ">=", startOfDay(date)),
+                where("date", "<=", endOfDay(date)),
+                orderBy("date", "desc")
+            );
+        } else {
+            constraints.push(orderBy("createdAt", "desc"), limit(100));
+        }
+        const q = query(collection(db, COLLECTIONS.TASKS), ...constraints);
+        const unsubscribe = onSnapshot(
+            q,
+            (snapshot) => {
+                const fetched: FirstMileTask[] = snapshot.docs.map(d => {
+                    const data = d.data();
+                    return {
+                        id: d.id,
+                        ...data,
+                        date: data.date?.toDate?.() ?? data.date,
+                        createdAt: data.createdAt?.toDate?.() ?? data.createdAt,
+                        updatedAt: data.updatedAt?.toDate?.() ?? data.updatedAt,
+                        checkInAt: data.checkInAt?.toDate?.() ?? data.checkInAt,
+                    };
+                }) as FirstMileTask[];
+                // Tasks on one day share a single `date`, which would leave the server ordering to
+                // document id. Re-sort so the table keeps the newest-created-first order it had.
+                fetched.sort(
+                    (a, b) => (toDate(b.createdAt)?.getTime() ?? 0) - (toDate(a.createdAt)?.getTime() ?? 0)
+                );
+                setTasks(fetched);
+            },
+            (err) => {
+                // A missing composite index (tasks: taskType ASC + date DESC) surfaces here.
+                console.error("Failed to load LINE_HAUL tasks:", err);
+            }
         );
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const fetched: FirstMileTask[] = snapshot.docs.map(d => {
-                const data = d.data();
-                return {
-                    id: d.id,
-                    ...data,
-                    date: data.date?.toDate?.() ?? data.date,
-                    createdAt: data.createdAt?.toDate?.() ?? data.createdAt,
-                    updatedAt: data.updatedAt?.toDate?.() ?? data.updatedAt,
-                    checkInAt: data.checkInAt?.toDate?.() ?? data.checkInAt,
-                };
-            }) as FirstMileTask[];
-            setTasks(fetched);
-        });
         return () => unsubscribe();
-    }, []);
+    }, [date]);
 
     const hubDisplayMap = useMemo(() => buildHubCodeToDisplayMapFromHubRows(hubs), [hubs]);
 
@@ -240,12 +268,8 @@ export default function LineHaulPage() {
             if (!isSourceMatch && !isDestinationMatch && !isDeliveryStopMatch) return false;
         }
 
-        // Date match (compare dd/MM/yyyy)
-        if (date) {
-            const filterStr = format(date, "dd/MM/yyyy");
-            const taskStr = task.date ? format(task.date, "dd/MM/yyyy") : "";
-            if (filterStr !== taskStr) return false;
-        }
+        // No date predicate here on purpose: the selected day is the Firestore query window above,
+        // so re-checking it client-side would only add a second, drift-prone source of truth.
         // SOC (compare normalized key so legacy "SOCE" and hub source_id both match)
         if (selectedSOC !== "all" && normalizeSocIdToKey(task.destination || "") !== selectedSOC) return false;
         // Hub

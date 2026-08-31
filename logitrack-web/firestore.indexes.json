@@ -175,6 +175,20 @@
       "queryScope": "COLLECTION",
       "fields": [
         {
+          "fieldPath": "taskType",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "date",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "tasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
           "fieldPath": "driverId",
           "order": "ASCENDING"
         },
