@@ -56,6 +56,7 @@ export const CAPABILITIES = {
   accounting_view_income: "accounting:view_income",
   accounting_billing_document: "accounting:billing_document",
   accounting_billing_result: "accounting:billing_result",
+  accounting_shopee_report: "accounting:shopee_report",
 
   // Reporting
   reporting_view_analytics: "reporting:view_analytics",
@@ -278,6 +279,11 @@ export const CAPABILITY_META: Record<
     description: "View invoice registry, track payment status (draft/sent/paid), and manage aging",
     module: "Accounting",
   },
+  [CAPABILITIES.accounting_shopee_report]: {
+    title: "Shopee Express Report",
+    description: "Generate the price-free Shopee Express (TTP) billing support pack: trip summary + signed run-sheet images grouped by driver",
+    module: "Accounting",
+  },
   [CAPABILITIES.reporting_view_analytics]: {
     title: "View Analytics",
     description: "Analytics",
@@ -372,6 +378,7 @@ export const ROUTE_CAPABILITIES: Record<string, CapabilityId> = {
   "/app/accounting/income": CAPABILITIES.accounting_view_income,
   "/app/accounting/billing-document": CAPABILITIES.accounting_billing_document,
   "/app/accounting/billing-result": CAPABILITIES.accounting_billing_result,
+  "/app/accounting/shopee-express-report": CAPABILITIES.accounting_shopee_report,
   "/app/companies": CAPABILITIES.company_view,
   "/app/companies/new": CAPABILITIES.company_manage,
   "/app/settings/company-profile": CAPABILITIES.company_manage,

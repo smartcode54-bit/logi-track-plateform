@@ -73,6 +73,7 @@ export const DEFAULT_ROLE_CAPABILITIES: Record<
     CAPABILITIES.accounting_view_income,
     CAPABILITIES.accounting_billing_document,
     CAPABILITIES.accounting_billing_result,
+    CAPABILITIES.accounting_shopee_report,
     CAPABILITIES.reporting_view_analytics,
     CAPABILITIES.packages_view,
     CAPABILITIES.waitlist_view,

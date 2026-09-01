@@ -52,6 +52,7 @@ export default {
     "nav.income": "Billing",
     "nav.billingDocument": "Billing Documents",
     "nav.billingResult": "Billing Statements",
+    "nav.shopeeExpressReport": "Shopee Express Report",
     "nav.operations": "Operations",
     "nav.firstMileTasks": "First Mile Tasks",
     "nav.sourceManagement": "Pickup Location Management",

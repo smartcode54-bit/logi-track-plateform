@@ -1026,6 +1026,229 @@ export async function fetchBillingTripRows(
     return rows;
 }
 
+// ─── Shopee Express (TTP) billing support report ──────────────────────────────
+//
+// A price-free customer-facing pack: every delivered trip of one customer in a month
+// (INCLUDING trips that were never billed) plus the signed run-sheet photos. Kept
+// separate from `fetchBillingTripRows` on purpose — that fetcher drops trips with no
+// `billingEstimateThb` and filters by `billingCustomerId` server-side, neither of
+// which is correct here. Read-only; never touches any billing amount.
+
+export interface ShopeeReportTripRow {
+    id: string;
+    spxTripId?: string;
+    deliveredTimestamp?: Date;
+    driverId?: string;
+    driverName: string;
+    originDisplay: string;
+    destinationDisplay: string;
+    vehicleClass?: string;
+    truckLicensePlate?: string;
+    parcelCount?: number;
+    /** URLs of run-sheets that carry the recipient's signature (runsheet_received + per-stop variants). */
+    signedRunsheetPhotos: string[];
+}
+
+/** Build a hub/SOC code → display-name resolver (same rules as fetchBillingTripRows). */
+async function buildHubDisplayResolver(): Promise<{
+    resolveDisplayName: (code: string | undefined) => string;
+}> {
+    const hubNameMap = new Map<string, string>();
+    const hubsSnap = await getDocs(collection(db, COLLECTIONS.HUBS));
+    hubsSnap.forEach((d) => {
+        const data = d.data();
+        const label = billingHubLabelFromFirestoreData(data);
+        const sourceId = String(data.source_id ?? data.hubId ?? data.hubCode ?? "").trim();
+        if (data.source_id) hubNameMap.set(String(data.source_id).trim().toUpperCase(), label);
+        if (data.hubId) hubNameMap.set(String(data.hubId).trim().toUpperCase(), label);
+        if (data.hubCode) hubNameMap.set(String(data.hubCode).trim().toUpperCase(), label);
+        for (const extra of extraDestinationLookupKeys(sourceId)) hubNameMap.set(extra, label);
+        hubNameMap.set(d.id, label);
+        hubNameMap.set(d.id.toUpperCase(), label);
+    });
+    const resolveDisplayName = (code: string | undefined): string => {
+        if (!code) return "-";
+        const trimmed = code.trim();
+        if (!trimmed) return "-";
+        const upper = trimmed.toUpperCase();
+        if (hubNameMap.get(upper)) return hubNameMap.get(upper)!;
+        if (trimmed !== upper && hubNameMap.get(trimmed)) return hubNameMap.get(trimmed)!;
+        const norm = normalizeDestinationCode(trimmed);
+        if (norm && norm !== upper && hubNameMap.get(norm)) return hubNameMap.get(norm)!;
+        const socKey = normalizeSocIdToKey(upper);
+        if (socKey && (SOC_DESTINATIONS as Record<string, string>)[socKey]) {
+            return (SOC_DESTINATIONS as Record<string, string>)[socKey];
+        }
+        return trimmed;
+    };
+    return { resolveDisplayName };
+}
+
+/** Build a driver-identifier → Thai display-name resolver (same rules as fetchBillingTripRows). */
+async function buildDriverNameResolver(): Promise<{
+    resolveDriverName: (candidates: unknown[], fallback?: string) => string | undefined;
+}> {
+    const driverNameByKey = new Map<string, string>();
+    try {
+        const driversSnap = await getDocs(collection(db, COLLECTIONS.DRIVERS));
+        driversSnap.forEach((ds) => {
+            const dd = ds.data();
+            const name = driverDisplayName(dd, ds.id);
+            driverNameByKey.set(ds.id, name);
+            const authId = (dd.authId ?? dd.authUid) as string | undefined;
+            if (authId) driverNameByKey.set(authId, name);
+        });
+    } catch (e) {
+        console.warn("[buildDriverNameResolver] failed to load drivers:", e);
+    }
+    const resolveDriverName = (candidates: unknown[], fallback?: string): string | undefined => {
+        for (const candidate of candidates) {
+            const key = String(candidate ?? "").trim();
+            if (!key) continue;
+            const hit = driverNameByKey.get(key);
+            if (hit !== undefined) return hit;
+        }
+        return fallback;
+    };
+    return { resolveDriverName };
+}
+
+const SIGNED_RUNSHEET_STOP_RE = /^stop_\d+_runsheet_received$/;
+
+/**
+ * Every delivered trip of one customer in a period, with the signed run-sheet URLs.
+ *
+ * Unlike `fetchBillingTripRows` this includes un-billed trips: it queries all delivered
+ * trips in the period and resolves the customer per-trip (billingCustomerId, then the
+ * task's linked customer), because un-billed trips carry no `billingCustomerId`.
+ */
+export async function fetchShopeeExpressReportTrips(
+    customerId: string,
+    period: { month: number; year: number }
+): Promise<ShopeeReportTripRow[]> {
+    const cid = customerId.trim();
+    if (!cid) return [];
+    const start = new Date(period.year, period.month - 1, 1);
+    const end = new Date(period.year, period.month, 1);
+
+    const tripSnap = await getDocsFromServer(
+        query(
+            collection(db, COLLECTIONS.TRIP_RECORDS),
+            where("status", "==", "delivered"),
+            where("deliveredTimestamp", ">=", Timestamp.fromDate(start)),
+            where("deliveredTimestamp", "<", Timestamp.fromDate(end))
+        )
+    );
+
+    // Batch-fetch linked tasks for driver / route / vehicle / linked-customer.
+    type TaskInfo = {
+        truckType?: string;
+        driverId?: string;
+        driverName?: string;
+        truckLicensePlate?: string;
+        sourceHub?: string;
+        destination?: string;
+        sourceHubLinkedCustomerId?: string;
+        destinationLinkedCustomerId?: string;
+    };
+    const taskMap = new Map<string, TaskInfo>();
+    const taskIds = new Set<string>();
+    tripSnap.forEach((d) => {
+        const tid = d.data().taskId;
+        if (tid) taskIds.add(tid);
+    });
+    const allTaskIds = Array.from(taskIds);
+    const taskIdChunks: string[][] = [];
+    for (let i = 0; i < allTaskIds.length; i += 30) taskIdChunks.push(allTaskIds.slice(i, i + 30));
+    await Promise.allSettled(
+        taskIdChunks.map(async (chunk) => {
+            const snap = await getDocs(
+                query(collection(db, COLLECTIONS.TASKS), where(documentId(), "in", chunk))
+            );
+            snap.forEach((td) => {
+                const t = td.data();
+                taskMap.set(td.id, {
+                    truckType: t.truckType,
+                    driverId: t.driverId,
+                    driverName: t.driverName,
+                    truckLicensePlate: t.licensePlate,
+                    sourceHub: t.sourceHub,
+                    destination: t.destination,
+                    sourceHubLinkedCustomerId:
+                        typeof t.sourceHubLinkedCustomerId === "string"
+                            ? t.sourceHubLinkedCustomerId.trim()
+                            : undefined,
+                    destinationLinkedCustomerId:
+                        typeof t.destinationLinkedCustomerId === "string"
+                            ? t.destinationLinkedCustomerId.trim()
+                            : undefined,
+                });
+            });
+        })
+    );
+
+    const [{ resolveDisplayName }, { resolveDriverName }] = await Promise.all([
+        buildHubDisplayResolver(),
+        buildDriverNameResolver(),
+    ]);
+
+    const rows: ShopeeReportTripRow[] = [];
+    tripSnap.forEach((d) => {
+        const data = d.data();
+        const taskInfo = data.taskId ? taskMap.get(data.taskId) : undefined;
+
+        // Resolve customer: direct billing field, else the task's linked customer.
+        const resolvedCustomer =
+            (typeof data.billingCustomerId === "string" && data.billingCustomerId.trim()) ||
+            taskInfo?.sourceHubLinkedCustomerId ||
+            taskInfo?.destinationLinkedCustomerId ||
+            "";
+        if (resolvedCustomer !== cid) return;
+
+        const photos = Array.isArray(data.photos)
+            ? (data.photos as Array<{ type?: string; url?: string }>)
+            : [];
+        const signedRunsheetPhotos = photos
+            .filter(
+                (p) =>
+                    typeof p?.url === "string" &&
+                    p.url.trim() !== "" &&
+                    typeof p?.type === "string" &&
+                    (p.type === "runsheet_received" || SIGNED_RUNSHEET_STOP_RE.test(p.type))
+            )
+            .map((p) => p.url as string);
+
+        const originCode =
+            (data.billingLookupHubId as string) || taskInfo?.sourceHub || (data.origin as string) || "";
+        const destCode =
+            (data.billingLookupDestination as string) ||
+            taskInfo?.destination ||
+            (data.destination as string) ||
+            "";
+
+        rows.push({
+            id: d.id,
+            spxTripId: data.spxTripId,
+            deliveredTimestamp: toBillingDate(data.deliveredTimestamp),
+            driverId: (data.driverId as string) ?? taskInfo?.driverId,
+            driverName: resolveDriverName([data.driverId, taskInfo?.driverId], taskInfo?.driverName) ?? "-",
+            originDisplay: resolveDisplayName(originCode),
+            destinationDisplay: resolveDisplayName(destCode),
+            vehicleClass: taskInfo?.truckType,
+            truckLicensePlate: taskInfo?.truckLicensePlate,
+            parcelCount: typeof data.parcelCount === "number" ? data.parcelCount : undefined,
+            signedRunsheetPhotos,
+        });
+    });
+
+    rows.sort((a, b) => {
+        const byDate = (a.deliveredTimestamp?.getTime() ?? 0) - (b.deliveredTimestamp?.getTime() ?? 0);
+        if (byDate !== 0) return byDate;
+        return a.driverName.localeCompare(b.driverName, "th");
+    });
+    return rows;
+}
+
 // ─── Standby billing diagnostics (ADR 0008 §6, §8-9) ──────────────────────────
 //
 // `fetchBillingTripRows` returns only rows that can actually be billed. Anything failing a billing

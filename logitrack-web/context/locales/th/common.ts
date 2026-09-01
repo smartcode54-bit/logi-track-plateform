@@ -52,6 +52,7 @@ export default {
     "nav.income": "การวางบิล",
     "nav.billingDocument": "เอกสารวางบิล",
     "nav.billingResult": "ทะเบียนใบวางบิล",
+    "nav.shopeeExpressReport": "รายงาน Shopee Express",
     "nav.operations": "ปฏิบัติการ",
     "nav.firstMileTasks": "งาน First Mile",
     "nav.sourceManagement": "จัดการจุดรับงาน",

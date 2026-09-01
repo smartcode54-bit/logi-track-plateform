@@ -16,6 +16,7 @@ const { bahttext } = require("bahttext") as { bahttext: (amount: number) => stri
 import * as XLSX from "xlsx-js-style";
 import { format } from "date-fns";
 import { BILLING_PROVIDER, WITHHOLDING_TAX_RATE } from "./billingConfig";
+import { loadThaiFont, registerThaiFont, fetchImageAsBase64, imageFormat } from "./pdfThai";
 
 // ─── Provider type (extends BILLING_PROVIDER with optional stamp/signature) ──
 
@@ -146,77 +147,6 @@ export interface BillingPeriod {
   /** 1-based month (1–12) */
   month: number;
   year: number;
-}
-
-// ─── Thai font loader ────────────────────────────────────────────────────────
-// Fonts live in public/fonts/ — fetched once per browser session then cached.
-
-let _fontCache: { regular: string; bold: string } | null = null;
-
-async function loadThaiFont(): Promise<{ regular: string; bold: string }> {
-  if (_fontCache) return _fontCache;
-
-  const toBase64 = async (url: string): Promise<string> => {
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error(`[billingDocument] Font load failed (${resp.status}): ${url}`);
-    const buf = await resp.arrayBuffer();
-    const bytes = new Uint8Array(buf);
-    // Process in 8 KB chunks to stay well within the JS call-stack limit
-    let binary = "";
-    const CHUNK = 8192;
-    for (let i = 0; i < bytes.length; i += CHUNK) {
-      const slice = bytes.subarray(i, i + CHUNK);
-      for (let j = 0; j < slice.length; j++) binary += String.fromCharCode(slice[j]);
-    }
-    return btoa(binary);
-  };
-
-  const [regular, bold] = await Promise.all([
-    toBase64("/fonts/Sarabun-Regular.ttf"),
-    toBase64("/fonts/Sarabun-Bold.ttf"),
-  ]);
-
-  _fontCache = { regular, bold };
-  return _fontCache;
-}
-
-/**
- * Fetch a remote image URL and return it as a base64 data string (no data URI prefix).
- * Uses the same 8 KB chunk approach as loadThaiFont.
- * Returns null on any fetch error so callers can skip gracefully.
- */
-async function fetchImageAsBase64(url: string): Promise<string | null> {
-  try {
-    const resp = await fetch(url);
-    if (!resp.ok) return null;
-    const buf = await resp.arrayBuffer();
-    const bytes = new Uint8Array(buf);
-    let binary = "";
-    const CHUNK = 8192;
-    for (let i = 0; i < bytes.length; i += CHUNK) {
-      const slice = bytes.subarray(i, i + CHUNK);
-      for (let j = 0; j < slice.length; j++) binary += String.fromCharCode(slice[j]);
-    }
-    return btoa(binary);
-  } catch {
-    return null;
-  }
-}
-
-/** Detect image type from URL extension. Defaults to PNG. */
-function imageFormat(url: string): "PNG" | "JPEG" {
-  return url.toLowerCase().includes(".jpg") || url.toLowerCase().includes(".jpeg") ? "JPEG" : "PNG";
-}
-
-/** Register Sarabun (normal + bold + italic-as-normal) on a fresh jsPDF instance. */
-function registerThaiFont(doc: jsPDF, font: { regular: string; bold: string }): void {
-  doc.addFileToVFS("Sarabun-Regular.ttf", font.regular);
-  doc.addFont("Sarabun-Regular.ttf", "Sarabun", "normal");
-  doc.addFileToVFS("Sarabun-Bold.ttf", font.bold);
-  doc.addFont("Sarabun-Bold.ttf", "Sarabun", "bold");
-  // Thai script has no italic convention; reuse regular so setFont("Sarabun","italic") doesn't crash
-  doc.addFileToVFS("Sarabun-Italic.ttf", font.regular);
-  doc.addFont("Sarabun-Italic.ttf", "Sarabun", "italic");
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
