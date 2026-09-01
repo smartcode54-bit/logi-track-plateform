@@ -12,13 +12,14 @@
 
 import { useState } from "react";
 import { httpsCallable } from "firebase/functions";
+import { enUS, th as thDateLocale } from "date-fns/locale";
 import { AlertCircle, FileSearch, Loader2 } from "lucide-react";
 import { functions } from "@/firebase/client";
 import { useAuth } from "@/context/auth";
 import { useLanguage } from "@/context/language";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { DateOnlyRangePicker } from "@/components/ui/date-range-picker";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -53,7 +54,8 @@ interface ImpactReportResponse {
 
 export default function BillingImpactPage() {
     const auth = useAuth();
-    const { t } = useLanguage();
+    const { t, language } = useLanguage();
+    const dateLocale = language === "th" ? thDateLocale : enUS;
     const [fromDate, setFromDate] = useState(() => {
         const d = new Date();
         d.setMonth(d.getMonth() - 3);
@@ -100,15 +102,18 @@ export default function BillingImpactPage() {
                     <CardDescription>{t("accounting.impact.runDescription")}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                    <div className="grid gap-4 sm:grid-cols-2">
-                        <div className="space-y-1.5">
-                            <Label>{t("accounting.impact.fromDate")}</Label>
-                            <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-                        </div>
-                        <div className="space-y-1.5">
-                            <Label>{t("accounting.impact.toDate")}</Label>
-                            <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-                        </div>
+                    <div className="space-y-1.5">
+                        <Label>{t("accounting.impact.dateRange")}</Label>
+                        <DateOnlyRangePicker
+                            from={fromDate}
+                            to={toDate}
+                            onChange={(from, to) => {
+                                setFromDate(from);
+                                setToDate(to);
+                            }}
+                            locale={dateLocale}
+                            className="w-[230px]"
+                        />
                     </div>
                     <Button onClick={() => void run()} disabled={loading}>
                         {loading ? (

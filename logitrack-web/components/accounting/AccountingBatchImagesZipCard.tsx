@@ -2,12 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { endOfDay, format, parse, startOfDay, startOfMonth } from "date-fns";
+import { enUS, th as thDateLocale } from "date-fns/locale";
 import { FolderArchive, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useLanguage } from "@/context/language";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { DateOnlyRangePicker } from "@/components/ui/date-range-picker";
 import { Label } from "@/components/ui/label";
 import {
     buildBatchZipEntriesFromRows,
@@ -23,7 +24,8 @@ export function AccountingBatchImagesZipCard({
     records: ZipBatchExpenseLike[];
     kind: "fuel" | "other";
 }) {
-    const { t } = useLanguage();
+    const { t, language } = useLanguage();
+    const dateLocale = language === "th" ? thDateLocale : enUS;
     const [dateFrom, setDateFrom] = useState(() => format(startOfMonth(new Date()), "yyyy-MM-dd"));
     const [dateTo, setDateTo] = useState(() => format(new Date(), "yyyy-MM-dd"));
     const [zipping, setZipping] = useState(false);
@@ -94,23 +96,17 @@ export function AccountingBatchImagesZipCard({
             </CardHeader>
             <CardContent className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end">
                 <div className="flex flex-col gap-1.5">
-                    <Label className="text-xs text-muted-foreground">{t("accounting.batchZip.dateFrom")}</Label>
-                    <Input
-                        type="date"
-                        className="w-[160px]"
-                        value={dateFrom}
-                        onChange={(e) => setDateFrom(e.target.value)}
+                    <Label className="text-xs text-muted-foreground">{t("accounting.batchZip.dateRange")}</Label>
+                    <DateOnlyRangePicker
+                        from={dateFrom}
+                        to={dateTo}
+                        onChange={(from, to) => {
+                            setDateFrom(from);
+                            setDateTo(to);
+                        }}
+                        locale={dateLocale}
                         disabled={zipping}
-                    />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                    <Label className="text-xs text-muted-foreground">{t("accounting.batchZip.dateTo")}</Label>
-                    <Input
-                        type="date"
-                        className="w-[160px]"
-                        value={dateTo}
-                        onChange={(e) => setDateTo(e.target.value)}
-                        disabled={zipping}
+                        className="w-[230px]"
                     />
                 </div>
                 <Button

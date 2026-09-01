@@ -6,13 +6,13 @@ import { db } from "@/firebase/client"
 import { COLLECTIONS } from "@/lib/collections"
 import { useLanguage } from "@/context/language"
 import { format } from "date-fns"
+import { enUS, th as thLocale } from "date-fns/locale"
 import { PagePermissionGuard } from "@/components/page-permission-guard"
 import { CAPABILITIES } from "@/lib/capabilities"
 import {
     Search,
     RefreshCw,
     Loader2,
-    CalendarIcon,
     PauseCircle,
     Clock,
     MapPin,
@@ -31,9 +31,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Card, CardContent } from "@/components/ui/card"
-import { cn } from "@/lib/utils"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Calendar } from "@/components/ui/calendar"
+import { DateRangePicker } from "@/components/ui/date-range-picker"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { ImagePreviewGallery } from "@/components/accounting/ImagePreviewGallery"
 import { StandbyBackfillDialog } from "./standby-backfill-dialog"
@@ -81,7 +79,8 @@ function toDate(val: unknown): Date | null {
 }
 
 export default function StandbyRecordsPage() {
-    const { t } = useLanguage()
+    const { t, language } = useLanguage()
+    const dateLocale = language === "th" ? thLocale : enUS
 
     const [records, setRecords] = useState<StandbyRecord[]>([])
     const [drivers, setDrivers] = useState<Record<string, Driver>>({})
@@ -267,57 +266,19 @@ export default function StandbyRecordsPage() {
 
                 {/* Filters */}
                 <div className="flex flex-col sm:flex-row flex-wrap gap-4 bg-card/50 p-4 rounded-lg border border-border/50">
-                    <Popover>
-                        <PopoverTrigger asChild>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                className={cn(
-                                    "w-[180px] justify-start text-left font-normal",
-                                    !dateFrom && "text-muted-foreground"
-                                )}
-                            >
-                                <CalendarIcon className="mr-2 h-4 w-4" />
-                                {dateFrom
-                                    ? format(dateFrom, "dd/MM/yyyy")
-                                    : t("standbyRecords.filter.from", "From date")}
-                            </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                                mode="single"
-                                selected={dateFrom}
-                                onSelect={setDateFrom}
-                                initialFocus
-                            />
-                        </PopoverContent>
-                    </Popover>
-
-                    <Popover>
-                        <PopoverTrigger asChild>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                className={cn(
-                                    "w-[180px] justify-start text-left font-normal",
-                                    !dateTo && "text-muted-foreground"
-                                )}
-                            >
-                                <CalendarIcon className="mr-2 h-4 w-4" />
-                                {dateTo
-                                    ? format(dateTo, "dd/MM/yyyy")
-                                    : t("standbyRecords.filter.to", "To date")}
-                            </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                                mode="single"
-                                selected={dateTo}
-                                onSelect={setDateTo}
-                                initialFocus
-                            />
-                        </PopoverContent>
-                    </Popover>
+                    {/* One control, two months in view: a range that crosses a month boundary
+                        is picked in one go instead of paging two separate calendars. */}
+                    <DateRangePicker
+                        from={dateFrom ?? null}
+                        to={dateTo ?? null}
+                        onChange={(from, to) => {
+                            setDateFrom(from)
+                            setDateTo(to)
+                        }}
+                        locale={dateLocale}
+                        placeholder={t("standbyRecords.filter.dateRange", "Date range")}
+                        className="w-[230px]"
+                    />
 
                     <div className="relative flex-1 max-w-sm">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />

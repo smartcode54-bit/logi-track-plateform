@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { DateOnlyRangePicker } from "@/components/ui/date-range-picker";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -233,6 +234,7 @@ interface RecomputeStats {
 
 export default function AccountingRateCardPage() {
     const { t, language } = useLanguage();
+    const dateLocale = language === "th" ? thDateLocale : enUS;
     const { hasPermission: canEdit } = usePermission(CAPABILITIES.accounting_edit_rate_card);
     // Recorded as `voidedBy` so a retired announcement names who retired it.
     const currentUser = useAuth()?.currentUser ?? null;
@@ -1932,15 +1934,18 @@ export default function AccountingRateCardPage() {
                             </DialogDescription>
                         </DialogHeader>
                         <div className="space-y-4 py-2">
-                            <div className="grid grid-cols-2 gap-3">
-                                <div className="space-y-1">
-                                    <Label>จากวันที่</Label>
-                                    <Input type="date" value={recomputeFromDate} onChange={(e) => setRecomputeFromDate(e.target.value)} />
-                                </div>
-                                <div className="space-y-1">
-                                    <Label>ถึงวันที่</Label>
-                                    <Input type="date" value={recomputeToDate} onChange={(e) => setRecomputeToDate(e.target.value)} />
-                                </div>
+                            <div className="space-y-1">
+                                <Label>ช่วงวันที่</Label>
+                                <DateOnlyRangePicker
+                                    from={recomputeFromDate}
+                                    to={recomputeToDate}
+                                    onChange={(from, to) => {
+                                        setRecomputeFromDate(from);
+                                        setRecomputeToDate(to);
+                                    }}
+                                    locale={dateLocale}
+                                    className="w-[230px]"
+                                />
                             </div>
                             <div className="space-y-1">
                                 <Label>ลูกค้า (ไม่ระบุ = ทุกลูกค้า)</Label>

@@ -4,6 +4,7 @@ import { CAPABILITIES } from "@/lib/capabilities"
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { endOfDay, format, isWithinInterval, startOfDay, subDays } from "date-fns";
+import { enUS, th as thDateLocale } from "date-fns/locale";
 import { collection, doc, getDoc, getDocs, limit, orderBy, query, where, documentId, updateDoc, Timestamp } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import * as XLSX from "xlsx";
@@ -30,6 +31,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { DateOnlyRangePicker, parseDateOnly } from "@/components/ui/date-range-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -165,12 +167,6 @@ interface BackfillBillingResponse {
     capped: boolean;
 }
 
-function parseLocalDateOnly(dateStr: string): Date | null {
-    if (!dateStr.trim()) return null;
-    const d = new Date(`${dateStr.trim()}T12:00:00`);
-    return Number.isNaN(d.getTime()) ? null : d;
-}
-
 function chunkArray<T>(arr: T[], size: number): T[][] {
     const chunks: T[][] = [];
     for (let i = 0; i < arr.length; i += size) {
@@ -188,7 +184,8 @@ function clearHubCache() {
 }
 
 export default function AccountingIncomePage() {
-    const { t } = useLanguage();
+    const { t, language } = useLanguage();
+    const dateLocale = language === "th" ? thDateLocale : enUS;
     const auth = useAuth();
     const isAdmin = auth?.customClaims?.admin === true;
     const [loading, setLoading] = useState(true);
@@ -558,8 +555,8 @@ export default function AccountingIncomePage() {
             list = list.filter((r) => r.recordType === filterRecordType);
         }
         if (filterDateFrom.trim() && filterDateTo.trim()) {
-            const fromRaw = parseLocalDateOnly(filterDateFrom);
-            const toRaw = parseLocalDateOnly(filterDateTo);
+            const fromRaw = parseDateOnly(filterDateFrom);
+            const toRaw = parseDateOnly(filterDateTo);
             if (fromRaw && toRaw) {
                 const from = startOfDay(fromRaw);
                 const to = endOfDay(toRaw);
@@ -1041,19 +1038,16 @@ export default function AccountingIncomePage() {
 
                         <div className="flex flex-wrap gap-4 items-end">
                             <div className="flex flex-col gap-1.5">
-                                <Label>{t("accounting.income.backfill.from")}</Label>
-                                <Input
-                                    type="date"
-                                    value={backfillFrom}
-                                    onChange={(e) => setBackfillFrom(e.target.value)}
-                                />
-                            </div>
-                            <div className="flex flex-col gap-1.5">
-                                <Label>{t("accounting.income.backfill.to")}</Label>
-                                <Input
-                                    type="date"
-                                    value={backfillTo}
-                                    onChange={(e) => setBackfillTo(e.target.value)}
+                                <Label>{t("accounting.income.backfill.range")}</Label>
+                                <DateOnlyRangePicker
+                                    from={backfillFrom}
+                                    to={backfillTo}
+                                    onChange={(from, to) => {
+                                        setBackfillFrom(from);
+                                        setBackfillTo(to);
+                                    }}
+                                    locale={dateLocale}
+                                    className="w-[230px]"
                                 />
                             </div>
                             <Button
@@ -1174,19 +1168,16 @@ export default function AccountingIncomePage() {
                                 </Select>
                             </div>
                             <div className="flex flex-col gap-1.5">
-                                <Label>{t("accounting.income.filter.deliveredFrom")}</Label>
-                                <Input
-                                    type="date"
-                                    value={filterDateFrom}
-                                    onChange={(e) => setFilterDateFrom(e.target.value)}
-                                />
-                            </div>
-                            <div className="flex flex-col gap-1.5">
-                                <Label>{t("accounting.income.filter.deliveredTo")}</Label>
-                                <Input
-                                    type="date"
-                                    value={filterDateTo}
-                                    onChange={(e) => setFilterDateTo(e.target.value)}
+                                <Label>{t("accounting.income.filter.deliveredRange")}</Label>
+                                <DateOnlyRangePicker
+                                    from={filterDateFrom}
+                                    to={filterDateTo}
+                                    onChange={(from, to) => {
+                                        setFilterDateFrom(from);
+                                        setFilterDateTo(to);
+                                    }}
+                                    locale={dateLocale}
+                                    className="w-[230px]"
                                 />
                             </div>
                             <div className="flex flex-wrap gap-2">
