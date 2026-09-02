@@ -6,12 +6,15 @@ import {
     computeTripBillingFromParts,
     fuelBandFloor,
     fuelBandRange,
+    isEffectiveOnOrBeforeBillingDate,
     normalizeVehicleClass,
     resolveBillingRoundProvenance,
     selectBillingRateEntry,
     selectFuelAdjustmentForBillingDate,
+    selectStandbyRateEntry,
     type BillingRateEntry,
     type FuelRateAdjustment,
+    type StandbyRateEntry,
 } from "./billingCompute";
 
 describe("normalizeVehicleClass", () => {
@@ -165,6 +168,59 @@ describe("voided announcements are never selected (ADR 0009 §1)", () => {
             },
         ];
         expect(selectFuelAdjustmentForBillingDate("cust1", billDate, adjustments)?.id).toBe("a1");
+    });
+});
+
+describe("isEffectiveOnOrBeforeBillingDate (ADR 0009 §2 — announcements are declared by Bangkok DATE)", () => {
+    // A "effective 1 Aug" announcement written before the 2026-08-09 fix was stored at UTC midnight
+    // (1 Aug 07:00 ICT) instead of Bangkok midnight (31 Jul 17:00Z). Comparing on the Bangkok
+    // calendar day absorbs that ≤7h skew.
+    const legacyUtcMidnightAug1 = Date.UTC(2026, 7, 1, 0, 0, 0); // 1 Aug 07:00 ICT — 7h too late
+    const correctBkkMidnightAug1 = Date.UTC(2026, 6, 31, 17, 0, 0); // 1 Aug 00:00 ICT — correct
+    const overnightAug1 = Date.UTC(2026, 6, 31, 17, 21, 0); // 1 Aug 00:21 ICT — the failing case
+    const lateJul31 = Date.UTC(2026, 6, 31, 16, 0, 0); // 31 Jul 23:00 ICT — day before
+
+    it("puts an overnight switch-day trip in-round for both storage conventions", () => {
+        expect(isEffectiveOnOrBeforeBillingDate(legacyUtcMidnightAug1, overnightAug1)).toBe(true);
+        expect(isEffectiveOnOrBeforeBillingDate(correctBkkMidnightAug1, overnightAug1)).toBe(true);
+    });
+
+    it("keeps the day before out of round for both storage conventions", () => {
+        expect(isEffectiveOnOrBeforeBillingDate(legacyUtcMidnightAug1, lateJul31)).toBe(false);
+        expect(isEffectiveOnOrBeforeBillingDate(correctBkkMidnightAug1, lateJul31)).toBe(false);
+    });
+});
+
+describe("overnight switch-day trips price under the correct round (legacy UTC-midnight effectiveFrom)", () => {
+    // Mirrors the CJSF Aug 2026 case: the −50 round (effective 1 Aug) was created before the tz fix,
+    // so its effectiveFrom sits at 1 Aug 07:00 ICT. A 00:21 ICT delivery on 1 Aug must still get −50.
+    const jul8 = Date.UTC(2026, 6, 8, 0, 0, 0); // older −70 round
+    const legacyAug1 = Date.UTC(2026, 7, 1, 0, 0, 0); // −50 round, stored 7h late (pre-fix)
+    const overnightAug1 = Date.UTC(2026, 6, 31, 17, 21, 0); // 1 Aug 00:21 ICT
+
+    it("selectFuelAdjustmentForBillingDate picks the Aug round, not the previous one", () => {
+        const adjustments: FuelRateAdjustment[] = [
+            { id: "jul", customerId: "c", effectiveFromMs: jul8, rateMultiplier: 1, addThbPerTrip: -70 },
+            { id: "aug", customerId: "c", effectiveFromMs: legacyAug1, rateMultiplier: 1, addThbPerTrip: -50 },
+        ];
+        expect(selectFuelAdjustmentForBillingDate("c", overnightAug1, adjustments)?.id).toBe("aug");
+    });
+
+    it("selectBillingRateEntry honors the Bangkok day for a legacy-stored rate card", () => {
+        const base = { customerId: "c", importId: "i", hubId: "HUB", destinationCode: "DEST", vehicleClass: "4WJ" };
+        const entries: BillingRateEntry[] = [
+            { ...base, id: "old", rateThb: 1000, effectiveFromMs: jul8 },
+            { ...base, id: "aug", rateThb: 1200, effectiveFromMs: legacyAug1 },
+        ];
+        expect(selectBillingRateEntry("c", "HUB", "DEST", "4WJ", overnightAug1, entries)?.id).toBe("aug");
+    });
+
+    it("selectStandbyRateEntry honors the Bangkok day for a legacy-stored standby rate", () => {
+        const rates: StandbyRateEntry[] = [
+            { id: "old", customerId: "c", rateThb: 300, effectiveFromMs: jul8 },
+            { id: "aug", customerId: "c", rateThb: 400, effectiveFromMs: legacyAug1 },
+        ];
+        expect(selectStandbyRateEntry("c", overnightAug1, rates)?.id).toBe("aug");
     });
 });
 

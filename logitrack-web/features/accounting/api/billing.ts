@@ -1018,6 +1018,10 @@ export async function fetchBillingTripRows(
             destinationDisplayName: resolveDisplayName(
                 (taskInfo?.destination as string | undefined) ?? (data.endLocation as string | undefined)
             ),
+            // หลัก/เสริม (ADR 0010): mirror the trip rows — the record's own value wins, else the
+            // authoritative task value. Standby billing is a flat per-event rate that never depends
+            // on หลัก/เสริม, so this is a display/label only; it never changes the price.
+            jobCategory: resolveJobCategory(data.jobCategory, taskInfo?.jobCategory),
             rowType: "standby",
         });
     });

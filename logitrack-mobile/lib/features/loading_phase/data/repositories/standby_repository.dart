@@ -80,6 +80,19 @@ Future<void> submitStandbyRecord({
       {'url': siteUrl, 'type': 'site_photo'},
   ];
 
+  // Denormalize หลัก/เสริม from the task (ADR 0010) so the Billing Document can label the standby
+  // row without re-joining the task. Best-effort read: on failure we omit it and the web falls back
+  // to the task. Standby is billed at a flat per-event rate, so this is a label only — never a price.
+  String? jobCategory;
+  if (taskId != null && taskId.isNotEmpty) {
+    try {
+      final raw = (await db.collection('tasks').doc(taskId).get()).data()?['jobCategory'];
+      if (raw == 'PRIMARY' || raw == 'SUPPLEMENTARY') jobCategory = raw as String;
+    } catch (_) {
+      // leave jobCategory null on read failure — do not block the driver's submit
+    }
+  }
+
   final batch = db.batch();
 
   final resolvedCustomerId = customerId?.trim();
@@ -95,6 +108,8 @@ Future<void> submitStandbyRecord({
     'customerResolved': hasCustomer,
     if (hasCustomer && customerResolvedFrom != null)
       'customerResolvedFrom': customerResolvedFrom,
+    // หลัก/เสริม copied from the task (ADR 0010) — label only, does not affect standby pricing.
+    if (jobCategory != null) 'jobCategory': jobCategory,
     'startLocation': startLocation,
     'endLocation': endLocation,
     'startedAt': Timestamp.fromDate(startedAt),

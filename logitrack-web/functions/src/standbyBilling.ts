@@ -58,35 +58,51 @@ function buildStandbyServiceFeeMap(snap: admin.firestore.QuerySnapshot): Map<str
     return map;
 }
 
+function normalizeJobCategory(value: unknown): "PRIMARY" | "SUPPLEMENTARY" | undefined {
+    return value === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : value === "PRIMARY" ? "PRIMARY" : undefined;
+}
+
 /**
- * Resolve customerId for a standby record:
- * 1. Use record.customerId if already set
- * 2. Look up through record.taskId → task.sourceHubLinkedCustomerId / destinationLinkedCustomerId
+ * Resolve customerId + jobCategory for a standby record in a single task read.
+ *
+ * customerId:
+ *   1. Use record.customerId if already set
+ *   2. Else look up through record.taskId → task.sourceHubLinkedCustomerId / destinationLinkedCustomerId
+ *
+ * jobCategory (ADR 0010): the record's own value wins, else the authoritative task value. Neither
+ * present ⇒ undefined — left ABSENT rather than guessed PRIMARY, so the Billing Document shows the
+ * loud "unverified" marker instead of silently labelling หลัก. It is a denormalized label only:
+ * standby is billed at a flat per-event rate that never depends on หลัก/เสริม.
  */
-async function resolveStandbyCustomerId(
+async function resolveStandbyTaskContext(
     db: admin.firestore.Firestore,
     data: Record<string, unknown>
-): Promise<string> {
-    // Direct field takes priority
-    if (typeof data.customerId === "string" && data.customerId.trim()) {
-        return data.customerId.trim();
-    }
+): Promise<{ customerId: string; jobCategory?: "PRIMARY" | "SUPPLEMENTARY" }> {
+    const recordCustomerId = typeof data.customerId === "string" ? data.customerId.trim() : "";
+    const recordCategory = normalizeJobCategory(data.jobCategory);
 
-    // Try to resolve through linked task
+    let taskCustomerId = "";
+    let taskCategory: "PRIMARY" | "SUPPLEMENTARY" | undefined;
     const taskId = typeof data.taskId === "string" ? data.taskId.trim() : "";
-    if (!taskId) return "";
-
-    try {
-        const taskSnap = await db.collection(COL_TASKS).doc(taskId).get();
-        if (!taskSnap.exists) return "";
-        const t = taskSnap.data() as Record<string, unknown>;
-        return (
-            (typeof t.sourceHubLinkedCustomerId === "string" ? t.sourceHubLinkedCustomerId.trim() : "") ||
-            (typeof t.destinationLinkedCustomerId === "string" ? t.destinationLinkedCustomerId.trim() : "")
-        );
-    } catch {
-        return "";
+    if (taskId) {
+        try {
+            const taskSnap = await db.collection(COL_TASKS).doc(taskId).get();
+            if (taskSnap.exists) {
+                const t = taskSnap.data() as Record<string, unknown>;
+                taskCustomerId =
+                    (typeof t.sourceHubLinkedCustomerId === "string" ? t.sourceHubLinkedCustomerId.trim() : "") ||
+                    (typeof t.destinationLinkedCustomerId === "string" ? t.destinationLinkedCustomerId.trim() : "");
+                taskCategory = normalizeJobCategory(t.jobCategory);
+            }
+        } catch {
+            /* leave task-derived values empty on read failure */
+        }
     }
+
+    return {
+        customerId: recordCustomerId || taskCustomerId,
+        jobCategory: recordCategory ?? taskCategory,
+    };
 }
 
 interface StandbyBillingResponse {
@@ -135,7 +151,7 @@ async function tryWriteStandbyBillingSnapshot(
         return { ok: true, skipped: true, billingEstimateThb: data.billingEstimateThb as number };
     }
 
-    const customerId = await resolveStandbyCustomerId(db, data);
+    const { customerId, jobCategory } = await resolveStandbyTaskContext(db, data);
     if (!customerId) {
         logger.warn("[standbyBilling] no customerId on record", { recordId });
         return { ok: false, error: "No customerId — set customerId on the standby record or link a task" };
@@ -170,6 +186,9 @@ async function tryWriteStandbyBillingSnapshot(
             billingRateEntryId: computed.rateEntryId,
             billingEffectiveFromDateStr: computed.effectiveFromDateStr ?? null,
             billingComputedAt: admin.firestore.FieldValue.serverTimestamp(),
+            // Denormalize หลัก/เสริม from the task (ADR 0010). Omitted when neither record nor task
+            // carries one — Admin SDK rejects undefined, and absence keeps the "unverified" marker.
+            ...(jobCategory ? { jobCategory } : {}),
         });
         return { ok: true, billingEstimateThb: computed.rateThb };
     }
@@ -183,6 +202,8 @@ async function tryWriteStandbyBillingSnapshot(
             billingRateEntryId: "service_fee",
             billingEffectiveFromDateStr: null,
             billingComputedAt: admin.firestore.FieldValue.serverTimestamp(),
+            // Denormalize หลัก/เสริม from the task (ADR 0010) — see the rate-entry path above.
+            ...(jobCategory ? { jobCategory } : {}),
         });
         return { ok: true, billingEstimateThb: serviceFee };
     }

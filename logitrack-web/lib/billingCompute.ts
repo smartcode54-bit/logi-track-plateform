@@ -169,6 +169,21 @@ export function bangkokDateStrFromMillis(ms: number): string {
     return new Date(ms + BANGKOK_OFFSET_MS).toISOString().slice(0, 10);
 }
 
+/**
+ * True when an announcement's effective DATE (Bangkok calendar) is on or before a trip's billing
+ * DATE. Announcements are declared by *date* (ADR 0009 §2), so the boundary is the calendar day, not
+ * the stored instant — a trip delivered any time on the effective day is in-round.
+ *
+ * Comparing dates (not instants) also absorbs rows written before 2026-08-09 (commit 299efc4), whose
+ * `effectiveFrom` was stored at UTC midnight (07:00 ICT) instead of Bangkok midnight. That ≤7h skew
+ * never crosses a day boundary — two distinct effective dates are ≥24h apart — so both storage
+ * conventions land on the same Bangkok date, and overnight switch-day trips (00:00–06:59 ICT) price
+ * under the correct round without a per-row datafix.
+ */
+export function isEffectiveOnOrBeforeBillingDate(effectiveFromMs: number, billDateMs: number): boolean {
+    return bangkokDateStrFromMillis(effectiveFromMs) <= bangkokDateStrFromMillis(billDateMs);
+}
+
 // ─── Fuel bands (ADR 0009 §3) ────────────────────────────────────────────────
 
 /**
@@ -263,9 +278,9 @@ export function selectBillingRateEntry(
     );
     if (candidates.length === 0) return null;
 
-    // Primary: effective on or before trip date (newest first)
+    // Primary: effective on or before trip date, by Bangkok calendar day (newest first)
     const effective = candidates
-        .filter((e) => e.effectiveFromMs <= billDateMs)
+        .filter((e) => isEffectiveOnOrBeforeBillingDate(e.effectiveFromMs, billDateMs))
         .sort((a, b) => b.effectiveFromMs - a.effectiveFromMs);
     if (effective.length > 0) return effective[0];
 
@@ -284,7 +299,7 @@ export function selectFuelAdjustmentForBillingDate(
             (adj) =>
                 adj.voided !== true &&
                 adj.customerId === customerId &&
-                adj.effectiveFromMs <= billDateMs
+                isEffectiveOnOrBeforeBillingDate(adj.effectiveFromMs, billDateMs)
         )
         .sort((a, b) => b.effectiveFromMs - a.effectiveFromMs);
     return matched[0] ?? null;
@@ -494,7 +509,7 @@ export function selectStandbyRateEntry(
     if (candidates.length === 0) return null;
 
     const effective = candidates
-        .filter((e) => e.effectiveFromMs <= billDateMs)
+        .filter((e) => isEffectiveOnOrBeforeBillingDate(e.effectiveFromMs, billDateMs))
         .sort((a, b) => b.effectiveFromMs - a.effectiveFromMs);
     if (effective.length > 0) return effective[0];
 
