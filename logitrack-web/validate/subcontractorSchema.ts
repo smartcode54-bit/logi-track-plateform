@@ -40,6 +40,9 @@ export const subcontractorSchema = z.object({
     status: z.enum(["active", "pending", "suspended"]).default("active"),
 
     documents: z.array(z.string()).optional(),
+
+    // LINE notifications: กลุ่ม LINE ปลายทางที่จะส่งแจ้งเตือนเช็คอิน/จบงาน (ว่าง = ปิด)
+    lineGroupId: z.string().optional(),
 }).refine((data) => {
     if (data.type === "individual") {
         if (!data.idCardNumber) return false;
@@ -80,4 +83,5 @@ export const subcontractorDefaultValues: SubcontractorFormValues = {
     vehicleTypes: [],
     status: "active",
     documents: [],
+    lineGroupId: "",
 };

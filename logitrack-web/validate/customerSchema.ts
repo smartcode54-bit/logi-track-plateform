@@ -42,6 +42,10 @@ export const customerSchema = z.object({
     /** หมายเหตุที่พิมพ์ในใบวางบิล/ใบแจ้งหนี้ */
     invoiceNote: z.string().optional(),
 
+    // ── LINE notifications ───────────────────────────────────────────────────
+    /** LINE group id (ขึ้นต้นด้วย "C…") ที่จะส่งแจ้งเตือนเช็คอิน/จบงานเข้าไป — ว่าง = ปิดการแจ้งเตือน */
+    lineGroupId: z.string().optional(),
+
     createdAt: z.coerce.date().optional(),
     updatedAt: z.coerce.date().optional(),
 });

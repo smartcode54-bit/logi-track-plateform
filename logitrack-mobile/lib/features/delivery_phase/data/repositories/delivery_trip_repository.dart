@@ -113,6 +113,15 @@ Future<void> submitDeliveryPhaseRecord({
     // Billing snapshot will be computed later by Driver Monitor backfill if this fails
   }
 
+  // Notify the customer's/partner's LINE group of job completion (best-effort; no-op if the
+  // linked entity has no lineGroupId configured; failure never blocks delivery)
+  try {
+    await CloudFunctionsService.instance.call(
+      'sendCustomerLineNotification',
+      data: {'tripId': tripId, 'event': 'delivered'},
+    );
+  } catch (_) {}
+
   if (taskId != null && taskId.isNotEmpty) {
     try {
       await FirebaseFirestore.instance.collection('tasks').doc(taskId).update({
@@ -233,6 +242,14 @@ Future<bool> submitDeliveryStopRecord({
             await CloudFunctionsService.instance.call(
               'computeTripBillingSnapshot',
               data: {'tripId': tripId},
+            );
+          } catch (_) {}
+
+          // Notify the customer's/partner's LINE group of job completion (best-effort)
+          try {
+            await CloudFunctionsService.instance.call(
+              'sendCustomerLineNotification',
+              data: {'tripId': tripId, 'event': 'delivered'},
             );
           } catch (_) {}
 

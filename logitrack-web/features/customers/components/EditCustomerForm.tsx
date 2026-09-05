@@ -78,6 +78,7 @@ export default function EditCustomerForm() {
             billingEmail: "",
             paymentTermsDays: undefined,
             invoiceNote: "",
+            lineGroupId: "",
         },
     });
 
@@ -110,6 +111,7 @@ export default function EditCustomerForm() {
                         billingEmail: data.billingEmail ?? "",
                         paymentTermsDays: data.paymentTermsDays ?? undefined,
                         invoiceNote: data.invoiceNote ?? "",
+                        lineGroupId: data.lineGroupId ?? "",
                     });
                     if (data.logoUrl) setLogoPreview(data.logoUrl);
                 }
@@ -464,6 +466,29 @@ export default function EditCustomerForm() {
                                     )}
                                 />
                             </div>
+                        </CardContent>
+                    </Card>
+
+                    {/* ── LINE Notifications ── */}
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>{t("customers.form.line.title")}</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <FormField
+                                control={form.control}
+                                name="lineGroupId"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>{t("customers.form.lineGroupId")}</FormLabel>
+                                        <FormControl>
+                                            <Input placeholder={t("customers.form.lineGroupId.placeholder")} {...field} value={field.value ?? ""} />
+                                        </FormControl>
+                                        <FormDescription>{t("customers.form.lineGroupId.desc")}</FormDescription>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
                         </CardContent>
                     </Card>
 

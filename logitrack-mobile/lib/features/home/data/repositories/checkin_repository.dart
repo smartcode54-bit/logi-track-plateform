@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../../../../core/services/cloud_functions_service.dart';
 import '../../../../core/services/mobile_client_heartbeat_service.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:geolocator/geolocator.dart';
@@ -127,6 +128,15 @@ Future<void> submitCheckIn({
     if (helperDriverIds != null) 'helperDriverIds': helperDriverIds,
     'updatedAt': Timestamp.fromDate(DateTime.now()),
   });
+
+  // Notify the customer's/partner's LINE group of the check-in (best-effort; no-op if the linked
+  // entity has no lineGroupId configured; failure never blocks check-in)
+  try {
+    await CloudFunctionsService.instance.call(
+      'sendCustomerLineNotification',
+      data: {'taskId': taskId, 'event': 'checkin'},
+    );
+  } catch (_) {}
 
   try {
     final t = await FirebaseFirestore.instance.collection('tasks').doc(taskId).get();

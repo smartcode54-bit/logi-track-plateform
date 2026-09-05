@@ -113,6 +113,9 @@ export const taskSchema = z.object({
     isMultiDelivery: z.boolean().optional().default(false),
     deliveryStops: z.array(deliveryStopSchema).optional(), // Only set if isMultiDelivery === true
 
+    /** Set by sendCustomerLineNotification once the check-in LINE message was pushed (idempotency). */
+    lineCheckinNotifiedAt: z.any().optional(),
+
     createdAt: z.coerce.date().optional(),
     updatedAt: z.coerce.date().optional(),
 }).refine(

@@ -106,6 +106,9 @@ export default {
     "subcontractors.form.mobilePhone.placeholder": "+1 (555) 000-0000",
     "subcontractors.form.workEmail": "Work Email Address",
     "subcontractors.form.workEmail.placeholder": "example@company.com",
+    "subcontractors.form.lineGroupId": "LINE Group ID",
+    "subcontractors.form.lineGroupId.placeholder": "e.g. Cxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "subcontractors.form.lineGroupId.desc": "The Wanpenradchada Official Account must be a member of this group. Leave blank to disable check-in / job-complete notifications.",
 
     // Step 3 - Fleet & Service
     "subcontractors.form.fleetService": "Fleet & Service Area",

@@ -59,6 +59,12 @@ export default {
     "customers.form.invoiceNote": "Invoice Note",
     "customers.form.invoiceNote.placeholder": "Note printed on invoice / receipt",
 
+    // ── LINE Notifications card ──────────────────────────────────────────────
+    "customers.form.line.title": "LINE Notifications",
+    "customers.form.lineGroupId": "LINE Group ID",
+    "customers.form.lineGroupId.placeholder": "e.g. Cxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "customers.form.lineGroupId.desc": "The Wanpenradchada Official Account must be a member of this group. Leave blank to disable check-in / job-complete notifications.",
+
     // ── CustomerDetail billing section ───────────────────────────────────────
     "customers.detail.billing.title": "Billing Information",
     "customers.detail.billing.taxId": "Tax ID",

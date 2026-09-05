@@ -106,6 +106,9 @@ export default {
     "subcontractors.form.mobilePhone.placeholder": "08x-xxx-xxxx",
     "subcontractors.form.workEmail": "อีเมลที่ทำงาน",
     "subcontractors.form.workEmail.placeholder": "example@company.com",
+    "subcontractors.form.lineGroupId": "LINE Group ID",
+    "subcontractors.form.lineGroupId.placeholder": "เช่น Cxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "subcontractors.form.lineGroupId.desc": "ต้องเชิญ Official Account (Wanpenradchada) เข้ากลุ่มนี้ก่อน — เว้นว่าง = ปิดการแจ้งเตือนเช็คอิน/จบงาน",
 
     // Step 3 - Fleet & Service
     "subcontractors.form.fleetService": "ฝูงรถและพื้นที่ให้บริการ",

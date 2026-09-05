@@ -73,7 +73,7 @@ export default function NewSubcontractorWizard() {
         if (currentStep === 1) {
             fieldsToValidate = ['name', 'type', 'idCardNumber', 'taxId', 'website', 'address'];
         } else if (currentStep === 2) {
-            fieldsToValidate = ['contactPerson', 'designation', 'phone', 'email'];
+            fieldsToValidate = ['contactPerson', 'designation', 'phone', 'email', 'lineGroupId'];
         } else if (currentStep === 3) {
             fieldsToValidate = ['fleetSize', 'dispatchCenter', 'serviceRegions', 'vehicleTypes'];
         }
@@ -340,6 +340,21 @@ export default function NewSubcontractorWizard() {
                                                         )}
                                                     />
                                                 </div>
+
+                                                <FormField
+                                                    control={form.control}
+                                                    name="lineGroupId"
+                                                    render={({ field }) => (
+                                                        <FormItem>
+                                                             <FormLabel>{t("subcontractors.form.lineGroupId")}</FormLabel>
+                                                             <FormControl>
+                                                                 <Input placeholder={t("subcontractors.form.lineGroupId.placeholder")} {...field} value={field.value ?? ""} />
+                                                             </FormControl>
+                                                             <FormDescription>{t("subcontractors.form.lineGroupId.desc")}</FormDescription>
+                                                             <FormMessage />
+                                                        </FormItem>
+                                                    )}
+                                                />
                                             </CardContent>
                                         </Card>
                                     </div>

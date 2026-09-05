@@ -151,6 +151,9 @@ export const tripRecordSchema = z.object({
     /** The announced retail diesel price the band was derived from. */
     billingReferenceFuelPriceThb: z.number().optional(),
 
+    /** Set by sendCustomerLineNotification once the job-complete LINE message was pushed (idempotency). */
+    lineDeliveredNotifiedAt: z.any().optional(),
+
     createdAt: z.any().optional(),
     updatedAt: z.any().optional(),
 });

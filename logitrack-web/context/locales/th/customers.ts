@@ -59,6 +59,12 @@ export default {
     "customers.form.invoiceNote": "หมายเหตุในใบวางบิล",
     "customers.form.invoiceNote.placeholder": "ข้อความที่จะพิมพ์ในใบวางบิล",
 
+    // ── LINE Notifications card ──────────────────────────────────────────────
+    "customers.form.line.title": "การแจ้งเตือน LINE",
+    "customers.form.lineGroupId": "LINE Group ID",
+    "customers.form.lineGroupId.placeholder": "เช่น Cxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "customers.form.lineGroupId.desc": "ต้องเชิญ Official Account (Wanpenradchada) เข้ากลุ่มนี้ก่อน — เว้นว่าง = ปิดการแจ้งเตือนเช็คอิน/จบงาน",
+
     // ── CustomerDetail billing section ───────────────────────────────────────
     "customers.detail.billing.title": "ข้อมูลวางบิล",
     "customers.detail.billing.taxId": "เลขประจำตัวผู้เสียภาษี",

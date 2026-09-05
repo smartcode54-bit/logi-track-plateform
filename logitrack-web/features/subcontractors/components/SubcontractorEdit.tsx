@@ -63,6 +63,7 @@ export default function SubcontractorEdit() {
                         address: data.address || "",
                         status: data.status,
                         documents: data.documents || [],
+                        lineGroupId: data.lineGroupId || "",
                     });
                 } else {
                     toast.error(t("subcontractors.toast.notFound"));
@@ -267,6 +268,21 @@ export default function SubcontractorEdit() {
                                             <FormControl>
                                                 <Textarea placeholder={t("subcontractors.edit.address.placeholder")} {...field} />
                                             </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+
+                                <FormField
+                                    control={form.control}
+                                    name="lineGroupId"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>{t("subcontractors.form.lineGroupId")}</FormLabel>
+                                            <FormControl>
+                                                <Input placeholder={t("subcontractors.form.lineGroupId.placeholder")} {...field} value={field.value ?? ""} />
+                                            </FormControl>
+                                            <p className="text-xs text-muted-foreground">{t("subcontractors.form.lineGroupId.desc")}</p>
                                             <FormMessage />
                                         </FormItem>
                                     )}
