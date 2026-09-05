@@ -36,3 +36,4 @@ export * from "./backfillTripTruckData";
 export * from "./backfillTruckType";
 export * from "./driverCompensation";
 export * from "./lineNotify";
+export * from "./tripEvidence";

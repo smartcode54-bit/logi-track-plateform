@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Camera, Loader2, ExternalLink, ImagePlus, Lock, Plus, Trash2, ArrowLeftRight } from "lucide-react";
+import { Camera, Loader2, ExternalLink, ImagePlus, Lock, Plus, Trash2, ArrowLeftRight, Send } from "lucide-react";
 import { doc, getDoc, updateDoc, serverTimestamp, getDocs, collection, query, where, limit, deleteField, Timestamp, writeBatch } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db } from "@/firebase/client";
@@ -116,6 +116,8 @@ export function EditTripDetailsDialog({
     const [resolveOutcome, setResolveOutcome] = useState<"delivered" | "cancelled">("cancelled");
     const [resolveClearAll, setResolveClearAll] = useState(false);
     const [resolving, setResolving] = useState(false);
+    // ส่งแจ้งเตือน LINE เข้ากลุ่มลูกค้า/พาร์ทเนอร์ (ทดสอบ/ส่งซ้ำ) — ทำให้เห็นเหตุผลที่ callable ข้ามการส่ง
+    const [lineSending, setLineSending] = useState(false);
     // แก้ Trip ID ที่พิมพ์ผิด — the trip ID is the Firestore document ID, so this is a server-side
     // copy → re-point → delete, not a field edit. Admin-only, delivered trips only.
     const [renameOpen, setRenameOpen] = useState(false);
@@ -688,6 +690,9 @@ export function EditTripDetailsDialog({
                 const updateData: Record<string, unknown> = {
                     status: "delivered",
                     updatedAt: serverTimestamp(),
+                    // Flag: this trip was closed by an admin from the web, not by the driver on mobile.
+                    // Surfaces as a remark on the LINE card and a badge in Driver Monitor.
+                    deliveredVia: "admin_web",
                 };
                 if (localDeliveredAt) {
                     updateData.deliveredTimestamp = Timestamp.fromDate(new Date(localDeliveredAt));
@@ -731,6 +736,18 @@ export function EditTripDetailsDialog({
                     await fn({ tripId: trip.id });
                 } catch (_) {
                     // Fail silently — admin can backfill from Income page
+                }
+                // Notify the customer's/partner's LINE group (best-effort). Mobile fires this on the
+                // driver's delivery; a job closed from the web here would otherwise never notify. Runs
+                // after billing so `trip.billingCustomerId` is populated for resolveLineTarget.
+                try {
+                    const lineFn = httpsCallable<{ tripId: string; event: string }, { ok: boolean }>(
+                        functions,
+                        "sendCustomerLineNotification"
+                    );
+                    await lineFn({ tripId: trip.id, event: "delivered" });
+                } catch (_) {
+                    // Best-effort — admin can resend/diagnose via the "ส่งแจ้งเตือน LINE" button
                 }
             } else {
                 await updateDoc(doc(db, COLLECTIONS.TRIP_RECORDS, trip.id), {
@@ -806,6 +823,59 @@ export function EditTripDetailsDialog({
             toast.error(t("driverMonitor.editTrip.resolveError", "Failed to resolve stuck job."));
         } finally {
             setResolving(false);
+        }
+    };
+
+    /** Map the callable's silent-skip `reason` to an actionable Thai toast (visibility for ops). */
+    const lineSkipMessage = (reason?: string): string => {
+        switch (reason) {
+            case "no channel access token":
+                return t(
+                    "driverMonitor.editTrip.lineSkipNoToken",
+                    "ยังไม่ได้ตั้งค่า LINE token (ตั้ง secret แล้ว deploy functions ใหม่)"
+                );
+            case "no lineGroupId configured":
+                return t(
+                    "driverMonitor.editTrip.lineSkipNoGroup",
+                    "ลูกค้า/พาร์ทเนอร์นี้ยังไม่ได้ตั้งค่า LINE Group ID"
+                );
+            case "already notified":
+                return t("driverMonitor.editTrip.lineSkipAlready", "ส่งแจ้งเตือนไปแล้วก่อนหน้านี้");
+            default:
+                return (
+                    t("driverMonitor.editTrip.lineSkipGeneric", "ข้ามการส่ง LINE") +
+                    (reason ? `: ${reason}` : "")
+                );
+        }
+    };
+
+    /**
+     * ส่ง/ส่งซ้ำแจ้งเตือน LINE เข้ากลุ่มลูกค้าของเที่ยวนี้ (ทดสอบ/แก้ปัญหา). `force: true` ข้าม
+     * idempotency flag; toast รายงานผลจริงจาก callable ({ ok / skipped + reason }) เพื่อให้เห็นว่าทำไม
+     * ข้อความไม่ถึง (ไม่มี token / ยังไม่ตั้ง group id / OA ไม่อยู่ในกลุ่ม → push ล้ม).
+     */
+    const handleSendLine = async () => {
+        if (!trip.id) return;
+        setLineSending(true);
+        try {
+            const fn = httpsCallable<
+                { tripId: string; event: string; force: boolean },
+                { ok: boolean; skipped?: boolean; reason?: string }
+            >(functions, "sendCustomerLineNotification");
+            const res = await fn({ tripId: trip.id, event: "delivered", force: true });
+            const data = res.data;
+            if (data.skipped) {
+                toast.warning(lineSkipMessage(data.reason));
+            } else if (data.ok) {
+                toast.success(t("driverMonitor.editTrip.lineSent", "ส่งแจ้งเตือนเข้ากลุ่ม LINE แล้ว"));
+            } else {
+                toast.error(t("driverMonitor.editTrip.lineFailed", "ส่งแจ้งเตือน LINE ไม่สำเร็จ"));
+            }
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            toast.error(t("driverMonitor.editTrip.lineFailed", "ส่งแจ้งเตือน LINE ไม่สำเร็จ") + `: ${msg}`);
+        } finally {
+            setLineSending(false);
         }
     };
 
@@ -1294,6 +1364,21 @@ export function EditTripDetailsDialog({
                             disabled={loading}
                         >
                             {t("driverMonitor.editTrip.resolve", "Resolve stuck job")}
+                        </Button>
+                    )}
+                    {trip.status === "delivered" && (
+                        <Button
+                            variant="outline"
+                            onClick={handleSendLine}
+                            disabled={lineSending}
+                            title={t("driverMonitor.editTrip.lineSendHint", "ส่ง/ส่งซ้ำแจ้งเตือนเข้ากลุ่ม LINE ของลูกค้า")}
+                        >
+                            {lineSending ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : (
+                                <Send className="mr-2 h-4 w-4" />
+                            )}
+                            {t("driverMonitor.editTrip.lineSend", "ส่งแจ้งเตือน LINE")}
                         </Button>
                     )}
                     <Button onClick={handleSave} disabled={loading || !hasChanges}>

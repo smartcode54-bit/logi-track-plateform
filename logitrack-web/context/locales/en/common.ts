@@ -185,6 +185,15 @@ export default {
     "standbyRecords.detail.sitePhoto": "Site Photo",
     "standbyRecords.detail.checkInPhoto": "Check-in Photo",
 
+    // Standby detail - LINE notification (manual send / resend + diagnostics)
+    "standbyRecords.detail.lineSend": "Send LINE notification",
+    "standbyRecords.detail.lineSent": "LINE notification sent to the group.",
+    "standbyRecords.detail.lineFailed": "Failed to send the LINE notification",
+    "standbyRecords.detail.lineSkipNoToken": "LINE token not configured (set the secret, then redeploy functions)",
+    "standbyRecords.detail.lineSkipNoGroup": "This customer/partner has no LINE Group ID set (standby resolves the customer from the record only)",
+    "standbyRecords.detail.lineSkipAlready": "Already notified earlier",
+    "standbyRecords.detail.lineSkipGeneric": "LINE send skipped",
+
     // Standby Backfill Dialog (admin retroactive create)
     "standbyRecords.create.button": "Backfill Standby",
     "standbyRecords.create.title": "Backfill Standby Record",

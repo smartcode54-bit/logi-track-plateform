@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../../../core/services/cloud_functions_service.dart';
 import '../../../../core/services/mobile_client_heartbeat_service.dart';
@@ -114,13 +115,19 @@ Future<void> submitDeliveryPhaseRecord({
   }
 
   // Notify the customer's/partner's LINE group of job completion (best-effort; no-op if the
-  // linked entity has no lineGroupId configured; failure never blocks delivery)
+  // linked entity has no lineGroupId configured; failure never blocks delivery). Log the
+  // callable's skip reason / any error so a silent non-delivery is diagnosable.
   try {
-    await CloudFunctionsService.instance.call(
+    final res = await CloudFunctionsService.instance.call(
       'sendCustomerLineNotification',
       data: {'tripId': tripId, 'event': 'delivered'},
     );
-  } catch (_) {}
+    if (res is Map && res['skipped'] == true) {
+      debugPrint('[line] delivered notification skipped: ${res['reason']}');
+    }
+  } catch (e) {
+    debugPrint('[line] delivered notification failed: $e');
+  }
 
   if (taskId != null && taskId.isNotEmpty) {
     try {
@@ -245,13 +252,19 @@ Future<bool> submitDeliveryStopRecord({
             );
           } catch (_) {}
 
-          // Notify the customer's/partner's LINE group of job completion (best-effort)
+          // Notify the customer's/partner's LINE group of job completion (best-effort; logs the
+          // callable's skip reason / any error so a silent non-delivery is diagnosable)
           try {
-            await CloudFunctionsService.instance.call(
+            final res = await CloudFunctionsService.instance.call(
               'sendCustomerLineNotification',
               data: {'tripId': tripId, 'event': 'delivered'},
             );
-          } catch (_) {}
+            if (res is Map && res['skipped'] == true) {
+              debugPrint('[line] delivered notification skipped: ${res['reason']}');
+            }
+          } catch (e) {
+            debugPrint('[line] delivered notification failed: $e');
+          }
 
           try {
             final driverId = taskData['driverId'] as String?;

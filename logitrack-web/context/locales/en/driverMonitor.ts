@@ -184,6 +184,20 @@ export default {
     "driverMonitor.editTrip.jobCategoryNoRate": "No {category} rate card for this route/vehicle/date — nothing changed",
     "driverMonitor.editTrip.jobCategorySaved": "Job category updated and price re-computed",
 
+    // Badge - trip closed from the web by an admin (not the driver on mobile)
+    "driverMonitor.badge.closedFromWeb": "Closed from web",
+    "driverMonitor.badge.closedFromWebHint": "Job closed by an admin from the web (not the driver on mobile)",
+
+    // Edit Trip Dialog - LINE notification (manual send / resend + diagnostics)
+    "driverMonitor.editTrip.lineSend": "Send LINE notification",
+    "driverMonitor.editTrip.lineSendHint": "Send / resend the LINE notification to the customer's group",
+    "driverMonitor.editTrip.lineSent": "LINE notification sent to the group.",
+    "driverMonitor.editTrip.lineFailed": "Failed to send the LINE notification",
+    "driverMonitor.editTrip.lineSkipNoToken": "LINE token not configured (set the secret, then redeploy functions)",
+    "driverMonitor.editTrip.lineSkipNoGroup": "This customer/partner has no LINE Group ID set",
+    "driverMonitor.editTrip.lineSkipAlready": "Already notified earlier",
+    "driverMonitor.editTrip.lineSkipGeneric": "LINE send skipped",
+
     // Edit Trip Dialog - Delivery Stops
     "driverMonitor.editTrip.deliveryStopsSection": "Delivery Stops",
     "driverMonitor.editTrip.addStop": "Add Delivery Stop",

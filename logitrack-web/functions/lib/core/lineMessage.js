@@ -18,6 +18,8 @@ exports.resolveDriverNameTh = resolveDriverNameTh;
 exports.resolveDriverCustomerCode = resolveDriverCustomerCode;
 exports.buildCheckinMessage = buildCheckinMessage;
 exports.buildDeliveredMessage = buildDeliveredMessage;
+exports.buildDelayNote = buildDelayNote;
+exports.buildStandbyMessage = buildStandbyMessage;
 const BANGKOK = "Asia/Bangkok";
 /** Coerce a Firestore Timestamp / Date / string / number into a Date (or null). */
 function coerceToDate(val) {
@@ -68,7 +70,8 @@ function dash(v) {
 }
 /**
  * Driver display name honoring the Thai-name business rule:
- * fullNameTh → name → firstName+lastName → email → fallbackId. Mirrors web `lib/driverName.ts`.
+ * fullNameTh → name → firstName+lastName → email → fallbackId. Mirrors `lib/driverName.ts`.
+ * The manual share builder used only the Latin firstName+lastName — this is the corrected order.
  */
 function resolveDriverNameTh(d, fallbackId) {
     if (!d)
@@ -116,43 +119,267 @@ function resolveDriverCustomerCode(d, customerCode) {
     }
     return "-";
 }
-/** Short "checked in at origin" report — fields known at check-in (no depart/arrive/done yet). */
-function buildCheckinMessage(ctx) {
-    return [
-        "🚚 เช็คอินต้นทางแล้ว",
-        `วันที่ ${dash(ctx.dateLine)}`,
-        `ต้นทาง : ${dash(ctx.originLabel)}`,
-        `ปลายทาง : ${dash(ctx.destinationLabel)}`,
-        `เลขทริป : ${dash(ctx.tripNo)}`,
-        `ชื่อ : ${dash(ctx.driverNameTh)}`,
-        `รหัส : ${dash(ctx.driverCode)}`,
-        `ทะเบียนรถ : ${dash(ctx.plate)}`,
-        `เบอร์โทร : ${dash(ctx.phone)}`,
-        `ช่องทาง : ${dash(ctx.partner)}`,
-        `ประเภทรถ : ${dash(ctx.truckType)}`,
-        `เช็คอิน : ${dash(ctx.checkInHm)}`,
-    ].join("\n");
+const FLEX_COLOR = {
+    delivered: "#1DB446",
+    checkin: "#2E7BE4",
+    standby: "#E8A33D",
+    label: "#8C8C8C",
+    value: "#111111",
+    muted: "#BBBBBB",
+    button: "#06C755",
+    white: "#FFFFFF",
+    separator: "#EEEEEE",
+};
+function kvRow(label, value) {
+    const isDash = value === "-";
+    return {
+        type: "box",
+        layout: "baseline",
+        spacing: "sm",
+        contents: [
+            { type: "text", text: label, color: FLEX_COLOR.label, size: "sm", flex: 4 },
+            { type: "text", text: value, color: isDash ? FLEX_COLOR.muted : FLEX_COLOR.value, size: "sm", flex: 6, wrap: true },
+        ],
+    };
 }
-/** Full job-complete report — the existing 16-line pattern with a status header. */
+function timeCell(label, value) {
+    const isDash = value === "-";
+    return {
+        type: "box",
+        layout: "vertical",
+        flex: 1,
+        contents: [
+            { type: "text", text: label, color: FLEX_COLOR.label, size: "xs" },
+            { type: "text", text: value, color: isDash ? FLEX_COLOR.muted : FLEX_COLOR.value, size: "sm" },
+        ],
+    };
+}
+function routeBlock(ctx) {
+    return {
+        type: "box",
+        layout: "vertical",
+        spacing: "xs",
+        contents: [
+            {
+                type: "text",
+                text: `${dash(ctx.originLabel)}  →  ${dash(ctx.destinationLabel)}`,
+                weight: "bold",
+                size: "md",
+                color: FLEX_COLOR.value,
+                wrap: true,
+            },
+            { type: "text", text: `เลขทริป ${dash(ctx.tripNo)}`, size: "xs", color: FLEX_COLOR.label },
+        ],
+    };
+}
+function flexSeparator() {
+    return { type: "separator", margin: "md", color: FLEX_COLOR.separator };
+}
+function flexHeader(title, dateLine, bg) {
+    return {
+        type: "box",
+        layout: "horizontal",
+        backgroundColor: bg,
+        paddingAll: "14px",
+        contents: [
+            { type: "text", text: title, color: FLEX_COLOR.white, weight: "bold", size: "md", flex: 1, wrap: true, gravity: "center" },
+            { type: "text", text: dash(dateLine), color: FLEX_COLOR.white, size: "sm", align: "end", gravity: "center" },
+        ],
+    };
+}
+/** Check-in Flex card — the fields known at check-in; no evidence button. */
+function buildCheckinMessage(ctx) {
+    return {
+        type: "flex",
+        altText: `🚚 เช็คอิน • ${dash(ctx.originLabel)} → ${dash(ctx.destinationLabel)} • ${dash(ctx.tripNo)} • ${dash(ctx.driverNameTh)}`.slice(0, 300),
+        contents: {
+            type: "bubble",
+            size: "mega",
+            header: flexHeader("🚚 เช็คอินต้นทางแล้ว", ctx.dateLine, FLEX_COLOR.checkin),
+            body: {
+                type: "box",
+                layout: "vertical",
+                backgroundColor: FLEX_COLOR.white,
+                paddingAll: "16px",
+                spacing: "md",
+                contents: [
+                    routeBlock(ctx),
+                    flexSeparator(),
+                    {
+                        type: "box", layout: "vertical", spacing: "sm", contents: [
+                            kvRow("ชื่อ", dash(ctx.driverNameTh)),
+                            kvRow("รหัส", dash(ctx.driverCode)),
+                            kvRow("ทะเบียนรถ", dash(ctx.plate)),
+                            kvRow("เบอร์โทร", dash(ctx.phone)),
+                            kvRow("ช่องทาง", dash(ctx.partner)),
+                            kvRow("ประเภทรถ", dash(ctx.truckType)),
+                            kvRow("เช็คอิน", dash(ctx.checkInHm)),
+                        ],
+                    },
+                ],
+            },
+        },
+    };
+}
+/** Job-complete Flex card — full detail + optional "view evidence photos" button. */
 function buildDeliveredMessage(ctx) {
-    return [
-        "✅ ส่งงานสำเร็จ",
-        `วันที่ ${dash(ctx.dateLine)}`,
-        `ต้นทาง : ${dash(ctx.originLabel)}`,
-        `ปลายทาง : ${dash(ctx.destinationLabel)}`,
-        `เลขทริป : ${dash(ctx.tripNo)}`,
-        `ชื่อ : ${dash(ctx.driverNameTh)}`,
-        `รหัส : ${dash(ctx.driverCode)}`,
-        `ทะเบียนรถ : ${dash(ctx.plate)}`,
-        `เบอร์โทร : ${dash(ctx.phone)}`,
-        `ช่องทาง : ${dash(ctx.partner)}`,
-        `ประเภทรถ : ${dash(ctx.truckType)}`,
-        `จำนวนสินค้า : ${dash(ctx.parcels)}`,
-        `เช็คอิน : ${dash(ctx.checkInHm)}`,
-        `ออกเดินทาง : ${dash(ctx.departHm)}`,
-        `ถึงปลายทาง : ${dash(ctx.arriveHm)}`,
-        `จบงาน : ${dash(ctx.doneHm)}`,
-        `หมายเหตุ : ${dash(ctx.notes)}`,
-    ].join("\n");
+    const bubble = {
+        type: "bubble",
+        size: "mega",
+        header: flexHeader("✅ ส่งงานสำเร็จ", ctx.dateLine, FLEX_COLOR.delivered),
+        body: {
+            type: "box",
+            layout: "vertical",
+            backgroundColor: FLEX_COLOR.white,
+            paddingAll: "16px",
+            spacing: "md",
+            contents: [
+                routeBlock(ctx),
+                flexSeparator(),
+                {
+                    type: "box", layout: "vertical", spacing: "sm", contents: [
+                        kvRow("ชื่อ", dash(ctx.driverNameTh)),
+                        kvRow("รหัส", dash(ctx.driverCode)),
+                        kvRow("ทะเบียนรถ", dash(ctx.plate)),
+                        kvRow("เบอร์โทร", dash(ctx.phone)),
+                        kvRow("ช่องทาง", dash(ctx.partner)),
+                        kvRow("ประเภทรถ", dash(ctx.truckType)),
+                        kvRow("จำนวนสินค้า", dash(ctx.parcels)),
+                    ],
+                },
+                flexSeparator(),
+                {
+                    type: "box", layout: "horizontal", spacing: "sm", contents: [
+                        timeCell("เช็คอิน", dash(ctx.checkInHm)),
+                        timeCell("ออกเดินทาง", dash(ctx.departHm)),
+                    ],
+                },
+                {
+                    type: "box", layout: "horizontal", spacing: "sm", contents: [
+                        timeCell("ถึงปลายทาง", dash(ctx.arriveHm)),
+                        timeCell("จบงาน", dash(ctx.doneHm)),
+                    ],
+                },
+                flexSeparator(),
+                kvRow("หมายเหตุ", dash(ctx.notes)),
+            ],
+        },
+    };
+    if (ctx.evidenceUrl && (ctx.photoCount ?? 0) > 0) {
+        bubble.footer = {
+            type: "box",
+            layout: "vertical",
+            backgroundColor: FLEX_COLOR.white,
+            paddingAll: "12px",
+            contents: [
+                {
+                    type: "button",
+                    style: "primary",
+                    color: FLEX_COLOR.button,
+                    height: "sm",
+                    action: { type: "uri", label: `📷 ดูรูปหลักฐาน (${ctx.photoCount})`, uri: ctx.evidenceUrl },
+                },
+            ],
+        };
+    }
+    return {
+        type: "flex",
+        altText: `✅ ส่งงานสำเร็จ • ${dash(ctx.originLabel)} → ${dash(ctx.destinationLabel)} • ${dash(ctx.tripNo)} • ${dash(ctx.driverNameTh)}`.slice(0, 300),
+        contents: bubble,
+    };
+}
+/** Thai labels for the incident delay-cause keys (mirror mobile assets/translations/th.json). */
+const INCIDENT_CAUSE_TH = {
+    incident_cause_accident: "อุบัติเหตุเฉี่ยว/ชน",
+    incident_cause_engine: "เครื่องยนต์ขัดข้อง/รถเสีย",
+    incident_cause_tire: "ยางแตก/ยางระเบิด/ยางรั่ว",
+    incident_cause_traffic: "การจราจรติดขัดรุนแรง",
+    incident_cause_weather: "สภาพอากาศแปรปรวน/น้ำท่วม",
+    incident_cause_checkpoint: "ด่านตรวจ/การตรวจสอบจากเจ้าหน้าที่",
+};
+/**
+ * The delivered-card หมายเหตุ when a trip had ≥1 incident: names the distinct causes in Thai and
+ * points to the evidence. Unknown keys pass through; empty input yields a generic delay note.
+ */
+function buildDelayNote(causeKeys) {
+    const seen = new Set();
+    const labels = [];
+    for (const raw of causeKeys) {
+        const key = String(raw ?? "").trim();
+        if (!key || seen.has(key))
+            continue;
+        seen.add(key);
+        labels.push(INCIDENT_CAUSE_TH[key] ?? key);
+    }
+    if (labels.length === 0)
+        return "มีเหตุทำให้จัดส่งล่าช้า ตามหลักฐาน โปรดดูรูป";
+    return `ล่าช้าจาก${labels.join(", ")} — ดูรูปหลักฐาน`;
+}
+/** Standby Flex card — mirrors delivered, with an amber header and a เริ่มจอด/สิ้นสุด/ระยะเวลา timeline. */
+function buildStandbyMessage(ctx) {
+    const bubble = {
+        type: "bubble",
+        size: "mega",
+        header: flexHeader("🅿️ งานหมด รถ Standby", ctx.dateLine, FLEX_COLOR.standby),
+        body: {
+            type: "box",
+            layout: "vertical",
+            backgroundColor: FLEX_COLOR.white,
+            paddingAll: "16px",
+            spacing: "md",
+            contents: [
+                {
+                    type: "text",
+                    text: `${dash(ctx.startLabel)}  →  ${dash(ctx.endLabel)}`,
+                    weight: "bold",
+                    size: "md",
+                    color: FLEX_COLOR.value,
+                    wrap: true,
+                },
+                flexSeparator(),
+                {
+                    type: "box", layout: "vertical", spacing: "sm", contents: [
+                        kvRow("ชื่อ", dash(ctx.driverNameTh)),
+                        kvRow("รหัส", dash(ctx.driverCode)),
+                        kvRow("ทะเบียนรถ", dash(ctx.plate)),
+                        kvRow("เบอร์โทร", dash(ctx.phone)),
+                        kvRow("ช่องทาง", dash(ctx.partner)),
+                    ],
+                },
+                flexSeparator(),
+                {
+                    type: "box", layout: "horizontal", spacing: "sm", contents: [
+                        timeCell("เริ่มจอด", dash(ctx.startedHm)),
+                        timeCell("สิ้นสุด", dash(ctx.endedHm)),
+                        timeCell("ระยะเวลา", dash(ctx.durationText)),
+                    ],
+                },
+                flexSeparator(),
+                kvRow("หมายเหตุ", dash(ctx.notes)),
+            ],
+        },
+    };
+    if (ctx.evidenceUrl && (ctx.photoCount ?? 0) > 0) {
+        bubble.footer = {
+            type: "box",
+            layout: "vertical",
+            backgroundColor: FLEX_COLOR.white,
+            paddingAll: "12px",
+            contents: [
+                {
+                    type: "button",
+                    style: "primary",
+                    color: FLEX_COLOR.button,
+                    height: "sm",
+                    action: { type: "uri", label: `📷 ดูรูปหลักฐาน (${ctx.photoCount})`, uri: ctx.evidenceUrl },
+                },
+            ],
+        };
+    }
+    return {
+        type: "flex",
+        altText: `🅿️ งานหมด รถ Standby • ${dash(ctx.startLabel)} → ${dash(ctx.endLabel)} • ${dash(ctx.driverNameTh)}`.slice(0, 300),
+        contents: bubble,
+    };
 }
 //# sourceMappingURL=lineMessage.js.map

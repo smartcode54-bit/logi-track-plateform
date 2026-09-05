@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/foundation.dart';
 import '../../../home/data/services/image_compression_service.dart';
+import '../../../../core/services/cloud_functions_service.dart';
 
 const String _standbyCollection = 'standby_records';
 
@@ -143,4 +145,19 @@ Future<void> submitStandbyRecord({
   }
 
   await batch.commit();
+
+  // Notify the customer's/partner's LINE group of the standby (best-effort; no-op if the linked
+  // customer/group is unresolved; a push failure never blocks the standby write). Log the
+  // callable's skip reason / any error so a silent non-delivery is diagnosable.
+  try {
+    final res = await CloudFunctionsService.instance.call(
+      'sendCustomerLineNotification',
+      data: {'standbyId': recordId, 'event': 'standby'},
+    );
+    if (res is Map && res['skipped'] == true) {
+      debugPrint('[line] standby notification skipped: ${res['reason']}');
+    }
+  } catch (e) {
+    debugPrint('[line] standby notification failed: $e');
+  }
 }

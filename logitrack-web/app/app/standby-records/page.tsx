@@ -2,7 +2,9 @@
 
 import { useState, useEffect, useMemo } from "react"
 import { collection, onSnapshot, query, orderBy, limit, doc, getDoc } from "firebase/firestore"
-import { db } from "@/firebase/client"
+import { httpsCallable } from "firebase/functions"
+import { db, functions } from "@/firebase/client"
+import { toast } from "sonner"
 import { COLLECTIONS } from "@/lib/collections"
 import { useLanguage } from "@/context/language"
 import { format } from "date-fns"
@@ -16,6 +18,7 @@ import {
     PauseCircle,
     Clock,
     MapPin,
+    Send,
 } from "lucide-react"
 
 import {
@@ -96,6 +99,8 @@ export default function StandbyRecordsPage() {
     const [detailRecord, setDetailRecord] = useState<StandbyRecord | null>(null)
     const [checkInPhotoUrl, setCheckInPhotoUrl] = useState<string | null>(null)
     const [backfillOpen, setBackfillOpen] = useState(false)
+    // ส่ง/ส่งซ้ำแจ้งเตือน LINE ของ standby record นี้ (ทดสอบ/แก้ปัญหา) — toast รายงานเหตุผลที่ callable ข้าม
+    const [lineSending, setLineSending] = useState(false)
     const { hasPermission: canCreateStandby } = usePermission(CAPABILITIES.operations_create_standby)
 
     useEffect(() => {
@@ -113,6 +118,48 @@ export default function StandbyRecordsPage() {
         })
         return () => { cancelled = true }
     }, [detailRecord?.taskId])
+
+    /** Map the callable's silent-skip `reason` to an actionable toast (visibility for ops). */
+    const lineSkipMessage = (reason?: string): string => {
+        switch (reason) {
+            case "no channel access token":
+                return t("standbyRecords.detail.lineSkipNoToken", "LINE token not configured (set the secret, then redeploy functions)")
+            case "no lineGroupId configured":
+                return t("standbyRecords.detail.lineSkipNoGroup", "This customer/partner has no LINE Group ID set")
+            case "already notified":
+                return t("standbyRecords.detail.lineSkipAlready", "Already notified earlier")
+            default:
+                return t("standbyRecords.detail.lineSkipGeneric", "LINE send skipped") + (reason ? `: ${reason}` : "")
+        }
+    }
+
+    /**
+     * ส่ง/ส่งซ้ำแจ้งเตือน LINE เข้ากลุ่มลูกค้าของ standby record นี้. `force: true` ข้าม idempotency;
+     * toast รายงานผลจริงจาก callable ({ ok / skipped + reason }) เพื่อให้เห็นว่าทำไมข้อความไม่ถึง.
+     */
+    const handleSendStandbyLine = async (standbyId: string) => {
+        setLineSending(true)
+        try {
+            const fn = httpsCallable<
+                { standbyId: string; event: string; force: boolean },
+                { ok: boolean; skipped?: boolean; reason?: string }
+            >(functions, "sendCustomerLineNotification")
+            const res = await fn({ standbyId, event: "standby", force: true })
+            const data = res.data
+            if (data.skipped) {
+                toast.warning(lineSkipMessage(data.reason))
+            } else if (data.ok) {
+                toast.success(t("standbyRecords.detail.lineSent", "LINE notification sent to the group."))
+            } else {
+                toast.error(t("standbyRecords.detail.lineFailed", "Failed to send the LINE notification"))
+            }
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e)
+            toast.error(t("standbyRecords.detail.lineFailed", "Failed to send the LINE notification") + `: ${msg}`)
+        } finally {
+            setLineSending(false)
+        }
+    }
 
     const fetchRecords = () => {
         setLoading(true)
@@ -524,6 +571,23 @@ export default function StandbyRecordsPage() {
                                             />
                                         </div>
                                     )}
+
+                                    {/* Manual LINE send / resend (visibility + diagnostics) */}
+                                    <div className="flex justify-end pt-1">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => handleSendStandbyLine(detailRecord.id)}
+                                            disabled={lineSending}
+                                        >
+                                            {lineSending ? (
+                                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                            ) : (
+                                                <Send className="mr-2 h-4 w-4" />
+                                            )}
+                                            {t("standbyRecords.detail.lineSend", "Send LINE notification")}
+                                        </Button>
+                                    </div>
                                 </div>
                             )}
                         </ScrollArea>

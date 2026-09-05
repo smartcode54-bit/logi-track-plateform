@@ -185,6 +185,15 @@ export default {
     "standbyRecords.detail.sitePhoto": "รูปหน้างาน",
     "standbyRecords.detail.checkInPhoto": "รูปหน้าเช็คอิน",
 
+    // Standby detail - LINE notification (manual send / resend + diagnostics)
+    "standbyRecords.detail.lineSend": "ส่งแจ้งเตือน LINE",
+    "standbyRecords.detail.lineSent": "ส่งแจ้งเตือนเข้ากลุ่ม LINE แล้ว",
+    "standbyRecords.detail.lineFailed": "ส่งแจ้งเตือน LINE ไม่สำเร็จ",
+    "standbyRecords.detail.lineSkipNoToken": "ยังไม่ได้ตั้งค่า LINE token (ตั้ง secret แล้ว deploy functions ใหม่)",
+    "standbyRecords.detail.lineSkipNoGroup": "ลูกค้า/พาร์ทเนอร์นี้ยังไม่ได้ตั้งค่า LINE Group ID (standby หาลูกค้าจากตัวเรคคอร์ดเท่านั้น)",
+    "standbyRecords.detail.lineSkipAlready": "ส่งแจ้งเตือนไปแล้วก่อนหน้านี้",
+    "standbyRecords.detail.lineSkipGeneric": "ข้ามการส่ง LINE",
+
     // Standby Backfill Dialog (admin retroactive create)
     "standbyRecords.create.button": "บันทึก Standby ย้อนหลัง",
     "standbyRecords.create.title": "บันทึก Standby ย้อนหลัง",

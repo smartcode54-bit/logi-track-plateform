@@ -184,6 +184,20 @@ export default {
     "driverMonitor.editTrip.jobCategoryNoRate": "ไม่พบ Rate Card ({category}) สำหรับเส้นทาง/ประเภทรถ/วันที่นี้ — ยังไม่มีการเปลี่ยนแปลง",
     "driverMonitor.editTrip.jobCategorySaved": "อัปเดตประเภทงานและคำนวณราคาใหม่แล้ว",
 
+    // Badge - trip closed from the web by an admin (not the driver on mobile)
+    "driverMonitor.badge.closedFromWeb": "ปิดจากเว็บ",
+    "driverMonitor.badge.closedFromWebHint": "งานถูกปิดโดยแอดมินผ่านหน้าเว็บ (ไม่ใช่คนขับปิดจากมือถือ)",
+
+    // Edit Trip Dialog - LINE notification (manual send / resend + diagnostics)
+    "driverMonitor.editTrip.lineSend": "ส่งแจ้งเตือน LINE",
+    "driverMonitor.editTrip.lineSendHint": "ส่ง/ส่งซ้ำแจ้งเตือนเข้ากลุ่ม LINE ของลูกค้า",
+    "driverMonitor.editTrip.lineSent": "ส่งแจ้งเตือนเข้ากลุ่ม LINE แล้ว",
+    "driverMonitor.editTrip.lineFailed": "ส่งแจ้งเตือน LINE ไม่สำเร็จ",
+    "driverMonitor.editTrip.lineSkipNoToken": "ยังไม่ได้ตั้งค่า LINE token (ตั้ง secret แล้ว deploy functions ใหม่)",
+    "driverMonitor.editTrip.lineSkipNoGroup": "ลูกค้า/พาร์ทเนอร์นี้ยังไม่ได้ตั้งค่า LINE Group ID",
+    "driverMonitor.editTrip.lineSkipAlready": "ส่งแจ้งเตือนไปแล้วก่อนหน้านี้",
+    "driverMonitor.editTrip.lineSkipGeneric": "ข้ามการส่ง LINE",
+
     // Edit Trip Dialog - Delivery Stops
     "driverMonitor.editTrip.deliveryStopsSection": "จุดส่งมอบ",
     "driverMonitor.editTrip.addStop": "เพิ่มจุดส่ง",

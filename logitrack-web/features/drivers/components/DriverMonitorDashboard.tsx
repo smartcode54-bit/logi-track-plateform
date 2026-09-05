@@ -988,6 +988,15 @@ export default function DriverMonitorDashboard() {
                                                         <span className="w-1.5 h-1.5 rounded-full bg-current mr-1.5" />
                                                         {t(`driverMonitor.status.${trip.status}` as any)}
                                                     </Badge>
+                                                    {trip.deliveredVia === "admin_web" && (
+                                                        <Badge
+                                                            variant="secondary"
+                                                            className="font-medium border bg-amber-500/15 text-amber-600 border-amber-500/25 dark:text-amber-400"
+                                                            title={t("driverMonitor.badge.closedFromWebHint", "ปิดงานโดยแอดมินผ่านหน้าเว็บ")}
+                                                        >
+                                                            {t("driverMonitor.badge.closedFromWeb", "ปิดจากเว็บ")}
+                                                        </Badge>
+                                                    )}
                                                     {trip.id && incidentReportsByTripId[trip.id] && (
                                                         <img src="/exclamation_8848378.png" alt="incident" className="w-4 h-4 object-contain" title="Incident Reported" />
                                                     )}
@@ -1353,11 +1362,20 @@ export default function DriverMonitorDashboard() {
                                 </div>
                                 <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm bg-muted/30 rounded-lg p-4">
                                     <span className="text-muted-foreground">{t("driverMonitor.table.status")}</span>
-                                    <span>
+                                    <span className="flex items-center gap-2 flex-wrap">
                                         <Badge variant="secondary" className={cn("font-medium border", STATUS_COLOR[detailTrip.status] || "")}>
                                             <span className="w-1.5 h-1.5 rounded-full bg-current mr-1.5" />
                                             {t(`driverMonitor.status.${detailTrip.status}` as any)}
                                         </Badge>
+                                        {detailTrip.deliveredVia === "admin_web" && (
+                                            <Badge
+                                                variant="secondary"
+                                                className="font-medium border bg-amber-500/15 text-amber-600 border-amber-500/25 dark:text-amber-400"
+                                                title={t("driverMonitor.badge.closedFromWebHint", "ปิดงานโดยแอดมินผ่านหน้าเว็บ")}
+                                            >
+                                                {t("driverMonitor.badge.closedFromWeb", "ปิดจากเว็บ")}
+                                            </Badge>
+                                        )}
                                     </span>
                                     <span className="text-muted-foreground">{t("driverMonitor.detail.spxTripId")}</span>
                                     <span className="font-mono text-xs">{detailTrip.spxTripId || "-"}</span>

@@ -74,6 +74,58 @@ complete) multiply with delivery volume.
 4. If the token is wrong/missing, the driver's check-in and delivery still succeed (best-effort) — the
    push just does not happen.
 
+## Troubleshooting — messages not arriving
+
+The callable is **best-effort and silent by design**: mobile swallows failures, and the callable
+returns `{ ok: true, skipped: true, reason }` (no error) when it can't send. So "nothing arrives"
+gives no signal by itself. Work the list below in order — step 1 gets you the exact reason without
+any CLI or log access.
+
+1. **Use the web "ส่งแจ้งเตือน LINE" button (fastest).** Open **Driver Monitor → a delivered trip →
+   Edit** and click **ส่งแจ้งเตือน LINE** (Send LINE notification). Standby: **Standby Records → open a
+   record → ส่งแจ้งเตือน LINE**. It calls the same callable with `force: true` and shows the real
+   result in a toast:
+   - *"ส่งแจ้งเตือนเข้ากลุ่ม LINE แล้ว"* → it works; the group/token/OA are all fine. If drivers still
+     don't trigger it, the cause is the app path (see step 5).
+   - *"ยังไม่ได้ตั้งค่า LINE token…"* → the secret isn't bound to the deployed function (step 2).
+   - *"ลูกค้า/พาร์ทเนอร์นี้ยังไม่ได้ตั้งค่า LINE Group ID"* → fill the group id on the resolved entity (step 4).
+   - a red error mentioning **LINE push failed / HTTP 401/403** → the token is wrong, or the
+     Wanpenradchada OA is not a member of that group (step 3).
+
+2. **Secret must be bound to the *deployed* revision (the common trap).** Setting the secret is not
+   enough — a v2 function reads it at runtime, so you must **redeploy after setting it**:
+   ```bash
+   firebase functions:secrets:access LINE_CHANNEL_ACCESS_TOKEN --project <dev|prod>
+   firebase deploy --only functions:sendCustomerLineNotification --project <dev|prod>
+   ```
+   Set the secret for **each** project (dev and prod) and redeploy each.
+
+3. **The OA must be in the group, with a valid token.** The bot can only push to groups it has
+   joined; enable "Allow bot to join group chats" and invite the Wanpenradchada OA into the group
+   (setup steps 1 & 3 above). A wrong token or non-member group makes the push return 401/403.
+
+4. **`lineGroupId` must sit on the entity the callable actually resolves.** Resolution precedence
+   (`resolveLineTarget`, `functions/src/lineNotify.ts`): task `sourceHubLinkedCustomerId` →
+   `destinationLinkedCustomerId` → trip `billingCustomerId`; standby resolves from
+   `standby_records.customerId` **only** (skips silently when `customerResolved: false`). Put the
+   group id on that customer/subcontractor doc.
+
+5. **Read the function logs** to see the code's own diagnostics (`[lineNotify] … is not set —
+   skipping send`, `… push failed` with the LINE HTTP status):
+   ```bash
+   firebase functions:log --only sendCustomerLineNotification --project <dev|prod>
+   ```
+   On the app side, the four call sites now log `[line] … skipped: <reason>` / `[line] … failed: …`
+   (visible in `flutter run` / device logs) instead of swallowing the result.
+
+6. **Idempotency.** Each record notifies once (`lineCheckinNotifiedAt` / `lineDeliveredNotifiedAt` /
+   `lineNotifiedAt`). A second automatic attempt returns `already notified`; the web button passes
+   `force: true` so it always re-sends.
+
+> Note: jobs **closed from the web** (Driver Monitor → resolve a stuck job as *delivered*) now fire
+> the delivered notification automatically, in addition to the manual button. Before this, only the
+> mobile happy-path notified.
+
 ## Notes / future
 
 - Origin/destination labels resolve hub `source_id → source_name_th`; SOC and unknown values pass

@@ -153,6 +153,14 @@ export const tripRecordSchema = z.object({
 
     /** Set by sendCustomerLineNotification once the job-complete LINE message was pushed (idempotency). */
     lineDeliveredNotifiedAt: z.any().optional(),
+    /** Unguessable token in the customer evidence-gallery link (minted on first delivered notification). */
+    evidenceToken: z.string().optional(),
+    /**
+     * How this trip was closed. Absent for the normal driver-mobile flow; `"admin_web"` when an admin
+     * resolved a stuck job to delivered from the web (EditTripDetailsDialog.handleResolve). Drives the
+     * "closed from web" remark on the LINE card and the Driver Monitor badge.
+     */
+    deliveredVia: z.string().optional(),
 
     createdAt: z.any().optional(),
     updatedAt: z.any().optional(),

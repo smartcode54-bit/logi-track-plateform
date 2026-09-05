@@ -15,6 +15,7 @@ import * as admin from "firebase-admin";
 import { logger } from "firebase-functions";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
+import { randomBytes } from "crypto";
 import {
     buildCheckinMessage,
     buildDeliveredMessage,
@@ -22,7 +23,11 @@ import {
     formatBuddhistShortDate,
     resolveDriverNameTh,
     resolveDriverCustomerCode,
+    buildStandbyMessage,
+    buildDelayNote,
     type LineTripContext,
+    type LineStandbyContext,
+    type LineFlexMessage,
 } from "./core/lineMessage";
 
 const COL_TASKS = "tasks";
@@ -32,17 +37,29 @@ const COL_CUSTOMERS = "customers";
 const COL_SUBCONTRACTORS = "subcontractors";
 const COL_TRUCKS = "trucks";
 const COL_HUBS = "hubs";
+const COL_STANDBY_RECORDS = "standby_records";
+const COL_INCIDENT_REPORTS = "incidentReport";
 
 const LINE_PUSH_URL = "https://api.line.me/v2/bot/message/push";
+/** HTTP function that serves the read-only evidence gallery (see evidenceUrlForToken). */
+const EVIDENCE_FN = "tripEvidence";
+
+/**
+ * หมายเหตุ appended to the delivered card when an admin closed the job from the web
+ * (`trip.deliveredVia === "admin_web"`) rather than the driver closing it on mobile. Customer-facing
+ * Thai text (not routed through app i18n, per ADR 0025 N1).
+ */
+const ADMIN_WEB_CLOSE_NOTE_TH = "ปิดงานโดยแอดมิน (ผ่านหน้าเว็บ)";
 
 const lineChannelAccessToken = defineSecret("LINE_CHANNEL_ACCESS_TOKEN");
 
-type LineNotifyEvent = "checkin" | "delivered";
+type LineNotifyEvent = "checkin" | "delivered" | "standby";
 
 interface SendCustomerLineNotificationRequest {
     event: LineNotifyEvent;
     taskId?: string;
     tripId?: string;
+    standbyId?: string;
     /** Re-send even if the idempotency flag is already set (admin/manual re-trigger). */
     force?: boolean;
 }
@@ -186,14 +203,52 @@ function plateFromDriver(driver: Doc | null): string {
     return str(active?.truckPlate) || str(current?.truckPlate);
 }
 
-async function pushLineMessage(token: string, to: string, text: string): Promise<void> {
+/** Count evidence photos on a trip (main photos + per-stop photos). */
+function countTripPhotos(trip: Doc): number {
+    let n = Array.isArray(trip.photos) ? (trip.photos as unknown[]).length : 0;
+    const stops = trip.deliveryStopsProgress;
+    if (Array.isArray(stops)) {
+        for (const s of stops) {
+            const ph = (s as Doc)?.photos;
+            if (Array.isArray(ph)) n += ph.length;
+        }
+    }
+    return n;
+}
+
+/** Count incident photos (map + situation1 + situation2) across a trip's incident reports. */
+function countIncidentPhotos(incidents: Doc[]): number {
+    let n = 0;
+    for (const r of incidents) {
+        for (const k of ["mapPhotoUrl", "situation1PhotoUrl", "situation2PhotoUrl"]) {
+            if (str(r[k])) n += 1;
+        }
+    }
+    return n;
+}
+
+/** Standby group: from standby.customerId only (ADR 0008 — the record is self-contained). Probe both. */
+async function resolveStandbyTarget(db: admin.firestore.Firestore, standby: Doc): Promise<LineTarget> {
+    const cid = str(standby.customerId);
+    if (!cid) return { lineGroupId: "", customerCode: "" };
+    const doc = (await readEntityDoc(db, COL_CUSTOMERS, cid)) ?? (await readEntityDoc(db, COL_SUBCONTRACTORS, cid));
+    return doc ? { lineGroupId: str(doc.lineGroupId), customerCode: str(doc.code) } : { lineGroupId: "", customerCode: "" };
+}
+
+/** Public URL of the read-only evidence gallery for a token (project-aware: dev vs prod). */
+function evidenceUrlForToken(evidenceToken: string): string {
+    const project = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || "";
+    return `https://asia-southeast1-${project}.cloudfunctions.net/${EVIDENCE_FN}?k=${evidenceToken}`;
+}
+
+async function pushLineMessage(token: string, to: string, message: LineFlexMessage): Promise<void> {
     const res = await fetch(LINE_PUSH_URL, {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ to, messages: [{ type: "text", text }] }),
+        body: JSON.stringify({ to, messages: [message] }),
     });
     if (!res.ok) {
         const body = await res.text().catch(() => "");
@@ -216,8 +271,8 @@ export const sendCustomerLineNotification = onCall<
         }
 
         const event = request.data?.event;
-        if (event !== "checkin" && event !== "delivered") {
-            throw new HttpsError("invalid-argument", "event must be 'checkin' or 'delivered'");
+        if (event !== "checkin" && event !== "delivered" && event !== "standby") {
+            throw new HttpsError("invalid-argument", "event must be 'checkin', 'delivered' or 'standby'");
         }
         const force = request.data?.force === true;
 
@@ -274,6 +329,66 @@ export const sendCustomerLineNotification = onCall<
             return { ok: true };
         }
 
+        if (event === "standby") {
+            const standbyId = str(request.data?.standbyId);
+            if (!standbyId) throw new HttpsError("invalid-argument", "standbyId is required for standby");
+
+            const standbySnap = await db.collection(COL_STANDBY_RECORDS).doc(standbyId).get();
+            if (!standbySnap.exists) throw new HttpsError("not-found", "Standby record not found");
+            const standby = standbySnap.data() as Doc;
+
+            if (!force && standby.lineNotifiedAt) {
+                return { ok: true, skipped: true, reason: "already notified" };
+            }
+
+            const [target, codeToName, driver] = await Promise.all([
+                resolveStandbyTarget(db, standby),
+                buildHubCodeToName(db),
+                loadDriverByAuthId(db, str(standby.driverId)),
+            ]);
+            if (!target.lineGroupId) return { ok: true, skipped: true, reason: "no lineGroupId configured" };
+
+            const photoCount = Array.isArray(standby.photos) ? (standby.photos as unknown[]).length : 0;
+            let evidenceToken = str(standby.evidenceToken);
+            let newEvidenceToken = false;
+            if (photoCount > 0 && !evidenceToken) {
+                evidenceToken = randomBytes(12).toString("base64url");
+                newEvidenceToken = true;
+            }
+            const evidenceUrl = photoCount > 0 && evidenceToken ? evidenceUrlForToken(evidenceToken) : undefined;
+
+            const durationMin = typeof standby.durationMinutes === "number" ? standby.durationMinutes : undefined;
+            const ctx: LineStandbyContext = {
+                dateLine: formatBuddhistShortDate(standby.endedAt ?? standby.startedAt ?? standby.createdAt),
+                startLabel: hubLabel(standby.startLocation, codeToName),
+                endLabel: hubLabel(standby.endLocation, codeToName),
+                driverNameTh: resolveDriverNameTh(driver, str(standby.driverId)),
+                driverCode: resolveDriverCustomerCode(driver, target.customerCode),
+                plate: str(standby.truckLicensePlate) || plateFromDriver(driver),
+                phone: str(driver?.mobile),
+                partner: target.customerCode,
+                startedHm: formatBangkokHm(standby.startedAt),
+                endedHm: formatBangkokHm(standby.endedAt),
+                durationText: durationMin != null ? `${durationMin} นาที` : "-",
+                notes: str(standby.note) || undefined,
+                evidenceUrl,
+                photoCount: photoCount > 0 ? photoCount : undefined,
+            };
+
+            try {
+                await pushLineMessage(token, target.lineGroupId, buildStandbyMessage(ctx));
+            } catch (e) {
+                logger.error("[lineNotify] standby push failed", { standbyId, error: String(e) });
+                throw new HttpsError("internal", "LINE push failed");
+            }
+            const standbyUpdates: Record<string, unknown> = {
+                lineNotifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+            };
+            if (newEvidenceToken) standbyUpdates.evidenceToken = evidenceToken;
+            await standbySnap.ref.update(standbyUpdates);
+            return { ok: true };
+        }
+
         // event === "delivered"
         const tripId = str(request.data?.tripId);
         if (!tripId) throw new HttpsError("invalid-argument", "tripId is required for delivered");
@@ -287,19 +402,43 @@ export const sendCustomerLineNotification = onCall<
         }
 
         const taskId = str(trip.taskId);
-        const [task, codeToName, driver] = await Promise.all([
+        const [task, codeToName, driver, incidentSnap] = await Promise.all([
             taskId
                 ? db.collection(COL_TASKS).doc(taskId).get().then((s) => (s.exists ? (s.data() as Doc) : null))
                 : Promise.resolve<Doc | null>(null),
             buildHubCodeToName(db),
             loadDriverByAuthId(db, str(trip.driverId)),
+            db.collection(COL_INCIDENT_REPORTS).where("tripId", "==", tripId).get(),
         ]);
+        const incidents = incidentSnap.docs.map((d) => d.data() as Doc);
 
         const target = await resolveLineTarget(db, task, trip);
         if (!target.lineGroupId) return { ok: true, skipped: true, reason: "no lineGroupId configured" };
 
         const truckType = await loadTruckType(db, trip.truckId, trip.truckType);
         const ocr = trip.ocrData as { tripId?: unknown } | undefined;
+
+        // Evidence gallery link (one URL = 1 message): mint an unguessable token on first send.
+        // Photo count and note fold in any incident/delay reports on this trip (ADR 0025 §5).
+        const photoCount = countTripPhotos(trip) + countIncidentPhotos(incidents);
+        let evidenceToken = str(trip.evidenceToken);
+        let newEvidenceToken = false;
+        if (photoCount > 0 && !evidenceToken) {
+            evidenceToken = randomBytes(12).toString("base64url");
+            newEvidenceToken = true;
+        }
+        const evidenceUrl = photoCount > 0 && evidenceToken ? evidenceUrlForToken(evidenceToken) : undefined;
+
+        // หมายเหตุ: fold the delay cause(s) (ADR 0025 §5) and, when the job was closed by an admin
+        // from the web, a fixed "closed from web" remark — joined so both can appear together.
+        const noteParts: string[] = [];
+        if (incidents.length > 0) {
+            const delayNote = buildDelayNote(incidents.map((i) => i.delayCause as string | undefined));
+            if (delayNote) noteParts.push(delayNote);
+        }
+        if (str(trip.deliveredVia) === "admin_web") noteParts.push(ADMIN_WEB_CLOSE_NOTE_TH);
+        const notes = noteParts.length > 0 ? noteParts.join(" · ") : undefined;
+
         const ctx: LineTripContext = {
             dateLine: formatBuddhistShortDate(trip.std ?? trip.createdAt),
             originLabel: hubLabel(trip.origin ?? task?.sourceHub, codeToName),
@@ -316,6 +455,9 @@ export const sendCustomerLineNotification = onCall<
             departHm: formatBangkokHm(trip.std),
             arriveHm: formatBangkokHm(trip.ata),
             doneHm: formatBangkokHm(trip.deliveredTimestamp),
+            notes,
+            evidenceUrl,
+            photoCount: photoCount > 0 ? photoCount : undefined,
         };
 
         try {
@@ -324,7 +466,11 @@ export const sendCustomerLineNotification = onCall<
             logger.error("[lineNotify] delivered push failed", { tripId, error: String(e) });
             throw new HttpsError("internal", "LINE push failed");
         }
-        await tripSnap.ref.update({ lineDeliveredNotifiedAt: admin.firestore.FieldValue.serverTimestamp() });
+        const deliveredUpdates: Record<string, unknown> = {
+            lineDeliveredNotifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+        if (newEvidenceToken) deliveredUpdates.evidenceToken = evidenceToken;
+        await tripSnap.ref.update(deliveredUpdates);
         return { ok: true };
     }
 );

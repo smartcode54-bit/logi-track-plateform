@@ -523,3 +523,36 @@ separate collection — it is `customer_rate_entries` rows tagged `jobCategory =
 dimension on `selectBillingRateEntry`. **Report display rules (Excel detail):** for J&T the source-hub
 origin shows the hub **code** (`SPK-GW`) not the billing name; vehicle class **`PICKUP` displays as
 `4WH`**; supplementary rows carry **`เสริม`** in หมายเหตุ.
+
+## Customer LINE notification
+
+A Flex message pushed to a customer's / partner's **LINE group** from the **Wanpenradchada** Official
+Account at three moments — [[Check-in]], job-complete (delivered), and [[Standby]] — by the callable
+`sendCustomerLineNotification` (`functions/src/lineNotify.ts`, `asia-southeast1`). Mobile fires it
+best-effort so a LINE failure never blocks the write ([ADR 0025](adr/0025-customer-line-group-notifications.md)).
+The destination group is the `lineGroupId` on the trip's resolved `customers`/`subcontractors` doc; empty
+= off. The channel access token is a Functions secret (`LINE_CHANNEL_ACCESS_TOKEN`), never Firestore. The
+driver name is always Thai (`fullNameTh`), and the driver **รหัส** is `customerDriverIds[<customer code>]`
+— **never** the national ID card, because the message leaves the company (ADR 0025 §C). Idempotent per
+record via `lineCheckinNotifiedAt` / `lineDeliveredNotifiedAt` / `lineNotifiedAt`. Incident/delay has
+**no** message of its own — see [[Delay note]].
+
+## Evidence gallery
+
+A public, read-only web page showing a job's evidence photos, opened from the `📷 ดูรูปหลักฐาน` button on
+a delivered or [[Standby]] card. Served by the HTTP function `tripEvidence` (`functions/src/tripEvidence.ts`,
+`asia-southeast1`), gated by an **unguessable token** on the record (`trip_records.evidenceToken` for a
+trip, `standby_records.evidenceToken` for a standby) — no login, so a whole group can view it. Photos are
+read server-side with the Admin SDK, so Firestore/Storage are never opened for public reads
+([ADR 0025](adr/0025-customer-line-group-notifications.md) §7). For a delivered trip the gallery includes
+both the trip photos and any [[Delay note|incident]] photos. Bearer-style: anyone holding the link can
+view it; expiry/revoke is a follow-up.
+
+## Delay note
+
+How an incident/delay report reaches the customer. Instead of a separate LINE message, when a delivered
+trip has ≥1 `incidentReport` (linked only by `tripId`, `incident_report_repository.dart:81-96`) the
+delivered card's `หมายเหตุ` line **names the delay cause(s)** in Thai — mapped from the locale-independent
+`incident_cause_*` key stored in `delayCause` (selected as a key at `incident_report_page.dart:371`) — and
+the [[Evidence gallery]] plus the button's photo count include the incident's map/situation photos under a
+"เหตุล่าช้า" group ([ADR 0025](adr/0025-customer-line-group-notifications.md) §5).

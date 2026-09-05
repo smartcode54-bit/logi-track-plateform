@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../../../core/services/cloud_functions_service.dart';
 import '../../../../core/services/mobile_client_heartbeat_service.dart';
@@ -130,13 +131,19 @@ Future<void> submitCheckIn({
   });
 
   // Notify the customer's/partner's LINE group of the check-in (best-effort; no-op if the linked
-  // entity has no lineGroupId configured; failure never blocks check-in)
+  // entity has no lineGroupId configured; failure never blocks check-in). Log the callable's skip
+  // reason / any error so a silent non-delivery is diagnosable instead of invisible.
   try {
-    await CloudFunctionsService.instance.call(
+    final res = await CloudFunctionsService.instance.call(
       'sendCustomerLineNotification',
       data: {'taskId': taskId, 'event': 'checkin'},
     );
-  } catch (_) {}
+    if (res is Map && res['skipped'] == true) {
+      debugPrint('[line] checkin notification skipped: ${res['reason']}');
+    }
+  } catch (e) {
+    debugPrint('[line] checkin notification failed: $e');
+  }
 
   try {
     final t = await FirebaseFirestore.instance.collection('tasks').doc(taskId).get();
