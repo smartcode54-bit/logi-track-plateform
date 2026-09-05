@@ -639,12 +639,10 @@ export default function BillingDocumentPage() {
                                 </TableHeader>
                                 <TableBody>
                                     {previewTrips.map((trip) => {
-                                        // hubDisplayName / destinationDisplayName already resolved by fetchBillingTripRows at load time.
-                                        // J&T: show the source-hub CODE (SPK-GW) to match the Excel export (ADR-0005).
-                                        const isJntCustomer = /j&t|jnt|j and t/i.test(selectedCustomer?.name ?? "");
-                                        const originDisplay = isJntCustomer
-                                            ? (trip.originHubCode || trip.billingLookupHubId || trip.hubDisplayName || "-")
-                                            : (trip.hubDisplayName ?? trip.billingLookupHubId ?? "-");
+                                        // Origin shows the hub CODE (e.g. SPK-GW) for every customer, so the preview matches
+                                        // both the invoice PDF (groupToLineItems) and the Excel detail sheet. Destination stays
+                                        // the display NAME — the two ends of the route are deliberately asymmetric (ADR-0005).
+                                        const originDisplay = trip.originHubCode || trip.billingLookupHubId || trip.hubDisplayName || "-";
                                         const destDisplay   = trip.destinationDisplayName ?? trip.billingLookupDestination ?? "-";
                                         return (
                                         <TableRow key={trip.id} className={trip.rowType === "standby" ? "bg-amber-950/20" : trip.rowType === "multidrop_stop" ? "bg-blue-950/10" : undefined}>

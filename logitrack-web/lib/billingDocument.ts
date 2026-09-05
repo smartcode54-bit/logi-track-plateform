@@ -231,8 +231,12 @@ export function groupToLineItems(trips: BillingTripRow[], rounds: BillingRound[]
     const isStandby = t.rowType === "standby";
     const isStop    = t.rowType === "multidrop_stop";
     const vc = t.vehicleClass ?? "-";
+    // Origin shows the hub CODE (e.g. SPK-GW), matching the Excel detail sheet — the invoice and its
+    // Excel companion must present the same origin. Destination stays the display NAME: the two ends
+    // of the route are deliberately asymmetric (same rule as generateDetailExcelBuffer's originLabel).
+    const originLabel = t.originHubCode || t.billingLookupHubId || t.hubDisplayName || "-";
     const baseRoute = [
-      t.hubDisplayName         ?? t.billingLookupHubId        ?? "-",
+      originLabel,
       t.destinationDisplayName ?? t.billingLookupDestination  ?? "-",
     ].join(" → ");
     // ค่าโยก (multidrop) จัดกลุ่มรวมเป็นรายการเดียว ไม่ระบุเส้นทาง — แจกแจงด้วยช่วงวันที่เหมือนเที่ยวปกติ
@@ -490,13 +494,11 @@ async function buildInvoicePdf(
     doc.rect(52, py - box, box, box);
     doc.text("เงินโอน", 56.5, py);
 
-    // Bank account info on the next line
+    // Bank account info on the next line. Wrap to the content width (x=14 → right margin x=196)
+    // so a long ชื่อบัญชี never runs off the page and clips the line.
     if (bankName) {
-      doc.text(
-        `ธนาคาร ${bankName}  เลขที่บัญชี ${accountNumber}  ชื่อบัญชี ${accountName}`,
-        14,
-        py + 6,
-      );
+      const bankLine = `ธนาคาร ${bankName}   เลขที่บัญชี ${accountNumber}   ชื่อบัญชี ${accountName}`;
+      doc.text(doc.splitTextToSize(bankLine, 182), 14, py + 6);
     }
   }
 

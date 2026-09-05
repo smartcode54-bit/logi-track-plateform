@@ -44,6 +44,9 @@ import { Loader2, MoreHorizontal, RefreshCw, TrendingUp, FileText, Clock, AlertT
 import { format, differenceInDays } from "date-fns";
 import { toast } from "sonner";
 import { WITHHOLDING_TAX_RATE } from "@/lib/billingConfig";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "@/firebase/client";
+import { COLLECTIONS } from "@/lib/collections";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -110,6 +113,10 @@ export default function BillingResultPage() {
     const [redownloadingId, setRedownloadingId] = useState<string | null>(null);
     const [issuingReceiptId, setIssuingReceiptId] = useState<string | null>(null);
     const [deletingId, setDeletingId] = useState<string | null>(null);
+    // uid → account, resolved from `users/{uid}` for the "Created by" column. Firestore rules let a
+    // non-admin read only their own user doc, so other creators fall back to a short uid — admins (the
+    // usual viewers here) resolve every creator.
+    const [creators, setCreators] = useState<Record<string, { displayName?: string; email?: string }>>({});
 
     // Filters
     const [filterCustomerId, setFilterCustomerId] = useState<string>("all");
@@ -141,6 +148,34 @@ export default function BillingResultPage() {
         loadStatements();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    // Resolve each distinct `generatedBy` uid to an account for the "Created by" column. Best-effort
+    // and cached per uid, so it runs only for uids not already known.
+    useEffect(() => {
+        const uids = Array.from(
+            new Set(statements.map((s) => s.generatedBy).filter((u): u is string => !!u))
+        ).filter((uid) => !(uid in creators));
+        if (uids.length === 0) return;
+        let cancelled = false;
+        (async () => {
+            const entries = await Promise.all(
+                uids.map(async (uid) => {
+                    try {
+                        const snap = await getDoc(doc(db, COLLECTIONS.USERS, uid));
+                        const d = snap.data() as { displayName?: string; email?: string } | undefined;
+                        return [uid, { displayName: d?.displayName, email: d?.email }] as const;
+                    } catch {
+                        return [uid, {}] as const; // users read restricted to self/admin
+                    }
+                })
+            );
+            if (!cancelled) setCreators((prev) => ({ ...prev, ...Object.fromEntries(entries) }));
+        })();
+        return () => {
+            cancelled = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [statements]);
 
     // Client-side period filter
     const filtered = useMemo(() => {
@@ -283,6 +318,12 @@ export default function BillingResultPage() {
             setDeletingId(null);
         }
     }
+
+    const creatorLabel = (uid?: string): string => {
+        if (!uid) return "—";
+        const c = creators[uid];
+        return c?.displayName?.trim() || c?.email?.trim() || `${uid.slice(0, 8)}…`;
+    };
 
     return (
         <PagePermissionGuard capability={CAPABILITIES.accounting_billing_result}>
@@ -459,6 +500,7 @@ export default function BillingResultPage() {
                                             <TableHead>{t("accounting.billingResult.table.status")}</TableHead>
                                             <TableHead>{t("accounting.billingResult.table.dueDate")}</TableHead>
                                             <TableHead>{t("accounting.billingResult.table.generatedAt")}</TableHead>
+                                            <TableHead>{t("accounting.billingResult.table.createdBy")}</TableHead>
                                             <TableHead>{t("accounting.billingResult.table.actions")}</TableHead>
                                         </TableRow>
                                     </TableHeader>
@@ -508,8 +550,11 @@ export default function BillingResultPage() {
                                                             <span className="text-muted-foreground">—</span>
                                                         )}
                                                     </TableCell>
+                                                    <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                                                        {genDate ? format(genDate, "dd/MM/yyyy HH:mm") : "—"}
+                                                    </TableCell>
                                                     <TableCell className="text-sm text-muted-foreground">
-                                                        {genDate ? format(genDate, "dd/MM/yyyy") : "—"}
+                                                        <span title={stmt.generatedBy ?? undefined}>{creatorLabel(stmt.generatedBy)}</span>
                                                     </TableCell>
                                                     <TableCell>
                                                         {isUpdating ? (

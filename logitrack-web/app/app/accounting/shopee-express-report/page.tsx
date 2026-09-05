@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLanguage } from "@/context/language";
 import { getCustomers } from "@/features/customers/api/customers";
 import type { CustomerData } from "@/features/customers/api/customers";
-import { fetchShopeeExpressReportTrips, type ShopeeReportTripRow } from "@/features/accounting";
+import { fetchShopeeExpressReportTrips, type ShopeeReportTripRow, type BillingHalf } from "@/features/accounting";
 import { getOwnerCompany } from "@/features/companies/api/companies";
 import {
     downloadShopeeExpressReportPdf,
@@ -45,6 +45,7 @@ export default function ShopeeExpressReportPage() {
 
     const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
     const [selectedYear, setSelectedYear] = useState(now.getFullYear());
+    const [selectedHalf, setSelectedHalf] = useState<BillingHalf>("full");
     const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
 
     const [customers, setCustomers] = useState<CustomerData[]>([]);
@@ -53,6 +54,14 @@ export default function ShopeeExpressReportPage() {
     const [generating, setGenerating] = useState(false);
     const [loaded, setLoaded] = useState(false);
     const [ownerProvider, setOwnerProvider] = useState<BillingProviderInfo | undefined>(undefined);
+    // Snapshot of the filters that produced `rows`, so the PDF always matches what is on screen
+    // (even if the user changes a filter without reloading).
+    const [loadedCtx, setLoadedCtx] = useState<{
+        period: BillingPeriod;
+        half: BillingHalf;
+        customer: BillingCustomer;
+        customerCode?: string;
+    } | null>(null);
 
     // Load customers (default-select TTP) + owner company for PDF branding
     useEffect(() => {
@@ -82,21 +91,27 @@ export default function ShopeeExpressReportPage() {
             .catch((e) => console.warn("[shopee-report] getOwnerCompany failed:", e));
     }, []);
 
-    const selectedCustomer = useMemo(
-        () => customers.find((c) => c.id === selectedCustomerId) ?? null,
-        [customers, selectedCustomerId]
-    );
-
     async function loadTrips() {
         if (!selectedCustomerId) return;
+        const customer = customers.find((c) => c.id === selectedCustomerId);
+        if (!customer) return;
         setLoading(true);
         try {
-            const data = await fetchShopeeExpressReportTrips(selectedCustomerId, {
-                month: selectedMonth,
-                year: selectedYear,
-            });
+            const period: BillingPeriod = { month: selectedMonth, year: selectedYear };
+            const data = await fetchShopeeExpressReportTrips(selectedCustomerId, period, selectedHalf);
             setRows(data);
             setLoaded(true);
+            setLoadedCtx({
+                period,
+                half: selectedHalf,
+                customer: {
+                    id: customer.id,
+                    name: customer.name,
+                    address: customer.address,
+                    taxId: customer.taxId,
+                },
+                customerCode: customer.code,
+            });
         } catch (e) {
             console.error("[shopee-report] fetchShopeeExpressReportTrips failed:", e);
             toast.error(t("accounting.shopeeReport.loadError", "โหลดข้อมูลไม่สำเร็จ กรุณาลองใหม่"));
@@ -113,22 +128,16 @@ export default function ShopeeExpressReportPage() {
     const missingCount = useMemo(() => rows.filter((r) => r.signedRunsheetPhotos.length === 0).length, [rows]);
 
     async function handleDownload() {
-        if (!selectedCustomer || rows.length === 0) return;
+        if (!loadedCtx || rows.length === 0) return;
         setGenerating(true);
         try {
-            const period: BillingPeriod = { month: selectedMonth, year: selectedYear };
-            const billingCustomer: BillingCustomer = {
-                id: selectedCustomer.id,
-                name: selectedCustomer.name,
-                address: selectedCustomer.address,
-                taxId: selectedCustomer.taxId,
-            };
             await downloadShopeeExpressReportPdf(
                 rows,
-                billingCustomer,
-                period,
+                loadedCtx.customer,
+                loadedCtx.period,
                 ownerProvider,
-                selectedCustomer.code
+                loadedCtx.customerCode,
+                loadedCtx.half
             );
         } catch (e) {
             console.error("[shopee-report] generate PDF failed:", e);
@@ -174,6 +183,18 @@ export default function ShopeeExpressReportPage() {
                                     {YEARS.map((y) => (
                                         <SelectItem key={y} value={String(y)}>{y}</SelectItem>
                                     ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        <div className="space-y-1">
+                            <Label>{t("accounting.shopeeReport.filters.round")}</Label>
+                            <Select value={selectedHalf} onValueChange={(v) => setSelectedHalf(v as BillingHalf)}>
+                                <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="full">{t("accounting.shopeeReport.round.full")}</SelectItem>
+                                    <SelectItem value="first">{t("accounting.shopeeReport.round.first")}</SelectItem>
+                                    <SelectItem value="second">{t("accounting.shopeeReport.round.second")}</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>

@@ -1038,6 +1038,14 @@ export async function fetchBillingTripRows(
 // `billingEstimateThb` and filters by `billingCustomerId` server-side, neither of
 // which is correct here. Read-only; never touches any billing amount.
 
+/**
+ * Billing round within a month. TTP is billed in two half-month rounds:
+ *  - "first"  → days 1–15
+ *  - "second" → day 16 to end of month
+ *  - "full"   → the whole month (both rounds)
+ */
+export type BillingHalf = "full" | "first" | "second";
+
 export interface ShopeeReportTripRow {
     id: string;
     spxTripId?: string;
@@ -1128,12 +1136,18 @@ const SIGNED_RUNSHEET_STOP_RE = /^stop_\d+_runsheet_received$/;
  */
 export async function fetchShopeeExpressReportTrips(
     customerId: string,
-    period: { month: number; year: number }
+    period: { month: number; year: number },
+    half: BillingHalf = "full"
 ): Promise<ShopeeReportTripRow[]> {
     const cid = customerId.trim();
     if (!cid) return [];
-    const start = new Date(period.year, period.month - 1, 1);
-    const end = new Date(period.year, period.month, 1);
+    // Half-month rounds split at day 16 midnight (local). The status+deliveredTimestamp range
+    // query is unchanged in shape, so it reuses the same composite index as the full-month query.
+    const monthStart = new Date(period.year, period.month - 1, 1);
+    const monthEnd = new Date(period.year, period.month, 1); // exclusive (first of next month)
+    const mid = new Date(period.year, period.month - 1, 16); // day 16, 00:00
+    const start = half === "second" ? mid : monthStart;
+    const end = half === "first" ? mid : monthEnd;
 
     const tripSnap = await getDocsFromServer(
         query(

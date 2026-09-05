@@ -230,6 +230,7 @@ export default {
 
     "driverMonitor.editTrip.tripIdLabel": "Trip ID (document ID)",
     "driverMonitor.editTrip.renameAction": "Change Trip ID",
+    "driverMonitor.editTrip.renameDeliveredOnly": "Editable once the trip is delivered — a running trip still lives in the driver's app and would come back under the old ID.",
     "driverMonitor.editTrip.renameTitle": "Change Trip ID",
     "driverMonitor.editTrip.renameDesc": "Use this when the driver typed the wrong Trip ID. The trip keeps all of its data, photos and billing.",
     "driverMonitor.editTrip.renameCurrent": "Current Trip ID",

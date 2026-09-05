@@ -875,19 +875,32 @@ export function EditTripDetailsDialog({
                 <div className="space-y-6 py-2">
                     <div className="space-y-4">
                         {/* Trip ID = the Firestore document ID. Read-only here; correcting a typo is a
-                            server-side move, offered only to admins on a delivered trip. */}
+                            server-side move, offered only to admins. Before delivery the button stays
+                            visible but disabled with the reason — hiding it read as a lost feature, and
+                            the callable rejects the call anyway (renameTripRecord.ts). */}
                         <div className="flex items-end justify-between gap-3 rounded-lg border bg-muted/30 p-3">
                             <div className="space-y-1 min-w-0">
                                 <label className="text-xs text-muted-foreground block">
                                     {t("driverMonitor.editTrip.tripIdLabel", "Trip ID (document ID)")}
                                 </label>
                                 <p className="font-mono text-sm truncate">{trip.id}</p>
+                                {canEditCategory && trip.status !== "delivered" && (
+                                    <p className="text-xs text-muted-foreground">
+                                        {t("driverMonitor.editTrip.renameDeliveredOnly")}
+                                    </p>
+                                )}
                             </div>
-                            {canEditCategory && trip.status === "delivered" && (
+                            {canEditCategory && (
                                 <Button
                                     variant="outline"
                                     size="sm"
                                     className="shrink-0"
+                                    disabled={trip.status !== "delivered"}
+                                    title={
+                                        trip.status !== "delivered"
+                                            ? t("driverMonitor.editTrip.renameDeliveredOnly")
+                                            : undefined
+                                    }
                                     onClick={() => {
                                         setRenameNewId(trip.id ?? "");
                                         setRenameOpen(true);

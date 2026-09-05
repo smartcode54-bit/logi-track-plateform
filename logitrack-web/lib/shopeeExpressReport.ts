@@ -16,7 +16,7 @@ import autoTable from "jspdf-autotable";
 import { format } from "date-fns";
 import { loadThaiFont, registerThaiFont, fetchImageAsBase64, imageFormat } from "./pdfThai";
 import type { BillingProviderInfo, BillingCustomer, BillingPeriod } from "./billingDocument";
-import type { ShopeeReportTripRow } from "@/features/accounting";
+import type { ShopeeReportTripRow, BillingHalf } from "@/features/accounting";
 
 // ─── Layout constants (A4 portrait, mm) ───────────────────────────────────────
 const PAGE_W = 210;
@@ -33,6 +33,13 @@ function periodLabelBe(period: BillingPeriod): string {
   return `${THAI_MONTHS[period.month - 1]} ${period.year + 543}`;
 }
 
+/** Round suffix for the header, in Thai. "full" prints nothing. */
+function roundLabel(half: BillingHalf): string {
+  if (half === "first") return "(รอบ 1–15)";
+  if (half === "second") return "(รอบ 16–สิ้นเดือน)";
+  return "";
+}
+
 // ─── Image downscale (offscreen canvas) ───────────────────────────────────────
 // Signed run-sheets are camera photos (multi-MB). Embedding them raw would produce a
 // huge PDF, so each is redrawn to a bounded JPEG before addImage.
@@ -46,8 +53,9 @@ interface ScaledImage {
 async function loadAndDownscale(
   base64: string,
   fmt: "PNG" | "JPEG",
-  maxDim = 1200,
-  quality = 0.72
+  // Run-sheets now print at full page width, so keep more resolution for legible text/signatures.
+  maxDim = 1600,
+  quality = 0.75
 ): Promise<ScaledImage | null> {
   return new Promise((resolve) => {
     const img = new Image();
@@ -131,7 +139,8 @@ export async function generateShopeeExpressReportBlob(
   rows: ShopeeReportTripRow[],
   customer: BillingCustomer,
   period: BillingPeriod,
-  provider?: BillingProviderInfo
+  provider?: BillingProviderInfo,
+  half: BillingHalf = "full"
 ): Promise<Blob> {
   const font = await loadThaiFont();
 
@@ -159,7 +168,9 @@ export async function generateShopeeExpressReportBlob(
   doc.setFont("Sarabun", "bold");
   doc.text(`ลูกค้า: ${customer.name}`, MARGIN, y);
   doc.setFont("Sarabun", "normal");
-  doc.text(`ประจำเดือน: ${periodLabelBe(period)}`, PAGE_W - MARGIN, y, { align: "right" });
+  doc.text(`ประจำเดือน: ${periodLabelBe(period)} ${roundLabel(half)}`.trimEnd(), PAGE_W - MARGIN, y, {
+    align: "right",
+  });
   y += 6;
   doc.text(`จำนวนเที่ยว: ${rows.length} เที่ยว`, MARGIN, y);
   doc.text(`คนขับ: ${groups.length} คน`, MARGIN + 55, y);
@@ -230,8 +241,9 @@ export async function generateShopeeExpressReportBlob(
   }
 
   // ── Section 2: signed run-sheets, grouped by driver ──
-  // 2 columns × 2 rows per page. Each cell: caption line + image fit-to-box.
-  const COLS = 2;
+  // 2 run-sheets per page, stacked top + bottom (1 column × 2 rows). Full page width
+  // per image so each is as large as possible. Each cell: caption line + image fit-to-box.
+  const COLS = 1;
   const ROWS = 2;
   const GAP = 6;
   const CAPTION_H = 5;
@@ -314,15 +326,17 @@ export async function downloadShopeeExpressReportPdf(
   customer: BillingCustomer,
   period: BillingPeriod,
   provider?: BillingProviderInfo,
-  customerCode?: string
+  customerCode?: string,
+  half: BillingHalf = "full"
 ): Promise<void> {
-  const blob = await generateShopeeExpressReportBlob(rows, customer, period, provider);
+  const blob = await generateShopeeExpressReportBlob(rows, customer, period, provider, half);
   const mm = String(period.month).padStart(2, "0");
   const code = (customerCode || customer.name || "customer").replace(/[^A-Za-z0-9_-]/g, "");
+  const roundSuffix = half === "first" ? "_r1" : half === "second" ? "_r2" : "";
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `shopee_express_report_${code}_${period.year}${mm}.pdf`;
+  a.download = `shopee_express_report_${code}_${period.year}${mm}${roundSuffix}.pdf`;
   a.click();
   URL.revokeObjectURL(url);
 }

@@ -230,6 +230,7 @@ export default {
 
     "driverMonitor.editTrip.tripIdLabel": "Trip ID (รหัสเอกสาร)",
     "driverMonitor.editTrip.renameAction": "แก้ไข Trip ID",
+    "driverMonitor.editTrip.renameDeliveredOnly": "แก้ไขได้เมื่อส่งงานสำเร็จแล้ว — เที่ยวที่ยังวิ่งอยู่ยังค้างในแอปคนขับ และจะถูกสร้างกลับมาด้วยรหัสเดิม",
     "driverMonitor.editTrip.renameTitle": "แก้ไข Trip ID",
     "driverMonitor.editTrip.renameDesc": "ใช้เมื่อคนขับพิมพ์ Trip ID ผิด ข้อมูล รูปภาพ และการวางบิลของเที่ยวนี้จะถูกย้ายไปทั้งหมด",
     "driverMonitor.editTrip.renameCurrent": "Trip ID ปัจจุบัน",
