@@ -2,6 +2,7 @@ import { doc, getDoc, type Firestore } from "firebase/firestore";
 
 import { db } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
+import { driverDisplayName } from "@/lib/driverName";
 import type { Driver } from "@/validate/driverSchema";
 import type { TripRecord } from "@/validate/tripRecordSchema";
 
@@ -83,12 +84,6 @@ function plateForTrip(trip: TripRecord, driver: Driver | null | undefined): stri
     return p && p.length > 0 ? p : "-";
 }
 
-function driverDisplayName(driver: Driver | null | undefined): string {
-    if (!driver) return "-";
-    const n = `${driver.firstName ?? ""} ${driver.lastName ?? ""}`.trim();
-    return n.length > 0 ? n : "-";
-}
-
 function driverPhone(driver: Driver | null | undefined): string {
     if (!driver) return "-";
     const m = driver.mobile?.trim();
@@ -133,7 +128,8 @@ export function buildTripDeliveryShareText(p: BuildTripShareTextInput): string {
     const { trip, driver, originLabel, destLabel, partnerLine, incidentNote, checkInAt, truckType } = p;
     const dateLine = formatBuddhistShortDate(refDateForHeader(trip));
     const tripNo = tripNumberLine(trip);
-    const name = driverDisplayName(driver);
+    // ชื่อคนขับเป็นภาษาไทย (fullNameTh) ตามกฎชื่อในรายงาน — ใช้ helper กลางตัวเดียวกับ billing/exports
+    const name = driverDisplayName(driver, "-");
     const code = resolveDriverShareCode(driver);
     const plate = plateForTrip(trip, driver);
     const phone = driverPhone(driver);
