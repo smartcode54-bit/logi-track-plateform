@@ -356,6 +356,7 @@ export const ROUTE_CAPABILITIES: Record<string, CapabilityId> = {
   "/app/chat": CAPABILITIES.chat_view,
   "/app/first-mile": CAPABILITIES.operations_view_first_mile,
   "/app/line-haul": CAPABILITIES.operations_view_line_haul,
+  "/app/job-assign": CAPABILITIES.operations_view_first_mile,
   "/app/sources": CAPABILITIES.operations_manage_sources,
   "/app/driver-monitor": CAPABILITIES.operations_view_driver_monitor,
   "/app/incident-reports": CAPABILITIES.operations_view_incidents,

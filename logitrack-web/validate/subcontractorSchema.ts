@@ -43,6 +43,11 @@ export const subcontractorSchema = z.object({
 
     // LINE notifications: กลุ่ม LINE ปลายทางที่จะส่งแจ้งเตือนเช็คอิน/จบงาน (ว่าง = ปิด)
     lineGroupId: z.string().optional(),
+
+    // Billing date basis (ADR 0027/0028) — when this partner is billed directly, which date decides
+    // the billing period + rate round: "delivered" (default) = delivery instant; "plan" = the plan
+    // date on the task. Mirrors customers.billingDateBasis; billing reads customers first, then here.
+    billingDateBasis: z.enum(["delivered", "plan"]).optional(),
 }).refine((data) => {
     if (data.type === "individual") {
         if (!data.idCardNumber) return false;
@@ -84,4 +89,5 @@ export const subcontractorDefaultValues: SubcontractorFormValues = {
     status: "active",
     documents: [],
     lineGroupId: "",
+    billingDateBasis: "delivered",
 };

@@ -385,6 +385,7 @@
     "loading_phase_seal_scan_required": "This ZX trip requires seal barcode scanning from camera before save.",
     "loading_phase_seal_jt_hint": "J&T: Scan or type the seal barcode manually (not filled by OCR)",
     "loading_phase_rescan_trip_id": "Scan Trip ID Again",
+    "loading_phase_trip_id_ocr_warning": "This Trip ID was read from text (OCR), not a barcode — B↔8 may be confused. Please verify, or rescan the QR/barcode.",
     "loading_phase_seal_hint": "Scan seal barcode from camera",
     "loading_phase_seal_manual_btn": "Can't scan? Type manually",
     "loading_phase_seal_manual_title": "Enter seal manually",

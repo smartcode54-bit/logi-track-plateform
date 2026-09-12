@@ -58,6 +58,10 @@ export default {
     "customers.form.paymentTermsDays.placeholder": "e.g. 30",
     "customers.form.invoiceNote": "Invoice Note",
     "customers.form.invoiceNote.placeholder": "Note printed on invoice / receipt",
+    "customers.form.billingDateBasis": "Billing date basis",
+    "customers.form.billingDateBasis.delivered": "Delivered date (default)",
+    "customers.form.billingDateBasis.plan": "Plan date (work date)",
+    "customers.form.billingDateBasis.desc": "Which date decides the billing period + rate round. Choose Plan date for customers (e.g. CJSF) who reconcile by the day-by-day plan they send, so a job delivered late still bills in the planned month.",
 
     // ── LINE Notifications card ──────────────────────────────────────────────
     "customers.form.line.title": "LINE Notifications",

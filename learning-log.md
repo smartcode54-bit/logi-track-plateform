@@ -114,3 +114,156 @@ validate ตอนเขียน, เลิก denormalize ที่ไม่�
 
 **ลองต่อยอด:** เปิด Firebase Console → Usage and billing ของ `logitrack-prod` จดตัวเลข read/write ต่อวันจริง
 แล้วเอาไปหารด้วยจุดคุ้มทุนใน `shared-docs/sql-migration-business-case.md` §2 จะรู้ทันทีว่าห่างจุดคุ้มทุนกี่เท่า
+
+---
+
+## [2026-09-11] เปิดระบบให้ TTP + รถร่วม 20+ ราย: ออกแบบ multi-tenancy บน Firestore
+
+**Stack:** Firebase/GCP (Firestore Security Rules, Firebase Auth custom claims) — ผูกกับ ADR 0026
+
+**Concept:** Tenant isolation บน shared database + "Rules are not filters" + แยกตัวตน platform operator ออกจาก tenant
+
+**อธิบาย:**
+
+เวลาจะเปลี่ยนแอปที่ใช้ในบริษัทเดียว ให้รองรับหลายองค์กรที่ไม่ไว้ใจกัน มี 3 บทเรียนที่ต้องรู้ก่อนแตะโค้ด:
+
+**1. Firestore Security Rules ไม่ใช่ filter — มันคือ "ผ่าน/ไม่ผ่าน" ทั้งก้อน**
+
+เอกสารทางการพูดตรงๆ ว่า *"You cannot write a query for all the documents in a collection and expect
+Cloud Firestore to return only the documents that the current client has permission to access."*
+ถ้า query มีโอกาสคืน doc ที่ rule ปฏิเสธ → **ทั้ง query ล้ม** ไม่ใช่คืนเฉพาะที่อ่านได้
+
+ผลที่ตามมาซึ่งคนมักคาดไม่ถึง: **การ "เพิ่มความปลอดภัย" ไม่ใช่การค่อยๆ เข้ม มันคือ breaking change**
+ทุก query ที่ไม่ได้ใส่ `where("tenantId","==",…)` เอง จะพังทันทีที่ rule เข้ม ไม่ใช่เห็นข้อมูลน้อยลง
+→ ลำดับ rollout จึงสำคัญเท่ากับตัว design: เขียนฟิลด์ก่อน → backfill → สร้าง index → **ค่อย**เข้ม rules
+
+**2. กุญแจแบ่งข้อมูลต้อง "อยู่บน doc" ห้ามคำนวณตอนอ่าน**
+
+rules ทำ JOIN ใน query ไม่ได้ และ `get()`/`exists()` ใน rules ถูกจำกัด **10 ครั้งต่อ single-document
+request** (20 สำหรับ multi-document/transaction) แถม **เสียเงินค่า read แม้ rule จะปฏิเสธ request นั้น**
+→ isolation ต้องเป็นการเทียบ "claim ใน token" กับ "field บน doc" เท่านั้น
+
+แต่เหตุผลที่หนักกว่าเรื่องเทคนิคคือเรื่อง **domain**: ถ้าคำนวณเจ้าของเที่ยวจาก `driver.subcontractorId`
+ตอนอ่าน วันที่คนขับย้ายสังกัด (ซึ่งเกิดจริงกับ "นายหน้าหารถ") **ประวัติทั้งหมดจะเปลี่ยนเจ้าของย้อนหลัง**
+รวมถึงเที่ยวที่รายงานลูกค้าไปแล้ว → ต้อง **freeze ค่าลงบนแถวตอนเขียน** เป็นหลักการเดียวกับ frozen price
+ใน ADR 0010 (เก็บ "ค่าที่เป็นจริง ณ เวลานั้น" ไม่ใช่ "ค่าที่คำนวณได้ตอนนี้")
+
+**3. บทเรียนที่ไม่ใช่เทคนิคแต่กระทบโค้ดที่สุด: role เดียวถือสองตัวตน**
+
+`lib/roles.ts:45` มี `admin: "*"` และ `isWebAdmin()` เป็นประตูเกือบทุก rule — แปลว่าระบบไม่มีแนวคิด
+"ผู้ดูแลซอฟต์แวร์" แยกจาก "พนักงานบริษัทเรา" เลย มันเป็นคนเดียวกันมาตลอดโดยไม่มีใครสังเกต เพราะจนถึงวันนี้
+มันเป็นคนเดียวกันจริงๆ
+
+พอจะขายซอฟต์แวร์ให้คู่ค้า ในขณะที่ตัวเองก็เป็นผู้แข่งขันบนแพลตฟอร์มนั้นด้วย ตัวตนสองอันนี้ขัดกันทันที
+และถ้าไม่แยกตอนนี้ ทุกฟีเจอร์ถัดไปจะฝังการรวมร่างลึกลงไปอีก จนวันหนึ่งตอบคำถาม
+"คู่แข่งที่เป็นเจ้าของระบบเห็นข้อมูลผมไหม" ไม่ได้ — **หนี้ประเภทนี้แพงขึ้นแบบทบต้น เพราะมันฝังใน rules
+ที่ทุกอย่างพึ่งพา ไม่ใช่ในไฟล์เดียวที่ refactor ได้**
+
+มาตรฐานที่ตั้งไว้คือ **auditable access** ไม่ใช่ zero access (เพราะ platform admin ต้อง support ได้จริง)
+— platform admin เข้าถึงข้าม tenant ได้ แต่ต้องลง `security_events` ทุกครั้ง
+
+**ทางเลือกที่พิจารณา / Trade-off:**
+
+- **แยก Firebase project ต่อองค์กร** — ตกไปเพราะเที่ยวหนึ่งวิ่งจริงครั้งเดียว แต่ต้องบันทึกสองระบบ
+  → reconcile ตลอดชีพ และทำลาย cross-carrier view ซึ่งเป็นเหตุผลเดียวที่ปลายทางอยากใช้
+- **GCIP multi-tenancy (Identity Platform tenants)** — ตกไปเพราะมัน isolate **identity เท่านั้น**
+  (user account + IdP) ไม่ได้ isolate document ใน Firestore → ไม่ลดงาน rules แม้แต่บรรทัดเดียว
+- **ยัด permission ทั้งชุดลง custom claims** — ทำไม่ได้: เพดาน **1000 bytes** และเอกสารระบุชัดว่า claims
+  มีไว้ทำ access control ไม่ใช่เก็บ data → เก็บได้แค่ `tenantId` + `role`, รายละเอียดที่เหลือไว้ Firestore
+- **Cost:** ไม่ใช่ค่า DB แต่เป็น **composite index ใหม่เกือบทุก query** (`firestore.indexes.json`) เพราะทุก
+  query ต้องเพิ่ม `tenantId` เข้า filter — ต้องนับและ deploy index ให้ครบ **ก่อน** เข้ม rules
+- **Security:** failure mode ใหม่คือ **tenant orphan** — แถวที่ไม่มี `tenantId` จะไม่มีใครอ่านได้เลย
+  (แม้แต่เจ้าของ) ต้องมี validation ตอนเขียน + ตัวตรวจ orphan ก่อนเข้ม rules
+
+**อ้างอิง:**
+- [Firestore Security Rules conditions — "rules are not filters" + ลิมิต/ค่าใช้จ่ายของ get()/exists()](https://firebase.google.com/docs/firestore/security/rules-conditions)
+- [Firebase Auth custom claims — เพดาน 1000 bytes, ใช้เพื่อ access control เท่านั้น, propagation ตอน token refresh](https://firebase.google.com/docs/auth/admin/custom-claims)
+- [Identity Platform multi-tenancy — isolate identity ไม่ใช่ data](https://cloud.google.com/identity-platform/docs/multi-tenancy-authentication)
+- [Firebase Security Rules basics](https://firebase.google.com/docs/rules/basics)
+- ADR ในโปรเจกต์: `shared-docs/adr/0026-multi-tenant-carrier-isolation.md`
+
+**ลองต่อยอด:** ลองนับงานจริงที่รออยู่ด้วยคำสั่งเดียว — จำนวน query ที่ต้องเติม `tenantId` เข้าไป:
+```bash
+grep -rn "collection(db, COLLECTIONS.\(TRIP_RECORDS\|TASKS\|DRIVERS\|TRUCKS\)" \
+  logitrack-web/app logitrack-web/features logitrack-web/lib | wc -l
+```
+ตัวเลขที่ได้คือขนาดของ breaking change ในข้อ 1 — เอาไปตั้งเป็น scope ของ spec ได้เลย
+
+---
+
+## [2026-09-12] แยกงาน tenantId ออกจาก working tree ที่มีงาน 3 ชุดปนกัน
+
+**Stack:** Git (ไม่ผูก stack แอป — เป็นทักษะพื้นฐานที่ใช้ได้ทุกโปรเจกต์)
+
+**Concept:** หน่วยของ commit คือ "การเปลี่ยนแปลงเชิงตรรกะ" ไม่ใช่ "ไฟล์" → partial staging ระดับ hunk +
+`git stash push --staged` เป็นเครื่องมือที่ตรงกับปัญหา
+
+**อธิบาย:**
+
+สถานการณ์: working tree บน `main` มีงาน **3 ชุดที่ไม่เกี่ยวกันเลย** ปนกันอยู่ (multi-tenant ADR 0026 /
+plan-date billing ADR 0027-0028 / job-assign + import dialog + mobile OCR) และ **4 ไฟล์ถือทั้งสองเรื่อง
+ในไฟล์เดียว** เช่น `validate/taskSchema.ts` มีทั้ง `billingCustomerId` (0027) และ `tenantId` (0026)
+
+**1. ทำไม `git checkout -b` เฉยๆ แก้ปัญหานี้ไม่ได้**
+
+การสร้าง branch ใหม่ *ไม่ได้ย้าย* อะไรเลย — dirty working tree ไม่ผูกกับ branch มันลอยอยู่เหนือ index
+ดังนั้น `git switch -c` แล้ว `git commit -a` จะได้ commit ที่มีงานทั้ง 3 ชุด = ไม่ได้แยกอะไร
+ปัญหาจริงคือ **ต้องแยก index ก่อน** แล้วค่อยใช้ branch เป็นที่ยึด
+
+**2. หน่วยของ commit คือ logical change ไม่ใช่ไฟล์ → ต้องแยกระดับ hunk**
+
+Pro Git บอกจุดประสงค์ของ partial staging ตรงๆ ว่า *"you want those changes to be partitioned into
+several focused commits rather than one big messy commit... commits are logically separate changesets"*
+เครื่องมือปกติคือ `git add -p` (interactive) แต่ใน automation กดเลือกทีละ hunk ไม่ได้ →
+ใช้วิธี **สร้าง patch ของ hunk ที่ต้องการ แล้วถอนออกจาก index ด้วย `git apply --cached -R`**
+(`--cached` = *"Apply the patch to just the index, without touching the working tree"*)
+
+ลำดับที่ใช้จริง: `git add -A` (stage ทุกอย่าง) → `git restore --staged <ไฟล์ที่เป็น tenant ล้วน>` →
+`git apply --cached -R tenant-hunks.patch` (ถอน hunk tenant ออกจาก index ของไฟล์ที่ปนกัน)
+ผลคือ **index = งานที่จะอยู่ main, working tree = งาน tenant**
+
+**3. `--staged` คือ flag ที่ตรงกับปัญหานี้ (คนมักใช้ `--keep-index` ผิด)**
+
+- `git stash push --staged` = *"Stash only the changes that are currently staged"* → เอา **เฉพาะที่ stage**
+  ไปเก็บ และ **เอาออกจาก working tree** ด้วย เหลือส่วนที่ไม่ stage ไว้ในมือ ← ตรงกับที่ต้องการ
+- `git stash push --keep-index` = *"All changes already added to the index are left intact"* → เก็บ
+  **ทุกอย่าง** ลง stash แต่คงส่วนที่ stage ไว้ในมือ (ใช้ตอนอยาก test เฉพาะสิ่งที่จะ commit) — **ไม่ใช่**
+  สิ่งที่ต้องการตรงนี้ เพราะมันไม่ได้แยกงานสองชุดออกจากกัน
+
+**4. บทเรียนที่สำคัญที่สุด: ต้องพิสูจน์ว่าไม่มีบรรทัดหาย ไม่ใช่ดูแล้วเชื่อ**
+
+การแยกแบบนี้ "หายเงียบ" ได้ง่ายมาก (hunk ผิดตัว / stash pop ไม่สมบูรณ์) จึงต้องมี 2 อย่าง:
+- **safety net ก่อนเริ่ม:** `git diff HEAD > backup.patch` + **copy ไฟล์ untracked ออกไปด้วยมือ**
+  (ไฟล์ untracked ไม่มีอะไรใน git ปกป้องมันเลย — `git stash`/`checkout` เผลอกลืนได้)
+- **การตรวจแบบ mechanical:** เทียบ *multiset ของบรรทัดที่เพิ่ม* ต่อไฟล์ ระหว่าง "ของเดิม" กับ
+  "main ใหม่ + branch" ด้วย `sort | md5sum` → ได้ 6/6 MATCH คือหลักฐานว่าไม่มีบรรทัดหายหรือซ้ำ
+  (ห้ามใช้ยอด insertions ของ `--stat` ตัดสิน เพราะบรรทัดว่างและไฟล์ใหม่ทำให้ยอดเพี้ยนได้)
+- และ `git apply --check tenant.patch` บน tree ใหม่ (*"see if the patch is applicable... detects errors"*)
+  พิสูจน์ว่า hunk ถูกถอดออกอย่างสะอาด (context ตรง เอากลับมาแปะได้)
+
+**5. ไฟล์ append-only คือแม่เหล็กดูด conflict — อย่าแยกมัน**
+
+`learning-log.md` และ `shared-docs/adr/README.md` (ตาราง index ของ ADR) เป็นไฟล์ที่ทุกคน/ทุกงาน
+**เขียนต่อท้ายจุดเดียวกัน** ถ้าแยกครึ่งไปอยู่อีก branch แล้วทั้งสองฝั่งเขียนต่อ → merge ชนทุกครั้ง
+ที่บรรทัดท้าย ทั้งที่เนื้อหาไม่ขัดกันเลย → ตัดสินใจ **เก็บไว้ฝั่ง main ทั้งก้อน** (แถว ADR 0026 ในตาราง
+index ก็ยังอยู่ main) แลกกับการที่ branch ไม่มีเอกสารของตัวเอง
+
+**ทางเลือกที่พิจารณา / Trade-off:**
+
+- **commit รวมก่อนแล้วค่อย `rebase -i` / `cherry-pick` แยกทีหลัง** — ได้ผลเหมือนกันแต่ต้อง rewrite history
+  และถ้าเผลอ push ไปก่อนจะแก้ยาก; วิธี stash ทำงานกับสิ่งที่ยังไม่ commit จึงไม่แตะ history เลย
+- **`git worktree` แยกโฟลเดอร์ต่อ branch** — เหมาะกับงานที่สลับไปมาบ่อย แต่ผู้ใช้ทำงานใน checkout เดียว
+  (บันทึกไว้แล้วใน memory) จึงไม่ใช้
+- **commit ทุกอย่างแล้ว `revert` ส่วนที่ไม่เอา** — ประวัติสกปรกและ reviewer อ่านไม่รู้เรื่อง
+- **cost/risk:** วิธีนี้แพงที่ "เวลาเตรียม patch + ตรวจ" (~10 นาที) แต่ถูกกว่าการที่ branch ปนงานคนอื่น
+  แล้ว review/merge พลาด; ความเสี่ยงที่เหลือคือ EOL normalization (CRLF) ทำให้ไฟล์ที่ผ่าน git
+  ต่างจากสำเนาเดิมแบบ byte (เนื้อหาเท่ากัน) — ตรวจด้วย `diff <(tr -d '\r' a) <(tr -d '\r' b)`
+
+**อ้างอิง:**
+- [git-stash docs — `--staged` / `--keep-index` / `-u`](https://git-scm.com/docs/git-stash)
+- [git-apply docs — `--cached`, `--check`, `-R`](https://git-scm.com/docs/git-apply)
+- [Pro Git — Interactive Staging (staging patches/hunks)](https://git-scm.com/book/en/v2/Git-Tools-Interactive-Staging)
+- [git-restore docs — `--staged` (ถอนจาก index โดยไม่แตะ working tree)](https://git-scm.com/docs/git-restore)
+
+**ลองต่อยอด:** ฝึก `git add -p` แล้วกด `e` เพื่อแก้ hunk ด้วยมือ 1 ครั้ง (ในไฟล์ที่มี 2 เรื่องปนกัน)
+จะเข้าใจว่า patch format คือ "ข้อความธรรมดา" ที่แก้ได้ — ทำได้แล้วจะไม่กลัวการแยก commit อีกเลย

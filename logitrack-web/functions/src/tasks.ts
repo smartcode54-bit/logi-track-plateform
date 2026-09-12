@@ -24,8 +24,10 @@ interface CreateOrUpdateTaskRequest {
     destination: string; // Primary destination (1st stop or single stop)
     /** หลัก/เสริม, chosen by admin at assign time. Optional — absent means billing derives it (ADR-0005/0006). */
     jobCategory?: "PRIMARY" | "SUPPLEMENTARY";
-    date: string; // ISO date string
+    date: string; // ISO date string (the PLAN date — billing axis, ADR 0027)
     time: string; // HH:MM format
+    /** Admin-set actual pickup date-time (ISO) — operational, not billing (ADR 0028). */
+    actualPickupAt?: string;
     taskType: "FIRST_MILE" | "LINE_HAUL";
     /** Vehicle for this job. truckId is trucks/{id}; licensePlate + truckType are snapshots of it. */
     truckType?: "4W" | "4WJ" | "6WH" | "10WH" | "18WH" | "VAN";
@@ -38,6 +40,11 @@ interface CreateOrUpdateTaskRequest {
     helperDriverIds?: string[];
     isMultiDelivery?: boolean;
     deliveryStops?: DeliveryStopPayload[]; // Only set if isMultiDelivery === true
+
+    // Explicit billing customer chosen at assign time — overrides the hub-derived link (ADR 0027).
+    billingCustomerId?: string;
+    billingCustomerName?: string;
+    billingCustomerCode?: string;
 
     // Customer links (for primary/1st destination)
     sourceHubLinkedCustomerId?: string;
@@ -135,6 +142,8 @@ export const createOrUpdateTask = onCall(
             destination: data.destination.trim().toUpperCase(),
             date: new Date(data.date),
             time: data.time.trim(),
+            // Admin-set actual pickup date-time (ops only, ADR 0028). Stripped below if absent.
+            actualPickupAt: data.actualPickupAt ? new Date(data.actualPickupAt) : undefined,
             taskType: data.taskType,
             // Vehicle for this job — chosen per task, not derived from drivers.currentAssignment.
             truckType: data.truckType,
@@ -150,6 +159,11 @@ export const createOrUpdateTask = onCall(
             status: data.driverId ? "Assigned" : "Pending",
             isMultiDelivery,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+
+            // Explicit billing customer (ADR 0027) — billing prefers this over the hub-derived link.
+            billingCustomerId: data.billingCustomerId,
+            billingCustomerName: data.billingCustomerName,
+            billingCustomerCode: data.billingCustomerCode,
 
             // Customer links
             sourceHubLinkedCustomerId: data.sourceHubLinkedCustomerId,

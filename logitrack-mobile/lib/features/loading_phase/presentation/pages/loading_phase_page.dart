@@ -80,6 +80,9 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
   String? _ocrReleaseTime;
   String? _ocrSecondarySealCode;
   String? _ocrSealSource;
+  /// 'scanned' (barcode/QR) vs 'ocr' (text) for the Trip ID — drives the "verify" warning so an
+  /// OCR-guessed code (B↔8 risk) is confirmed before saving. Cleared on a fresh QR rescan.
+  String? _tripIdSource;
   /// true เมื่อ driver ยืนยันพิมพ์ seal มือ (fallback เมื่อ barcode เสียหาย)
   bool _sealManualEntry = false;
 
@@ -468,6 +471,9 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       } else {
         controller.text = value;
       }
+      // A live QR/barcode scan is authoritative — clear any OCR-guess warning on the Trip ID.
+      if (controller == _tripIdController) _tripIdSource = 'scanned';
+      if (mounted) setState(() {});
     }
   }
 
@@ -656,6 +662,9 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         }
         if (manageOcrLoading) _ocrLoading = false;
         if (result.tripId != null) _tripIdController.text = result.tripId!;
+        // Remember whether the Trip ID came from a scanned barcode or from OCR text (B↔8 risk),
+        // so the field can prompt the driver to verify an OCR-guessed code before saving.
+        _tripIdSource = result.tripId != null ? result.tripIdSource : null;
         _applyPartnerCodeFromTripId(_tripIdController.text);
         // J&T (ZX) trips: seal must be scanned manually at the seal input field.
         // SPX trips: allow OCR to fill seal automatically.
@@ -1176,6 +1185,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       _ocrReleaseTime = null;
       _ocrSecondarySealCode = null;
       _ocrSealSource = null;
+      _tripIdSource = null;
       _sealManualEntry = false;
       _tripIdDuplicateError = null;
       _sealCodeDuplicateError = null;
@@ -1815,6 +1825,41 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                                 backgroundColor: Colors.red.shade600,
                               ),
                             ),
+                          ),
+                        ),
+                      if (_tripIdSource == 'ocr' &&
+                          _tripIdController.text.isNotEmpty &&
+                          _tripIdDuplicateError == null)
+                        Container(
+                          margin: const EdgeInsets.only(top: 6),
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.shade50,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: Colors.orange.shade200),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.warning_amber_rounded,
+                                  size: 18, color: Colors.orange.shade800),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  'loading_phase_trip_id_ocr_warning'.tr(),
+                                  style: TextStyle(
+                                      fontSize: 12, color: Colors.orange.shade900),
+                                ),
+                              ),
+                              TextButton.icon(
+                                onPressed: () => _scanAndSet(_tripIdController),
+                                icon: const Icon(Icons.qr_code_scanner, size: 16),
+                                label: Text('loading_phase_rescan_trip_id'.tr()),
+                                style: TextButton.styleFrom(
+                                    padding:
+                                        const EdgeInsets.symmetric(horizontal: 8)),
+                              ),
+                            ],
                           ),
                         ),
                       const SizedBox(height: 12),

@@ -131,6 +131,14 @@ export const tripRecordSchema = z.object({
     billingEffectiveFromDateStr: z.string().optional(),
     /** Customer id used for billing lookup (matches task linked customer). */
     billingCustomerId: z.string().optional(),
+    /**
+     * Queryable billing-date axis (ADR 0027). For a customer billed by plan date
+     * (`customers.billingDateBasis === "plan"`) this holds the task's plan date; otherwise the
+     * delivery instant. Written by the billing snapshot at delivery (and by manual edit / recompute).
+     * The Billing Document / Income group, and the recompute scan, a plan-basis customer by THIS
+     * field instead of `deliveredTimestamp` — so a job delivered late still bills in the planned month.
+     */
+    billingDate: z.any().optional(),
     // Multi-delivery billing snapshot (optional, only set when isMultiDelivery=true)
     billingIsMultiDelivery: z.boolean().optional(),
     billingMultiDeliveryBreakdown: z.array(z.object({

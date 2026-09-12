@@ -43,6 +43,7 @@ import { useLineHaulTask } from "../hooks/useLineHaulTask";
 import DeliveryStopsEditor from "./DeliveryStopsEditor";
 import { HelperDriverField } from "./HelperDriverField";
 import { TruckPlateField } from "./TruckPlateField";
+import { DateTimePicker } from "./DateTimePicker";
 import { taskTruckTypeFromTruckDoc } from "@/lib/truckType";
 import { driverDisplayName, matchDriverOptionId } from "@/lib/driverName";
 import { Task as FirstMileTask, TASK_TRUCK_TYPE_ENUM } from "@/validate/taskSchema";
@@ -54,9 +55,14 @@ export interface LineHaulTaskDialogProps {
     open?: boolean;
     onOpenChange?: (open: boolean) => void;
     onSuccess?: () => void;
+    /** When set, an in-form First Mile / Line Haul switcher is shown (create mode) so one "Add job" button covers both. */
+    taskType?: "FIRST_MILE" | "LINE_HAUL";
+    onTaskTypeChange?: (taskType: "FIRST_MILE" | "LINE_HAUL") => void;
+    /** Render only the header+form body (no own <Dialog> shell), so a parent can host both types in one modal. */
+    embedded?: boolean;
 }
 
-export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenChange, onSuccess }: LineHaulTaskDialogProps) {
+export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenChange, onSuccess, taskType = "LINE_HAUL", onTaskTypeChange, embedded = false }: LineHaulTaskDialogProps) {
     const [internalOpen, setInternalOpen] = useState(false);
     const isOpen = open !== undefined ? open : internalOpen;
     const setIsOpen = onOpenChange || setInternalOpen;
@@ -86,91 +92,79 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
         customerOptions
     } = useLineHaulTask({ mode, task, isOpen, setIsOpen, onSuccess });
 
-    return (
-        <Dialog open={isOpen} onOpenChange={setIsOpen}>
-            {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+    const body = (
+        <>
                 <DialogHeader>
-                    <DialogTitle>{mode === "create" ? "Create Line Haul Task" : "Edit Line Haul Task"}</DialogTitle>
+                    <DialogTitle>{mode === "create" ? t("lineHaul.task.createTitle") : t("lineHaul.task.editTitle")}</DialogTitle>
                     <DialogDescription>
-                        {mode === "create" ? "Add a new line haul task assignment." : "Update an existing line haul task assignment."}
+                        {mode === "create" ? t("lineHaul.task.createDesc") : t("lineHaul.task.editDesc")}
                     </DialogDescription>
                 </DialogHeader>
 
                 <Form {...form}>
                     <form onSubmit={form.handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {/* Date Field */}
-                            <FormField
-                                control={form.control}
-                                name="date"
-                                render={({ field }) => (
-                                    <FormItem className="flex flex-col">
-                                        <FormLabel>Date</FormLabel>
-                                        <Popover modal={true}>
-                                            <PopoverTrigger asChild>
-                                                <FormControl>
-                                                    <Button
-                                                        variant={"outline"}
-                                                        className={cn(
-                                                            "w-full pl-3 text-left font-normal",
-                                                            !field.value && "text-muted-foreground"
-                                                        )}
-                                                    >
-                                                        {field.value ? (
-                                                            format(field.value, "dd/MM/yyyy")
-                                                        ) : (
-                                                            <span>Pick a date</span>
-                                                        )}
-                                                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                                    </Button>
-                                                </FormControl>
-                                            </PopoverTrigger>
-                                            <PopoverContent className="w-auto p-0 z-[1005]" align="start">
-                                                <Calendar
-                                                    mode="single"
-                                                    selected={field.value}
-                                                    onSelect={field.onChange}
-                                                    initialFocus
-                                                />
-                                            </PopoverContent>
-                                        </Popover>
-                                        <FormMessage />
-                                    </FormItem>
-                                )}
-                            />
+                        {/* Job type switcher — lets one "Add job" button pick FM vs LH inside the form (create only). */}
+                        {mode === "create" && onTaskTypeChange && (
+                            <FormItem className="flex flex-col">
+                                <FormLabel>{t("jobAssign.taskTypeLabel", "ประเภทงาน")}</FormLabel>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <Button
+                                        type="button"
+                                        variant={taskType === "FIRST_MILE" ? "default" : "outline"}
+                                        onClick={() => taskType !== "FIRST_MILE" && onTaskTypeChange("FIRST_MILE")}
+                                    >
+                                        {t("jobAssign.addFirstMile", "First Mile")}
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        variant={taskType === "LINE_HAUL" ? "default" : "outline"}
+                                        onClick={() => taskType !== "LINE_HAUL" && onTaskTypeChange("LINE_HAUL")}
+                                    >
+                                        {t("jobAssign.addLineHaul", "Line Haul")}
+                                    </Button>
+                                </div>
+                            </FormItem>
+                        )}
 
-                            {/* Time Field */}
-                            <FormField
-                                control={form.control}
-                                name="time"
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel>Time</FormLabel>
-                                        <Select onValueChange={field.onChange} value={field.value ?? "15:00"}>
+                        {/* Plan date (billing axis, ADR 0027) — DATE ONLY. The time lives on วันเวลารับงานจริง. */}
+                        <FormField
+                            control={form.control}
+                            name="date"
+                            render={({ field }) => (
+                                <FormItem className="flex flex-col">
+                                    <FormLabel>{t("firstMile.task.date")}</FormLabel>
+                                    <Popover modal={true}>
+                                        <PopoverTrigger asChild>
                                             <FormControl>
-                                                <SelectTrigger>
-                                                    <SelectValue placeholder="Select Time" />
-                                                </SelectTrigger>
+                                                <Button
+                                                    variant={"outline"}
+                                                    className={cn(
+                                                        "w-full pl-3 text-left font-normal",
+                                                        !field.value && "text-muted-foreground"
+                                                    )}
+                                                >
+                                                    {field.value ? (
+                                                        format(field.value, "dd/MM/yyyy")
+                                                    ) : (
+                                                        <span>{t("firstMile.task.pickDate", "เลือกวันที่")}</span>
+                                                    )}
+                                                    <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                                </Button>
                                             </FormControl>
-                                            <SelectContent className="max-h-[200px] z-[1005]" position="popper">
-                                                {Array.from({ length: 48 }).map((_, i) => {
-                                                    const hour = Math.floor(i / 2).toString().padStart(2, '0');
-                                                    const minute = (i % 2 === 0 ? '00' : '30');
-                                                    const time = `${hour}:${minute}`;
-                                                    return (
-                                                        <SelectItem key={time} value={time}>
-                                                            {time}
-                                                        </SelectItem>
-                                                    );
-                                                })}
-                                            </SelectContent>
-                                        </Select>
-                                        <FormMessage />
-                                    </FormItem>
-                                )}
-                            />
-                        </div>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-auto p-0 z-[1005]" align="start">
+                                            <Calendar
+                                                mode="single"
+                                                selected={field.value}
+                                                onSelect={field.onChange}
+                                                initialFocus
+                                            />
+                                        </PopoverContent>
+                                    </Popover>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {/* Source Field (SOC) */}
@@ -192,7 +186,7 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                     });
                                     return (
                                         <FormItem className="flex flex-col">
-                                            <FormLabel>Source (SOC)</FormLabel>
+                                            <FormLabel>{t("lineHaul.task.sourceSoc")}</FormLabel>
                                             <Popover open={socDropdownOpen} onOpenChange={(o) => { setSocDropdownOpen(o); if (o) setSocSearch(""); }} modal={true}>
                                                 <PopoverTrigger asChild>
                                                     <FormControl>
@@ -203,7 +197,7 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                                             className={cn("w-full justify-between h-auto min-h-10 py-2", !resolvedValue && "text-muted-foreground")}
                                                         >
                                                             <span className="block truncate text-left flex-1 min-w-0">
-                                                                {selectedSoc ? selectedSoc.name || selectedSoc.source_id : "Select Source (SOC)"}
+                                                                {selectedSoc ? selectedSoc.name || selectedSoc.source_id : t("lineHaul.task.selectSourceSoc")}
                                                             </span>
                                                             <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50 ml-2" />
                                                         </Button>
@@ -214,7 +208,7 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                                         <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
                                                         <input
                                                             className="flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
-                                                            placeholder="Search SOC..."
+                                                            placeholder={t("lineHaul.task.searchSoc")}
                                                             value={socSearch}
                                                             onChange={(e) => setSocSearch(e.target.value)}
                                                             autoFocus
@@ -222,7 +216,7 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                                     </div>
                                                     <div className="max-h-[220px] overflow-y-auto p-1">
                                                         {filteredSocs.length === 0 ? (
-                                                            <div className="py-4 text-center text-sm text-muted-foreground">No SOCs found.</div>
+                                                            <div className="py-4 text-center text-sm text-muted-foreground">{t("lineHaul.task.noSoc")}</div>
                                                         ) : (
                                                             filteredSocs.map((soc) => (
                                                                 <div
@@ -266,7 +260,7 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
 
                                     return (
                                         <FormItem className="flex flex-col">
-                                            <FormLabel>Destination (Hub)</FormLabel>
+                                            <FormLabel>{t("lineHaul.task.destinationHub")}</FormLabel>
                                             <Popover open={hubDropdownOpen} onOpenChange={(o) => { setHubDropdownOpen(o); if (o) setHubSearch(""); }} modal={true}>
                                                 <PopoverTrigger asChild>
                                                     <FormControl>
@@ -277,7 +271,7 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                                             className={cn("w-full justify-between h-auto min-h-10 py-2", !field.value && "text-muted-foreground")}
                                                         >
                                                             <span className="block truncate text-left flex-1 min-w-0">
-                                                                {selectedLabel || "Select Destination Hub"}
+                                                                {selectedLabel || t("lineHaul.task.selectDestinationHub")}
                                                             </span>
                                                             <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50 ml-2" />
                                                         </Button>
@@ -288,7 +282,7 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                                         <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
                                                         <input
                                                             className="flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
-                                                            placeholder="Search Hub..."
+                                                            placeholder={t("lineHaul.task.searchHub")}
                                                             value={hubSearch}
                                                             onChange={(e) => setHubSearch(e.target.value)}
                                                             autoFocus
@@ -296,7 +290,7 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                                     </div>
                                                     <div className="max-h-[220px] overflow-y-auto p-1">
                                                         {filteredHubs.length === 0 ? (
-                                                            <div className="py-4 text-center text-sm text-muted-foreground">No hubs found.</div>
+                                                            <div className="py-4 text-center text-sm text-muted-foreground">{t("lineHaul.task.noHub")}</div>
                                                         ) : (
                                                             filteredHubs.slice(0, 100).map((hub, idx) => {
                                                                 const val = String(hub['Hub Code'] ?? '');
@@ -329,6 +323,48 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                 }}
                             />
                         </div>
+
+                        {/* Billing customer (required, overrides the hub-derived link — ADR 0027) */}
+                        <FormField
+                            control={form.control}
+                            name="billingCustomerId"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>{t("firstMile.task.customer", "Customer")} *</FormLabel>
+                                    <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                                        <FormControl>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder={t("firstMile.task.selectCustomer", "Select customer")} />
+                                            </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent className="z-[1005]" position="popper">
+                                            {customerOptions.map((c) => (
+                                                <SelectItem key={c.id} value={c.id}>
+                                                    {c.code ? `${c.code} — ${c.name}` : c.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+
+                        {/* Actual pickup date-time — set by the admin at assign (ops only, not billing; ADR 0028) */}
+                        <FormField
+                            control={form.control}
+                            name="actualPickupAt"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>{t("firstMile.task.actualPickupAt", "วันเวลารับงานจริง")}</FormLabel>
+                                    <DateTimePicker
+                                        value={field.value as Date | undefined}
+                                        onChange={field.onChange}
+                                    />
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
 
                         {/* Job Category: หลัก/เสริม */}
                         <FormField
@@ -369,8 +405,8 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                         />
                                     </FormControl>
                                     <div className="flex-1">
-                                        <FormLabel className="cursor-pointer font-medium">{t("firstMile.multiDelivery.isMultiDelivery", "Multi-Delivery Task")}</FormLabel>
-                                        <p className="text-sm text-muted-foreground mt-1">{t("firstMile.multiDelivery.description", "One pickup point, multiple delivery stops")}</p>
+                                        <FormLabel className="cursor-pointer font-medium">{t("firstMile.task.isMultiDelivery")}</FormLabel>
+                                        <p className="text-sm text-muted-foreground mt-1">{t("firstMile.task.isMultiDeliveryHint")}</p>
                                     </div>
                                 </FormItem>
                             )}
@@ -390,7 +426,7 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                 name="truckType"
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel>Truck Type</FormLabel>
+                                        <FormLabel>{t("firstMile.task.truckType")}</FormLabel>
                                         <Select
                                             onValueChange={(val) => {
                                                 field.onChange(val);
@@ -405,7 +441,7 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                         >
                                             <FormControl>
                                                 <SelectTrigger>
-                                                    <SelectValue placeholder="Select Truck Type" />
+                                                    <SelectValue placeholder={t("firstMile.task.selectTruckType")} />
                                                 </SelectTrigger>
                                             </FormControl>
                                             <SelectContent className="z-[1005]" position="popper">
@@ -446,9 +482,9 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                 name="taskId"
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel>Task ID</FormLabel>
+                                        <FormLabel>{t("firstMile.task.taskId")}</FormLabel>
                                         <FormControl>
-                                            <Input placeholder="Auto-generated" {...field} readOnly className="bg-muted" />
+                                            <Input placeholder={t("firstMile.task.autoGenerated")} {...field} readOnly className="bg-muted" />
                                         </FormControl>
                                         <FormMessage />
                                     </FormItem>
@@ -457,14 +493,14 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                         </div>
 
                         <div className="border-t pt-2 mt-2">
-                            <h3 className="text-sm font-medium mb-3">Driver Info</h3>
+                            <h3 className="text-sm font-medium mb-3">{t("firstMile.task.driverInfo")}</h3>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <FormField
                                     control={form.control}
                                     name="driverName"
                                     render={({ field }) => (
                                         <FormItem>
-                                            <FormLabel>Driver Name</FormLabel>
+                                            <FormLabel>{t("firstMile.task.driverName")}</FormLabel>
                                             <Select
                                                 onValueChange={(val) => {
                                                     if (val === "__none__" || !val) {
@@ -498,13 +534,13 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                             >
                                                 <FormControl>
                                                     <SelectTrigger>
-                                                        <SelectValue placeholder="Select Driver">
-                                                            {field.value || "Select Driver"}
+                                                        <SelectValue placeholder={t("firstMile.task.selectDriver")}>
+                                                            {field.value || t("firstMile.task.selectDriver")}
                                                         </SelectValue>
                                                     </SelectTrigger>
                                                 </FormControl>
                                                 <SelectContent className="z-[1005]" position="popper">
-                                                    <SelectItem value="__none__">Select Driver</SelectItem>
+                                                    <SelectItem value="__none__">{t("firstMile.task.selectDriver")}</SelectItem>
                                                     {drivers.map((driver) => {
                                                         const isActive = driver.id ? activeTaskDriverIds.has(driver.id) : false;
                                                         return (
@@ -531,7 +567,7 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                     name="driverPhone"
                                     render={({ field }) => (
                                         <FormItem>
-                                            <FormLabel>Phone</FormLabel>
+                                            <FormLabel>{t("firstMile.task.phone")}</FormLabel>
                                             <FormControl>
                                                 <Input placeholder="09xxxxxxx" {...field} readOnly className="bg-muted" />
                                             </FormControl>
@@ -594,14 +630,24 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                         )}
 
                         <DialogFooter>
-                            <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>Cancel</Button>
+                            <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>{t("firstMile.task.cancel")}</Button>
                             <Button type="submit" disabled={loading}>
                                 {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                {mode === "create" ? "Create Assignment" : "Save Changes"}
+                                {mode === "create" ? t("firstMile.task.create") : t("firstMile.task.save")}
                             </Button>
                         </DialogFooter>
                     </form>
                 </Form>
+        </>
+    );
+
+    if (embedded) return body;
+
+    return (
+        <Dialog open={isOpen} onOpenChange={setIsOpen}>
+            {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                {body}
             </DialogContent>
         </Dialog>
     );

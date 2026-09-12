@@ -14,7 +14,6 @@ import { taskTruckTypeFromTruckDoc } from "@/lib/truckType";
 import { jobCategoryFromCell } from "@/lib/jobCategory";
 import { getCustomers, CustomerData } from "@/features/customers/api/customers";
 
-/** Plates are typed inconsistently (spaces, dashes, case) — compare on a normalized form. */
 const normalizePlate = (plate: unknown) => String(plate ?? "").toUpperCase().replace(/[\s-]/g, "");
 
 import { Button } from "@/components/ui/button";
@@ -28,14 +27,7 @@ import {
     DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
@@ -44,12 +36,15 @@ interface ImportDialogProps {
     onSuccess: () => void;
 }
 
+type JobType = "FIRST_MILE" | "LINE_HAUL";
+
 interface ImportRow {
     id: number;
-    date: Date;
+    taskType: JobType;
+    date: Date;                 // plan date (ADR 0027)
+    actualPickupAt?: Date;      // วันเวลารับงานจริง (ADR 0028)
     sourceHub?: string;
     destination?: string;
-    time?: string;
     truckType?: string;
     truckId?: string;
     jobCategory?: "PRIMARY" | "SUPPLEMENTARY";
@@ -70,7 +65,25 @@ const isExampleNote = (note: unknown) => {
     return s.includes("ตัวอย่าง") || s.includes("example") || s.includes("ลบ") || s.includes("delete");
 };
 
-export function LineHaulImportDialog({ onSuccess }: ImportDialogProps) {
+/** FM/LH cell → task type. "LH"/"line" → LINE_HAUL; else FIRST_MILE. */
+const parseTaskType = (cell: unknown): JobType => {
+    const s = String(cell ?? "").trim().toUpperCase();
+    return s.includes("LH") || s.includes("LINE") ? "LINE_HAUL" : "FIRST_MILE";
+};
+
+/** Parse a date or date-time cell (Excel serial or string) to a Date. */
+const parseCellDate = (raw: unknown, withTime: boolean): Date | undefined => {
+    if (raw == null || raw === "") return undefined;
+    if (typeof raw === "number") {
+        const dc = XLSX.SSF.parse_date_code(raw);
+        if (!dc) return undefined;
+        return new Date(dc.y, dc.m - 1, dc.d, withTime ? (dc.H ?? 0) : 0, withTime ? (dc.M ?? 0) : 0, 0);
+    }
+    const d = new Date(raw as string);
+    return isNaN(d.getTime()) ? undefined : d;
+};
+
+export function JobImportDialog({ onSuccess }: ImportDialogProps) {
     const { t } = useLanguage();
     const [open, setOpen] = useState(false);
     const [file, setFile] = useState<File | null>(null);
@@ -83,18 +96,17 @@ export function LineHaulImportDialog({ onSuccess }: ImportDialogProps) {
     const hubsRef = useRef<Record<string, any>[]>([]);
     const customersRef = useRef<CustomerData[]>([]);
     const customersByIdRef = useRef<Map<string, CustomerData>>(new Map());
-    // State copy for the render (dropdown options); the refs are read only in handlers/parse.
     const [customers, setCustomers] = useState<CustomerData[]>([]);
 
     useEffect(() => {
         if (!open) return;
-        taskService.fetchTrucks().then((fleet) => { trucksRef.current = fleet; }).catch((err) => console.error("Failed to load trucks for import", err));
-        taskService.fetchHubs().then((hubs) => { hubsRef.current = hubs; }).catch((err) => console.error("Failed to load hubs for import", err));
+        taskService.fetchTrucks().then((f) => { trucksRef.current = f; }).catch((e) => console.error("trucks", e));
+        taskService.fetchHubs().then((h) => { hubsRef.current = h; }).catch((e) => console.error("hubs", e));
         getCustomers().then((cs) => {
             customersRef.current = cs;
             customersByIdRef.current = new Map(cs.map((c) => [c.id, c]));
             setCustomers(cs);
-        }).catch((err) => console.error("Failed to load customers for import", err));
+        }).catch((e) => console.error("customers", e));
     }, [open]);
 
     const resolveCustomer = (cell: unknown): CustomerData | undefined => {
@@ -122,78 +134,65 @@ export function LineHaulImportDialog({ onSuccess }: ImportDialogProps) {
     };
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const selectedFile = e.target.files?.[0];
-        if (selectedFile) {
-            setFile(selectedFile);
-            parseExcel(selectedFile);
-        }
+        const f = e.target.files?.[0];
+        if (f) { setFile(f); parseExcel(f); }
     };
 
     const parseExcel = async (file: File) => {
         try {
             const buf = await file.arrayBuffer();
-            const workbook = XLSX.read(buf);
-            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const wb = XLSX.read(buf);
+            const sheet = wb.Sheets[wb.SheetNames[0]];
             const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
             const headers = (jsonData[0] as string[]).map((h) => h?.toString().toLowerCase().trim());
             const rows = jsonData.slice(1);
 
-            const parsedRows = rows.map((row: any, index): ImportRow | null => {
+            const parsed = rows.map((row: any, index): ImportRow | null => {
                 if (!row || row.length === 0) return null;
                 const getValue = (terms: string[]) => {
                     const idx = headers.findIndex((h) => terms.some((ph) => h?.includes(ph)));
                     return idx !== -1 ? row[idx] : undefined;
                 };
-
                 if (isExampleNote(getValue(["note", "หมายเหตุ"]))) return null;
 
-                const rawDate = getValue(["date", "วัน"]);
+                const taskType = parseTaskType(getValue(["fm/lh", "fmlh"]));
+                const rawDate = getValue(["date", "วันแผน", "วัน"]);
+                const actualRaw = getValue(["actual", "รับงานจริง", "รับจริง"]);
                 const sourceHub = getValue(["source", "hub", "ต้นทาง", "pickup", "จุดรับงาน", "pickup location"]);
                 const destination = getValue(["destination", "soc", "ปลายทาง"]);
-                const time = getValue(["time", "เวลา"]);
                 const customerCell = getValue(["customer", "ลูกค้า", "บริษัท"]);
                 const sheetTruckType = getValue(["truck type", "ประเภทรถ", "platetype"]);
                 const shipmentId = getValue(["shipment", "id", "เลขงาน"]);
                 const licensePlate = getValue(["license", "ทะเบียน"]);
                 const driverName = getValue(["driver", "name", "คนขับ"]);
                 const driverPhone = getValue(["phone", "tel", "เบอร์"]);
-                const jobCategory = jobCategoryFromCell(getValue(["job category", "ประเภทงาน", "jobcategory"]));
+                const jobCategory = jobCategoryFromCell(getValue(["job category", "หลัก/เสริม", "jobcategory"]));
 
                 const plateKey = normalizePlate(licensePlate);
-                const matchedTruck = plateKey
-                    ? trucksRef.current.find((truck) => normalizePlate(truck.licensePlate) === plateKey)
-                    : undefined;
-                const truckType = matchedTruck
-                    ? taskTruckTypeFromTruckDoc(matchedTruck.type)
-                    : (sheetTruckType ? String(sheetTruckType).toUpperCase() : undefined);
+                const matchedTruck = plateKey ? trucksRef.current.find((tr) => normalizePlate(tr.licensePlate) === plateKey) : undefined;
+                const truckType = matchedTruck ? taskTruckTypeFromTruckDoc(matchedTruck.type) : (sheetTruckType ? String(sheetTruckType).toUpperCase() : undefined);
 
-                let formattedDate = new Date();
-                if (rawDate) {
-                    if (typeof rawDate === "number") {
-                        const dc = XLSX.SSF.parse_date_code(rawDate);
-                        formattedDate = new Date(dc.y, dc.m - 1, dc.d);
-                    } else {
-                        const d = new Date(rawDate);
-                        if (!isNaN(d.getTime())) formattedDate = d;
-                    }
-                }
+                const planDate = parseCellDate(rawDate, false) ?? new Date();
 
-                let matchedSOC = destination;
-                if (destination) {
+                // SOC normalization applies to a FIRST_MILE destination (which is a SOC). A LINE_HAUL
+                // destination is a hub and is left as typed.
+                let dest = destination;
+                if (destination && taskType === "FIRST_MILE") {
                     const dStr = String(destination).toUpperCase();
-                    if (dStr.includes("E") || dStr.includes("BUEROI")) matchedSOC = "SOC-E";
-                    else if (dStr.includes("N") || dStr.includes("WANG")) matchedSOC = "SOC-N";
-                    else if (dStr.includes("W") || dStr.includes("SAMUT")) matchedSOC = "SOC-W";
+                    if (dStr.includes("E") || dStr.includes("BUEROI")) dest = "SOC-E";
+                    else if (dStr.includes("N") || dStr.includes("WANG")) dest = "SOC-N";
+                    else if (dStr.includes("W") || dStr.includes("SAMUT")) dest = "SOC-W";
                 }
 
                 const customer = resolveCustomer(customerCell);
 
                 return recompute({
                     id: index,
-                    date: formattedDate,
+                    taskType,
+                    date: planDate,
+                    actualPickupAt: parseCellDate(actualRaw, true),
                     sourceHub,
-                    destination: matchedSOC,
-                    time,
+                    destination: dest,
                     truckType,
                     truckId: matchedTruck?.id,
                     jobCategory,
@@ -209,7 +208,7 @@ export function LineHaulImportDialog({ onSuccess }: ImportDialogProps) {
                 });
             }).filter((r): r is ImportRow => r !== null);
 
-            setData(parsedRows);
+            setData(parsed);
             setError(null);
         } catch (err) {
             console.error(err);
@@ -217,11 +216,11 @@ export function LineHaulImportDialog({ onSuccess }: ImportDialogProps) {
         }
     };
 
+    const setRowType = (rowId: number, taskType: JobType) =>
+        setData((prev) => prev.map((r) => r.id === rowId ? recompute({ ...r, taskType }) : r));
     const setRowCustomer = (rowId: number, customerId: string) => {
         const c = customersByIdRef.current.get(customerId);
-        setData((prev) => prev.map((r) => r.id === rowId
-            ? recompute({ ...r, billingCustomerId: c?.id, billingCustomerName: c?.name, billingCustomerCode: c?.code })
-            : r));
+        setData((prev) => prev.map((r) => r.id === rowId ? recompute({ ...r, billingCustomerId: c?.id, billingCustomerName: c?.name, billingCustomerCode: c?.code }) : r));
     };
     const setRowDate = (rowId: number, value: string) => {
         const d = new Date(`${value}T00:00:00`);
@@ -231,12 +230,13 @@ export function LineHaulImportDialog({ onSuccess }: ImportDialogProps) {
 
     const handleDownloadTemplate = () => {
         const headers = [
-            "Date (วัน)",
-            "Source SOC (ต้นทาง)",
-            "Destination Hub (ปลายทาง)",
-            "Time (เวลา)",
+            "FM/LH (ชนิดงาน)",
+            "Date (วันแผนงาน)",
+            "Actual pickup (วันเวลารับงานจริง)",
+            "Pickup Location (จุดรับงาน)",
+            "Destination (ปลายทาง)",
             "Customer (ลูกค้า: รหัส/ชื่อ)",
-            "Job Category (ประเภทงาน: หลัก/เสริม)",
+            "Job Category (หลัก/เสริม)",
             "Truck Type (ประเภทรถ)",
             "Shipment ID (เลขงาน)",
             "License Plate (ทะเบียน)",
@@ -245,10 +245,11 @@ export function LineHaulImportDialog({ onSuccess }: ImportDialogProps) {
             "Note (หมายเหตุ)",
         ];
         const example = [
+            "FM",
             format(new Date(), "dd/MM/yyyy"),
+            `${format(new Date(), "dd/MM/yyyy")} 15:30`,
+            "SPX ตัวอย่าง",
             "SOCE",
-            "SPK ตัวอย่าง",
-            "15:00",
             "CJSF",
             "หลัก",
             "6WH",
@@ -268,7 +269,7 @@ export function LineHaulImportDialog({ onSuccess }: ImportDialogProps) {
         if (ws[noteAddr]) ws[noteAddr].s = { fill: { patternType: "solid", fgColor: { rgb: "FFE08A" } }, font: { bold: true, color: { rgb: "B00020" } } } as any;
         const wb = XLSXStyle.utils.book_new();
         XLSXStyle.utils.book_append_sheet(wb, ws, "Template");
-        XLSXStyle.writeFile(wb, "LineHaulTask_Template.xlsx");
+        XLSXStyle.writeFile(wb, "JobAssign_Template.xlsx");
     };
 
     const buildHubLinks = (row: ImportRow) => {
@@ -293,8 +294,8 @@ export function LineHaulImportDialog({ onSuccess }: ImportDialogProps) {
         if (validRows.length === 0) return;
         setUploading(true);
         setProgress(5);
-
         try {
+            // Human taskId per row (FM/LH-ddMMyyyy-NNN) where the sheet gave none — count per day once.
             const dayCounters = new Map<string, number>();
             const taskIdByRow = new Map<number, string>();
             for (const row of validRows) {
@@ -307,7 +308,8 @@ export function LineHaulImportDialog({ onSuccess }: ImportDialogProps) {
                 }
                 const n = (dayCounters.get(dateStr) ?? 0) + 1;
                 dayCounters.set(dateStr, n);
-                taskIdByRow.set(row.id, `LH-${dateStr}-${String(n).padStart(3, "0")}`);
+                const prefix = row.taskType === "LINE_HAUL" ? "LH" : "FM";
+                taskIdByRow.set(row.id, `${prefix}-${dateStr}-${String(n).padStart(3, "0")}`);
             }
             setProgress(15);
 
@@ -322,9 +324,11 @@ export function LineHaulImportDialog({ onSuccess }: ImportDialogProps) {
                     batch.set(docRef, {
                         date: row.date,
                         dateStr,
+                        // Plan has no time; carry it from the actual pickup (ADR 0028), default 00:00.
+                        time: row.actualPickupAt ? format(row.actualPickupAt, "HH:mm") : "00:00",
+                        ...(row.actualPickupAt ? { actualPickupAt: row.actualPickupAt } : {}),
                         sourceHub: row.sourceHub,
                         destination: row.destination,
-                        time: row.time || "",
                         jobCategory: row.jobCategory,
                         truckType: row.truckType || "",
                         ...(row.truckId ? { truckId: row.truckId } : {}),
@@ -337,7 +341,7 @@ export function LineHaulImportDialog({ onSuccess }: ImportDialogProps) {
                         billingCustomerCode: row.billingCustomerCode ?? "",
                         ...buildHubLinks(row),
                         status: "Pending",
-                        taskType: "LINE_HAUL",
+                        taskType: row.taskType,
                         isMultiDelivery: false,
                         createdAt: new Date(),
                         updatedAt: new Date(),
@@ -366,13 +370,13 @@ export function LineHaulImportDialog({ onSuccess }: ImportDialogProps) {
             <DialogTrigger asChild>
                 <Button variant="outline" className="gap-2">
                     <FileSpreadsheet className="h-4 w-4" />
-                    {t("firstMile.import.button")}
+                    {t("jobAssign.import.button", "นำเข้าจากไฟล์")}
                 </Button>
             </DialogTrigger>
             <DialogContent className="max-w-5xl max-h-[85vh] flex flex-col">
                 <DialogHeader>
-                    <DialogTitle>{t("firstMile.import.title")}</DialogTitle>
-                    <DialogDescription>{t("firstMile.import.description")}</DialogDescription>
+                    <DialogTitle>{t("jobAssign.import.title", "นำเข้างาน (FM + LH ไฟล์เดียว)")}</DialogTitle>
+                    <DialogDescription>{t("jobAssign.import.description", "ไฟล์เดียว ใส่คอลัมน์ FM/LH ต่อแถวเพื่อแยกประเภทงาน")}</DialogDescription>
                 </DialogHeader>
 
                 <div className="flex-1 overflow-hidden flex flex-col gap-4">
@@ -399,17 +403,13 @@ export function LineHaulImportDialog({ onSuccess }: ImportDialogProps) {
                         <div className="flex flex-col gap-4 h-full">
                             <div className="flex items-center justify-between bg-muted/30 p-3 rounded-md border">
                                 <div className="flex items-center gap-3">
-                                    <div className="bg-green-100 p-2 rounded">
-                                        <FileSpreadsheet className="h-5 w-5 text-green-600" />
-                                    </div>
+                                    <div className="bg-green-100 p-2 rounded"><FileSpreadsheet className="h-5 w-5 text-green-600" /></div>
                                     <div>
                                         <p className="font-medium text-sm">{file.name}</p>
                                         <p className="text-xs text-muted-foreground">{data.length} {t("firstMile.import.recordsFound")}</p>
                                     </div>
                                 </div>
-                                <Button variant="ghost" size="icon" onClick={() => { setFile(null); setData([]); }}>
-                                    <X className="h-4 w-4" />
-                                </Button>
+                                <Button variant="ghost" size="icon" onClick={() => { setFile(null); setData([]); }}><X className="h-4 w-4" /></Button>
                             </div>
 
                             {error && (
@@ -426,14 +426,14 @@ export function LineHaulImportDialog({ onSuccess }: ImportDialogProps) {
                                         <TableHeader>
                                             <TableRow className="bg-muted/50">
                                                 <TableHead>{t("firstMile.import.table.row")}</TableHead>
-                                                <TableHead>{t("firstMile.import.table.date")}</TableHead>
+                                                <TableHead>{t("jobAssign.table.jobType", "ชนิดงาน")}</TableHead>
+                                                <TableHead>{t("firstMile.task.date", "วันแผนงาน")}</TableHead>
+                                                <TableHead>{t("jobAssign.table.actualPickup", "วันรับงานจริง")}</TableHead>
                                                 <TableHead>{t("firstMile.task.customer", "ลูกค้า")}</TableHead>
                                                 <TableHead>{t("firstMile.import.table.source")}</TableHead>
                                                 <TableHead>{t("firstMile.import.table.dest")}</TableHead>
-                                                <TableHead>{t("firstMile.import.table.time")}</TableHead>
                                                 <TableHead>{t("firstMile.import.table.jobCategory")}</TableHead>
                                                 <TableHead>{t("firstMile.import.table.truckType")}</TableHead>
-                                                <TableHead>{t("firstMile.import.table.driver")}</TableHead>
                                                 <TableHead>{t("firstMile.import.table.status")}</TableHead>
                                             </TableRow>
                                         </TableHeader>
@@ -442,12 +442,20 @@ export function LineHaulImportDialog({ onSuccess }: ImportDialogProps) {
                                                 <TableRow key={row.id} className={!row.isValid ? "bg-red-50" : ""}>
                                                     <TableCell className="font-mono text-xs">{row.id + 1}</TableCell>
                                                     <TableCell>
-                                                        <Input
-                                                            type="date"
-                                                            className="h-8 text-xs w-36"
-                                                            value={format(row.date, "yyyy-MM-dd")}
-                                                            onChange={(e) => setRowDate(row.id, e.target.value)}
-                                                        />
+                                                        <select
+                                                            className="h-8 text-xs rounded border bg-background px-2"
+                                                            value={row.taskType}
+                                                            onChange={(e) => setRowType(row.id, e.target.value as JobType)}
+                                                        >
+                                                            <option value="FIRST_MILE">FM</option>
+                                                            <option value="LINE_HAUL">LH</option>
+                                                        </select>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Input type="date" className="h-8 text-xs w-36" value={format(row.date, "yyyy-MM-dd")} onChange={(e) => setRowDate(row.id, e.target.value)} />
+                                                    </TableCell>
+                                                    <TableCell className="text-xs whitespace-nowrap">
+                                                        {row.actualPickupAt ? format(row.actualPickupAt, "dd/MM/yy HH:mm") : <span className="text-muted-foreground">-</span>}
                                                     </TableCell>
                                                     <TableCell>
                                                         <select
@@ -467,20 +475,14 @@ export function LineHaulImportDialog({ onSuccess }: ImportDialogProps) {
                                                             {row.destination || t("firstMile.import.unknown")}
                                                         </span>
                                                     </TableCell>
-                                                    <TableCell>{row.time}</TableCell>
                                                     <TableCell>
                                                         {row.jobCategory
                                                             ? t(`firstMile.task.jobCategory.${row.jobCategory === "SUPPLEMENTARY" ? "supplementary" : "primary"}`)
                                                             : <span className="text-red-500">{t("firstMile.import.unknown")}</span>}
                                                     </TableCell>
                                                     <TableCell>{row.truckType}</TableCell>
-                                                    <TableCell>{row.driverName}</TableCell>
                                                     <TableCell>
-                                                        {row.isValid ? (
-                                                            <Check className="h-4 w-4 text-green-500" />
-                                                        ) : (
-                                                            <span className="text-xs text-red-500 font-medium">{row.invalidReason || t("firstMile.import.invalid")}</span>
-                                                        )}
+                                                        {row.isValid ? <Check className="h-4 w-4 text-green-500" /> : <span className="text-xs text-red-500 font-medium">{row.invalidReason || t("firstMile.import.invalid")}</span>}
                                                     </TableCell>
                                                 </TableRow>
                                             ))}

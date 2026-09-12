@@ -78,6 +78,7 @@ export default function EditCustomerForm() {
             billingEmail: "",
             paymentTermsDays: undefined,
             invoiceNote: "",
+            billingDateBasis: "delivered",
             lineGroupId: "",
         },
     });
@@ -111,6 +112,7 @@ export default function EditCustomerForm() {
                         billingEmail: data.billingEmail ?? "",
                         paymentTermsDays: data.paymentTermsDays ?? undefined,
                         invoiceNote: data.invoiceNote ?? "",
+                        billingDateBasis: data.billingDateBasis ?? "delivered",
                         lineGroupId: data.lineGroupId ?? "",
                     });
                     if (data.logoUrl) setLogoPreview(data.logoUrl);
@@ -442,6 +444,28 @@ export default function EditCustomerForm() {
                                                         onChange={(e) => field.onChange(e.target.value === "" ? undefined : Number(e.target.value))}
                                                     />
                                                 </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <FormField
+                                        control={form.control}
+                                        name="billingDateBasis"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>{t("customers.form.billingDateBasis")}</FormLabel>
+                                                <Select onValueChange={field.onChange} value={field.value ?? "delivered"}>
+                                                    <FormControl>
+                                                        <SelectTrigger>
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                    </FormControl>
+                                                    <SelectContent>
+                                                        <SelectItem value="delivered">{t("customers.form.billingDateBasis.delivered")}</SelectItem>
+                                                        <SelectItem value="plan">{t("customers.form.billingDateBasis.plan")}</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                                <FormDescription>{t("customers.form.billingDateBasis.desc")}</FormDescription>
                                                 <FormMessage />
                                             </FormItem>
                                         )}

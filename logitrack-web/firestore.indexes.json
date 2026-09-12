@@ -273,6 +273,24 @@
       ]
     },
     {
+      "collectionGroup": "trip_records",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "billingCustomerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "billingDate",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
       "collectionGroup": "vehicle_expenses",
       "queryScope": "COLLECTION",
       "fields": [

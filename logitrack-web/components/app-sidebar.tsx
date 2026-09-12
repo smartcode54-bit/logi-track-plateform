@@ -140,8 +140,7 @@ export function AppSidebar() {
             title: t("nav.operations"),
             icon: MapPin,
             items: [
-                { title: t("nav.firstMileTasks"), url: "/app/first-mile", capability: CAPABILITIES.operations_view_first_mile },
-                { title: t("nav.lineHaulTasks"), url: "/app/line-haul", capability: CAPABILITIES.operations_view_line_haul },
+                { title: t("nav.jobAssign", "มอบหมายงาน"), url: "/app/job-assign", capability: CAPABILITIES.operations_view_first_mile },
                 { title: t("nav.sourceManagement"), url: "/app/sources", capability: CAPABILITIES.operations_manage_sources },
                 { title: t("nav.driverMonitor"), url: "/app/driver-monitor", capability: CAPABILITIES.operations_view_driver_monitor },
                 { title: t("nav.incidentReports"), url: "/app/incident-reports", capability: CAPABILITIES.operations_view_incidents },

@@ -144,6 +144,8 @@ export default function BillingDocumentPage() {
     // the on-screen preview only, and Download is blocked while either is active so the invoice can
     // never bill a subset.
     const [plateFilter, setPlateFilter] = useState<string>(PLATE_FILTER_ALL);
+    // ADR 0028: toggle the "วันรับงานจริง" (actual pickup) column on-screen and in the exported detail.
+    const [showActualPickup, setShowActualPickup] = useState(false);
     const [vehicleClassFilter, setVehicleClassFilter] = useState<string>(VEHICLE_CLASS_FILTER_ALL);
 
     // Load customers + owner company once
@@ -310,7 +312,7 @@ export default function BillingDocumentPage() {
                 // Still proceed with download even if statement save fails
             }
 
-            await downloadBillingZip(filteredTrips, selectedCustomer, period, invoiceNumber, ownerProvider);
+            await downloadBillingZip(filteredTrips, selectedCustomer, period, invoiceNumber, ownerProvider, showActualPickup);
         } finally {
             setGenerating(false);
         }
@@ -412,6 +414,21 @@ export default function BillingDocumentPage() {
                                 </Select>
                             </div>
                         )}
+
+                        {/* ── Show/hide the actual pickup date, on-screen AND in the exported detail (ADR 0028) ── */}
+                        <div className="space-y-1">
+                            <Label>&nbsp;</Label>
+                            <Button
+                                type="button"
+                                variant={showActualPickup ? "default" : "outline"}
+                                onClick={() => setShowActualPickup((v) => !v)}
+                                className="w-52"
+                            >
+                                {showActualPickup
+                                    ? t("accounting.billingDocument.actualPickup.hide", "ซ่อนวันรับงานจริง")
+                                    : t("accounting.billingDocument.actualPickup.show", "แสดงวันรับงานจริง")}
+                            </Button>
+                        </div>
 
                         {/* Clears the REVIEW filters only — never the charge-type / หลัก-เสริม
                             toggles below, which compose the invoice itself (ADR 0005 §1-3). Appears
@@ -630,6 +647,9 @@ export default function BillingDocumentPage() {
                                     <TableRow>
                                         <TableHead>{t("accounting.billingDocument.table.tripNumber")}</TableHead>
                                         <TableHead>{t("accounting.billingDocument.table.deliveredDate")}</TableHead>
+                                        {showActualPickup && (
+                                            <TableHead>{t("accounting.billingDocument.table.actualPickup", "วันรับงานจริง")}</TableHead>
+                                        )}
                                         <TableHead>{t("accounting.billingDocument.table.route")}</TableHead>
                                         <TableHead>{t("accounting.billingDocument.table.vehicleType")}</TableHead>
                                         <TableHead>{t("accounting.billingDocument.table.driver")}</TableHead>
@@ -669,6 +689,11 @@ export default function BillingDocumentPage() {
                                             <TableCell className="text-xs">
                                                 {trip.deliveredTimestamp ? format(trip.deliveredTimestamp, "dd/MM/yyyy HH:mm") : "-"}
                                             </TableCell>
+                                            {showActualPickup && (
+                                                <TableCell className="text-xs whitespace-nowrap">
+                                                    {trip.actualPickupAt ? format(trip.actualPickupAt, "dd/MM/yyyy HH:mm") : "-"}
+                                                </TableCell>
+                                            )}
                                             <TableCell className="text-xs">
                                                 {[originDisplay, destDisplay].filter(Boolean).join(" → ")}
                                             </TableCell>

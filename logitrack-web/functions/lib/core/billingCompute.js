@@ -181,6 +181,10 @@ function timestampLikeToMillis(val) {
     return 0;
 }
 function getTripBillingDateMs(trip) {
+    // An explicit plan-date override (ADR 0027) wins over the delivery instant (ADR 0008 §3).
+    if (typeof trip.billingDateMs === "number" && Number.isFinite(trip.billingDateMs) && trip.billingDateMs > 0) {
+        return trip.billingDateMs;
+    }
     const delivered = timestampLikeToMillis(trip.deliveredTimestamp);
     if (delivered > 0)
         return delivered;
@@ -190,7 +194,10 @@ function getTripBillingDateMs(trip) {
     return Date.now();
 }
 function resolveTaskCustomerId(task) {
-    return (task?.sourceHubLinkedCustomerId?.trim() ||
+    return (
+    // Explicit choice at assign time wins over the hub-derived link (ADR 0027).
+    task?.billingCustomerId?.trim() ||
+        task?.sourceHubLinkedCustomerId?.trim() ||
         task?.destinationLinkedCustomerId?.trim() ||
         "");
 }

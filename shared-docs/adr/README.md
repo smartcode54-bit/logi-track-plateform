@@ -30,8 +30,17 @@ Companion glossary: [../glossary.md](../glossary.md).
 | [0017](0017-retire-bmad-wds-tooling.md) | Retire the BMAD/WDS tooling vendored into the repo | Accepted 2026-08-09 |
 | [0018](0018-driver-self-download-trip-photos.md) | Driver self-download of trip evidence photos to the phone gallery (bulk, workflow-ordered, own trips only; incident photos added by amendment) | Accepted 2026-08-22 (shipped 2026-08-23) |
 | [0019](0019-app-screenshots-as-mandatory-evidence.md) | Customer-app screenshots as mandatory, un-overlaid evidence at check-in, loading, and delivery | Accepted 2026-08-23 (impl pending) |
+| [0020](0020-buzzebee-last-mile-distribution.md) | Buzzebee last-mile distribution domain (order as SSOT + conservation of goods) | Accepted 2026-08-25 (impl pending, branch `feature/buzzebee-distribution`) |
+| [0021](0021-transactional-email-smtp-workspace.md) | Transactional email via a Google Workspace SMTP callable | Accepted 2026-08-25 (impl pending, branch `feature/buzzebee-distribution`) |
+| [0022](0022-phone-gps-fallback-for-trucks-without-device.md) | Phone-GPS fallback for trucks without a hardware GPS device | Accepted 2026-08-25 (impl pending, branch `feature/buzzebee-distribution`) |
+| [0023](0023-buzzebee-distribution-billing.md) | Buzzebee distribution billing (per-pack × zone × tier + per-trip minimum + fuel surcharge) | Accepted 2026-08-25 (impl pending) |
+| [0024](0024-buzzebee-distribution-on-supabase.md) | Buzzebee distribution on Supabase (Postgres): the first SQL-native domain | Accepted 2026-08-25 (impl pending) |
+| [0025](0025-customer-line-group-notifications.md) | Customer/partner LINE group notifications (Flex card at check-in / delivered / standby, token-gated evidence gallery) | Accepted 2026-09-06 (shipped to dev) |
+| [0026](0026-multi-tenant-carrier-isolation.md) | Multi-tenant carrier isolation — opening the platform to TTP and its subcontractors (`tenantId` frozen on the row, `platform_admin` split from tenant admin) | Accepted 2026-09-11 (impl pending) |
+| [0027](0027-plan-date-billing-axis.md) | Per-customer plan-date billing axis — bill by the plan date (`tasks.date` → `trip_records.billingDate`), not the delivery instant, for opt-in customers (CJSF) | Accepted 2026-09-12 (Phase 1 impl local, pending verify) |
+| [0028](0028-plan-date-vs-actual-work-date.md) | Plan date vs actual work date — keep them separate; `checkInAt` is the actual date, plan date is the billing/filter axis; add no `actualDate` field, no override, no flag | Accepted 2026-09-12 (no code change) |
 
-**Next free number: `0020`.** Take the next unused number, never reuse or renumber (see
+**Next free number: `0029`.** Take the next unused number, never reuse or renumber (see
 [conventions](0000-adr-conventions.md)).
 
 ## Migrated from BMAD (formerly `logitrack-web/_bmad-output/planning-artifacts/adr/`)

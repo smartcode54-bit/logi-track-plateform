@@ -785,11 +785,33 @@ export async function fetchBillingTripRows(
         return hubCodeMap.get(trimmed.toUpperCase()) ?? trimmed;
     };
 
+    // Which date axis this customer's invoice is grouped by (ADR 0027). A plan-date customer groups by
+    // `billingDate` (the plan date stamped on the trip); everyone else — and the "all" aggregate —
+    // groups by the delivery instant (ADR 0008 §3), so their behaviour is untouched.
+    // The billing entity may be a customer OR a subcontractor/partner (ADR 0028) — read customers
+    // first, fall back to subcontractors when the id isn't a customer.
+    let billByPlanDate = false;
+    if (customerId !== "all") {
+        try {
+            const custDoc = await getDoc(doc(db, COLLECTIONS.CUSTOMERS, customerId));
+            if (custDoc.exists()) {
+                billByPlanDate = custDoc.data()?.billingDateBasis === "plan";
+            } else {
+                const subDoc = await getDoc(doc(db, COLLECTIONS.SUBCONTRACTORS, customerId));
+                billByPlanDate = subDoc.exists() && subDoc.data()?.billingDateBasis === "plan";
+            }
+        } catch (e) {
+            console.warn("[fetchBillingTripRows] could not read billingDateBasis:", e);
+        }
+    }
+
     // ── trip_records + standby_records for this customer (or all) + period ───────
+    // Standby stays on endedAt for every customer (ADR 0008) — plan-date billing applies to trips only.
+    const tripDateField = billByPlanDate ? "billingDate" : "deliveredTimestamp";
     const tripConstraints = [
         where("status", "==", "delivered"),
-        where("deliveredTimestamp", ">=", Timestamp.fromDate(start)),
-        where("deliveredTimestamp", "<", Timestamp.fromDate(end)),
+        where(tripDateField, ">=", Timestamp.fromDate(start)),
+        where(tripDateField, "<", Timestamp.fromDate(end)),
     ];
     if (customerId !== "all") tripConstraints.push(where("billingCustomerId", "==", customerId));
     const tripSnap = await getDocsFromServer(
@@ -811,7 +833,7 @@ export async function fetchBillingTripRows(
     }
 
     // ── Batch-fetch linked tasks (driverName/licensePlate/customer denormalized) ──
-    type TaskInfo = { truckType?: string; driverId?: string; driverName?: string; driverPhone?: string; truckLicensePlate?: string; truckId?: string; sourceHub?: string; destination?: string; jobCategory?: "PRIMARY" | "SUPPLEMENTARY" };
+    type TaskInfo = { truckType?: string; driverId?: string; driverName?: string; driverPhone?: string; truckLicensePlate?: string; truckId?: string; sourceHub?: string; destination?: string; jobCategory?: "PRIMARY" | "SUPPLEMENTARY"; actualPickupAt?: Date };
     const taskMap = new Map<string, TaskInfo>();
     const taskIds = new Set<string>();
     tripSnap.forEach((d) => { const tid = d.data().taskId; if (tid) taskIds.add(tid); });
@@ -834,6 +856,7 @@ export async function fetchBillingTripRows(
                 truckId: t.truckId,
                 sourceHub: t.sourceHub,
                 destination: t.destination,
+                actualPickupAt: toBillingDate(t.actualPickupAt),
                 // Authoritative หลัก/เสริม (ADR 0010): the trip's copy falls back to this when absent.
                 jobCategory:
                     t.jobCategory === "SUPPLEMENTARY"
@@ -943,7 +966,8 @@ export async function fetchBillingTripRows(
                     subcontractorName: resolveSubcontractor([data.driverId, taskInfo?.driverId]),
                     jobCategory: resolveJobCategory(data.jobCategory, taskInfo?.jobCategory),
                     truckLicensePlate: taskInfo?.truckLicensePlate,
-            truckId: taskInfo?.truckId,
+                    actualPickupAt: taskInfo?.actualPickupAt,
+                    truckId: taskInfo?.truckId,
                     hubDisplayName: resolveDisplayName(hubId),
                     originHubCode: resolveHubCode(hubId || (taskInfo?.sourceHub as string | undefined) || ""),
                     destinationDisplayName: resolveDisplayName(destCode),
@@ -975,6 +999,7 @@ export async function fetchBillingTripRows(
             subcontractorName: resolveSubcontractor([data.driverId, taskInfo?.driverId]),
             jobCategory: resolveJobCategory(data.jobCategory, taskInfo?.jobCategory),
             truckLicensePlate: taskInfo?.truckLicensePlate,
+            actualPickupAt: taskInfo?.actualPickupAt,
             truckId: taskInfo?.truckId,
             hubDisplayName: resolveDisplayName(hubId),
             originHubCode: resolveHubCode(hubId || (taskInfo?.sourceHub as string | undefined) || ""),
@@ -1008,6 +1033,7 @@ export async function fetchBillingTripRows(
             driverPhone: taskInfo?.driverPhone,
             subcontractorName: resolveSubcontractor([data.driverId, taskInfo?.driverId]),
             truckLicensePlate: taskInfo?.truckLicensePlate,
+            actualPickupAt: taskInfo?.actualPickupAt,
             truckId: taskInfo?.truckId,
             hubDisplayName: resolveDisplayName(
                 (taskInfo?.sourceHub as string | undefined) ?? (data.startLocation as string | undefined)

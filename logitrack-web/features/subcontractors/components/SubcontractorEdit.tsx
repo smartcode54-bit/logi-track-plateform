@@ -64,6 +64,7 @@ export default function SubcontractorEdit() {
                         status: data.status,
                         documents: data.documents || [],
                         lineGroupId: data.lineGroupId || "",
+                        billingDateBasis: (data as any).billingDateBasis ?? "delivered",
                     });
                 } else {
                     toast.error(t("subcontractors.toast.notFound"));
@@ -283,6 +284,29 @@ export default function SubcontractorEdit() {
                                                 <Input placeholder={t("subcontractors.form.lineGroupId.placeholder")} {...field} value={field.value ?? ""} />
                                             </FormControl>
                                             <p className="text-xs text-muted-foreground">{t("subcontractors.form.lineGroupId.desc")}</p>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+
+                                <FormField
+                                    control={form.control}
+                                    name="billingDateBasis"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>{t("customers.form.billingDateBasis")}</FormLabel>
+                                            <Select onValueChange={field.onChange} value={field.value ?? "delivered"}>
+                                                <FormControl>
+                                                    <SelectTrigger>
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                </FormControl>
+                                                <SelectContent>
+                                                    <SelectItem value="delivered">{t("customers.form.billingDateBasis.delivered")}</SelectItem>
+                                                    <SelectItem value="plan">{t("customers.form.billingDateBasis.plan")}</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                            <p className="text-xs text-muted-foreground">{t("customers.form.billingDateBasis.desc")}</p>
                                             <FormMessage />
                                         </FormItem>
                                     )}

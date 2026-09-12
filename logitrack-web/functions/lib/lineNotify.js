@@ -64,6 +64,12 @@ const COL_INCIDENT_REPORTS = "incidentReport";
 const LINE_PUSH_URL = "https://api.line.me/v2/bot/message/push";
 /** HTTP function that serves the read-only evidence gallery (see evidenceUrlForToken). */
 const EVIDENCE_FN = "tripEvidence";
+/**
+ * หมายเหตุ appended to the delivered card when an admin closed the job from the web
+ * (`trip.deliveredVia === "admin_web"`) rather than the driver closing it on mobile. Customer-facing
+ * Thai text (not routed through app i18n, per ADR 0025 N1).
+ */
+const ADMIN_WEB_CLOSE_NOTE_TH = "ปิดงานโดยแอดมิน (ผ่านหน้าเว็บ)";
 const lineChannelAccessToken = (0, params_1.defineSecret)("LINE_CHANNEL_ACCESS_TOKEN");
 function str(v) {
     return typeof v === "string" ? v.trim() : "";
@@ -390,6 +396,17 @@ exports.sendCustomerLineNotification = (0, https_1.onCall)({
         newEvidenceToken = true;
     }
     const evidenceUrl = photoCount > 0 && evidenceToken ? evidenceUrlForToken(evidenceToken) : undefined;
+    // หมายเหตุ: fold the delay cause(s) (ADR 0025 §5) and, when the job was closed by an admin
+    // from the web, a fixed "closed from web" remark — joined so both can appear together.
+    const noteParts = [];
+    if (incidents.length > 0) {
+        const delayNote = (0, lineMessage_1.buildDelayNote)(incidents.map((i) => i.delayCause));
+        if (delayNote)
+            noteParts.push(delayNote);
+    }
+    if (str(trip.deliveredVia) === "admin_web")
+        noteParts.push(ADMIN_WEB_CLOSE_NOTE_TH);
+    const notes = noteParts.length > 0 ? noteParts.join(" · ") : undefined;
     const ctx = {
         dateLine: (0, lineMessage_1.formatBuddhistShortDate)(trip.std ?? trip.createdAt),
         originLabel: hubLabel(trip.origin ?? task?.sourceHub, codeToName),
@@ -406,9 +423,7 @@ exports.sendCustomerLineNotification = (0, https_1.onCall)({
         departHm: (0, lineMessage_1.formatBangkokHm)(trip.std),
         arriveHm: (0, lineMessage_1.formatBangkokHm)(trip.ata),
         doneHm: (0, lineMessage_1.formatBangkokHm)(trip.deliveredTimestamp),
-        notes: incidents.length > 0
-            ? (0, lineMessage_1.buildDelayNote)(incidents.map((i) => i.delayCause))
-            : undefined,
+        notes,
         evidenceUrl,
         photoCount: photoCount > 0 ? photoCount : undefined,
     };

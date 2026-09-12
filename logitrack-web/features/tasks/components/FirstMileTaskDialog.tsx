@@ -48,6 +48,7 @@ import { driverDisplayName, matchDriverOptionId } from "@/lib/driverName";
 import DeliveryStopsEditor from "./DeliveryStopsEditor";
 import { HelperDriverField } from "./HelperDriverField";
 import { TruckPlateField } from "./TruckPlateField";
+import { DateTimePicker } from "./DateTimePicker";
 
 export interface FirstMileTaskDialogProps {
     mode: "create" | "edit";
@@ -56,9 +57,14 @@ export interface FirstMileTaskDialogProps {
     open?: boolean;
     onOpenChange?: (open: boolean) => void;
     onSuccess?: () => void;
+    /** When set, an in-form First Mile / Line Haul switcher is shown (create mode) so one "Add job" button covers both. */
+    taskType?: "FIRST_MILE" | "LINE_HAUL";
+    onTaskTypeChange?: (taskType: "FIRST_MILE" | "LINE_HAUL") => void;
+    /** Render only the header+form body (no own <Dialog> shell), so a parent can host both types in one modal. */
+    embedded?: boolean;
 }
 
-export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, onSuccess }: FirstMileTaskDialogProps) {
+export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenChange, onSuccess, taskType = "FIRST_MILE", onTaskTypeChange, embedded = false }: FirstMileTaskDialogProps) {
     const [internalOpen, setInternalOpen] = useState(false);
     const isOpen = open !== undefined ? open : internalOpen;
     const setIsOpen = onOpenChange || setInternalOpen;
@@ -84,10 +90,8 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
         normalizeSocIdToKey
     } = useFirstMileTask({ mode, task, isOpen, setIsOpen, onSuccess });
 
-    return (
-        <Dialog open={isOpen} onOpenChange={setIsOpen}>
-            {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+    const body = (
+        <>
                 <DialogHeader>
                     <DialogTitle>{mode === "create" ? t("firstMile.task.createTitle") : t("firstMile.task.editTitle")}</DialogTitle>
                     <DialogDescription>
@@ -97,78 +101,68 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
 
                 <Form {...form}>
                     <form onSubmit={form.handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {/* Date Field */}
-                            <FormField
-                                control={form.control}
-                                name="date"
-                                render={({ field }) => (
-                                    <FormItem className="flex flex-col">
-                                        <FormLabel>{t("firstMile.task.date")}</FormLabel>
-                                        <Popover modal={true}>
-                                            <PopoverTrigger asChild>
-                                                <FormControl>
-                                                    <Button
-                                                        variant={"outline"}
-                                                        className={cn(
-                                                            "w-full pl-3 text-left font-normal",
-                                                            !field.value && "text-muted-foreground"
-                                                        )}
-                                                    >
-                                                        {field.value ? (
-                                                            format(field.value, "dd/MM/yyyy")
-                                                        ) : (
-                                                            <span>{t("firstMile.task.pickDate")}</span>
-                                                        )}
-                                                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                                    </Button>
-                                                </FormControl>
-                                            </PopoverTrigger>
-                                            <PopoverContent className="w-auto p-0 z-[1005]" align="start">
-                                                <Calendar
-                                                    mode="single"
-                                                    selected={field.value}
-                                                    onSelect={field.onChange}
-                                                    initialFocus
-                                                />
-                                            </PopoverContent>
-                                        </Popover>
-                                        <FormMessage />
-                                    </FormItem>
-                                )}
-                            />
+                        {/* Job type switcher — lets one "Add job" button pick FM vs LH inside the form (create only). */}
+                        {mode === "create" && onTaskTypeChange && (
+                            <FormItem className="flex flex-col">
+                                <FormLabel>{t("jobAssign.taskTypeLabel", "ประเภทงาน")}</FormLabel>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <Button
+                                        type="button"
+                                        variant={taskType === "FIRST_MILE" ? "default" : "outline"}
+                                        onClick={() => taskType !== "FIRST_MILE" && onTaskTypeChange("FIRST_MILE")}
+                                    >
+                                        {t("jobAssign.addFirstMile", "First Mile")}
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        variant={taskType === "LINE_HAUL" ? "default" : "outline"}
+                                        onClick={() => taskType !== "LINE_HAUL" && onTaskTypeChange("LINE_HAUL")}
+                                    >
+                                        {t("jobAssign.addLineHaul", "Line Haul")}
+                                    </Button>
+                                </div>
+                            </FormItem>
+                        )}
 
-                            {/* Time Field */}
-                            <FormField
-                                control={form.control}
-                                name="time"
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel>{t("firstMile.task.time")}</FormLabel>
-                                        <Select onValueChange={field.onChange} value={field.value ?? "15:00"}>
+                        {/* Plan date (billing axis, ADR 0027) — DATE ONLY. The time lives on วันเวลารับงานจริง. */}
+                        <FormField
+                            control={form.control}
+                            name="date"
+                            render={({ field }) => (
+                                <FormItem className="flex flex-col">
+                                    <FormLabel>{t("firstMile.task.date")}</FormLabel>
+                                    <Popover modal={true}>
+                                        <PopoverTrigger asChild>
                                             <FormControl>
-                                                <SelectTrigger>
-                                                    <SelectValue placeholder={t("firstMile.task.selectTime")} />
-                                                </SelectTrigger>
+                                                <Button
+                                                    variant={"outline"}
+                                                    className={cn(
+                                                        "w-full pl-3 text-left font-normal",
+                                                        !field.value && "text-muted-foreground"
+                                                    )}
+                                                >
+                                                    {field.value ? (
+                                                        format(field.value, "dd/MM/yyyy")
+                                                    ) : (
+                                                        <span>{t("firstMile.task.pickDate")}</span>
+                                                    )}
+                                                    <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                                </Button>
                                             </FormControl>
-                                            <SelectContent className="max-h-[200px] z-[1005]" position="popper">
-                                                {Array.from({ length: 48 }).map((_, i) => {
-                                                    const hour = Math.floor(i / 2).toString().padStart(2, '0');
-                                                    const minute = (i % 2 === 0 ? '00' : '30');
-                                                    const time = `${hour}:${minute}`;
-                                                    return (
-                                                        <SelectItem key={time} value={time}>
-                                                            {time}
-                                                        </SelectItem>
-                                                    );
-                                                })}
-                                            </SelectContent>
-                                        </Select>
-                                        <FormMessage />
-                                    </FormItem>
-                                )}
-                            />
-                        </div>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-auto p-0 z-[1005]" align="start">
+                                            <Calendar
+                                                mode="single"
+                                                selected={field.value}
+                                                onSelect={field.onChange}
+                                                initialFocus
+                                            />
+                                        </PopoverContent>
+                                    </Popover>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {/* Source Hub - Searchable Dropdown */}
@@ -340,6 +334,48 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
                             />
                         </div>
 
+                        {/* Billing customer (required, overrides the hub-derived link — ADR 0027) */}
+                        <FormField
+                            control={form.control}
+                            name="billingCustomerId"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>{t("firstMile.task.customer")} *</FormLabel>
+                                    <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                                        <FormControl>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder={t("firstMile.task.selectCustomer")} />
+                                            </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent className="z-[1005]" position="popper">
+                                            {customerOptions.map((c) => (
+                                                <SelectItem key={c.id} value={c.id}>
+                                                    {c.code ? `${c.code} — ${c.name}` : c.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+
+                        {/* Actual pickup date-time — set by the admin at assign (ops only, not billing; ADR 0028) */}
+                        <FormField
+                            control={form.control}
+                            name="actualPickupAt"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>{t("firstMile.task.actualPickupAt")}</FormLabel>
+                                    <DateTimePicker
+                                        value={field.value as Date | undefined}
+                                        onChange={field.onChange}
+                                    />
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+
                         {/* Job Category: หลัก/เสริม */}
                         <FormField
                             control={form.control}
@@ -464,7 +500,7 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
                                 name="taskId"
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel>{t("firstMile.task.taskId")}</FormLabel>
+                                        <FormLabel className="truncate whitespace-nowrap">{t("firstMile.task.taskId")}</FormLabel>
                                         <FormControl>
                                             <Input placeholder={t("firstMile.task.autoGenerated")} {...field} readOnly className="bg-muted" />
                                         </FormControl>
@@ -622,6 +658,16 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
                         </DialogFooter>
                     </form>
                 </Form>
+        </>
+    );
+
+    if (embedded) return body;
+
+    return (
+        <Dialog open={isOpen} onOpenChange={setIsOpen}>
+            {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                {body}
             </DialogContent>
         </Dialog>
     );

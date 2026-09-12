@@ -109,6 +109,8 @@ async (request) => {
         destination: data.destination.trim().toUpperCase(),
         date: new Date(data.date),
         time: data.time.trim(),
+        // Admin-set actual pickup date-time (ops only, ADR 0028). Stripped below if absent.
+        actualPickupAt: data.actualPickupAt ? new Date(data.actualPickupAt) : undefined,
         taskType: data.taskType,
         // Vehicle for this job — chosen per task, not derived from drivers.currentAssignment.
         truckType: data.truckType,
@@ -124,6 +126,10 @@ async (request) => {
         status: data.driverId ? "Assigned" : "Pending",
         isMultiDelivery,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        // Explicit billing customer (ADR 0027) — billing prefers this over the hub-derived link.
+        billingCustomerId: data.billingCustomerId,
+        billingCustomerName: data.billingCustomerName,
+        billingCustomerCode: data.billingCustomerCode,
         // Customer links
         sourceHubLinkedCustomerId: data.sourceHubLinkedCustomerId,
         sourceHubLinkedCustomerName: data.sourceHubLinkedCustomerName,

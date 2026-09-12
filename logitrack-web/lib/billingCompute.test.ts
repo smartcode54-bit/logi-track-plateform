@@ -6,9 +6,11 @@ import {
     computeTripBillingFromParts,
     fuelBandFloor,
     fuelBandRange,
+    getTripBillingDateMs,
     isEffectiveOnOrBeforeBillingDate,
     normalizeVehicleClass,
     resolveBillingRoundProvenance,
+    resolveTaskCustomerId,
     selectBillingRateEntry,
     selectFuelAdjustmentForBillingDate,
     selectStandbyRateEntry,
@@ -439,5 +441,58 @@ describe("jobCategory dimension (ADR-0005 — supplementary trips)", () => {
             "PRIMARY"
         );
         expect(primary!.finalRateThb).toBe(computeFinalRateThb(1000, 1.1, 50));
+    });
+});
+
+describe("getTripBillingDateMs (ADR 0027 — plan-date override)", () => {
+    it("prefers an explicit billingDateMs over deliveredTimestamp", () => {
+        const planMs = Date.UTC(2026, 8, 30, 17, 0, 0); // 30 Sep, Bangkok midnight
+        const deliveredMs = Date.UTC(2026, 9, 1, 5, 0, 0); // 1 Oct, delivered late
+        expect(
+            getTripBillingDateMs({ billingDateMs: planMs, deliveredTimestamp: deliveredMs })
+        ).toBe(planMs);
+    });
+
+    it("falls back to deliveredTimestamp when no override (delivered-basis unchanged)", () => {
+        const deliveredMs = Date.UTC(2026, 9, 1, 5, 0, 0);
+        expect(getTripBillingDateMs({ deliveredTimestamp: deliveredMs })).toBe(deliveredMs);
+    });
+
+    it("ignores a zero / non-finite override and uses deliveredTimestamp", () => {
+        const deliveredMs = Date.UTC(2026, 9, 1, 5, 0, 0);
+        expect(getTripBillingDateMs({ billingDateMs: 0, deliveredTimestamp: deliveredMs })).toBe(deliveredMs);
+        expect(getTripBillingDateMs({ billingDateMs: NaN, deliveredTimestamp: deliveredMs })).toBe(deliveredMs);
+    });
+
+    it("falls back to createdAt when neither override nor deliveredTimestamp exist", () => {
+        const createdMs = Date.UTC(2026, 8, 15, 3, 0, 0);
+        expect(getTripBillingDateMs({ createdAt: createdMs })).toBe(createdMs);
+    });
+});
+
+describe("resolveTaskCustomerId (ADR 0027 — explicit customer wins)", () => {
+    it("prefers the explicit billingCustomerId over the hub-derived link", () => {
+        expect(
+            resolveTaskCustomerId({
+                billingCustomerId: "CJSF_ID",
+                sourceHubLinkedCustomerId: "SPX_ID",
+                destinationLinkedCustomerId: "OTHER_ID",
+            })
+        ).toBe("CJSF_ID");
+    });
+
+    it("falls back to the hub link when no explicit customer is set", () => {
+        expect(
+            resolveTaskCustomerId({ sourceHubLinkedCustomerId: "SPX_ID" })
+        ).toBe("SPX_ID");
+        expect(
+            resolveTaskCustomerId({ destinationLinkedCustomerId: "DEST_ID" })
+        ).toBe("DEST_ID");
+    });
+
+    it("ignores a blank billingCustomerId", () => {
+        expect(
+            resolveTaskCustomerId({ billingCustomerId: "  ", sourceHubLinkedCustomerId: "SPX_ID" })
+        ).toBe("SPX_ID");
     });
 });

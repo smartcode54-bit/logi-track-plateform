@@ -30,6 +30,9 @@ class OcrScreenshotResult {
   final String? ocrProfile;
   /// ช่องทาง / พาร์ทเนอร์จากป้าย เช่น JWT, TTP (หลัง LH- / FM-)
   final String? partnerCode;
+  /// Where tripId came from: 'scanned' (barcode/QR, reliable) vs 'ocr' (text, may confuse B↔8).
+  /// Drives the "โปรดตรวจสอบ" warning so the driver verifies an OCR-guessed code before saving.
+  final String? tripIdSource;
 
   OcrScreenshotResult({
     this.tripId,
@@ -47,6 +50,7 @@ class OcrScreenshotResult {
     this.sealSource,
     this.ocrProfile,
     this.partnerCode,
+    this.tripIdSource,
   });
 }
 
@@ -137,6 +141,7 @@ Future<OcrScreenshotResult> runOcrOnImageBytes(
           secondarySealCode: barcodeSecondarySealCode,
           partnerCode: partner,
           sealSource: barcodeSealCode != null ? 'scanned' : null,
+          tripIdSource: barcodeTripId != null ? 'scanned' : null,
           ocrProfile: profile,
         );
       }
@@ -193,6 +198,7 @@ OcrScreenshotResult parseOcrScreenshotFromRawText(
         extractedPartner: null,
       ),
       sealSource: barcodeSealCode != null ? 'scanned' : null,
+      tripIdSource: barcodeTripId != null ? 'scanned' : null,
       ocrProfile: profile,
     );
   }
@@ -211,9 +217,11 @@ OcrScreenshotResult parseOcrScreenshotFromRawText(
     extractedPartner: _clean(_extractPartnerCode(fullText)),
   );
   final supplier = _clean(_extractSupplierCode(fullText));
+  final resolvedTextTripId = _clean(textTripId);
+  final resolvedTextSeal = _clean(textSeal);
   return OcrScreenshotResult(
-    tripId: barcodeTripId ?? _clean(textTripId),
-    sealCode: barcodeSealCode ?? _clean(textSeal),
+    tripId: barcodeTripId ?? resolvedTextTripId,
+    sealCode: barcodeSealCode ?? resolvedTextSeal,
     secondarySealCode: barcodeSecondarySealCode ?? _clean(textSeal2),
     routeInfo: _clean(_extractRouteInfo(fullText)),
     origin: _clean(_extractOrigin(fullText)),
@@ -224,7 +232,10 @@ OcrScreenshotResult parseOcrScreenshotFromRawText(
     releaseTime: _clean(_extractReleaseTime(fullText)),
     totalWeight: _clean(_extractTotalWeight(fullText)),
     supplierCode: supplier,
-    sealSource: barcodeSealCode != null ? 'scanned' : null,
+    // Provenance (ADR 0027 sibling — OCR reliability): 'scanned' = from barcode/QR (trustworthy),
+    // 'ocr' = read from text and may confuse B↔8, so the UI asks the driver to verify.
+    sealSource: barcodeSealCode != null ? 'scanned' : (resolvedTextSeal != null ? 'ocr' : null),
+    tripIdSource: barcodeTripId != null ? 'scanned' : (resolvedTextTripId != null ? 'ocr' : null),
     ocrProfile: profile,
     partnerCode: partner,
   );

@@ -62,6 +62,14 @@ export const taskSchema = z.object({
     dateStr: z.string().optional(), // YYYYMMDD or DDMMYYYY for sequential ID counting
     time: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "Time must be in HH:MM format (e.g. 15:00)"),
 
+    /**
+     * Admin-set actual pickup date-time (when the driver should actually go), chosen at assign.
+     * Operational only — distinct from the plan date (`date`, the billing axis for plan-basis
+     * customers, ADR 0027) and from the driver's own `checkInAt` (recorded at check-in). Does NOT
+     * affect billing. Optional (ADR 0028).
+     */
+    actualPickupAt: z.coerce.date().optional(),
+
     sourceHub: z.string().min(1, "Source Hub is required"), // From SPX_Hub
     destination: z.string().min(1, "Destination (SOC) is required"),
     sourceHubLinkedCustomerId: z.string().optional(),
@@ -72,6 +80,15 @@ export const taskSchema = z.object({
     destinationLinkedCustomerName: z.string().optional(),
     destinationLinkedCustomerCode: z.string().optional(),
     destinationCustomerLinkKind: z.enum(["customer", "partner"]).optional(),
+
+    /**
+     * Explicit billing customer chosen by the admin at assign time (ADR 0027). Overrides the
+     * hub-derived link for billing — `resolveTaskCustomerId` prefers it. Name/code denormalized for
+     * display. Optional while older tasks lack it: billing then falls back to the hub link (ADR 0003).
+     */
+    billingCustomerId: z.string().optional(),
+    billingCustomerName: z.string().optional(),
+    billingCustomerCode: z.string().optional(),
 
     /** หลัก/เสริม, chosen by admin at assign time. Optional — absent means billing derives it (ADR-0005/0006). */
     jobCategory: z.enum(TASK_JOB_CATEGORY_ENUM).default("PRIMARY").optional(),

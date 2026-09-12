@@ -385,6 +385,7 @@
     "loading_phase_seal_scan_required": "เที่ยว ZX ต้องสแกนบาร์โค้ดซีลจากกล้องก่อนบันทึก",
     "loading_phase_seal_jt_hint": "J&T: สแกนหรือพิมพ์เลขซีลเอง (ไม่ fill อัตโนมัติจาก OCR)",
     "loading_phase_rescan_trip_id": "สแกน Trip ID ใหม่",
+    "loading_phase_trip_id_ocr_warning": "Trip ID นี้อ่านจากตัวอักษร (OCR) ไม่ใช่บาร์โค้ด อาจสับสน B↔8 โปรดตรวจสอบ หรือสแกน QR/บาร์โค้ดซ้ำ",
     "loading_phase_seal_hint": "สแกนหมายซีลจากกล้อง",
     "loading_phase_seal_manual_btn": "สแกนไม่ได้? พิมพ์เอง",
     "loading_phase_seal_manual_title": "พิมพ์เลขซีลเอง",

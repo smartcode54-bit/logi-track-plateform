@@ -58,6 +58,10 @@ export default {
     "customers.form.paymentTermsDays.placeholder": "เช่น 30",
     "customers.form.invoiceNote": "หมายเหตุในใบวางบิล",
     "customers.form.invoiceNote.placeholder": "ข้อความที่จะพิมพ์ในใบวางบิล",
+    "customers.form.billingDateBasis": "เกณฑ์วันที่วางบิล",
+    "customers.form.billingDateBasis.delivered": "วันที่ส่งสำเร็จ (ค่าเริ่มต้น)",
+    "customers.form.billingDateBasis.plan": "วันที่แผนงาน (วันที่ทำงาน)",
+    "customers.form.billingDateBasis.desc": "ใช้วันไหนตัดรอบบิล + เลือกเรทน้ำมัน เลือก 'วันที่แผนงาน' สำหรับลูกค้า (เช่น CJSF) ที่ยึดแผนงานที่แจ้งวันต่อวัน เพื่อให้เที่ยวที่ส่งช้าข้ามวันยังตกบิลในเดือนของแผนงาน",
 
     // ── LINE Notifications card ──────────────────────────────────────────────
     "customers.form.line.title": "การแจ้งเตือน LINE",

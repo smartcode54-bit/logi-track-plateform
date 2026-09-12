@@ -19,6 +19,8 @@ export interface SubcontractorData {
     status: "active" | "pending" | "suspended";
     documents?: string[];
     lineGroupId?: string;
+    /** Billing date basis when this partner is billed directly (ADR 0027/0028). */
+    billingDateBasis?: "delivered" | "plan";
     fleetSize?: number;
     serviceArea?: string; 
     rating?: number; 
@@ -129,6 +131,7 @@ export async function getSubcontractorById(id: string): Promise<SubcontractorDat
                 status: data.status || "active",
                 documents: data.documents || [],
                 lineGroupId: data.lineGroupId || "",
+                billingDateBasis: data.billingDateBasis === "plan" ? "plan" : "delivered",
                 fleetSize: data.fleetSize || 0,
                 serviceArea: data.serviceArea || "Unknown",
                 rating: data.rating || 0,

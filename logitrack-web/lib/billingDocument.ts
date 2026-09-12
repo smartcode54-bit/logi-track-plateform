@@ -42,6 +42,8 @@ export interface BillingTripRow {
   taskId?: string;
   spxTripId?: string;
   deliveredTimestamp?: Date;
+  /** Admin-set actual pickup date-time from the task (ADR 0028) — operational, optional detail column. */
+  actualPickupAt?: Date;
   billingEstimateThb: number;
   billingBaseRateThb?: number;
   billingLookupHubId?: string;
@@ -590,6 +592,8 @@ export function generateDetailExcelBuffer(
   period: BillingPeriod,
   customer?: BillingCustomer,
   provider?: BillingProviderInfo,
+  /** ADR 0028: include an extra "วันรับงานจริง" (actual pickup) column driven by the page toggle. */
+  showActualPickup: boolean = false,
 ): Uint8Array {
   const mm = String(period.month).padStart(2, "0");
   const providerName = provider?.name ?? BILLING_PROVIDER.name;
@@ -633,6 +637,7 @@ export function generateDetailExcelBuffer(
 
   interface DetailRow {
     date?: Date;
+    actualPickupAt?: Date;  // วันรับงานจริง (ADR 0028) — optional column
     jobNo: string;          // เลขใบงาน ("Stand by" สำหรับเที่ยว standby)
     route: string;
     vehicleClass: string;
@@ -670,6 +675,7 @@ export function generateDetailExcelBuffer(
     const isStandby = t.rowType === "standby";
     detailRows.push({
       date: t.deliveredTimestamp,
+      actualPickupAt: t.actualPickupAt,
       jobNo: isStandby ? "Stand by" : (t.spxTripId ?? t.id.slice(0, 12)),
       route: routeOf(t),
       vehicleClass: displayVehicleClass(t.vehicleClass),
@@ -694,6 +700,7 @@ export function generateDetailExcelBuffer(
     const dropFeeThb = sorted.slice(1).reduce((s, r) => s + r.billingEstimateThb, 0); // stops 2+ = ค่าโยก
     detailRows.push({
       date: base.deliveredTimestamp,
+      actualPickupAt: base.actualPickupAt,
       jobNo: base.spxTripId ? stripStop(base.spxTripId) : stripStop(base.id).slice(0, 12),
       route: routeOf(base),
       vehicleClass: displayVehicleClass(base.vehicleClass),
@@ -717,6 +724,7 @@ export function generateDetailExcelBuffer(
   const COLS: { header: string; wch: number }[] = [
     { header: "No.",              wch: 5  },
     { header: "วันที่",           wch: 12 },
+    ...(showActualPickup ? [{ header: "วันรับงานจริง", wch: 16 }] : []),
     { header: "เลขใบงาน",        wch: 18 },
     { header: "เส้นทาง",         wch: 30 },
     { header: "ประเภท",          wch: 9  },
@@ -771,6 +779,7 @@ export function generateDetailExcelBuffer(
     rows.push([
       cell(i + 1,                                                       dsCenter),
       cell(r.date ? format(r.date, "dd/MM/yyyy") : "",                  ds),
+      ...(showActualPickup ? [cell(r.actualPickupAt ? format(r.actualPickupAt, "dd/MM/yyyy HH:mm") : "", dsCenter)] : []),
       cell(r.jobNo,                                                     { ...ds, font: { ...FONT_BASE, name: "Consolas", sz: 9 } }),
       cell(r.route,                                                     { ...ds, alignment: { wrapText: true } }),
       cell(r.vehicleClass,                                             dsCenter),
@@ -863,6 +872,8 @@ export async function downloadBillingZip(
   period: BillingPeriod,
   invoiceNumberOverride?: string,
   provider?: BillingProviderInfo,
+  /** ADR 0028: include the "วันรับงานจริง" column in the detail Excel (page toggle). */
+  showActualPickup: boolean = false,
 ): Promise<void> {
   const mm = String(period.month).padStart(2, "0");
   const zipName = `invoice_CJSF_${period.year}${mm}.zip`;
@@ -870,7 +881,7 @@ export async function downloadBillingZip(
   // Receipt is generated separately on "Mark as paid" — not bundled here
   const [invoiceBlob, excelBuffer] = await Promise.all([
     generateInvoiceBlob(trips, customer, period, invoiceNumberOverride, provider),
-    Promise.resolve(generateDetailExcelBuffer(trips, period, customer, provider)),
+    Promise.resolve(generateDetailExcelBuffer(trips, period, customer, provider, showActualPickup)),
   ]);
 
   const { default: JSZip } = await import("jszip");

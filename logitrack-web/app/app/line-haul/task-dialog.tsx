@@ -10,6 +10,9 @@ interface ItemDialogProps {
     open?: boolean;
     onOpenChange?: (open: boolean) => void;
     onSuccess?: () => void;
+    taskType?: "FIRST_MILE" | "LINE_HAUL";
+    onTaskTypeChange?: (taskType: "FIRST_MILE" | "LINE_HAUL") => void;
+    embedded?: boolean;
 }
 
 export function LineHaulTaskDialog(props: ItemDialogProps) {

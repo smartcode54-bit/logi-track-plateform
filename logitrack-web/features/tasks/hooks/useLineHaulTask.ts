@@ -47,6 +47,7 @@ export function useLineHaulTask({
             time: "15:00",
             sourceHub: "",
             destination: "",
+            billingCustomerId: "",
             jobCategory: "PRIMARY" as const,
             truckType: "4W",
             truckId: "",
@@ -60,6 +61,7 @@ export function useLineHaulTask({
             isMultiDelivery: false,
             deliveryStops: undefined,
             helperDriverIds: [],
+            actualPickupAt: undefined,
         },
     });
 
@@ -134,29 +136,47 @@ export function useLineHaulTask({
                     time: task.time || "",
                     sourceHub: task.sourceHub || "",
                     destination: (task.destination as string) || "",
+                    // Prefill billing customer from the task's own value, else the hub link (ADR 0027).
+                    billingCustomerId:
+                        task.billingCustomerId || task.sourceHubLinkedCustomerId || task.destinationLinkedCustomerId || "",
                     jobCategory: (task.jobCategory as FirstMileTask["jobCategory"]) || "PRIMARY",
                     status: (task.status as FirstMileTask["status"]) || "Pending",
                     isMultiDelivery: task.isMultiDelivery || false,
-                    deliveryStops: task.deliveryStops || undefined
+                    deliveryStops: task.deliveryStops || undefined,
+                    // Coerce a stored Firestore Timestamp → Date for the datetime-local control.
+                    actualPickupAt: task.actualPickupAt
+                        ? (task.actualPickupAt instanceof Date
+                            ? task.actualPickupAt
+                            : (typeof (task.actualPickupAt as any).toDate === "function"
+                                ? (task.actualPickupAt as any).toDate()
+                                : new Date(task.actualPickupAt as any)))
+                        : undefined,
                 } as FirstMileTask);
             } else {
+                // Create mode. When a `task` seed is supplied (Duplicate flow), copy its route /
+                // customer / vehicle so the admin only changes driver/truck; otherwise blank.
+                // `task` is undefined for a normal "Add", so this stays identical to before.
                 form.reset({
                     date: new Date(),
-                    time: "15:00",
-                    sourceHub: "",
-                    destination: "",
-                    jobCategory: "PRIMARY",
-                    truckType: "4W",
-                    truckId: "",
+                    time: task?.time || "15:00",
+                    sourceHub: task?.sourceHub || "",
+                    destination: (task?.destination as string) || "",
+                    billingCustomerId:
+                        task?.billingCustomerId || task?.sourceHubLinkedCustomerId || task?.destinationLinkedCustomerId || "",
+                    jobCategory: (task?.jobCategory as FirstMileTask["jobCategory"]) || "PRIMARY",
+                    truckType: (task?.truckType as FirstMileTask["truckType"]) || "4W",
+                    truckId: task?.truckId || "",
                     taskId: "",
-                    driverId: "",
-                    driverName: "",
-                    driverPhone: "",
-                    licensePlate: "",
+                    driverId: task?.driverId || "",
+                    driverName: task?.driverName || "",
+                    driverPhone: task?.driverPhone || "",
+                    licensePlate: task?.licensePlate || "",
                     status: "Pending",
                     taskType: "LINE_HAUL",
-                    isMultiDelivery: false,
-                    deliveryStops: undefined
+                    isMultiDelivery: task?.isMultiDelivery || false,
+                    deliveryStops: task?.deliveryStops || undefined,
+                    // A duplicate / new job starts with no actual pickup time — the admin sets it fresh.
+                    actualPickupAt: undefined,
                 });
             }
         }
@@ -167,6 +187,19 @@ export function useLineHaulTask({
             form.setValue("sourceHub", socOptions[0].source_id);
         }
     }, [isOpen, mode, socOptions, form]);
+
+    // Prefill billing customer (ADR 0027) from the linked hub; admin can override. LINE_HAUL carries
+    // the customer on the destination hub, so check destination first, then source.
+    const watchedSourceHubForCustomer = form.watch("sourceHub");
+    const watchedDestinationForCustomer = form.watch("destination");
+    useEffect(() => {
+        if (mode !== "create" || !isOpen) return;
+        if (form.getValues("billingCustomerId")) return;
+        const dst = hubs.find((h) => String(h["Hub Code"] ?? "").trim() === String(watchedDestinationForCustomer ?? "").trim());
+        const src = hubs.find((h) => String(h["Hub Code"] ?? "").trim() === String(watchedSourceHubForCustomer ?? "").trim());
+        const cid = dst?.linkedCustomerId || src?.linkedCustomerId;
+        if (cid && customersById.has(cid)) form.setValue("billingCustomerId", cid);
+    }, [watchedSourceHubForCustomer, watchedDestinationForCustomer, hubs, customersById, mode, isOpen, form]);
 
     const watchedDate = form.watch("date");
     const watchedDestination = form.watch("destination");
@@ -229,6 +262,20 @@ export function useLineHaulTask({
     };
 
     const onSubmit = async (values: FirstMileTask) => {
+        // Required billing customer at assign (ADR 0027) — fail loud, block save.
+        if (!values.billingCustomerId) {
+            form.setError("billingCustomerId", { type: "manual", message: "กรุณาเลือกลูกค้า / Customer is required" });
+            return;
+        }
+        const chosenCustomer = customersById.get(values.billingCustomerId);
+        const billingCustomerFields: Record<string, unknown> = {
+            billingCustomerId: values.billingCustomerId,
+            billingCustomerName: chosenCustomer?.name,
+            billingCustomerCode: chosenCustomer?.code,
+        };
+        // The plan has no time field (ADR 0028). Carry the time from the actual pickup so the stored
+        // task.time (schema-required, shown in lists) stays meaningful; default 00:00 when unset.
+        values.time = values.actualPickupAt ? format(new Date(values.actualPickupAt), "HH:mm") : (values.time || "00:00");
         setLoading(true);
         try {
             if (values.isMultiDelivery && values.deliveryStops && values.deliveryStops.length >= 2) {
@@ -265,6 +312,8 @@ export function useLineHaulTask({
                         destinationCustomerLinkKind: stop.destinationCustomerLinkKind,
                     })),
                     ...(runOrder != null ? { runOrder } : {}),
+                    ...billingCustomerFields,
+                    actualPickupAt: values.actualPickupAt ? new Date(values.actualPickupAt).toISOString() : undefined,
                 };
 
                 const result = await callable(payload);
@@ -293,6 +342,7 @@ export function useLineHaulTask({
                 const rawCreate = {
                     ...values,
                     ...hubLinkFields,
+                    ...billingCustomerFields,
                     dateStr,
                     ...(runOrder != null ? { runOrder } : {}),
                     createdAt: new Date(),
@@ -321,6 +371,7 @@ export function useLineHaulTask({
                 const payload: Record<string, unknown> = {
                     ...values,
                     ...buildHubLinkFields(values, true),
+                    ...billingCustomerFields,
                     updatedAt: new Date(),
                 };
                 if (task.status === "Cancelled" && values.driverId) {

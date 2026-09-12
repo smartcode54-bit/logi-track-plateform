@@ -88,12 +88,20 @@ export function resolveBillingRoundProvenance(
 export interface TripBillingTimestamps {
     deliveredTimestamp?: unknown;
     createdAt?: unknown;
+    /**
+     * Explicit billing-date override in epoch ms. When set (> 0) it wins over
+     * deliveredTimestamp/createdAt. Used for customers billed by their planned work date
+     * (`customers.billingDateBasis === "plan"`, ADR 0027) instead of the delivery instant (ADR 0008 §3).
+     */
+    billingDateMs?: number;
 }
 
 export interface TaskBillingInput {
     sourceHub?: string | null;
     destination?: string | null;
     truckType?: string | null;
+    /** Explicit billing customer chosen at assign time — overrides the hub-derived link (ADR 0027). */
+    billingCustomerId?: string | null;
     sourceHubLinkedCustomerId?: string | null;
     destinationLinkedCustomerId?: string | null;
 }
@@ -242,6 +250,10 @@ export function timestampLikeToMillis(val: unknown): number {
 }
 
 export function getTripBillingDateMs(trip: TripBillingTimestamps): number {
+    // An explicit plan-date override (ADR 0027) wins over the delivery instant (ADR 0008 §3).
+    if (typeof trip.billingDateMs === "number" && Number.isFinite(trip.billingDateMs) && trip.billingDateMs > 0) {
+        return trip.billingDateMs;
+    }
     const delivered = timestampLikeToMillis(trip.deliveredTimestamp);
     if (delivered > 0) return delivered;
     const created = timestampLikeToMillis(trip.createdAt);
@@ -251,6 +263,8 @@ export function getTripBillingDateMs(trip: TripBillingTimestamps): number {
 
 export function resolveTaskCustomerId(task: TaskBillingInput | null | undefined): string {
     return (
+        // Explicit choice at assign time wins over the hub-derived link (ADR 0027).
+        task?.billingCustomerId?.trim() ||
         task?.sourceHubLinkedCustomerId?.trim() ||
         task?.destinationLinkedCustomerId?.trim() ||
         ""

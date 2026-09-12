@@ -93,6 +93,8 @@ interface IncomeRow {
     taskId?: string;
     jobCategory?: "PRIMARY" | "SUPPLEMENTARY";
     deliveredTimestamp?: Date;
+    /** Plan date used as the billing axis for plan-basis customers (ADR 0027). */
+    billingDate?: Date;
     billingIsMultiDelivery?: boolean;
     totalDeliveryStops?: number;
     billingMultiDeliveryBreakdown?: MultiDeliveryBreakdownItem[];
@@ -209,6 +211,36 @@ export default function AccountingIncomePage() {
     const [editingDeliveredId, setEditingDeliveredId] = useState<string | null>(null);
     const [editingDeliveredValue, setEditingDeliveredValue] = useState("");
     const [savingDeliveredId, setSavingDeliveredId] = useState<string | null>(null);
+    // Plan-date (billing axis) inline edit for plan-basis customers (ADR 0027). Writes the plan date
+    // to the TASK (single source of truth = tasks.date) then force-recomputes so the trip re-derives
+    // its billingDate + price under the correct plan-date round — used to hand-fix pre-feature trips.
+    const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
+    const [editingPlanValue, setEditingPlanValue] = useState("");
+    const [savingPlanId, setSavingPlanId] = useState<string | null>(null);
+    const handleSavePlanDate = async (tripId: string, taskId?: string) => {
+        if (!editingPlanValue) return;
+        if (!taskId) { toast.error(t("accounting.income.planDate.noTask", "ไม่พบงาน (task) ของเที่ยวนี้ แก้วันแผนงานไม่ได้")); return; }
+        const d = new Date(`${editingPlanValue}T00:00:00`);
+        if (Number.isNaN(d.getTime())) { toast.error(t("accounting.income.planDate.invalid", "วันที่ไม่ถูกต้อง")); return; }
+        setSavingPlanId(tripId);
+        try {
+            await updateDoc(doc(db, COLLECTIONS.TASKS, taskId), {
+                date: Timestamp.fromDate(d),
+                dateStr: format(d, "ddMMyyyy"),
+                updatedAt: Timestamp.now(),
+            });
+            const recompute = httpsCallable(functions, "computeTripBillingSnapshot");
+            await recompute({ tripId, forceRecompute: true });
+            setRows((prev) => prev.map((r) => r.id === tripId ? { ...r, billingDate: d } : r));
+            toast.success(t("accounting.income.planDate.saved", "บันทึกวันแผนงานและคำนวณบิลใหม่แล้ว"));
+            setEditingPlanId(null);
+            await loadData();
+        } catch (e) {
+            toast.error(t("accounting.income.planDate.saveFailed", "บันทึกไม่สำเร็จ") + ": " + String(e));
+        } finally {
+            setSavingPlanId(null);
+        }
+    };
     const handleSaveDeliveredDate = async (tripId: string) => {
         if (!editingDeliveredValue) return;
         const d = new Date(editingDeliveredValue);
@@ -338,6 +370,7 @@ export default function AccountingIncomePage() {
                         // Left raw here; the trip → task fallback runs below, once the tasks are loaded.
                         jobCategory: resolveDisplayJobCategory(d.jobCategory),
                         deliveredTimestamp: toDate(d.deliveredTimestamp),
+                        billingDate: toDate(d.billingDate),
                         billingIsMultiDelivery: d.billingIsMultiDelivery === true,
                         totalDeliveryStops: typeof d.totalDeliveryStops === "number" ? d.totalDeliveryStops : undefined,
                         billingMultiDeliveryBreakdown: breakdown,
@@ -1208,6 +1241,7 @@ export default function AccountingIncomePage() {
                                         <TableHead className="text-right">{t("accounting.income.table.addPerTrip")}</TableHead>
                                         <TableHead className="text-right">{t("accounting.income.table.finalRate")}</TableHead>
                                         <TableHead>{t("accounting.income.table.deliveredAt")}</TableHead>
+                                        <TableHead>{t("accounting.income.table.planDate")}</TableHead>
                                         <TableHead>{t("accounting.income.table.rateImportId")}</TableHead>
                                         <TableHead>{t("accounting.income.table.fuelRuleRef")}</TableHead>
                                     </TableRow>
@@ -1312,6 +1346,36 @@ export default function AccountingIncomePage() {
                                                     </div>
                                                 )}
                                             </TableCell>
+                                            <TableCell>
+                                                {editingPlanId === row.id ? (
+                                                    <div className="flex items-center gap-1">
+                                                        <Input
+                                                            type="date"
+                                                            className="h-7 text-xs w-36"
+                                                            value={editingPlanValue}
+                                                            onChange={(e) => setEditingPlanValue(e.target.value)}
+                                                        />
+                                                        <Button size="sm" className="h-7 px-2 text-xs" disabled={savingPlanId === row.id} onClick={() => handleSavePlanDate(row.id, row.taskId)}>
+                                                            {savingPlanId === row.id ? <Loader2 className="h-3 w-3 animate-spin" /> : t("accounting.income.planDate.save", "บันทึก")}
+                                                        </Button>
+                                                        <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setEditingPlanId(null)}>{t("accounting.income.planDate.cancel", "ยกเลิก")}</Button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex items-center gap-1">
+                                                        <span className={row.billingDate ? "" : "text-muted-foreground"}>
+                                                            {row.billingDate ? format(row.billingDate, "dd/MM/yyyy") : "-"}
+                                                        </span>
+                                                        {isAdmin && row.recordType !== "standby" && (
+                                                            <Button size="sm" variant="ghost" className="h-6 px-1" onClick={() => {
+                                                                setEditingPlanId(row.id);
+                                                                setEditingPlanValue(row.billingDate ? format(row.billingDate, "yyyy-MM-dd") : (row.deliveredTimestamp ? format(row.deliveredTimestamp, "yyyy-MM-dd") : ""));
+                                                            }}>
+                                                                <Pencil className="h-3 w-3" />
+                                                            </Button>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </TableCell>
                                             <TableCell className="font-mono text-xs">
                                                 {row.billingRateImportId || "-"}
                                             </TableCell>
@@ -1327,7 +1391,7 @@ export default function AccountingIncomePage() {
                                     ))}
                                     {filteredRows.length === 0 && (
                                         <TableRow>
-                                            <TableCell colSpan={13} className="h-24 text-center text-muted-foreground">
+                                            <TableCell colSpan={14} className="h-24 text-center text-muted-foreground">
                                                 {t("accounting.income.noRecords")}
                                             </TableCell>
                                         </TableRow>

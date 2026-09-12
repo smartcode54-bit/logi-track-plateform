@@ -253,8 +253,9 @@ cancelled, or deleted — a standby with no task is a legitimate event, not bad 
 
 ## Billing date
 
-The single timestamp that decides **which rate applies and which invoice a row lands on**: the moment
-the service completed — `deliveredTimestamp` for a [[`trip_record`]], `endedAt` for a [[Standby]].
+The single timestamp that decides **which rate applies and which invoice a row lands on**: by default
+the moment the service completed — `deliveredTimestamp` for a [[`trip_record`]], `endedAt` for a
+[[Standby]].
 
 Before [ADR 0008](adr/0008-standby-billing-visibility-and-recompute-semantics.md) three different
 fields were doing this job in three places (rate selection, page grouping, recompute scan), which is
@@ -262,6 +263,38 @@ why a recompute could miss exactly the rows an invoice contained. `createdAt` is
 and must never decide a period — it is `serverTimestamp()` in the admin backfill dialog
 (`standby-backfill-dialog.tsx:338`), i.e. the day someone typed a past event in, not the day it
 happened. See [[`createdAt` (trip_record)]].
+
+**Per-billing-entity exception (ADR 0027).** A billing entity whose `billingDateBasis` is `"plan"`
+(e.g. CJSF/JNT) reconciles by the **plan date** they send us day-by-day, not by when the driver
+finished. The flag lives on the entity's profile — `customers.billingDateBasis` or, when a partner is
+billed directly, `subcontractors.billingDateBasis`; resolution reads customers first, then
+subcontractors (`resolveBillingDateBasis`). For such a customer the billing date of a trip is the task's plan date (`tasks.date`), not
+`deliveredTimestamp` — so a job planned on the 30th but delivered on the 1st still bills in the
+planned month. It is denormalized onto the trip as `trip_records.billingDate` (a queryable Timestamp
+the billing math, page grouping and recompute scan all read for that customer). Everyone else, and
+standby for every customer, stays on the delivery instant. See
+[ADR 0027](adr/0027-plan-date-billing-axis.md).
+
+## Plan date
+
+วันแผนงาน — `tasks.date`, the day the customer scheduled the job, chosen by the admin at assign time
+(the day-by-day plan a customer like CJSF sends). For a [[Billing date|plan-basis]] customer it is the
+billing axis and the period filter on the Billing Document (denormalized to `trip_records.billingDate`,
+ADR 0027). It is **not** necessarily the day the work was actually done — see [[Actual work date]].
+
+## Actual work date
+
+วันรับจริง — the day the job is actually done, which the model splits into two distinct facts (ADR 0028):
+
+- **Recorded actual** — `tasks.checkInAt` (device `Timestamp` at check-in,
+  `logitrack-mobile/.../checkin_repository.dart:124`) and `trip_records.deliveredTimestamp` (delivery).
+  Driver-gated, post-hoc, authoritative, un-editable. No `actualDate` field duplicates it.
+- **Scheduled/dispatch actual** — `tasks.actualPickupAt`, the real date-time the **admin dispatches**
+  the driver to go, set on the assign form. The STD to `checkInAt`'s ATD.
+
+Both are **decoupled from billing**: for a plan-basis customer the invoice follows the [[Plan date]],
+never the actual date, and no warning is raised when they differ. Absent when a job was never
+scheduled/checked-in. See [ADR 0028](adr/0028-plan-date-vs-actual-work-date.md).
 
 ## Billing period
 

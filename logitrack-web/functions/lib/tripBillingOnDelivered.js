@@ -46,6 +46,58 @@ const COL_FUEL_ADJ = "customer_fuel_rate_adjustments";
 const COL_TRIP_RECORDS = "trip_records";
 const COL_HUBS = "hubs";
 const COL_SERVICE_FEES = "customer_service_fees";
+const COL_CUSTOMERS = "customers";
+const COL_SUBCONTRACTORS = "subcontractors";
+function basisFromSnap(snap) {
+    return snap.exists && snap.get("billingDateBasis") === "plan" ? "plan" : "delivered";
+}
+/**
+ * Resolve a billing entity's date basis (ADR 0027/0028). The billing entity id may be a customer OR a
+ * subcontractor/partner (a hub can link to either — `customerLinkKind`). Read `customers/{id}` first;
+ * if that doc doesn't exist the id is a partner, so fall back to `subcontractors/{id}`. Missing = "delivered".
+ * Pass `custSnap` when the caller already fetched the customer doc to avoid a second read.
+ */
+async function resolveBillingDateBasis(db, entityId, custSnap) {
+    const cs = custSnap ?? (await db.collection(COL_CUSTOMERS).doc(entityId).get());
+    if (cs.exists)
+        return basisFromSnap(cs);
+    const sub = await db.collection(COL_SUBCONTRACTORS).doc(entityId).get();
+    return basisFromSnap(sub);
+}
+/**
+ * The instant a trip bills against (ADR 0027). For a plan-basis customer it is the task's plan date
+ * (`tasks.date`); otherwise 0 = "no override", so callers fall back to the delivery instant
+ * (ADR 0008 §3). Returned in epoch ms.
+ */
+function resolvePlanBillingDateMs(basis, task) {
+    if (basis !== "plan")
+        return 0;
+    const planMs = (0, billingCompute_1.timestampLikeToMillis)(task.date);
+    return planMs > 0 ? planMs : 0;
+}
+/**
+ * Stamp `billingDate` + `billingCustomerId` on a delivered trip whose price could not be computed
+ * (ADR 0027 / 0008 §6). Without this, a plan-basis trip that fails rate lookup would carry no
+ * billingDate and vanish from its planned-month Billing Document entirely — the exact "หลุดวางบิล"
+ * leak this feature exists to close. Best-effort: a failed stamp must not mask the original error.
+ */
+async function stampBillingDateOnUnpriced(tripRef, billingDateTs, customerId, tripId) {
+    if (!billingDateTs)
+        return;
+    try {
+        await tripRef.update({
+            billingDate: billingDateTs,
+            billingCustomerId: customerId,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+    }
+    catch (e) {
+        firebase_functions_1.logger.warn("[billingSnapshot] failed to stamp billingDate on unpriced trip", {
+            tripId,
+            error: String(e),
+        });
+    }
+}
 function normalizeStoredCode(v) {
     return (v ?? "").trim().toUpperCase();
 }
@@ -153,10 +205,13 @@ async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hu
         sourceHub: resolvedSourceHub,
         destination: resolvedDestination,
         truckType: typeof t.truckType === "string" ? t.truckType : undefined,
+        // Explicit billing customer chosen at assign time wins over the hub-derived link (ADR 0027).
+        billingCustomerId: typeof t.billingCustomerId === "string" ? t.billingCustomerId : undefined,
         sourceHubLinkedCustomerId: typeof t.sourceHubLinkedCustomerId === "string" ? t.sourceHubLinkedCustomerId : undefined,
         destinationLinkedCustomerId: typeof t.destinationLinkedCustomerId === "string" ? t.destinationLinkedCustomerId : undefined,
     };
-    const customerId = taskInput.sourceHubLinkedCustomerId?.trim() ||
+    const customerId = taskInput.billingCustomerId?.trim() ||
+        taskInput.sourceHubLinkedCustomerId?.trim() ||
         taskInput.destinationLinkedCustomerId?.trim() ||
         "";
     if (!customerId) {
@@ -172,21 +227,32 @@ async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hu
     const overrideFor = (cat) => cat === "SUPPLEMENTARY" ? { billingManualOverride: true } : {};
     let rateEntries;
     let fuelAdjustments;
+    let billingDateBasis;
     if (rateCache?.has(customerId)) {
-        ({ rateEntries, fuelAdjustments } = rateCache.get(customerId));
+        ({ rateEntries, fuelAdjustments, billingDateBasis } = rateCache.get(customerId));
     }
     else {
-        const [rateSnap, fuelSnap] = await Promise.all([
+        const [rateSnap, fuelSnap, custSnap] = await Promise.all([
             db.collection(COL_RATE_ENTRIES).where("customerId", "==", customerId).get(),
             db.collection(COL_FUEL_ADJ).where("customerId", "==", customerId).get(),
+            db.collection(COL_CUSTOMERS).doc(customerId).get(),
         ]);
         rateEntries = rateSnap.docs.map((d) => mapRateDoc(customerId, d));
         fuelAdjustments = fuelSnap.docs.map((d) => mapFuelDoc(customerId, d));
-        rateCache?.set(customerId, { rateEntries, fuelAdjustments });
+        billingDateBasis = await resolveBillingDateBasis(db, customerId, custSnap);
+        rateCache?.set(customerId, { rateEntries, fuelAdjustments, billingDateBasis });
     }
+    // Plan-date billing (ADR 0027): a plan-basis customer bills against the task's plan date
+    // (tasks.date, Bangkok calendar day) rather than the delivery instant (ADR 0008 §3). Stored on
+    // the trip as `billingDate` so the Billing Document / Income group and the recompute scan by it.
+    const planBillingMs = resolvePlanBillingDateMs(billingDateBasis, t);
+    const billingDateMs = planBillingMs > 0 ? planBillingMs : (0, billingCompute_1.timestampLikeToMillis)(data.deliveredTimestamp);
+    const billingDateTs = billingDateMs > 0 ? admin.firestore.Timestamp.fromMillis(billingDateMs) : null;
     const tripParts = {
         deliveredTimestamp: data.deliveredTimestamp,
         createdAt: data.createdAt,
+        // Only override for plan basis; delivered basis stays exactly on deliveredTimestamp.
+        billingDateMs: planBillingMs > 0 ? planBillingMs : undefined,
     };
     // Check if this is a multi-delivery trip
     const isMultiDelivery = data.isMultiDelivery === true;
@@ -258,6 +324,7 @@ async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hu
                 customerId,
                 stops: stops.length,
             });
+            await stampBillingDateOnUnpriced(tripRef, billingDateTs, customerId, tripId);
             return { ok: false, error: "Could not compute multi-delivery billing" };
         }
         await tripRef.update({
@@ -285,6 +352,8 @@ async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hu
             billingFuelBandLowerThb: multiComputed.fuelBandLowerThb ?? null,
             billingFuelBandUpperThb: multiComputed.fuelBandUpperThb ?? null,
             billingReferenceFuelPriceThb: multiComputed.referenceFuelPriceThb ?? null,
+            // Plan-date axis (ADR 0027): queryable field the Billing Document / Income group by.
+            billingDate: billingDateTs,
             jobCategory: resolvedCategory,
             ...overrideFor(resolvedCategory),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -349,6 +418,7 @@ async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hu
                 rawTaskSourceHub: taskInput.sourceHub,
                 rawTaskDestination: taskInput.destination,
             });
+            await stampBillingDateOnUnpriced(tripRef, billingDateTs, customerId, tripId);
             return { ok: false, error: `No rate: ${hubId} → ${destination} (${vehicleClass})` };
         }
         await tripRef.update({
@@ -366,6 +436,8 @@ async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hu
             billingFuelBandUpperThb: computed.fuelBandUpperThb ?? null,
             billingReferenceFuelPriceThb: computed.referenceFuelPriceThb ?? null,
             billingCustomerId: computed.customerId,
+            // Plan-date axis (ADR 0027): queryable field the Billing Document / Income group by.
+            billingDate: billingDateTs,
             jobCategory: resolvedCategory,
             ...overrideFor(resolvedCategory),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -399,7 +471,7 @@ exports.computeTripBillingSnapshot = (0, https_1.onCall)({
         throw new https_1.HttpsError("not-found", "Trip not found");
     }
     const data = tripSnap.data();
-    return tryWriteBillingSnapshotFromTripData(db, tripId, data, tripSnap.ref, hubMaps);
+    return tryWriteBillingSnapshotFromTripData(db, tripId, data, tripSnap.ref, hubMaps, request.data?.forceRecompute === true);
 });
 /**
  * HTTPS Callable (admin only): change a delivered trip's หลัก/เสริม (jobCategory) and re-derive its
@@ -469,22 +541,33 @@ exports.setTripJobCategory = (0, https_1.onCall)({
         sourceHub: resolvedSourceHub,
         destination: resolvedDestination,
         truckType: typeof t.truckType === "string" ? t.truckType : undefined,
+        billingCustomerId: typeof t.billingCustomerId === "string" ? t.billingCustomerId : undefined,
         sourceHubLinkedCustomerId: typeof t.sourceHubLinkedCustomerId === "string" ? t.sourceHubLinkedCustomerId : undefined,
         destinationLinkedCustomerId: typeof t.destinationLinkedCustomerId === "string" ? t.destinationLinkedCustomerId : undefined,
     };
-    const customerId = taskInput.sourceHubLinkedCustomerId?.trim() || taskInput.destinationLinkedCustomerId?.trim() || "";
+    const customerId = taskInput.billingCustomerId?.trim() ||
+        taskInput.sourceHubLinkedCustomerId?.trim() ||
+        taskInput.destinationLinkedCustomerId?.trim() ||
+        "";
     if (!customerId) {
         throw new https_1.HttpsError("failed-precondition", "Task has no linked customer");
     }
-    const [rateSnap, fuelSnap] = await Promise.all([
+    const [rateSnap, fuelSnap, custSnap] = await Promise.all([
         db.collection(COL_RATE_ENTRIES).where("customerId", "==", customerId).get(),
         db.collection(COL_FUEL_ADJ).where("customerId", "==", customerId).get(),
+        db.collection(COL_CUSTOMERS).doc(customerId).get(),
     ]);
     const rateEntries = rateSnap.docs.map((d) => mapRateDoc(customerId, d));
     const fuelAdjustments = fuelSnap.docs.map((d) => mapFuelDoc(customerId, d));
+    // Re-derive under the same plan-date axis (ADR 0027) the delivery-time snapshot used, so a
+    // manual หลัก/เสริม change reprices against the plan month, not the delivery instant.
+    const planBillingMs = resolvePlanBillingDateMs(await resolveBillingDateBasis(db, customerId, custSnap), t);
+    const billingDateMs = planBillingMs > 0 ? planBillingMs : (0, billingCompute_1.timestampLikeToMillis)(data.deliveredTimestamp);
+    const billingDateTs = billingDateMs > 0 ? admin.firestore.Timestamp.fromMillis(billingDateMs) : null;
     const tripParts = {
         deliveredTimestamp: data.deliveredTimestamp,
         createdAt: data.createdAt,
+        billingDateMs: planBillingMs > 0 ? planBillingMs : undefined,
     };
     const noRateError = () => {
         const hubId = (0, billingCompute_1.extractHubId)(taskInput.sourceHub);
@@ -599,6 +682,8 @@ exports.setTripJobCategory = (0, https_1.onCall)({
     });
     batch.update(tripRef, {
         ...tripUpdate,
+        // Keep the plan-date axis (ADR 0027) in sync when the price is re-derived here.
+        billingDate: billingDateTs,
         jobCategory: targetCategory,
         billingManualOverride: targetCategory === "SUPPLEMENTARY",
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -625,6 +710,9 @@ function bangkokBoundsToTimestamps(fromDateStr, toDateStr) {
  * an invoice by delivery date, so scanning by creation date recomputed a different set than the
  * invoice contains — a trip created 30 June and delivered 1 July is on the July invoice yet was never
  * touched by a "recompute July" run. That mismatch is why prices appeared not to update.
+ *
+ * Exception (ADR 0027): when a single **plan-date** customer is targeted, the scan axis is
+ * `billingDate` instead, because that customer's invoice is grouped by the plan date. See scanByPlanDate.
  */
 exports.backfillTripBillingSnapshots = (0, https_1.onCall)({
     region: "asia-southeast1",
@@ -645,23 +733,44 @@ exports.backfillTripBillingSnapshots = (0, https_1.onCall)({
     const filterCustomerId = request.data?.customerId?.trim() ?? "";
     const db = admin.firestore();
     const { start, end } = bangkokBoundsToTimestamps(fromDateStr, toDateStr);
-    // Surface the real Firestore error rather than a bare INTERNAL (ADR 0008 §8) — the
-    // `status` + `deliveredTimestamp` scan needs a composite index the old `createdAt`-only scan
-    // did not, and Firestore's message carries the URL that creates it.
+    // A plan-date customer (ADR 0027) groups its invoice by `billingDate` (the plan date), not the
+    // delivery instant — so a "recompute September" run for such a customer must SCAN by billingDate
+    // too, or it would touch a different set of trips than the invoice contains (the same ADR 0008
+    // §3 trap, one axis over). Only possible when a single customer is targeted; an "all" run keeps
+    // the delivery-date scan since mixed bases cannot share one range.
+    let scanByPlanDate = false;
+    if (filterCustomerId) {
+        try {
+            scanByPlanDate = (await resolveBillingDateBasis(db, filterCustomerId)) === "plan";
+        }
+        catch (e) {
+            firebase_functions_1.logger.warn("[billingSnapshot] backfill could not read customer basis", {
+                filterCustomerId,
+                error: String(e),
+            });
+        }
+    }
+    // Surface the real Firestore error rather than a bare INTERNAL (ADR 0008 §8) — both scans need
+    // a composite index, and Firestore's message carries the URL that creates it.
     let snap;
     let hubMaps;
     let locks;
     try {
-        [snap, hubMaps, locks] = await Promise.all([
-            // No explicit orderBy — see the note in standbyBilling.ts: the range already implies
-            // ascending order, served by the same (status, deliveredTimestamp) index the Billing
-            // Document's trip query uses, so this needs no new index deployment.
-            db.collection(COL_TRIP_RECORDS)
+        // No explicit orderBy — the range already implies ascending order.
+        const tripQuery = scanByPlanDate
+            ? db.collection(COL_TRIP_RECORDS)
+                .where("status", "==", "delivered")
+                .where("billingCustomerId", "==", filterCustomerId)
+                .where("billingDate", ">=", start)
+                .where("billingDate", "<=", end)
+                .limit(maxScan)
+            : db.collection(COL_TRIP_RECORDS)
                 .where("status", "==", "delivered")
                 .where("deliveredTimestamp", ">=", start)
                 .where("deliveredTimestamp", "<=", end)
-                .limit(maxScan)
-                .get(),
+                .limit(maxScan);
+        [snap, hubMaps, locks] = await Promise.all([
+            tripQuery.get(),
             buildHubMaps(db),
             (0, billingPeriodLock_1.loadBillingPeriodLocks)(db),
         ]);
@@ -708,7 +817,9 @@ exports.backfillTripBillingSnapshots = (0, https_1.onCall)({
         // is gated here; the single-trip callable stays open because ADR 0002 made an explicit
         // admin edit the one sanctioned way to move a settled price.
         if (typeof data.billingEstimateThb === "number") {
-            const lock = locks.lockFor(typeof data.billingCustomerId === "string" ? data.billingCustomerId : "", (0, billingCompute_1.timestampLikeToMillis)(data.deliveredTimestamp));
+            const lock = locks.lockFor(typeof data.billingCustomerId === "string" ? data.billingCustomerId : "", 
+            // Lock on the same axis the invoice period is built from (ADR 0027).
+            (0, billingCompute_1.timestampLikeToMillis)(scanByPlanDate ? data.billingDate : data.deliveredTimestamp));
             if (lock) {
                 blocked++;
                 blockedInvoices.add(lock.invoiceNumber);
