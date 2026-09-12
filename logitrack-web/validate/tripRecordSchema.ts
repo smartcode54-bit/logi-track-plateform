@@ -162,6 +162,15 @@ export const tripRecordSchema = z.object({
      */
     deliveredVia: z.string().optional(),
 
+    /**
+     * Carrier organisation that ran this trip (ADR 0026). `subcontractors/{docId}`, copied from the
+     * task (or the driver as a fallback) at write time and frozen — see `functions/src/core/tenantResolve.ts`.
+     * Optional while the backfill is in flight (ADR 0003).
+     */
+    tenantId: z.string().optional(),
+    /** How tenantId was derived — `driver` means it was approximated from the current subcontractor. */
+    tenantSource: z.enum(["task", "trip", "driver", "self", "form"]).optional(),
+
     createdAt: z.any().optional(),
     updatedAt: z.any().optional(),
 });

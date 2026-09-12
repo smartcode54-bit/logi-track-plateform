@@ -116,6 +116,16 @@ export const taskSchema = z.object({
     /** Set by sendCustomerLineNotification once the check-in LINE message was pushed (idempotency). */
     lineCheckinNotifiedAt: z.any().optional(),
 
+    /**
+     * Carrier organisation that runs this row (ADR 0026). `subcontractors/{docId}`, frozen at write
+     * time — never re-derived from `drivers.subcontractorId` on read, or a broker's driver changing
+     * carrier would rewrite history. Optional while the backfill is still in flight (ADR 0003:
+     * do not make a field required before every stored doc has it, or old forms save nothing).
+     */
+    tenantId: z.string().optional(),
+    /** How tenantId was derived — `driver` means it was approximated from the current subcontractor. */
+    tenantSource: z.enum(["task", "trip", "driver", "self", "form"]).optional(),
+
     createdAt: z.coerce.date().optional(),
     updatedAt: z.coerce.date().optional(),
 }).refine(

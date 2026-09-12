@@ -25,6 +25,16 @@ export const truckSchema = z.object({
     // Truck Ownership
     ownershipType: z.enum(["own", "subcontractor"]).default("own"),
     subcontractorId: z.string().optional(), // Required if ownershipType is 'subcontractor'
+    /**
+     * Carrier organisation that operates this truck (ADR 0026). **Always set** — `"own"` trucks point
+     * at the own-fleet tenant. Deliberately a separate field from `ownershipType`/`subcontractorId`,
+     * which mean "ours vs a partner's" and are relied on by `truck-assignment/actions.client.ts:378`,
+     * `ComplianceSummary.tsx:33`, `SubcontractorDetail.tsx:38` and the refine below.
+     * Optional while the backfill is in flight (ADR 0003).
+     */
+    tenantId: z.string().optional(),
+    /** How tenantId was derived — see functions/src/core/tenantResolve.ts. */
+    tenantSource: z.enum(["task", "trip", "driver", "self", "form"]).optional(),
 
     //validate truck identification
     licensePlate: z.string()

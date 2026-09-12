@@ -41,6 +41,15 @@ export const driverSchema = z.object({
     employmentType: z.enum(EMPLOYMENT_TYPE_ENUM).default("FULL_TIME"),
     subcontractorId: z.string().optional(),
     subcontractorName: z.string().optional(),
+    /**
+     * Carrier organisation this driver belongs to (ADR 0026). Same value space as `subcontractorId`
+     * (`subcontractors/{docId}`) but **always set**, including for our own employees, who point at
+     * the own-fleet tenant. `subcontractorId` keeps its existing meaning ("belongs to a partner"),
+     * so the two are not interchangeable. Optional while the backfill is in flight (ADR 0003).
+     */
+    tenantId: z.string().optional(),
+    /** How tenantId was derived — see functions/src/core/tenantResolve.ts. */
+    tenantSource: z.enum(["task", "trip", "driver", "self", "form"]).optional(),
     contractYears: z.union([z.string(), z.number()]).optional().transform((val) => {
         if (val === "" || val === null || val === undefined) return undefined;
         const num = Number(val);

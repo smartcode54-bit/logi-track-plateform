@@ -556,3 +556,115 @@ delivered card's `หมายเหตุ` line **names the delay cause(s)** in
 `incident_cause_*` key stored in `delayCause` (selected as a key at `incident_report_page.dart:371`) — and
 the [[Evidence gallery]] plus the button's photo count include the incident's map/situation photos under a
 "เหตุล่าช้า" group ([ADR 0025](adr/0025-customer-line-group-notifications.md) §5).
+
+## Tenant
+
+A **carrier organisation** on the platform — the unit of data isolation introduced by
+[ADR 0026](adr/0026-multi-tenant-carrier-isolation.md). One tenant per company that employs drivers
+and runs trucks: Wanpen-Ratchada itself (tenant #1), TTP's own fleet, and each of the 20+
+subcontractors. Implemented as a document in the existing `subcontractors` collection, whose meaning
+is widened by that ADR from "a company that subcontracts from us" to "a carrier organisation".
+
+A tenant is **not** a [[Customer]] (who pays), not a `companies` row (who issues the invoice —
+`companyType: "owner"`, `features/companies/api/companies.ts:28-38`), and not a [[Dispatcher]]
+(who allocates the work). An organisation can be several of these at once: TTP is both a customer and
+a tenant (for its own fleet) and the dispatcher.
+
+## `tenantId`
+
+The isolation key. Stored **on the row**, not derived: `tasks.tenantId`, `trip_records.tenantId`,
+`drivers.tenantId`, `trucks.tenantId`, and carried in the auth token as a custom claim for carrier
+users.
+
+**Invariant — frozen at write time.** `trip_records.tenantId` is copied from the driver's tenant at
+trip creation and never recomputed. Re-deriving it by joining `trip.driverId → drivers.subcontractorId`
+would silently change who owns every past trip the moment a [[Broker carrier]]'s driver moves — see
+[ADR 0026](adr/0026-multi-tenant-carrier-isolation.md) §2. Same principle as [[Frozen price]] and
+ADR 0010.
+
+**Why it must be denormalized:** Firestore security rules cannot join inside a query, and
+`get()`/`exists()` in rules are capped (10 per single-document request) and billed even when the rule
+rejects the request. Isolation therefore has to compare a claim against a field of the document
+itself. Because [[Rules are not filters]], every list query must also carry
+`where("tenantId", "==", …)` of its own.
+
+Supersedes `partnerScopeId` as the isolation concept. Not to be confused with [[partnerCode]].
+
+## Rules are not filters
+
+The Firestore property that shapes every scoping decision in this codebase: a query whose potential
+result set includes documents the rules would deny **fails entirely** — Firestore does not silently
+return the permitted subset
+([docs](https://firebase.google.com/docs/firestore/security/rules-conditions)).
+
+Practical consequence: tightening a rule is never a soft degradation. An existing query that does not
+constrain itself to what the rules permit stops returning anything at all. This is why the rollout
+order in [ADR 0026](adr/0026-multi-tenant-carrier-isolation.md) §5 puts backfill and indexes strictly
+before the rules change.
+
+## Dispatcher
+
+The party that receives work from the end customer and allocates it across tenants — **TTP** in the
+current arrangement: it takes SPX vehicle call-outs (station → sorting centre, and back out to
+stations) and assigns them to its own fleet plus 20+ carriers.
+
+A dispatcher's visibility is a **second, orthogonal axis** to [[tenantId]]: it sees the *operational*
+projection of rows across all tenants (status, times, places, evidence, incidents) but never
+carrier-internal cost/HR data — `payroll`, `driver_penalties`, `driver_compensation_config`,
+`vehicle_expenses`, maintenance, `customer_rate_entries`
+([ADR 0026](adr/0026-multi-tenant-carrier-isolation.md) §3). Collapsing the two axes into one claim is
+the mistake that ADR explicitly forbids.
+
+## Platform admin
+
+The operator of the *software* (Wanpen-Ratchada), as distinct from a [[Tenant admin]]. Today the two
+are the same person: `lib/roles.ts:45` gives `admin: "*"`, and `isWebAdmin()` gates nearly every rule
+in `firestore.rules` — the codebase has no notion of a platform operator separate from Wanpen-Ratchada
+staff.
+
+[ADR 0026](adr/0026-multi-tenant-carrier-isolation.md) §6 splits them, because the platform owner is
+also a carrier competing with its own tenants for the dispatcher's work. Cross-tenant reads by a
+platform admin must be recorded to `security_events` (`firestore.rules:475-478`, Admin-SDK-write-only):
+the bar is **auditable access**, not absent access.
+
+## Tenant admin
+
+The head of a carrier organisation — the "หัวหน้ากลุ่ม" of a subcontractor. Scoped to one
+[[tenantId]], and permitted to onboard that tenant's own `drivers` and `trucks`
+([ADR 0026](adr/0026-multi-tenant-carrier-isolation.md) §7).
+
+That self-service matters structurally, not cosmetically: today `firestore.rules:260` and `:312`
+restrict creating drivers and trucks to admins, so every driver swap at any of 20+ carriers would land
+on the platform owner's desk.
+
+## Broker carrier (นายหน้าหารถ)
+
+A [[Tenant]] that does not own a stable fleet but sources trucks and drivers per job. The reason
+carrier ownership cannot be modelled as a permanent property of a driver: the same person or plate may
+run for carrier A this week and carrier B next week.
+
+`validate/driverSchema.ts:42` holds a single `subcontractorId` per driver, so "which carrier ran this
+trip" is only correct **as of now** — which is exactly why [[tenantId]] is frozen onto the trip
+instead of joined at read time.
+
+## Tenant orphan
+
+A row with a missing or unknown [[tenantId]]. Because isolation compares a claim against the stored
+field, an orphan is readable by **nobody** — not its own tenant, not the [[Dispatcher]] — while still
+existing and still being counted by anything that runs with the Admin SDK.
+
+This is the characteristic failure mode of the ADR 0026 design, and the reason it requires a fail-loud
+write-time validation plus a periodic orphan detector before the rules are tightened.
+
+## `partnerCode`
+
+A **customer channel code** on a trip (`SPX`, `SPK`, …) — `validate/tripRecordSchema.ts:57`, resolved
+by `effectivePartnerCode()` in `features/drivers/hooks/useDriverMonitor.ts:83-91` (falling back to
+`trip.ocrData.partnerCode`). It powers the Partner filter on [[Driver Monitor]].
+
+Listed here because "partner" means three unrelated things in this codebase and the overlap has already
+caused design confusion: `partnerCode` (this term, a channel), `tasks.destinationCustomerLinkKind:
+"partner"` (a kind of hub↔customer link, `validate/taskSchema.ts:46,70,74`), and the `partnerScopeId`
+claim (a subcontractor — now superseded by [[tenantId]]). Per
+[ADR 0026](adr/0026-multi-tenant-carrier-isolation.md) §9, "partner" must not be used for tenancy in new
+code.
