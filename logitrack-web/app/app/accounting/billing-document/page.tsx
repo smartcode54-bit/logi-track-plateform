@@ -30,6 +30,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Download, FileText, Loader2, RefreshCw, X } from "lucide-react";
 import { format } from "date-fns";
+import { bangkokDateStr } from "@/lib/billingDate";
 import { WITHHOLDING_TAX_RATE } from "@/lib/billingConfig";
 import { toast } from "sonner";
 import { useAuth } from "@/context/auth";
@@ -50,6 +51,18 @@ import {
 
 function formatThb(n: number) {
     return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+}
+
+/**
+ * A plan-basis row whose task plan date no longer agrees with the `billingDate` frozen on it when it
+ * was priced (ADR 0027 §2). The documents bill the frozen date, so until someone force-recomputes,
+ * the plan date shown here is NOT the month this row bills in. Marked rather than silently shown,
+ * because the whole point of plan-date billing is that the invoice matches the customer's plan.
+ * Only detectable for a single billing entity — the "all" view stamps no basis.
+ */
+function planDateDrifted(trip: BillingTripRow): boolean {
+    if (trip.billingDateBasis !== "plan" || !trip.planDate || !trip.billingDate) return false;
+    return bangkokDateStr(trip.planDate) !== bangkokDateStr(trip.billingDate);
 }
 
 // ─── Page ────────────────────────────────────────────────────────────────────
@@ -646,6 +659,9 @@ export default function BillingDocumentPage() {
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>{t("accounting.billingDocument.table.tripNumber")}</TableHead>
+                                        {/* วันแผนงาน (ADR 0027) — the axis a plan-basis customer's invoice is built on,
+                                            so it is readable beside the delivery date it can disagree with. */}
+                                        <TableHead>{t("accounting.billingDocument.table.planDate")}</TableHead>
                                         <TableHead>{t("accounting.billingDocument.table.deliveredDate")}</TableHead>
                                         {showActualPickup && (
                                             <TableHead>{t("accounting.billingDocument.table.actualPickup", "วันรับงานจริง")}</TableHead>
@@ -685,6 +701,20 @@ export default function BillingDocumentPage() {
                                                         </Badge>
                                                     )}
                                                 </div>
+                                            </TableCell>
+                                            <TableCell className="text-xs whitespace-nowrap">
+                                                {trip.planDate ? (
+                                                    planDateDrifted(trip) ? (
+                                                        <span
+                                                            className="text-amber-500"
+                                                            title={t("accounting.billingDocument.table.planDateDrift")}
+                                                        >
+                                                            {format(trip.planDate, "dd/MM/yyyy")} ⚠
+                                                        </span>
+                                                    ) : (
+                                                        format(trip.planDate, "dd/MM/yyyy")
+                                                    )
+                                                ) : "-"}
                                             </TableCell>
                                             <TableCell className="text-xs">
                                                 {trip.deliveredTimestamp ? format(trip.deliveredTimestamp, "dd/MM/yyyy HH:mm") : "-"}

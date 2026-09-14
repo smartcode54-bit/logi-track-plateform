@@ -28,7 +28,7 @@ import { bangkokMidnightFromPickedDate, pickedDateToDateStr } from "@/lib/billin
 import { driverDisplayName } from "@/lib/driverName";
 import { billingHubLabelFromFirestoreData } from "@/lib/hubDisplay";
 import { SOC_DESTINATIONS, normalizeSocIdToKey } from "@/validate/taskSchema";
-import type { BillingTripRow } from "@/lib/billingDocument";
+import { billingAxisDate, type BillingTripRow } from "@/lib/billingDocument";
 
 export interface CustomerRateEntryInput {
     hubId: string;
@@ -833,7 +833,7 @@ export async function fetchBillingTripRows(
     }
 
     // ── Batch-fetch linked tasks (driverName/licensePlate/customer denormalized) ──
-    type TaskInfo = { truckType?: string; driverId?: string; driverName?: string; driverPhone?: string; truckLicensePlate?: string; truckId?: string; sourceHub?: string; destination?: string; jobCategory?: "PRIMARY" | "SUPPLEMENTARY"; actualPickupAt?: Date };
+    type TaskInfo = { truckType?: string; driverId?: string; driverName?: string; driverPhone?: string; truckLicensePlate?: string; truckId?: string; sourceHub?: string; destination?: string; jobCategory?: "PRIMARY" | "SUPPLEMENTARY"; actualPickupAt?: Date; planDate?: Date };
     const taskMap = new Map<string, TaskInfo>();
     const taskIds = new Set<string>();
     tripSnap.forEach((d) => { const tid = d.data().taskId; if (tid) taskIds.add(tid); });
@@ -857,6 +857,10 @@ export async function fetchBillingTripRows(
                 sourceHub: t.sourceHub,
                 destination: t.destination,
                 actualPickupAt: toBillingDate(t.actualPickupAt),
+                // วันแผนงาน — the SSOT for the plan date (ADR 0027 §2). Read from the task rather than
+                // from the trip's frozen `billingDate` so an edited plan date shows up here even when
+                // the trip has not been repriced; the invoice keeps using the frozen copy.
+                planDate: toBillingDate(t.date),
                 // Authoritative หลัก/เสริม (ADR 0010): the trip's copy falls back to this when absent.
                 jobCategory:
                     t.jobCategory === "SUPPLEMENTARY"
@@ -920,6 +924,12 @@ export async function fetchBillingTripRows(
     ): "PRIMARY" | "SUPPLEMENTARY" | undefined =>
         tripVal === "SUPPLEMENTARY" || tripVal === "PRIMARY" ? tripVal : taskVal;
 
+    // Stamped on every row so the document generators know which axis the period was built on without
+    // re-reading the profile (ADR 0027). Only meaningful for a single billing entity — the "all"
+    // aggregate mixes bases, and a document is never generated from it.
+    const rowBillingDateBasis: "plan" | "delivered" | undefined =
+        customerId === "all" ? undefined : billByPlanDate ? "plan" : "delivered";
+
     const rows: BillingTripRow[] = [];
 
     tripSnap.forEach((d) => {
@@ -955,6 +965,9 @@ export async function fetchBillingTripRows(
                     taskId: data.taskId,
                     spxTripId: data.spxTripId ? `${data.spxTripId}-s${stop.stopIndex}` : undefined,
                     deliveredTimestamp: toBillingDate(data.deliveredTimestamp),
+                    planDate: taskInfo?.planDate,
+                    billingDate: toBillingDate(data.billingDate),
+                    billingDateBasis: rowBillingDateBasis,
                     billingEstimateThb: stop.finalRateThb,
                     billingBaseRateThb: stop.baseRateThb || undefined,
                     billingLookupHubId: hubId,
@@ -985,6 +998,9 @@ export async function fetchBillingTripRows(
             taskId: data.taskId,
             spxTripId: data.spxTripId,
             deliveredTimestamp: toBillingDate(data.deliveredTimestamp),
+            planDate: taskInfo?.planDate,
+            billingDate: toBillingDate(data.billingDate),
+            billingDateBasis: rowBillingDateBasis,
             billingEstimateThb: Number(data.billingEstimateThb),
             billingBaseRateThb: Number(data.billingBaseRateThb) || undefined,
             billingLookupHubId: hubId,
@@ -1026,6 +1042,11 @@ export async function fetchBillingTripRows(
                 ?? (data.migratedFromTripId as string | undefined)
                 ?? undefined,
             deliveredTimestamp: toBillingDate(data.endedAt) ?? toBillingDate(data.startedAt) ?? undefined,
+            // Standby bills on `endedAt` for every customer (ADR 0008), plan-basis included — so it
+            // carries NO `billingDate`/basis: its axis is the ended instant above, and stamping the
+            // basis here would relabel a standby-only statement's date column as a plan date.
+            // The plan date is still surfaced for review when the standby came from a task.
+            planDate: taskInfo?.planDate,
             billingEstimateThb: billingAmt,
             billingCustomerId: cid,
             vehicleClass: taskInfo?.truckType,
@@ -1052,7 +1073,10 @@ export async function fetchBillingTripRows(
         });
     });
 
-    rows.sort((a, b) => (a.deliveredTimestamp?.getTime() ?? 0) - (b.deliveredTimestamp?.getTime() ?? 0));
+    // Ordered on the billing axis (ADR 0027) so a plan-basis statement reads in plan-date order, the
+    // same order its invoice and detail sheet print. Identical to the old delivered-date sort for
+    // every delivered-basis row, whose `billingDate` is the delivery instant.
+    rows.sort((a, b) => (billingAxisDate(a)?.getTime() ?? 0) - (billingAxisDate(b)?.getTime() ?? 0));
     return rows;
 }
 

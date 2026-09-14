@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+    billingAxisDate,
+    billingDateBasisOf,
     collectBillingRounds,
     formatFuelBand,
     groupToLineItems,
@@ -43,7 +45,7 @@ describe("collectBillingRounds", () => {
         expect(collectBillingRounds([trip(), trip()])).toEqual([]);
     });
 
-    it("widens a round's delivery span across its rows", () => {
+    it("widens a round's span across its rows", () => {
         const rounds = collectBillingRounds([
             trip({
                 id: "a",
@@ -57,8 +59,52 @@ describe("collectBillingRounds", () => {
             }),
         ]);
         expect(rounds).toHaveLength(1);
-        expect(rounds[0].firstDeliveredAt?.toISOString()).toBe("2026-08-05T03:00:00.000Z");
-        expect(rounds[0].lastDeliveredAt?.toISOString()).toBe("2026-08-12T03:00:00.000Z");
+        expect(rounds[0].firstBillingDate?.toISOString()).toBe("2026-08-05T03:00:00.000Z");
+        expect(rounds[0].lastBillingDate?.toISOString()).toBe("2026-08-12T03:00:00.000Z");
+    });
+
+    it("spans a plan-basis round on the plan date, not the delivery instant", () => {
+        // The leak ADR 0027 closes: planned 31 Aug, delivered after midnight on 1 Sep. The August
+        // statement must span to 31 Aug, or its legend prints a September date.
+        const rounds = collectBillingRounds([
+            trip({
+                id: "a",
+                billingRoundEffectiveFromDateStr: "2026-08-01",
+                deliveredTimestamp: new Date("2026-08-05T03:00:00Z"),
+                billingDate: new Date("2026-08-04T17:00:00Z"),
+            }),
+            trip({
+                id: "b",
+                billingRoundEffectiveFromDateStr: "2026-08-01",
+                deliveredTimestamp: new Date("2026-09-01T01:30:00Z"),
+                billingDate: new Date("2026-08-30T17:00:00Z"), // 31 ส.ค. Bangkok midnight
+            }),
+        ]);
+        expect(rounds[0].lastBillingDate?.toISOString()).toBe("2026-08-30T17:00:00.000Z");
+    });
+});
+
+describe("billingAxisDate", () => {
+    it("uses the frozen billing date when the row has one", () => {
+        const planned = new Date("2026-08-30T17:00:00Z");
+        expect(billingAxisDate(trip({ billingDate: planned }))).toBe(planned);
+    });
+
+    it("falls back to the delivery instant for rows priced before ADR 0027 and for standby", () => {
+        expect(billingAxisDate(trip())?.toISOString()).toBe("2026-08-05T03:00:00.000Z");
+        expect(billingAxisDate(trip({ rowType: "standby" }))?.toISOString()).toBe("2026-08-05T03:00:00.000Z");
+    });
+});
+
+describe("billingDateBasisOf", () => {
+    it("reads the basis stamped on the rows", () => {
+        expect(billingDateBasisOf([trip({ billingDateBasis: "plan" })])).toBe("plan");
+        expect(billingDateBasisOf([trip({ billingDateBasis: "delivered" })])).toBe("delivered");
+    });
+
+    it("defaults to delivered when nothing is stamped, so no opt-out customer is relabelled", () => {
+        expect(billingDateBasisOf([trip(), trip()])).toBe("delivered");
+        expect(billingDateBasisOf([])).toBe("delivered");
     });
 });
 
@@ -126,6 +172,17 @@ describe("groupToLineItems", () => {
         expect(items).toHaveLength(1);
         expect(items[0].route).toBe("ค่าโยก");
         expect(items[0].roundLabel).toBe("R1");
+    });
+
+    it("dates a line on the billing axis, so a plan-basis invoice stays inside its month", () => {
+        const items = groupToLineItems([
+            trip({
+                id: "a",
+                deliveredTimestamp: new Date("2026-09-01T01:30:00Z"), // delivered after midnight
+                billingDate: new Date("2026-08-30T17:00:00Z"),        // planned 31 ส.ค.
+            }),
+        ]);
+        expect(items[0].dates.map((d) => d.toISOString())).toEqual(["2026-08-30T17:00:00.000Z"]);
     });
 
     it("leaves the round label empty when a row carries no round", () => {

@@ -587,6 +587,8 @@ export default {
     "accounting.billingDocument.download.reviewFilterActive": "⚠ Download is disabled while a review filter (plate or vehicle type) is active — these narrow the view, not the bill. Clear them to bill the full period.",
     "accounting.billingDocument.table.title": "Trip list ({count})",
     "accounting.billingDocument.table.tripNumber": "Trip No.",
+    "accounting.billingDocument.table.planDate": "Plan date",
+    "accounting.billingDocument.table.planDateDrift": "⚠ The task's plan date changed after this row was priced — the billing documents still use the date frozen at pricing. Force-recompute it on the Income page to move it to the planned period.",
     "accounting.billingDocument.table.deliveredDate": "Delivered",
     "accounting.billingDocument.table.actualPickup": "Actual pickup",
     "accounting.billingDocument.actualPickup.show": "Show actual pickup",

@@ -37,6 +37,9 @@ export interface BillingProviderInfo {
 
 // ─── Data types ─────────────────────────────────────────────────────────────
 
+/** Which date a billing entity closes its period on (ADR 0027). Absent on the profile ⇒ "delivered". */
+export type BillingDateBasis = "plan" | "delivered";
+
 export interface BillingTripRow {
   id: string;
   taskId?: string;
@@ -44,6 +47,25 @@ export interface BillingTripRow {
   deliveredTimestamp?: Date;
   /** Admin-set actual pickup date-time from the task (ADR 0028) — operational, optional detail column. */
   actualPickupAt?: Date;
+  /**
+   * วันแผนงาน — `tasks.date`, the day the customer scheduled the job (ADR 0027/0028). The single
+   * source of truth for the plan date; `billingDate` below is its frozen per-trip copy. Display only:
+   * nothing prices off this, so an admin editing the task later can never silently move a settled bill.
+   */
+  planDate?: Date;
+  /**
+   * The date axis this row was billed on — `trip_records.billingDate`, frozen when the row was priced
+   * (ADR 0027): the plan date for a plan-basis billing entity, the delivery instant for everyone else.
+   * Absent on standby (always `endedAt`, ADR 0008) and on trips priced before ADR 0027 — use
+   * `billingAxisDate()`, never this field raw.
+   */
+  billingDate?: Date;
+  /**
+   * Which axis the billing entity of this row bills on (ADR 0027). Stamped by `fetchBillingTripRows`
+   * only when a single entity was requested — the only case a document is generated for. Undefined in
+   * the "all" aggregate, where rows from both bases are mixed and no one basis describes the set.
+   */
+  billingDateBasis?: BillingDateBasis;
   billingEstimateThb: number;
   billingBaseRateThb?: number;
   billingLookupHubId?: string;
@@ -79,6 +101,34 @@ export interface BillingTripRow {
   billingReferenceFuelPriceThb?: number;
 }
 
+/**
+ * The date a row belongs to the statement by (ADR 0027).
+ *
+ * Every date a billing document prints — the invoice's line-item date ranges, the round legend's
+ * spans, the detail sheet's วันที่ column — must be read on the axis that decided which period the
+ * row lands in, or a plan-basis customer's September invoice prints October delivery dates and the
+ * row falls out of their reconciliation (the exact "หลุดวางบิล" leak ADR 0027 closes).
+ *
+ * Falls back to the delivery instant for rows priced before ADR 0027 (no `billingDate` stamped) and
+ * for standby, which stays on `endedAt` for every customer (ADR 0008). For a delivered-basis row
+ * `billingDate` IS `deliveredTimestamp`, so this is a no-op for everyone but plan-basis customers.
+ */
+export function billingAxisDate(t: BillingTripRow): Date | undefined {
+  return t.billingDate ?? t.deliveredTimestamp;
+}
+
+/**
+ * The axis a set of billed rows was built on (ADR 0027).
+ *
+ * `fetchBillingTripRows` stamps the basis on rows only when a single billing entity was requested,
+ * which is the only case a document is ever generated for — so one stamped row answers for the set.
+ * Nothing stamped (the "all" aggregate, or a legacy caller) ⇒ the delivered default, i.e. today's
+ * behaviour for every customer who never opted in.
+ */
+export function billingDateBasisOf(trips: BillingTripRow[]): BillingDateBasis {
+  return trips.some((t) => t.billingDateBasis === "plan") ? "plan" : "delivered";
+}
+
 /** One price round present in a billing period — the invoice legend (ADR 0009 §6). */
 export interface BillingRound {
   /** Display label, assigned by date order at render time and never stored. */
@@ -87,8 +137,10 @@ export interface BillingRound {
   fuelBandLowerThb?: number;
   fuelBandUpperThb?: number;
   addThbPerTrip?: number;
-  firstDeliveredAt?: Date;
-  lastDeliveredAt?: Date;
+  /** Span of the round inside this period, on the billing axis (`billingAxisDate`) — NOT the
+   *  delivery instant, which for a plan-basis customer can sit in the neighbouring month. */
+  firstBillingDate?: Date;
+  lastBillingDate?: Date;
 }
 
 /**
@@ -103,11 +155,11 @@ export function collectBillingRounds(trips: BillingTripRow[]): BillingRound[] {
     const key = t.billingRoundEffectiveFromDateStr;
     if (!key) continue;
     const existing = byDate.get(key);
-    const d = t.deliveredTimestamp;
+    const d = billingAxisDate(t);
     if (existing) {
       if (d) {
-        if (!existing.firstDeliveredAt || d < existing.firstDeliveredAt) existing.firstDeliveredAt = d;
-        if (!existing.lastDeliveredAt || d > existing.lastDeliveredAt) existing.lastDeliveredAt = d;
+        if (!existing.firstBillingDate || d < existing.firstBillingDate) existing.firstBillingDate = d;
+        if (!existing.lastBillingDate || d > existing.lastBillingDate) existing.lastBillingDate = d;
       }
       continue;
     }
@@ -117,8 +169,8 @@ export function collectBillingRounds(trips: BillingTripRow[]): BillingRound[] {
       fuelBandLowerThb: t.billingFuelBandLowerThb,
       fuelBandUpperThb: t.billingFuelBandUpperThb,
       addThbPerTrip: t.billingAddThbPerTrip,
-      firstDeliveredAt: d,
-      lastDeliveredAt: d,
+      firstBillingDate: d,
+      lastBillingDate: d,
     });
   }
   return Array.from(byDate.values())
@@ -252,7 +304,10 @@ export function groupToLineItems(trips: BillingTripRow[], rounds: BillingRound[]
     // routes), and those rows would then merge into one line carrying an arbitrary round label.
     const roundKey = t.billingRoundEffectiveFromDateStr ?? "";
     const key = `${vc}::${route}::${unitPrice}::${roundKey}`;
-    const d = t.deliveredTimestamp;
+    // Billing axis, not the delivery instant (ADR 0027): `formatLineItemDates` takes the month/year
+    // from these dates on the premise that a statement covers one month, which only holds on the axis
+    // the period was built from.
+    const d = billingAxisDate(t);
     const existing = map.get(key);
     if (existing) {
       existing.count += 1;
@@ -380,8 +435,8 @@ async function buildInvoicePdf(
     for (const r of rounds) {
       y += 4.5;
       const span =
-        r.firstDeliveredAt && r.lastDeliveredAt
-          ? formatLineItemDates([r.firstDeliveredAt, r.lastDeliveredAt], false)
+        r.firstBillingDate && r.lastBillingDate
+          ? formatLineItemDates([r.firstBillingDate, r.lastBillingDate], false)
           : r.effectiveFromDateStr;
       const band = formatFuelBand(r.fuelBandLowerThb, r.fuelBandUpperThb);
       const adj =
@@ -397,9 +452,13 @@ async function buildInvoicePdf(
   const lineItems = groupToLineItems(trips, rounds);
   // The `รอบ` column costs ~12mm, which comes out of the auto-width `รายการ` column. It is only
   // drawn when the period actually has more than one round, so a normal month is unchanged.
+  // The date column now carries whichever axis the period was built on, so it must say which one:
+  // a plan-basis customer's dates are plan dates, and labelling them "วันที่จัดส่ง" on the document
+  // they reconcile against would be a lie (ADR 0027).
+  const dateHead = billingDateBasisOf(trips) === "plan" ? "วันที่ตามแผน" : "วันที่จัดส่ง";
   const head = showRounds
-    ? ["ลำดับ", "รอบ", "ประเภทรถ", "รายการ", "วันที่จัดส่ง", "จำนวน", "ราคา/หน่วย", "รวม"]
-    : ["ลำดับ", "ประเภทรถ", "รายการ", "วันที่จัดส่ง", "จำนวน", "ราคา/หน่วย", "รวม"];
+    ? ["ลำดับ", "รอบ", "ประเภทรถ", "รายการ", dateHead, "จำนวน", "ราคา/หน่วย", "รวม"]
+    : ["ลำดับ", "ประเภทรถ", "รายการ", dateHead, "จำนวน", "ราคา/หน่วย", "รวม"];
   autoTable(doc, {
     startY: Math.max(y + 5, 80),
     head: [head],
@@ -636,7 +695,7 @@ export function generateDetailExcelBuffer(
   const stripStop = (s: string) => s.replace(/[-_]s\d+$/, "");
 
   interface DetailRow {
-    date?: Date;
+    date?: Date;            // billing axis — plan date for a plan-basis customer (ADR 0027)
     actualPickupAt?: Date;  // วันรับงานจริง (ADR 0028) — optional column
     jobNo: string;          // เลขใบงาน ("Stand by" สำหรับเที่ยว standby)
     route: string;
@@ -674,7 +733,7 @@ export function generateDetailExcelBuffer(
     }
     const isStandby = t.rowType === "standby";
     detailRows.push({
-      date: t.deliveredTimestamp,
+      date: billingAxisDate(t),
       actualPickupAt: t.actualPickupAt,
       jobNo: isStandby ? "Stand by" : (t.spxTripId ?? t.id.slice(0, 12)),
       route: routeOf(t),
@@ -699,7 +758,7 @@ export function generateDetailExcelBuffer(
     const transportFeeThb = base.billingEstimateThb;                                  // stop 1 = base route
     const dropFeeThb = sorted.slice(1).reduce((s, r) => s + r.billingEstimateThb, 0); // stops 2+ = ค่าโยก
     detailRows.push({
-      date: base.deliveredTimestamp,
+      date: billingAxisDate(base),
       actualPickupAt: base.actualPickupAt,
       jobNo: base.spxTripId ? stripStop(base.spxTripId) : stripStop(base.id).slice(0, 12),
       route: routeOf(base),
@@ -721,9 +780,12 @@ export function generateDetailExcelBuffer(
   detailRows.sort((a, b) => (a.date?.getTime() ?? 0) - (b.date?.getTime() ?? 0));
 
   // ── Column definitions (ตามรูป) ──────────────────────────────────────────────
+  // The วันที่ column holds the billing axis (ADR 0027). For a plan-basis customer that is the plan
+  // date, so the header says so rather than letting the reader assume a delivery date.
+  const isPlanBasis = billingDateBasisOf(trips) === "plan";
   const COLS: { header: string; wch: number }[] = [
     { header: "No.",              wch: 5  },
-    { header: "วันที่",           wch: 12 },
+    { header: isPlanBasis ? "วันที่ตามแผน" : "วันที่", wch: isPlanBasis ? 14 : 12 },
     ...(showActualPickup ? [{ header: "วันรับงานจริง", wch: 16 }] : []),
     { header: "เลขใบงาน",        wch: 18 },
     { header: "เส้นทาง",         wch: 30 },

@@ -541,6 +541,19 @@ class _CheckInPageState extends State<CheckInPage> {
     if (date != null && date is DateTime) {
       dateStr = '${date.day}/${date.month}/${date.year}';
     }
+    // The queue is ordered by the actual pickup date-time (ADR 0028), so the card leads with it.
+    // Showing only the plan date would make the order look arbitrary whenever the real pickup day
+    // differs from the plan day — and that gap is the reason the two fields exist.
+    final actualPickupAt = t['actualPickupAt'];
+    String scheduleStr = '$dateStr $time'.trim();
+    bool planDayDiffers = false;
+    if (actualPickupAt is DateTime) {
+      scheduleStr = DateFormat('dd/MM/yyyy HH:mm').format(actualPickupAt);
+      planDayDiffers = date is DateTime &&
+          (date.year != actualPickupAt.year ||
+              date.month != actualPickupAt.month ||
+              date.day != actualPickupAt.day);
+    }
     final checkInPhotoUrl = t['checkInPhotoUrl'] as String?;
     final checkInLat = t['checkInLat'] as double?;
     final checkInLng = t['checkInLng'] as double?;
@@ -589,8 +602,11 @@ class _CheckInPageState extends State<CheckInPage> {
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('$dateStr $time · $status'),
+            Text('$scheduleStr · $status'),
             const SizedBox(height: 4),
+            // Plan date only when it disagrees with the pickup day — it is the billing tag
+            // (ADR 0027), so an admin asking about "งานวันที่ 30" can still find the job.
+            if (planDayDiffers) _infoRow('checkin_plan_date'.tr(), dateStr),
             if (customerDisplay.isNotEmpty)
               _infoRow('checkin_customer_label'.tr(), customerDisplay),
             _infoRow('checkin_origin'.tr(), _resolveHubName(source)),

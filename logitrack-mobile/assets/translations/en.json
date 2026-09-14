@@ -294,6 +294,7 @@
     "checkin_select_hub": "Select Hub",
     "checkin_destination_soc": "Destination (SOC)",
     "checkin_customer_label": "Customer",
+    "checkin_plan_date": "Plan date",
     "checkin_partner_label": "Partner",
     "manual_checkin_add_task": "Add task",
     "manual_checkin_add_fm": "First Mile (FM)",

@@ -586,6 +586,8 @@ export default {
     "accounting.billingDocument.download.reviewFilterActive": "⚠ ปิดการดาวน์โหลดขณะใช้ตัวกรองสำหรับตรวจสอบ (ทะเบียนรถ หรือ ประเภทรถ) — ตัวกรองเหล่านี้ย่อมุมมอง ไม่ใช่ยอดบิล ล้างตัวกรองเพื่อวางบิลทั้งงวด",
     "accounting.billingDocument.table.title": "รายการเที่ยว ({count})",
     "accounting.billingDocument.table.tripNumber": "เลขใบงาน",
+    "accounting.billingDocument.table.planDate": "วันแผนงาน",
+    "accounting.billingDocument.table.planDateDrift": "⚠ วันแผนงานในใบงานถูกแก้หลังคิดราคาแล้ว — เอกสารวางบิลยังใช้วันที่เดิมที่ตรึงไว้ตอนคิดราคา ให้สั่งคำนวณใหม่ (force recompute) ที่หน้า Income ถ้าต้องการย้ายงวด",
     "accounting.billingDocument.table.deliveredDate": "วันที่ส่ง",
     "accounting.billingDocument.table.actualPickup": "วันรับงานจริง",
     "accounting.billingDocument.actualPickup.show": "แสดงวันรับงานจริง",

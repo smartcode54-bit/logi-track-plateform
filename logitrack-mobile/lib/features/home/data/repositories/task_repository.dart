@@ -1,38 +1,54 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-/// Sort key for driver task queue:
-/// 1. Scheduled [date] ascending (earlier pickup date comes first).
-/// 2. Scheduled [time] string ascending within the same date (HH:mm — lexicographic
-///    order is correct for zero-padded times).
-/// 3. [runOrder] ascending as tiebreaker for same date+time tasks.
-///    Tasks WITHOUT [runOrder] (legacy records) sort BEFORE those with one.
-/// 4. [createdAt] ascending as final fallback.
+/// The instant a task is dispatched for — the key the driver queue is ordered by.
 ///
-/// Tasks with no date at all sort after all dated tasks — they are legacy records
-/// with no scheduled pickup time and should be done last.
+/// [actualPickupAt] (ADR 0028: the real date-time the admin sends the driver to go) when set,
+/// otherwise the plan [date] at its stored [time]. The plan date is a billing tag that can sit in a
+/// different month from the real work (that is the whole point of ADR 0027/0028), so ordering the
+/// driver's queue by it put jobs in an order that did not match when they are actually run.
+///
+/// The fallback is not a different axis: [time] is itself derived from `actualPickupAt` at assign
+/// (`useFirstMileTask` / `useLineHaulTask` / the import), so a task that carries an actual pickup
+/// sorts identically either way — the two only diverge when the real pickup DAY differs from the
+/// plan day, which is exactly the case this exists to order correctly. A task with neither
+/// (a legacy record) returns null and sorts last.
+DateTime? taskQueueInstant(Map<String, dynamic> t) {
+  final actual = t['actualPickupAt'];
+  if (actual is DateTime) return actual;
+
+  final date = t['date'];
+  if (date is! DateTime) return null;
+  final m = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch((t['time'] as String? ?? '').trim());
+  final hour = m == null ? 0 : int.parse(m.group(1)!);
+  final minute = m == null ? 0 : int.parse(m.group(2)!);
+  return DateTime(date.year, date.month, date.day, hour, minute);
+}
+
+/// Sort key for driver task queue:
+/// 1. [taskQueueInstant] ascending — the actual pickup date-time when the admin set one,
+///    else the plan date at its stored time. Earlier dispatch comes first.
+/// 2. [runOrder] ascending as tiebreaker for tasks dispatched at the same instant.
+///    Tasks WITHOUT [runOrder] (legacy records) sort BEFORE those with one.
+/// 3. [createdAt] ascending as final fallback.
+///
+/// Tasks with neither an actual pickup nor a date sort after everything else — they are legacy
+/// records with no scheduled pickup time and should be done last.
 int compareTasksForDriverQueue(Map<String, dynamic> a, Map<String, dynamic> b) {
-  final dateA = a['date'] as DateTime?;
-  final dateB = b['date'] as DateTime?;
+  final instantA = taskQueueInstant(a);
+  final instantB = taskQueueInstant(b);
 
-  // 1. Both have a scheduled date → compare by date then time string.
-  if (dateA != null && dateB != null) {
-    final dayA = DateTime(dateA.year, dateA.month, dateA.day);
-    final dayB = DateTime(dateB.year, dateB.month, dateB.day);
-    final dateCmp = dayA.compareTo(dayB);
-    if (dateCmp != 0) return dateCmp;
-
-    final timeA = (a['time'] as String? ?? '');
-    final timeB = (b['time'] as String? ?? '');
-    final timeCmp = timeA.compareTo(timeB);
-    if (timeCmp != 0) return timeCmp;
-    // Same date+time: fall through to runOrder tiebreaker.
-  } else if (dateA != null) {
-    return -1; // a has date, b doesn't → a sorts first.
-  } else if (dateB != null) {
-    return 1;  // b has date, a doesn't → b sorts first.
+  // 1. Both schedulable → compare the dispatch instants (date AND time in one comparison).
+  if (instantA != null && instantB != null) {
+    final cmp = instantA.compareTo(instantB);
+    if (cmp != 0) return cmp;
+    // Same instant: fall through to runOrder tiebreaker.
+  } else if (instantA != null) {
+    return -1; // a is scheduled, b isn't → a sorts first.
+  } else if (instantB != null) {
+    return 1;  // b is scheduled, a isn't → b sorts first.
   }
-  // Both have no date: fall through to runOrder.
+  // Neither is schedulable: fall through to runOrder.
 
   // 2. runOrder tiebreaker; no-runOrder (legacy) sorts BEFORE runOrder-bearing tasks.
   final roA = a['runOrder'];
@@ -128,6 +144,8 @@ Stream<List<Map<String, dynamic>>> streamTasksForDriver(String driverId) {
           final data = Map<String, dynamic>.from(doc.data());
           data['id'] = doc.id;
           _convertTimestamp(data, 'date');
+          // Ordering key for the queue (ADR 0028) — must be a DateTime before the sort runs.
+          _convertTimestamp(data, 'actualPickupAt');
           _convertTimestamp(data, 'createdAt');
           _convertTimestamp(data, 'updatedAt');
           _convertTimestamp(data, 'checkInAt');
