@@ -954,12 +954,14 @@ build → ประกาศเวอร์ชันขึ้น Firestore อ�
 | `app/app/accounting/billing-document/page.tsx` | banner ปัญหา + ปุ่มแอดมิน "คำนวณใหม่ตามใบงาน" + badge "เสริมแต่ปรับน้ำมัน" |
 | `app/app/accounting/rate-card/page.tsx` | preview ไม่บวกน้ำมันให้แถวเสริม |
 | `app/app/accounting/income/page.tsx` | แก้วันแผนแล้วแสดง error ถ้า server ไม่ได้ reprice |
+| `features/accounting/api/billing.ts` | `fetchTripsMissingBillingDate` — เที่ยวที่ส่งในงวดแต่ไม่มี `billingDate` (อยู่นอกงวดตามแผนทุกงวด) → banner + ปุ่มซ่อม |
+
+**ทำไมยอดเที่ยวลดเมื่อเปลี่ยนเป็นนับตามวันแผน:** เที่ยวที่คิดราคาก่อน 13 ก.ย. ไม่มี `billingDate` (CJSF ก.ย. ~112/233 เที่ยว) → ปุ่มซ่อมใน Billing Document จัดการได้แล้ว. เสริมที่แอดมินกำหนดราคาเอง (override) แยกเป็น badge "ราคากำหนดเอง — ตรวจสอบ" ไม่อยู่ในปุ่ม
 
 **Rollout:**
 1. deploy functions
 2. deploy web
-3. Income → Backfill ช่วงวันที่ **ทุกลูกค้า + force** ของเดือนที่ยัง draft
-4. เปิด Billing Document ของ CJSF แล้วกด "คำนวณใหม่ตามใบงาน"
+3. เปิด Billing Document ของ CJSF ทีละเดือน แล้วกด "คำนวณใหม่ตามใบงาน" (ครอบเที่ยวที่ไม่มี `billingDate` แล้ว) — หรือรัน Income → Backfill **ทุกลูกค้า + force** ของเดือนที่ยัง draft ก็ได้ผลเดียวกัน
 
 **Pattern:** ดู `.vibe-rules.md` → Confirmed Patterns → "💰 ราคาเที่ยวคิดที่ server เท่านั้น" (MANDATORY)
 

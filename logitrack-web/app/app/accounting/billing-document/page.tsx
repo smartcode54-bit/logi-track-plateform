@@ -18,8 +18,10 @@ import {
     getCustomerServiceFees,
     fetchBillingTripRows,
     fetchStandbyBillingDiagnostics,
+    fetchTripsMissingBillingDate,
     UnpricedStandbyPanel,
     type StandbyBillingDiagnostics,
+    type TripMissingBillingDate,
 } from "@/features/accounting";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -75,13 +77,27 @@ function planDateDrifted(trip: BillingTripRow): boolean {
     return bangkokDateStr(trip.planDate) !== bangkokDateStr(trip.billingDate);
 }
 
+function suppCarriesFuel(trip: BillingTripRow): boolean {
+    return trip.rowType !== "standby" && trip.jobCategory === "SUPPLEMENTARY" && snapshotCarriesFuel(trip);
+}
+
 /**
- * A เสริม row priced WITH a fuel adjustment. เสริม is a fixed price fuel never moves (ADR-0005), so
- * this is always a corrupted snapshot — the old Driver Monitor client writer ignored หลัก/เสริม and
- * priced these with fuel. The server treats such a row as NOT frozen, so a forced recompute fixes it.
+ * A เสริม row priced WITH a fuel adjustment and no manual override. เสริม is a fixed price fuel never
+ * moves (ADR-0005), so this is a corrupted snapshot — the old Driver Monitor browser writer ignored
+ * หลัก/เสริม. The server does not treat it as frozen (`isFrozenBillingSnapshot`), so the repair
+ * button fixes it.
  */
 function suppPricedWithFuel(trip: BillingTripRow): boolean {
-    return trip.rowType !== "standby" && trip.jobCategory === "SUPPLEMENTARY" && snapshotCarriesFuel(trip);
+    return suppCarriesFuel(trip) && trip.billingManualOverride !== true;
+}
+
+/**
+ * Same fuel fields, but the price was set by hand (`billingManualOverride`). The server keeps every
+ * manual price frozen, so a recompute cannot touch it — the fuel fields are usually just the system's
+ * computed suggestion saved alongside the typed price. Flagged for a human check, never repaired.
+ */
+function suppManualPriceWithFuel(trip: BillingTripRow): boolean {
+    return suppCarriesFuel(trip) && trip.billingManualOverride === true;
 }
 
 /** Which date axis a billing period is cut on (ADR 0027): plan date, or delivery instant. */
@@ -204,8 +220,13 @@ export default function BillingDocumentPage() {
     // ...and for what the rows on screen WERE fetched with. They differ when the customer is switched
     // without reloading (e.g. load "all", then pick CJSF) — the rows are then on the wrong axis.
     const [loaded, setLoaded] = useState<{ basis: BillingAxis; month: number; year: number } | null>(null);
+    // Plan-basis only: trips of this customer delivered in the period that carry no `billingDate`, so
+    // they sit in NO plan period and the period query can never return them. `null` = the lookup
+    // failed — shown, never silently treated as "none" (ADR 0008 §8).
+    const [missingBillingDate, setMissingBillingDate] = useState<TripMissingBillingDate[] | null>([]);
 
     const [repairing, setRepairing] = useState(false);
+    const [repairProgress, setRepairProgress] = useState<{ done: number; total: number } | null>(null);
 
     // Load customers + owner company once
     useEffect(() => {
@@ -237,12 +258,20 @@ export default function BillingDocumentPage() {
         try {
             const period = { month: selectedMonth, year: selectedYear };
             const basis = selectedBasis;
-            const [rows, diagnostics] = await Promise.all([
+            const checkMissing = basis === "plan" && selectedCustomerId !== "all";
+            const [rows, diagnostics, missing] = await Promise.all([
                 fetchBillingTripRows(selectedCustomerId, period),
                 fetchStandbyBillingDiagnostics(selectedCustomerId, period),
+                checkMissing
+                    ? fetchTripsMissingBillingDate(selectedCustomerId, period).catch((e) => {
+                          console.error("[billing] fetchTripsMissingBillingDate failed:", e);
+                          return null;
+                      })
+                    : Promise.resolve([] as TripMissingBillingDate[]),
             ]);
             setTrips(rows);
             setStandbyDiagnostics(diagnostics);
+            setMissingBillingDate(missing);
             setLoaded({ basis, ...period });
             // The review month is a key on the other axis; after a reload that axis may have flipped,
             // and a stale key would silently filter everything out.
@@ -313,10 +342,12 @@ export default function BillingDocumentPage() {
         const outOfPeriod: BillingTripRow[] = [];
         const drifted: BillingTripRow[] = [];
         const suppWithFuel: BillingTripRow[] = [];
+        const suppManualPrice: BillingTripRow[] = [];
         let standbyOtherMonth = 0;
         let noPlanDate = 0;
         for (const r of base) {
             if (suppPricedWithFuel(r)) suppWithFuel.push(r);
+            if (suppManualPriceWithFuel(r)) suppManualPrice.push(r);
             // Plan-date checks only mean something on a plan-cut period (ADR 0027).
             if (!planCut) continue;
             if (r.rowType === "standby") {
@@ -328,17 +359,34 @@ export default function BillingDocumentPage() {
             if (monthFilterKey(r.planDate) !== periodKey) outOfPeriod.push(r);
             else if (planDateDrifted(r)) drifted.push(r);
         }
+        // Only meaningful for the plan-cut load it was fetched with (state is [] otherwise).
+        const missing = planCut ? missingBillingDate : [];
         const tripIds = [
-            ...new Set(
-                [...outOfPeriod, ...drifted, ...suppWithFuel]
+            ...new Set([
+                ...[...outOfPeriod, ...drifted, ...suppWithFuel]
                     .map((r) => r.tripRecordId)
-                    .filter((id): id is string => !!id)
-            ),
+                    .filter((id): id is string => !!id),
+                ...(missing ?? []).map((m) => m.tripRecordId),
+            ]),
         ];
-        return { outOfPeriod, drifted, suppWithFuel, standbyOtherMonth, noPlanDate, tripIds };
-    }, [trips, selectedCustomerId, loaded]);
+        return {
+            outOfPeriod,
+            drifted,
+            suppWithFuel,
+            suppManualPrice,
+            standbyOtherMonth,
+            noPlanDate,
+            missingBillingDate: missing ?? [],
+            missingCheckFailed: planCut && missing === null,
+            tripIds,
+        };
+    }, [trips, selectedCustomerId, loaded, missingBillingDate]);
     const hasBillingIssues =
-        billingIssues.tripIds.length > 0 || billingIssues.standbyOtherMonth > 0 || billingIssues.noPlanDate > 0;
+        billingIssues.tripIds.length > 0 ||
+        billingIssues.standbyOtherMonth > 0 ||
+        billingIssues.noPlanDate > 0 ||
+        billingIssues.suppManualPrice.length > 0 ||
+        billingIssues.missingCheckFailed;
 
     // Count per type (before type-toggle filter, but after customer filter) for checkbox labels
     const typeCounts = useMemo(() => {
@@ -450,6 +498,8 @@ export default function BillingDocumentPage() {
         let failed = 0;
         const blockedInvoices = new Set<string>();
         const queue = [...ids];
+        let done = 0;
+        setRepairProgress({ done, total: ids.length });
         const worker = async () => {
             for (let id = queue.shift(); id; id = queue.shift()) {
                 try {
@@ -463,6 +513,8 @@ export default function BillingDocumentPage() {
                     console.error("[billing] repair recompute failed:", id, e);
                     failed++;
                 }
+                done++;
+                setRepairProgress({ done, total: ids.length });
             }
         };
         try {
@@ -476,6 +528,7 @@ export default function BillingDocumentPage() {
             await loadTrips();
         } finally {
             setRepairing(false);
+            setRepairProgress(null);
         }
     }
 
@@ -772,6 +825,14 @@ export default function BillingDocumentPage() {
                                 <div className="space-y-1 text-sm">
                                     <p className="font-medium">{t("accounting.billingDocument.repair.title")}</p>
                                     <ul className="list-disc pl-5 text-muted-foreground space-y-0.5">
+                                        {billingIssues.missingBillingDate.length > 0 && (
+                                            <li className="text-red-600">
+                                                {t("accounting.billingDocument.repair.missingBillingDate", { count: billingIssues.missingBillingDate.length })}
+                                            </li>
+                                        )}
+                                        {billingIssues.missingCheckFailed && (
+                                            <li className="text-red-600">{t("accounting.billingDocument.repair.missingCheckFailed")}</li>
+                                        )}
                                         {billingIssues.suppWithFuel.length > 0 && (
                                             <li className="text-red-600">
                                                 {t("accounting.billingDocument.repair.suppWithFuel", { count: billingIssues.suppWithFuel.length })}
@@ -789,6 +850,9 @@ export default function BillingDocumentPage() {
                                         {billingIssues.noPlanDate > 0 && (
                                             <li>{t("accounting.billingDocument.repair.noPlanDate", { count: billingIssues.noPlanDate })}</li>
                                         )}
+                                        {billingIssues.suppManualPrice.length > 0 && (
+                                            <li>{t("accounting.billingDocument.repair.suppManualPrice", { count: billingIssues.suppManualPrice.length })}</li>
+                                        )}
                                     </ul>
                                     {loaded?.basis === "plan" && (
                                         <p className="text-xs text-muted-foreground">{t("accounting.billingDocument.repair.limitation")}</p>
@@ -800,7 +864,10 @@ export default function BillingDocumentPage() {
                                     <Button size="sm" variant="outline" onClick={repairBillingIssues} disabled={repairing || loading}>
                                         {repairing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Wrench className="h-4 w-4 mr-2" />}
                                         {repairing
-                                            ? t("accounting.billingDocument.repair.running")
+                                            ? t("accounting.billingDocument.repair.running", {
+                                                  done: repairProgress?.done ?? 0,
+                                                  total: repairProgress?.total ?? billingIssues.tripIds.length,
+                                              })
                                             : t("accounting.billingDocument.repair.button", { count: billingIssues.tripIds.length })}
                                     </Button>
                                 ) : (
@@ -994,6 +1061,11 @@ export default function BillingDocumentPage() {
                                                         {suppPricedWithFuel(trip) && (
                                                             <Badge variant="outline" className="w-fit text-red-600 border-red-500 text-[10px] px-1 py-0">
                                                                 {t("accounting.billingDocument.badge.suppWithFuel")}
+                                                            </Badge>
+                                                        )}
+                                                        {suppManualPriceWithFuel(trip) && (
+                                                            <Badge variant="outline" className="w-fit text-muted-foreground text-[10px] px-1 py-0">
+                                                                {t("accounting.billingDocument.badge.suppManualPrice")}
                                                             </Badge>
                                                         )}
                                                     </div>

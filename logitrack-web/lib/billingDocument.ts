@@ -78,6 +78,8 @@ export interface BillingTripRow {
   billingLookupDestination?: string;
   billingRateMultiplier?: number;
   billingAddThbPerTrip?: number;
+  /** Admin-set or เสริม-frozen price (ADR-0005) — a forced recompute leaves it alone. */
+  billingManualOverride?: boolean;
   billingCustomerId?: string;
   vehicleClass?: string;
   driverName?: string;

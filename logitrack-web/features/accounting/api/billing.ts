@@ -982,6 +982,7 @@ export async function fetchBillingTripRows(
                     // flagged like a เสริม trip is (ADR-0005).
                     billingRateMultiplier: Number(data.billingRateMultiplier) || undefined,
                     billingAddThbPerTrip: Number(data.billingAddThbPerTrip) || undefined,
+                    billingManualOverride: data.billingManualOverride === true,
                     billingCustomerId: data.billingCustomerId,
                     vehicleClass: taskInfo?.truckType,
                     driverName: resolveDriverName([data.driverId, taskInfo?.driverId], taskInfo?.driverName),
@@ -1018,6 +1019,7 @@ export async function fetchBillingTripRows(
             billingLookupDestination: dest,
             billingRateMultiplier: Number(data.billingRateMultiplier) || undefined,
             billingAddThbPerTrip: Number(data.billingAddThbPerTrip) || undefined,
+            billingManualOverride: data.billingManualOverride === true,
             billingCustomerId: data.billingCustomerId,
             ...roundProvenance,
             vehicleClass: taskInfo?.truckType,
@@ -1089,6 +1091,55 @@ export async function fetchBillingTripRows(
     // every delivered-basis row, whose `billingDate` is the delivery instant.
     rows.sort((a, b) => (billingAxisDate(a)?.getTime() ?? 0) - (billingAxisDate(b)?.getTime() ?? 0));
     return rows;
+}
+
+/** A delivered trip with no `billingDate` — invisible to every plan-date period (ADR 0027 §9). */
+export interface TripMissingBillingDate {
+    tripRecordId: string;
+    spxTripId?: string;
+    deliveredTimestamp?: Date;
+    /** Has a price already (only the axis is missing) vs. never priced at all. */
+    priced: boolean;
+}
+
+/**
+ * Delivered trips of one billing entity, delivered inside `period`, that carry no `billingDate`.
+ *
+ * A plan-basis period is selected by `billingDate` (ADR 0027), so a trip priced before the billing
+ * snapshot started stamping it (commit 90af0d17, 2026-09-13) — or written by the old Driver Monitor
+ * browser writer — is in NO plan period: not this month's, not any other. It cannot be found through
+ * the period query or listed from the loaded rows, so it is looked up here on the delivery axis
+ * instead (the same index as a delivered-basis period: status + billingCustomerId +
+ * deliveredTimestamp). Firestore cannot match a missing field, so the filter is applied client-side.
+ * Never part of the invoice set — the Billing Document only lists these for repair.
+ */
+export async function fetchTripsMissingBillingDate(
+    customerId: string,
+    period: { month: number; year: number }
+): Promise<TripMissingBillingDate[]> {
+    const start = new Date(period.year, period.month - 1, 1);
+    const end = new Date(period.year, period.month, 1);
+    const snap = await getDocsFromServer(
+        query(
+            collection(db, COLLECTIONS.TRIP_RECORDS),
+            where("status", "==", "delivered"),
+            where("billingCustomerId", "==", customerId),
+            where("deliveredTimestamp", ">=", Timestamp.fromDate(start)),
+            where("deliveredTimestamp", "<", Timestamp.fromDate(end))
+        )
+    );
+    const missing: TripMissingBillingDate[] = [];
+    snap.forEach((d) => {
+        const data = d.data();
+        if (toBillingDate(data.billingDate)) return;
+        missing.push({
+            tripRecordId: d.id,
+            spxTripId: data.spxTripId ?? undefined,
+            deliveredTimestamp: toBillingDate(data.deliveredTimestamp),
+            priced: typeof data.billingEstimateThb === "number",
+        });
+    });
+    return missing;
 }
 
 // ─── Shopee Express (TTP) billing support report ──────────────────────────────
