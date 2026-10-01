@@ -157,8 +157,75 @@ function mapFuelDoc(customerId, doc) {
         voided: d.voided === true,
     };
 }
+/**
+ * ADR 0008 §5 — a priced row is not rewritten when its current OR its new period already carries a
+ * sent/paid invoice, so a forced recompute can neither change an issued period's amount nor move a
+ * row out of / into one. The current period is read on `billingDate` (the axis the invoice was built
+ * on; for a delivered-basis customer it equals the delivery instant), falling back to the delivery
+ * instant for rows priced before `billingDate` existed. `locks` is only passed by forced callers, so
+ * the first pricing of a just-delivered trip is never blocked.
+ */
+function periodLockBlocking(locks, data, newCustomerId, newBillingMs) {
+    if (!locks || typeof data.billingEstimateThb !== "number")
+        return null;
+    const oldCustomerId = typeof data.billingCustomerId === "string" ? data.billingCustomerId : "";
+    const oldMs = (0, billingCompute_1.timestampLikeToMillis)(data.billingDate) || (0, billingCompute_1.timestampLikeToMillis)(data.deliveredTimestamp);
+    return locks.lockFor(oldCustomerId, oldMs) ?? locks.lockFor(newCustomerId, newBillingMs);
+}
+function blockedResponse(lock) {
+    return {
+        ok: false,
+        blockedInvoiceNumber: lock.invoiceNumber,
+        error: `Period already invoiced (${lock.invoiceNumber}) — cancel or credit-note it first`,
+    };
+}
+/**
+ * A frozen trip's PRICE never moves (ADR-0005), but its billing AXIS must still follow the plan date
+ * for a plan-basis customer (ADR 0027 §9). Without this a เสริม trip priced before its customer opted
+ * into plan-date billing — or whose plan date was edited afterwards — stays in the delivery month
+ * forever, because the forced recompute that would re-stamp it returned before touching `billingDate`.
+ * Re-stamps `billingDate` only; every price field is left exactly as it is. Anything missing
+ * (customer, task) leaves the trip untouched and reports the usual frozen skip.
+ */
+async function restampFrozenBillingDate(db, tripId, data, tripRef, locks, rateCache, taskCache) {
+    const price = data.billingEstimateThb;
+    const frozenSkip = { ok: true, skipped: true, billingEstimateThb: price };
+    const customerId = typeof data.billingCustomerId === "string" ? data.billingCustomerId.trim() : "";
+    const taskId = typeof data.taskId === "string" ? data.taskId.trim() : "";
+    if (!customerId || !taskId)
+        return frozenSkip;
+    try {
+        const basis = rateCache?.get(customerId)?.billingDateBasis ?? (await resolveBillingDateBasis(db, customerId));
+        let task = taskCache?.get(taskId);
+        if (!task) {
+            const taskSnap = await db.collection(COL_TASKS).doc(taskId).get();
+            if (!taskSnap.exists)
+                return frozenSkip;
+            task = taskSnap.data();
+        }
+        const planMs = resolvePlanBillingDateMs(basis, task);
+        const targetMs = planMs > 0 ? planMs : (0, billingCompute_1.timestampLikeToMillis)(data.deliveredTimestamp);
+        if (!targetMs || targetMs === (0, billingCompute_1.timestampLikeToMillis)(data.billingDate))
+            return frozenSkip;
+        const lock = periodLockBlocking(locks, data, customerId, targetMs);
+        if (lock)
+            return blockedResponse(lock);
+        await tripRef.update({
+            billingDate: admin.firestore.Timestamp.fromMillis(targetMs),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        return { ...frozenSkip, billingDateMoved: true };
+    }
+    catch (e) {
+        firebase_functions_1.logger.warn("[billingSnapshot] failed to re-stamp billingDate on frozen trip", {
+            tripId,
+            error: String(e),
+        });
+        return frozenSkip;
+    }
+}
 /** Shared core: persist billing snapshot from already-read trip fields (idempotent). */
-async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hubMaps, forceRecompute, rateCache, taskCache) {
+async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hubMaps, forceRecompute, rateCache, taskCache, locks) {
     if (data.status !== "delivered") {
         return { ok: true, skipped: true, error: "Trip is not delivered yet" };
     }
@@ -166,10 +233,11 @@ async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hu
         return { ok: true, skipped: true, billingEstimateThb: data.billingEstimateThb };
     }
     // Frozen pricing (ADR-0005): a supplementary trip — or any manually-overridden snapshot —
-    // keeps its agreed price. Even a forced recompute must NOT overwrite it once it has one.
-    const tripFrozen = data.billingManualOverride === true || data.jobCategory === "SUPPLEMENTARY";
-    if (forceRecompute && tripFrozen && typeof data.billingEstimateThb === "number") {
-        return { ok: true, skipped: true, billingEstimateThb: data.billingEstimateThb };
+    // keeps its agreed price. Even a forced recompute must NOT overwrite it once it has one; it may
+    // only move to the period its plan date says (ADR 0027 §9). A เสริม label carrying fuel is NOT
+    // frozen — see isFrozenBillingSnapshot — so a corrupted เสริม price can be repaired.
+    if (forceRecompute && typeof data.billingEstimateThb === "number" && (0, billingCompute_1.isFrozenBillingSnapshot)(data)) {
+        return restampFrozenBillingDate(db, tripId, data, tripRef, locks, rateCache, taskCache);
     }
     const taskId = typeof data.taskId === "string" ? data.taskId.trim() : "";
     if (!taskId) {
@@ -324,9 +392,14 @@ async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hu
                 customerId,
                 stops: stops.length,
             });
-            await stampBillingDateOnUnpriced(tripRef, billingDateTs, customerId, tripId);
+            if (!periodLockBlocking(locks, data, customerId, billingDateMs)) {
+                await stampBillingDateOnUnpriced(tripRef, billingDateTs, customerId, tripId);
+            }
             return { ok: false, error: "Could not compute multi-delivery billing" };
         }
+        const multiLock = periodLockBlocking(locks, data, multiComputed.customerId, billingDateMs);
+        if (multiLock)
+            return blockedResponse(multiLock);
         await tripRef.update({
             billingEstimateThb: multiComputed.totalBillingThb,
             billingBaseRateThb: multiComputed.baseRateThb,
@@ -418,9 +491,14 @@ async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hu
                 rawTaskSourceHub: taskInput.sourceHub,
                 rawTaskDestination: taskInput.destination,
             });
-            await stampBillingDateOnUnpriced(tripRef, billingDateTs, customerId, tripId);
+            if (!periodLockBlocking(locks, data, customerId, billingDateMs)) {
+                await stampBillingDateOnUnpriced(tripRef, billingDateTs, customerId, tripId);
+            }
             return { ok: false, error: `No rate: ${hubId} → ${destination} (${vehicleClass})` };
         }
+        const singleLock = periodLockBlocking(locks, data, computed.customerId, billingDateMs);
+        if (singleLock)
+            return blockedResponse(singleLock);
         await tripRef.update({
             billingEstimateThb: computed.finalRateThb,
             billingBaseRateThb: computed.baseRateThb,
@@ -462,16 +540,24 @@ exports.computeTripBillingSnapshot = (0, https_1.onCall)({
     if (!tripId) {
         throw new https_1.HttpsError("invalid-argument", "tripId is required");
     }
+    // A plain call only prices an UNPRICED trip (mobile, at delivery). Overwriting a settled
+    // price is an admin action (ADR 0002) — a driver session must not be able to reprice.
+    const forceRecompute = request.data?.forceRecompute === true;
+    if (forceRecompute && request.auth.token.admin !== true) {
+        throw new https_1.HttpsError("permission-denied", "Admin only: forceRecompute");
+    }
     const db = admin.firestore();
-    const [tripSnap, hubMaps] = await Promise.all([
+    const [tripSnap, hubMaps, locks] = await Promise.all([
         db.collection(COL_TRIP_RECORDS).doc(tripId).get(),
         buildHubMaps(db),
+        // Only a forced call can overwrite a price, so only it needs the ADR 0008 §5 locks.
+        forceRecompute ? (0, billingPeriodLock_1.loadBillingPeriodLocks)(db) : Promise.resolve(undefined),
     ]);
     if (!tripSnap.exists) {
         throw new https_1.HttpsError("not-found", "Trip not found");
     }
     const data = tripSnap.data();
-    return tryWriteBillingSnapshotFromTripData(db, tripId, data, tripSnap.ref, hubMaps, request.data?.forceRecompute === true);
+    return tryWriteBillingSnapshotFromTripData(db, tripId, data, tripSnap.ref, hubMaps, forceRecompute, undefined, undefined, locks);
 });
 /**
  * HTTPS Callable (admin only): change a delivered trip's หลัก/เสริม (jobCategory) and re-derive its
@@ -813,9 +899,9 @@ exports.backfillTripBillingSnapshots = (0, https_1.onCall)({
         eligible++;
         if (written >= maxWrite)
             continue;
-        // ADR 0008 §5 — a priced row in a sent/paid period keeps its number. Only bulk recompute
-        // is gated here; the single-trip callable stays open because ADR 0002 made an explicit
-        // admin edit the one sanctioned way to move a settled price.
+        // ADR 0008 §5 — a priced row in a sent/paid period keeps its number. This pre-check
+        // skips the read work early on the scan axis; tryWrite… re-checks both the current
+        // and the NEW period (a recompute can also move a row into an issued period).
         if (typeof data.billingEstimateThb === "number") {
             const lock = locks.lockFor(typeof data.billingCustomerId === "string" ? data.billingCustomerId : "", 
             // Lock on the same axis the invoice period is built from (ADR 0027).
@@ -827,8 +913,12 @@ exports.backfillTripBillingSnapshots = (0, https_1.onCall)({
             }
         }
         attempted++;
-        const result = await tryWriteBillingSnapshotFromTripData(db, doc.id, data, doc.ref, hubMaps, forceRecompute, rateCache, taskCache);
-        if (result.ok === true && result.skipped !== true && result.billingEstimateThb != null) {
+        const result = await tryWriteBillingSnapshotFromTripData(db, doc.id, data, doc.ref, hubMaps, forceRecompute, rateCache, taskCache, forceRecompute ? locks : undefined);
+        if (result.blockedInvoiceNumber) {
+            blocked++;
+            blockedInvoices.add(result.blockedInvoiceNumber);
+        }
+        else if (result.ok === true && result.skipped !== true && result.billingEstimateThb != null) {
             written++;
         }
         else if (result.skipped === true) {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
     collection,
     query,
@@ -12,13 +12,11 @@ import {
     type QueryDocumentSnapshot,
     type DocumentData,
     type QueryConstraint,
-    doc,
-    writeBatch,
-    serverTimestamp,
     documentId,
 } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
 import { startOfDay, endOfDay, subDays, differenceInCalendarDays } from "date-fns";
-import { db } from "@/firebase/client";
+import { db, functions } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { TripRecord } from "@/validate/tripRecordSchema";
 import { Driver } from "@/validate/driverSchema";
@@ -800,46 +798,45 @@ export function useDriverMonitor() {
         };
     }, [trips, tasks, hubDisplayNameToCode]);
 
+    // Delivered trips the server has not priced yet — the mobile app's pricing call after delivery
+    // is fire-and-forget and can fail. Ask the SERVER to price them; never write a price from the
+    // browser. The client writer that used to live here ignored หลัก/เสริม and the plan-date axis,
+    // so it priced เสริม trips WITH the fuel adjustment and stamped no billingDate — and because it
+    // usually won the race against the mobile call, the server then skipped the trip as "already
+    // priced" and the wrong price stuck (ADR-0005, ADR 0027). A plain (non-force) call is
+    // idempotent: the server skips any trip that has a price by the time it runs.
+    // Only trips the client estimate can price are asked for, so a route with no rate card does not
+    // fire a hopeless call on every visit. Once per trip per session.
+    const pricingRequested = useRef(new Set<string>());
     useEffect(() => {
-        const deliveredWithoutSnapshot = trips.filter((trip) => {
-            if (!trip.id) return false;
-            if (trip.status !== "delivered") return false;
-            if (typeof trip.billingEstimateThb === "number") return false;
-            return !!tripBillingByTripId[trip.id];
-        });
-        if (!deliveredWithoutSnapshot.length) return;
+        const unpriced = trips
+            .filter(
+                (trip) =>
+                    !!trip.id &&
+                    trip.status === "delivered" &&
+                    typeof trip.billingEstimateThb !== "number" &&
+                    !!tripBillingByTripId[trip.id] &&
+                    !pricingRequested.current.has(trip.id)
+            )
+            .map((trip) => trip.id as string);
+        if (!unpriced.length) return;
+        unpriced.forEach((id) => pricingRequested.current.add(id));
 
-        let cancelled = false;
-        const run = async () => {
-            for (let i = 0; i < deliveredWithoutSnapshot.length; i += 200) {
-                if (cancelled) return;
-                const chunk = deliveredWithoutSnapshot.slice(i, i + 200);
-                const batch = writeBatch(db);
-                chunk.forEach((trip) => {
-                    if (!trip.id) return;
-                    const computed = tripBillingByTripId[trip.id];
-                    if (!computed) return;
-                    batch.update(doc(db, COLLECTIONS.TRIP_RECORDS, trip.id), {
-                        billingEstimateThb: computed.finalRateThb,
-                        billingBaseRateThb: computed.baseRateThb,
-                        billingRateImportId: computed.rateImportId,
-                        billingLookupHubId: computed.lookupHubId,
-                        billingLookupDestination: computed.lookupDestination,
-                        billingFuelAdjustmentId: computed.fuelAdjustmentId || null,
-                        billingRateMultiplier: computed.rateMultiplier,
-                        billingAddThbPerTrip: computed.addThbPerTrip,
-                        billingEffectiveFromDateStr: computed.effectiveFromDateStr || null,
-                        billingCustomerId: computed.customerId,
-                        updatedAt: serverTimestamp(),
-                    });
-                });
-                await batch.commit();
+        const priceTrip = httpsCallable<{ tripId: string }, { ok: boolean; error?: string }>(
+            functions,
+            "computeTripBillingSnapshot"
+        );
+        const queue = [...unpriced];
+        const worker = async () => {
+            for (let id = queue.shift(); id; id = queue.shift()) {
+                try {
+                    await priceTrip({ tripId: id });
+                } catch (e) {
+                    console.warn("[driverMonitor] server pricing failed", id, e);
+                }
             }
         };
-        void run();
-        return () => {
-            cancelled = true;
-        };
+        void Promise.all(Array.from({ length: Math.min(3, queue.length) }, worker));
     }, [trips, tripBillingByTripId]);
 
     const stats = useMemo(() => {

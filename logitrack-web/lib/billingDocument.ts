@@ -42,6 +42,12 @@ export type BillingDateBasis = "plan" | "delivered";
 
 export interface BillingTripRow {
   id: string;
+  /**
+   * `trip_records/{id}` this row was billed from. Equals `id` for a normal trip; a multidrop stop's
+   * `id` carries an `_sN` suffix, so a repair action (re-pricing via the server callable) must use
+   * this instead. Absent on standby rows, which live in `standby_records`.
+   */
+  tripRecordId?: string;
   taskId?: string;
   spxTripId?: string;
   deliveredTimestamp?: Date;

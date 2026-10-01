@@ -14,6 +14,7 @@ import {
     computeTripBillingFromParts,
     type BillingRateEntry,
     type FuelRateAdjustment,
+    type JobCategory,
     type TripBillingComputed,
 } from "@/lib/billingCompute";
 import {
@@ -72,6 +73,8 @@ export function EditBillingDialog({ open, onOpenChange, row, hubNameMap, onSaved
 
     // Auto-computed result
     const [computedResult, setComputedResult] = useState<TripBillingComputed | null>(null);
+    // หลัก/เสริม the computed price was taken under — decides whether the saved price is frozen.
+    const [computedCategory, setComputedCategory] = useState<JobCategory | null>(null);
     const [computeError, setComputeError] = useState<string | null>(null);
 
     // Price input — always visible, pre-filled with computed rate
@@ -127,9 +130,23 @@ export function EditBillingDialog({ open, onOpenChange, row, hubNameMap, onSaved
             destinationLinkedCustomerId: undefined,
         };
 
-        // Derive หลัก/เสริม (ADR-0005): try primary card first, fall back to supplementary.
-        const result = computeTripBillingFromParts(tripTimestamps, taskInput, rateEntries, fuelAdjustments, "PRIMARY")
-            ?? computeTripBillingFromParts(tripTimestamps, taskInput, rateEntries, fuelAdjustments, "SUPPLEMENTARY");
+        // หลัก/เสริม follows the row (ADR-0006; resolved trip → task per ADR 0010) — the same rule as
+        // the server snapshot, so a เสริม trip prices from the เสริม card with no fuel adjustment.
+        // Only a row whose category could not be resolved falls back PRIMARY → SUPPLEMENTARY.
+        // Probing PRIMARY first for every row is what priced เสริม trips with fuel here.
+        let category: JobCategory | null = row.jobCategory ?? null;
+        let result: TripBillingComputed | null;
+        if (category) {
+            result = computeTripBillingFromParts(tripTimestamps, taskInput, rateEntries, fuelAdjustments, category);
+        } else {
+            result = computeTripBillingFromParts(tripTimestamps, taskInput, rateEntries, fuelAdjustments, "PRIMARY");
+            category = result ? "PRIMARY" : null;
+            if (!result) {
+                result = computeTripBillingFromParts(tripTimestamps, taskInput, rateEntries, fuelAdjustments, "SUPPLEMENTARY");
+                category = result ? "SUPPLEMENTARY" : null;
+            }
+        }
+        setComputedCategory(category);
         if (result) {
             setComputedResult(result);
             setComputeError(null);
@@ -166,7 +183,10 @@ export function EditBillingDialog({ open, onOpenChange, row, hubNameMap, onSaved
                 billingAddThbPerTrip: computedResult?.addThbPerTrip ?? 0,
                 billingEffectiveFromDateStr: computedResult?.effectiveFromDateStr ?? null,
                 billingCustomerId: row.customerId ?? "",
-                billingManualOverride: isManual,
+                // A เสริม price is a fixed agreed price — freeze it exactly as the server does, so a
+                // later forced recompute cannot re-price it (ADR-0005).
+                billingManualOverride: isManual || computedCategory === "SUPPLEMENTARY",
+                jobCategory: computedCategory ?? undefined,
             };
 
             await writeTripBillingSnapshot(billingInput);

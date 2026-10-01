@@ -1636,11 +1636,17 @@ export default function AccountingRateCardPage() {
                                 const fuelAdjList = fuelRowsToAdjustments(
                                     adjustmentsByCustomer.get(row.customerId) ?? []
                                 );
-                                const ruleDoc = selectFuelAdjustmentForBillingDate(
-                                    row.customerId,
-                                    noon.getTime(),
-                                    fuelAdjList
-                                );
+                                // เสริม is a fixed price fuel never moves (ADR-0005) — billing skips the
+                                // adjustment for it, so the preview must too or it shows a price no
+                                // trip will ever be charged.
+                                const isSupplementary = row.jobCategory === "SUPPLEMENTARY";
+                                const ruleDoc = isSupplementary
+                                    ? null
+                                    : selectFuelAdjustmentForBillingDate(
+                                          row.customerId,
+                                          noon.getTime(),
+                                          fuelAdjList
+                                      );
                                 const newRate =
                                     ruleDoc != null
                                         ? computeFinalRateThb(
@@ -1688,7 +1694,11 @@ export default function AccountingRateCardPage() {
                                     <TableCell className="text-right">฿{row.rateThb.toLocaleString()}</TableCell>
                                     {showRateCalPreview && (
                                         <TableCell className="text-right">
-                                            {newRate != null && ruleDoc != null ? (
+                                            {isSupplementary ? (
+                                                <span title={t("accounting.rateCard.calcPreview.suppFixed")}>
+                                                    ฿{row.rateThb.toLocaleString()}
+                                                </span>
+                                            ) : newRate != null && ruleDoc != null ? (
                                                 <span
                                                     title={
                                                         ruleDoc.addThbPerTrip !== 0

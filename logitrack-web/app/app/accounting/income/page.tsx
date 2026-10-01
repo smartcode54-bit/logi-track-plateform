@@ -229,8 +229,23 @@ export default function AccountingIncomePage() {
                 dateStr: format(d, "ddMMyyyy"),
                 updatedAt: Timestamp.now(),
             });
-            const recompute = httpsCallable(functions, "computeTripBillingSnapshot");
-            await recompute({ tripId, forceRecompute: true });
+            const recompute = httpsCallable<
+                { tripId: string; forceRecompute: boolean },
+                { ok: boolean; error?: string; blockedInvoiceNumber?: string }
+            >(functions, "computeTripBillingSnapshot");
+            const { data: result } = await recompute({ tripId, forceRecompute: true });
+            // The plan date is saved on the task either way; but if the server refused to reprice
+            // (issued invoice — ADR 0008 §5 — or no rate), the trip still bills in its old period.
+            if (!result.ok) {
+                toast.error(
+                    result.blockedInvoiceNumber
+                        ? t("accounting.income.planDate.blocked", { invoiceNumber: result.blockedInvoiceNumber })
+                        : t("accounting.income.planDate.saveFailed", "บันทึกไม่สำเร็จ") + ": " + (result.error ?? "")
+                );
+                setEditingPlanId(null);
+                await loadData();
+                return;
+            }
             setRows((prev) => prev.map((r) => r.id === tripId ? { ...r, billingDate: d } : r));
             toast.success(t("accounting.income.planDate.saved", "บันทึกวันแผนงานและคำนวณบิลใหม่แล้ว"));
             setEditingPlanId(null);

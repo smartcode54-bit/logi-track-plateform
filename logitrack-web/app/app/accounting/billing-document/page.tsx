@@ -28,12 +28,22 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Download, FileText, Loader2, RefreshCw, X } from "lucide-react";
+import { AlertTriangle, Download, FileText, Loader2, RefreshCw, Wrench, X } from "lucide-react";
 import { format } from "date-fns";
+import { httpsCallable } from "firebase/functions";
+import { functions } from "@/firebase/client";
 import { bangkokDateStr } from "@/lib/billingDate";
+import { snapshotCarriesFuel } from "@/lib/billingCompute";
 import { WITHHOLDING_TAX_RATE } from "@/lib/billingConfig";
 import { toast } from "sonner";
 import { useAuth } from "@/context/auth";
+import {
+    MONTH_FILTER_ALL,
+    MONTH_FILTER_NONE,
+    buildMonthFilterOptions,
+    monthFilterKey,
+    rowMatchesMonthFilter,
+} from "@/lib/monthFilter";
 import {
     PLATE_FILTER_ALL,
     buildPlateFilterOptions,
@@ -64,6 +74,26 @@ function planDateDrifted(trip: BillingTripRow): boolean {
     if (trip.billingDateBasis !== "plan" || !trip.planDate || !trip.billingDate) return false;
     return bangkokDateStr(trip.planDate) !== bangkokDateStr(trip.billingDate);
 }
+
+/**
+ * A เสริม row priced WITH a fuel adjustment. เสริม is a fixed price fuel never moves (ADR-0005), so
+ * this is always a corrupted snapshot — the old Driver Monitor client writer ignored หลัก/เสริม and
+ * priced these with fuel. The server treats such a row as NOT frozen, so a forced recompute fixes it.
+ */
+function suppPricedWithFuel(trip: BillingTripRow): boolean {
+    return trip.rowType !== "standby" && trip.jobCategory === "SUPPLEMENTARY" && snapshotCarriesFuel(trip);
+}
+
+/** Which date axis a billing period is cut on (ADR 0027): plan date, or delivery instant. */
+type BillingAxis = "plan" | "delivered";
+
+type RepairResponse = {
+    ok: boolean;
+    skipped?: boolean;
+    error?: string;
+    blockedInvoiceNumber?: string;
+    billingDateMoved?: boolean;
+};
 
 // ─── Page ────────────────────────────────────────────────────────────────────
 
@@ -160,6 +190,22 @@ export default function BillingDocumentPage() {
     // ADR 0028: toggle the "วันรับงานจริง" (actual pickup) column on-screen and in the exported detail.
     const [showActualPickup, setShowActualPickup] = useState(false);
     const [vehicleClassFilter, setVehicleClassFilter] = useState<string>(VEHICLE_CLASS_FILTER_ALL);
+    // Month on the OTHER date axis from the one the period was loaded on — a review filter like plate
+    // and vehicle class (ADR 0005): narrows the preview only and blocks Download while active.
+    const [reviewMonthFilter, setReviewMonthFilter] = useState<string>(MONTH_FILTER_ALL);
+
+    // The axis the period month is cut on, for what Load WILL fetch (ADR 0027): a single plan-basis
+    // customer is cut by plan date; every other customer — and the "all" aggregate — by delivery.
+    // Mirrors the branch in fetchBillingTripRows; the page only labels it honestly.
+    const selectedBasis: BillingAxis = useMemo(() => {
+        if (selectedCustomerId === "all") return "delivered";
+        return customers.find((c) => c.id === selectedCustomerId)?.billingDateBasis === "plan" ? "plan" : "delivered";
+    }, [selectedCustomerId, customers]);
+    // ...and for what the rows on screen WERE fetched with. They differ when the customer is switched
+    // without reloading (e.g. load "all", then pick CJSF) — the rows are then on the wrong axis.
+    const [loaded, setLoaded] = useState<{ basis: BillingAxis; month: number; year: number } | null>(null);
+
+    const [repairing, setRepairing] = useState(false);
 
     // Load customers + owner company once
     useEffect(() => {
@@ -190,12 +236,17 @@ export default function BillingDocumentPage() {
         setLoading(true);
         try {
             const period = { month: selectedMonth, year: selectedYear };
+            const basis = selectedBasis;
             const [rows, diagnostics] = await Promise.all([
                 fetchBillingTripRows(selectedCustomerId, period),
                 fetchStandbyBillingDiagnostics(selectedCustomerId, period),
             ]);
             setTrips(rows);
             setStandbyDiagnostics(diagnostics);
+            setLoaded({ basis, ...period });
+            // The review month is a key on the other axis; after a reload that axis may have flipped,
+            // and a stale key would silently filter everything out.
+            setReviewMonthFilter(MONTH_FILTER_ALL);
         } catch (e) {
             console.error("[billing] fetchBillingTripRows failed:", e);
             toast.error(t("accounting.billingDocument.loadError", "Failed to load trips — please try again."));
@@ -232,14 +283,62 @@ export default function BillingDocumentPage() {
         [filteredTrips]
     );
 
-    // Preview set — the invoice set narrowed by the plate + vehicle-class review filters. Drives the
-    // table + summary cards ONLY; handleDownload always bills filteredTrips (invoice set). ADR 0005 §1-3.
+    // The review month reads the axis the period was NOT cut on: a delivery-cut period is reviewed by
+    // plan month, a plan-cut period by delivery month (standby's `deliveredTimestamp` is its endedAt).
+    const reviewAxis: BillingAxis = loaded?.basis === "plan" ? "delivered" : "plan";
+    const reviewMonthOptions = useMemo(
+        () => buildMonthFilterOptions(
+            filteredTrips.map((r) => (reviewAxis === "plan" ? r.planDate : r.deliveredTimestamp))
+        ),
+        [filteredTrips, reviewAxis]
+    );
+
+    // Preview set — the invoice set narrowed by the plate, vehicle-class and month review filters.
+    // Drives the table + summary cards ONLY; handleDownload always bills filteredTrips (invoice set).
+    // ADR 0005 §1-3.
     const previewTrips = useMemo(() => {
         return filteredTrips.filter((r) =>
             rowMatchesPlateFilter({ truckId: r.truckId, plate: r.truckLicensePlate }, plateFilter) &&
-            rowMatchesVehicleClass(r.vehicleClass, vehicleClassFilter)
+            rowMatchesVehicleClass(r.vehicleClass, vehicleClassFilter) &&
+            rowMatchesMonthFilter(reviewAxis === "plan" ? r.planDate : r.deliveredTimestamp, reviewMonthFilter)
         );
-    }, [filteredTrips, plateFilter, vehicleClassFilter]);
+    }, [filteredTrips, plateFilter, vehicleClassFilter, reviewAxis, reviewMonthFilter]);
+
+    // Rows whose price or period a forced server recompute would fix. Read from every loaded row of
+    // the customer — not the charge-type toggles — so hiding a type never hides a problem in it.
+    const billingIssues = useMemo(() => {
+        const base = selectedCustomerId === "all" ? trips : trips.filter((r) => r.billingCustomerId === selectedCustomerId);
+        const periodKey = loaded ? `${loaded.year}-${String(loaded.month).padStart(2, "0")}` : "";
+        const planCut = loaded?.basis === "plan";
+        const outOfPeriod: BillingTripRow[] = [];
+        const drifted: BillingTripRow[] = [];
+        const suppWithFuel: BillingTripRow[] = [];
+        let standbyOtherMonth = 0;
+        let noPlanDate = 0;
+        for (const r of base) {
+            if (suppPricedWithFuel(r)) suppWithFuel.push(r);
+            // Plan-date checks only mean something on a plan-cut period (ADR 0027).
+            if (!planCut) continue;
+            if (r.rowType === "standby") {
+                // Standby is cut on endedAt for every customer (ADR 0008) — informational only.
+                if (r.planDate && monthFilterKey(r.planDate) !== periodKey) standbyOtherMonth++;
+                continue;
+            }
+            if (!r.planDate) { noPlanDate++; continue; }
+            if (monthFilterKey(r.planDate) !== periodKey) outOfPeriod.push(r);
+            else if (planDateDrifted(r)) drifted.push(r);
+        }
+        const tripIds = [
+            ...new Set(
+                [...outOfPeriod, ...drifted, ...suppWithFuel]
+                    .map((r) => r.tripRecordId)
+                    .filter((id): id is string => !!id)
+            ),
+        ];
+        return { outOfPeriod, drifted, suppWithFuel, standbyOtherMonth, noPlanDate, tripIds };
+    }, [trips, selectedCustomerId, loaded]);
+    const hasBillingIssues =
+        billingIssues.tripIds.length > 0 || billingIssues.standbyOtherMonth > 0 || billingIssues.noPlanDate > 0;
 
     // Count per type (before type-toggle filter, but after customer filter) for checkbox labels
     const typeCounts = useMemo(() => {
@@ -331,11 +430,72 @@ export default function BillingDocumentPage() {
         }
     }
 
-    // A review filter (plate or vehicle class) narrows the preview only — never the invoice — so
+    /**
+     * Re-price the flagged trips on the SERVER with a forced recompute — the only writer of a price.
+     * It re-derives หลัก/เสริม from the task (a เสริม row loses its fuel adjustment), re-stamps
+     * `billingDate` from the plan date (a frozen row keeps its price and only moves period — ADR 0027
+     * §9), and refuses any row in a period that already has a sent/paid invoice (ADR 0008 §5).
+     */
+    async function repairBillingIssues() {
+        const ids = [...billingIssues.tripIds];
+        if (ids.length === 0) return;
+        setRepairing(true);
+        const recompute = httpsCallable<{ tripId: string; forceRecompute: boolean }, RepairResponse>(
+            functions,
+            "computeTripBillingSnapshot"
+        );
+        let repriced = 0;
+        let moved = 0;
+        let unchanged = 0;
+        let failed = 0;
+        const blockedInvoices = new Set<string>();
+        const queue = [...ids];
+        const worker = async () => {
+            for (let id = queue.shift(); id; id = queue.shift()) {
+                try {
+                    const { data } = await recompute({ tripId: id, forceRecompute: true });
+                    if (data.blockedInvoiceNumber) blockedInvoices.add(data.blockedInvoiceNumber);
+                    else if (!data.ok) failed++;
+                    else if (data.billingDateMoved) moved++;
+                    else if (data.skipped) unchanged++;
+                    else repriced++;
+                } catch (e) {
+                    console.error("[billing] repair recompute failed:", id, e);
+                    failed++;
+                }
+            }
+        };
+        try {
+            await Promise.all(Array.from({ length: Math.min(5, queue.length) }, worker));
+            toast.success(t("accounting.billingDocument.repair.result", { repriced, moved, unchanged, failed }));
+            if (blockedInvoices.size > 0) {
+                toast.warning(
+                    t("accounting.billingDocument.repair.blocked", { invoiceNumbers: [...blockedInvoices].join(", ") })
+                );
+            }
+            await loadTrips();
+        } finally {
+            setRepairing(false);
+        }
+    }
+
+    // A review filter (plate, vehicle class or month) narrows the preview only — never the invoice — so
     // Download is blocked while one is active, keeping the invoice and preview sets from diverging
     // into a wrong bill (ADR 0005 §3).
-    const reviewFilterActive = plateFilter !== PLATE_FILTER_ALL || vehicleClassFilter !== VEHICLE_CLASS_FILTER_ALL;
-    const canDownload = selectedCustomerId !== "all" && filteredTrips.length > 0 && !reviewFilterActive;
+    const reviewFilterActive =
+        plateFilter !== PLATE_FILTER_ALL ||
+        vehicleClassFilter !== VEHICLE_CLASS_FILTER_ALL ||
+        reviewMonthFilter !== MONTH_FILTER_ALL;
+    // Rows on screen were cut on a different axis than this customer bills on — downloading them would
+    // invoice the wrong set (the plan-date leak ADR 0027 closes). Reload first.
+    const staleBasis = trips.length > 0 && loaded !== null && loaded.basis !== selectedBasis;
+    const canDownload = selectedCustomerId !== "all" && filteredTrips.length > 0 && !reviewFilterActive && !staleBasis;
+    const periodHint =
+        selectedCustomerId === "all"
+            ? t("accounting.billingDocument.filters.periodHint.all")
+            : selectedBasis === "plan"
+              ? t("accounting.billingDocument.filters.periodHint.plan")
+              : t("accounting.billingDocument.filters.periodHint.delivered");
 
     return (
         <PagePermissionGuard capability={CAPABILITIES.accounting_billing_document}>
@@ -349,10 +509,21 @@ export default function BillingDocumentPage() {
 
                 {/* ── Filters ── */}
                 <Card>
-                    <CardHeader><CardTitle className="text-base">{t("accounting.billingDocument.filters.title")}</CardTitle></CardHeader>
+                    <CardHeader>
+                        <CardTitle className="text-base">{t("accounting.billingDocument.filters.title")}</CardTitle>
+                        <p className="text-xs text-muted-foreground">{periodHint}</p>
+                    </CardHeader>
                     <CardContent className="flex flex-wrap gap-4 items-end">
+                        {/* The billing period. Labelled by the axis Load will actually cut it on (ADR 0027). */}
                         <div className="space-y-1">
-                            <Label>{t("accounting.billingDocument.filters.month")}</Label>
+                            <Label className="flex items-center gap-1.5">
+                                {selectedBasis === "plan"
+                                    ? t("accounting.billingDocument.filters.planMonth")
+                                    : t("accounting.billingDocument.filters.deliveredMonth")}
+                                <Badge variant="secondary" className="text-[10px] px-1 py-0 font-normal">
+                                    {t("accounting.billingDocument.filters.billingPeriodTag")}
+                                </Badge>
+                            </Label>
                             <Select value={String(selectedMonth)} onValueChange={(v) => setSelectedMonth(Number(v))}>
                                 <SelectTrigger className="w-52">
                                     <SelectValue />
@@ -428,6 +599,35 @@ export default function BillingDocumentPage() {
                             </div>
                         )}
 
+                        {/* ── Month review filter on the OTHER axis (same guard as plate — ADR 0005) ── */}
+                        {trips.length > 0 && (
+                            <div className="space-y-1">
+                                <Label className="flex items-center gap-1.5">
+                                    {reviewAxis === "plan"
+                                        ? t("accounting.billingDocument.filters.planMonth")
+                                        : t("accounting.billingDocument.filters.deliveredMonth")}
+                                    <Badge variant="outline" className="text-[10px] px-1 py-0 font-normal">
+                                        {t("accounting.billingDocument.filters.reviewTag")}
+                                    </Badge>
+                                </Label>
+                                <Select value={reviewMonthFilter} onValueChange={setReviewMonthFilter}>
+                                    <SelectTrigger className="w-60">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value={MONTH_FILTER_ALL}>{t("accounting.billingDocument.filters.allMonths")}</SelectItem>
+                                        {reviewMonthOptions.map((o) => (
+                                            <SelectItem key={o.value} value={o.value}>
+                                                {o.value === MONTH_FILTER_NONE
+                                                    ? t("accounting.billingDocument.filters.monthNotSpecified")
+                                                    : `${MONTHS[o.month - 1]?.label ?? o.value} ${o.year}`} ({o.count})
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        )}
+
                         {/* ── Show/hide the actual pickup date, on-screen AND in the exported detail (ADR 0028) ── */}
                         <div className="space-y-1">
                             <Label>&nbsp;</Label>
@@ -455,6 +655,7 @@ export default function BillingDocumentPage() {
                                     onClick={() => {
                                         setPlateFilter(PLATE_FILTER_ALL);
                                         setVehicleClassFilter(VEHICLE_CLASS_FILTER_ALL);
+                                        setReviewMonthFilter(MONTH_FILTER_ALL);
                                     }}
                                     className="h-9 whitespace-nowrap text-muted-foreground"
                                 >
@@ -562,6 +763,54 @@ export default function BillingDocumentPage() {
                     canRepair={isAdmin}
                 />
 
+                {/* ── Rows whose price or period disagrees with the plan / หลัก-เสริม (ADR 0027, ADR-0005) ── */}
+                {hasBillingIssues && (
+                    <Card className="border-amber-500/60">
+                        <CardContent className="pt-4 space-y-3">
+                            <div className="flex items-start gap-2">
+                                <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+                                <div className="space-y-1 text-sm">
+                                    <p className="font-medium">{t("accounting.billingDocument.repair.title")}</p>
+                                    <ul className="list-disc pl-5 text-muted-foreground space-y-0.5">
+                                        {billingIssues.suppWithFuel.length > 0 && (
+                                            <li className="text-red-600">
+                                                {t("accounting.billingDocument.repair.suppWithFuel", { count: billingIssues.suppWithFuel.length })}
+                                            </li>
+                                        )}
+                                        {billingIssues.outOfPeriod.length > 0 && (
+                                            <li>{t("accounting.billingDocument.repair.outOfPeriod", { count: billingIssues.outOfPeriod.length })}</li>
+                                        )}
+                                        {billingIssues.drifted.length > 0 && (
+                                            <li>{t("accounting.billingDocument.repair.drifted", { count: billingIssues.drifted.length })}</li>
+                                        )}
+                                        {billingIssues.standbyOtherMonth > 0 && (
+                                            <li>{t("accounting.billingDocument.repair.standbyOtherMonth", { count: billingIssues.standbyOtherMonth })}</li>
+                                        )}
+                                        {billingIssues.noPlanDate > 0 && (
+                                            <li>{t("accounting.billingDocument.repair.noPlanDate", { count: billingIssues.noPlanDate })}</li>
+                                        )}
+                                    </ul>
+                                    {loaded?.basis === "plan" && (
+                                        <p className="text-xs text-muted-foreground">{t("accounting.billingDocument.repair.limitation")}</p>
+                                    )}
+                                </div>
+                            </div>
+                            {billingIssues.tripIds.length > 0 && (
+                                isAdmin ? (
+                                    <Button size="sm" variant="outline" onClick={repairBillingIssues} disabled={repairing || loading}>
+                                        {repairing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Wrench className="h-4 w-4 mr-2" />}
+                                        {repairing
+                                            ? t("accounting.billingDocument.repair.running")
+                                            : t("accounting.billingDocument.repair.button", { count: billingIssues.tripIds.length })}
+                                    </Button>
+                                ) : (
+                                    <p className="text-xs text-muted-foreground">{t("accounting.billingDocument.repair.adminOnly")}</p>
+                                )
+                            )}
+                        </CardContent>
+                    </Card>
+                )}
+
                 {/* ── Summary cards ── */}
                 {trips.length > 0 && (
                     <div className="space-y-3">
@@ -645,6 +894,11 @@ export default function BillingDocumentPage() {
                         {reviewFilterActive && (
                             <CardContent className="pt-0">
                                 <p className="text-xs text-amber-600">{t("accounting.billingDocument.download.reviewFilterActive")}</p>
+                            </CardContent>
+                        )}
+                        {staleBasis && (
+                            <CardContent className="pt-0">
+                                <p className="text-xs text-amber-600">{t("accounting.billingDocument.download.staleBasis")}</p>
                             </CardContent>
                         )}
                     </Card>
@@ -733,9 +987,16 @@ export default function BillingDocumentPage() {
                                             <TableCell className="text-xs">{trip.driverName ?? "-"}</TableCell>
                                             <TableCell>
                                                 {trip.jobCategory === "SUPPLEMENTARY" ? (
-                                                    <Badge variant="outline" className="text-amber-400 border-amber-600">
-                                                        {t("accounting.billingDocument.badge.jobCategorySupplementary")}
-                                                    </Badge>
+                                                    <div className="flex flex-col gap-1">
+                                                        <Badge variant="outline" className="w-fit text-amber-400 border-amber-600">
+                                                            {t("accounting.billingDocument.badge.jobCategorySupplementary")}
+                                                        </Badge>
+                                                        {suppPricedWithFuel(trip) && (
+                                                            <Badge variant="outline" className="w-fit text-red-600 border-red-500 text-[10px] px-1 py-0">
+                                                                {t("accounting.billingDocument.badge.suppWithFuel")}
+                                                            </Badge>
+                                                        )}
+                                                    </div>
                                                 ) : trip.jobCategory === "PRIMARY" ? (
                                                     <Badge variant="outline">
                                                         {t("accounting.billingDocument.badge.jobCategoryPrimary")}

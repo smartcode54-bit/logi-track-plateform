@@ -19,6 +19,8 @@ exports.resolveTaskCustomerId = resolveTaskCustomerId;
 exports.selectBillingRateEntry = selectBillingRateEntry;
 exports.selectFuelAdjustmentForBillingDate = selectFuelAdjustmentForBillingDate;
 exports.computeFinalRateThb = computeFinalRateThb;
+exports.snapshotCarriesFuel = snapshotCarriesFuel;
+exports.isFrozenBillingSnapshot = isFrozenBillingSnapshot;
 exports.computeMultiDeliveryBilling = computeMultiDeliveryBilling;
 exports.selectStandbyRateEntry = selectStandbyRateEntry;
 exports.computeStandbyBilling = computeStandbyBilling;
@@ -232,6 +234,32 @@ function selectFuelAdjustmentForBillingDate(customerId, billDateMs, fuelAdjustme
 /** Final trip rate in THB, rounded to 2 decimal places (same as legacy billing snapshot). */
 function computeFinalRateThb(baseRateThb, rateMultiplier, addThbPerTrip) {
     return Math.round((baseRateThb * rateMultiplier + addThbPerTrip) * 100) / 100;
+}
+/**
+ * True when a stored snapshot was priced WITH a fuel adjustment — an adjustment id, a multiplier
+ * other than 1, or a non-zero per-trip add. A เสริม snapshot must never carry one (ADR-0005: เสริม
+ * is a fixed price fuel never moves), so on a เสริม row this is the signature of a corrupted price.
+ */
+function snapshotCarriesFuel(s) {
+    const adjId = typeof s.billingFuelAdjustmentId === "string" && s.billingFuelAdjustmentId.trim() !== "";
+    const mult = s.billingRateMultiplier == null ? 1 : Number(s.billingRateMultiplier);
+    const add = s.billingAddThbPerTrip == null ? 0 : Number(s.billingAddThbPerTrip);
+    return adjId || (Number.isFinite(mult) && mult !== 1) || (Number.isFinite(add) && add !== 0);
+}
+/**
+ * Frozen price (ADR-0005 / ADR-0002): a snapshot a forced recompute must leave alone.
+ *
+ * - An explicit manual override is always frozen.
+ * - A เสริม label is frozen only while its price is a clean fixed price. A เสริม-labelled row that
+ *   carries fuel was never an agreed เสริม price — it was written by a path that ignored หลัก/เสริม
+ *   (the old Driver Monitor client writer) — so freezing it would lock the corruption in forever.
+ *   The server always writes `billingManualOverride: true` on a priced เสริม trip, so every
+ *   correctly-priced เสริม row is still caught by the first rule.
+ */
+function isFrozenBillingSnapshot(s) {
+    if (s.billingManualOverride === true)
+        return true;
+    return s.jobCategory === "SUPPLEMENTARY" && !snapshotCarriesFuel(s);
 }
 /**
  * Compute billing for multi-delivery task.

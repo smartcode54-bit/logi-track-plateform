@@ -933,6 +933,38 @@ build → ประกาศเวอร์ชันขึ้น Firestore อ�
 
 ---
 
+#### 47. Billing Document: เดือนแผนงาน/เดือนที่จัดส่ง + แก้ราคาเสริมโดนปรับน้ำมัน — [1 ต.ค. 2026] — ADR 0005 §9, 0008 §5, 0027 §9
+
+**ตัวกรอง:**
+- เดือน+ปีเดิม = **งวดวางบิล** แต่ label บอกแกนจริง: "เดือนที่จัดส่ง" (ลูกค้าทั่วไป/ทั้งหมด) หรือ "เดือนแผนงาน" (ลูกค้า `billingDateBasis=plan`)
+- เพิ่มตัวกรอง "เดือนตรวจสอบ" บนแกนตรงข้าม (`lib/monthFilter.ts`) — เป็น review filter: ย่อ preview + ปิด Download
+- ถ้าสลับลูกค้าที่ใช้เกณฑ์ต่างกันโดยไม่โหลดใหม่ ปุ่ม Download จะถูกปิด
+
+**🐛 ราคาเสริมผันตามน้ำมัน — ต้นเหตุ:** `useDriverMonitor.ts` เขียน billing snapshot **จากเบราว์เซอร์** โดยตัวโหลด rate ทิ้ง `jobCategory` และ probe PRIMARY ก่อนเสมอ
+- งานเสริมจึงได้ราคา + น้ำมัน และไม่มี `billingDate` (เลยหายจากงวดตามแผนของ CJSF)
+- ตัวเขียนนี้ชนะ race กับการเรียกจาก mobile ทำให้ server skip เพราะเห็นว่ามีราคาแล้ว
+
+| ไฟล์ | สิ่งที่เปลี่ยน |
+|------|---------------|
+| `features/drivers/hooks/useDriverMonitor.ts` | ลบตัวเขียนราคา → เรียก callable `computeTripBillingSnapshot` (ไม่ force) แทน |
+| `lib/billingRates.ts` (+ test) | เก็บ `jobCategory` ของ rate + เคารพ `task.jobCategory` + ส่ง `billingCustomerId` |
+| `features/accounting/components/EditBillingDialog.tsx` | คิดตาม `row.jobCategory`; งานเสริม → `billingManualOverride: true` |
+| `lib/billingCompute.ts` + `functions/src/core/billingCompute.ts` | `snapshotCarriesFuel` / `isFrozenBillingSnapshot` — เสริมที่มีน้ำมันและไม่มี override ไม่ถือว่า frozen |
+| `functions/src/tripBillingOnDelivered.ts` | frozen + force → re-stamp เฉพาะ `billingDate`; force ต้องเป็น admin; เช็ค period lock ทั้งงวดเดิมและงวดใหม่ → `blockedInvoiceNumber` |
+| `app/app/accounting/billing-document/page.tsx` | banner ปัญหา + ปุ่มแอดมิน "คำนวณใหม่ตามใบงาน" + badge "เสริมแต่ปรับน้ำมัน" |
+| `app/app/accounting/rate-card/page.tsx` | preview ไม่บวกน้ำมันให้แถวเสริม |
+| `app/app/accounting/income/page.tsx` | แก้วันแผนแล้วแสดง error ถ้า server ไม่ได้ reprice |
+
+**Rollout:**
+1. deploy functions
+2. deploy web
+3. Income → Backfill ช่วงวันที่ **ทุกลูกค้า + force** ของเดือนที่ยัง draft
+4. เปิด Billing Document ของ CJSF แล้วกด "คำนวณใหม่ตามใบงาน"
+
+**Pattern:** ดู `.vibe-rules.md` → Confirmed Patterns → "💰 ราคาเที่ยวคิดที่ server เท่านั้น" (MANDATORY)
+
+---
+
 ### ⚠️ สิ่งที่ยังค้างอยู่ (Pending)
 
 1. **RBAC — กำหนด `security_view_mobile_clients` ให้ role ใน Firestore `permissions_config`**  

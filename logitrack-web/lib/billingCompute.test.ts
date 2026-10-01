@@ -8,12 +8,14 @@ import {
     fuelBandRange,
     getTripBillingDateMs,
     isEffectiveOnOrBeforeBillingDate,
+    isFrozenBillingSnapshot,
     normalizeVehicleClass,
     resolveBillingRoundProvenance,
     resolveTaskCustomerId,
     selectBillingRateEntry,
     selectFuelAdjustmentForBillingDate,
     selectStandbyRateEntry,
+    snapshotCarriesFuel,
     type BillingRateEntry,
     type FuelRateAdjustment,
     type StandbyRateEntry,
@@ -494,5 +496,47 @@ describe("resolveTaskCustomerId (ADR 0027 — explicit customer wins)", () => {
         expect(
             resolveTaskCustomerId({ billingCustomerId: "  ", sourceHubLinkedCustomerId: "SPX_ID" })
         ).toBe("SPX_ID");
+    });
+});
+
+describe("snapshotCarriesFuel / isFrozenBillingSnapshot (ADR-0005 frozen price)", () => {
+    const cleanSupp = {
+        jobCategory: "SUPPLEMENTARY",
+        billingFuelAdjustmentId: null,
+        billingRateMultiplier: 1,
+        billingAddThbPerTrip: 0,
+    };
+
+    it("a snapshot with no fuel fields at all carries no fuel", () => {
+        expect(snapshotCarriesFuel({})).toBe(false);
+        expect(snapshotCarriesFuel({ billingRateMultiplier: 1, billingAddThbPerTrip: 0 })).toBe(false);
+    });
+
+    it("any one of id / multiplier / per-trip add marks the snapshot as fuel-adjusted", () => {
+        expect(snapshotCarriesFuel({ billingFuelAdjustmentId: "adj1" })).toBe(true);
+        expect(snapshotCarriesFuel({ billingRateMultiplier: 1.05 })).toBe(true);
+        expect(snapshotCarriesFuel({ billingAddThbPerTrip: -40 })).toBe(true);
+        // A blank id is not an adjustment.
+        expect(snapshotCarriesFuel({ billingFuelAdjustmentId: "  " })).toBe(false);
+    });
+
+    it("a clean เสริม price is frozen, with or without the override flag", () => {
+        expect(isFrozenBillingSnapshot(cleanSupp)).toBe(true);
+        expect(isFrozenBillingSnapshot({ ...cleanSupp, billingManualOverride: true })).toBe(true);
+    });
+
+    it("a เสริม label carrying fuel is NOT frozen — it is the corrupted price a recompute must repair", () => {
+        expect(isFrozenBillingSnapshot({ ...cleanSupp, billingAddThbPerTrip: -40, billingFuelAdjustmentId: "adj1" })).toBe(false);
+        expect(isFrozenBillingSnapshot({ ...cleanSupp, billingRateMultiplier: 1.1 })).toBe(false);
+    });
+
+    it("an explicit manual override stays frozen even when it carries fuel (an admin typed that price)", () => {
+        expect(isFrozenBillingSnapshot({ ...cleanSupp, billingAddThbPerTrip: -40, billingManualOverride: true })).toBe(true);
+        expect(isFrozenBillingSnapshot({ jobCategory: "PRIMARY", billingManualOverride: true, billingRateMultiplier: 1.05 })).toBe(true);
+    });
+
+    it("an un-overridden หลัก snapshot is never frozen", () => {
+        expect(isFrozenBillingSnapshot({ jobCategory: "PRIMARY", billingRateMultiplier: 1.05 })).toBe(false);
+        expect(isFrozenBillingSnapshot({})).toBe(false);
     });
 });

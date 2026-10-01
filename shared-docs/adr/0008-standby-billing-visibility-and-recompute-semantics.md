@@ -131,6 +131,15 @@ mismatch.
    has a `billing_statements` doc in `sent` or `paid` status is not repriced; the callable reports it
    as blocked with the invoice number, and the admin must cancel or credit-note that invoice first.
    [[Frozen price]] (ADR-0005) continues to apply on top of this and is not weakened.
+   - *Amendment 2026-10-01:* this now also holds for the **single-trip** callable
+     (`computeTripBillingSnapshot` with `forceRecompute`), which had been left open and is what the
+     Billing Document repair button and the Income plan-date edit call. The check covers both the
+     row's current period (`billingDate`, else the delivery instant) and the period it would move
+     to, and returns `blockedInvoiceNumber`. `forceRecompute` is admin-only. A plain (non-forced)
+     call — the first pricing at delivery — is never blocked.
+   - *Amendment 2026-10-01:* a เสริม-labelled snapshot that carries a fuel adjustment and no manual
+     override is **not** frozen (`isFrozenBillingSnapshot`) — it is the corrupted output of the old
+     Driver Monitor browser writer, not an agreed price, and must stay repairable.
 
 6. **The Billing Document stops dropping rows silently.** `fetchBillingTripRows` returns standby
    records that fail the billing preconditions, flagged (`missingBilling`, with the reason), and the

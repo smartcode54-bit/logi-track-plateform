@@ -437,6 +437,8 @@ export interface WriteTripBillingInput {
     billingEffectiveFromDateStr?: string | null;
     billingCustomerId: string;
     billingManualOverride?: boolean;
+    /** หลัก/เสริม the price was taken under — mirrored onto the trip like the server snapshot does. */
+    jobCategory?: "PRIMARY" | "SUPPLEMENTARY";
 }
 
 export async function writeTripBillingSnapshot(input: WriteTripBillingInput): Promise<void> {
@@ -456,6 +458,9 @@ export async function writeTripBillingSnapshot(input: WriteTripBillingInput): Pr
     };
     if (input.billingManualOverride) {
         payload.billingManualOverride = true;
+    }
+    if (input.jobCategory) {
+        payload.jobCategory = input.jobCategory;
     }
     await updateDoc(ref, payload);
 }
@@ -962,6 +967,7 @@ export async function fetchBillingTripRows(
                 const destCode = stop.destination ?? "";
                 rows.push({
                     id: `${d.id}_s${stop.stopIndex}`,
+                    tripRecordId: d.id,
                     taskId: data.taskId,
                     spxTripId: data.spxTripId ? `${data.spxTripId}-s${stop.stopIndex}` : undefined,
                     deliveredTimestamp: toBillingDate(data.deliveredTimestamp),
@@ -972,6 +978,10 @@ export async function fetchBillingTripRows(
                     billingBaseRateThb: stop.baseRateThb || undefined,
                     billingLookupHubId: hubId,
                     billingLookupDestination: destCode,
+                    // The parent trip's fuel provenance — so a เสริม stop priced with fuel is
+                    // flagged like a เสริม trip is (ADR-0005).
+                    billingRateMultiplier: Number(data.billingRateMultiplier) || undefined,
+                    billingAddThbPerTrip: Number(data.billingAddThbPerTrip) || undefined,
                     billingCustomerId: data.billingCustomerId,
                     vehicleClass: taskInfo?.truckType,
                     driverName: resolveDriverName([data.driverId, taskInfo?.driverId], taskInfo?.driverName),
@@ -995,6 +1005,7 @@ export async function fetchBillingTripRows(
         const dest = data.billingLookupDestination ?? "";
         rows.push({
             id: d.id,
+            tripRecordId: d.id,
             taskId: data.taskId,
             spxTripId: data.spxTripId,
             deliveredTimestamp: toBillingDate(data.deliveredTimestamp),

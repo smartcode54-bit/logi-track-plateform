@@ -120,6 +120,16 @@ dimension, not a billing dimension, and must not.
 8. **The plate filter joins `ExportFilterCriteria`** (`useDriverMonitor.ts:75-83`) so exports honour
    it. Point 6 is what makes such an export reproducible.
 
+9. **Amendment 2026-10-01 — a third review filter: the month on the other date axis.** The Billing
+   Document's month + year is the *billing period* and is cut on the billing entity's axis (ADR 0027:
+   plan date for a plan-basis customer, delivery date otherwise), now labelled as such
+   ("เดือนแผนงาน" / "เดือนที่จัดส่ง" + "งวดวางบิล"). A review month on the **other** axis
+   (`lib/monthFilter.ts`, Bangkok calendar, options built from the invoice set like the plate filter)
+   follows every rule above: it narrows the preview only, never the invoice set, and Download is
+   blocked while it is active. Download is also blocked when the rows on screen were loaded for a
+   different basis than the selected customer bills on (switching from "all" to a plan-basis customer
+   without reloading) — that is not a review filter but a wrong invoice set.
+
 ## Consequences
 
 **Positive**

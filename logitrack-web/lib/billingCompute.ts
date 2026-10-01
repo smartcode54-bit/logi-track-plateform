@@ -324,6 +324,42 @@ export function computeFinalRateThb(baseRateThb: number, rateMultiplier: number,
     return Math.round((baseRateThb * rateMultiplier + addThbPerTrip) * 100) / 100;
 }
 
+/** The fuel provenance fields a stored billing snapshot carries (trip_records). */
+export interface BillingSnapshotFuelFields {
+    billingFuelAdjustmentId?: unknown;
+    billingRateMultiplier?: unknown;
+    billingAddThbPerTrip?: unknown;
+}
+
+/**
+ * True when a stored snapshot was priced WITH a fuel adjustment — an adjustment id, a multiplier
+ * other than 1, or a non-zero per-trip add. A เสริม snapshot must never carry one (ADR-0005: เสริม
+ * is a fixed price fuel never moves), so on a เสริม row this is the signature of a corrupted price.
+ */
+export function snapshotCarriesFuel(s: BillingSnapshotFuelFields): boolean {
+    const adjId = typeof s.billingFuelAdjustmentId === "string" && s.billingFuelAdjustmentId.trim() !== "";
+    const mult = s.billingRateMultiplier == null ? 1 : Number(s.billingRateMultiplier);
+    const add = s.billingAddThbPerTrip == null ? 0 : Number(s.billingAddThbPerTrip);
+    return adjId || (Number.isFinite(mult) && mult !== 1) || (Number.isFinite(add) && add !== 0);
+}
+
+/**
+ * Frozen price (ADR-0005 / ADR-0002): a snapshot a forced recompute must leave alone.
+ *
+ * - An explicit manual override is always frozen.
+ * - A เสริม label is frozen only while its price is a clean fixed price. A เสริม-labelled row that
+ *   carries fuel was never an agreed เสริม price — it was written by a path that ignored หลัก/เสริม
+ *   (the old Driver Monitor client writer) — so freezing it would lock the corruption in forever.
+ *   The server always writes `billingManualOverride: true` on a priced เสริม trip, so every
+ *   correctly-priced เสริม row is still caught by the first rule.
+ */
+export function isFrozenBillingSnapshot(
+    s: BillingSnapshotFuelFields & { billingManualOverride?: unknown; jobCategory?: unknown }
+): boolean {
+    if (s.billingManualOverride === true) return true;
+    return s.jobCategory === "SUPPLEMENTARY" && !snapshotCarriesFuel(s);
+}
+
 export interface DeliveryStopForBilling {
     index: number;
     destination: string;

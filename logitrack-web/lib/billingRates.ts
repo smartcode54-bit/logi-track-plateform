@@ -48,11 +48,22 @@ function taskToBillingInput(task: Task | null | undefined): TaskBillingInput | n
         sourceHub: task.sourceHub,
         destination: task.destination,
         truckType: task.truckType,
+        // Explicit billing customer chosen at assign wins over the hub link (ADR 0027) — same as server.
+        billingCustomerId: task.billingCustomerId,
         sourceHubLinkedCustomerId: task.sourceHubLinkedCustomerId,
         destinationLinkedCustomerId: task.destinationLinkedCustomerId,
     };
 }
 
+/**
+ * Price a trip with the same หลัก/เสริม rule the server snapshot uses (`tripBillingOnDelivered`,
+ * ADR-0006): an explicit category on the task is authoritative — เสริม prices from the เสริม card
+ * only (never fuel-adjusted), หลัก from the หลัก card only. Only a legacy task with no category
+ * falls back PRIMARY → SUPPLEMENTARY. Probing PRIMARY first for every trip is what priced เสริม
+ * trips with fuel on the client.
+ *
+ * Display/estimate only — billing snapshots are written by the server callable, never from here.
+ */
 export function computeTripBilling(
     trip: TripRecord,
     task: Task | null | undefined,
@@ -64,8 +75,10 @@ export function computeTripBilling(
         createdAt: trip.createdAt,
     };
     const input = taskToBillingInput(task);
-    // Derive หลัก/เสริม like the billing engine (ADR-0005): primary card by date first,
-    // fall back to the supplementary card.
+    const explicit = task?.jobCategory;
+    if (explicit === "SUPPLEMENTARY" || explicit === "PRIMARY") {
+        return computeTripBillingFromParts(tripParts, input, rateEntries, fuelAdjustments, explicit);
+    }
     return (
         computeTripBillingFromParts(tripParts, input, rateEntries, fuelAdjustments, "PRIMARY") ??
         computeTripBillingFromParts(tripParts, input, rateEntries, fuelAdjustments, "SUPPLEMENTARY")
@@ -102,6 +115,9 @@ export async function fetchRateEntriesForCustomers(
                 vehicleClass: normalizeVehicleClass(String(d.vehicleClass ?? "4WJ")),
                 rateThb: Number(d.rateThb ?? 0),
                 effectiveFromMs: toMillis(d.effectiveFrom),
+                // หลัก/เสริม is a rate-lookup dimension (ADR-0005). Dropping it made every เสริม card
+                // look like a หลัก card, so the client priced เสริม trips with the fuel adjustment.
+                jobCategory: d.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
                 // Without this a voided announcement would still price the web preview, and the
                 // preview would disagree with the server (ADR 0009 §1).
                 voided: d.voided === true,
