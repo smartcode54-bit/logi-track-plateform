@@ -589,3 +589,147 @@ delivered card's `หมายเหตุ` line **names the delay cause(s)** in
 `incident_cause_*` key stored in `delayCause` (selected as a key at `incident_report_page.dart:371`) — and
 the [[Evidence gallery]] plus the button's photo count include the incident's map/situation photos under a
 "เหตุล่าช้า" group ([ADR 0025](adr/0025-customer-line-group-notifications.md) §5).
+
+---
+
+# Platform migration (mv-go)
+
+> Added 2026-10-09 with [ADR 0029](adr/0029-migrate-firebase-stack-to-go-postgres.md) (Proposed):
+> the strangler move from Firebase to Go + PostgreSQL 18. Full detail in `developer-spec.md` §10–§13.
+
+## Ownership class
+
+Which system **writes** a Firestore collection during the strangler migration, decided per collection
+from which client writes it today, so that no document ever has two masters:
+
+- **A — web-only** (e.g. `customers`, `companies`, the four rate tables, `billing_statements`,
+  `billing_counters`, fuel snapshots, `payroll`, `driver_penalties`, `security_events`): PostgreSQL
+  becomes the writer at that domain's phase and the Firestore copy is frozen — except `customers`,
+  carrier profiles and `companies`, which are also projected back to Firestore during P1–P5 because
+  Cloud Functions still read them.
+- **B — mobile reads, web writes** (`hubs`, hub/SOC distances, `trucks`, `drivers` master fields,
+  `truckAssignment`, `holidays`, `broadcasts`, `settings/mobile_app`): PostgreSQL writer plus a
+  [[Compat projection]] back to Firestore until P7b. Mobile-written sub-fields (`drivers.fcmToken`,
+  `drivers.activeTruck`, `mobile_installations`, driver-created hubs) stay mirrored Firestore→PG.
+- **C — mobile writes** (`tasks`, `trip_records`, `standby_records`, `incidentReport`,
+  `vehicle_expenses`, `maintenance`, `chats` + messages, `leave_requests`): Firestore stays the
+  single writer until P7b; Go reads the PostgreSQL mirror and changes data by [[Write-back]].
+  `users` is the exception: users, credentials and sessions are PostgreSQL-owned from P0, and only
+  the mobile-written `lastLogin*` and `fcmTokens` fields are mirrored until P7b.
+
+`cmd/etl` loads every collection at the start of P1 and keeps mirroring every collection that is not
+yet PostgreSQL-owned. The Go env `PG_OWNED_DOMAINS` records which domains have flipped. Defined in
+[ADR 0029](adr/0029-migrate-firebase-stack-to-go-postgres.md) Decision 11.
+
+## Compat projection
+
+The one-way **PostgreSQL → Firestore** copy of a class B [[Ownership class|collection]] after
+PostgreSQL becomes its writer, so installed 3.x APKs that read Firestore directly keep working until
+the P7b flip, when every projection stops (and, during P1–P5, of the class A customers, carrier
+profiles and companies that Cloud Functions still read). An idempotent upsert keyed by
+`legacy_doc_id`. A row first created in PostgreSQL gets the uuid string as its Firestore doc id
+(stored back in `legacy_doc_id`) and is written in legacy shape (legacy status literals such as
+`Checked in` or `PENDING`, `dateStr` as `ddMMyyyy`, `driverId` = `drivers.legacy_doc_id`). It never
+writes mobile-owned fields and skips rows that originated in Firestore, so it cannot loop. Verified
+by a daily reconciliation (counts + per-row checksum of projected fields). Defined in
+[ADR 0029](adr/0029-migrate-firebase-stack-to-go-postgres.md).
+
+## Write-back
+
+How the Go API changes a class C collection while Firestore is still its single writer (P2–P7a): Go
+validates, authorizes and computes, then writes the Firestore document with the Admin SDK — the same
+operations today's callables and the web's direct writes perform. The change reaches PostgreSQL
+through the mirror; the handler waits up to 3 s for the mirror acknowledgement (Redis
+`cache:mirror_ack:{collection}:{doc_id}`) and otherwise answers `202` with the Firestore document
+echoed (see [[Mirror lag]]). The layer (~15 operations) is throwaway by design: at P7b the repository
+flips to PostgreSQL. Defined in [ADR 0029](adr/0029-migrate-firebase-stack-to-go-postgres.md).
+
+## Callable shim
+
+A Cloud Function kept under its **existing name and contract** whose body only forwards to the Go
+API, so installed APKs that call it by name keep working (`.vibe-rules.md:365-393` as of commit
+`4f552099`). Applies to the five mobile-called callables: `setDriverClaims`,
+`sendCustomerLineNotification`, `computeTripBillingSnapshot`, `addDeliveryStop`,
+`markBroadcastRead`. Each shim calls the matching `/v1/mobile/*` route on the public listener with
+two credentials: `X-Api-Key` (the secret of an `api_keys` row with scope `cf_shim`, held in the
+Functions params `LOGITRACK_API_BASE_URL` and `LOGITRACK_API_KEY`) and the caller's Firebase ID token
+forwarded as `Authorization: Bearer`. Go verifies that token against the securetoken issuer from P2
+onward, whatever `AUTH_FIREBASE_BRIDGE_MODE` says, and acts as that driver (`driver:self`); there is
+no shared static token and no acting-user header. Retirement evidence is the Cloud Functions
+invocation metric per callable plus the shim's own counter; it is deleted only after zero traffic for
+two app release cycles (P8). Defined in [ADR 0029](adr/0029-migrate-firebase-stack-to-go-postgres.md).
+
+## Mirror lag
+
+The delay between a Firestore write to a mirrored collection (any collection not yet
+PostgreSQL-owned — every class C collection until P7b — or a mobile-owned field of class B; see
+[[Ownership class]]) and the matching PostgreSQL row update by the one-way Firestore→PG mirror.
+Target p95 < 5 s during P2–P7, alerted on and reconciled daily. It matters because Go serves class C
+reads from PostgreSQL, so a [[Write-back]] could otherwise look lost. It disappears at P7b, when
+PostgreSQL becomes the writer. Defined in [ADR 0029](adr/0029-migrate-firebase-stack-to-go-postgres.md).
+
+## ETL quarantine
+
+The work list of things `cmd/etl` could not map faithfully from Firestore: rows in `etl.quarantine`
+with a reason code (`tenant_unresolved`, `driver_unresolved`, `task_ambiguous`, `bad_timestamp`,
+`status_out_of_vocab`, `duplicate_hub_source_id`, …; the full list is in Appendix A §A.3) and the
+raw source, managed with `etl quarantine list|resolve`. Policy: **never silently default, never drop
+a billable row**. An unmappable nullable field loads as `NULL` with a field-level entry; a row whose
+tenant cannot be resolved still loads, under the [[Quarantine tenant]]; legacy duplicates that block
+a new UNIQUE constraint load and are reported for the owner to choose winners, and those constraints
+(migration `0010`) are applied only after the owner signs off the quarantine report (production
+order `goose up-to 9` → ETL → sign-off → `goose up`). Driver references keep the raw value in
+`legacy_driver_ref` with `driver_ref_match` (`doc_id` / `auth_uid` / `name` / `none`). Defined in
+[ADR 0029](adr/0029-migrate-firebase-stack-to-go-postgres.md).
+
+## Quarantine tenant
+
+The single `tenants` row with `kind = 'quarantine'` (partial unique, like the one `own_fleet` row),
+with the fixed id `00000000-0000-7000-8000-00000000000f` inserted by migration `0002` (the own-fleet
+id, by contrast, is chosen per environment through `OWN_FLEET_TENANT_ID`). A row whose tenant chain
+does not resolve gets `tenant_id` = this tenant and `tenant_source = 'quarantine'`: RLS hides it from
+every tenant, and only a platform admin lists it (`GET /v1/tenants/quarantine/rows`) to re-home it.
+Legacy tasks with no resolvable driver land here and are re-homed in bulk once the owner confirms.
+The scheduler job `tenancy.orphan-scan` counts these rows and raises a security event when the count
+is above zero. This makes the ADR 0026 rule "an unresolvable row is readable by nobody" explicit
+instead of accidental. See [[ETL quarantine]]. Defined in
+[ADR 0029](adr/0029-migrate-firebase-stack-to-go-postgres.md) Decision 4.
+
+## BFF (web backend-for-frontend)
+
+The Next.js server layer between the browser and Go; the browser only ever calls same-origin
+`/api/*`. The generic proxy `app/api/go/[...path]/route.ts` (Node runtime) reads the HttpOnly cookie
+`lt_at`, adds `Authorization: Bearer`, `X-Request-Id` and `X-Forwarded-For`, forwards to
+`GO_API_INTERNAL_URL` over the private network, streams the response back (SSE included), and checks
+`Origin` / `Sec-Fetch-Site` on mutations. It never refreshes tokens (it cannot see `lt_rt`) and
+answers `404` for Go's session paths (`v1/auth/` login, google, refresh, tenant, logout, logout-all,
+sse-ticket, exchange) and `v1/bridge/*`. Cookies are set only by the auth route handlers
+`POST /api/auth/login`, `POST /api/auth/google`, `GET /api/auth/google/nonce`,
+`POST /api/auth/refresh`, `GET /api/auth/refresh?next=` (navigations redirected by `proxy.ts`),
+`POST /api/auth/logout`, `POST /api/auth/tenant` and `POST /api/auth/firebase-token`; Go returns
+tokens in the JSON body and never sets cookies. `lt_at` (Path `/`) and `lt_rt` (Path `/api/auth`) are
+HttpOnly, Secure, SameSite=Lax. On a `401` with `token_expired` the browser's `goFetch` runs one
+shared refresh (cross-tab lock; forced past the 120 s no-op when `details.reason` is
+`claims_changed`) and retries once. The anonymous waitlist and partner-interest forms use the
+unauthenticated, rate-limited BFF route handlers `POST /api/forms/waitlist` and
+`POST /api/forms/partner-interest`, which call Go's internal `POST /v1/waitlist` and
+`POST /v1/partner-interest`. It holds **no business logic**. It exists
+because production was a static export with no server (`next.config.ts:10`); the edge gate
+`proxy.ts` verifies `lt_at` against Go's JWKS and checks route capabilities from `GET /v1/me` before
+any `/app/*` page renders. See [[Internal vs public listener]]. Defined in
+[ADR 0029](adr/0029-migrate-firebase-stack-to-go-postgres.md) Decision 9.
+
+## Internal vs public listener
+
+The Go `api` process binds two HTTP listeners. **Internal** (`API_INTERNAL_ADDR`, private network
+only, reached by the [[BFF (web backend-for-frontend)|BFF]] and by the APK publish CLI): every
+`/v1/*` route — including the web SSE stream `/v1/events`, mobile-release administration
+(`/v1/app-releases*`, `/v1/app-installations*`) and the anonymous web forms (`/v1/waitlist`,
+`/v1/partner-interest`) — plus `/.well-known/jwks.json` and `/healthz`. **Public** (`API_PUBLIC_ADDR`,
+behind Caddy): only `/v1/mobile/*` (including mobile SSE `/v1/mobile/events?ticket=` and the
+[[Callable shim]] targets) and `/v1/auth/*` (mobile has no BFF), `/public/v1/*` (reserved for
+signature-verified third-party postbacks — none exist today; the only HTTP function is
+`tripEvidence`), `/evidence/*` and `/healthz`. Any other path on the public listener answers `404`,
+not `401`, so the surface is not revealed. `X-Forwarded-For` is trusted only from
+`TRUSTED_PROXY_CIDRS`. Appendix B marks the listener of every route. Defined in
+[ADR 0029](adr/0029-migrate-firebase-stack-to-go-postgres.md) Decision 10.

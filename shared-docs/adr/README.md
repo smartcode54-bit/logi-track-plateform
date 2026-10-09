@@ -39,8 +39,9 @@ Companion glossary: [../glossary.md](../glossary.md).
 | [0026](0026-multi-tenant-carrier-isolation.md) | Multi-tenant carrier isolation — opening the platform to TTP and its subcontractors (`tenantId` frozen on the row, `platform_admin` split from tenant admin) | Accepted 2026-09-11 (impl pending) |
 | [0027](0027-plan-date-billing-axis.md) | Per-customer plan-date billing axis — bill by the plan date (`tasks.date` → `trip_records.billingDate`), not the delivery instant, for opt-in customers (CJSF) | Accepted 2026-09-12 (Phase 1 impl local, pending verify) |
 | [0028](0028-plan-date-vs-actual-work-date.md) | Plan date vs actual work date — keep them separate; `checkInAt` is the actual date, plan date is the billing/filter axis; add no `actualDate` field, no override, no flag | Accepted 2026-09-12 (no code change) |
+| [0029](0029-migrate-firebase-stack-to-go-postgres.md) | Replace the Firebase stack with Go + Fiber v3 + PostgreSQL 18 (strangler per domain, web first, mobile last; own auth, multi-tenant RBAC, Next.js BFF) | Proposed (2026-10-09) |
 
-**Next free number: `0029`.** Take the next unused number, never reuse or renumber (see
+**Next free number: `0030`.** Take the next unused number, never reuse or renumber (see
 [conventions](0000-adr-conventions.md)).
 
 ## Migrated from BMAD (formerly `logitrack-web/_bmad-output/planning-artifacts/adr/`)
