@@ -1,5 +1,7 @@
 -- 0001_preamble.sql: Appendix A §A.2.0 plus the Appendix C block of this file (§C.3.5 generators, §C.3.6
--- trg_freeze_tenant_id). No tables. Never edit this file once merged; changes go into 0011 and later.
+-- trg_freeze_tenant_id). No tables. Until the P0 deploy applies the baseline to a database that is kept,
+-- this file follows Appendix A (an edit means resetting local and CI databases); after that it is never
+-- edited and follow-ups take the next free number.
 
 -- +goose Up
 -- Roles come from deploy/postgres-init/00-roles.sql (R66); no migration creates a role or holds a credential.

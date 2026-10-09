@@ -12,6 +12,10 @@ GOVULNCHECK  := go run golang.org/x/vuln/cmd/govulncheck@latest
 SQLC         := go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
 # testcontainers talks to the daemon of the active docker context (Docker Desktop, OrbStack, colima).
 DOCKER_HOST  ?= $(shell docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null)
+# The chain is embedded in the image, so every migrate run rebuilds it (cached when nothing changed).
+MIGRATE      := $(COMPOSE) run --rm --build migrate
+# sqlc output directories (the `out:` of each sqlc.yaml block).
+SQLC_OUT      = $(shell awk '$$1 == "out:" {print $$2}' sqlc.yaml)
 GITLEAKS_IMG := zricethezav/gitleaks:v8.30.1
 
 .PHONY: help env dev-keys dev-db up down reset ps logs psql redis-cli amqp-ui minio-console tunnel \
@@ -72,17 +76,17 @@ tunnel: ## expose only /public/v1/* through Cloudflare (TUNNEL_TOKEN; Caddy site
 
 ## --- database and data -------------------------------------------------------------------
 migrate: ## apply every migration (make up runs this first; prod pins up-to 9 until the P1 runbook, R59)
-	$(COMPOSE) run --rm migrate up
+	$(MIGRATE) up
 
 migrate-up-to: ## apply up to a version: make migrate-up-to V=9
 	@test -n "$(V)" || { echo "V is required" >&2; exit 2; }
-	$(COMPOSE) run --rm migrate up-to $(V)
+	$(MIGRATE) up-to $(V)
 
 migrate-status: ## list every migration and its state
-	$(COMPOSE) run --rm migrate status
+	$(MIGRATE) status
 
 migrate-down: ## roll back the latest migration (refused when APP_ENV=prod)
-	$(COMPOSE) run --rm migrate down
+	$(MIGRATE) down
 
 migrate-new: ## write the next migration file on the host: make migrate-new NAME=add_x
 	@test -n "$(NAME)" || { echo "NAME is required" >&2; exit 2; }
@@ -119,13 +123,15 @@ gen: ## regenerate generated files (RabbitMQ definitions, sqlc; OpenAPI joins wi
 	go generate ./...
 	$(SQLC) generate
 
-gen-check: ## fail when generated files are stale or the migration rules break (go-ci gen-check, T14)
+gen-check: ## fail when generated files are stale or orphaned, or the migration rules break (go-ci gen-check, T14)
 	$(SQLC) diff
 	$(SQLC) vet
 	go run ./cmd/migrate check -dir migrations
 	go generate ./...
-	@test -z "$$(git status --porcelain -- deploy/rabbitmq-definitions.json)" \
-	  || { git --no-pager diff -- deploy/rabbitmq-definitions.json; echo "gen-check: run make gen" >&2; exit 1; }
+	@# A query file that was removed leaves its .sql.go behind; regenerate from scratch to expose it.
+	rm -f $(addsuffix /*.sql.go,$(SQLC_OUT))
+	$(SQLC) generate
+	git diff --exit-code -- deploy/rabbitmq-definitions.json $(SQLC_OUT)
 
 sqlc: ## sqlc generate (schema = migrations/, queries next to their package)
 	$(SQLC) generate

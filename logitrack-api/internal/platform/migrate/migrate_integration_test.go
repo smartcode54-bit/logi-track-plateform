@@ -11,10 +11,12 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver
 	"github.com/pressly/goose/v3"
+	"github.com/pressly/goose/v3/lock"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db/pgtest"
@@ -115,11 +117,18 @@ func TestUpToNineLeavesD5ConstraintsPending(t *testing.T) {
 	}
 }
 
+// Both runs see the same pending migrations (the version table exists before they start), so
+// without the session lock both would apply 0001 and one would fail.
 func TestConcurrentRunsApplyEachVersionOnce(t *testing.T) {
 	ctx := context.Background()
 	d := pgtest.NewDatabase(t)
 	fsys := os.DirFS("testdata/baseline-shape")
 	runners := []*migrate.Runner{migratetest.Runner(t, d, fsys), migratetest.Runner(t, d, fsys)}
+	for _, r := range runners {
+		if _, err := r.Version(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
 	var wg sync.WaitGroup
 	applied := make([]int, len(runners))
 	errs := make([]error, len(runners))
@@ -142,6 +151,48 @@ func TestConcurrentRunsApplyEachVersionOnce(t *testing.T) {
 	if err := d.Pool(t, db.RoleMigrator).QueryRow(ctx,
 		`SELECT count(*) FROM goose_db_version WHERE version_id > 0`).Scan(&rows); err != nil || rows != 10 {
 		t.Fatalf("goose_db_version has %d rows (%v), want 10", rows, err)
+	}
+}
+
+// While another session holds goose's advisory lock, Up waits; it applies once the lock is free.
+func TestUpWaitsForTheMigrationLock(t *testing.T) {
+	ctx := context.Background()
+	d := pgtest.NewDatabase(t)
+	r := migratetest.Runner(t, d, os.DirFS("testdata/baseline-shape"))
+	if _, err := r.Version(ctx); err != nil {
+		t.Fatal(err)
+	}
+	holder, err := pgx.Connect(ctx, d.URL(db.RoleMigrator))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = holder.Close(ctx) }()
+	if _, err := holder.Exec(ctx, "SELECT pg_advisory_lock($1)", lock.DefaultLockID); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := r.Up(ctx)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("Up finished while the lock was held (err %v)", err)
+	case <-time.After(2 * time.Second):
+	}
+	if _, err := holder.Exec(ctx, "SELECT pg_advisory_unlock($1)", lock.DefaultLockID); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("Up did not finish after the lock was released")
+	}
+	if v, _ := r.Version(ctx); v != 10 {
+		t.Fatalf("version = %d, want 10", v)
 	}
 }
 
@@ -199,8 +250,10 @@ func TestRequireMigrator(t *testing.T) {
 	}
 }
 
-// 0001 asserts the login and the roles before it creates anything, so a wrong URL or a missing role
-// leaves the database empty. goose runs here without the RequireMigrator preflight of cmd/migrate.
+// 0001 refuses a wrong login or a missing role, and because goose runs the file in one transaction
+// none of its objects survives the refusal (the assertion comes first so its error is the first one;
+// TestPreambleStartsWithTheRoleAssertion checks the order). goose runs here without the
+// RequireMigrator preflight of cmd/migrate.
 func TestPreambleRefusesWrongLoginAndMissingRoles(t *testing.T) {
 	ctx := context.Background()
 
@@ -211,6 +264,13 @@ func TestPreambleRefusesWrongLoginAndMissingRoles(t *testing.T) {
 			t.Fatalf("err = %v", err)
 		}
 		assertNothingCreated(t, d)
+		// goose commits its version table before 0001 runs; it belongs to the login that ran goose,
+		// so after such a run it must be dropped before cmd/migrate takes over (README, Migrations).
+		var owner string
+		if err := d.Pool(t, db.RoleMigrator).QueryRow(context.Background(),
+			`SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'public.goose_db_version'::regclass`).Scan(&owner); err != nil || owner != "postgres" {
+			t.Fatalf("goose_db_version owner = %q (%v)", owner, err)
+		}
 	})
 
 	for _, tc := range []struct{ name, breakSQL, restoreSQL, want string }{
@@ -260,6 +320,7 @@ func gooseUp(t *testing.T, url string) error {
 	return err
 }
 
+// assertNothingCreated checks that the refused 0001 rolled back completely.
 func assertNothingCreated(t *testing.T, d *pgtest.Database) {
 	t.Helper()
 	conn, err := pgx.Connect(context.Background(), d.SuperURL())

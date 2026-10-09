@@ -116,16 +116,27 @@ const (
 	sectionDown
 )
 
+var (
+	// Statements that cannot run inside a transaction block.
+	concurrentlyRx = regexp.MustCompile(`(?is)\bcreate\s+(?:unique\s+)?index\s+concurrently\b|` +
+		`\bdrop\s+index\s+concurrently\b|` +
+		`\breindex\s+(?:\([^)]*\)\s*)?(?:index|table|schema|database|system)\s+concurrently\b|` +
+		`\bdetach\s+partition\s+\S+\s+concurrently\b`)
+	genRandomUUIDRx = regexp.MustCompile(`(?i)\bgen_random_uuid\s*\(`)
+)
+
 // inspect checks one file the way goose's parser reads it: a line whose trimmed text starts with
-// "--" and contains "+goose" is an annotation.
+// "--" and contains "+goose" is an annotation, any other line starting with "--" is a comment.
 func inspect(name string, src []byte) (File, []string) {
 	f := File{Name: name}
 	var problems []string
 	bad := func(format string, a ...any) { problems = append(problems, name+": "+fmt.Sprintf(format, a...)) }
 
 	sec := sectionNone
-	var seenUp, seenDown, inBlock, concurrently bool
-	upSQL, downSQL := 0, 0
+	var seenUp, seenDown, inBlock, blockSQL bool
+	sqlLines := map[section]int{}
+	code := map[section]*strings.Builder{sectionUp: {}, sectionDown: {}}
+	var cs codeScanner
 	sc := bufio.NewScanner(bytes.NewReader(src))
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for n := 1; sc.Scan(); n++ {
@@ -158,10 +169,14 @@ func inspect(name string, src []byte) (File, []string) {
 				if inBlock || sec == sectionNone {
 					bad("line %d: misplaced '-- +goose StatementBegin'", n)
 				}
-				inBlock = true
+				inBlock, blockSQL = true, false
 			case strings.EqualFold(cmd, "StatementEnd"):
-				if !inBlock {
+				switch {
+				case !inBlock:
 					bad("line %d: '-- +goose StatementEnd' without StatementBegin", n)
+				case !blockSQL:
+					// goose v3.28 then drops the next SQL line without an error.
+					bad("line %d: empty '-- +goose StatementBegin' block; goose would silently drop the next statement", n)
 				}
 				inBlock = false
 			case strings.EqualFold(cmd, "NO TRANSACTION"):
@@ -174,25 +189,25 @@ func inspect(name string, src []byte) (File, []string) {
 		case strings.HasPrefix(trimmed, "--"):
 			text := strings.TrimSpace(strings.TrimPrefix(trimmed, "--"))
 			if text == "irreversible" || strings.HasPrefix(text, "irreversible:") {
-				f.Irreversible = true
+				if sec != sectionNone {
+					bad("line %d: the '-- irreversible' marker belongs in the file header, before '-- +goose Up'", n)
+				} else {
+					f.Irreversible = true
+				}
 			}
 		default:
-			code := strings.ToLower(stripComment(line))
-			if strings.TrimSpace(code) == "" {
+			if sec == sectionNone {
+				bad("line %d: SQL before '-- +goose Up'", n)
 				continue
 			}
-			switch sec {
-			case sectionNone:
-				bad("line %d: SQL before '-- +goose Up'", n)
-			case sectionUp:
-				upSQL++
-				if strings.Contains(code, "concurrently") {
-					concurrently = true
-				}
-			case sectionDown:
-				downSQL++
+			sqlLines[sec]++
+			if inBlock {
+				blockSQL = true
 			}
-			if strings.Contains(code, "gen_random_uuid") {
+			stripped := cs.strip(line)
+			code[sec].WriteString(stripped)
+			code[sec].WriteByte('\n')
+			if genRandomUUIDRx.MatchString(stripped) {
 				bad("line %d: ids default to uuidv7(), not gen_random_uuid() (R34)", n)
 			}
 		}
@@ -203,17 +218,19 @@ func inspect(name string, src []byte) (File, []string) {
 	switch {
 	case !seenUp:
 		bad("has no '-- +goose Up' section")
-	case upSQL == 0:
+	case sqlLines[sectionUp] == 0:
 		bad("the Up section is empty")
 	}
 	if !seenDown {
 		bad("has no '-- +goose Down' section; every migration has one (R31), a data migration that cannot be undone keeps an empty Down and is marked '-- irreversible'")
-	} else if downSQL == 0 && !f.Irreversible {
+	} else if sqlLines[sectionDown] == 0 && !f.Irreversible {
 		bad("the Down section is empty; write the rollback, or mark a data migration '-- irreversible' (R31)")
 	}
 	if inBlock {
 		bad("'-- +goose StatementBegin' is never closed")
 	}
+	// goose runs a file's Up and Down with the same transaction mode.
+	concurrently := concurrentlyRx.MatchString(code[sectionUp].String()) || concurrentlyRx.MatchString(code[sectionDown].String())
 	if f.NoTransaction && !concurrently {
 		bad("'-- +goose NO TRANSACTION' is reserved for CREATE/DROP INDEX CONCURRENTLY (R31)")
 	}
@@ -223,16 +240,45 @@ func inspect(name string, src []byte) (File, []string) {
 	return f, problems
 }
 
-// stripComment drops a trailing "--" comment that is outside a quoted string.
-func stripComment(line string) string {
-	inQuote := false
+// codeScanner removes comments, quoted strings and quoted identifiers from SQL lines so the rules
+// match code only. Dollar-quoted bodies stay visible: a function body is code too (R34 applies to
+// the ids it generates).
+type codeScanner struct {
+	inString, inIdent, inBlockComment bool
+}
+
+func (c *codeScanner) strip(line string) string {
+	var b strings.Builder
 	for i := 0; i < len(line); i++ {
+		ch := line[i]
 		switch {
-		case line[i] == '\'':
-			inQuote = !inQuote
-		case !inQuote && line[i] == '-' && i+1 < len(line) && line[i+1] == '-':
-			return line[:i]
+		case c.inBlockComment:
+			if ch == '*' && i+1 < len(line) && line[i+1] == '/' {
+				c.inBlockComment = false
+				i++
+			}
+		case c.inString:
+			if ch == '\'' {
+				c.inString = false
+			}
+		case c.inIdent:
+			if ch == '"' {
+				c.inIdent = false
+			}
+		case ch == '-' && i+1 < len(line) && line[i+1] == '-':
+			return b.String()
+		case ch == '/' && i+1 < len(line) && line[i+1] == '*':
+			c.inBlockComment = true
+			i++
+		case ch == '\'':
+			c.inString = true
+			b.WriteByte(' ')
+		case ch == '"':
+			c.inIdent = true
+			b.WriteByte(' ')
+		default:
+			b.WriteByte(ch)
 		}
 	}
-	return line
+	return b.String()
 }

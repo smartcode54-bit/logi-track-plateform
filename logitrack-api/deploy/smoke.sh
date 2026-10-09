@@ -41,8 +41,10 @@ echo "migrations"
 want=$(find migrations -maxdepth 1 -name '[0-9][0-9][0-9][0-9]_*.sql' | wc -l | tr -d ' ')
 v=$(q "SELECT coalesce(max(version_id), 0) FROM goose_db_version")
 [ "$v" = "$want" ] && ok "schema at version $v (every embedded migration)" || bad "schema version $v, want $want"
-o=$(q "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND pg_get_userbyid(p.proowner) <> 'logitrack_migrator' AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')")
-[ "$o" = "0" ] && ok "schema functions owned by logitrack_migrator (R66)" || bad "$o functions owned by another role"
+# R66: functions belong to logitrack_migrator, except SECURITY DEFINER ones that 0009 hands to
+# logitrack_rls_definer; citext's members belong to the bootstrap superuser (trusted extension).
+o=$(q "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('public','etl') AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e') AND NOT (pg_get_userbyid(p.proowner) = 'logitrack_migrator' OR (p.prosecdef AND pg_get_userbyid(p.proowner) = 'logitrack_rls_definer'))")
+[ "$o" = "0" ] && ok "schema functions owned by logitrack_migrator or, if SECURITY DEFINER, logitrack_rls_definer (R66)" || bad "$o functions with an unexpected owner"
 "${compose[@]}" run --rm -T migrate status -fail-on-pending >/dev/null 2>&1 \
   && ok "migrate status: nothing pending" || bad "migrate status reports pending migrations"
 

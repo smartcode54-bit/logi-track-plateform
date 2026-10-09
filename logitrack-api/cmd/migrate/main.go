@@ -89,6 +89,11 @@ func runCheck(args []string, chain fs.FS, stdout, stderr io.Writer) int {
 	}
 	_, _ = fmt.Fprintf(stdout, "migrate check: ok (%s: %d migration file(s), latest %04d, round-trip floor %d)\n",
 		where, len(files), files[len(files)-1].Version, migrate.RoundTripFloor(files))
+	for _, f := range files {
+		if f.Irreversible {
+			_, _ = fmt.Fprintf(stdout, "  irreversible: %s\n", f.Name)
+		}
+	}
 	return app.ExitOK
 }
 

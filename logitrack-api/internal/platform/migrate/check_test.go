@@ -2,6 +2,7 @@ package migrate_test
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,6 +78,10 @@ func TestCheckRejects(t *testing.T) {
 		{"ENVSUB", map[string]string{"0001_a.sql": "-- +goose ENVSUB ON\n-- +goose Up\nSELECT '${X}';\n-- +goose Down\nSELECT 1;\n"}, "ENVSUB is not used"},
 		{"unknown annotation", map[string]string{"0001_a.sql": "-- +goose Up\nSELECT 1;\n-- +goose Sideways\n-- +goose Down\nSELECT 1;\n"}, "unknown goose annotation"},
 		{"empty chain", map[string]string{}, "no migration files"},
+		{"CONCURRENTLY only in a transactional Down", map[string]string{"0001_a.sql": "-- +goose Up\nCREATE INDEX i ON t (id);\n-- +goose Down\nDROP INDEX CONCURRENTLY i;\n"}, "add '-- +goose NO TRANSACTION'"},
+		{"empty StatementBegin block", map[string]string{"0001_a.sql": "-- +goose Up\nCREATE TABLE t (id int);\n-- +goose StatementBegin\n-- body\n-- +goose StatementEnd\nALTER TABLE t ENABLE ROW LEVEL SECURITY;\n-- +goose Down\nDROP TABLE t;\n"}, "empty '-- +goose StatementBegin' block"},
+		{"irreversible marker outside the header", map[string]string{"0001_a.sql": "-- +goose Up\nUPDATE t SET id = id;\n-- irreversible\n-- +goose Down\n"}, "belongs in the file header"},
+		{"gen_random_uuid in a function body", map[string]string{"0001_a.sql": "-- +goose Up\n-- +goose StatementBegin\nCREATE FUNCTION f() RETURNS uuid LANGUAGE sql AS $$ SELECT gen_random_uuid() $$;\n-- +goose StatementEnd\n-- +goose Down\nDROP FUNCTION f();\n"}, "not gen_random_uuid()"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -98,18 +103,46 @@ func TestCheckAccepts(t *testing.T) {
 		"0002_b.sql": "-- +goose up\nINSERT INTO t VALUES ('--x');\n-- +goose down\nDELETE FROM t;\n",
 		"0003_c.sql": "-- irreversible: data fix\n-- +goose Up\nUPDATE t SET id = id;\n\n-- +goose Down\n",
 		"0004_d.sql": "-- +goose NO TRANSACTION\n-- +goose Up\nCREATE INDEX CONCURRENTLY IF NOT EXISTS i ON t (id);\n-- +goose Down\nDROP INDEX CONCURRENTLY IF EXISTS i;\n",
+		// CONCURRENTLY only in the Down still needs NO TRANSACTION (goose uses one mode per file).
+		"0005_e.sql": "-- +goose NO TRANSACTION\n-- +goose Up\nDROP INDEX IF EXISTS i;\n-- +goose Down\nCREATE INDEX CONCURRENTLY IF NOT EXISTS i ON t (id);\n",
+		// The words in strings, identifiers and comments are not code.
+		"0006_f.sql": "-- +goose Up\nCOMMENT ON TABLE t IS 'built concurrently, never gen_random_uuid()'; -- concurrently\nALTER TABLE t ADD COLUMN \"concurrently\" int; /* gen_random_uuid() */\n-- +goose Down\nALTER TABLE t DROP COLUMN \"concurrently\";\n",
 		"embed.go":   "package x\n",
 		".DS_Store":  "x",
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(files) != 4 || !files[2].Irreversible || !files[3].NoTransaction || files[0].Irreversible {
+	if len(files) != 6 || !files[2].Irreversible || !files[3].NoTransaction || files[0].Irreversible || !files[4].NoTransaction || files[5].NoTransaction {
 		t.Fatalf("files = %+v", files)
 	}
 	if got := migrate.RoundTripFloor(files); got != 3 {
 		t.Fatalf("round-trip floor = %d, want 3", got)
 	}
+}
+
+// 0001 asserts the login and the roles before anything else, so that refusal is the first error
+// a wrong URL or a missing role produces (the whole file still runs in one transaction).
+func TestPreambleStartsWithTheRoleAssertion(t *testing.T) {
+	src, err := fs.ReadFile(migrations.FS, "0001_preamble.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	up := false
+	for _, line := range strings.Split(string(src), "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case trimmed == "-- +goose Up":
+			up = true
+		case !up, trimmed == "", strings.HasPrefix(trimmed, "--"):
+		default:
+			if trimmed != "DO $$" {
+				t.Fatalf("first Up statement of 0001 is %q, want the DO $$ role assertion", trimmed)
+			}
+			return
+		}
+	}
+	t.Fatal("0001 has no Up statement")
 }
 
 func TestCreateNumbersSequentiallyAndFailsCheckUntilWritten(t *testing.T) {
