@@ -259,7 +259,7 @@ x-go: &go
     redis: { condition: service_healthy }
     rabbitmq-init: { condition: service_completed_successfully }
     minio-init: { condition: service_completed_successfully }
-    # issue T03 adds `migrate: { condition: service_completed_successfully }` once cmd/migrate exists
+    migrate: { condition: service_completed_successfully }
 
 x-one-shot: &one-shot
   <<: *go
@@ -395,22 +395,33 @@ services:
       interval: 5s
       retries: 12
 
+  # Schema gate (R59, R66): api, worker and scheduler start only after this exits 0. Locally the
+  # whole chain applies at once; production runs `migrate up-to 9` until the P1 runbook (T24, R88).
   migrate:
-    <<: *one-shot
+    <<: *go
+    restart: "no"
     entrypoint: ["/app/bin/migrate"]
     command: ["up"]
     environment: *env-migrate
+    depends_on:
+      postgres: { condition: service_healthy }
 
   seed:
     <<: *one-shot
     entrypoint: ["/app/bin/seed"]
     command: ["--profile", "${SEED_PROFILE:-smoke}"]
     environment: *env-seed
+    depends_on:
+      postgres: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
 
   etl:
     <<: *one-shot
     entrypoint: ["/app/bin/etl"]
     environment: *env-etl
+    depends_on:
+      postgres: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
 
   mocks:
     image: wiremock/wiremock:3.13.2-alpine

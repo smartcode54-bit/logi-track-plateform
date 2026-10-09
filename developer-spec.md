@@ -420,7 +420,7 @@ These 85 tables are the complete set; Appendix A §A.2.R and §A.2.S list every 
 
 ### 3.5 Migration files (R59, R66, R88)
 
-goose v3.28, one file per migration with Up and Down; `-- +goose NO TRANSACTION` and `-- irreversible` are allowed and skipped by the CI round-trip (R31). Each table's policies ship in its own file after `CREATE TABLE` (§C.3.0). Baseline 0001-0009 is applied together in **P0** (issue T04); later phases change who writes a table, not whether it exists, so phase schema tasks are data-layer tasks.
+goose v3.28, one file per migration with Up and Down; `-- +goose NO TRANSACTION` and `-- irreversible` are allowed and skipped by the CI round-trip (R31). `migrate check` enforces the rules: `NNNN_name.sql` numbered 1..N, a Down section in every file and SQL in it unless the file is marked `-- irreversible`, `NO TRANSACTION` exactly for `CONCURRENTLY`, no `gen_random_uuid`, no goose `ENVSUB`. `0001_preamble` was authored with T03 (the embedded chain and sqlc need one real file), with the role assertion as its first statement; T04 adds `0002`-`0010`. Each table's policies ship in its own file after `CREATE TABLE` (§C.3.0). Baseline 0001-0009 is applied together in **P0** (issue T04); later phases change who writes a table, not whether it exists, so phase schema tasks are data-layer tasks.
 
 | File | Besides the tables of §3.4 |
 |---|---|
@@ -2305,11 +2305,12 @@ The script holds no password: `make dev-db` sets them from the local `.env` URLs
 |---|---|
 | `up`, `down`, `reset` | compose up (default profile; `EDGE=1` adds web + caddy); down keeps volumes; reset = `down -v`, up, seed |
 | `dev-db`, `dev-keys` | local role passwords (§15.3); local Ed25519 key for `JWT_SIGNING_KEY_FILE` |
-| `migrate`, `migrate-new NAME=`, `migrate-status`, `migrate-down` | goose via the `migrate` container |
+| `migrate`, `migrate-up-to V=`, `migrate-status`, `migrate-down` | `cmd/migrate` in the `migrate` container (`up` also runs on every `make up`; api, worker, scheduler, seed and etl wait for it) |
+| `migrate-new NAME=`, `migrate-check`, `migrate-roundtrip` | next `NNNN_NAME.sql` on the host; the R31 lint; up → down-to floor → up on `postgres:18-alpine` (testcontainers) |
 | `seed`, `seed-verify` | `--profile tools run --rm seed` (`SEED_PROFILE=smoke\|demo\|load`); §14.4 |
 | `etl-fixtures` | `etl load --dry-run` of the fixtures against `logitrack_test`, quarantine snapshot diff, `0010` indexes (R31) |
-| `test`, `test-integration` | `go test -race ./...` incl. goldens; `-tags=integration` on compose or testcontainers |
-| `lint`, `sqlc`, `gen-check`, `openapi` | golangci-lint, vet, govulncheck; sqlc; generated-diff gate; OpenAPI -> web types and Dart models (R27) |
+| `test`, `test-integration` | `go test -race ./...` incl. goldens; `-tags=integration` with testcontainers (`internal/platform/db/pgtest`: one `postgres:18-alpine` per test binary, `00-roles.sql` as init script, a database per test) |
+| `lint`, `sqlc`, `gen-check`, `openapi` | golangci-lint, vet, govulncheck (incl. `integration` files); sqlc v1.31.1 (`sqlc.yaml`, schema = `migrations/`); `sqlc diff` + `sqlc vet` + `migrate check` + generated-diff gate; OpenAPI -> web types and Dart models (R27) |
 | `web` | `pnpm --filter logi-track dev` on port 3000 with `GO_API_INTERNAL_URL=http://localhost:8080` |
 | `logs`, `ps`, `psql`, `redis-cli`, `amqp-ui`, `minio-console`, `tunnel` | convenience |
 
@@ -2829,6 +2830,6 @@ Numbers are stable because other documents cite them. Q1-Q12 come from the appro
 | `standby_rate_entries.effectiveFrom` from ICT browsers; Firestore order of D5 duplicates | timezone, query order | quarantine report; question 16 | P1 |
 | Truck status `Available`; driver doc id = Auth UID on heartbeat (`mob:loading_trip_repository.dart:168-170`) | unclear | owner confirmation; ETL report | P1 |
 | Mobile App Check enforcement | only comments suggest it | moot with attestation `off` (ADR 0029) | P7a |
-| Versions: MinIO tag/digest, golangci-lint, air, gopdf, `robfig/cron` v3.0.1, OpenTelemetry v1.3x, go-redis patch; goose v3.28.0 (only v3.27.3 cached locally) | not pinned or fetched | pinned in T01-T03, T14 | P0 |
+| Versions: MinIO tag/digest, golangci-lint, air, gopdf, `robfig/cron` v3.0.1, OpenTelemetry v1.3x, go-redis patch; goose v3.28.0 (pinned in T03 with pgx v5.11.0, sqlc v1.31.1, testcontainers-go v0.44.0) | not pinned or fetched | pinned in T01-T03, T14 | P0 |
 | ADR 0021 content (Workspace SMTP) | file missing on disk | owner supplies or re-decides | P0 |
 | Installed APK version distribution | needs heartbeat data | `mobile_installations` | P7 gate |

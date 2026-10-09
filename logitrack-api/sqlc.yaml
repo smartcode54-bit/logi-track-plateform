@@ -1,0 +1,16 @@
+# sqlc v1.31.1 (developer-spec.md §2.4): make sqlc writes the code, make gen-check runs `sqlc diff`
+# and `sqlc vet`. The schema is the goose chain (sqlc reads only the Up sections). Each domain adds
+# one block with its queries next to its repo package; the go options below are the project defaults.
+version: "2"
+sql:
+  - name: platform-db
+    engine: postgresql
+    schema: migrations
+    queries: internal/platform/db/queries
+    gen:
+      go:
+        package: dbq
+        out: internal/platform/db/dbq
+        sql_package: pgx/v5
+        emit_empty_slices: true
+        emit_pointers_for_null_types: true

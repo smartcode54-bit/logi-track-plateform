@@ -1,0 +1,280 @@
+//go:build integration
+
+package migrate_test
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"os"
+	"runtime"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/jackc/pgx/v5"
+	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver
+	"github.com/pressly/goose/v3"
+
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db/pgtest"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/migrate"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/migrate/migratetest"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/migrations"
+)
+
+// The tests share one container and change cluster-wide roles, so none of them runs in parallel.
+func TestMain(m *testing.M) { os.Exit(pgtest.Main(m)) }
+
+func TestEmbeddedChainRoundTrip(t *testing.T) {
+	migratetest.RoundTrip(t, migrations.FS)
+}
+
+func TestBaselineShapeRoundTrip(t *testing.T) {
+	migratetest.RoundTrip(t, os.DirFS("testdata/baseline-shape"))
+}
+
+func TestIrreversibleMigrationSetsTheRoundTripFloor(t *testing.T) {
+	migratetest.RoundTrip(t, os.DirFS("testdata/irreversible"))
+}
+
+// A Down that drops more than its Up created leaves the schema different after the round trip.
+func TestRoundTripReportsDrift(t *testing.T) {
+	rec := &fatalRecorder{TB: t}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		migratetest.RoundTrip(rec, os.DirFS("testdata/drift"))
+	}()
+	<-done
+	if !strings.Contains(rec.msg, "schema differs after up -> down-to 1 -> up") || !strings.Contains(rec.msg, "fx_a_v") {
+		t.Fatalf("round trip did not report the dropped index:\n%s", rec.msg)
+	}
+}
+
+// fatalRecorder captures the first Fatal of a helper and stops its goroutine, like testing.T.
+type fatalRecorder struct {
+	testing.TB
+	msg string
+}
+
+func (r *fatalRecorder) Helper() {}
+
+func (r *fatalRecorder) Fatal(args ...any) { r.msg = fmt.Sprint(args...); runtime.Goexit() }
+
+func (r *fatalRecorder) Fatalf(format string, args ...any) {
+	r.msg = fmt.Sprintf(format, args...)
+	runtime.Goexit()
+}
+
+// Production stays at 9 until the P1 runbook (R59, R88): up-to 9 must stop at 0009_infra and
+// leave 0010_d5_unique_constraints pending; a later up applies it outside a transaction.
+func TestUpToNineLeavesD5ConstraintsPending(t *testing.T) {
+	ctx := context.Background()
+	d := pgtest.NewDatabase(t)
+	r := migratetest.Runner(t, d, os.DirFS("testdata/baseline-shape"))
+
+	res, err := r.UpTo(ctx, 9)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 9 || res[8].Name != "0009_infra.sql" {
+		t.Fatalf("up-to 9 applied %+v", res)
+	}
+	if v, _ := r.Version(ctx); v != 9 {
+		t.Fatalf("version = %d, want 9", v)
+	}
+	st, err := r.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range st {
+		if s.Applied != (s.Version <= 9) {
+			t.Fatalf("status %+v", s)
+		}
+	}
+	if last := st[len(st)-1]; last.Name != "0010_d5_unique_constraints.sql" || last.Applied {
+		t.Fatalf("last status = %+v, want 0010_d5_unique_constraints.sql pending", last)
+	}
+	if res, err := r.UpTo(ctx, 9); err != nil || len(res) != 0 {
+		t.Fatalf("a second up-to 9 changed %v (%v)", res, err)
+	}
+
+	res, err = r.Up(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 1 || res[0].Name != "0010_d5_unique_constraints.sql" {
+		t.Fatalf("up applied %+v", res)
+	}
+	var valid bool
+	pool := d.Pool(t, db.RoleMigrator)
+	if err := pool.QueryRow(ctx, `SELECT i.indisvalid FROM pg_index i
+		WHERE i.indexrelid = 'shape_chats_one_open_per_driver'::regclass`).Scan(&valid); err != nil || !valid {
+		t.Fatalf("the CONCURRENTLY index is not valid (%v)", err)
+	}
+}
+
+func TestConcurrentRunsApplyEachVersionOnce(t *testing.T) {
+	ctx := context.Background()
+	d := pgtest.NewDatabase(t)
+	fsys := os.DirFS("testdata/baseline-shape")
+	runners := []*migrate.Runner{migratetest.Runner(t, d, fsys), migratetest.Runner(t, d, fsys)}
+	var wg sync.WaitGroup
+	applied := make([]int, len(runners))
+	errs := make([]error, len(runners))
+	for i, r := range runners {
+		wg.Go(func() {
+			res, err := r.Up(ctx)
+			applied[i], errs[i] = len(res), err
+		})
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if applied[0]+applied[1] != 10 {
+		t.Fatalf("applied %v migrations, want 10 in total", applied)
+	}
+	var rows int
+	if err := d.Pool(t, db.RoleMigrator).QueryRow(ctx,
+		`SELECT count(*) FROM goose_db_version WHERE version_id > 0`).Scan(&rows); err != nil || rows != 10 {
+		t.Fatalf("goose_db_version has %d rows (%v), want 10", rows, err)
+	}
+}
+
+func TestPreambleObjectsBelongToTheMigrator(t *testing.T) {
+	ctx := context.Background()
+	d := pgtest.NewDatabase(t)
+	r := migratetest.Runner(t, d, migrations.FS)
+	if _, err := r.Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	pool := d.Pool(t, db.RoleMigrator)
+	var foreign int
+	// citext is a trusted extension: its member functions belong to the bootstrap superuser.
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+		WHERE n.nspname = 'public' AND pg_get_userbyid(p.proowner) <> 'logitrack_migrator'
+		  AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')`).
+		Scan(&foreign); err != nil || foreign != 0 {
+		t.Fatalf("%d public functions not owned by logitrack_migrator (%v)", foreign, err)
+	}
+	var day string
+	var quarantine string
+	if err := pool.QueryRow(ctx, `SELECT bkk_date('2026-10-08T17:00:00Z')::text, app_quarantine_tenant_id()::text`).
+		Scan(&day, &quarantine); err != nil {
+		t.Fatal(err)
+	}
+	if day != "2026-10-09" || quarantine != "00000000-0000-7000-8000-00000000000f" {
+		t.Fatalf("bkk_date = %s, quarantine id = %s", day, quarantine)
+	}
+	var etl, citext bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'etl'),
+		EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'citext')`).Scan(&etl, &citext); err != nil || !etl || !citext {
+		t.Fatalf("etl schema %t, citext %t (%v)", etl, citext, err)
+	}
+}
+
+func TestRequireMigrator(t *testing.T) {
+	ctx := context.Background()
+	d := pgtest.NewDatabase(t)
+	if err := migrate.RequireMigrator(ctx, d.Pool(t, db.RoleMigrator)); err != nil {
+		t.Fatalf("migrator rejected: %v", err)
+	}
+	for _, role := range []string{db.RoleApp, db.RoleETL, db.RoleReadonly} {
+		err := migrate.RequireMigrator(ctx, d.Pool(t, role))
+		if err == nil || !strings.Contains(err.Error(), "not as "+role) {
+			t.Errorf("%s: err = %v", role, err)
+		}
+	}
+	super, err := pgx.Connect(ctx, d.SuperURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = super.Close(ctx) }()
+	if err := migrate.RequireMigrator(ctx, super); err == nil || !strings.Contains(err.Error(), "superuser=true") {
+		t.Errorf("superuser: err = %v", err)
+	}
+}
+
+// 0001 asserts the login and the roles before it creates anything, so a wrong URL or a missing role
+// leaves the database empty. goose runs here without the RequireMigrator preflight of cmd/migrate.
+func TestPreambleRefusesWrongLoginAndMissingRoles(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("superuser login", func(t *testing.T) {
+		d := pgtest.NewDatabase(t)
+		err := gooseUp(t, d.SuperURL())
+		if err == nil || !strings.Contains(err.Error(), "migrations run as logitrack_migrator (MIGRATE_DATABASE_URL), not postgres") {
+			t.Fatalf("err = %v", err)
+		}
+		assertNothingCreated(t, d)
+	})
+
+	for _, tc := range []struct{ name, breakSQL, restoreSQL, want string }{
+		{"readonly cannot log in",
+			"ALTER ROLE logitrack_readonly NOLOGIN", "ALTER ROLE logitrack_readonly LOGIN",
+			"role logitrack_readonly is missing or has wrong attributes"},
+		{"app bypasses RLS",
+			"ALTER ROLE logitrack_app BYPASSRLS", "ALTER ROLE logitrack_app NOBYPASSRLS",
+			"role logitrack_app is missing or has wrong attributes"},
+		{"migrator cannot SET ROLE logitrack_rls_definer",
+			"REVOKE logitrack_rls_definer FROM logitrack_migrator",
+			"GRANT logitrack_rls_definer TO logitrack_migrator WITH INHERIT FALSE",
+			"logitrack_migrator must be granted logitrack_rls_definer"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := pgtest.NewDatabase(t)
+			c := d.Cluster()
+			if err := c.SuperExec(ctx, tc.breakSQL); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := c.SuperExec(context.Background(), tc.restoreSQL); err != nil {
+					t.Errorf("restore: %v", err)
+				}
+			})
+			err := gooseUp(t, d.URL(db.RoleMigrator))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v\nwant %q", err, tc.want)
+			}
+			assertNothingCreated(t, d)
+		})
+	}
+}
+
+func gooseUp(t *testing.T, url string) error {
+	t.Helper()
+	sqlDB, err := sql.Open("pgx", url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sqlDB.Close() }()
+	p, err := goose.NewProvider(goose.DialectPostgres, sqlDB, migrations.FS, goose.WithDisableGlobalRegistry(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = p.Up(context.Background())
+	return err
+}
+
+func assertNothingCreated(t *testing.T, d *pgtest.Database) {
+	t.Helper()
+	conn, err := pgx.Connect(context.Background(), d.SuperURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(context.Background()) }()
+	var objects int
+	if err := conn.QueryRow(context.Background(), `SELECT
+		(SELECT count(*) FROM pg_namespace WHERE nspname = 'etl') +
+		(SELECT count(*) FROM pg_extension WHERE extname = 'citext') +
+		(SELECT count(*) FROM pg_proc WHERE proname IN ('bkk_date', 'app_user_id'))`).Scan(&objects); err != nil {
+		t.Fatal(err)
+	}
+	if objects != 0 {
+		t.Fatalf("%d objects of 0001 exist after the refusal", objects)
+	}
+}
