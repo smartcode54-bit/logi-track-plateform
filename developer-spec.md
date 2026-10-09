@@ -2176,7 +2176,7 @@ Images and ports are in §15.2. Host ports bind `127.0.0.1` except Caddy's 80/44
 | `postgres` | `pg_isready` | **PGDATA `/var/lib/postgresql/18/docker`, volume at `/var/lib/postgresql`**, not `.../data` (R34; old volumes need `make reset`); `postgres-init/` creates the §15.3 roles and `logitrack_test` |
 | `redis` | `redis-cli ping` | AOF on, `noeviction` (idempotency keys never evicted) |
 | `rabbitmq` | `rabbitmq-diagnostics -q ping` | exchanges `lt.events`, `lt.jobs`, `lt.retry`, `lt.requeue`, `lt.dlx`; quorum queues, 5 retries then DLQ (R54) |
-| `minio` + `minio-init` | gated by `minio-init` | UNVERIFIED: image tags and `mc ready` in the pinned mc (fixed at T02). `minio-init` creates both buckets, anonymous download on `app_releases/`, 30-day expiry on `cache/`; the api bootstrap re-asserts them and the private-bucket CORS from `CORS_ALLOWED_ORIGINS` (§9.1), which compose also feeds to MinIO's server-level `MINIO_API_CORS_ALLOW_ORIGIN`. UNVERIFIED: per-bucket CORS on the pinned MinIO |
+| `minio` + `minio-init` | gated by `minio-init` | Images (T02): the official `minio/minio` and `minio/mc` images are no longer published, so compose pins Chainguard's source builds by digest (`cgr.dev/chainguard/minio`, `cgr.dev/chainguard/minio-client:latest-dev`); swapping to another S3-compatible server changes only `S3_*` values. `minio-init` creates both buckets, anonymous download on `app_releases/`, 30-day expiry on `cache/`; the api bootstrap re-asserts them and the private-bucket CORS from `CORS_ALLOWED_ORIGINS` (§9.1), which compose also feeds to MinIO's server-level `MINIO_API_CORS_ALLOW_ORIGIN`. UNVERIFIED: per-bucket CORS on the pinned MinIO |
 | `mailpit` | — | SMTP 1025; reset and invite mails |
 | `migrate` | exits 0 | `migrate up` with `MIGRATE_DATABASE_URL`; prod `up-to 9` until the P1 sign-off |
 | `api` | `wget /readyz` on 8080 | one image with all binaries; internal 8080 (dev only), public 8081 via Caddy, metrics 9090 |
@@ -2221,13 +2221,13 @@ services:
   rabbitmq: # rabbitmq:4-management-alpine, RABBITMQ_DEFAULT_USER/PASS, 127.0.0.1:5672 + :15672, rabbitmq-diagnostics ping
   mailpit:  # axllent/mailpit:<pinned>, 127.0.0.1:8025
   minio:
-    image: minio/minio:RELEASE.<pinned>
+    image: cgr.dev/chainguard/minio:latest@sha256:<pinned>   # official minio/minio images are no longer published
     command: ["server", "/data", "--console-address", ":9001"]
     environment: { MINIO_ROOT_USER: "${MINIO_ROOT_USER}", MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD}", MINIO_API_CORS_ALLOW_ORIGIN: "${CORS_ALLOWED_ORIGINS}" }
     volumes: ["miniodata:/data"]
     ports: ["127.0.0.1:9000:9000", "127.0.0.1:9001:9001"]
     networks: [backend, edge]
-  minio-init: { image: "minio/mc:RELEASE.<pinned>", env_file: ../.env, entrypoint: ["/bin/sh", "/init/minio-init.sh"], volumes: ["./minio:/init:ro"], depends_on: [minio], networks: [backend] }
+  minio-init: { image: "cgr.dev/chainguard/minio-client:latest-dev@sha256:<pinned>", env_file: ../.env, entrypoint: ["/bin/sh", "/init/minio-init.sh"], volumes: ["./minio:/init:ro"], depends_on: [minio], networks: [backend] }
   migrate:
     <<: *go
     restart: "no"

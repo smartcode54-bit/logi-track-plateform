@@ -1,0 +1,7 @@
+# Local configuration and keys: never commit (developer-spec.md §16.5)
+.env
+.env.*
+!.env.example
+/deploy/dev-secrets/*
+!/deploy/dev-secrets/.gitkeep
+/bin/

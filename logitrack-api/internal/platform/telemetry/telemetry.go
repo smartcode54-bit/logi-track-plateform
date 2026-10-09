@@ -202,14 +202,31 @@ type MetricsServer struct {
 	ln  net.Listener
 }
 
-// ListenMetrics binds addr and serves the registry until Shutdown.
-func ListenMetrics(addr string, reg *prometheus.Registry, log zerolog.Logger) (*MetricsServer, error) {
+// ListenMetrics binds addr and serves the registry until Shutdown. When ready
+// is not nil the server also answers GET /healthz (200) and GET /readyz (200
+// or 503), which compose uses for the worker and scheduler (main spec §15.1).
+func ListenMetrics(addr string, reg *prometheus.Registry, log zerolog.Logger, ready func() bool) (*MetricsServer, error) {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, err
 	}
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{Registry: reg}))
+	if ready != nil {
+		mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":{"status":"ok"}}`))
+		})
+		mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			if !ready() {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"error":{"code":"unavailable","message":"not ready","details":{},"requestId":""}}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"data":{"status":"ready"}}`))
+		})
+	}
 	s := &MetricsServer{
 		srv: &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second},
 		ln:  ln,
