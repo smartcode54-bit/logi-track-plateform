@@ -1,0 +1,1189 @@
+{
+  "exchanges": [
+    {
+      "name": "lt.events",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "lt.jobs",
+      "vhost": "/",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "lt.retry",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "lt.requeue",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "lt.dlx",
+      "vhost": "/",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+  "queues": [
+    {
+      "name": "billing.compute",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "lt.dlx",
+        "x-dead-letter-routing-key": "billing.compute",
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "billing.compute.dead",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "billing.backfill",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "lt.dlx",
+        "x-dead-letter-routing-key": "billing.backfill",
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "billing.backfill.dead",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "notify.fcm",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "lt.dlx",
+        "x-dead-letter-routing-key": "notify.fcm",
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "notify.fcm.dead",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "notify.line",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "lt.dlx",
+        "x-dead-letter-routing-key": "notify.line",
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "notify.line.dead",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "notify.email",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "lt.dlx",
+        "x-dead-letter-routing-key": "notify.email",
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "notify.email.dead",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "documents.render",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "lt.dlx",
+        "x-dead-letter-routing-key": "documents.render",
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "documents.render.dead",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "images.thumbnail",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "lt.dlx",
+        "x-dead-letter-routing-key": "images.thumbnail",
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "images.thumbnail.dead",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "cartrack.sync",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "lt.dlx",
+        "x-dead-letter-routing-key": "cartrack.sync",
+        "x-queue-type": "quorum",
+        "x-single-active-consumer": true
+      }
+    },
+    {
+      "name": "cartrack.sync.dead",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "bangchak.snapshot",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "lt.dlx",
+        "x-dead-letter-routing-key": "bangchak.snapshot",
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "bangchak.snapshot.dead",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "distances.compute",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "lt.dlx",
+        "x-dead-letter-routing-key": "distances.compute",
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "distances.compute.dead",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "payroll.run",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "lt.dlx",
+        "x-dead-letter-routing-key": "payroll.run",
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "payroll.run.dead",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "security.audit",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "lt.dlx",
+        "x-dead-letter-routing-key": "security.audit",
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "security.audit.dead",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "tenancy.orphan-scan",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "lt.dlx",
+        "x-dead-letter-routing-key": "tenancy.orphan-scan",
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "tenancy.orphan-scan.dead",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "storage.gc",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "lt.dlx",
+        "x-dead-letter-routing-key": "storage.gc",
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "storage.gc.dead",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "etl.sync",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "lt.dlx",
+        "x-dead-letter-routing-key": "etl.sync",
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "etl.sync.dead",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "firestore.shadow",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "lt.dlx",
+        "x-dead-letter-routing-key": "firestore.shadow",
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "firestore.shadow.dead",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "retry.10s",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "lt.requeue",
+        "x-message-ttl": 10000,
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "retry.1m",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "lt.requeue",
+        "x-message-ttl": 60000,
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "retry.5m",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "lt.requeue",
+        "x-message-ttl": 300000,
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "retry.30m",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "lt.requeue",
+        "x-message-ttl": 1800000,
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "retry.2h",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "lt.requeue",
+        "x-message-ttl": 7200000,
+        "x-queue-type": "quorum"
+      }
+    }
+  ],
+  "bindings": [
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "billing.compute",
+      "destination_type": "queue",
+      "routing_key": "trip.delivered",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "billing.compute",
+      "destination_type": "queue",
+      "routing_key": "trip.delivered_at_changed",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "billing.compute",
+      "destination_type": "queue",
+      "routing_key": "task.plan_date_changed",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "billing.compute",
+      "destination_type": "queue",
+      "routing_key": "standby.completed",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "billing.compute",
+      "destination_type": "queue",
+      "routing_key": "standby.customer_assigned",
+      "arguments": {}
+    },
+    {
+      "source": "lt.jobs",
+      "vhost": "/",
+      "destination": "billing.compute",
+      "destination_type": "queue",
+      "routing_key": "job.billing.safety-net",
+      "arguments": {}
+    },
+    {
+      "source": "lt.requeue",
+      "vhost": "/",
+      "destination": "billing.compute",
+      "destination_type": "queue",
+      "routing_key": "*.billing.compute",
+      "arguments": {}
+    },
+    {
+      "source": "lt.dlx",
+      "vhost": "/",
+      "destination": "billing.compute.dead",
+      "destination_type": "queue",
+      "routing_key": "billing.compute",
+      "arguments": {}
+    },
+    {
+      "source": "lt.jobs",
+      "vhost": "/",
+      "destination": "billing.backfill",
+      "destination_type": "queue",
+      "routing_key": "job.billing.backfill-trips",
+      "arguments": {}
+    },
+    {
+      "source": "lt.jobs",
+      "vhost": "/",
+      "destination": "billing.backfill",
+      "destination_type": "queue",
+      "routing_key": "job.billing.backfill-standby",
+      "arguments": {}
+    },
+    {
+      "source": "lt.jobs",
+      "vhost": "/",
+      "destination": "billing.backfill",
+      "destination_type": "queue",
+      "routing_key": "job.billing.impact-report",
+      "arguments": {}
+    },
+    {
+      "source": "lt.requeue",
+      "vhost": "/",
+      "destination": "billing.backfill",
+      "destination_type": "queue",
+      "routing_key": "*.billing.backfill",
+      "arguments": {}
+    },
+    {
+      "source": "lt.dlx",
+      "vhost": "/",
+      "destination": "billing.backfill.dead",
+      "destination_type": "queue",
+      "routing_key": "billing.backfill",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "notify.fcm",
+      "destination_type": "queue",
+      "routing_key": "task.assigned",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "notify.fcm",
+      "destination_type": "queue",
+      "routing_key": "task.reassigned",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "notify.fcm",
+      "destination_type": "queue",
+      "routing_key": "task.cancelled",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "notify.fcm",
+      "destination_type": "queue",
+      "routing_key": "task.updated",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "notify.fcm",
+      "destination_type": "queue",
+      "routing_key": "task.checked_in",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "notify.fcm",
+      "destination_type": "queue",
+      "routing_key": "task.plan_date_changed",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "notify.fcm",
+      "destination_type": "queue",
+      "routing_key": "chat.message_created",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "notify.fcm",
+      "destination_type": "queue",
+      "routing_key": "broadcast.created",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "notify.fcm",
+      "destination_type": "queue",
+      "routing_key": "maintenance.created",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "notify.fcm",
+      "destination_type": "queue",
+      "routing_key": "maintenance.reminder_requested",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "notify.fcm",
+      "destination_type": "queue",
+      "routing_key": "leave.decided",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "notify.fcm",
+      "destination_type": "queue",
+      "routing_key": "user.sessions_revoked",
+      "arguments": {}
+    },
+    {
+      "source": "lt.requeue",
+      "vhost": "/",
+      "destination": "notify.fcm",
+      "destination_type": "queue",
+      "routing_key": "*.notify.fcm",
+      "arguments": {}
+    },
+    {
+      "source": "lt.dlx",
+      "vhost": "/",
+      "destination": "notify.fcm.dead",
+      "destination_type": "queue",
+      "routing_key": "notify.fcm",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "notify.line",
+      "destination_type": "queue",
+      "routing_key": "task.checked_in",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "notify.line",
+      "destination_type": "queue",
+      "routing_key": "trip.delivered",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "notify.line",
+      "destination_type": "queue",
+      "routing_key": "standby.completed",
+      "arguments": {}
+    },
+    {
+      "source": "lt.jobs",
+      "vhost": "/",
+      "destination": "notify.line",
+      "destination_type": "queue",
+      "routing_key": "job.notify.line.force",
+      "arguments": {}
+    },
+    {
+      "source": "lt.requeue",
+      "vhost": "/",
+      "destination": "notify.line",
+      "destination_type": "queue",
+      "routing_key": "*.notify.line",
+      "arguments": {}
+    },
+    {
+      "source": "lt.dlx",
+      "vhost": "/",
+      "destination": "notify.line.dead",
+      "destination_type": "queue",
+      "routing_key": "notify.line",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "notify.email",
+      "destination_type": "queue",
+      "routing_key": "auth.password_reset_requested",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "notify.email",
+      "destination_type": "queue",
+      "routing_key": "user.created",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "notify.email",
+      "destination_type": "queue",
+      "routing_key": "user.invited",
+      "arguments": {}
+    },
+    {
+      "source": "lt.jobs",
+      "vhost": "/",
+      "destination": "notify.email",
+      "destination_type": "queue",
+      "routing_key": "job.notify.email",
+      "arguments": {}
+    },
+    {
+      "source": "lt.requeue",
+      "vhost": "/",
+      "destination": "notify.email",
+      "destination_type": "queue",
+      "routing_key": "*.notify.email",
+      "arguments": {}
+    },
+    {
+      "source": "lt.dlx",
+      "vhost": "/",
+      "destination": "notify.email.dead",
+      "destination_type": "queue",
+      "routing_key": "notify.email",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "documents.render",
+      "destination_type": "queue",
+      "routing_key": "statement.created",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "documents.render",
+      "destination_type": "queue",
+      "routing_key": "statement.status_changed",
+      "arguments": {}
+    },
+    {
+      "source": "lt.jobs",
+      "vhost": "/",
+      "destination": "documents.render",
+      "destination_type": "queue",
+      "routing_key": "job.documents.regenerate",
+      "arguments": {}
+    },
+    {
+      "source": "lt.jobs",
+      "vhost": "/",
+      "destination": "documents.render",
+      "destination_type": "queue",
+      "routing_key": "job.documents.shopee-report",
+      "arguments": {}
+    },
+    {
+      "source": "lt.requeue",
+      "vhost": "/",
+      "destination": "documents.render",
+      "destination_type": "queue",
+      "routing_key": "*.documents.render",
+      "arguments": {}
+    },
+    {
+      "source": "lt.dlx",
+      "vhost": "/",
+      "destination": "documents.render.dead",
+      "destination_type": "queue",
+      "routing_key": "documents.render",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "images.thumbnail",
+      "destination_type": "queue",
+      "routing_key": "storage.object_committed",
+      "arguments": {}
+    },
+    {
+      "source": "lt.requeue",
+      "vhost": "/",
+      "destination": "images.thumbnail",
+      "destination_type": "queue",
+      "routing_key": "*.images.thumbnail",
+      "arguments": {}
+    },
+    {
+      "source": "lt.dlx",
+      "vhost": "/",
+      "destination": "images.thumbnail.dead",
+      "destination_type": "queue",
+      "routing_key": "images.thumbnail",
+      "arguments": {}
+    },
+    {
+      "source": "lt.jobs",
+      "vhost": "/",
+      "destination": "cartrack.sync",
+      "destination_type": "queue",
+      "routing_key": "job.cartrack.sync",
+      "arguments": {}
+    },
+    {
+      "source": "lt.requeue",
+      "vhost": "/",
+      "destination": "cartrack.sync",
+      "destination_type": "queue",
+      "routing_key": "*.cartrack.sync",
+      "arguments": {}
+    },
+    {
+      "source": "lt.dlx",
+      "vhost": "/",
+      "destination": "cartrack.sync.dead",
+      "destination_type": "queue",
+      "routing_key": "cartrack.sync",
+      "arguments": {}
+    },
+    {
+      "source": "lt.jobs",
+      "vhost": "/",
+      "destination": "bangchak.snapshot",
+      "destination_type": "queue",
+      "routing_key": "job.bangchak.snapshot",
+      "arguments": {}
+    },
+    {
+      "source": "lt.requeue",
+      "vhost": "/",
+      "destination": "bangchak.snapshot",
+      "destination_type": "queue",
+      "routing_key": "*.bangchak.snapshot",
+      "arguments": {}
+    },
+    {
+      "source": "lt.dlx",
+      "vhost": "/",
+      "destination": "bangchak.snapshot.dead",
+      "destination_type": "queue",
+      "routing_key": "bangchak.snapshot",
+      "arguments": {}
+    },
+    {
+      "source": "lt.jobs",
+      "vhost": "/",
+      "destination": "distances.compute",
+      "destination_type": "queue",
+      "routing_key": "job.distances.compute",
+      "arguments": {}
+    },
+    {
+      "source": "lt.requeue",
+      "vhost": "/",
+      "destination": "distances.compute",
+      "destination_type": "queue",
+      "routing_key": "*.distances.compute",
+      "arguments": {}
+    },
+    {
+      "source": "lt.dlx",
+      "vhost": "/",
+      "destination": "distances.compute.dead",
+      "destination_type": "queue",
+      "routing_key": "distances.compute",
+      "arguments": {}
+    },
+    {
+      "source": "lt.jobs",
+      "vhost": "/",
+      "destination": "payroll.run",
+      "destination_type": "queue",
+      "routing_key": "job.payroll.run",
+      "arguments": {}
+    },
+    {
+      "source": "lt.requeue",
+      "vhost": "/",
+      "destination": "payroll.run",
+      "destination_type": "queue",
+      "routing_key": "*.payroll.run",
+      "arguments": {}
+    },
+    {
+      "source": "lt.dlx",
+      "vhost": "/",
+      "destination": "payroll.run.dead",
+      "destination_type": "queue",
+      "routing_key": "payroll.run",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "security.audit",
+      "destination_type": "queue",
+      "routing_key": "security.event",
+      "arguments": {}
+    },
+    {
+      "source": "lt.requeue",
+      "vhost": "/",
+      "destination": "security.audit",
+      "destination_type": "queue",
+      "routing_key": "*.security.audit",
+      "arguments": {}
+    },
+    {
+      "source": "lt.dlx",
+      "vhost": "/",
+      "destination": "security.audit.dead",
+      "destination_type": "queue",
+      "routing_key": "security.audit",
+      "arguments": {}
+    },
+    {
+      "source": "lt.jobs",
+      "vhost": "/",
+      "destination": "tenancy.orphan-scan",
+      "destination_type": "queue",
+      "routing_key": "job.tenancy.orphan-scan",
+      "arguments": {}
+    },
+    {
+      "source": "lt.requeue",
+      "vhost": "/",
+      "destination": "tenancy.orphan-scan",
+      "destination_type": "queue",
+      "routing_key": "*.tenancy.orphan-scan",
+      "arguments": {}
+    },
+    {
+      "source": "lt.dlx",
+      "vhost": "/",
+      "destination": "tenancy.orphan-scan.dead",
+      "destination_type": "queue",
+      "routing_key": "tenancy.orphan-scan",
+      "arguments": {}
+    },
+    {
+      "source": "lt.jobs",
+      "vhost": "/",
+      "destination": "storage.gc",
+      "destination_type": "queue",
+      "routing_key": "job.storage.gc",
+      "arguments": {}
+    },
+    {
+      "source": "lt.requeue",
+      "vhost": "/",
+      "destination": "storage.gc",
+      "destination_type": "queue",
+      "routing_key": "*.storage.gc",
+      "arguments": {}
+    },
+    {
+      "source": "lt.dlx",
+      "vhost": "/",
+      "destination": "storage.gc.dead",
+      "destination_type": "queue",
+      "routing_key": "storage.gc",
+      "arguments": {}
+    },
+    {
+      "source": "lt.jobs",
+      "vhost": "/",
+      "destination": "etl.sync",
+      "destination_type": "queue",
+      "routing_key": "job.etl.sync",
+      "arguments": {}
+    },
+    {
+      "source": "lt.requeue",
+      "vhost": "/",
+      "destination": "etl.sync",
+      "destination_type": "queue",
+      "routing_key": "*.etl.sync",
+      "arguments": {}
+    },
+    {
+      "source": "lt.dlx",
+      "vhost": "/",
+      "destination": "etl.sync.dead",
+      "destination_type": "queue",
+      "routing_key": "etl.sync",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "firestore.shadow",
+      "destination_type": "queue",
+      "routing_key": "hubs.changed",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "firestore.shadow",
+      "destination_type": "queue",
+      "routing_key": "customers.changed",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "firestore.shadow",
+      "destination_type": "queue",
+      "routing_key": "companies.changed",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "firestore.shadow",
+      "destination_type": "queue",
+      "routing_key": "truck.created",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "firestore.shadow",
+      "destination_type": "queue",
+      "routing_key": "truck.updated",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "firestore.shadow",
+      "destination_type": "queue",
+      "routing_key": "assignment.created",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "firestore.shadow",
+      "destination_type": "queue",
+      "routing_key": "assignment.revoked",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "firestore.shadow",
+      "destination_type": "queue",
+      "routing_key": "driver.created",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "firestore.shadow",
+      "destination_type": "queue",
+      "routing_key": "driver.updated",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "firestore.shadow",
+      "destination_type": "queue",
+      "routing_key": "tenant.created",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "firestore.shadow",
+      "destination_type": "queue",
+      "routing_key": "tenant.updated",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "firestore.shadow",
+      "destination_type": "queue",
+      "routing_key": "holidays.changed",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "firestore.shadow",
+      "destination_type": "queue",
+      "routing_key": "broadcast.created",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "firestore.shadow",
+      "destination_type": "queue",
+      "routing_key": "settings.changed",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "firestore.shadow",
+      "destination_type": "queue",
+      "routing_key": "trip.priced",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "firestore.shadow",
+      "destination_type": "queue",
+      "routing_key": "standby.priced",
+      "arguments": {}
+    },
+    {
+      "source": "lt.requeue",
+      "vhost": "/",
+      "destination": "firestore.shadow",
+      "destination_type": "queue",
+      "routing_key": "*.firestore.shadow",
+      "arguments": {}
+    },
+    {
+      "source": "lt.dlx",
+      "vhost": "/",
+      "destination": "firestore.shadow.dead",
+      "destination_type": "queue",
+      "routing_key": "firestore.shadow",
+      "arguments": {}
+    },
+    {
+      "source": "lt.retry",
+      "vhost": "/",
+      "destination": "retry.10s",
+      "destination_type": "queue",
+      "routing_key": "10s.#",
+      "arguments": {}
+    },
+    {
+      "source": "lt.retry",
+      "vhost": "/",
+      "destination": "retry.1m",
+      "destination_type": "queue",
+      "routing_key": "1m.#",
+      "arguments": {}
+    },
+    {
+      "source": "lt.retry",
+      "vhost": "/",
+      "destination": "retry.5m",
+      "destination_type": "queue",
+      "routing_key": "5m.#",
+      "arguments": {}
+    },
+    {
+      "source": "lt.retry",
+      "vhost": "/",
+      "destination": "retry.30m",
+      "destination_type": "queue",
+      "routing_key": "30m.#",
+      "arguments": {}
+    },
+    {
+      "source": "lt.retry",
+      "vhost": "/",
+      "destination": "retry.2h",
+      "destination_type": "queue",
+      "routing_key": "2h.#",
+      "arguments": {}
+    }
+  ]
+}

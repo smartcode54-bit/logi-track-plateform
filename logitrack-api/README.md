@@ -2,7 +2,7 @@
 
 Go backend for the LogiTrack migration off Firebase (`mv-go`). Design: [`developer-spec.md`](../developer-spec.md) §2, routes in [Appendix B](../shared-docs/specs/mv-go/B-api-catalog.md). Branch policy: work lands by PR into `mv-go`, never `main` (R90).
 
-Status: **T01 scaffold**. One module, seven binaries, shared `internal/`; no domain routes yet.
+Status: **T01 scaffold + T02 local stack**. One module, seven binaries, shared `internal/`; no domain routes yet.
 
 ## Layout
 
@@ -56,6 +56,42 @@ A missing or invalid variable stops the process with exit code 2 and a message n
 
 Exit codes: `0` ok, `1` runtime error, `2` configuration error, `3` not implemented yet.
 
+## Local stack (T02, main spec §15)
+
+```bash
+make env
+```
+
+```bash
+make dev-keys
+```
+
+```bash
+make up
+```
+
+```bash
+make smoke
+```
+
+- `make env` writes `.env` (mode 0600, gitignored) from `.env.example`: secret names get random local-only values and the three DB URLs are composed for the R66 roles. Integration credentials stay blank, so FCM, LINE, Cartrack, Google and the SMTP relay are off locally (mail goes to mailpit).
+- `make dev-keys` writes `deploy/dev-secrets/jwt-ed25519.pem` (gitignored) and sets `JWT_ACTIVE_KID` (RFC 7638 thumbprint).
+- `make up` starts PostgreSQL 18, Redis 7, RabbitMQ 4 (+ definitions from `internal/platform/mq`), MinIO (+ buckets), mailpit, api, worker and scheduler, sets the role passwords (`make dev-db`) and waits until all are healthy. Profiles: `tools` (migrate, seed, etl), `mocks` (WireMock), `obs` (Jaeger), `tunnel`; `EDGE=1` adds web and Caddy once TW2 lands.
+- `make smoke` checks the T02 acceptance criteria against the running stack.
+
+| Service | Host port (127.0.0.1) | Notes |
+|---|---|---|
+| postgres | 5432 | PGDATA `/var/lib/postgresql/18/docker`, volume at `/var/lib/postgresql`; roles from `deploy/postgres-init/00-roles.sql`; `logitrack_test` for integration tests |
+| redis | 6379 | AOF, `noeviction` |
+| rabbitmq | 5672, 15672 | 5 exchanges, 16 work queues, 16 `.dead` queues, 5 retry queues |
+| minio | 9000, 9001 | `S3_BUCKET` private; `S3_PUBLIC_BUCKET` anonymous GET on `app_releases/` only; app user limited to both buckets |
+| mailpit | 8025, 1025 | SMTP sink |
+| api | 8080, 8081 | internal and public listeners (local only; Caddy fronts public from TW2) |
+
+Each Go service receives exactly the §16.1 names whose consumer column lists it: api, worker and scheduler see only `DATABASE_URL`; seed sees all three DB URLs. `make env-check` verifies `.env.example` and the compose environments against `developer-spec.md` §16; `make secrets-scan` runs gitleaks over the files git would commit.
+
+MinIO: the official `minio/minio` and `minio/mc` images are no longer published, so compose uses Chainguard's source builds (`cgr.dev/chainguard/minio`, `cgr.dev/chainguard/minio-client:latest-dev`) pinned by digest. Any S3-compatible server can replace it later; only the `S3_*` values change.
+
 ## Develop
 
 Go `1.27` with `toolchain go1.27.2` (stdlib security fixes; the go command downloads it automatically).
@@ -78,4 +114,4 @@ Run the api locally (any free ports):
 APP_ENV=local LOG_FORMAT=console API_INTERNAL_ADDR=127.0.0.1:8080 API_PUBLIC_ADDR=127.0.0.1:8081 METRICS_ADDR=127.0.0.1:9090 go run ./cmd/api
 ```
 
-docker compose, `.env.example` and the Makefile arrive with T02; CI for `mv-go` with T14.
+CI for `mv-go` arrives with T14.

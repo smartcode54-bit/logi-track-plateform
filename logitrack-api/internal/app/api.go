@@ -183,7 +183,7 @@ func (a *API) Listen() error {
 		_ = a.internalLn.Close()
 		return fmt.Errorf("listen API_PUBLIC_ADDR: %w", err)
 	}
-	if a.metricsSrv, err = telemetry.ListenMetrics(a.cfg.MetricsAddr, a.metrics.Registry, a.log); err != nil {
+	if a.metricsSrv, err = telemetry.ListenMetrics(a.cfg.MetricsAddr, a.metrics.Registry, a.log, nil); err != nil {
 		_ = a.internalLn.Close()
 		_ = a.publicLn.Close()
 		return fmt.Errorf("listen METRICS_ADDR: %w", err)

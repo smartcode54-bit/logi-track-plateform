@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/health"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/telemetry"
 )
 
@@ -32,7 +33,10 @@ func RunBackground(ctx context.Context, process string, stdout, stderr io.Writer
 		return ExitRuntimeError
 	}
 	metrics := telemetry.NewMetrics(process)
-	srv, err := telemetry.ListenMetrics(cfg.MetricsAddr, metrics.Registry, log)
+	state := health.NewState()
+	srv, err := telemetry.ListenMetrics(cfg.MetricsAddr, metrics.Registry, log, func() bool {
+		return !state.Draining()
+	})
 	if err != nil {
 		log.Error().Err(err).Msg("listen METRICS_ADDR")
 		return ExitRuntimeError
@@ -40,6 +44,7 @@ func RunBackground(ctx context.Context, process string, stdout, stderr io.Writer
 	log.Info().Str("metrics_addr", srv.Addr()).Msg(process + " started; no consumers registered yet (issue T10)")
 
 	<-ctx.Done()
+	state.BeginDrain()
 	log.Info().Msg("shutting down")
 	sctx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()

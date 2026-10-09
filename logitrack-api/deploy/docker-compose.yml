@@ -1,0 +1,445 @@
+# logitrack-api local stack (developer-spec.md §15, issue T02). Run through the Makefile:
+#   make env dev-keys up        # first run
+# Every value is interpolated from logitrack-api/.env (`--env-file .env`); nothing here is a secret.
+# Each Go service receives exactly the §16.1 names whose consumer column lists it (checked by
+# `make env-check`), so api/worker/scheduler see only DATABASE_URL and seed sees all three DB URLs (R66, R87).
+name: logitrack
+
+x-env-api: &env-api
+  APP_ENV: ${APP_ENV:-}
+  LOG_LEVEL: ${LOG_LEVEL:-}
+  LOG_FORMAT: ${LOG_FORMAT:-}
+  SHUTDOWN_TIMEOUT: ${SHUTDOWN_TIMEOUT:-}
+  METRICS_ADDR: ${METRICS_ADDR:-}
+  PPROF_ENABLED: ${PPROF_ENABLED:-}
+  API_INTERNAL_ADDR: ${API_INTERNAL_ADDR:-}
+  API_PUBLIC_ADDR: ${API_PUBLIC_ADDR:-}
+  PUBLIC_ROUTE_GROUPS: ${PUBLIC_ROUTE_GROUPS:-}
+  TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
+  PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-}
+  PUBLIC_WEB_BASE_URL: ${PUBLIC_WEB_BASE_URL:-}
+  WEB_FLAG_OVERRIDES: ${WEB_FLAG_OVERRIDES:-}
+  DATABASE_URL: ${DATABASE_URL:-}
+  DATABASE_MAX_CONNS: ${DATABASE_MAX_CONNS:-}
+  DATABASE_MIN_CONNS: ${DATABASE_MIN_CONNS:-}
+  DATABASE_MIGRATE_ON_START: ${DATABASE_MIGRATE_ON_START:-}
+  REDIS_URL: ${REDIS_URL:-}
+  REDIS_KEY_PREFIX: ${REDIS_KEY_PREFIX:-}
+  REDIS_TLS: ${REDIS_TLS:-}
+  CACHE_TTL_HUBS: ${CACHE_TTL_HUBS:-}
+  CACHE_TTL_RATECARD: ${CACHE_TTL_RATECARD:-}
+  CACHE_TTL_SETTINGS: ${CACHE_TTL_SETTINGS:-}
+  IDEMPOTENCY_TTL: ${IDEMPOTENCY_TTL:-}
+  RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-}
+  RATE_LIMIT_LOGIN: ${RATE_LIMIT_LOGIN:-}
+  RATE_LIMIT_PUBLIC_FORMS: ${RATE_LIMIT_PUBLIC_FORMS:-}
+  RATE_LIMIT_EVIDENCE: ${RATE_LIMIT_EVIDENCE:-}
+  S3_ENDPOINT: ${S3_ENDPOINT:-}
+  S3_PRESIGN_ENDPOINT: ${S3_PRESIGN_ENDPOINT:-}
+  S3_REGION: ${S3_REGION:-}
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+  S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+  S3_BUCKET: ${S3_BUCKET:-}
+  S3_PUBLIC_BUCKET: ${S3_PUBLIC_BUCKET:-}
+  S3_USE_PATH_STYLE: ${S3_USE_PATH_STYLE:-}
+  S3_USE_SSL: ${S3_USE_SSL:-}
+  S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-}
+  CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+  S3_PRESIGN_GET_TTL: ${S3_PRESIGN_GET_TTL:-}
+  S3_PRESIGN_PUT_TTL: ${S3_PRESIGN_PUT_TTL:-}
+  UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-}
+  JWT_SIGNING_KEY_FILE: ${JWT_SIGNING_KEY_FILE:-}
+  JWT_PREVIOUS_KEY_FILE: ${JWT_PREVIOUS_KEY_FILE:-}
+  JWT_ACTIVE_KID: ${JWT_ACTIVE_KID:-}
+  JWT_ISSUER: ${JWT_ISSUER:-}
+  JWT_AUDIENCE: ${JWT_AUDIENCE:-}
+  JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-}
+  REFRESH_TOKEN_TTL_WEB: ${REFRESH_TOKEN_TTL_WEB:-}
+  REFRESH_TOKEN_TTL_MOBILE: ${REFRESH_TOKEN_TTL_MOBILE:-}
+  PASSWORD_RESET_TTL: ${PASSWORD_RESET_TTL:-}
+  PASSWORD_MIN_LENGTH: ${PASSWORD_MIN_LENGTH:-}
+  ARGON2_MEMORY_KB: ${ARGON2_MEMORY_KB:-}
+  ARGON2_ITERATIONS: ${ARGON2_ITERATIONS:-}
+  ARGON2_PARALLELISM: ${ARGON2_PARALLELISM:-}
+  GOOGLE_OIDC_ALLOWED_CLIENT_IDS: ${GOOGLE_OIDC_ALLOWED_CLIENT_IDS:-}
+  FIREBASE_SCRYPT_SIGNER_KEY: ${FIREBASE_SCRYPT_SIGNER_KEY:-}
+  FIREBASE_SCRYPT_SALT_SEPARATOR: ${FIREBASE_SCRYPT_SALT_SEPARATOR:-}
+  FIREBASE_SCRYPT_ROUNDS: ${FIREBASE_SCRYPT_ROUNDS:-}
+  FIREBASE_SCRYPT_MEM_COST: ${FIREBASE_SCRYPT_MEM_COST:-}
+  FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+  AUTH_FIREBASE_BRIDGE_MODE: ${AUTH_FIREBASE_BRIDGE_MODE:-}
+  API_KEY_PEPPER: ${API_KEY_PEPPER:-}
+  MOBILE_ATTESTATION_MODE: ${MOBILE_ATTESTATION_MODE:-}
+  MOBILE_VERSION_FLOOR_ENFORCE: ${MOBILE_VERSION_FLOOR_ENFORCE:-}
+  EVIDENCE_TOKEN_TTL_DAYS: ${EVIDENCE_TOKEN_TTL_DAYS:-}
+  PG_OWNED_DOMAINS: ${PG_OWNED_DOMAINS:-}
+  GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
+  LINE_CHANNEL_SECRET: ${LINE_CHANNEL_SECRET:-}
+  BANGCHAK_API_BASE_URL: ${BANGCHAK_API_BASE_URL:-}
+  GOOGLE_MAPS_SERVER_API_KEY: ${GOOGLE_MAPS_SERVER_API_KEY:-}
+  GOOGLE_MAPS_STATIC_KEY: ${GOOGLE_MAPS_STATIC_KEY:-}
+  GOOGLE_CLOUD_VISION_API_KEY: ${GOOGLE_CLOUD_VISION_API_KEY:-}
+  OCR_PROXY_ENABLED: ${OCR_PROXY_ENABLED:-}
+  EVIDENCE_BASE_URL: ${EVIDENCE_BASE_URL:-}
+  EVIDENCE_PRESIGN_TTL: ${EVIDENCE_PRESIGN_TTL:-}
+  TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+  SSE_PING_INTERVAL: ${SSE_PING_INTERVAL:-}
+  SSE_MAX_CONN_PER_USER: ${SSE_MAX_CONN_PER_USER:-}
+  RTLOG_MAXLEN: ${RTLOG_MAXLEN:-}
+  RTLOG_TTL: ${RTLOG_TTL:-}
+  MOBILE_SSE_ENABLED: ${MOBILE_SSE_ENABLED:-}
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+  OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-}
+  OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-}
+  SENTRY_DSN: ${SENTRY_DSN:-}
+x-env-worker: &env-worker
+  APP_ENV: ${APP_ENV:-}
+  LOG_LEVEL: ${LOG_LEVEL:-}
+  LOG_FORMAT: ${LOG_FORMAT:-}
+  SHUTDOWN_TIMEOUT: ${SHUTDOWN_TIMEOUT:-}
+  METRICS_ADDR: ${METRICS_ADDR:-}
+  PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-}
+  PUBLIC_WEB_BASE_URL: ${PUBLIC_WEB_BASE_URL:-}
+  DATABASE_URL: ${DATABASE_URL:-}
+  DATABASE_MAX_CONNS: ${DATABASE_MAX_CONNS:-}
+  DATABASE_MIN_CONNS: ${DATABASE_MIN_CONNS:-}
+  REDIS_URL: ${REDIS_URL:-}
+  REDIS_KEY_PREFIX: ${REDIS_KEY_PREFIX:-}
+  REDIS_TLS: ${REDIS_TLS:-}
+  CACHE_TTL_HUBS: ${CACHE_TTL_HUBS:-}
+  CACHE_TTL_RATECARD: ${CACHE_TTL_RATECARD:-}
+  CACHE_TTL_SETTINGS: ${CACHE_TTL_SETTINGS:-}
+  RABBITMQ_URL: ${RABBITMQ_URL:-}
+  RABBITMQ_PREFETCH: ${RABBITMQ_PREFETCH:-}
+  WORKER_CONSUMERS: ${WORKER_CONSUMERS:-}
+  S3_ENDPOINT: ${S3_ENDPOINT:-}
+  S3_REGION: ${S3_REGION:-}
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+  S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+  S3_BUCKET: ${S3_BUCKET:-}
+  S3_PUBLIC_BUCKET: ${S3_PUBLIC_BUCKET:-}
+  S3_USE_PATH_STYLE: ${S3_USE_PATH_STYLE:-}
+  S3_USE_SSL: ${S3_USE_SSL:-}
+  IMAGES_THUMBNAIL_ENABLED: ${IMAGES_THUMBNAIL_ENABLED:-}
+  PDF_FONT_DIR: ${PDF_FONT_DIR:-}
+  AUTH_FIREBASE_BRIDGE_MODE: ${AUTH_FIREBASE_BRIDGE_MODE:-}
+  PG_OWNED_DOMAINS: ${PG_OWNED_DOMAINS:-}
+  GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
+  ETL_FIRESTORE_PROJECT_ID: ${ETL_FIRESTORE_PROJECT_ID:-}
+  FIRESTORE_DATABASE_ID: ${FIRESTORE_DATABASE_ID:-}
+  ETL_SYNC_ENABLED: ${ETL_SYNC_ENABLED:-}
+  ETL_SYNC_INTERVAL: ${ETL_SYNC_INTERVAL:-}
+  ETL_MIRROR_COLLECTIONS: ${ETL_MIRROR_COLLECTIONS:-}
+  COMPAT_PROJECTION_ENABLED: ${COMPAT_PROJECTION_ENABLED:-}
+  COMPAT_PROJECTION_COLLECTIONS: ${COMPAT_PROJECTION_COLLECTIONS:-}
+  FCM_PROJECT_ID: ${FCM_PROJECT_ID:-}
+  FCM_SERVICE_ACCOUNT_JSON: ${FCM_SERVICE_ACCOUNT_JSON:-}
+  FCM_ENABLED: ${FCM_ENABLED:-}
+  LINE_CHANNEL_ACCESS_TOKEN: ${LINE_CHANNEL_ACCESS_TOKEN:-}
+  LINE_NOTIFY_ENABLED: ${LINE_NOTIFY_ENABLED:-}
+  LINE_API_BASE_URL: ${LINE_API_BASE_URL:-}
+  CARTRACK_API_USERNAME: ${CARTRACK_API_USERNAME:-}
+  CARTRACK_API_PASSWORD: ${CARTRACK_API_PASSWORD:-}
+  CARTRACK_API_BASE_URL: ${CARTRACK_API_BASE_URL:-}
+  BANGCHAK_API_BASE_URL: ${BANGCHAK_API_BASE_URL:-}
+  GOOGLE_MAPS_SERVER_API_KEY: ${GOOGLE_MAPS_SERVER_API_KEY:-}
+  DISTANCE_MATRIX_ENABLED: ${DISTANCE_MATRIX_ENABLED:-}
+  EVIDENCE_BASE_URL: ${EVIDENCE_BASE_URL:-}
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_FROM: ${SMTP_FROM:-}
+  SMTP_FROM_NAME: ${SMTP_FROM_NAME:-}
+  SMTP_STARTTLS: ${SMTP_STARTTLS:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  EMAIL_ENABLED: ${EMAIL_ENABLED:-}
+  NOTIFY_ADMIN_ON_DRIVER_MESSAGE: ${NOTIFY_ADMIN_ON_DRIVER_MESSAGE:-}
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+  OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-}
+  OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-}
+  SENTRY_DSN: ${SENTRY_DSN:-}
+x-env-scheduler: &env-scheduler
+  APP_ENV: ${APP_ENV:-}
+  LOG_LEVEL: ${LOG_LEVEL:-}
+  LOG_FORMAT: ${LOG_FORMAT:-}
+  SHUTDOWN_TIMEOUT: ${SHUTDOWN_TIMEOUT:-}
+  METRICS_ADDR: ${METRICS_ADDR:-}
+  DATABASE_URL: ${DATABASE_URL:-}
+  DATABASE_MAX_CONNS: ${DATABASE_MAX_CONNS:-}
+  DATABASE_MIN_CONNS: ${DATABASE_MIN_CONNS:-}
+  REDIS_URL: ${REDIS_URL:-}
+  REDIS_KEY_PREFIX: ${REDIS_KEY_PREFIX:-}
+  REDIS_TLS: ${REDIS_TLS:-}
+  RABBITMQ_URL: ${RABBITMQ_URL:-}
+  OUTBOX_RELAY_INTERVAL: ${OUTBOX_RELAY_INTERVAL:-}
+  OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-}
+  ETL_SYNC_ENABLED: ${ETL_SYNC_ENABLED:-}
+  ETL_SYNC_INTERVAL: ${ETL_SYNC_INTERVAL:-}
+  CARTRACK_SYNC_ENABLED: ${CARTRACK_SYNC_ENABLED:-}
+  FUEL_MONTHLY_SNAPSHOT_ENABLED: ${FUEL_MONTHLY_SNAPSHOT_ENABLED:-}
+  RTLOG_MAXLEN: ${RTLOG_MAXLEN:-}
+  RTLOG_TTL: ${RTLOG_TTL:-}
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+  OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-}
+  OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-}
+  SENTRY_DSN: ${SENTRY_DSN:-}
+x-env-migrate: &env-migrate
+  APP_ENV: ${APP_ENV:-}
+  LOG_LEVEL: ${LOG_LEVEL:-}
+  LOG_FORMAT: ${LOG_FORMAT:-}
+  MIGRATE_DATABASE_URL: ${MIGRATE_DATABASE_URL:-}
+x-env-seed: &env-seed
+  APP_ENV: ${APP_ENV:-}
+  LOG_LEVEL: ${LOG_LEVEL:-}
+  LOG_FORMAT: ${LOG_FORMAT:-}
+  DATABASE_URL: ${DATABASE_URL:-}
+  MIGRATE_DATABASE_URL: ${MIGRATE_DATABASE_URL:-}
+  ETL_DATABASE_URL: ${ETL_DATABASE_URL:-}
+  REDIS_URL: ${REDIS_URL:-}
+  REDIS_KEY_PREFIX: ${REDIS_KEY_PREFIX:-}
+  S3_ENDPOINT: ${S3_ENDPOINT:-}
+  S3_REGION: ${S3_REGION:-}
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+  S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+  S3_BUCKET: ${S3_BUCKET:-}
+  S3_PUBLIC_BUCKET: ${S3_PUBLIC_BUCKET:-}
+  S3_USE_PATH_STYLE: ${S3_USE_PATH_STYLE:-}
+  S3_USE_SSL: ${S3_USE_SSL:-}
+  S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-}
+  ARGON2_MEMORY_KB: ${ARGON2_MEMORY_KB:-}
+  ARGON2_ITERATIONS: ${ARGON2_ITERATIONS:-}
+  ARGON2_PARALLELISM: ${ARGON2_PARALLELISM:-}
+  PLATFORM_ADMIN_EMAILS: ${PLATFORM_ADMIN_EMAILS:-}
+  FIREBASE_SCRYPT_SIGNER_KEY: ${FIREBASE_SCRYPT_SIGNER_KEY:-}
+  FIREBASE_SCRYPT_SALT_SEPARATOR: ${FIREBASE_SCRYPT_SALT_SEPARATOR:-}
+  FIREBASE_SCRYPT_ROUNDS: ${FIREBASE_SCRYPT_ROUNDS:-}
+  FIREBASE_SCRYPT_MEM_COST: ${FIREBASE_SCRYPT_MEM_COST:-}
+  OWN_FLEET_TENANT_ID: ${OWN_FLEET_TENANT_ID:-}
+  SEED_PROFILE: ${SEED_PROFILE:-}
+  SEED_RANDOM_SEED: ${SEED_RANDOM_SEED:-}
+  SEED_ANCHOR_DATE: ${SEED_ANCHOR_DATE:-}
+  SEED_NAMESPACE: ${SEED_NAMESPACE:-}
+  SEED_DEFAULT_PASSWORD: ${SEED_DEFAULT_PASSWORD:-}
+x-env-etl: &env-etl
+  APP_ENV: ${APP_ENV:-}
+  LOG_LEVEL: ${LOG_LEVEL:-}
+  LOG_FORMAT: ${LOG_FORMAT:-}
+  ETL_DATABASE_URL: ${ETL_DATABASE_URL:-}
+  DATABASE_MAX_CONNS: ${DATABASE_MAX_CONNS:-}
+  DATABASE_MIN_CONNS: ${DATABASE_MIN_CONNS:-}
+  S3_ENDPOINT: ${S3_ENDPOINT:-}
+  S3_REGION: ${S3_REGION:-}
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+  S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+  S3_BUCKET: ${S3_BUCKET:-}
+  S3_USE_PATH_STYLE: ${S3_USE_PATH_STYLE:-}
+  S3_USE_SSL: ${S3_USE_SSL:-}
+  PLATFORM_ADMIN_EMAILS: ${PLATFORM_ADMIN_EMAILS:-}
+  FIREBASE_SCRYPT_SIGNER_KEY: ${FIREBASE_SCRYPT_SIGNER_KEY:-}
+  FIREBASE_SCRYPT_SALT_SEPARATOR: ${FIREBASE_SCRYPT_SALT_SEPARATOR:-}
+  FIREBASE_SCRYPT_ROUNDS: ${FIREBASE_SCRYPT_ROUNDS:-}
+  FIREBASE_SCRYPT_MEM_COST: ${FIREBASE_SCRYPT_MEM_COST:-}
+  OWN_FLEET_TENANT_ID: ${OWN_FLEET_TENANT_ID:-}
+  GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
+  ETL_FIRESTORE_PROJECT_ID: ${ETL_FIRESTORE_PROJECT_ID:-}
+  FIRESTORE_DATABASE_ID: ${FIRESTORE_DATABASE_ID:-}
+  ETL_GCS_BUCKET: ${ETL_GCS_BUCKET:-}
+  ETL_MIRROR_COLLECTIONS: ${ETL_MIRROR_COLLECTIONS:-}
+
+x-go: &go
+  image: logitrack-api:${API_IMAGE_TAG:-local}
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile
+  restart: unless-stopped
+  networks: [backend]
+  volumes: ["./dev-secrets:/run/secrets/logitrack:ro"]
+  depends_on:
+    postgres: { condition: service_healthy }
+    redis: { condition: service_healthy }
+    rabbitmq-init: { condition: service_completed_successfully }
+    minio-init: { condition: service_completed_successfully }
+    # issue T03 adds `migrate: { condition: service_completed_successfully }` once cmd/migrate exists
+
+x-one-shot: &one-shot
+  <<: *go
+  restart: "no"
+  profiles: [tools]
+  depends_on:
+    postgres: { condition: service_healthy }
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-}
+      POSTGRES_DB: ${POSTGRES_DB:-}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements", "-c", "timezone=UTC"]
+    # PGDATA of postgres:18 images is /var/lib/postgresql/18/docker; mount the parent (R34).
+    volumes: ["pgdata:/var/lib/postgresql", "./postgres-init:/docker-entrypoint-initdb.d:ro"]
+    ports: ["127.0.0.1:5432:5432"]
+    networks: [backend]
+    # Probe over TCP: the temporary server that runs postgres-init/ listens on no address,
+    # so it never counts as healthy before the init scripts have finished.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 3s
+      retries: 30
+      start_period: 30s
+      start_interval: 1s
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes: ["redisdata:/data"]
+    ports: ["127.0.0.1:6379:6379"]
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      retries: 30
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    # Fixed node name (rabbit@rabbitmq): with the random container hostname a recreate
+    # starts an empty node and orphans queued and dead-lettered messages.
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-}
+    volumes: ["rabbitdata:/var/lib/rabbitmq"]
+    ports: ["127.0.0.1:5672:5672", "127.0.0.1:15672:15672"]
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      retries: 30
+
+  # Loads deploy/rabbitmq-definitions.json (Appendix B §B.5; generated from internal/platform/mq)
+  # through the management API. The worker re-asserts the same topology at start (T10).
+  rabbitmq-init:
+    image: curlimages/curl:8.22.0
+    entrypoint: ["/bin/sh", "/init/rabbitmq-init.sh"]
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-}
+    volumes:
+      - ./rabbitmq:/init:ro
+      - ./rabbitmq-definitions.json:/defs/rabbitmq-definitions.json:ro
+    depends_on: { rabbitmq: { condition: service_healthy } }
+    networks: [backend]
+
+  # MinIO built from source by Chainguard: the official minio/minio images are no longer
+  # published (Docker Hub and quay return no manifest). Pinned by digest; RELEASE.2026-09-22.
+  minio:
+    image: cgr.dev/chainguard/minio:latest@sha256:f74600a1a46330cdbda1ef760d17a96bd6e0f4a6f0a2c49792ca3ee7e4c6fa18
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${CORS_ALLOWED_ORIGINS:-}
+    volumes: ["miniodata:/data"]
+    ports: ["127.0.0.1:9000:9000", "127.0.0.1:9001:9001"]
+    networks: [backend, edge]
+
+  # Creates both buckets, anonymous download on S3_PUBLIC_BUCKET/app_releases/ only, the
+  # 30-day expiry on cache/, and the application user (S3_ACCESS_KEY_ID) limited to the two buckets.
+  minio-init:
+    image: cgr.dev/chainguard/minio-client:latest-dev@sha256:5feb4dcc570e7578f82e6c84384849e6557d005fb9b06f714c63f7184883b13f
+    entrypoint: ["/bin/sh", "/init/minio-init.sh"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_PUBLIC_BUCKET: ${S3_PUBLIC_BUCKET:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+    volumes: ["./minio:/init:ro"]
+    depends_on: { minio: { condition: service_started } }
+    networks: [backend]
+
+  mailpit:
+    image: axllent/mailpit:v1.31.4
+    ports: ["127.0.0.1:8025:8025", "127.0.0.1:1025:1025"]
+    networks: [backend]
+
+  api:
+    <<: *go
+    command: ["/app/bin/api"]
+    environment: *env-api
+    # Internal (8080) and public (8081) listeners are published on loopback for local work only;
+    # Caddy fronts the public listener from TW2 and the prod override publishes neither.
+    ports: ["127.0.0.1:8080:8080", "127.0.0.1:8081:8081"]
+    networks: [backend, edge]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/readyz"]
+      interval: 5s
+      retries: 12
+
+  worker:
+    <<: *go
+    command: ["/app/bin/worker"]
+    environment: *env-worker
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/readyz"]
+      interval: 5s
+      retries: 12
+
+  scheduler:
+    <<: *go
+    command: ["/app/bin/scheduler"]
+    environment: *env-scheduler
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/readyz"]
+      interval: 5s
+      retries: 12
+
+  migrate:
+    <<: *one-shot
+    entrypoint: ["/app/bin/migrate"]
+    command: ["up"]
+    environment: *env-migrate
+
+  seed:
+    <<: *one-shot
+    entrypoint: ["/app/bin/seed"]
+    command: ["--profile", "${SEED_PROFILE:-smoke}"]
+    environment: *env-seed
+
+  etl:
+    <<: *one-shot
+    entrypoint: ["/app/bin/etl"]
+    environment: *env-etl
+
+  mocks:
+    image: wiremock/wiremock:3.13.2-alpine
+    profiles: [mocks]
+    command: ["--port", "8080", "--global-response-templating"]
+    volumes: ["./mocks:/home/wiremock:ro"]
+    ports: ["127.0.0.1:8089:8080"]
+    networks: [backend]
+
+  jaeger:
+    image: jaegertracing/jaeger:2.22.0
+    profiles: [obs]
+    ports: ["127.0.0.1:16686:16686", "127.0.0.1:4318:4318"]
+    networks: [backend]
+
+  tunnel:
+    image: cloudflare/cloudflared:2026.10.0
+    profiles: [tunnel]
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    networks: [edge]
+
+networks:
+  backend: {}
+  edge: {}
+
+volumes:
+  pgdata: {}
+  redisdata: {}
+  rabbitdata: {}
+  miniodata: {}
