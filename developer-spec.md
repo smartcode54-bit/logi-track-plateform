@@ -314,7 +314,7 @@ Resolved 2026-10-09 (Go module cache; `web:package.json` and npm).
 
 | Concern | Library | Version |
 |---|---|---|
-| Language / HTTP | Go; `gofiber/fiber/v3` (+ requestid, recover, cors, limiter, compress, etag, healthcheck) | 1.27 (`go1.27.1`); v3.5.0 (`SendStreamWriter` for SSE) |
+| Language / HTTP | Go; `gofiber/fiber/v3` (+ requestid, recover, cors, limiter, compress, etag, healthcheck) | 1.27 (`go.mod` pins `toolchain go1.27.2`: stdlib fixes GO-2026-6599…6617, found by govulncheck in T01); v3.5.0 (`SendStreamWriter` for SSE) |
 | DB / codegen / migrations | `jackc/pgx/v5`; `sqlc`; `pressly/goose/v3` | v5.11.0; v1.31.1; v3.28.0 |
 | Queue / cache / storage | `rabbitmq/amqp091-go`; `redis/go-redis/v9`; `minio/minio-go/v7` | v1.15.0; v9.23.0 (UNVERIFIED: patch not confirmed by the runtime report); v7.3.0 |
 | Auth | `coreos/go-oidc/v3`; `golang-jwt/jwt/v5` (EdDSA); `alexedwards/argon2id` | v3.21.0; v5.3.1; v1.0.0 |
