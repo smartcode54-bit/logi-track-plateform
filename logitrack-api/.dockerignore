@@ -4,3 +4,4 @@
 deploy/dev-secrets/
 bin/
 *.test
+testdata/

@@ -1,0 +1,2509 @@
+{
+  "source": "logitrack-web/lib/billingCompute.test.ts",
+  "sourceCommit": "4f552099",
+  "note": "49 Vitest cases ported; `added` cases are the Go contract for R15, R16, R19 and R20. Instants are epoch milliseconds; 0 or null is absent. Vitest's local-time literals (`new Date(\"2025-07-15T10:00:00\")`) are pinned to +07:00.",
+  "cases": [
+    {
+      "name": "normalizeVehicleClass > folds the truck master's names onto the class a task carries",
+      "line": 25,
+      "checks": [
+        {
+          "fn": "normalizeVehicleClass",
+          "args": [
+            "Pickup"
+          ],
+          "want": "4W"
+        },
+        {
+          "fn": "normalizeVehicleClass",
+          "args": [
+            "4 Wheels Jumbo"
+          ],
+          "want": "4WJ"
+        },
+        {
+          "fn": "normalizeVehicleClass",
+          "args": [
+            "6 Wheels"
+          ],
+          "want": "6WH"
+        },
+        {
+          "fn": "normalizeVehicleClass",
+          "args": [
+            "10 Wheels"
+          ],
+          "want": "10WH"
+        },
+        {
+          "fn": "normalizeVehicleClass",
+          "args": [
+            "18 Wheels"
+          ],
+          "want": "18WH"
+        }
+      ]
+    },
+    {
+      "name": "normalizeVehicleClass > folds the codes an earlier normalize pass produced",
+      "line": 33,
+      "checks": [
+        {
+          "fn": "normalizeVehicleClass",
+          "args": [
+            "6W"
+          ],
+          "want": "6WH"
+        },
+        {
+          "fn": "normalizeVehicleClass",
+          "args": [
+            "10W"
+          ],
+          "want": "10WH"
+        }
+      ]
+    },
+    {
+      "name": "normalizeVehicleClass > folds the pre-2026-07 names for 4W",
+      "line": 39,
+      "checks": [
+        {
+          "fn": "normalizeVehicleClass",
+          "args": [
+            "PICKUP"
+          ],
+          "want": "4W"
+        },
+        {
+          "fn": "normalizeVehicleClass",
+          "args": [
+            "4WH"
+          ],
+          "want": "4W"
+        }
+      ]
+    },
+    {
+      "name": "normalizeVehicleClass > leaves a current class untouched, so both sides of a lookup agree",
+      "line": 44,
+      "checks": [
+        {
+          "fn": "normalizeVehicleClass",
+          "args": [
+            "4W"
+          ],
+          "want": "4W"
+        },
+        {
+          "fn": "normalizeVehicleClass",
+          "args": [
+            "4WJ"
+          ],
+          "want": "4WJ"
+        },
+        {
+          "fn": "normalizeVehicleClass",
+          "args": [
+            "6WH"
+          ],
+          "want": "6WH"
+        },
+        {
+          "fn": "normalizeVehicleClass",
+          "args": [
+            "10WH"
+          ],
+          "want": "10WH"
+        },
+        {
+          "fn": "normalizeVehicleClass",
+          "args": [
+            "18WH"
+          ],
+          "want": "18WH"
+        },
+        {
+          "fn": "normalizeVehicleClass",
+          "args": [
+            "VAN"
+          ],
+          "want": "VAN"
+        }
+      ]
+    },
+    {
+      "name": "normalizeVehicleClass > defaults a missing class to 4WJ",
+      "line": 50,
+      "checks": [
+        {
+          "fn": "normalizeVehicleClass",
+          "args": [
+            ""
+          ],
+          "want": null,
+          "legacy": "4WJ",
+          "divergence": "R15"
+        },
+        {
+          "fn": "normalizeVehicleClass",
+          "args": [
+            null
+          ],
+          "want": null,
+          "legacy": "4WJ",
+          "divergence": "R15"
+        }
+      ]
+    },
+    {
+      "name": "computeFinalRateThb > rounds to 2 decimal places like billing snapshot",
+      "line": 57,
+      "checks": [
+        {
+          "fn": "computeFinalRateThb",
+          "args": [
+            100,
+            1.05,
+            0
+          ],
+          "want": 105
+        },
+        {
+          "fn": "computeFinalRateThb",
+          "args": [
+            100,
+            1.055,
+            12.345
+          ],
+          "want": 117.85
+        },
+        {
+          "fn": "computeFinalRateThb",
+          "args": [
+            333.33,
+            1.01,
+            0.005
+          ],
+          "want": 336.67
+        }
+      ]
+    },
+    {
+      "name": "fuelBandFloor (ADR 0009 §3 — the band is (n, n+1]) > keeps a price at the exact top of a band inside that band",
+      "line": 65,
+      "checks": [
+        {
+          "fn": "fuelBandFloor",
+          "args": [
+            42
+          ],
+          "want": 41
+        },
+        {
+          "fn": "fuelBandFloor",
+          "args": [
+            37
+          ],
+          "want": 36
+        }
+      ]
+    },
+    {
+      "name": "fuelBandFloor (ADR 0009 §3 — the band is (n, n+1]) > moves to the next band one satang later",
+      "line": 72,
+      "checks": [
+        {
+          "fn": "fuelBandFloor",
+          "args": [
+            42.01
+          ],
+          "want": 42
+        },
+        {
+          "fn": "fuelBandFloor",
+          "args": [
+            36.01
+          ],
+          "want": 36
+        }
+      ]
+    },
+    {
+      "name": "fuelBandFloor (ADR 0009 §3 — the band is (n, n+1]) > agrees with the old floor behaviour everywhere inside a band",
+      "line": 77,
+      "checks": [
+        {
+          "fn": "fuelBandFloor",
+          "args": [
+            42.5
+          ],
+          "want": 42
+        },
+        {
+          "fn": "fuelBandFloor",
+          "args": [
+            42.99
+          ],
+          "want": 42
+        },
+        {
+          "fn": "fuelBandFloor",
+          "args": [
+            36.5
+          ],
+          "want": 36
+        }
+      ]
+    },
+    {
+      "name": "fuelBandFloor (ADR 0009 §3 — the band is (n, n+1]) > is exact on values that are not representable in binary floating point",
+      "line": 83,
+      "checks": [
+        {
+          "fn": "fuelBandFloor",
+          "args": [
+            41.1
+          ],
+          "want": 41
+        },
+        {
+          "fn": "fuelBandFloor",
+          "args": [
+            41.7
+          ],
+          "want": 41
+        },
+        {
+          "fn": "fuelBandFloor",
+          "args": [
+            43.29
+          ],
+          "want": 43
+        }
+      ]
+    },
+    {
+      "name": "fuelBandFloor (ADR 0009 §3 — the band is (n, n+1]) > returns NaN rather than a plausible number for junk input",
+      "line": 90,
+      "checks": [
+        {
+          "fn": "fuelBandFloor",
+          "args": [
+            {
+              "$num": "NaN"
+            }
+          ],
+          "want": {
+            "$num": "NaN"
+          }
+        },
+        {
+          "fn": "fuelBandFloor",
+          "args": [
+            {
+              "$num": "Infinity"
+            }
+          ],
+          "want": {
+            "$num": "NaN"
+          }
+        }
+      ]
+    },
+    {
+      "name": "fuelBandRange > reports the inclusive bounds the contract is written in",
+      "line": 97,
+      "checks": [
+        {
+          "fn": "fuelBandRange",
+          "args": [
+            42
+          ],
+          "want": {
+            "lowerThb": 41.01,
+            "upperThb": 42
+          }
+        },
+        {
+          "fn": "fuelBandRange",
+          "args": [
+            42.01
+          ],
+          "want": {
+            "lowerThb": 42.01,
+            "upperThb": 43
+          }
+        },
+        {
+          "fn": "fuelBandRange",
+          "args": [
+            36.5
+          ],
+          "want": {
+            "lowerThb": 36.01,
+            "upperThb": 37
+          }
+        }
+      ]
+    },
+    {
+      "name": "fuelBandRange > is null when there is no price to derive a band from",
+      "line": 103,
+      "checks": [
+        {
+          "fn": "fuelBandRange",
+          "args": [
+            {
+              "$num": "NaN"
+            }
+          ],
+          "want": null
+        }
+      ]
+    },
+    {
+      "name": "computeFuelSurchargeThb > charges nothing at the baseline band, including its top edge",
+      "line": 110,
+      "checks": [
+        {
+          "fn": "computeFuelSurchargeThb",
+          "args": [
+            41.5,
+            41,
+            10
+          ],
+          "want": 0
+        },
+        {
+          "fn": "computeFuelSurchargeThb",
+          "args": [
+            42,
+            41,
+            10
+          ],
+          "want": 0
+        }
+      ]
+    },
+    {
+      "name": "computeFuelSurchargeThb > charges one step per band above the baseline",
+      "line": 115,
+      "checks": [
+        {
+          "fn": "computeFuelSurchargeThb",
+          "args": [
+            42.01,
+            41,
+            10
+          ],
+          "want": 10
+        },
+        {
+          "fn": "computeFuelSurchargeThb",
+          "args": [
+            43,
+            41,
+            10
+          ],
+          "want": 10
+        },
+        {
+          "fn": "computeFuelSurchargeThb",
+          "args": [
+            43.01,
+            41,
+            10
+          ],
+          "want": 20
+        }
+      ]
+    },
+    {
+      "name": "computeFuelSurchargeThb > discounts below the baseline — the adjustment is symmetric and never clamped",
+      "line": 121,
+      "checks": [
+        {
+          "fn": "computeFuelSurchargeThb",
+          "args": [
+            40.5,
+            41,
+            10
+          ],
+          "want": -10
+        },
+        {
+          "fn": "computeFuelSurchargeThb",
+          "args": [
+            39,
+            41,
+            10
+          ],
+          "want": -30
+        },
+        {
+          "fn": "computeFuelSurchargeThb",
+          "args": [
+            39.01,
+            41,
+            10
+          ],
+          "want": -20
+        }
+      ]
+    },
+    {
+      "name": "bangkokDateStrFromMillis > reports the Bangkok calendar date, not the UTC one",
+      "line": 130,
+      "checks": [
+        {
+          "fn": "bangkokDateStrFromMillis",
+          "args": [
+            1786813200000
+          ],
+          "want": "2026-08-16"
+        }
+      ]
+    },
+    {
+      "name": "bangkokDateStrFromMillis > holds at both ends of a Bangkok day",
+      "line": 135,
+      "checks": [
+        {
+          "fn": "bangkokDateStrFromMillis",
+          "args": [
+            1786813200000
+          ],
+          "want": "2026-08-16"
+        },
+        {
+          "fn": "bangkokDateStrFromMillis",
+          "args": [
+            1786899599000
+          ],
+          "want": "2026-08-16"
+        },
+        {
+          "fn": "bangkokDateStrFromMillis",
+          "args": [
+            1786899600000
+          ],
+          "want": "2026-08-17"
+        }
+      ]
+    },
+    {
+      "name": "voided announcements are never selected (ADR 0009 §1) > falls back to the previous round when the newest one is voided",
+      "line": 154,
+      "checks": [
+        {
+          "fn": "selectBillingRateEntry",
+          "args": [
+            "cust1",
+            "HUB",
+            "DEST",
+            "4WJ",
+            1772323200000,
+            [
+              {
+                "customerId": "cust1",
+                "importId": "imp1",
+                "hubId": "HUB",
+                "destinationCode": "DEST",
+                "vehicleClass": "4WJ",
+                "id": "r1",
+                "rateThb": 1000,
+                "effectiveFromMs": 1767225600000
+              },
+              {
+                "customerId": "cust1",
+                "importId": "imp1",
+                "hubId": "HUB",
+                "destinationCode": "DEST",
+                "vehicleClass": "4WJ",
+                "id": "r2",
+                "rateThb": 1200,
+                "effectiveFromMs": 1769904000000,
+                "voided": true
+              }
+            ],
+            null
+          ],
+          "want": "r1"
+        }
+      ]
+    },
+    {
+      "name": "voided announcements are never selected (ADR 0009 §1) > ignores a voided fuel adjustment",
+      "line": 162,
+      "checks": [
+        {
+          "fn": "selectFuelAdjustmentForBillingDate",
+          "args": [
+            "cust1",
+            1772323200000,
+            [
+              {
+                "id": "a1",
+                "customerId": "cust1",
+                "effectiveFromMs": 1767225600000,
+                "rateMultiplier": 1,
+                "addThbPerTrip": 10
+              },
+              {
+                "id": "a2",
+                "customerId": "cust1",
+                "effectiveFromMs": 1769904000000,
+                "rateMultiplier": 1,
+                "addThbPerTrip": 20,
+                "voided": true
+              }
+            ]
+          ],
+          "want": "a1"
+        }
+      ]
+    },
+    {
+      "name": "isEffectiveOnOrBeforeBillingDate (ADR 0009 §2 — announcements are declared by Bangkok DATE) > puts an overnight switch-day trip in-round for both storage conventions",
+      "line": 187,
+      "checks": [
+        {
+          "fn": "isEffectiveOnOrBeforeBillingDate",
+          "args": [
+            1785542400000,
+            1785518460000
+          ],
+          "want": true
+        },
+        {
+          "fn": "isEffectiveOnOrBeforeBillingDate",
+          "args": [
+            1785517200000,
+            1785518460000
+          ],
+          "want": true
+        }
+      ]
+    },
+    {
+      "name": "isEffectiveOnOrBeforeBillingDate (ADR 0009 §2 — announcements are declared by Bangkok DATE) > keeps the day before out of round for both storage conventions",
+      "line": 192,
+      "checks": [
+        {
+          "fn": "isEffectiveOnOrBeforeBillingDate",
+          "args": [
+            1785542400000,
+            1785513600000
+          ],
+          "want": false
+        },
+        {
+          "fn": "isEffectiveOnOrBeforeBillingDate",
+          "args": [
+            1785517200000,
+            1785513600000
+          ],
+          "want": false
+        }
+      ]
+    },
+    {
+      "name": "overnight switch-day trips price under the correct round (legacy UTC-midnight effectiveFrom) > selectFuelAdjustmentForBillingDate picks the Aug round, not the previous one",
+      "line": 205,
+      "checks": [
+        {
+          "fn": "selectFuelAdjustmentForBillingDate",
+          "args": [
+            "c",
+            1785518460000,
+            [
+              {
+                "id": "jul",
+                "customerId": "c",
+                "effectiveFromMs": 1783468800000,
+                "rateMultiplier": 1,
+                "addThbPerTrip": -70
+              },
+              {
+                "id": "aug",
+                "customerId": "c",
+                "effectiveFromMs": 1785542400000,
+                "rateMultiplier": 1,
+                "addThbPerTrip": -50
+              }
+            ]
+          ],
+          "want": "aug"
+        }
+      ]
+    },
+    {
+      "name": "overnight switch-day trips price under the correct round (legacy UTC-midnight effectiveFrom) > selectBillingRateEntry honors the Bangkok day for a legacy-stored rate card",
+      "line": 213,
+      "checks": [
+        {
+          "fn": "selectBillingRateEntry",
+          "args": [
+            "c",
+            "HUB",
+            "DEST",
+            "4WJ",
+            1785518460000,
+            [
+              {
+                "customerId": "c",
+                "importId": "i",
+                "hubId": "HUB",
+                "destinationCode": "DEST",
+                "vehicleClass": "4WJ",
+                "id": "old",
+                "rateThb": 1000,
+                "effectiveFromMs": 1783468800000
+              },
+              {
+                "customerId": "c",
+                "importId": "i",
+                "hubId": "HUB",
+                "destinationCode": "DEST",
+                "vehicleClass": "4WJ",
+                "id": "aug",
+                "rateThb": 1200,
+                "effectiveFromMs": 1785542400000
+              }
+            ],
+            null
+          ],
+          "want": "aug"
+        }
+      ]
+    },
+    {
+      "name": "overnight switch-day trips price under the correct round (legacy UTC-midnight effectiveFrom) > selectStandbyRateEntry honors the Bangkok day for a legacy-stored standby rate",
+      "line": 222,
+      "checks": [
+        {
+          "fn": "selectStandbyRateEntry",
+          "args": [
+            "c",
+            1785518460000,
+            [
+              {
+                "id": "old",
+                "customerId": "c",
+                "rateThb": 300,
+                "effectiveFromMs": 1783468800000
+              },
+              {
+                "id": "aug",
+                "customerId": "c",
+                "rateThb": 400,
+                "effectiveFromMs": 1785542400000
+              }
+            ]
+          ],
+          "want": "aug"
+        }
+      ]
+    },
+    {
+      "name": "resolveBillingRoundProvenance (ADR 0009 §4) > keeps two fuel rounds distinct even when the rate card was imported after both",
+      "line": 241,
+      "checks": [
+        {
+          "fn": "resolveBillingRoundProvenance",
+          "args": [
+            1784480400000,
+            {
+              "id": "a1782838800000",
+              "customerId": "cust1",
+              "effectiveFromMs": 1782838800000,
+              "rateMultiplier": 1,
+              "addThbPerTrip": 0,
+              "referenceFuelPriceThb": 34.5
+            }
+          ],
+          "want": {
+            "roundEffectiveFromDateStr": "2026-07-01",
+            "fuelBandLowerThb": 34.01,
+            "fuelBandUpperThb": 35,
+            "referenceFuelPriceThb": 34.5
+          }
+        },
+        {
+          "fn": "resolveBillingRoundProvenance",
+          "args": [
+            1784480400000,
+            {
+              "id": "a1784134800000",
+              "customerId": "cust1",
+              "effectiveFromMs": 1784134800000,
+              "rateMultiplier": 1,
+              "addThbPerTrip": 0,
+              "referenceFuelPriceThb": 36.5
+            }
+          ],
+          "want": {
+            "roundEffectiveFromDateStr": "2026-07-16",
+            "fuelBandLowerThb": 36.01,
+            "fuelBandUpperThb": 37,
+            "referenceFuelPriceThb": 36.5
+          }
+        }
+      ]
+    },
+    {
+      "name": "resolveBillingRoundProvenance (ADR 0009 §4) > carries the band derived from the announced price",
+      "line": 258,
+      "checks": [
+        {
+          "fn": "resolveBillingRoundProvenance",
+          "args": [
+            0,
+            {
+              "id": "a1784134800000",
+              "customerId": "cust1",
+              "effectiveFromMs": 1784134800000,
+              "rateMultiplier": 1,
+              "addThbPerTrip": 0,
+              "referenceFuelPriceThb": 34.5
+            }
+          ],
+          "want": {
+            "roundEffectiveFromDateStr": "2026-07-16",
+            "fuelBandLowerThb": 34.01,
+            "fuelBandUpperThb": 35,
+            "referenceFuelPriceThb": 34.5
+          }
+        }
+      ]
+    },
+    {
+      "name": "resolveBillingRoundProvenance (ADR 0009 §4) > falls back to the rate entry only when no fuel adjustment applied",
+      "line": 265,
+      "checks": [
+        {
+          "fn": "resolveBillingRoundProvenance",
+          "args": [
+            1784480400000,
+            null
+          ],
+          "want": {
+            "roundEffectiveFromDateStr": "2026-07-20"
+          }
+        }
+      ]
+    },
+    {
+      "name": "resolveBillingRoundProvenance (ADR 0009 §4) > reports no band when the round was announced without a reference price",
+      "line": 271,
+      "checks": [
+        {
+          "fn": "resolveBillingRoundProvenance",
+          "args": [
+            0,
+            {
+              "id": "a1784134800000",
+              "customerId": "cust1",
+              "effectiveFromMs": 1784134800000,
+              "rateMultiplier": 1,
+              "addThbPerTrip": 0
+            }
+          ],
+          "want": {
+            "roundEffectiveFromDateStr": "2026-07-16"
+          }
+        }
+      ]
+    },
+    {
+      "name": "computeTripBillingFromParts > matches manual composition for bill date and fuel rule",
+      "line": 302,
+      "checks": [
+        {
+          "fn": "computeTripBillingFromParts",
+          "args": [
+            {
+              "deliveredTimestamp": 1752548400000
+            },
+            {
+              "sourceHub": "HUBA - Name",
+              "destination": "SOCE",
+              "truckType": "4WJ",
+              "sourceHubLinkedCustomerId": "c1"
+            },
+            [
+              {
+                "id": "e1",
+                "customerId": "c1",
+                "importId": "imp1",
+                "hubId": "HUBA",
+                "destinationCode": "SOCE",
+                "vehicleClass": "4WJ",
+                "rateThb": 1000,
+                "effectiveFromMs": 1577836800000
+              }
+            ],
+            [
+              {
+                "id": "f1",
+                "customerId": "c1",
+                "effectiveFromMs": 1748736000000,
+                "rateMultiplier": 1.1,
+                "addThbPerTrip": 50
+              }
+            ],
+            null
+          ],
+          "want": {
+            "customerId": "c1",
+            "baseRateThb": 1000,
+            "finalRateThb": 1150,
+            "rateImportId": "imp1",
+            "lookupHubId": "HUBA",
+            "lookupDestination": "SOCE",
+            "fuelAdjustmentId": "f1",
+            "rateMultiplier": 1.1,
+            "addThbPerTrip": 50,
+            "effectiveFromDateStr": "2025-06-01",
+            "roundEffectiveFromDateStr": "2025-06-01"
+          }
+        }
+      ]
+    },
+    {
+      "name": "computeTripBillingFromParts > selectFuelAdjustmentForBillingDate picks latest rule on or before bill date",
+      "line": 321,
+      "checks": [
+        {
+          "fn": "selectFuelAdjustmentForBillingDate",
+          "args": [
+            "c1",
+            1751328000000,
+            [
+              {
+                "id": "f1",
+                "customerId": "c1",
+                "effectiveFromMs": 1748736000000,
+                "rateMultiplier": 1.1,
+                "addThbPerTrip": 50
+              }
+            ]
+          ],
+          "want": "f1"
+        }
+      ]
+    },
+    {
+      "name": "computeTripBillingFromParts > R15: a trip whose task has no truck type is unpriced no_vehicle_class",
+      "line": 0,
+      "added": "R15",
+      "checks": [
+        {
+          "fn": "computeTripBillingFromParts",
+          "args": [
+            {
+              "deliveredTimestamp": 1752548400000
+            },
+            {
+              "sourceHub": "HUBA - Name",
+              "destination": "SOCE",
+              "sourceHubLinkedCustomerId": "c1",
+              "truckType": ""
+            },
+            [
+              {
+                "id": "e1",
+                "customerId": "c1",
+                "importId": "imp1",
+                "hubId": "HUBA",
+                "destinationCode": "SOCE",
+                "vehicleClass": "4WJ",
+                "rateThb": 1000,
+                "effectiveFromMs": 1577836800000
+              }
+            ],
+            [
+              {
+                "id": "f1",
+                "customerId": "c1",
+                "effectiveFromMs": 1748736000000,
+                "rateMultiplier": 1.1,
+                "addThbPerTrip": 50
+              }
+            ],
+            null
+          ],
+          "want": null,
+          "wantReason": "no_vehicle_class",
+          "legacy": {
+            "customerId": "c1",
+            "baseRateThb": 1000,
+            "finalRateThb": 1150,
+            "rateImportId": "imp1",
+            "lookupHubId": "HUBA",
+            "lookupDestination": "SOCE",
+            "fuelAdjustmentId": "f1",
+            "rateMultiplier": 1.1,
+            "addThbPerTrip": 50,
+            "effectiveFromDateStr": "2025-06-01",
+            "roundEffectiveFromDateStr": "2025-06-01"
+          },
+          "divergence": "R15"
+        },
+        {
+          "fn": "computeTripBillingFromParts",
+          "args": [
+            {
+              "deliveredTimestamp": 1752548400000
+            },
+            {
+              "sourceHub": "HUBA - Name",
+              "destination": "SOCE",
+              "sourceHubLinkedCustomerId": "c1",
+              "truckType": null
+            },
+            [
+              {
+                "id": "e1",
+                "customerId": "c1",
+                "importId": "imp1",
+                "hubId": "HUBA",
+                "destinationCode": "SOCE",
+                "vehicleClass": "4WJ",
+                "rateThb": 1000,
+                "effectiveFromMs": 1577836800000
+              }
+            ],
+            [
+              {
+                "id": "f1",
+                "customerId": "c1",
+                "effectiveFromMs": 1748736000000,
+                "rateMultiplier": 1.1,
+                "addThbPerTrip": 50
+              }
+            ],
+            null
+          ],
+          "want": null,
+          "wantReason": "no_vehicle_class",
+          "legacy": {
+            "customerId": "c1",
+            "baseRateThb": 1000,
+            "finalRateThb": 1150,
+            "rateImportId": "imp1",
+            "lookupHubId": "HUBA",
+            "lookupDestination": "SOCE",
+            "fuelAdjustmentId": "f1",
+            "rateMultiplier": 1.1,
+            "addThbPerTrip": 50,
+            "effectiveFromDateStr": "2025-06-01",
+            "roundEffectiveFromDateStr": "2025-06-01"
+          },
+          "divergence": "R15"
+        },
+        {
+          "fn": "computeTripBillingFromParts",
+          "args": [
+            {
+              "deliveredTimestamp": 1752548400000
+            },
+            {
+              "sourceHub": "HUBA - Name",
+              "destination": "SOCE",
+              "sourceHubLinkedCustomerId": "c1",
+              "truckType": "   "
+            },
+            [
+              {
+                "id": "e1",
+                "customerId": "c1",
+                "importId": "imp1",
+                "hubId": "HUBA",
+                "destinationCode": "SOCE",
+                "vehicleClass": "4WJ",
+                "rateThb": 1000,
+                "effectiveFromMs": 1577836800000
+              }
+            ],
+            [
+              {
+                "id": "f1",
+                "customerId": "c1",
+                "effectiveFromMs": 1748736000000,
+                "rateMultiplier": 1.1,
+                "addThbPerTrip": 50
+              }
+            ],
+            null
+          ],
+          "want": null,
+          "wantReason": "no_vehicle_class",
+          "legacy": {
+            "customerId": "c1",
+            "baseRateThb": 1000,
+            "finalRateThb": 1150,
+            "rateImportId": "imp1",
+            "lookupHubId": "HUBA",
+            "lookupDestination": "SOCE",
+            "fuelAdjustmentId": "f1",
+            "rateMultiplier": 1.1,
+            "addThbPerTrip": 50,
+            "effectiveFromDateStr": "2025-06-01",
+            "roundEffectiveFromDateStr": "2025-06-01"
+          },
+          "divergence": "R15"
+        }
+      ]
+    },
+    {
+      "name": "computeTripBillingFromParts > R19: a trip with no plan, delivery or creation instant is unpriced no_billing_date",
+      "line": 0,
+      "added": "R19",
+      "checks": [
+        {
+          "fn": "computeTripBillingFromParts",
+          "args": [
+            {},
+            {
+              "sourceHub": "HUBA - Name",
+              "destination": "SOCE",
+              "sourceHubLinkedCustomerId": "c1",
+              "truckType": "4WJ"
+            },
+            [
+              {
+                "id": "e1",
+                "customerId": "c1",
+                "importId": "imp1",
+                "hubId": "HUBA",
+                "destinationCode": "SOCE",
+                "vehicleClass": "4WJ",
+                "rateThb": 1000,
+                "effectiveFromMs": 1577836800000
+              }
+            ],
+            [],
+            null
+          ],
+          "want": null,
+          "wantReason": "no_billing_date",
+          "legacy": {
+            "customerId": "c1",
+            "baseRateThb": 1000,
+            "finalRateThb": 1000,
+            "rateImportId": "imp1",
+            "lookupHubId": "HUBA",
+            "lookupDestination": "SOCE",
+            "rateMultiplier": 1,
+            "addThbPerTrip": 0,
+            "roundEffectiveFromDateStr": "2020-01-01"
+          },
+          "divergence": "R19"
+        },
+        {
+          "fn": "computeTripBillingFromParts",
+          "args": [
+            {
+              "deliveredTimestamp": 0,
+              "createdAt": 0,
+              "billingDateMs": 0
+            },
+            {
+              "sourceHub": "HUBA - Name",
+              "destination": "SOCE",
+              "sourceHubLinkedCustomerId": "c1",
+              "truckType": "4WJ"
+            },
+            [
+              {
+                "id": "e1",
+                "customerId": "c1",
+                "importId": "imp1",
+                "hubId": "HUBA",
+                "destinationCode": "SOCE",
+                "vehicleClass": "4WJ",
+                "rateThb": 1000,
+                "effectiveFromMs": 1577836800000
+              }
+            ],
+            [],
+            null
+          ],
+          "want": null,
+          "wantReason": "no_billing_date",
+          "legacy": {
+            "customerId": "c1",
+            "baseRateThb": 1000,
+            "finalRateThb": 1000,
+            "rateImportId": "imp1",
+            "lookupHubId": "HUBA",
+            "lookupDestination": "SOCE",
+            "rateMultiplier": 1,
+            "addThbPerTrip": 0,
+            "roundEffectiveFromDateStr": "2020-01-01"
+          },
+          "divergence": "R19"
+        }
+      ]
+    },
+    {
+      "name": "jobCategory dimension (ADR-0005 — supplementary trips) > PRIMARY lookup (default) does NOT match a supplementary-only route",
+      "line": 366,
+      "checks": [
+        {
+          "fn": "computeTripBillingFromParts",
+          "args": [
+            {
+              "deliveredTimestamp": 1777690800000
+            },
+            {
+              "sourceHub": "HUBA - Name",
+              "destination": "WANGTHONGLANG12",
+              "truckType": "4WJ",
+              "sourceHubLinkedCustomerId": "c1"
+            },
+            [
+              {
+                "id": "primary1",
+                "customerId": "c1",
+                "importId": "imp-primary",
+                "hubId": "HUBA",
+                "destinationCode": "SOCE",
+                "vehicleClass": "4WJ",
+                "rateThb": 1000,
+                "effectiveFromMs": 1577836800000,
+                "jobCategory": "PRIMARY"
+              },
+              {
+                "id": "supp1",
+                "customerId": "c1",
+                "importId": "imp-supp",
+                "hubId": "HUBA",
+                "destinationCode": "WANGTHONGLANG12",
+                "vehicleClass": "4WJ",
+                "rateThb": 1250,
+                "effectiveFromMs": 1577836800000,
+                "jobCategory": "SUPPLEMENTARY"
+              }
+            ],
+            [],
+            null
+          ],
+          "want": null
+        }
+      ]
+    },
+    {
+      "name": "jobCategory dimension (ADR-0005 — supplementary trips) > SUPPLEMENTARY lookup resolves the supplementary route at its agreed price",
+      "line": 377,
+      "checks": [
+        {
+          "fn": "computeTripBillingFromParts",
+          "args": [
+            {
+              "deliveredTimestamp": 1777690800000
+            },
+            {
+              "sourceHub": "HUBA - Name",
+              "destination": "WANGTHONGLANG12",
+              "truckType": "4WJ",
+              "sourceHubLinkedCustomerId": "c1"
+            },
+            [
+              {
+                "id": "primary1",
+                "customerId": "c1",
+                "importId": "imp-primary",
+                "hubId": "HUBA",
+                "destinationCode": "SOCE",
+                "vehicleClass": "4WJ",
+                "rateThb": 1000,
+                "effectiveFromMs": 1577836800000,
+                "jobCategory": "PRIMARY"
+              },
+              {
+                "id": "supp1",
+                "customerId": "c1",
+                "importId": "imp-supp",
+                "hubId": "HUBA",
+                "destinationCode": "WANGTHONGLANG12",
+                "vehicleClass": "4WJ",
+                "rateThb": 1250,
+                "effectiveFromMs": 1577836800000,
+                "jobCategory": "SUPPLEMENTARY"
+              }
+            ],
+            [],
+            "SUPPLEMENTARY"
+          ],
+          "want": {
+            "customerId": "c1",
+            "baseRateThb": 1250,
+            "finalRateThb": 1250,
+            "rateImportId": "imp-supp",
+            "lookupHubId": "HUBA",
+            "lookupDestination": "WANGTHONGLANG12",
+            "rateMultiplier": 1,
+            "addThbPerTrip": 0,
+            "roundEffectiveFromDateStr": "2020-01-01"
+          }
+        }
+      ]
+    },
+    {
+      "name": "jobCategory dimension (ADR-0005 — supplementary trips) > derivation: PRIMARY first, fall back to SUPPLEMENTARY",
+      "line": 389,
+      "checks": [
+        {
+          "fn": "computeTripBillingFromParts",
+          "args": [
+            {
+              "deliveredTimestamp": 1777690800000
+            },
+            {
+              "sourceHub": "HUBA - Name",
+              "destination": "SOCE",
+              "truckType": "4WJ",
+              "sourceHubLinkedCustomerId": "c1"
+            },
+            [
+              {
+                "id": "primary1",
+                "customerId": "c1",
+                "importId": "imp-primary",
+                "hubId": "HUBA",
+                "destinationCode": "SOCE",
+                "vehicleClass": "4WJ",
+                "rateThb": 1000,
+                "effectiveFromMs": 1577836800000,
+                "jobCategory": "PRIMARY"
+              },
+              {
+                "id": "supp1",
+                "customerId": "c1",
+                "importId": "imp-supp",
+                "hubId": "HUBA",
+                "destinationCode": "WANGTHONGLANG12",
+                "vehicleClass": "4WJ",
+                "rateThb": 1250,
+                "effectiveFromMs": 1577836800000,
+                "jobCategory": "SUPPLEMENTARY"
+              }
+            ],
+            [],
+            "PRIMARY"
+          ],
+          "want": {
+            "customerId": "c1",
+            "baseRateThb": 1000,
+            "finalRateThb": 1000,
+            "rateImportId": "imp-primary",
+            "lookupHubId": "HUBA",
+            "lookupDestination": "SOCE",
+            "rateMultiplier": 1,
+            "addThbPerTrip": 0,
+            "roundEffectiveFromDateStr": "2020-01-01"
+          }
+        },
+        {
+          "fn": "computeTripBillingFromParts",
+          "args": [
+            {
+              "deliveredTimestamp": 1777690800000
+            },
+            {
+              "sourceHub": "HUBA - Name",
+              "destination": "WANGTHONGLANG12",
+              "truckType": "4WJ",
+              "sourceHubLinkedCustomerId": "c1"
+            },
+            [
+              {
+                "id": "primary1",
+                "customerId": "c1",
+                "importId": "imp-primary",
+                "hubId": "HUBA",
+                "destinationCode": "SOCE",
+                "vehicleClass": "4WJ",
+                "rateThb": 1000,
+                "effectiveFromMs": 1577836800000,
+                "jobCategory": "PRIMARY"
+              },
+              {
+                "id": "supp1",
+                "customerId": "c1",
+                "importId": "imp-supp",
+                "hubId": "HUBA",
+                "destinationCode": "WANGTHONGLANG12",
+                "vehicleClass": "4WJ",
+                "rateThb": 1250,
+                "effectiveFromMs": 1577836800000,
+                "jobCategory": "SUPPLEMENTARY"
+              }
+            ],
+            [],
+            "PRIMARY"
+          ],
+          "want": null
+        },
+        {
+          "fn": "computeTripBillingFromParts",
+          "args": [
+            {
+              "deliveredTimestamp": 1777690800000
+            },
+            {
+              "sourceHub": "HUBA - Name",
+              "destination": "WANGTHONGLANG12",
+              "truckType": "4WJ",
+              "sourceHubLinkedCustomerId": "c1"
+            },
+            [
+              {
+                "id": "primary1",
+                "customerId": "c1",
+                "importId": "imp-primary",
+                "hubId": "HUBA",
+                "destinationCode": "SOCE",
+                "vehicleClass": "4WJ",
+                "rateThb": 1000,
+                "effectiveFromMs": 1577836800000,
+                "jobCategory": "PRIMARY"
+              },
+              {
+                "id": "supp1",
+                "customerId": "c1",
+                "importId": "imp-supp",
+                "hubId": "HUBA",
+                "destinationCode": "WANGTHONGLANG12",
+                "vehicleClass": "4WJ",
+                "rateThb": 1250,
+                "effectiveFromMs": 1577836800000,
+                "jobCategory": "SUPPLEMENTARY"
+              }
+            ],
+            [],
+            "SUPPLEMENTARY"
+          ],
+          "want": {
+            "customerId": "c1",
+            "baseRateThb": 1250,
+            "finalRateThb": 1250,
+            "rateImportId": "imp-supp",
+            "lookupHubId": "HUBA",
+            "lookupDestination": "WANGTHONGLANG12",
+            "rateMultiplier": 1,
+            "addThbPerTrip": 0,
+            "roundEffectiveFromDateStr": "2020-01-01"
+          }
+        }
+      ]
+    },
+    {
+      "name": "jobCategory dimension (ADR-0005 — supplementary trips) > a SUPPLEMENTARY lookup does not leak into PRIMARY pricing",
+      "line": 403,
+      "checks": [
+        {
+          "fn": "computeTripBillingFromParts",
+          "args": [
+            {
+              "deliveredTimestamp": 1777690800000
+            },
+            {
+              "sourceHub": "HUBA - Name",
+              "destination": "SOCE",
+              "truckType": "4WJ",
+              "sourceHubLinkedCustomerId": "c1"
+            },
+            [
+              {
+                "id": "primary1",
+                "customerId": "c1",
+                "importId": "imp-primary",
+                "hubId": "HUBA",
+                "destinationCode": "SOCE",
+                "vehicleClass": "4WJ",
+                "rateThb": 1000,
+                "effectiveFromMs": 1577836800000,
+                "jobCategory": "PRIMARY"
+              },
+              {
+                "id": "supp1",
+                "customerId": "c1",
+                "importId": "imp-supp",
+                "hubId": "HUBA",
+                "destinationCode": "WANGTHONGLANG12",
+                "vehicleClass": "4WJ",
+                "rateThb": 1250,
+                "effectiveFromMs": 1577836800000,
+                "jobCategory": "SUPPLEMENTARY"
+              }
+            ],
+            [],
+            "PRIMARY"
+          ],
+          "want": {
+            "customerId": "c1",
+            "baseRateThb": 1000,
+            "finalRateThb": 1000,
+            "rateImportId": "imp-primary",
+            "lookupHubId": "HUBA",
+            "lookupDestination": "SOCE",
+            "rateMultiplier": 1,
+            "addThbPerTrip": 0,
+            "roundEffectiveFromDateStr": "2020-01-01"
+          }
+        }
+      ]
+    },
+    {
+      "name": "jobCategory dimension (ADR-0005 — supplementary trips) > SUPPLEMENTARY is a fixed rate — a fuel adjustment does NOT change it",
+      "line": 415,
+      "checks": [
+        {
+          "fn": "computeTripBillingFromParts",
+          "args": [
+            {
+              "deliveredTimestamp": 1777690800000
+            },
+            {
+              "sourceHub": "HUBA - Name",
+              "destination": "WANGTHONGLANG12",
+              "truckType": "4WJ",
+              "sourceHubLinkedCustomerId": "c1"
+            },
+            [
+              {
+                "id": "primary1",
+                "customerId": "c1",
+                "importId": "imp-primary",
+                "hubId": "HUBA",
+                "destinationCode": "SOCE",
+                "vehicleClass": "4WJ",
+                "rateThb": 1000,
+                "effectiveFromMs": 1577836800000,
+                "jobCategory": "PRIMARY"
+              },
+              {
+                "id": "supp1",
+                "customerId": "c1",
+                "importId": "imp-supp",
+                "hubId": "HUBA",
+                "destinationCode": "WANGTHONGLANG12",
+                "vehicleClass": "4WJ",
+                "rateThb": 1250,
+                "effectiveFromMs": 1577836800000,
+                "jobCategory": "SUPPLEMENTARY"
+              }
+            ],
+            [
+              {
+                "id": "f1",
+                "customerId": "c1",
+                "effectiveFromMs": 1577836800000,
+                "rateMultiplier": 1.1,
+                "addThbPerTrip": 50
+              }
+            ],
+            "SUPPLEMENTARY"
+          ],
+          "want": {
+            "customerId": "c1",
+            "baseRateThb": 1250,
+            "finalRateThb": 1250,
+            "rateImportId": "imp-supp",
+            "lookupHubId": "HUBA",
+            "lookupDestination": "WANGTHONGLANG12",
+            "rateMultiplier": 1,
+            "addThbPerTrip": 0,
+            "roundEffectiveFromDateStr": "2020-01-01"
+          }
+        },
+        {
+          "fn": "computeTripBillingFromParts",
+          "args": [
+            {
+              "deliveredTimestamp": 1777690800000
+            },
+            {
+              "sourceHub": "HUBA - Name",
+              "destination": "SOCE",
+              "truckType": "4WJ",
+              "sourceHubLinkedCustomerId": "c1"
+            },
+            [
+              {
+                "id": "primary1",
+                "customerId": "c1",
+                "importId": "imp-primary",
+                "hubId": "HUBA",
+                "destinationCode": "SOCE",
+                "vehicleClass": "4WJ",
+                "rateThb": 1000,
+                "effectiveFromMs": 1577836800000,
+                "jobCategory": "PRIMARY"
+              },
+              {
+                "id": "supp1",
+                "customerId": "c1",
+                "importId": "imp-supp",
+                "hubId": "HUBA",
+                "destinationCode": "WANGTHONGLANG12",
+                "vehicleClass": "4WJ",
+                "rateThb": 1250,
+                "effectiveFromMs": 1577836800000,
+                "jobCategory": "SUPPLEMENTARY"
+              }
+            ],
+            [
+              {
+                "id": "f1",
+                "customerId": "c1",
+                "effectiveFromMs": 1577836800000,
+                "rateMultiplier": 1.1,
+                "addThbPerTrip": 50
+              }
+            ],
+            "PRIMARY"
+          ],
+          "want": {
+            "customerId": "c1",
+            "baseRateThb": 1000,
+            "finalRateThb": 1150,
+            "rateImportId": "imp-primary",
+            "lookupHubId": "HUBA",
+            "lookupDestination": "SOCE",
+            "fuelAdjustmentId": "f1",
+            "rateMultiplier": 1.1,
+            "addThbPerTrip": 50,
+            "effectiveFromDateStr": "2020-01-01",
+            "roundEffectiveFromDateStr": "2020-01-01"
+          }
+        }
+      ]
+    },
+    {
+      "name": "getTripBillingDateMs (ADR 0027 — plan-date override) > prefers an explicit billingDateMs over deliveredTimestamp",
+      "line": 450,
+      "checks": [
+        {
+          "fn": "getTripBillingDateMs",
+          "args": [
+            {
+              "billingDateMs": 1790787600000,
+              "deliveredTimestamp": 1790830800000
+            }
+          ],
+          "want": 1790787600000
+        }
+      ]
+    },
+    {
+      "name": "getTripBillingDateMs (ADR 0027 — plan-date override) > falls back to deliveredTimestamp when no override (delivered-basis unchanged)",
+      "line": 458,
+      "checks": [
+        {
+          "fn": "getTripBillingDateMs",
+          "args": [
+            {
+              "deliveredTimestamp": 1790830800000
+            }
+          ],
+          "want": 1790830800000
+        }
+      ]
+    },
+    {
+      "name": "getTripBillingDateMs (ADR 0027 — plan-date override) > ignores a zero / non-finite override and uses deliveredTimestamp",
+      "line": 463,
+      "checks": [
+        {
+          "fn": "getTripBillingDateMs",
+          "args": [
+            {
+              "billingDateMs": 0,
+              "deliveredTimestamp": 1790830800000
+            }
+          ],
+          "want": 1790830800000
+        },
+        {
+          "fn": "getTripBillingDateMs",
+          "args": [
+            {
+              "billingDateMs": {
+                "$num": "NaN"
+              },
+              "deliveredTimestamp": 1790830800000
+            }
+          ],
+          "want": 1790830800000
+        }
+      ]
+    },
+    {
+      "name": "getTripBillingDateMs (ADR 0027 — plan-date override) > falls back to createdAt when neither override nor deliveredTimestamp exist",
+      "line": 469,
+      "checks": [
+        {
+          "fn": "getTripBillingDateMs",
+          "args": [
+            {
+              "createdAt": 1789441200000
+            }
+          ],
+          "want": 1789441200000
+        }
+      ]
+    },
+    {
+      "name": "getTripBillingDateMs (ADR 0027 — plan-date override) > R19: no instant at all is no billing date, never Date.now()",
+      "line": 0,
+      "added": "R19",
+      "checks": [
+        {
+          "fn": "getTripBillingDateMs",
+          "args": [
+            {}
+          ],
+          "want": null,
+          "legacy": {
+            "$now": true
+          },
+          "divergence": "R19"
+        },
+        {
+          "fn": "getTripBillingDateMs",
+          "args": [
+            {
+              "billingDateMs": 0,
+              "deliveredTimestamp": 0,
+              "createdAt": 0
+            }
+          ],
+          "want": null,
+          "legacy": {
+            "$now": true
+          },
+          "divergence": "R19"
+        }
+      ]
+    },
+    {
+      "name": "resolveTaskCustomerId (ADR 0027 — explicit customer wins) > prefers the explicit billingCustomerId over the hub-derived link",
+      "line": 476,
+      "checks": [
+        {
+          "fn": "resolveTaskCustomerId",
+          "args": [
+            {
+              "billingCustomerId": "CJSF_ID",
+              "sourceHubLinkedCustomerId": "SPX_ID",
+              "destinationLinkedCustomerId": "OTHER_ID"
+            }
+          ],
+          "want": "CJSF_ID"
+        }
+      ]
+    },
+    {
+      "name": "resolveTaskCustomerId (ADR 0027 — explicit customer wins) > falls back to the hub link when no explicit customer is set",
+      "line": 486,
+      "checks": [
+        {
+          "fn": "resolveTaskCustomerId",
+          "args": [
+            {
+              "sourceHubLinkedCustomerId": "SPX_ID"
+            }
+          ],
+          "want": "SPX_ID"
+        },
+        {
+          "fn": "resolveTaskCustomerId",
+          "args": [
+            {
+              "destinationLinkedCustomerId": "DEST_ID"
+            }
+          ],
+          "want": "DEST_ID"
+        }
+      ]
+    },
+    {
+      "name": "resolveTaskCustomerId (ADR 0027 — explicit customer wins) > ignores a blank billingCustomerId",
+      "line": 495,
+      "checks": [
+        {
+          "fn": "resolveTaskCustomerId",
+          "args": [
+            {
+              "billingCustomerId": "  ",
+              "sourceHubLinkedCustomerId": "SPX_ID"
+            }
+          ],
+          "want": "SPX_ID"
+        }
+      ]
+    },
+    {
+      "name": "snapshotCarriesFuel / isFrozenBillingSnapshot (ADR-0005 frozen price) > a snapshot with no fuel fields at all carries no fuel",
+      "line": 510,
+      "checks": [
+        {
+          "fn": "snapshotCarriesFuel",
+          "args": [
+            {}
+          ],
+          "want": false
+        },
+        {
+          "fn": "snapshotCarriesFuel",
+          "args": [
+            {
+              "billingRateMultiplier": 1,
+              "billingAddThbPerTrip": 0
+            }
+          ],
+          "want": false
+        }
+      ]
+    },
+    {
+      "name": "snapshotCarriesFuel / isFrozenBillingSnapshot (ADR-0005 frozen price) > any one of id / multiplier / per-trip add marks the snapshot as fuel-adjusted",
+      "line": 515,
+      "checks": [
+        {
+          "fn": "snapshotCarriesFuel",
+          "args": [
+            {
+              "billingFuelAdjustmentId": "adj1"
+            }
+          ],
+          "want": true
+        },
+        {
+          "fn": "snapshotCarriesFuel",
+          "args": [
+            {
+              "billingRateMultiplier": 1.05
+            }
+          ],
+          "want": true
+        },
+        {
+          "fn": "snapshotCarriesFuel",
+          "args": [
+            {
+              "billingAddThbPerTrip": -40
+            }
+          ],
+          "want": true
+        },
+        {
+          "fn": "snapshotCarriesFuel",
+          "args": [
+            {
+              "billingFuelAdjustmentId": "  "
+            }
+          ],
+          "want": false
+        }
+      ]
+    },
+    {
+      "name": "snapshotCarriesFuel / isFrozenBillingSnapshot (ADR-0005 frozen price) > a clean เสริม price is frozen, with or without the override flag",
+      "line": 523,
+      "checks": [
+        {
+          "fn": "isFrozenBillingSnapshot",
+          "args": [
+            {
+              "jobCategory": "SUPPLEMENTARY",
+              "billingFuelAdjustmentId": null,
+              "billingRateMultiplier": 1,
+              "billingAddThbPerTrip": 0
+            }
+          ],
+          "want": true
+        },
+        {
+          "fn": "isFrozenBillingSnapshot",
+          "args": [
+            {
+              "jobCategory": "SUPPLEMENTARY",
+              "billingFuelAdjustmentId": null,
+              "billingRateMultiplier": 1,
+              "billingAddThbPerTrip": 0,
+              "billingManualOverride": true
+            }
+          ],
+          "want": true
+        }
+      ]
+    },
+    {
+      "name": "snapshotCarriesFuel / isFrozenBillingSnapshot (ADR-0005 frozen price) > a เสริม label carrying fuel is NOT frozen — it is the corrupted price a recompute must repair",
+      "line": 528,
+      "checks": [
+        {
+          "fn": "isFrozenBillingSnapshot",
+          "args": [
+            {
+              "jobCategory": "SUPPLEMENTARY",
+              "billingFuelAdjustmentId": "adj1",
+              "billingRateMultiplier": 1,
+              "billingAddThbPerTrip": -40
+            }
+          ],
+          "want": false
+        },
+        {
+          "fn": "isFrozenBillingSnapshot",
+          "args": [
+            {
+              "jobCategory": "SUPPLEMENTARY",
+              "billingFuelAdjustmentId": null,
+              "billingRateMultiplier": 1.1,
+              "billingAddThbPerTrip": 0
+            }
+          ],
+          "want": false
+        }
+      ]
+    },
+    {
+      "name": "snapshotCarriesFuel / isFrozenBillingSnapshot (ADR-0005 frozen price) > an explicit manual override stays frozen even when it carries fuel (an admin typed that price)",
+      "line": 533,
+      "checks": [
+        {
+          "fn": "isFrozenBillingSnapshot",
+          "args": [
+            {
+              "jobCategory": "SUPPLEMENTARY",
+              "billingFuelAdjustmentId": null,
+              "billingRateMultiplier": 1,
+              "billingAddThbPerTrip": -40,
+              "billingManualOverride": true
+            }
+          ],
+          "want": true
+        },
+        {
+          "fn": "isFrozenBillingSnapshot",
+          "args": [
+            {
+              "jobCategory": "PRIMARY",
+              "billingManualOverride": true,
+              "billingRateMultiplier": 1.05
+            }
+          ],
+          "want": true
+        }
+      ]
+    },
+    {
+      "name": "snapshotCarriesFuel / isFrozenBillingSnapshot (ADR-0005 frozen price) > an un-overridden หลัก snapshot is never frozen",
+      "line": 538,
+      "checks": [
+        {
+          "fn": "isFrozenBillingSnapshot",
+          "args": [
+            {
+              "jobCategory": "PRIMARY",
+              "billingRateMultiplier": 1.05
+            }
+          ],
+          "want": false
+        },
+        {
+          "fn": "isFrozenBillingSnapshot",
+          "args": [
+            {}
+          ],
+          "want": false
+        }
+      ]
+    },
+    {
+      "name": "R16 > equal-instant legacy rate cards: the lower legacy doc id wins, whatever the load order",
+      "line": 0,
+      "added": "R16",
+      "checks": [
+        {
+          "fn": "selectBillingRateEntry",
+          "args": [
+            "c",
+            "HUB",
+            "DEST",
+            "4WJ",
+            1789009200000,
+            [
+              {
+                "id": "Zq9",
+                "customerId": "c",
+                "importId": "imp-Zq9",
+                "hubId": "HUB",
+                "destinationCode": "DEST",
+                "vehicleClass": "4WJ",
+                "rateThb": 1300,
+                "effectiveFromMs": 1786813200000,
+                "legacyDocId": "Zq9"
+              },
+              {
+                "id": "Ab1",
+                "customerId": "c",
+                "importId": "imp-Ab1",
+                "hubId": "HUB",
+                "destinationCode": "DEST",
+                "vehicleClass": "4WJ",
+                "rateThb": 1200,
+                "effectiveFromMs": 1786813200000,
+                "legacyDocId": "Ab1"
+              }
+            ],
+            null
+          ],
+          "want": "Ab1",
+          "legacy": "Zq9",
+          "divergence": "R16"
+        },
+        {
+          "fn": "selectBillingRateEntry",
+          "args": [
+            "c",
+            "HUB",
+            "DEST",
+            "4WJ",
+            1789009200000,
+            [
+              {
+                "id": "ab1",
+                "customerId": "c",
+                "importId": "imp-ab1",
+                "hubId": "HUB",
+                "destinationCode": "DEST",
+                "vehicleClass": "4WJ",
+                "rateThb": 1300,
+                "effectiveFromMs": 1786813200000,
+                "legacyDocId": "ab1"
+              },
+              {
+                "id": "Zz9",
+                "customerId": "c",
+                "importId": "imp-Zz9",
+                "hubId": "HUB",
+                "destinationCode": "DEST",
+                "vehicleClass": "4WJ",
+                "rateThb": 1200,
+                "effectiveFromMs": 1786813200000,
+                "legacyDocId": "Zz9"
+              }
+            ],
+            null
+          ],
+          "want": "Zz9",
+          "legacy": "ab1",
+          "divergence": "R16"
+        }
+      ]
+    },
+    {
+      "name": "R16 > equal-instant new rate cards: the earlier created_at wins, then the lower id",
+      "line": 0,
+      "added": "R16",
+      "checks": [
+        {
+          "fn": "selectBillingRateEntry",
+          "args": [
+            "c",
+            "HUB",
+            "DEST",
+            "4WJ",
+            1789009200000,
+            [
+              {
+                "id": "0199-a",
+                "customerId": "c",
+                "importId": "imp-0199-a",
+                "hubId": "HUB",
+                "destinationCode": "DEST",
+                "vehicleClass": "4WJ",
+                "rateThb": 1300,
+                "effectiveFromMs": 1786813200000,
+                "createdAtMs": 1788307200000
+              },
+              {
+                "id": "0199-b",
+                "customerId": "c",
+                "importId": "imp-0199-b",
+                "hubId": "HUB",
+                "destinationCode": "DEST",
+                "vehicleClass": "4WJ",
+                "rateThb": 1200,
+                "effectiveFromMs": 1786813200000,
+                "createdAtMs": 1788220800000
+              }
+            ],
+            null
+          ],
+          "want": "0199-b",
+          "legacy": "0199-a",
+          "divergence": "R16"
+        },
+        {
+          "fn": "selectBillingRateEntry",
+          "args": [
+            "c",
+            "HUB",
+            "DEST",
+            "4WJ",
+            1789009200000,
+            [
+              {
+                "id": "0199-d",
+                "customerId": "c",
+                "importId": "imp-0199-d",
+                "hubId": "HUB",
+                "destinationCode": "DEST",
+                "vehicleClass": "4WJ",
+                "rateThb": 1300,
+                "effectiveFromMs": 1786813200000,
+                "createdAtMs": 1788220800000
+              },
+              {
+                "id": "0199-c",
+                "customerId": "c",
+                "importId": "imp-0199-c",
+                "hubId": "HUB",
+                "destinationCode": "DEST",
+                "vehicleClass": "4WJ",
+                "rateThb": 1200,
+                "effectiveFromMs": 1786813200000,
+                "createdAtMs": 1788220800000
+              }
+            ],
+            null
+          ],
+          "want": "0199-c",
+          "legacy": "0199-d",
+          "divergence": "R16"
+        }
+      ]
+    },
+    {
+      "name": "R16 > equal-instant mixed rate cards: a migrated row wins over a row created in Go",
+      "line": 0,
+      "added": "R16",
+      "checks": [
+        {
+          "fn": "selectBillingRateEntry",
+          "args": [
+            "c",
+            "HUB",
+            "DEST",
+            "4WJ",
+            1789009200000,
+            [
+              {
+                "id": "0199-new",
+                "customerId": "c",
+                "importId": "imp-0199-new",
+                "hubId": "HUB",
+                "destinationCode": "DEST",
+                "vehicleClass": "4WJ",
+                "rateThb": 1300,
+                "effectiveFromMs": 1786813200000,
+                "createdAtMs": 1577836800000
+              },
+              {
+                "id": "Leg1",
+                "customerId": "c",
+                "importId": "imp-Leg1",
+                "hubId": "HUB",
+                "destinationCode": "DEST",
+                "vehicleClass": "4WJ",
+                "rateThb": 1200,
+                "effectiveFromMs": 1786813200000,
+                "legacyDocId": "Leg1",
+                "createdAtMs": 1788220800000
+              }
+            ],
+            null
+          ],
+          "want": "Leg1",
+          "legacy": "0199-new",
+          "divergence": "R16"
+        }
+      ]
+    },
+    {
+      "name": "R16 > the oldest-card fallback breaks equal instants the same way",
+      "line": 0,
+      "added": "R16",
+      "checks": [
+        {
+          "fn": "selectBillingRateEntry",
+          "args": [
+            "c",
+            "HUB",
+            "DEST",
+            "4WJ",
+            1782874800000,
+            [
+              {
+                "id": "Zq9",
+                "customerId": "c",
+                "importId": "imp-Zq9",
+                "hubId": "HUB",
+                "destinationCode": "DEST",
+                "vehicleClass": "4WJ",
+                "rateThb": 1300,
+                "effectiveFromMs": 1786813200000,
+                "legacyDocId": "Zq9"
+              },
+              {
+                "id": "Ab1",
+                "customerId": "c",
+                "importId": "imp-Ab1",
+                "hubId": "HUB",
+                "destinationCode": "DEST",
+                "vehicleClass": "4WJ",
+                "rateThb": 1200,
+                "effectiveFromMs": 1786813200000,
+                "legacyDocId": "Ab1"
+              },
+              {
+                "id": "New",
+                "customerId": "c",
+                "importId": "imp-New",
+                "hubId": "HUB",
+                "destinationCode": "DEST",
+                "vehicleClass": "4WJ",
+                "rateThb": 900,
+                "effectiveFromMs": 1788220800000
+              }
+            ],
+            null
+          ],
+          "want": "Ab1",
+          "legacy": "Zq9",
+          "divergence": "R16"
+        }
+      ]
+    },
+    {
+      "name": "R16 > fuel adjustments and standby rates use the same order",
+      "line": 0,
+      "added": "R16",
+      "checks": [
+        {
+          "fn": "selectFuelAdjustmentForBillingDate",
+          "args": [
+            "c",
+            1789009200000,
+            [
+              {
+                "id": "Zq9",
+                "legacyDocId": "Zq9",
+                "customerId": "c",
+                "effectiveFromMs": 1786813200000,
+                "rateMultiplier": 1,
+                "addThbPerTrip": -40
+              },
+              {
+                "id": "Ab1",
+                "legacyDocId": "Ab1",
+                "customerId": "c",
+                "effectiveFromMs": 1786813200000,
+                "rateMultiplier": 1,
+                "addThbPerTrip": -50
+              }
+            ]
+          ],
+          "want": "Ab1",
+          "legacy": "Zq9",
+          "divergence": "R16"
+        },
+        {
+          "fn": "selectStandbyRateEntry",
+          "args": [
+            "c",
+            1789009200000,
+            [
+              {
+                "id": "Zq9",
+                "legacyDocId": "Zq9",
+                "customerId": "c",
+                "rateThb": 400,
+                "effectiveFromMs": 1786813200000
+              },
+              {
+                "id": "Ab1",
+                "legacyDocId": "Ab1",
+                "customerId": "c",
+                "rateThb": 300,
+                "effectiveFromMs": 1786813200000
+              }
+            ]
+          ],
+          "want": "Ab1",
+          "legacy": "Zq9",
+          "divergence": "R16"
+        },
+        {
+          "fn": "selectFuelAdjustmentForBillingDate",
+          "args": [
+            "c",
+            1789009200000,
+            [
+              {
+                "id": "0199-a",
+                "customerId": "c",
+                "effectiveFromMs": 1786813200000,
+                "rateMultiplier": 1,
+                "addThbPerTrip": -40,
+                "createdAtMs": 1788307200000
+              },
+              {
+                "id": "0199-b",
+                "customerId": "c",
+                "effectiveFromMs": 1786813200000,
+                "rateMultiplier": 1,
+                "addThbPerTrip": -50,
+                "createdAtMs": 1788220800000
+              }
+            ]
+          ],
+          "want": "0199-b",
+          "legacy": "0199-a",
+          "divergence": "R16"
+        },
+        {
+          "fn": "selectStandbyRateEntry",
+          "args": [
+            "c",
+            1789009200000,
+            [
+              {
+                "id": "0199-a",
+                "customerId": "c",
+                "rateThb": 400,
+                "effectiveFromMs": 1786813200000,
+                "createdAtMs": 1788307200000
+              },
+              {
+                "id": "0199-b",
+                "customerId": "c",
+                "rateThb": 300,
+                "effectiveFromMs": 1786813200000,
+                "createdAtMs": 1788220800000
+              }
+            ]
+          ],
+          "want": "0199-b",
+          "legacy": "0199-a",
+          "divergence": "R16"
+        }
+      ]
+    },
+    {
+      "name": "R20 > a voided standby rate is never selected",
+      "line": 0,
+      "added": "R20",
+      "checks": [
+        {
+          "fn": "selectStandbyRateEntry",
+          "args": [
+            "c",
+            1789009200000,
+            [
+              {
+                "id": "old",
+                "customerId": "c",
+                "rateThb": 300,
+                "effectiveFromMs": 1767225600000
+              },
+              {
+                "id": "new",
+                "customerId": "c",
+                "rateThb": 400,
+                "effectiveFromMs": 1782864000000,
+                "voided": true
+              }
+            ]
+          ],
+          "want": "old",
+          "legacy": "new",
+          "divergence": "R20"
+        }
+      ]
+    },
+    {
+      "name": "normalizeVehicleClass > R15: whitespace is no class either",
+      "line": 0,
+      "added": "R15",
+      "checks": [
+        {
+          "fn": "normalizeVehicleClass",
+          "args": [
+            "   "
+          ],
+          "want": null,
+          "legacy": "4WJ",
+          "divergence": "R15"
+        },
+        {
+          "fn": "normalizeVehicleClass",
+          "args": [
+            " ﻿"
+          ],
+          "want": null,
+          "legacy": "4WJ",
+          "divergence": "R15"
+        }
+      ]
+    },
+    {
+      "name": "computeMultiDeliveryBilling > R15: a multi-drop trip without a vehicle class is unpriced no_vehicle_class",
+      "line": 0,
+      "added": "R15",
+      "checks": [
+        {
+          "fn": "computeMultiDeliveryBilling",
+          "args": [
+            {
+              "deliveredTimestamp": 1785553200000
+            },
+            {
+              "sourceHub": "HUBA",
+              "destination": "SPK1",
+              "sourceHubLinkedCustomerId": "c1"
+            },
+            [
+              {
+                "index": 1,
+                "destination": "SPK1"
+              },
+              {
+                "index": 2,
+                "destination": "SPK2"
+              }
+            ],
+            "",
+            [
+              {
+                "id": "m1",
+                "customerId": "c1",
+                "importId": "imp-m",
+                "hubId": "HUBA",
+                "destinationCode": "SPK1",
+                "vehicleClass": "4WJ",
+                "rateThb": 1500,
+                "effectiveFromMs": 1577836800000
+              }
+            ],
+            [],
+            300,
+            null
+          ],
+          "want": null,
+          "wantReason": "no_vehicle_class",
+          "legacy": {
+            "customerId": "c1",
+            "baseRateThb": 1500,
+            "stopChargeThb": 300,
+            "totalBillingThb": 1800,
+            "stopBreakdown": [
+              {
+                "stopIndex": 1,
+                "destination": "SPK1",
+                "baseRateThb": 1500,
+                "finalRateThb": 1500
+              },
+              {
+                "stopIndex": 2,
+                "destination": "SPK2",
+                "baseRateThb": 300,
+                "finalRateThb": 300
+              }
+            ],
+            "rateMultiplier": 1,
+            "addThbPerTrip": 0,
+            "rateImportId": "imp-m",
+            "roundEffectiveFromDateStr": "2020-01-01"
+          },
+          "divergence": "R15"
+        },
+        {
+          "fn": "computeMultiDeliveryBilling",
+          "args": [
+            {
+              "deliveredTimestamp": 1785553200000
+            },
+            {
+              "sourceHub": "HUBA",
+              "destination": "SPK1",
+              "sourceHubLinkedCustomerId": "c1"
+            },
+            [
+              {
+                "index": 1,
+                "destination": "SPK1"
+              },
+              {
+                "index": 2,
+                "destination": "SPK2"
+              }
+            ],
+            "  ",
+            [
+              {
+                "id": "m1",
+                "customerId": "c1",
+                "importId": "imp-m",
+                "hubId": "HUBA",
+                "destinationCode": "SPK1",
+                "vehicleClass": "4WJ",
+                "rateThb": 1500,
+                "effectiveFromMs": 1577836800000
+              }
+            ],
+            [],
+            300,
+            null
+          ],
+          "want": null,
+          "wantReason": "no_vehicle_class",
+          "legacy": {
+            "customerId": "c1",
+            "baseRateThb": 1500,
+            "stopChargeThb": 300,
+            "totalBillingThb": 1800,
+            "stopBreakdown": [
+              {
+                "stopIndex": 1,
+                "destination": "SPK1",
+                "baseRateThb": 1500,
+                "finalRateThb": 1500
+              },
+              {
+                "stopIndex": 2,
+                "destination": "SPK2",
+                "baseRateThb": 300,
+                "finalRateThb": 300
+              }
+            ],
+            "rateMultiplier": 1,
+            "addThbPerTrip": 0,
+            "rateImportId": "imp-m",
+            "roundEffectiveFromDateStr": "2020-01-01"
+          },
+          "divergence": "R15"
+        }
+      ]
+    }
+  ]
+}
