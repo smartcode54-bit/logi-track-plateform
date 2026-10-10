@@ -1,0 +1,930 @@
+{
+  "source": "logitrack-web/lib/billingDocument.test.ts",
+  "sourceCommit": "4f552099",
+  "note": "16 Vitest cases ported to internal/billing/documents. Wants are literal (the module needs a browser bundle); lib/billingGolden.test.ts checks them against billingDocument.ts. groupToLineItems' second argument is the rows its rounds are collected from (null: no rounds argument).",
+  "cases": [
+    {
+      "name": "collectBillingRounds > labels rounds by date order, oldest first",
+      "line": 31,
+      "checks": [
+        {
+          "fn": "collectBillingRounds",
+          "args": [
+            [
+              {
+                "id": "a",
+                "billingEstimateThb": 1200,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "ลาดกระบัง",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                "rowType": "trip",
+                "billingRoundEffectiveFromDateStr": "2026-08-16"
+              },
+              {
+                "id": "b",
+                "billingEstimateThb": 1200,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "ลาดกระบัง",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                "rowType": "trip",
+                "billingRoundEffectiveFromDateStr": "2026-08-01"
+              },
+              {
+                "id": "c",
+                "billingEstimateThb": 1200,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "ลาดกระบัง",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                "rowType": "trip",
+                "billingRoundEffectiveFromDateStr": "2026-08-25"
+              }
+            ]
+          ],
+          "want": [
+            {
+              "label": "R1",
+              "effectiveFromDateStr": "2026-08-01",
+              "firstBillingDate": {
+                "$date": "2026-08-05T03:00:00.000Z"
+              },
+              "lastBillingDate": {
+                "$date": "2026-08-05T03:00:00.000Z"
+              }
+            },
+            {
+              "label": "R2",
+              "effectiveFromDateStr": "2026-08-16",
+              "firstBillingDate": {
+                "$date": "2026-08-05T03:00:00.000Z"
+              },
+              "lastBillingDate": {
+                "$date": "2026-08-05T03:00:00.000Z"
+              }
+            },
+            {
+              "label": "R3",
+              "effectiveFromDateStr": "2026-08-25",
+              "firstBillingDate": {
+                "$date": "2026-08-05T03:00:00.000Z"
+              },
+              "lastBillingDate": {
+                "$date": "2026-08-05T03:00:00.000Z"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "collectBillingRounds > ignores rows that carry no round, so legacy trips cannot invent one",
+      "line": 44,
+      "checks": [
+        {
+          "fn": "collectBillingRounds",
+          "args": [
+            [
+              {
+                "id": "t1",
+                "billingEstimateThb": 1200,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "ลาดกระบัง",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                "rowType": "trip"
+              },
+              {
+                "id": "t1",
+                "billingEstimateThb": 1200,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "ลาดกระบัง",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                "rowType": "trip"
+              }
+            ]
+          ],
+          "want": []
+        }
+      ]
+    },
+    {
+      "name": "collectBillingRounds > widens a round's span across its rows",
+      "line": 48,
+      "checks": [
+        {
+          "fn": "collectBillingRounds",
+          "args": [
+            [
+              {
+                "id": "a",
+                "billingEstimateThb": 1200,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "ลาดกระบัง",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                "rowType": "trip",
+                "billingRoundEffectiveFromDateStr": "2026-08-01"
+              },
+              {
+                "id": "b",
+                "billingEstimateThb": 1200,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "ลาดกระบัง",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-12T03:00:00.000Z"
+                },
+                "rowType": "trip",
+                "billingRoundEffectiveFromDateStr": "2026-08-01"
+              }
+            ]
+          ],
+          "want": [
+            {
+              "label": "R1",
+              "effectiveFromDateStr": "2026-08-01",
+              "firstBillingDate": {
+                "$date": "2026-08-05T03:00:00.000Z"
+              },
+              "lastBillingDate": {
+                "$date": "2026-08-12T03:00:00.000Z"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "collectBillingRounds > spans a plan-basis round on the plan date, not the delivery instant",
+      "line": 66,
+      "checks": [
+        {
+          "fn": "collectBillingRounds",
+          "args": [
+            [
+              {
+                "id": "a",
+                "billingEstimateThb": 1200,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "ลาดกระบัง",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                "rowType": "trip",
+                "billingRoundEffectiveFromDateStr": "2026-08-01",
+                "billingDate": {
+                  "$date": "2026-08-04T17:00:00.000Z"
+                }
+              },
+              {
+                "id": "b",
+                "billingEstimateThb": 1200,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "ลาดกระบัง",
+                "deliveredTimestamp": {
+                  "$date": "2026-09-01T01:30:00.000Z"
+                },
+                "rowType": "trip",
+                "billingRoundEffectiveFromDateStr": "2026-08-01",
+                "billingDate": {
+                  "$date": "2026-08-30T17:00:00.000Z"
+                }
+              }
+            ]
+          ],
+          "want": [
+            {
+              "label": "R1",
+              "effectiveFromDateStr": "2026-08-01",
+              "firstBillingDate": {
+                "$date": "2026-08-04T17:00:00.000Z"
+              },
+              "lastBillingDate": {
+                "$date": "2026-08-30T17:00:00.000Z"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "billingAxisDate > uses the frozen billing date when the row has one",
+      "line": 88,
+      "checks": [
+        {
+          "fn": "billingAxisDate",
+          "args": [
+            {
+              "id": "t1",
+              "billingEstimateThb": 1200,
+              "vehicleClass": "4WJ",
+              "hubDisplayName": "SPK-GW",
+              "destinationDisplayName": "ลาดกระบัง",
+              "deliveredTimestamp": {
+                "$date": "2026-08-05T03:00:00.000Z"
+              },
+              "rowType": "trip",
+              "billingDate": {
+                "$date": "2026-08-30T17:00:00.000Z"
+              }
+            }
+          ],
+          "want": {
+            "$date": "2026-08-30T17:00:00.000Z"
+          }
+        }
+      ]
+    },
+    {
+      "name": "billingAxisDate > falls back to the delivery instant for rows priced before ADR 0027 and for standby",
+      "line": 93,
+      "checks": [
+        {
+          "fn": "billingAxisDate",
+          "args": [
+            {
+              "id": "t1",
+              "billingEstimateThb": 1200,
+              "vehicleClass": "4WJ",
+              "hubDisplayName": "SPK-GW",
+              "destinationDisplayName": "ลาดกระบัง",
+              "deliveredTimestamp": {
+                "$date": "2026-08-05T03:00:00.000Z"
+              },
+              "rowType": "trip"
+            }
+          ],
+          "want": {
+            "$date": "2026-08-05T03:00:00.000Z"
+          }
+        },
+        {
+          "fn": "billingAxisDate",
+          "args": [
+            {
+              "id": "t1",
+              "billingEstimateThb": 1200,
+              "vehicleClass": "4WJ",
+              "hubDisplayName": "SPK-GW",
+              "destinationDisplayName": "ลาดกระบัง",
+              "deliveredTimestamp": {
+                "$date": "2026-08-05T03:00:00.000Z"
+              },
+              "rowType": "standby"
+            }
+          ],
+          "want": {
+            "$date": "2026-08-05T03:00:00.000Z"
+          }
+        }
+      ]
+    },
+    {
+      "name": "billingDateBasisOf > reads the basis stamped on the rows",
+      "line": 100,
+      "checks": [
+        {
+          "fn": "billingDateBasisOf",
+          "args": [
+            [
+              {
+                "id": "t1",
+                "billingEstimateThb": 1200,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "ลาดกระบัง",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                "rowType": "trip",
+                "billingDateBasis": "plan"
+              }
+            ]
+          ],
+          "want": "plan"
+        },
+        {
+          "fn": "billingDateBasisOf",
+          "args": [
+            [
+              {
+                "id": "t1",
+                "billingEstimateThb": 1200,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "ลาดกระบัง",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                "rowType": "trip",
+                "billingDateBasis": "delivered"
+              }
+            ]
+          ],
+          "want": "delivered"
+        }
+      ]
+    },
+    {
+      "name": "billingDateBasisOf > defaults to delivered when nothing is stamped, so no opt-out customer is relabelled",
+      "line": 105,
+      "checks": [
+        {
+          "fn": "billingDateBasisOf",
+          "args": [
+            [
+              {
+                "id": "t1",
+                "billingEstimateThb": 1200,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "ลาดกระบัง",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                "rowType": "trip"
+              },
+              {
+                "id": "t1",
+                "billingEstimateThb": 1200,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "ลาดกระบัง",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                "rowType": "trip"
+              }
+            ]
+          ],
+          "want": "delivered"
+        },
+        {
+          "fn": "billingDateBasisOf",
+          "args": [
+            []
+          ],
+          "want": "delivered"
+        }
+      ]
+    },
+    {
+      "name": "formatFuelBand > prints the contract's inclusive range",
+      "line": 112,
+      "checks": [
+        {
+          "fn": "formatFuelBand",
+          "args": [
+            37.01,
+            38
+          ],
+          "want": "37.01–38.00"
+        }
+      ]
+    },
+    {
+      "name": "formatFuelBand > prints a dash rather than half a range",
+      "line": 116,
+      "checks": [
+        {
+          "fn": "formatFuelBand",
+          "args": [
+            null,
+            38
+          ],
+          "want": "-"
+        },
+        {
+          "fn": "formatFuelBand",
+          "args": [
+            37.01,
+            null
+          ],
+          "want": "-"
+        }
+      ]
+    },
+    {
+      "name": "groupToLineItems > keeps count × unitPrice = total on every line",
+      "line": 123,
+      "checks": [
+        {
+          "fn": "groupToLineItems",
+          "args": [
+            [
+              {
+                "id": "a",
+                "billingEstimateThb": 1200,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "ลาดกระบัง",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                "rowType": "trip"
+              },
+              {
+                "id": "b",
+                "billingEstimateThb": 1200,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "ลาดกระบัง",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                "rowType": "trip"
+              }
+            ],
+            null
+          ],
+          "want": [
+            {
+              "vehicleClass": "4WJ",
+              "route": "SPK-GW → ลาดกระบัง",
+              "count": 2,
+              "unitPrice": 1200,
+              "total": 2400,
+              "dates": [
+                {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                }
+              ],
+              "enumerateDays": false,
+              "roundLabel": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "groupToLineItems > never merges two rounds into one line, even at an identical unit price",
+      "line": 133,
+      "checks": [
+        {
+          "fn": "groupToLineItems",
+          "args": [
+            [
+              {
+                "id": "a",
+                "billingEstimateThb": 1200,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "ลาดกระบัง",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                "rowType": "trip",
+                "billingRoundEffectiveFromDateStr": "2026-08-01"
+              },
+              {
+                "id": "b",
+                "billingEstimateThb": 1200,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "ลาดกระบัง",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                "rowType": "trip",
+                "billingRoundEffectiveFromDateStr": "2026-08-16"
+              }
+            ],
+            [
+              {
+                "id": "a",
+                "billingEstimateThb": 1200,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "ลาดกระบัง",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                "rowType": "trip",
+                "billingRoundEffectiveFromDateStr": "2026-08-01"
+              },
+              {
+                "id": "b",
+                "billingEstimateThb": 1200,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "ลาดกระบัง",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                "rowType": "trip",
+                "billingRoundEffectiveFromDateStr": "2026-08-16"
+              }
+            ]
+          ],
+          "want": [
+            {
+              "vehicleClass": "4WJ",
+              "route": "SPK-GW → ลาดกระบัง",
+              "count": 1,
+              "unitPrice": 1200,
+              "total": 1200,
+              "dates": [
+                {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                }
+              ],
+              "enumerateDays": false,
+              "roundLabel": "R1"
+            },
+            {
+              "vehicleClass": "4WJ",
+              "route": "SPK-GW → ลาดกระบัง",
+              "count": 1,
+              "unitPrice": 1200,
+              "total": 1200,
+              "dates": [
+                {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                }
+              ],
+              "enumerateDays": false,
+              "roundLabel": "R2"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "groupToLineItems > splits a route priced differently in two rounds",
+      "line": 152,
+      "checks": [
+        {
+          "fn": "groupToLineItems",
+          "args": [
+            [
+              {
+                "id": "a",
+                "billingEstimateThb": 1200,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "ลาดกระบัง",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                "rowType": "trip",
+                "billingRoundEffectiveFromDateStr": "2026-08-01"
+              },
+              {
+                "id": "b",
+                "billingEstimateThb": 1210,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "ลาดกระบัง",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                "rowType": "trip",
+                "billingRoundEffectiveFromDateStr": "2026-08-16"
+              }
+            ],
+            [
+              {
+                "id": "a",
+                "billingEstimateThb": 1200,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "ลาดกระบัง",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                "rowType": "trip",
+                "billingRoundEffectiveFromDateStr": "2026-08-01"
+              },
+              {
+                "id": "b",
+                "billingEstimateThb": 1210,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "ลาดกระบัง",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                "rowType": "trip",
+                "billingRoundEffectiveFromDateStr": "2026-08-16"
+              }
+            ]
+          ],
+          "want": [
+            {
+              "vehicleClass": "4WJ",
+              "route": "SPK-GW → ลาดกระบัง",
+              "count": 1,
+              "unitPrice": 1200,
+              "total": 1200,
+              "dates": [
+                {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                }
+              ],
+              "enumerateDays": false,
+              "roundLabel": "R1"
+            },
+            {
+              "vehicleClass": "4WJ",
+              "route": "SPK-GW → ลาดกระบัง",
+              "count": 1,
+              "unitPrice": 1210,
+              "total": 1210,
+              "dates": [
+                {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                }
+              ],
+              "enumerateDays": false,
+              "roundLabel": "R2"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "groupToLineItems > labels a multidrop stop with its round like any other row",
+      "line": 162,
+      "checks": [
+        {
+          "fn": "groupToLineItems",
+          "args": [
+            [
+              {
+                "id": "t1_s2",
+                "billingEstimateThb": 300,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "ลาดกระบัง",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                "rowType": "multidrop_stop",
+                "billingRoundEffectiveFromDateStr": "2026-08-16"
+              }
+            ],
+            [
+              {
+                "id": "t1_s2",
+                "billingEstimateThb": 300,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "ลาดกระบัง",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                "rowType": "multidrop_stop",
+                "billingRoundEffectiveFromDateStr": "2026-08-16"
+              }
+            ]
+          ],
+          "want": [
+            {
+              "vehicleClass": "4WJ",
+              "route": "ค่าโยก",
+              "count": 1,
+              "unitPrice": 300,
+              "total": 300,
+              "dates": [
+                {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                }
+              ],
+              "enumerateDays": false,
+              "roundLabel": "R1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "groupToLineItems > dates a line on the billing axis, so a plan-basis invoice stays inside its month",
+      "line": 177,
+      "checks": [
+        {
+          "fn": "groupToLineItems",
+          "args": [
+            [
+              {
+                "id": "a",
+                "billingEstimateThb": 1200,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "ลาดกระบัง",
+                "deliveredTimestamp": {
+                  "$date": "2026-09-01T01:30:00.000Z"
+                },
+                "rowType": "trip",
+                "billingDate": {
+                  "$date": "2026-08-30T17:00:00.000Z"
+                }
+              }
+            ],
+            null
+          ],
+          "want": [
+            {
+              "vehicleClass": "4WJ",
+              "route": "SPK-GW → ลาดกระบัง",
+              "count": 1,
+              "unitPrice": 1200,
+              "total": 1200,
+              "dates": [
+                {
+                  "$date": "2026-08-30T17:00:00.000Z"
+                }
+              ],
+              "enumerateDays": false,
+              "roundLabel": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "groupToLineItems > leaves the round label empty when a row carries no round",
+      "line": 188,
+      "checks": [
+        {
+          "fn": "groupToLineItems",
+          "args": [
+            [
+              {
+                "id": "t1",
+                "billingEstimateThb": 1200,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "ลาดกระบัง",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                "rowType": "trip"
+              }
+            ],
+            []
+          ],
+          "want": [
+            {
+              "vehicleClass": "4WJ",
+              "route": "SPK-GW → ลาดกระบัง",
+              "count": 1,
+              "unitPrice": 1200,
+              "total": 1200,
+              "dates": [
+                {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                }
+              ],
+              "enumerateDays": false,
+              "roundLabel": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "groupToLineItems > origin code over lookup code over hub name; a destination name wins even when empty; standby lists its days",
+      "line": 0,
+      "added": "characterisation",
+      "checks": [
+        {
+          "fn": "groupToLineItems",
+          "args": [
+            [
+              {
+                "id": "s1",
+                "billingEstimateThb": 500,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                "rowType": "standby",
+                "originHubCode": "SPK-GW",
+                "billingLookupHubId": "X",
+                "billingLookupDestination": "SPK1"
+              },
+              {
+                "id": "s2",
+                "billingEstimateThb": 500,
+                "vehicleClass": "4WJ",
+                "hubDisplayName": "SPK-GW",
+                "destinationDisplayName": "",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-09T03:00:00.000Z"
+                },
+                "rowType": "standby",
+                "originHubCode": "SPK-GW"
+              },
+              {
+                "id": "t2",
+                "billingEstimateThb": 0.30000000000000004,
+                "hubDisplayName": "",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                "rowType": "trip",
+                "billingLookupHubId": "HUBX",
+                "billingLookupDestination": "SPK9"
+              },
+              {
+                "id": "t3",
+                "billingEstimateThb": 0.30000000000000004,
+                "hubDisplayName": "",
+                "deliveredTimestamp": {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                "rowType": "trip",
+                "billingLookupHubId": "HUBX",
+                "billingLookupDestination": "SPK9"
+              }
+            ],
+            null
+          ],
+          "want": [
+            {
+              "vehicleClass": "4WJ",
+              "route": "SPK-GW →  (Stand by)",
+              "count": 2,
+              "unitPrice": 500,
+              "total": 1000,
+              "dates": [
+                {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                {
+                  "$date": "2026-08-09T03:00:00.000Z"
+                }
+              ],
+              "enumerateDays": true,
+              "roundLabel": ""
+            },
+            {
+              "vehicleClass": "-",
+              "route": "HUBX → SPK9",
+              "count": 2,
+              "unitPrice": 0.30000000000000004,
+              "total": 0.6000000000000001,
+              "dates": [
+                {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                },
+                {
+                  "$date": "2026-08-05T03:00:00.000Z"
+                }
+              ],
+              "enumerateDays": false,
+              "roundLabel": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "formatFuelBand > uses JavaScript toFixed rounding, half up on the exact value",
+      "line": 0,
+      "added": "characterisation",
+      "checks": [
+        {
+          "fn": "formatFuelBand",
+          "args": [
+            0.125,
+            2.675
+          ],
+          "want": "0.13–2.67"
+        },
+        {
+          "fn": "formatFuelBand",
+          "args": [
+            {
+              "$num": "NaN"
+            },
+            38
+          ],
+          "want": "NaN–38.00"
+        }
+      ]
+    }
+  ]
+}

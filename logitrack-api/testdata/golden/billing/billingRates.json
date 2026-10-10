@@ -1,0 +1,365 @@
+{
+  "source": "logitrack-web/lib/billingRates.test.ts",
+  "sourceCommit": "4f552099",
+  "note": "5 Vitest cases ported. computeTripBilling is the web estimate; Go runs it as compute.PriceTrip with a delivered basis and no hub maps (the pure core of PriceTrip, §6.10).",
+  "cases": [
+    {
+      "name": "computeTripBilling — หลัก/เสริม follows the task (ADR-0006) > an explicit เสริม task prices from the เสริม card with NO fuel, even when a หลัก card exists",
+      "line": 52,
+      "checks": [
+        {
+          "fn": "computeTripBilling",
+          "args": [
+            {
+              "deliveredTimestamp": {
+                "$date": "2026-09-10T05:00:00.000Z"
+              }
+            },
+            {
+              "sourceHub": "SPK-GW",
+              "destination": "SPK890103",
+              "truckType": "4WJ",
+              "sourceHubLinkedCustomerId": "cjsf",
+              "jobCategory": "SUPPLEMENTARY"
+            },
+            [
+              {
+                "id": "p",
+                "customerId": "cjsf",
+                "importId": "imp",
+                "hubId": "SPK-GW",
+                "destinationCode": "SPK890103",
+                "vehicleClass": "4WJ",
+                "rateThb": 1200,
+                "effectiveFromMs": 1788195600000,
+                "jobCategory": "PRIMARY"
+              },
+              {
+                "id": "s",
+                "customerId": "cjsf",
+                "importId": "imp",
+                "hubId": "SPK-GW",
+                "destinationCode": "SPK890103",
+                "vehicleClass": "4WJ",
+                "rateThb": 950,
+                "effectiveFromMs": 1788195600000,
+                "jobCategory": "SUPPLEMENTARY"
+              }
+            ],
+            [
+              {
+                "id": "f1",
+                "customerId": "cjsf",
+                "effectiveFromMs": 1788195600000,
+                "rateMultiplier": 1,
+                "addThbPerTrip": -40
+              }
+            ]
+          ],
+          "want": {
+            "customerId": "cjsf",
+            "baseRateThb": 950,
+            "finalRateThb": 950,
+            "rateImportId": "imp",
+            "lookupHubId": "SPK-GW",
+            "lookupDestination": "SPK890103",
+            "rateMultiplier": 1,
+            "addThbPerTrip": 0,
+            "roundEffectiveFromDateStr": "2026-09-01"
+          }
+        }
+      ]
+    },
+    {
+      "name": "computeTripBilling — หลัก/เสริม follows the task (ADR-0006) > an explicit หลัก task never falls back to the เสริม card",
+      "line": 61,
+      "checks": [
+        {
+          "fn": "computeTripBilling",
+          "args": [
+            {
+              "deliveredTimestamp": {
+                "$date": "2026-09-10T05:00:00.000Z"
+              }
+            },
+            {
+              "sourceHub": "SPK-GW",
+              "destination": "SPK890103",
+              "truckType": "4WJ",
+              "sourceHubLinkedCustomerId": "cjsf",
+              "jobCategory": "PRIMARY"
+            },
+            [
+              {
+                "id": "s",
+                "customerId": "cjsf",
+                "importId": "imp",
+                "hubId": "SPK-GW",
+                "destinationCode": "SPK890103",
+                "vehicleClass": "4WJ",
+                "rateThb": 950,
+                "effectiveFromMs": 1788195600000,
+                "jobCategory": "SUPPLEMENTARY"
+              }
+            ],
+            [
+              {
+                "id": "f1",
+                "customerId": "cjsf",
+                "effectiveFromMs": 1788195600000,
+                "rateMultiplier": 1,
+                "addThbPerTrip": -40
+              }
+            ]
+          ],
+          "want": null
+        }
+      ]
+    },
+    {
+      "name": "computeTripBilling — หลัก/เสริม follows the task (ADR-0006) > an explicit หลัก task prices from the หลัก card with fuel",
+      "line": 65,
+      "checks": [
+        {
+          "fn": "computeTripBilling",
+          "args": [
+            {
+              "deliveredTimestamp": {
+                "$date": "2026-09-10T05:00:00.000Z"
+              }
+            },
+            {
+              "sourceHub": "SPK-GW",
+              "destination": "SPK890103",
+              "truckType": "4WJ",
+              "sourceHubLinkedCustomerId": "cjsf",
+              "jobCategory": "PRIMARY"
+            },
+            [
+              {
+                "id": "p",
+                "customerId": "cjsf",
+                "importId": "imp",
+                "hubId": "SPK-GW",
+                "destinationCode": "SPK890103",
+                "vehicleClass": "4WJ",
+                "rateThb": 1200,
+                "effectiveFromMs": 1788195600000,
+                "jobCategory": "PRIMARY"
+              },
+              {
+                "id": "s",
+                "customerId": "cjsf",
+                "importId": "imp",
+                "hubId": "SPK-GW",
+                "destinationCode": "SPK890103",
+                "vehicleClass": "4WJ",
+                "rateThb": 950,
+                "effectiveFromMs": 1788195600000,
+                "jobCategory": "SUPPLEMENTARY"
+              }
+            ],
+            [
+              {
+                "id": "f1",
+                "customerId": "cjsf",
+                "effectiveFromMs": 1788195600000,
+                "rateMultiplier": 1,
+                "addThbPerTrip": -40
+              }
+            ]
+          ],
+          "want": {
+            "customerId": "cjsf",
+            "baseRateThb": 1200,
+            "finalRateThb": 1160,
+            "rateImportId": "imp",
+            "lookupHubId": "SPK-GW",
+            "lookupDestination": "SPK890103",
+            "fuelAdjustmentId": "f1",
+            "rateMultiplier": 1,
+            "addThbPerTrip": -40,
+            "effectiveFromDateStr": "2026-09-01",
+            "roundEffectiveFromDateStr": "2026-09-01"
+          }
+        }
+      ]
+    },
+    {
+      "name": "computeTripBilling — หลัก/เสริม follows the task (ADR-0006) > a legacy task with no category tries หลัก first, then falls back to เสริม (no fuel)",
+      "line": 71,
+      "checks": [
+        {
+          "fn": "computeTripBilling",
+          "args": [
+            {
+              "deliveredTimestamp": {
+                "$date": "2026-09-10T05:00:00.000Z"
+              }
+            },
+            {
+              "sourceHub": "SPK-GW",
+              "destination": "SPK890103",
+              "truckType": "4WJ",
+              "sourceHubLinkedCustomerId": "cjsf"
+            },
+            [
+              {
+                "id": "p",
+                "customerId": "cjsf",
+                "importId": "imp",
+                "hubId": "SPK-GW",
+                "destinationCode": "SPK890103",
+                "vehicleClass": "4WJ",
+                "rateThb": 1200,
+                "effectiveFromMs": 1788195600000,
+                "jobCategory": "PRIMARY"
+              },
+              {
+                "id": "s",
+                "customerId": "cjsf",
+                "importId": "imp",
+                "hubId": "SPK-GW",
+                "destinationCode": "SPK890103",
+                "vehicleClass": "4WJ",
+                "rateThb": 950,
+                "effectiveFromMs": 1788195600000,
+                "jobCategory": "SUPPLEMENTARY"
+              }
+            ],
+            [
+              {
+                "id": "f1",
+                "customerId": "cjsf",
+                "effectiveFromMs": 1788195600000,
+                "rateMultiplier": 1,
+                "addThbPerTrip": -40
+              }
+            ]
+          ],
+          "want": {
+            "customerId": "cjsf",
+            "baseRateThb": 1200,
+            "finalRateThb": 1160,
+            "rateImportId": "imp",
+            "lookupHubId": "SPK-GW",
+            "lookupDestination": "SPK890103",
+            "fuelAdjustmentId": "f1",
+            "rateMultiplier": 1,
+            "addThbPerTrip": -40,
+            "effectiveFromDateStr": "2026-09-01",
+            "roundEffectiveFromDateStr": "2026-09-01"
+          }
+        },
+        {
+          "fn": "computeTripBilling",
+          "args": [
+            {
+              "deliveredTimestamp": {
+                "$date": "2026-09-10T05:00:00.000Z"
+              }
+            },
+            {
+              "sourceHub": "SPK-GW",
+              "destination": "SPK890103",
+              "truckType": "4WJ",
+              "sourceHubLinkedCustomerId": "cjsf"
+            },
+            [
+              {
+                "id": "s",
+                "customerId": "cjsf",
+                "importId": "imp",
+                "hubId": "SPK-GW",
+                "destinationCode": "SPK890103",
+                "vehicleClass": "4WJ",
+                "rateThb": 950,
+                "effectiveFromMs": 1788195600000,
+                "jobCategory": "SUPPLEMENTARY"
+              }
+            ],
+            [
+              {
+                "id": "f1",
+                "customerId": "cjsf",
+                "effectiveFromMs": 1788195600000,
+                "rateMultiplier": 1,
+                "addThbPerTrip": -40
+              }
+            ]
+          ],
+          "want": {
+            "customerId": "cjsf",
+            "baseRateThb": 950,
+            "finalRateThb": 950,
+            "rateImportId": "imp",
+            "lookupHubId": "SPK-GW",
+            "lookupDestination": "SPK890103",
+            "rateMultiplier": 1,
+            "addThbPerTrip": 0,
+            "roundEffectiveFromDateStr": "2026-09-01"
+          }
+        }
+      ]
+    },
+    {
+      "name": "computeTripBilling — หลัก/เสริม follows the task (ADR-0006) > prices under the explicit billing customer chosen at assign (ADR 0027)",
+      "line": 78,
+      "checks": [
+        {
+          "fn": "computeTripBilling",
+          "args": [
+            {
+              "deliveredTimestamp": {
+                "$date": "2026-09-10T05:00:00.000Z"
+              }
+            },
+            {
+              "sourceHub": "SPK-GW",
+              "destination": "SPK890103",
+              "truckType": "4WJ",
+              "sourceHubLinkedCustomerId": "cjsf",
+              "billingCustomerId": "other"
+            },
+            [
+              {
+                "id": "p",
+                "customerId": "cjsf",
+                "importId": "imp",
+                "hubId": "SPK-GW",
+                "destinationCode": "SPK890103",
+                "vehicleClass": "4WJ",
+                "rateThb": 1200,
+                "effectiveFromMs": 1788195600000,
+                "jobCategory": "PRIMARY"
+              },
+              {
+                "id": "o",
+                "customerId": "other",
+                "importId": "imp",
+                "hubId": "SPK-GW",
+                "destinationCode": "SPK890103",
+                "vehicleClass": "4WJ",
+                "rateThb": 700,
+                "effectiveFromMs": 1788195600000,
+                "jobCategory": "PRIMARY"
+              }
+            ],
+            []
+          ],
+          "want": {
+            "customerId": "other",
+            "baseRateThb": 700,
+            "finalRateThb": 700,
+            "rateImportId": "imp",
+            "lookupHubId": "SPK-GW",
+            "lookupDestination": "SPK890103",
+            "rateMultiplier": 1,
+            "addThbPerTrip": 0,
+            "roundEffectiveFromDateStr": "2026-09-01"
+          }
+        }
+      ]
+    }
+  ]
+}

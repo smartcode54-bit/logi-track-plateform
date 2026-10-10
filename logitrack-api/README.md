@@ -2,7 +2,7 @@
 
 Go backend for the LogiTrack migration off Firebase (`mv-go`). Design: [`developer-spec.md`](../developer-spec.md) §2, routes in [Appendix B](../shared-docs/specs/mv-go/B-api-catalog.md). Branch policy: work lands by PR into `mv-go`, never `main` (R90).
 
-Status: **T01 scaffold + T02 local stack + T03 migrations**. One module, seven binaries, shared `internal/`; no domain routes yet.
+Status: **T01 scaffold + T02 local stack + T03 migrations + T36 billing engine**. One module, seven binaries, shared `internal/`; no domain routes yet.
 
 ## Layout
 
@@ -23,8 +23,14 @@ internal/platform/health     /healthz, /readyz, /startupz, drain state
 internal/platform/telemetry  OpenTelemetry (OTLP/HTTP) and Prometheus
 internal/platform/db         pgx pools per role (R66); dbq = sqlc output; pgtest = postgres:18-alpine for tests
 internal/platform/migrate    migration rules (R31), goose runner with a session lock; migratetest = round trip
+internal/platform/clock      Bangkok (+07:00) calendar: dates, days, months, Bangkok midnight; never the wall clock
+internal/platform/jsmath     JavaScript number semantics money code needs: Math.round, Round2, toFixed
+internal/billing/compute     the billing engine (T36): pure port of lib/billingCompute.ts + the pure pricing rules
+internal/billing/documents   pure invoice layout rules: axis date, price rounds, line items (renderers: T39)
+internal/golden              test-only runner for testdata/golden vectors
 migrations/                  NNNN_name.sql, embedded into cmd/migrate (0001_preamble today; 0002-0010 in T04)
 sqlc.yaml                    sqlc v1.31.1: schema = migrations/, one block per query package
+testdata/golden/             language-neutral golden vectors exported from the TypeScript engines (main spec §6.16)
 ```
 
 ## Listeners (main spec §2.6)
@@ -115,6 +121,12 @@ Rules (`migrate check`, also part of `make gen-check`): files `NNNN_name.sql` nu
 Integration tests (`-tags=integration`) use `internal/platform/db/pgtest`: one `postgres:18-alpine` container per test binary with `deploy/postgres-init/00-roles.sql` as an init script and a fresh database per test owned by `logitrack_migrator`. `make test-integration` points testcontainers at the active docker context (`DOCKER_HOST`).
 
 sqlc: `make sqlc` regenerates; `make gen-check` runs `sqlc diff` and `sqlc vet`. The first query (`internal/platform/db/queries/login.sql`) is the migrate preflight; domain tasks add one `sql` block per repo package.
+
+## Billing engine (T36, main spec §6)
+
+`internal/billing/compute` prices trips and standby events with no I/O and no clock: the caller loads rate cards, fuel rounds, fees, hub names and period locks in its pricing transaction and passes them in. Money stays float64 and matches V8 bit for bit: `jsmath.Round` rounds ties toward +Inf (and keeps `-0`), every product is wrapped in `float64(...)` so arm64 and amd64 `GOAMD64=v3` cannot fuse it into a multiply-add, and sums stay unrounded in input order. Deliberate differences from the TypeScript: a blank vehicle class is `no_vehicle_class` (R15), equal effective instants are ordered by legacy doc id, `created_at`, `id` whatever the load order (R16), a trip with no plan, delivery or creation instant is `no_billing_date` instead of `Date.now()` (R19), voided standby rates never price (R20). `IsFrozen` / `CarriesFuel` exist once in the module.
+
+Golden vectors: `testdata/golden/billing` (see its README). `go test ./internal/billing/... ./internal/platform/...` checks them against Go; `pnpm test` in `logitrack-web` checks the same files against the TypeScript. Regenerate after a TypeScript change with `node testdata/golden/billing/export.mjs`.
 
 ## Develop
 

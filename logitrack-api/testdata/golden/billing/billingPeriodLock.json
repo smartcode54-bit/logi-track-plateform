@@ -1,0 +1,395 @@
+{
+  "source": "logitrack-web/functions/src/core/billingPeriodLock.test.ts",
+  "sourceCommit": "4f552099",
+  "note": "12 Vitest cases ported to compute.PeriodKey / PeriodOf / PeriodLocks. lockFor returns the locking statement or null.",
+  "cases": [
+    {
+      "name": "billingPeriodKey > zero-pads the month so month 7 and month 70 can never collide",
+      "line": 25,
+      "checks": [
+        {
+          "fn": "billingPeriodKey",
+          "args": [
+            "c",
+            2026,
+            7
+          ],
+          "want": "c__2026-07"
+        },
+        {
+          "fn": "billingPeriodKey",
+          "args": [
+            "c",
+            2026,
+            12
+          ],
+          "want": "c__2026-12"
+        }
+      ]
+    },
+    {
+      "name": "billingPeriodKey > keys are per customer — the same month for two customers is two periods",
+      "line": 30,
+      "checks": [
+        {
+          "fn": "billingPeriodKey",
+          "args": [
+            "a",
+            2026,
+            7
+          ],
+          "want": "a__2026-07"
+        },
+        {
+          "fn": "billingPeriodKey",
+          "args": [
+            "b",
+            2026,
+            7
+          ],
+          "want": "b__2026-07"
+        }
+      ]
+    },
+    {
+      "name": "bangkokYearMonth > uses the Bangkok calendar, not UTC",
+      "line": 36,
+      "checks": [
+        {
+          "fn": "bangkokYearMonth",
+          "args": [
+            1785519000000
+          ],
+          "want": {
+            "year": 2026,
+            "month": 8
+          }
+        }
+      ]
+    },
+    {
+      "name": "bangkokYearMonth > keeps the last UTC-evening minutes of a month in the NEXT month",
+      "line": 43,
+      "checks": [
+        {
+          "fn": "bangkokYearMonth",
+          "args": [
+            1785517200000
+          ],
+          "want": {
+            "year": 2026,
+            "month": 8
+          }
+        },
+        {
+          "fn": "bangkokYearMonth",
+          "args": [
+            1785517140000
+          ],
+          "want": {
+            "year": 2026,
+            "month": 7
+          }
+        }
+      ]
+    },
+    {
+      "name": "bangkokYearMonth > rolls the year over at the December/January boundary",
+      "line": 50,
+      "checks": [
+        {
+          "fn": "bangkokYearMonth",
+          "args": [
+            1798736400000
+          ],
+          "want": {
+            "year": 2027,
+            "month": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "BillingPeriodLocks.lockFor > blocks a row whose customer and period match an issued invoice",
+      "line": 61,
+      "checks": [
+        {
+          "fn": "lockFor",
+          "args": [
+            [
+              {
+                "customerId": "cust_a",
+                "year": 2026,
+                "month": 7,
+                "invoiceNumber": "TTP-202607-001",
+                "status": "sent"
+              },
+              {
+                "customerId": "cust_b",
+                "year": 2026,
+                "month": 6,
+                "invoiceNumber": "CJ-202606-002",
+                "status": "paid"
+              }
+            ],
+            "cust_a",
+            1784084400000
+          ],
+          "want": {
+            "customerId": "cust_a",
+            "year": 2026,
+            "month": 7,
+            "invoiceNumber": "TTP-202607-001",
+            "status": "sent"
+          }
+        }
+      ]
+    },
+    {
+      "name": "BillingPeriodLocks.lockFor > does not block a different customer in the same month",
+      "line": 66,
+      "checks": [
+        {
+          "fn": "lockFor",
+          "args": [
+            [
+              {
+                "customerId": "cust_a",
+                "year": 2026,
+                "month": 7,
+                "invoiceNumber": "TTP-202607-001",
+                "status": "sent"
+              },
+              {
+                "customerId": "cust_b",
+                "year": 2026,
+                "month": 6,
+                "invoiceNumber": "CJ-202606-002",
+                "status": "paid"
+              }
+            ],
+            "cust_b",
+            1784084400000
+          ],
+          "want": null
+        }
+      ]
+    },
+    {
+      "name": "BillingPeriodLocks.lockFor > does not block the same customer in a different month",
+      "line": 70,
+      "checks": [
+        {
+          "fn": "lockFor",
+          "args": [
+            [
+              {
+                "customerId": "cust_a",
+                "year": 2026,
+                "month": 7,
+                "invoiceNumber": "TTP-202607-001",
+                "status": "sent"
+              },
+              {
+                "customerId": "cust_b",
+                "year": 2026,
+                "month": 6,
+                "invoiceNumber": "CJ-202606-002",
+                "status": "paid"
+              }
+            ],
+            "cust_a",
+            1786762800000
+          ],
+          "want": null
+        }
+      ]
+    },
+    {
+      "name": "BillingPeriodLocks.lockFor > treats paid the same as sent — both are documents the customer already has",
+      "line": 74,
+      "checks": [
+        {
+          "fn": "lockFor",
+          "args": [
+            [
+              {
+                "customerId": "cust_a",
+                "year": 2026,
+                "month": 7,
+                "invoiceNumber": "TTP-202607-001",
+                "status": "sent"
+              },
+              {
+                "customerId": "cust_b",
+                "year": 2026,
+                "month": 6,
+                "invoiceNumber": "CJ-202606-002",
+                "status": "paid"
+              }
+            ],
+            "cust_b",
+            1781492400000
+          ],
+          "want": {
+            "customerId": "cust_b",
+            "year": 2026,
+            "month": 6,
+            "invoiceNumber": "CJ-202606-002",
+            "status": "paid"
+          }
+        }
+      ]
+    },
+    {
+      "name": "BillingPeriodLocks.lockFor > never blocks when the customer or the date is unknown, so a fixable row stays fixable",
+      "line": 78,
+      "checks": [
+        {
+          "fn": "lockFor",
+          "args": [
+            [
+              {
+                "customerId": "cust_a",
+                "year": 2026,
+                "month": 7,
+                "invoiceNumber": "TTP-202607-001",
+                "status": "sent"
+              },
+              {
+                "customerId": "cust_b",
+                "year": 2026,
+                "month": 6,
+                "invoiceNumber": "CJ-202606-002",
+                "status": "paid"
+              }
+            ],
+            "",
+            1784084400000
+          ],
+          "want": null
+        },
+        {
+          "fn": "lockFor",
+          "args": [
+            [
+              {
+                "customerId": "cust_a",
+                "year": 2026,
+                "month": 7,
+                "invoiceNumber": "TTP-202607-001",
+                "status": "sent"
+              },
+              {
+                "customerId": "cust_b",
+                "year": 2026,
+                "month": 6,
+                "invoiceNumber": "CJ-202606-002",
+                "status": "paid"
+              }
+            ],
+            null,
+            1784084400000
+          ],
+          "want": null
+        },
+        {
+          "fn": "lockFor",
+          "args": [
+            [
+              {
+                "customerId": "cust_a",
+                "year": 2026,
+                "month": 7,
+                "invoiceNumber": "TTP-202607-001",
+                "status": "sent"
+              },
+              {
+                "customerId": "cust_b",
+                "year": 2026,
+                "month": 6,
+                "invoiceNumber": "CJ-202606-002",
+                "status": "paid"
+              }
+            ],
+            "cust_a",
+            0
+          ],
+          "want": null
+        }
+      ]
+    },
+    {
+      "name": "BillingPeriodLocks.lockFor > trims the customer id, since denormalized ids arrive with stray whitespace",
+      "line": 84,
+      "checks": [
+        {
+          "fn": "lockFor",
+          "args": [
+            [
+              {
+                "customerId": "cust_a",
+                "year": 2026,
+                "month": 7,
+                "invoiceNumber": "TTP-202607-001",
+                "status": "sent"
+              },
+              {
+                "customerId": "cust_b",
+                "year": 2026,
+                "month": 6,
+                "invoiceNumber": "CJ-202606-002",
+                "status": "paid"
+              }
+            ],
+            "  cust_a  ",
+            1784084400000
+          ],
+          "want": {
+            "customerId": "cust_a",
+            "year": 2026,
+            "month": 7,
+            "invoiceNumber": "TTP-202607-001",
+            "status": "sent"
+          }
+        }
+      ]
+    },
+    {
+      "name": "BillingPeriodLocks.lockFor > blocks a row that lands in July only after the Bangkok shift",
+      "line": 90,
+      "checks": [
+        {
+          "fn": "lockFor",
+          "args": [
+            [
+              {
+                "customerId": "cust_a",
+                "year": 2026,
+                "month": 7,
+                "invoiceNumber": "TTP-202607-001",
+                "status": "sent"
+              },
+              {
+                "customerId": "cust_b",
+                "year": 2026,
+                "month": 6,
+                "invoiceNumber": "CJ-202606-002",
+                "status": "paid"
+              }
+            ],
+            "cust_a",
+            1782842400000
+          ],
+          "want": {
+            "customerId": "cust_a",
+            "year": 2026,
+            "month": 7,
+            "invoiceNumber": "TTP-202607-001",
+            "status": "sent"
+          }
+        }
+      ]
+    }
+  ]
+}

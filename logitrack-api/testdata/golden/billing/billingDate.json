@@ -1,0 +1,263 @@
+{
+  "source": "logitrack-web/lib/billingDate.test.ts",
+  "sourceCommit": "4f552099",
+  "note": "8 Vitest cases ported to internal/platform/clock. A {\"$local\"} argument is a date picked in the host zone; Go replays it in several zones.",
+  "cases": [
+    {
+      "name": "bangkokMidnightFromDateStr > resolves a date to Bangkok midnight, i.e. 17:00Z the previous day",
+      "line": 10,
+      "checks": [
+        {
+          "fn": "bangkokMidnightFromDateStr",
+          "args": [
+            "2026-08-16"
+          ],
+          "want": {
+            "$date": "2026-08-15T17:00:00.000Z"
+          }
+        }
+      ]
+    },
+    {
+      "name": "bangkokMidnightFromDateStr > does not depend on the host timezone",
+      "line": 14,
+      "checks": [
+        {
+          "fn": "bangkokMidnightFromDateStr",
+          "args": [
+            "2026-01-01"
+          ],
+          "want": {
+            "$date": "2025-12-31T17:00:00.000Z"
+          }
+        }
+      ]
+    },
+    {
+      "name": "bangkokMidnightFromDateStr > is 7 hours earlier than the UTC-midnight form the old helper produced",
+      "line": 20,
+      "checks": [
+        {
+          "fn": "msBeforeUtcMidnight",
+          "args": [
+            "2026-08-16"
+          ],
+          "want": 25200000
+        }
+      ]
+    },
+    {
+      "name": "bangkokMidnightFromDateStr > rejects anything that is not a yyyy-MM-dd date",
+      "line": 26,
+      "checks": [
+        {
+          "fn": "bangkokMidnightFromDateStr",
+          "args": [
+            ""
+          ],
+          "want": null
+        },
+        {
+          "fn": "bangkokMidnightFromDateStr",
+          "args": [
+            "16/08/2026"
+          ],
+          "want": null
+        },
+        {
+          "fn": "bangkokMidnightFromDateStr",
+          "args": [
+            "2026-8-6"
+          ],
+          "want": null
+        }
+      ]
+    },
+    {
+      "name": "bangkokDateStr > reads an instant on the Bangkok calendar, not the UTC one",
+      "line": 34,
+      "checks": [
+        {
+          "fn": "bangkokDateStr",
+          "args": [
+            {
+              "$date": "2026-08-15T17:00:00.000Z"
+            }
+          ],
+          "want": "2026-08-16"
+        },
+        {
+          "fn": "bangkokDateStr",
+          "args": [
+            {
+              "$date": "2026-08-16T16:59:59.000Z"
+            }
+          ],
+          "want": "2026-08-16"
+        },
+        {
+          "fn": "bangkokDateStr",
+          "args": [
+            {
+              "$date": "2026-08-16T17:00:00.000Z"
+            }
+          ],
+          "want": "2026-08-17"
+        }
+      ]
+    },
+    {
+      "name": "bangkokDateStr > round-trips with bangkokMidnightFromDateStr",
+      "line": 40,
+      "checks": [
+        {
+          "fn": "bangkokDateStr(bangkokMidnightFromDateStr)",
+          "args": [
+            "2026-01-01"
+          ],
+          "want": "2026-01-01"
+        },
+        {
+          "fn": "bangkokDateStr(bangkokMidnightFromDateStr)",
+          "args": [
+            "2026-08-16"
+          ],
+          "want": "2026-08-16"
+        },
+        {
+          "fn": "bangkokDateStr(bangkokMidnightFromDateStr)",
+          "args": [
+            "2026-12-31"
+          ],
+          "want": "2026-12-31"
+        }
+      ]
+    },
+    {
+      "name": "bangkokMidnightFromPickedDate > keeps the calendar day the picker showed the admin",
+      "line": 48,
+      "checks": [
+        {
+          "fn": "pickedDateToDateStr",
+          "args": [
+            {
+              "$local": "2026-08-16T00:00:00"
+            }
+          ],
+          "want": "2026-08-16"
+        },
+        {
+          "fn": "bangkokDateStr(bangkokMidnightFromPickedDate)",
+          "args": [
+            {
+              "$local": "2026-08-16T00:00:00"
+            }
+          ],
+          "want": "2026-08-16"
+        }
+      ]
+    },
+    {
+      "name": "bangkokMidnightFromPickedDate > normalizes a picked date that carries a time component",
+      "line": 55,
+      "checks": [
+        {
+          "fn": "bangkokMidnightFromPickedDate",
+          "args": [
+            {
+              "$local": "2026-08-16T13:45:00"
+            }
+          ],
+          "want": {
+            "$date": "2026-08-15T17:00:00.000Z"
+          }
+        }
+      ]
+    },
+    {
+      "name": "bangkokMidnightFromDateStr > accepts what V8 accepts: a day past the month end rolls over, month 00/13 and day 00/32 do not parse",
+      "line": 0,
+      "added": "V8 parity",
+      "checks": [
+        {
+          "fn": "bangkokMidnightFromDateStr",
+          "args": [
+            "2026-02-30"
+          ],
+          "want": {
+            "$date": "2026-03-01T17:00:00.000Z"
+          }
+        },
+        {
+          "fn": "bangkokMidnightFromDateStr",
+          "args": [
+            "2026-04-31"
+          ],
+          "want": {
+            "$date": "2026-04-30T17:00:00.000Z"
+          }
+        },
+        {
+          "fn": "bangkokMidnightFromDateStr",
+          "args": [
+            "2024-02-29"
+          ],
+          "want": {
+            "$date": "2024-02-28T17:00:00.000Z"
+          }
+        },
+        {
+          "fn": "bangkokMidnightFromDateStr",
+          "args": [
+            "2026-02-00"
+          ],
+          "want": null
+        },
+        {
+          "fn": "bangkokMidnightFromDateStr",
+          "args": [
+            "2026-13-01"
+          ],
+          "want": null
+        },
+        {
+          "fn": "bangkokMidnightFromDateStr",
+          "args": [
+            "2026-00-10"
+          ],
+          "want": null
+        },
+        {
+          "fn": "bangkokMidnightFromDateStr",
+          "args": [
+            "2026-12-32"
+          ],
+          "want": null
+        },
+        {
+          "fn": "bangkokMidnightFromDateStr",
+          "args": [
+            " 2026-01-01"
+          ],
+          "want": null
+        },
+        {
+          "fn": "bangkokMidnightFromDateStr",
+          "args": [
+            "2026-01-01\n"
+          ],
+          "want": null
+        },
+        {
+          "fn": "bangkokMidnightFromDateStr",
+          "args": [
+            "0000-01-01"
+          ],
+          "want": {
+            "$date": "-000001-12-31T17:00:00.000Z"
+          }
+        }
+      ]
+    }
+  ]
+}
