@@ -6,6 +6,7 @@ import React from "react";
 import { renderHook, waitFor } from "@testing-library/react";
 import { focusManager, QueryClient, QueryClientProvider, QueryObserver } from "@tanstack/react-query";
 import { goQueryFn } from "@/lib/goQuery";
+import { createQueryClient } from "@/lib/queryClient";
 import {
     domainQueryFn,
     parseWebFlags,
@@ -69,6 +70,8 @@ describe("parseWebFlags", () => {
         expect(webFlagsQueryOptions.staleTime).toBe(60_000);
         expect(webFlagsQueryOptions.refetchInterval).toBe(60_000);
         expect(WEB_FLAGS_REFRESH_MS).toBe(60_000);
+        // The poll and the focus refetch are its retry; a domain fetch waits for one request at most.
+        expect(webFlagsQueryOptions.retry).toBe(false);
     });
 });
 
@@ -99,8 +102,10 @@ describe("domainQueryFn", () => {
 
     it("falls back to Firestore only when no flags were ever loaded, else keeps the last ones", async () => {
         flagsDown = true;
-        const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        // The web's client (its retry policy included): the flags are read once, not retried.
+        const client = createQueryClient();
         await expect(resolveDomainSource(client, "masterdata")).resolves.toBe("firebase");
+        expect(urls.filter((u) => u.endsWith("/web-flags"))).toHaveLength(1);
 
         flagsDown = false;
         apiFlags = { masterdata: "go" };
@@ -144,7 +149,7 @@ describe("changing WEB_FLAG_OVERRIDES on the api flips a domain within 60 s, wit
 
     it("refetches a query that fell back to Firestore once the flags load", async () => {
         flagsDown = true;
-        const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        const client = createQueryClient();
         const stopWatch = watchWebFlagFlips(client);
         const { options } = hubsQuery();
         const hubs = new QueryObserver(client, options);

@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 import { collection, GeoPoint, limit, onSnapshot, orderBy, query } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "@/firebase/client";
@@ -136,6 +136,9 @@ export function SessionManagementActiveUsers() {
     const [isSyncing, setIsSyncing] = useState(false);
     const [mapUser, setMapUser] = useState<RowUser | null>(null);
 
+    // Reads the active language when it runs, so a toggle does not resubscribe (TW4).
+    const onLoadError = useEffectEvent(() => toast.error(t("users.toast.loadFailed")));
+
     useEffect(() => {
         if (!currentUser || !isAdmin) {
             setRows([]);
@@ -167,11 +170,11 @@ export function SessionManagementActiveUsers() {
             (err) => {
                 console.error("[SessionManagementActiveUsers]", err);
                 setLoading(false);
-                toast.error(t("users.toast.loadFailed"));
+                onLoadError();
             },
         );
         return () => unsub();
-    }, [currentUser, isAdmin, t]);
+    }, [currentUser, isAdmin]);
 
     const confirmRevoke = async () => {
         if (!revokeTarget) return;

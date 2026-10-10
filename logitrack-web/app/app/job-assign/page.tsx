@@ -9,6 +9,8 @@ import { FirstMileTaskDialog } from "@/app/app/first-mile/task-dialog";
 import { LineHaulTaskDialog } from "@/app/app/line-haul/task-dialog";
 import { useLanguage } from "@/context/language";
 import { useCustomerScope } from "@/hooks/useCustomerScope";
+import { useHubs } from "@/features/hubs/api/useHubs";
+import { selectHubRows, type HubRow } from "@/features/hubs/api/selectors";
 import { PagePermissionGuard } from "@/components/page-permission-guard";
 import { CAPABILITIES } from "@/lib/capabilities";
 import { Button } from "@/components/ui/button";
@@ -79,13 +81,18 @@ function toDate(val: unknown): Date | null {
     return null;
 }
 
+const NO_HUB_ROWS: HubRow[] = [];
+
 export default function JobAssignPage() {
     const { t } = useLanguage();
     const { customerScopeId, isCustomer } = useCustomerScope();
     const [date, setDate] = useState<Date | undefined>(new Date());
     const [taskTypeFilter, setTaskTypeFilter] = useState<TaskTypeFilter>("all");
     const [tasks, setTasks] = useState<JobTask[]>([]);
-    const [hubs, setHubs] = useState<Record<string, any>[]>([]);
+    // `['hubs']` from the tab's cache (TW4): read once per stale time across the boards, the monitor
+    // and billing; the refresh button refetches it.
+    const { data: hubRows, refetch: refetchHubs } = useHubs(selectHubRows);
+    const hubs: Record<string, any>[] = hubRows ?? NO_HUB_ROWS;
     const [selectedHub, setSelectedHub] = useState<string>("all");
     const [selectedSOC, setSelectedSOC] = useState<string>("all");
 
@@ -121,31 +128,6 @@ export default function JobAssignPage() {
         });
     const orderedVisibleCols = JOB_COLUMNS.filter((c) => showCol(c.key));
 
-    const fetchHubs = async () => {
-        try {
-            const snap = await getDocs(collection(db, "hubs"));
-            const hubList = snap.docs.map((d) => {
-                const data = d.data();
-                return {
-                    "Hub Code": data.source_id ?? data.hubId ?? data.hubCode,
-                    "Hub Name": data.source_name_en ?? data.hubName,
-                    "Hub Name Th":
-                        (data.source_name_th ?? data.hubTHName ?? data.hub_th_name ?? data.station_name_th ?? "") || undefined,
-                    linkedCustomerName: data.linkedCustomerName,
-                    station_type: data.station_type,
-                    source: "custom",
-                    id: d.id,
-                };
-            });
-            setHubs(hubList);
-        } catch (err) {
-            console.error("Failed to fetch hubs", err);
-        }
-    };
-
-    useEffect(() => {
-        fetchHubs();
-    }, []);
 
     // Fetch the linked trip_record when a task detail opens.
     useEffect(() => {
@@ -344,7 +326,7 @@ export default function JobAssignPage() {
                         <p className="text-muted-foreground">{t("jobAssign.subtitle", "สร้างและมอบหมายงาน First Mile / Line Haul ให้คนขับ")}</p>
                     </div>
                     <div className="flex gap-3">
-                        <Button variant="outline" size="icon" onClick={() => fetchHubs()} aria-label={t("firstMile.sources.refresh", "Refresh")}>
+                        <Button variant="outline" size="icon" onClick={() => void refetchHubs()} aria-label={t("firstMile.sources.refresh", "Refresh")}>
                             <RefreshCw className="h-4 w-4" />
                         </Button>
                         {/* Column chooser (Combolist) — pick which columns the table shows. */}

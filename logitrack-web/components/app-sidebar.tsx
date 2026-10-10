@@ -1,9 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { collection, onSnapshot } from "firebase/firestore"
-import { db } from "@/firebase/client"
-import { COLLECTIONS } from "@/lib/collections"
+import { useMemo } from "react"
 import {
     LayoutDashboard,
     Truck,
@@ -46,114 +43,112 @@ import { useLanguage } from "@/context/language"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useAuth } from "@/context/auth"
-import { can, getRole } from "@/lib/permissions"
-import { CAPABILITIES } from "@/lib/capabilities"
+import { getRole } from "@/lib/permissions"
+import { routeAllowed } from "@/lib/routeCapabilities"
+import type { MeDTO } from "@/features/auth/api/me"
+import { useMe } from "@/features/auth/api/useMe"
+import type { BadgesDTO } from "@/features/dashboard/api/badges"
+import { useBadges } from "@/features/dashboard/api/useBadges"
 import { WEB_APP_VERSION } from "@/lib/app-version"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 
+const NO_CAPABILITIES: readonly string[] = []
+const selectCapabilities = (me: MeDTO | null) => me?.capabilities ?? NO_CAPABILITIES
+const selectWaitlistCount = (badges: BadgesDTO) => badges.waitlist ?? 0
+
+/**
+ * The main sidebar. Its entries are the routes the `proxy.ts` gate would let this principal open:
+ * the same table (lib/routeCapabilities.ts) over the same capabilities (`['me']`, TW4), so a link is
+ * never shown for a page that would answer `/app/unauthorized`. The waitlist count is `['badges']`
+ * (polled, one count query in P0), not a listener on the whole collection.
+ */
 export function AppSidebar() {
     const { t } = useLanguage()
     const pathname = usePathname()
     const auth = useAuth()
     const logout = auth?.logout
     const claims = auth?.customClaims ?? null
-    const [waitlistCount, setWaitlistCount] = useState(0)
+    const { data: capabilities = NO_CAPABILITIES } = useMe(selectCapabilities)
+    const held = useMemo(() => new Set(capabilities), [capabilities])
+    const canOpen = (url: string) => routeAllowed(held, url)
+    const { data: waitlistCount = 0 } = useBadges(selectWaitlistCount)
 
-    useEffect(() => {
-        if (!can(claims, CAPABILITIES.waitlist_view)) return
-        const unsub = onSnapshot(collection(db, COLLECTIONS.WAITLIST), (snap) => {
-            setWaitlistCount(snap.size)
-        }, (err: any) => {
-            // Silently handle permission-denied (claims may not be ready yet)
-            if (err?.code !== "permission-denied" && err?.code !== "PERMISSION_DENIED") {
-                console.error("[Sidebar] waitlist listener error:", err)
-            }
-        })
-        return () => unsub()
-    }, [claims])
-
-    // Menu items structure based on "LogiTrack Pro" design (with capability for filtering)
+    // Menu items structure based on "LogiTrack Pro" design; filtered by URL with the gate's table
     const allItems = [
         {
             title: t("nav.dashboard"),
             url: "/app/dashboard",
             icon: LayoutDashboard,
-            capability: null as any, // Dashboard is open to all authenticated users
         },
         {
             title: t("nav.fleets"),
             icon: Truck,
             items: [
-                { title: t("nav.truckManagement"), url: "/app/trucks", capability: CAPABILITIES.fleet_view_trucks },
-                { title: t("nav.truckAssignment"), url: "/app/truck-assignment", capability: CAPABILITIES.fleet_view_assignments },
-                { title: t("nav.truckRenewals"), url: "/app/renewals", capability: CAPABILITIES.fleet_view_renewals },
-                { title: t("nav.maintenanceCosts"), url: "/app/maintenance", capability: CAPABILITIES.fleet_manage_maintenance },
+                { title: t("nav.truckManagement"), url: "/app/trucks" },
+                { title: t("nav.truckAssignment"), url: "/app/truck-assignment" },
+                { title: t("nav.truckRenewals"), url: "/app/renewals" },
+                { title: t("nav.maintenanceCosts"), url: "/app/maintenance" },
             ],
         },
         {
             title: t("nav.customers"),
             url: "/app/customers",
             icon: Building2,
-            capability: CAPABILITIES.fleet_manage_customers,
         },
         {
             title: t("nav.manageSubcontractors"),
             url: "/app/subcontractors",
             icon: Briefcase,
-            capability: CAPABILITIES.fleet_manage_subcontractors,
         },
         {
             title: t("nav.driverManagement"),
             url: "/app/drivers",
             icon: User,
-            capability: CAPABILITIES.drivers_view,
         },
         {
             title: t("nav.chat") || "Chat",
             url: "/app/chat",
             icon: MessageCircle,
-            capability: CAPABILITIES.chat_view,
         },
         {
             title: t("nav.waitlist"),
             url: "/app/waitlist",
             icon: Mail,
-            capability: CAPABILITIES.waitlist_view,
         },
         {
             title: t("nav.accounting"),
             icon: Calculator,
             items: [
-                { title: t("nav.fuel"), url: "/app/accounting/fuel", capability: CAPABILITIES.accounting_view_fuel },
-                { title: t("nav.fuelPriceHistory"), url: "/app/accounting/fuel-price-history", capability: CAPABILITIES.accounting_view_fuel },
-                { title: t("nav.other"), url: "/app/accounting/other", capability: CAPABILITIES.accounting_view_other },
-                { title: t("nav.auditExpense"), url: "/app/accounting/audit", capability: CAPABILITIES.accounting_audit_expense },
-                { title: t("nav.rateCard"), url: "/app/accounting/rate-card", capability: CAPABILITIES.accounting_view_rate_card },
-                { title: t("nav.income"), url: "/app/accounting/income", capability: CAPABILITIES.accounting_view_income },
-                { title: t("nav.billingDocument"), url: "/app/accounting/billing-document", capability: CAPABILITIES.accounting_billing_document },
-                { title: t("nav.billingResult"), url: "/app/accounting/billing-result", capability: CAPABILITIES.accounting_billing_result },
-                { title: t("nav.shopeeExpressReport"), url: "/app/accounting/shopee-express-report", capability: CAPABILITIES.accounting_shopee_report },
+                { title: t("nav.fuel"), url: "/app/accounting/fuel" },
+                { title: t("nav.fuelPriceHistory"), url: "/app/accounting/fuel-price-history" },
+                { title: t("nav.other"), url: "/app/accounting/other" },
+                { title: t("nav.auditExpense"), url: "/app/accounting/audit" },
+                { title: t("nav.rateCard"), url: "/app/accounting/rate-card" },
+                { title: t("nav.income"), url: "/app/accounting/income" },
+                { title: t("nav.billingDocument"), url: "/app/accounting/billing-document" },
+                { title: t("nav.billingResult"), url: "/app/accounting/billing-result" },
+                { title: t("nav.shopeeExpressReport"), url: "/app/accounting/shopee-express-report" },
             ],
         },
         {
             title: t("nav.operations"),
             icon: MapPin,
             items: [
-                { title: t("nav.jobAssign", "มอบหมายงาน"), url: "/app/job-assign", capability: CAPABILITIES.operations_view_first_mile },
-                { title: t("nav.sourceManagement"), url: "/app/sources", capability: CAPABILITIES.operations_manage_sources },
-                { title: t("nav.driverMonitor"), url: "/app/driver-monitor", capability: CAPABILITIES.operations_view_driver_monitor },
-                { title: t("nav.incidentReports"), url: "/app/incident-reports", capability: CAPABILITIES.operations_view_incidents },
-                { title: t("nav.standbyRecords"), url: "/app/standby-records", capability: CAPABILITIES.operations_view_driver_monitor },
+                { title: t("nav.jobAssign", "มอบหมายงาน"), url: "/app/job-assign" },
+                { title: t("nav.sourceManagement"), url: "/app/sources" },
+                { title: t("nav.driverMonitor"), url: "/app/driver-monitor" },
+                { title: t("nav.incidentReports"), url: "/app/incident-reports" },
+                { title: t("nav.standbyRecords"), url: "/app/standby-records" },
             ],
         },
         {
             title: t("nav.hr"),
             icon: Users,
             items: [
-                { title: t("nav.payroll"), url: "/app/payroll", capability: CAPABILITIES.hr_view_payroll },
-                { title: t("nav.leaveRequests"), url: "/app/leave-requests", capability: CAPABILITIES.hr_view_leave },
-                { title: t("nav.holidays"), url: "/app/holidays", capability: CAPABILITIES.hr_manage_holidays },
+                { title: t("nav.payroll"), url: "/app/payroll" },
+                { title: t("nav.leaveRequests"), url: "/app/leave-requests" },
+                { title: t("nav.holidays"), url: "/app/holidays" },
             ],
         },
     ]
@@ -161,16 +156,19 @@ export function AppSidebar() {
     const items = allItems
         .map((item) => {
             if (item.items) {
-                const filteredSub = item.items.filter((sub) => can(claims, sub.capability))
+                const filteredSub = item.items.filter((sub) => canOpen(sub.url))
                 if (filteredSub.length === 0) return null
                 return { ...item, items: filteredSub }
             }
-            // Items with no capability requirement (e.g. Dashboard) are always visible
-            return !item.capability || can(claims, item.capability) ? item : null
+            // `/app/dashboard` maps to no capability: every signed-in principal may open it.
+            return item.url && canOpen(item.url) ? item : null
         })
         .filter(Boolean) as typeof allItems
 
-    const showSecurityCenter = can(claims, CAPABILITIES.security_view_overview)
+    const showSecurityCenter = canOpen("/app/security-center")
+    const showUtilities = canOpen("/app/utilities/backfill")
+    const showCompanies = canOpen("/app/companies")
+    const showCompanyProfile = canOpen("/app/settings/company-profile")
 
     const { setOpen } = useSidebar()
 
@@ -245,11 +243,12 @@ export function AppSidebar() {
                     </SidebarGroupContent>
                 </SidebarGroup>
 
-                {showSecurityCenter && (
+                {(showSecurityCenter || showUtilities || showCompanies || showCompanyProfile) && (
                     <SidebarGroup className="mt-auto">
                         <SidebarGroupLabel>{t("nav.system")}</SidebarGroupLabel>
                         <SidebarGroupContent>
                             <SidebarMenu>
+                                {showSecurityCenter && (
                                 <SidebarMenuItem>
                                     <SidebarMenuButton asChild tooltip={t("nav.securityCenter")} isActive={pathname?.startsWith("/app/security-center")}>
                                         <Link href="/app/security-center" prefetch={false}>
@@ -258,6 +257,8 @@ export function AppSidebar() {
                                         </Link>
                                     </SidebarMenuButton>
                                 </SidebarMenuItem>
+                                )}
+                                {showUtilities && (
                                 <SidebarMenuItem>
                                     <SidebarMenuButton asChild tooltip="Utilities" isActive={pathname?.startsWith("/app/utilities")}>
                                         <Link href="/app/utilities/backfill" prefetch={false}>
@@ -266,7 +267,8 @@ export function AppSidebar() {
                                         </Link>
                                     </SidebarMenuButton>
                                 </SidebarMenuItem>
-                                {can(claims, CAPABILITIES.company_view) && (
+                                )}
+                                {showCompanies && (
                                     <SidebarMenuItem>
                                         <SidebarMenuButton asChild tooltip={t("nav.companies")} isActive={pathname?.startsWith("/app/companies")}>
                                             <Link href="/app/companies" prefetch={false}>
@@ -276,7 +278,7 @@ export function AppSidebar() {
                                         </SidebarMenuButton>
                                     </SidebarMenuItem>
                                 )}
-                                {can(claims, CAPABILITIES.company_manage) && (
+                                {showCompanyProfile && (
                                     <SidebarMenuItem>
                                         <SidebarMenuButton asChild tooltip={t("nav.companyProfile")} isActive={pathname?.startsWith("/app/settings/company-profile")}>
                                             <Link href="/app/settings/company-profile" prefetch={false}>

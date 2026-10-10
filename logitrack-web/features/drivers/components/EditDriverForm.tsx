@@ -6,7 +6,7 @@ import { createInvalidHandler } from "@/lib/formInvalidHandler";
 import { driverSchema, Driver } from "@/validate/driverSchema";
 import { getDriverByIdClient, updateDriver } from "@/features/drivers/api/drivers";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useEffectEvent } from "react";
 import { Button } from "@/components/ui/button";
 import {
     Form,
@@ -95,10 +95,14 @@ export default function EditDriverForm() {
     });
 
     // Fetch driver data
+    // The active language when the effect's code runs: `t` is not a dependency, so a language
+    // toggle no longer refetches (TW4, developer-spec.md §10.6).
+    const translateNow = useEffectEvent((key: string) => t(key));
+
     useEffect(() => {
         const fetchDriver = async () => {
             if (!driverId) {
-                toast.error(t("drivers.toast.noId"));
+                toast.error(translateNow("drivers.toast.noId"));
                 router.push('/app/drivers');
                 return;
             }
@@ -133,18 +137,18 @@ export default function EditDriverForm() {
                     if (driver.idCardImage) setExistingIdCardImage(driver.idCardImage);
                     if (driver.truckLicenseImage) setExistingTruckLicenseImage(driver.truckLicenseImage);
                 } else {
-                    toast.error(t("drivers.toast.notFound"));
+                    toast.error(translateNow("drivers.toast.notFound"));
                     router.push('/app/drivers');
                 }
             } catch (error) {
                 console.error(error);
-                toast.error(t("drivers.toast.loadError"));
+                toast.error(translateNow("drivers.toast.loadError"));
             } finally {
                 setIsLoading(false);
             }
         };
         fetchDriver();
-    }, [driverId, router, form, t]);
+    }, [driverId, router, form]);
 
     useEffect(() => {
         const fetchSubcontractors = async () => {

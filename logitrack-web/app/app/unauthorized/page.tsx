@@ -5,7 +5,9 @@ import { ShieldX, ArrowLeft, Home, Lock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useLanguage } from "@/context/language"
 import { useAuth } from "@/context/auth"
-import { getDefaultRouteForRole, getRole } from "@/lib/permissions"
+import { getRole } from "@/lib/permissions"
+import { homeRouteOf } from "@/features/auth/api/homeRoute"
+import { DASHBOARD_PATH } from "@/lib/routeCapabilities"
 import { Suspense } from "react"
 
 function UnauthorizedContent() {
@@ -16,7 +18,8 @@ function UnauthorizedContent() {
 
     const attemptedPath = searchParams.get("from") ?? ""
     const role = getRole(authContext?.customClaims ?? null)
-    const homeRoute = getDefaultRouteForRole(authContext?.customClaims ?? null)
+    // The same home as the proxy.ts gate (R89), over `['me']`.
+    const homeRoute = authContext?.me ? homeRouteOf(authContext.me) : DASHBOARD_PATH
 
     return (
         <div className="flex min-h-[70vh] flex-col items-center justify-center gap-8 px-4 text-center">

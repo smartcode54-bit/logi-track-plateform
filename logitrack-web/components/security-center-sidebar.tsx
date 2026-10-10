@@ -30,27 +30,36 @@ import { useLanguage } from "@/context/language"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useAuth } from "@/context/auth"
-import { can } from "@/lib/permissions"
-import { CAPABILITIES } from "@/lib/capabilities"
+import { useMemo } from "react"
+import { routeAllowed } from "@/lib/routeCapabilities"
+import type { MeDTO } from "@/features/auth/api/me"
+import { useMe } from "@/features/auth/api/useMe"
 
 const securityItems = [
-    { titleKey: "securityCenter.overviewSoon", url: "/app/security-center", icon: LayoutDashboard, capability: CAPABILITIES.security_view_overview },
-    { titleKey: "securityCenter.userManagement", url: "/app/security-center/users", icon: Users, capability: CAPABILITIES.security_manage_users },
-    { titleKey: "securityCenter.rolePermissionMatrix", url: "/app/security-center/roles", icon: Layers, capability: CAPABILITIES.security_manage_roles },
-    { titleKey: "securityCenter.securityAudit", url: "/app/security-center/audit", icon: Shield, capability: CAPABILITIES.security_view_audit },
-    { titleKey: "securityCenter.apiKeys", url: "/app/security-center/api-keys", icon: Key, capability: CAPABILITIES.security_manage_api_keys },
-    { titleKey: "securityCenter.systemStatus", url: "/app/security-center/status", icon: Server, capability: CAPABILITIES.security_view_status },
-    { titleKey: "securityCenter.mobileClients", url: "/app/security-center/mobile-clients", icon: Smartphone, capability: CAPABILITIES.security_view_mobile_clients },
-    { titleKey: "securityCenter.mobileRelease", url: "/app/security-center/mobile-release", icon: Rocket, capability: CAPABILITIES.security_manage_mobile_release },
+    { titleKey: "securityCenter.overviewSoon", url: "/app/security-center", icon: LayoutDashboard },
+    { titleKey: "securityCenter.userManagement", url: "/app/security-center/users", icon: Users },
+    { titleKey: "securityCenter.rolePermissionMatrix", url: "/app/security-center/roles", icon: Layers },
+    { titleKey: "securityCenter.securityAudit", url: "/app/security-center/audit", icon: Shield },
+    { titleKey: "securityCenter.apiKeys", url: "/app/security-center/api-keys", icon: Key },
+    { titleKey: "securityCenter.systemStatus", url: "/app/security-center/status", icon: Server },
+    { titleKey: "securityCenter.mobileClients", url: "/app/security-center/mobile-clients", icon: Smartphone },
+    { titleKey: "securityCenter.mobileRelease", url: "/app/security-center/mobile-release", icon: Rocket },
 ]
+
+const NO_CAPABILITIES: readonly string[] = []
+const selectCapabilities = (me: MeDTO | null) => me?.capabilities ?? NO_CAPABILITIES
 
 export function SecurityCenterSidebar() {
     const { t } = useLanguage()
     const pathname = usePathname()
     const auth = useAuth()
     const logout = auth?.logout
-    const claims = auth?.customClaims ?? null
-    const filteredItems = securityItems.filter((item) => can(claims, item.capability))
+    // The pages the proxy.ts gate lets this principal open (lib/routeCapabilities.ts over `['me']`, TW4).
+    const { data: capabilities = NO_CAPABILITIES } = useMe(selectCapabilities)
+    const filteredItems = useMemo(() => {
+        const held = new Set(capabilities)
+        return securityItems.filter((item) => routeAllowed(held, item.url))
+    }, [capabilities])
 
     return (
         <Sidebar

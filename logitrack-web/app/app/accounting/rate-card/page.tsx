@@ -75,10 +75,10 @@ import {
     type StandbyRateEntryRow,
 } from "../actions.client";
 import type { RateCardCustomerOption } from "@/features/accounting/components/RateCardImportDialog";
-import { db, functions } from "@/firebase/client";
+import { functions } from "@/firebase/client";
 import { httpsCallable } from "firebase/functions";
-import { collection, getDocs } from "firebase/firestore";
-import { COLLECTIONS } from "@/lib/collections";
+import { fetchHubsCached } from "@/features/hubs/api/hubs";
+import { selectHubOptions } from "@/features/hubs/api/selectors";
 import {
     latestFleetDieselFromMonthlySnapshots,
     pickFleetBangchakDieselReference,
@@ -402,7 +402,8 @@ export default function AccountingRateCardPage() {
                 getCustomerRateEntries(),
                 getCustomerFuelRateAdjustments(),
                 getFuelMonthlySnapshots(36),
-                getDocs(collection(db, COLLECTIONS.HUBS)),
+                // `['hubs']` from the tab's cache (TW4), as the rate-card picker shape.
+                fetchHubsCached().then(selectHubOptions),
                 getCustomerServiceFees(),
                 getStandbyRateEntries(),
             ]);
@@ -417,14 +418,7 @@ export default function AccountingRateCardPage() {
             setFuelMonthlySnapshots(snapshotRows);
             setServiceFees(serviceFeeRows);
             setStandbyRates(standbyRateRows);
-            setHubs(
-                hubRows.docs.map((d) => {
-                    const data = d.data();
-                    const id = String(data.hubId ?? data.source_id ?? "").trim().toUpperCase();
-                    const name = String(data.source_name_en ?? data.source_name_th ?? data.hubName ?? "").trim();
-                    return { id, name: name || undefined };
-                }).filter((x) => x.id)
-            );
+            setHubs(hubRows);
         } finally {
             setLoading(false);
         }

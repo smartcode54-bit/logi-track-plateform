@@ -14,18 +14,21 @@ import {
   limit,
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { queryOptions } from "@tanstack/react-query";
 import { db, storage } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
+import { getQueryClient } from "@/lib/queryClient";
+import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
 import { stripUndefined } from "@/lib/firestoreWrite";
 import type { Company, CompanyFormValues } from "@/validate/companySchema";
 
 export type CompanyWithId = Company & { id: string };
 
 /**
- * Fetch the OWNER company (the logistics operator's own company profile).
- * Returns null if no owner company document exists yet.
+ * Read the OWNER company (the logistics operator's own company profile) from Firestore: the P0 source
+ * of `['companies',{owner:true}]`. Null if no owner company document exists yet.
  */
-export async function getOwnerCompany(): Promise<CompanyWithId | null> {
+export async function fetchOwnerCompanyFromFirestore(): Promise<CompanyWithId | null> {
   const q = query(
     collection(db, COLLECTIONS.COMPANIES),
     where("companyType", "==", "owner"),
@@ -35,6 +38,32 @@ export async function getOwnerCompany(): Promise<CompanyWithId | null> {
   if (snap.empty) return null;
   const d = snap.docs[0];
   return { id: d.id, ...(d.data() as Company) };
+}
+
+/**
+ * `['companies',{owner:true}]` (developer-spec.md §10.7, Appendix E §E.4 row "owner company"): the
+ * invoice header shared by Billing Document, the Shopee report and the company profile page, 10 min
+ * stale. Go source `GET /v1/companies/owner` in P1.
+ */
+export const ownerCompanyQueryOptions = queryOptions({
+  queryKey: queryKeys.companies.owner(),
+  queryFn: fetchOwnerCompanyFromFirestore,
+  ...QUERY_POLICY.masterData,
+  refetchOnWindowFocus: true,
+});
+
+/**
+ * The owner company from the tab's cache (one read per stale time for the three pages). An edit form
+ * passes `{ fresh: true }` so it never starts from a copy older than the stored profile; that read
+ * also refreshes the cache for the other pages.
+ */
+export function getOwnerCompany(options: { fresh?: boolean } = {}): Promise<CompanyWithId | null> {
+  return getQueryClient().fetchQuery(options.fresh ? { ...ownerCompanyQueryOptions, staleTime: 0 } : ownerCompanyQueryOptions);
+}
+
+/** After a company write: the owner company and any company list refetch. */
+export function invalidateCompanies(): Promise<void> {
+  return getQueryClient().invalidateQueries({ queryKey: queryKeys.companies.all() });
 }
 
 /**
@@ -71,6 +100,7 @@ export async function createCompany(
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+  await invalidateCompanies();
   return docRef.id;
 }
 
@@ -85,6 +115,7 @@ export async function updateCompany(
     ...stripUndefined(data as Record<string, unknown>),
     updatedAt: serverTimestamp(),
   });
+  await invalidateCompanies();
 }
 
 /**

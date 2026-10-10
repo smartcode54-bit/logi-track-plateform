@@ -27,6 +27,8 @@ import { normalizeDestinationCode, normalizeVehicleClass } from "@/lib/billingCo
 import { bangkokMidnightFromPickedDate, pickedDateToDateStr } from "@/lib/billingDate";
 import { driverDisplayName } from "@/lib/driverName";
 import { billingHubLabelFromFirestoreData } from "@/lib/hubDisplay";
+import { fetchHubsCached } from "@/features/hubs/api/hubs";
+import { hubRecord } from "@/features/hubs/api/selectors";
 import { SOC_DESTINATIONS, normalizeSocIdToKey } from "@/validate/taskSchema";
 import { billingAxisDate, type BillingTripRow } from "@/lib/billingDocumentModel";
 
@@ -744,17 +746,17 @@ export async function fetchBillingTripRows(
     // ── Hub display-name / code maps (rebuilt per call — same shape as billing-document page) ──
     const hubNameMap = new Map<string, string>();
     const hubCodeMap = new Map<string, string>();
-    const hubsSnap = await getDocs(collection(db, COLLECTIONS.HUBS));
-    hubsSnap.forEach((d) => {
-        const data = d.data();
+    // `['hubs']` from the tab's cache (TW4): no second read when the page or the monitor loaded it.
+    for (const hub of await fetchHubsCached()) {
+        const data = hubRecord(hub);
         const label = billingHubLabelFromFirestoreData(data);
         const sourceId = String(data.source_id ?? data.hubId ?? data.hubCode ?? "").trim();
         if (data.source_id) hubNameMap.set(String(data.source_id).trim().toUpperCase(), label);
         if (data.hubId) hubNameMap.set(String(data.hubId).trim().toUpperCase(), label);
         if (data.hubCode) hubNameMap.set(String(data.hubCode).trim().toUpperCase(), label);
         for (const extra of extraDestinationLookupKeys(sourceId)) hubNameMap.set(extra, label);
-        hubNameMap.set(d.id, label);
-        hubNameMap.set(d.id.toUpperCase(), label);
+        hubNameMap.set(hub.id, label);
+        hubNameMap.set(hub.id.toUpperCase(), label);
 
         if (sourceId) {
             const codeKey = sourceId.toUpperCase();
@@ -764,9 +766,9 @@ export async function fetchBillingTripRows(
                 const name = typeof nameField === "string" ? nameField.trim() : "";
                 if (name) hubCodeMap.set(name.toUpperCase(), sourceId);
             }
-            hubCodeMap.set(d.id.toUpperCase(), sourceId);
+            hubCodeMap.set(hub.id.toUpperCase(), sourceId);
         }
-    });
+    }
 
     const resolveDisplayName = (code: string | undefined): string => {
         if (!code) return "-";
@@ -1178,18 +1180,18 @@ async function buildHubDisplayResolver(): Promise<{
     resolveDisplayName: (code: string | undefined) => string;
 }> {
     const hubNameMap = new Map<string, string>();
-    const hubsSnap = await getDocs(collection(db, COLLECTIONS.HUBS));
-    hubsSnap.forEach((d) => {
-        const data = d.data();
+    // `['hubs']` from the tab's cache (TW4).
+    for (const hub of await fetchHubsCached()) {
+        const data = hubRecord(hub);
         const label = billingHubLabelFromFirestoreData(data);
         const sourceId = String(data.source_id ?? data.hubId ?? data.hubCode ?? "").trim();
         if (data.source_id) hubNameMap.set(String(data.source_id).trim().toUpperCase(), label);
         if (data.hubId) hubNameMap.set(String(data.hubId).trim().toUpperCase(), label);
         if (data.hubCode) hubNameMap.set(String(data.hubCode).trim().toUpperCase(), label);
         for (const extra of extraDestinationLookupKeys(sourceId)) hubNameMap.set(extra, label);
-        hubNameMap.set(d.id, label);
-        hubNameMap.set(d.id.toUpperCase(), label);
-    });
+        hubNameMap.set(hub.id, label);
+        hubNameMap.set(hub.id.toUpperCase(), label);
+    }
     const resolveDisplayName = (code: string | undefined): string => {
         if (!code) return "-";
         const trimmed = code.trim();

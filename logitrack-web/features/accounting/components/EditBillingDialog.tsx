@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useState } from "react";
 import { Loader2, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { db } from "@/firebase/client";
 import { useLanguage } from "@/context/language";
@@ -86,6 +86,10 @@ export function EditBillingDialog({ open, onOpenChange, row, hubNameMap, onSaved
     const [saveError, setSaveError] = useState<string | null>(null);
 
     // Load rate data when dialog opens
+    // The active language when the effect's code runs: `t` is not a dependency, so a language
+    // toggle no longer refetches (TW4, developer-spec.md §10.6).
+    const translateNow = useEffectEvent((key: string) => t(key));
+
     useEffect(() => {
         if (!open || !row.customerId) {
             setDataLoaded(false);
@@ -109,9 +113,9 @@ export function EditBillingDialog({ open, onOpenChange, row, hubNameMap, onSaved
                 setDataLoaded(true);
             })
             .catch(() => {
-                setLoadError(t("accounting.income.editBilling.loadDataError") || "Failed to load rate data");
+                setLoadError(translateNow("accounting.income.editBilling.loadDataError") || "Failed to load rate data");
             });
-    }, [open, row.customerId, t]);
+    }, [open, row.customerId]);
 
     // Auto-compute when rate data is ready
     useEffect(() => {

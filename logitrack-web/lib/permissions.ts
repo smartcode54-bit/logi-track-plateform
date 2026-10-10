@@ -1,6 +1,8 @@
 /**
  * Permission helpers for RBAC.
- * Use with customClaims from useAuth().
+ * Use with customClaims from useAuth(), which TW4 synthesises from `['me']` (`GET /v1/me`): they
+ * carry the Go-resolved `capabilities`, so `can()` answers from Go; the role defaults below remain
+ * only for a claims object without that list (tests, legacy callers).
  */
 
 import type { CapabilityId } from "./capabilities";
@@ -8,7 +10,7 @@ import {
   DEFAULT_ROLE_CAPABILITIES,
   type RoleId,
 } from "./roles";
-import { CAPABILITIES } from "./capabilities";
+import { CAPABILITIES, toCatalogKey } from "./capabilities";
 
 type CustomClaims = Record<string, unknown> | null;
 
@@ -28,8 +30,14 @@ export function hasRole(claims: CustomClaims, roleId: RoleId): boolean {
   return getRole(claims) === roleId;
 }
 
-/** Check if user has a capability (sync, uses default role mapping) */
+/**
+ * Check if user has a capability: the Go-resolved set when the claims carry one (`useAuth()`
+ * claims, synthesised from `['me']`), else the legacy default role mapping.
+ */
 export function can(claims: CustomClaims, capability: CapabilityId): boolean {
+  if (Array.isArray(claims?.capabilities)) {
+    return (claims.capabilities as unknown[]).includes(toCatalogKey(capability));
+  }
   const role = getRole(claims);
   const caps = DEFAULT_ROLE_CAPABILITIES[role];
   if (caps === "*") return true;

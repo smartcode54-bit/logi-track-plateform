@@ -37,6 +37,7 @@ import { db } from "@/firebase/client";
 import SimpleMap from "@/components/map/SimpleMap";
 import { useLanguage } from "@/context/language";
 import { toast } from "sonner";
+import { invalidateHubs } from "@/features/hubs/api/hubs";
 import { getCustomers, CustomerData } from "@/features/customers/api/customers";
 
 interface HubDialogProps {
@@ -170,6 +171,8 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
                     createdAt: new Date(),
                 });
             }
+            // Every page reading `['hubs']` sees the change (TW4).
+            await invalidateHubs();
             setIsOpen(false);
             if (onSuccess) onSuccess();
         } catch (error) {
