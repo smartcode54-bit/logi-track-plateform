@@ -139,11 +139,14 @@ func TestTwoReplicasFireEachSlotOnce(t *testing.T) {
 	if n < 5 || n != distinct {
 		t.Fatalf("%d fires over %d distinct slots: every slot must fire exactly once", n, distinct)
 	}
-	if got := int(a.fires.Load() + b.fires.Load()); got != n {
-		t.Fatalf("replicas ran %d times, jobs has %d rows", got, n)
+	succeeded := scalar[int](t, pool, `SELECT count(*) FROM jobs WHERE type = 'test.tick' AND status = 'succeeded'`)
+	if got := int(a.fires.Load() + b.fires.Load()); got != succeeded {
+		t.Fatalf("replicas ran %d times, jobs has %d succeeded rows", got, succeeded)
 	}
-	if bad := scalar[int](t, pool, `SELECT count(*) FROM jobs WHERE type = 'test.tick' AND (status <> 'succeeded' OR owner_user_id IS NOT NULL)`); bad != 0 {
-		t.Fatalf("%d scheduled runs are not succeeded rows without an owner", bad)
+	// Only a slot claimed while its replica stopped may end failed, and only with the shutdown cause.
+	if bad := scalar[int](t, pool, `SELECT count(*) FROM jobs WHERE type = 'test.tick' AND (owner_user_id IS NOT NULL OR
+		(status <> 'succeeded' AND NOT (status = 'failed' AND error LIKE 'cron: shutdown before the run started%')))`); bad != 0 {
+		t.Fatalf("%d scheduled runs are neither succeeded nor shutdown-failed rows without an owner", bad)
 	}
 }
 
@@ -159,8 +162,13 @@ func TestCronLockStopsADoubleFire(t *testing.T) {
 	a.stop()
 	b.stop()
 	n, distinct := slots(t, pool)
-	if n < 2 || n != distinct || int(a.fires.Load()+b.fires.Load()) != n {
-		t.Fatalf("%d fires (%d + %d) over %d slots: want one fire per slot", n, a.fires.Load(), b.fires.Load(), distinct)
+	// A slot claimed just as the replicas stop ends as failed without a run; every other slot ran
+	// exactly once, and no row is left running.
+	succeeded := scalar[int](t, pool, `SELECT count(*) FROM jobs WHERE type = 'test.tick' AND status = 'succeeded'`)
+	running := scalar[int](t, pool, `SELECT count(*) FROM jobs WHERE type = 'test.tick' AND status NOT IN ('succeeded', 'failed')`)
+	if n < 2 || n != distinct || int(a.fires.Load()+b.fires.Load()) != succeeded || running != 0 {
+		t.Fatalf("%d rows (%d succeeded, %d unfinished) over %d slots, fires %d + %d: want one row per slot, one fire per succeeded row",
+			n, succeeded, running, distinct, a.fires.Load(), b.fires.Load())
 	}
 	keys, err := rdb.Keys(context.Background(), prefix+"lock:cron:test.tick:*").Result()
 	if err != nil || len(keys) != n {

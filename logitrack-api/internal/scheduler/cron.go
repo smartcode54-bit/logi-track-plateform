@@ -152,19 +152,28 @@ func (c *Cron) fire(ctx context.Context, j Job, params map[string]any) error {
 			return err
 		})
 	}
+	// The claim transaction ignores cancellation: a shutdown arriving during COMMIT could otherwise
+	// leave a committed "running" row whose slot never runs (the lock:cron key blocks the other
+	// replica). Once claimed, the slot always ends as succeeded or failed.
+	rctx := context.WithoutCancel(ctx)
 	var job jobs.Job
-	if err := db.WithSystem(ctx, c.pool, nil, func(tx pgx.Tx) error {
+	if err := db.WithSystem(rctx, c.pool, nil, func(tx pgx.Tx) error {
 		var err error
-		if job, err = jobs.Insert(ctx, tx, in); err != nil {
+		if job, err = jobs.Insert(rctx, tx, in); err != nil {
 			return err
 		}
-		job, err = jobs.Start(ctx, tx, job.ID)
+		job, err = jobs.Start(rctx, tx, job.ID)
 		return err
 	}); err != nil {
 		return err
 	}
-	result, runErr := j.Run(ctx)
-	rctx := context.WithoutCancel(ctx) // record the outcome even when shutdown interrupted the run
+	var result any
+	runErr := ctx.Err()
+	if runErr != nil {
+		runErr = fmt.Errorf("cron: shutdown before the run started: %w", runErr)
+	} else {
+		result, runErr = j.Run(ctx)
+	}
 	err := db.WithSystem(rctx, c.pool, nil, func(tx pgx.Tx) error {
 		if runErr != nil {
 			_, err := jobs.Fail(rctx, tx, job.ID, runErr.Error(), result)
