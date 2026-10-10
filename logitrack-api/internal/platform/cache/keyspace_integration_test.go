@@ -33,6 +33,20 @@ func TestKeyScanShowsOnlyThePrefixAndListedNamespaces(t *testing.T) {
 	ctx := context.Background()
 	c := cache.New(rdb, ks)
 
+	// The database comes first: starting the shared PostgreSQL container and migrating can take
+	// longer than the shortest key below lives, and every key must still exist at the SCAN.
+	d := pgtest.NewDatabase(t)
+	if _, err := migratetest.Runner(t, d, migrations.FS).Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	m, err := idempotency.New(idempotency.Options{
+		Redis: rdb, Keys: ks, Store: idempotency.NewPGStore(d.Pool(t, db.RoleApp)), TTL: 168 * time.Hour,
+		Scope: func(fiber.Ctx) string { return "user-1" }, Log: zerolog.Nop(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	if _, err := cache.GetJSON(ctx, c, ks.RateCard("party-1"), time.Hour, func(context.Context) ([]int, error) { return []int{1}, nil }); err != nil {
 		t.Fatal(err)
 	}
@@ -60,22 +74,6 @@ func TestKeyScanShowsOnlyThePrefixAndListedNamespaces(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	l := ratelimit.New(rdb, ks, zerolog.Nop())
-	if _, err := l.Allow(ctx, ratelimit.LoginIP.Name, "203.0.113.9", ratelimit.LoginIP.Default); err != nil {
-		t.Fatal(err)
-	}
-
-	d := pgtest.NewDatabase(t)
-	if _, err := migratetest.Runner(t, d, migrations.FS).Up(ctx); err != nil {
-		t.Fatal(err)
-	}
-	m, err := idempotency.New(idempotency.Options{
-		Redis: rdb, Keys: ks, Store: idempotency.NewPGStore(d.Pool(t, db.RoleApp)), TTL: 168 * time.Hour,
-		Scope: func(fiber.Ctx) string { return "user-1" }, Log: zerolog.Nop(),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	app := fiber.New(fiber.Config{ErrorHandler: httpx.ErrorHandler(zerolog.Nop())})
 	held := make(chan struct{})
 	release := make(chan struct{})
@@ -100,6 +98,14 @@ func TestKeyScanShowsOnlyThePrefixAndListedNamespaces(t *testing.T) {
 	if code := send("0192f1c2-7d3e-7a10-8b2c-000000000001", `{}`); code != 201 {
 		t.Fatalf("idempotent write: %d", code)
 	}
+
+	// The rl: key lives only one emission interval (LoginIP: 1m/10 = 6s), so it is written after
+	// everything slow, just before the SCAN.
+	l := ratelimit.New(rdb, ks, zerolog.Nop())
+	if _, err := l.Allow(ctx, ratelimit.LoginIP.Name, "203.0.113.9", ratelimit.LoginIP.Default); err != nil {
+		t.Fatal(err)
+	}
+
 	done := make(chan int)
 	go func() { done <- send("0192f1c2-7d3e-7a10-8b2c-000000000002", `{"hold":true}`) }()
 	<-held // the in-flight lock exists now
