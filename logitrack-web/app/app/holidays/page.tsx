@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useEffectEvent, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import { collection, query, orderBy, onSnapshot, doc, Timestamp } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
@@ -120,6 +120,9 @@ export default function HolidaysPage() {
     const [listFilter, setListFilter] = useState<"month" | "year" | "all">("year"); // Default to year
     const calendarRef = useRef<FullCalendar>(null);
 
+    // Reads the active language when it runs, so a toggle does not resubscribe (TW4).
+    const onHolidaysLoadError = useEffectEvent(() => toast.error(t("holidays.toast.failedLoad")));
+
     // Fetch holidays from Firebase
     useEffect(() => {
         setLoading(true);
@@ -140,12 +143,12 @@ export default function HolidaysPage() {
             setLoading(false);
         }, (err) => {
             console.error("Error fetching holidays:", err);
-            toast.error(t("holidays.toast.failedLoad"));
+            onHolidaysLoadError();
             setLoading(false);
         });
 
         return () => unsubscribe();
-    }, [t]);
+    }, []);
 
     const filteredHolidays = useMemo(() => {
         const now = new Date();

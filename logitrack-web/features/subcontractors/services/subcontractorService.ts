@@ -2,7 +2,10 @@
 
 import { db, storage } from "@/firebase/client";
 import { collection, doc, getDocs, getDoc, setDoc, updateDoc, query, orderBy, Timestamp } from "firebase/firestore";
+import { queryOptions } from "@tanstack/react-query";
 import { COLLECTIONS } from "@/lib/collections";
+import { getQueryClient } from "@/lib/queryClient";
+import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
 import { SubcontractorValidatedData } from "@/validate/subcontractorSchema";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
@@ -47,7 +50,8 @@ export async function uploadSubcontractorFile(file: File, path: string): Promise
     }
 }
 
-export async function getSubcontractors(): Promise<SubcontractorData[]> {
+/** Every subcontractor, newest first, read from Firestore: the P0 source of `['subcontractors']`. */
+export async function fetchSubcontractorsFromFirestore(): Promise<SubcontractorData[]> {
     try {
         const subRef = collection(db, COLLECTIONS.SUBCONTRACTORS);
         const q = query(subRef, orderBy("createdAt", "desc"));
@@ -83,6 +87,27 @@ export async function getSubcontractors(): Promise<SubcontractorData[]> {
     }
 }
 
+/**
+ * `['subcontractors']` (developer-spec.md §10.7, Appendix E §E.4 row "subcontractors"): 10 min stale,
+ * shared by the truck and driver forms and the list page. Go source `GET /v1/subcontractors` in P1.
+ */
+export const subcontractorsQueryOptions = queryOptions({
+    queryKey: queryKeys.subcontractors.all(),
+    queryFn: fetchSubcontractorsFromFirestore,
+    ...QUERY_POLICY.masterData,
+    refetchOnWindowFocus: true,
+});
+
+/** Every subcontractor from the tab's `['subcontractors']` cache. Shared: never mutate it in place. */
+export function getSubcontractors(): Promise<SubcontractorData[]> {
+    return getQueryClient().fetchQuery(subcontractorsQueryOptions);
+}
+
+/** After a subcontractor write. */
+export function invalidateSubcontractors(): Promise<void> {
+    return getQueryClient().invalidateQueries({ queryKey: queryKeys.subcontractors.all() });
+}
+
 export async function createSubcontractor(data: SubcontractorValidatedData): Promise<string> {
     try {
         const subRef = doc(collection(db, COLLECTIONS.SUBCONTRACTORS));
@@ -91,6 +116,7 @@ export async function createSubcontractor(data: SubcontractorValidatedData): Pro
             createdAt: Timestamp.now(),
             updatedAt: Timestamp.now(),
         });
+        await invalidateSubcontractors();
         return subRef.id;
     } catch (error) {
         console.error("Error creating subcontractor:", error);
@@ -105,6 +131,7 @@ export async function updateSubcontractor(id: string, data: Partial<Subcontracto
             ...data,
             updatedAt: Timestamp.now(),
         });
+        await invalidateSubcontractors();
     } catch (error) {
         console.error("Error updating subcontractor:", error);
         throw error;

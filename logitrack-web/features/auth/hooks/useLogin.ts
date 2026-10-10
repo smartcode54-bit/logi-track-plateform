@@ -3,7 +3,7 @@ import { useLanguage } from "@/context/language";
 import { useAuth } from "@/context/auth";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { getDefaultRouteForRole } from "@/lib/permissions";
+import { homeRouteOf } from "@/features/auth/api/homeRoute";
 
 export function useLogin() {
   const { t } = useLanguage();
@@ -13,12 +13,14 @@ export function useLogin() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // Signed in means a Go session (`['me']`): only then can the proxy.ts gate let `/app` through, so a
+  // Firebase-only session no longer bounces between this page and the gate.
+  const me = auth?.me ?? null;
   useEffect(() => {
-    if (!auth?.loading && auth?.currentUser) {
-      const defaultRoute = getDefaultRouteForRole(auth.customClaims ?? null);
-      router.replace(defaultRoute);
+    if (!auth?.loading && me) {
+      router.replace(homeRouteOf(me));
     }
-  }, [auth?.loading, auth?.currentUser, auth?.customClaims, router]);
+  }, [auth?.loading, me, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

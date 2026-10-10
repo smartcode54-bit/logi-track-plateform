@@ -63,6 +63,8 @@ export interface BillingDebugInfo {
     rateEntriesForCustomer: number;
     failReason: "no_task" | "no_customer" | "no_rate_match" | "ok";
 }
+import { useHubs } from "@/features/hubs/api/useHubs";
+import { selectHubDisplayEntries, type HubDisplayEntryWithLink } from "@/features/hubs/api/selectors";
 import { useCustomerScope } from "@/hooks/useCustomerScope";
 
 /**
@@ -386,23 +388,20 @@ async function fetchTruckByTripId(tripsToResolve: TripRecord[]): Promise<Record<
     return map;
 }
 
+const NO_HUB_ENTRIES: HubDisplayEntryWithLink[] = [];
+
 export function useDriverMonitor() {
     const { customerScopeId, isCustomer } = useCustomerScope();
 
     const [trips, setTrips] = useState<TripRecord[]>([]);
     const [drivers, setDrivers] = useState<Record<string, Driver>>({});
     const [tasks, setTasks] = useState<Task[]>([]);
-    const [hubs, setHubs] = useState<
-        {
-            source_id: string;
-            source_name_en?: string;
-            source_name_th?: string;
-            station_type?: "HUB" | "SOC";
-            linkedCustomerId?: string;
-            linkedCustomerName?: string;
-            customerLinkKind?: string;
-        }[]
-    >([]);
+    // `['hubs']` from the tab's cache (TW4): the boards, this monitor and billing share one read.
+    const { data: hubEntries, refetch: refetchHubs } = useHubs(selectHubDisplayEntries);
+    const hubs = hubEntries ?? NO_HUB_ENTRIES;
+    const fetchHubs = useCallback(() => {
+        void refetchHubs();
+    }, [refetchHubs]);
     const [loading, setLoading] = useState(true);
     const [incidentReportsByTripId, setIncidentReportsByTripId] = useState<
         Record<string, { description: string; delayCause: string | null; createdAt: Date | null }>
@@ -502,28 +501,6 @@ export function useDriverMonitor() {
         return () => unsub();
     }, []);
 
-    const fetchHubs = async () => {
-        const snap = await getDocs(collection(db, COLLECTIONS.HUBS));
-        const list = snap.docs.map((d) => {
-            const data = d.data();
-            return {
-                source_id: (data.source_id ?? data.hubId ?? data.hubCode ?? "").toString(),
-                source_name_en: (data.source_name_en ?? data.hubName ?? "").toString() || undefined,
-                source_name_th:
-                    (data.source_name_th ?? data.hubTHName ?? data.hub_th_name ?? "").toString().trim() ||
-                    undefined,
-                station_type: (data.station_type === "SOC" ? "SOC" : "HUB") as "SOC" | "HUB",
-                linkedCustomerId: data.linkedCustomerId,
-                linkedCustomerName: data.linkedCustomerName,
-                customerLinkKind: data.customerLinkKind,
-            };
-        });
-        setHubs(list);
-    };
-
-    useEffect(() => {
-        fetchHubs();
-    }, []);
 
     const driversByAuthId = useMemo(() => {
         const byAuth: Record<string, Driver> = {};

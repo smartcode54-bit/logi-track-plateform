@@ -28,7 +28,6 @@ const RefillLocationMap = dynamic(
     { ssr: false }
 );
 import { format } from "date-fns";
-import { httpsCallable } from "firebase/functions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,8 +42,9 @@ import {
 } from "@/components/ui/dialog";
 import { usePermission } from "@/hooks/usePermission";
 import { CAPABILITIES } from "@/lib/capabilities";
+import { useQuery } from "@tanstack/react-query";
+import { fuelRetailQueryOptions, type FuelRetailItem } from "@/features/accounting/api/fuelRetail";
 import { updateVehicleExpense } from "../actions.client";
-import { functions } from "@/firebase/client";
 import { AddFuelExpenseDialog } from "@/features/accounting/components/AddFuelExpenseDialog";
 
 /** เหตุผลที่ค่า km/L ของแถวนั้นไม่น่าเชื่อถือ (ไม่นำไปคิดค่าเฉลี่ย) */
@@ -86,19 +86,7 @@ function fuelFlagLabel(flag: FuelFlag): string {
     }
 }
 
-interface BangchakPriceItem {
-    nameTh: string;
-    nameEn: string;
-    price: number;
-    unit: string;
-}
-
-interface BangchakPriceResponse {
-    locale: "th" | "en";
-    fetchedAt: string;
-    source: string;
-    items: BangchakPriceItem[];
-}
+const NO_FUEL_ITEMS: FuelRetailItem[] = [];
 
 /** Badge colors approximating Bangchak retail UI (keyword match on API label). */
 function bangchakFuelChipClasses(label: string): string {
@@ -190,10 +178,6 @@ export default function AccountingFuelPage() {
     const [detailRow, setDetailRow] = useState<FuelRow | null>(null);
     const [editForm, setEditForm] = useState<FuelRow | null>(null);
     const [submitting, setSubmitting] = useState(false);
-    const [bangchakPrices, setBangchakPrices] = useState<BangchakPriceItem[]>([]);
-    const [bangchakFetchedAt, setBangchakFetchedAt] = useState<string | null>(null);
-    const [bangchakLoading, setBangchakLoading] = useState(false);
-    const [bangchakError, setBangchakError] = useState<string | null>(null);
 
     const { hasPermission: canEdit } = usePermission(CAPABILITIES.accounting_edit_fuel);
     const [isAddOpen, setIsAddOpen] = useState(false);
@@ -318,34 +302,21 @@ export default function AccountingFuelPage() {
     }, [language]);
 
     const rowsWithKm = useMemo(() => computeKmPerLiter(records), [records]);
-    const bangchakCallable = useMemo(
-        () => httpsCallable<{ locale: "th" | "en" }, BangchakPriceResponse>(functions, "getBangchakRetailOilPrices"),
-        []
-    );
     const canReadExternalFuelPrice = usePermission(CAPABILITIES.accounting_view_fuel).hasPermission;
 
-    const loadBangchakPrices = async () => {
-        if (!canReadExternalFuelPrice) return;
-        setBangchakLoading(true);
-        setBangchakError(null);
-        try {
-            const locale = language === "th" ? "th" : "en";
-            const result = await bangchakCallable({ locale });
-            const payload = result.data;
-            setBangchakPrices(Array.isArray(payload.items) ? payload.items : []);
-            setBangchakFetchedAt(payload.fetchedAt ?? null);
-        } catch (error) {
-            console.error("Failed to load Bangchak prices:", error);
-            setBangchakError(t("accounting.bangchak.errorLoad"));
-        } finally {
-            setBangchakLoading(false);
-        }
+    // `['fuel','bangchak',locale]` (TW4): a language toggle reads the other language once; toggling
+    // back, or reopening the page within the hour, reads nothing.
+    const bangchakQuery = useQuery({
+        ...fuelRetailQueryOptions(language === "th" ? "th" : "en"),
+        enabled: canReadExternalFuelPrice,
+    });
+    const bangchakPrices = Array.isArray(bangchakQuery.data?.items) ? bangchakQuery.data.items : NO_FUEL_ITEMS;
+    const bangchakFetchedAt = bangchakQuery.data?.fetchedAt ?? null;
+    const bangchakLoading = bangchakQuery.isFetching;
+    const bangchakError = bangchakQuery.isError ? t("accounting.bangchak.errorLoad") : null;
+    const loadBangchakPrices = () => {
+        if (canReadExternalFuelPrice) void bangchakQuery.refetch();
     };
-
-    useEffect(() => {
-        void loadBangchakPrices();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [language, canReadExternalFuelPrice]);
 
     const filteredRecords = useMemo(() => {
         let list = rowsWithKm;
