@@ -1,28 +1,50 @@
 name: CI
 
+# mv-go and mv-go-** run the same web checks (developer-spec.md §17.3, T14); the main entries are
+# unchanged (R90). Deploy follows CI runs whose head branch is main: pushes to main, but also a pull
+# request whose head branch is named main, so the job refuse-main-head fails such a PR into mv-go
+# and Deploy skips it. main reaches mv-go only through a mv-go-sync-<date> branch (§17.5).
 on:
   push:
-    branches: [main]
+    branches: [main, mv-go, 'mv-go-**']
     paths:
       - 'logitrack-web/**'
       - 'shared-docs/**'
       - 'pnpm-lock.yaml'
       - '.github/workflows/ci.yml'
   pull_request:
-    branches: [main]
+    branches: [main, mv-go, 'mv-go-**']
     paths:
       - 'logitrack-web/**'
       - 'shared-docs/**'
       - 'pnpm-lock.yaml'
 
+# On mv-go one group per commit, so a newer merge never cancels the run of the previous one (go-ci's
+# web-ci waits for each commit's run). Every other ref, main included, keeps its group ci-<ref>.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}${{ github.ref == 'refs/heads/mv-go' && format('-{0}', github.sha) || '' }}
   cancel-in-progress: true
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # Deploy's workflow_run filter `branches: [main]` matches the head branch of the CI run, so a
+  # successful run of a pull request from main into mv-go would deploy main to Firebase DEV. Failing
+  # the run makes Deploy skip it. Skipped on every other run, main's included.
+  refuse-main-head:
+    name: Refuse main as the head of a PR outside main
+    if: github.event_name == 'pull_request' && github.head_ref == 'main' && github.base_ref != 'main'
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Fail
+        env:
+          BASE: ${{ github.base_ref }}
+        run: |
+          echo "::error title=CI::a pull request from main into $BASE would start Deploy (workflow_run branches: [main] matches the head branch). Merge origin/main into a mv-go-sync-<date> branch cut from mv-go and open the PR from that branch (developer-spec.md §17.5)."
+          exit 1
+
   # developer-spec.md §17.3 item 5 (TW9): builds with @next/bundle-analyzer and compares each route's
   # initial JS with logitrack-web/bundle-budget.json (scripts/bundle-report.mjs): fails when xlsx,
   # jspdf, jszip, @fullcalendar/* or leaflet, or a locale dictionary, reaches a route's initial JS, or
