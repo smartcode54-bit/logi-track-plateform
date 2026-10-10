@@ -172,8 +172,16 @@ sqlc: ## sqlc generate (schema = migrations/, queries next to their package)
 openapi: ## OpenAPI -> web types and Dart models (R27; first routes in T05)
 	@echo "the OpenAPI pipeline lands with the first routes (T05)" >&2; exit 3
 
-web: ## run the Next.js dev server against the local api (internal listener)
-	cd ../logitrack-web && GO_API_INTERNAL_URL=http://localhost:8080 pnpm --filter logi-track dev
+web: .env ## run the Next.js dev server on localhost:3000 against the local api (internal listener); BFF env from .env (TW3)
+	@# The BFF and proxy.ts read the §16.1 web-server names; JWT_* must equal the api's (R39). Values
+	@# are passed to the dev server, never printed.
+	cd ../logitrack-web && GO_API_INTERNAL_URL=http://localhost:8080 WEB_PUBLIC_ORIGIN=http://localhost:3000 \
+	  SESSION_COOKIE_SECURE=false SESSION_COOKIE_DOMAIN= \
+	  JWT_ISSUER="$$(sed -n 's/^JWT_ISSUER=//p' ../logitrack-api/.env | head -1)" \
+	  JWT_AUDIENCE="$$(sed -n 's/^JWT_AUDIENCE=//p' ../logitrack-api/.env | head -1)" \
+	  JWT_ACCESS_TTL="$$(sed -n 's/^JWT_ACCESS_TTL=//p' ../logitrack-api/.env | head -1)" \
+	  REFRESH_TOKEN_TTL_WEB="$$(sed -n 's/^REFRESH_TOKEN_TTL_WEB=//p' ../logitrack-api/.env | head -1)" \
+	  pnpm --filter logi-track dev
 
 ## --- checks ---------------------------------------------------------------------------------
 env-check: ## .env.example and compose environments match developer-spec.md §16

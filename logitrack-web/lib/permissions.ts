@@ -9,7 +9,6 @@ import {
   type RoleId,
 } from "./roles";
 import { CAPABILITIES } from "./capabilities";
-import { ROUTE_CAPABILITIES } from "./capabilities";
 
 type CustomClaims = Record<string, unknown> | null;
 
@@ -37,41 +36,8 @@ export function can(claims: CustomClaims, capability: CapabilityId): boolean {
   return caps.includes(capability);
 }
 
-/** Check if user can access a route (by pathname) */
-export function canAccessRoute(claims: CustomClaims, pathname: string): boolean {
-  const path = pathname.replace(/\/$/, "") || "/";
-
-  // Unauthorized page — always accessible to authenticated users (avoids redirect loop)
-  if (path === "/app/unauthorized") {
-    return !!claims;
-  }
-
-  // Dashboard — open to all authenticated users
-  if (path === "/app/dashboard") {
-    return !!claims;
-  }
-
-  // Security center — admin only
-  if (path.startsWith("/app/security-center")) {
-    return isAdmin(claims);
-  }
-
-  let capability: CapabilityId | undefined = ROUTE_CAPABILITIES[path];
-
-  if (!capability) {
-    const parts = path.split("/");
-    for (let i = parts.length; i >= 1; i--) {
-      const prefix = parts.slice(0, i).join("/");
-      if (ROUTE_CAPABILITIES[prefix]) {
-        capability = ROUTE_CAPABILITIES[prefix];
-        break;
-      }
-    }
-  }
-
-  if (!capability) return true;
-  return can(claims, capability);
-}
+// Route access is decided by the proxy.ts edge gate over the Go capabilities (lib/routeCapabilities.ts,
+// TW3); the client-side canAccessRoute over Firebase claims is gone.
 
 /** Check if user can view Driver Monitor (admin, operation_staff, customer) */
 export function canViewDriverMonitor(claims: CustomClaims): boolean {
@@ -88,7 +54,10 @@ export function isAdmin(claims: CustomClaims): boolean {
   return claims?.admin === true || getRole(claims) === "admin";
 }
 
-/** Get default redirect route for role (used when access denied) */
+/**
+ * Get default redirect route for role (used when access denied) from legacy Firebase claims. The
+ * `/app` landing itself is decided by proxy.ts (lib/routeCapabilities.ts `homeRouteFor`, R89).
+ */
 export function getDefaultRouteForRole(claims: CustomClaims): string {
   const role = getRole(claims);
   switch (role) {

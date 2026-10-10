@@ -2,7 +2,7 @@
 
 import { useAuth } from "@/context/auth";
 import { useRouter, usePathname } from "next/navigation";
-import { canAccessRoute, getDefaultRouteForRole, getRole } from "@/lib/permissions";
+import { getRole } from "@/lib/permissions";
 import { useEffect, useState, useRef } from "react";
 import Navigation from "@/components/navigation";
 import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/sidebar";
@@ -131,15 +131,8 @@ export default function AdminLayout({
         };
     }, [currentUser, authContext?.loading, router]);
 
-    // Route permission guard — redirect to /app/unauthorized if no access
-    useEffect(() => {
-        if (!authContext?.loading && currentUser && pathname) {
-            const allowed = canAccessRoute(authContext.customClaims ?? null, pathname);
-            if (!allowed) {
-                router.replace(`/app/unauthorized?from=${encodeURIComponent(pathname)}`);
-            }
-        }
-    }, [currentUser, authContext?.loading, authContext?.customClaims?.role, pathname, router]);
+    // Route access is decided before any page code runs, by the proxy.ts edge gate over the Go
+    // capabilities (TW3, developer-spec.md §10.5); the post-render check over Firebase claims is gone.
 
     const toggleTheme = () => {
         const newIsDark = !isDark;

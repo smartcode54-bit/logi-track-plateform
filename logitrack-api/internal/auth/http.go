@@ -22,8 +22,9 @@ import (
 //     driver-app aliases under /v1/mobile/me* come with the mobile group (T55; MountDevices serves both).
 //   - /v1/bridge (internal only, T08): POST /v1/bridge/firebase-token, 404 unless the Firebase bridge
 //     mode includes web (removed with TW7).
-//
-// The JWKS route (/.well-known/jwks.json, internal) is mounted by TW3 from KeySet.JWKS.
+//   - /.well-known (internal only, TW3): GET /.well-known/jwks.json, the public keys the web edge gate
+//     (proxy.ts) verifies lt_at with (Appendix C §C.4.2). On the public listener it is 404 like every
+//     other internal route.
 //
 // Groups and the mount functions only register handlers and never read s, so cmd/api `routes` builds
 // the route table from a nil *Service (no database, Redis or key); keep it that way.
@@ -32,7 +33,21 @@ func (s *Service) Groups() []ingress.Group {
 		{Prefix: "/v1/auth", Public: true, Mount: s.mountAuth},
 		{Prefix: "/v1/me", Mount: s.mountMe},
 		{Prefix: "/v1/bridge", Mount: s.mountBridge},
+		{Prefix: "/.well-known", Mount: s.mountWellKnown},
 	}
+}
+
+func (s *Service) mountWellKnown(r fiber.Router) {
+	r.Get("/jwks.json", s.handleJWKS)
+}
+
+// handleJWKS serves the active and, during a rotation, the previous public key (C.4.2). The document is
+// the bare RFC 7517 JWK Set, not the {"data"} envelope, so standard JWKS clients (jose's
+// createRemoteJWKSet in proxy.ts) read it as is. max-age=300 is the web's JWKS cache period of the
+// rotation runbook; an unknown kid makes the web refetch sooner (30 s cooldown).
+func (s *Service) handleJWKS(c fiber.Ctx) error {
+	c.Set(fiber.HeaderCacheControl, "public, max-age=300")
+	return c.JSON(s.keys.JWKS())
 }
 
 func (s *Service) mountAuth(r fiber.Router) {
