@@ -60,11 +60,6 @@ func TestKeyScanShowsOnlyThePrefixAndListedNamespaces(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	l := ratelimit.New(rdb, ks, zerolog.Nop())
-	if _, err := l.Allow(ctx, ratelimit.LoginIP.Name, "203.0.113.9", ratelimit.LoginIP.Default); err != nil {
-		t.Fatal(err)
-	}
-
 	d := pgtest.NewDatabase(t)
 	if _, err := migratetest.Runner(t, d, migrations.FS).Up(ctx); err != nil {
 		t.Fatal(err)
@@ -104,6 +99,12 @@ func TestKeyScanShowsOnlyThePrefixAndListedNamespaces(t *testing.T) {
 	go func() { done <- send("0192f1c2-7d3e-7a10-8b2c-000000000002", `{"hold":true}`) }()
 	<-held // the in-flight lock exists now
 
+	// A GCRA key lives only one emission interval (window / count, 3 s for login_ip), so write it
+	// right before the scan: the database setup above can take longer than that on CI.
+	l := ratelimit.New(rdb, ks, zerolog.Nop())
+	if _, err := l.Allow(ctx, ratelimit.LoginIP.Name, "203.0.113.9", ratelimit.LoginIP.Default); err != nil {
+		t.Fatal(err)
+	}
 	keys := cachetest.AssertKeyspace(t, rdb, ks)
 	close(release)
 	if code := <-done; code != 201 {

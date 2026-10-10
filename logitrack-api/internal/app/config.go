@@ -308,23 +308,7 @@ func (c *APIConfig) Validate() error {
 	return nil
 }
 
-// WorkerConfig is shared by the worker and scheduler processes until their own
-// settings (queues, cron) arrive in T10.
-type WorkerConfig struct {
-	Common
-	Runtime
-}
-
-// Validate implements config.Validator.
-func (c *WorkerConfig) Validate() error {
-	var errs []string
-	c.Common.validate(&errs)
-	c.Runtime.validate(&errs)
-	if len(errs) > 0 {
-		return &config.Error{Invalid: errs}
-	}
-	return nil
-}
+// WorkerConfig and SchedulerConfig live in background_config.go (T10).
 
 // MigrateConfig is the migrate process configuration: goose runs as logitrack_migrator (R66, R87).
 type MigrateConfig struct {

@@ -1,0 +1,9 @@
+{{define "html"}}<!doctype html>
+<html lang="en"><body style="font-family:Arial,Helvetica,sans-serif;color:#1f2937;line-height:1.6">
+<p>Hello {{.Name}},</p>
+<p>We received a request to reset the password of your LogiTrack account. Open the link below to choose a new password. The link works once and expires in {{.ValidFor}}.</p>
+<p><a href="{{.Link}}" style="display:inline-block;padding:10px 18px;background:#1d4ed8;color:#ffffff;text-decoration:none;border-radius:6px">Reset password</a></p>
+<p style="font-size:13px;color:#6b7280">If the button does not work, copy this link into your browser: {{.Link}}</p>
+<p>If you did not ask for this, you can ignore this email: your password stays the same.</p>
+<p>LogiTrack</p>
+</body></html>{{end}}

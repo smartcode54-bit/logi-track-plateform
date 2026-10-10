@@ -190,10 +190,12 @@ func TestRoutesTableMatchesTheCommittedFile(t *testing.T) {
 	if stdout.String() != string(committed) {
 		t.Fatalf("api/routes.txt is stale; run make gen\n--- generated\n%s--- committed\n%s", stdout.String(), committed)
 	}
-	// The auth groups (T05) reach the table through newAPI: /v1/auth on both listeners, /v1/me internal only.
+	// The auth groups (T05) reach the table through newAPI: /v1/auth on both listeners, /v1/me internal only;
+	// the jobs groups (T10) are internal only.
 	for _, want := range []string{"GET /healthz internal,public\n", "GET /readyz internal\n", "GET /startupz internal\n",
 		"POST /v1/auth/login internal,public\n", "POST /v1/auth/refresh internal,public\n", "GET /v1/me internal\n",
-		"DELETE /v1/me/sessions/:sid internal\n"} {
+		"DELETE /v1/me/sessions/:sid internal\n", "GET /v1/jobs internal\n", "GET /v1/jobs/:id internal\n",
+		"POST /v1/admin/queues/:queue/replay internal\n"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("table lacks %q:\n%s", want, stdout.String())
 		}

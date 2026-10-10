@@ -154,7 +154,7 @@ func (s *Service) SetStatusInTx(ctx context.Context, tx pgx.Tx, c StatusChange) 
 		if err := q.SetUserDisabled(ctx, authdb.SetUserDisabledParams{At: now, ID: u.ID}); err != nil {
 			return nil, err
 		}
-		if _, err := s.revokeTx(ctx, q, Revocation{UserID: u.ID, Reason: RevokeDisabled, RevokedBy: c.ActorID,
+		if _, err := s.revokeTx(ctx, tx, Revocation{UserID: u.ID, Reason: RevokeDisabled, RevokedBy: c.ActorID,
 			BumpVersion: true, RequestID: c.RequestID}, now, pc); err != nil {
 			return nil, err
 		}
@@ -221,7 +221,7 @@ func (s *Service) SetTemporaryPasswordInTx(ctx context.Context, tx pgx.Tx, in Te
 		return nil, err
 	}
 	pc.version(u.ID, v)
-	if _, err := s.revokeTx(ctx, q, Revocation{UserID: u.ID, Reason: RevokePasswordReset, RevokedBy: in.ActorID,
+	if _, err := s.revokeTx(ctx, tx, Revocation{UserID: u.ID, Reason: RevokePasswordReset, RevokedBy: in.ActorID,
 		RequestID: in.RequestID}, now, pc); err != nil {
 		return nil, err
 	}

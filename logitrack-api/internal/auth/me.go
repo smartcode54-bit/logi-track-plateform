@@ -245,7 +245,7 @@ type LogoutInput struct {
 // token the BFF holds. Without any valid credential it is 401 unauthenticated.
 func (s *Service) Logout(ctx context.Context, p *authz.Principal, in LogoutInput) error {
 	pc := newPostCommit()
-	err := s.system(ctx, func(q *authdb.Queries) error {
+	err := s.systemTx(ctx, func(tx pgx.Tx, q *authdb.Queries) error {
 		var uid uuid.UUID
 		var sids []uuid.UUID
 		install := in.InstallID
@@ -302,7 +302,7 @@ func (s *Service) Logout(ctx context.Context, p *authz.Principal, in LogoutInput
 				install = *sess.InstallID
 			}
 		}
-		if _, err := s.revokeTx(ctx, q, Revocation{UserID: uid, Reason: RevokeLogout, SessionIDs: sids, RequestID: in.RequestID}, s.clock(), pc); err != nil {
+		if _, err := s.revokeTx(ctx, tx, Revocation{UserID: uid, Reason: RevokeLogout, SessionIDs: sids, RequestID: in.RequestID}, s.clock(), pc); err != nil {
 			return err
 		}
 		if install != "" {

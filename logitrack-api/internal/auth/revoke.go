@@ -300,7 +300,7 @@ type Revocation struct {
 func (s *Service) RevokeInTx(ctx context.Context, tx pgx.Tx, r Revocation) (*PostCommit, []uuid.UUID, error) {
 	pc := newPostCommit()
 	q := authdb.New(tx)
-	sids, err := s.revokeTx(ctx, q, r, s.clock(), pc)
+	sids, err := s.revokeTx(ctx, tx, r, s.clock(), pc)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -319,7 +319,8 @@ func (s *Service) RevokeInTx(ctx context.Context, tx pgx.Tx, r Revocation) (*Pos
 	return pc, sids, nil
 }
 
-func (s *Service) revokeTx(ctx context.Context, q *authdb.Queries, r Revocation, now time.Time, pc *PostCommit) ([]uuid.UUID, error) {
+func (s *Service) revokeTx(ctx context.Context, tx pgx.Tx, r Revocation, now time.Time, pc *PostCommit) ([]uuid.UUID, error) {
+	q := authdb.New(tx)
 	// The users row first (lock order); a no-op when this transaction already holds it.
 	if _, err := q.LockUser(ctx, r.UserID); err != nil {
 		return nil, err
@@ -353,7 +354,7 @@ func (s *Service) revokeTx(ctx context.Context, q *authdb.Queries, r Revocation,
 		}
 	}
 	if r.Reason == RevokeClaimsChanged || len(sids) > 0 {
-		if err := emitSessionsRevoked(ctx, q, r.UserID, sids, r.Reason, r.RequestID); err != nil {
+		if err := emitSessionsRevoked(ctx, tx, r.UserID, sids, r.Reason, r.RequestID); err != nil {
 			return nil, err
 		}
 	}
@@ -365,9 +366,9 @@ func (s *Service) revokeTx(ctx context.Context, q *authdb.Queries, r Revocation,
 func (s *Service) Revoke(ctx context.Context, r Revocation) ([]uuid.UUID, error) {
 	pc := newPostCommit()
 	var sids []uuid.UUID
-	err := s.system(ctx, func(q *authdb.Queries) error {
+	err := s.systemTx(ctx, func(tx pgx.Tx, _ *authdb.Queries) error {
 		var err error
-		sids, err = s.revokeTx(ctx, q, r, s.clock(), pc)
+		sids, err = s.revokeTx(ctx, tx, r, s.clock(), pc)
 		return err
 	})
 	if err != nil {

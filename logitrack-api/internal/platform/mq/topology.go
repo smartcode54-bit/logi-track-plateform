@@ -1,6 +1,7 @@
-// Package mq holds the RabbitMQ topology of Appendix B §B.5 as data. The same
-// table produces deploy/rabbitmq-definitions.json (loaded by compose) and, from
-// issue T10, is asserted idempotently by the worker at start.
+// Package mq holds the RabbitMQ topology of Appendix B §B.5 as data and the AMQP plumbing built on
+// it (issue T10). The same table produces deploy/rabbitmq-definitions.json (loaded by compose) and is
+// asserted idempotently by the worker at start (Declare); the outbox relay publishes with confirms
+// (Publisher) and the worker consumes with the retry ladder of §B.5.4 (Consume).
 package mq
 
 import (
@@ -166,8 +167,40 @@ type defBinding struct {
 
 const vhost = "/"
 
-// BuildDefinitions turns the topology table into a definitions document.
-func BuildDefinitions() Definitions {
+// Topology is a set of work queues and the retry ladder in front of them. Default is the topology of
+// Appendix B; integration tests build one with the same names and shorter retry TTLs.
+type Topology struct {
+	Queues      []Queue
+	RetryDelays []RetryDelay
+}
+
+// Default is the topology of Appendix B §B.5.
+var Default = Topology{Queues: Queues, RetryDelays: RetryDelays}
+
+// Queue returns the work queue called name.
+func (t Topology) Queue(name string) (Queue, bool) {
+	for _, q := range t.Queues {
+		if q.Name == name {
+			return q, true
+		}
+	}
+	return Queue{}, false
+}
+
+// RetryDelay is the rung used after the given number of failed attempts (1-based), and false once
+// the ladder is exhausted: the next failure dead-letters.
+func (t Topology) RetryDelay(failedAttempts int) (RetryDelay, bool) {
+	if failedAttempts < 1 || failedAttempts > len(t.RetryDelays) {
+		return RetryDelay{}, false
+	}
+	return t.RetryDelays[failedAttempts-1], true
+}
+
+// BuildDefinitions turns the Appendix B topology into a definitions document.
+func BuildDefinitions() Definitions { return Default.Definitions() }
+
+// Definitions turns the topology into a definitions document.
+func (t Topology) Definitions() Definitions {
 	var d Definitions
 	for _, e := range Exchanges {
 		d.Exchanges = append(d.Exchanges, defExchange{
@@ -184,7 +217,7 @@ func BuildDefinitions() Definitions {
 			RoutingKey: key, Arguments: map[string]any{},
 		})
 	}
-	for _, q := range Queues {
+	for _, q := range t.Queues {
 		args := map[string]any{
 			"x-dead-letter-exchange":    ExchangeDLX,
 			"x-dead-letter-routing-key": q.Name,
@@ -200,7 +233,7 @@ func BuildDefinitions() Definitions {
 		binding(ExchangeRequeue, q.Name, "*."+q.Name)
 		binding(ExchangeDLX, DeadQueue(q.Name), q.Name)
 	}
-	for _, r := range RetryDelays {
+	for _, r := range t.RetryDelays {
 		// No dead-letter routing key: the original {delay}.{queue} key is kept,
 		// so lt.requeue delivers to exactly one work queue.
 		queue(RetryQueue(r.Label), map[string]any{

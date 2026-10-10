@@ -1,0 +1,12 @@
+{{define "subject"}}Reset your LogiTrack password{{end}}
+{{define "text"}}Hello {{.Name}},
+
+We received a request to reset the password of your LogiTrack account.
+Open the link below to choose a new password. The link works once and expires in {{.ValidFor}}.
+
+{{.Link}}
+
+If you did not ask for this, you can ignore this email: your password stays the same.
+
+LogiTrack
+{{end}}

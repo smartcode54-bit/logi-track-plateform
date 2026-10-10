@@ -1,0 +1,9 @@
+{{define "html"}}<!doctype html>
+<html lang="th"><body style="font-family:Sarabun,Tahoma,sans-serif;color:#1f2937;line-height:1.6">
+<p>สวัสดีคุณ{{.Name}}</p>
+<p>เราได้รับคำขอตั้งรหัสผ่านใหม่สำหรับบัญชี LogiTrack ของคุณ เปิดลิงก์ด้านล่างเพื่อตั้งรหัสผ่านใหม่ ลิงก์ใช้ได้ {{.ValidFor}} และใช้ได้ครั้งเดียว</p>
+<p><a href="{{.Link}}" style="display:inline-block;padding:10px 18px;background:#1d4ed8;color:#ffffff;text-decoration:none;border-radius:6px">ตั้งรหัสผ่านใหม่</a></p>
+<p style="font-size:13px;color:#6b7280">หากปุ่มใช้ไม่ได้ ให้คัดลอกลิงก์นี้ไปเปิดในเบราว์เซอร์: {{.Link}}</p>
+<p>หากคุณไม่ได้ขอตั้งรหัสผ่านใหม่ ไม่ต้องทำอะไร รหัสผ่านเดิมยังใช้ได้ตามปกติ</p>
+<p>LogiTrack</p>
+</body></html>{{end}}
