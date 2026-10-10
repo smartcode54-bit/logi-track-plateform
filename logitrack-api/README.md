@@ -2,7 +2,7 @@
 
 Go backend for the LogiTrack migration off Firebase (`mv-go`). Design: [`developer-spec.md`](../developer-spec.md) §2, routes in [Appendix B](../shared-docs/specs/mv-go/B-api-catalog.md). Branch policy: work lands by PR into `mv-go`, never `main` (R90).
 
-Status: **T01 scaffold + T02 local stack + T03 migrations**. One module, seven binaries, shared `internal/`; no domain routes yet.
+Status: **T01 scaffold + T02 local stack + T03 migrations + T04 core schema**. One module, seven binaries, shared `internal/`; no domain routes yet.
 
 ## Layout
 
@@ -23,7 +23,7 @@ internal/platform/health     /healthz, /readyz, /startupz, drain state
 internal/platform/telemetry  OpenTelemetry (OTLP/HTTP) and Prometheus
 internal/platform/db         pgx pools per role (R66); dbq = sqlc output; pgtest = postgres:18-alpine for tests
 internal/platform/migrate    migration rules (R31), goose runner with a session lock; migratetest = round trip
-migrations/                  NNNN_name.sql, embedded into cmd/migrate (0001_preamble today; 0002-0010 in T04)
+migrations/                  NNNN_name.sql, embedded into cmd/migrate: the Appendix A baseline 0001-0010 (T03, T04)
 sqlc.yaml                    sqlc v1.31.1: schema = migrations/, one block per query package
 ```
 
@@ -112,9 +112,11 @@ goose v3.28 runs the files of `migrations/` (embedded into the binary, so the `m
 
 Rules (`migrate check`, also part of `make gen-check`): files `NNNN_name.sql` numbered 1..N without gaps; every file has `-- +goose Up` and `-- +goose Down`; an empty Down only in a data migration whose header (before `-- +goose Up`) says `-- irreversible` (the round trip then rolls back only to the highest such version); `-- +goose NO TRANSACTION` exactly when the Up or Down builds or drops an index `CONCURRENTLY`; no empty `StatementBegin` block (goose would silently drop the next statement); ids default to `uuidv7()`, never `gen_random_uuid()`; no goose `ENVSUB`. Comments, strings and quoted identifiers are ignored when matching. Once a migration is applied to a database that is kept (from the P0 deploy on), it is never edited: follow-ups take the next number.
 
+Baseline (T04): `0001`-`0009` are Appendix A §A.2.0-§A.2.8 with each file's Appendix C policy block (RLS on exactly the 70 tables of Appendix C §C.3.0, generators from 0001), `0009_infra` is the only file of the baseline that grants or revokes (R66) and hands the eight SECURITY DEFINER functions to `logitrack_rls_definer`; `0010_d5_unique_constraints` (`NO TRANSACTION`) builds the three D5 unique indexes `CONCURRENTLY` and stops with an INVALID-index error while a legacy duplicate survives (R88). Local, CI and seeded databases run `up`; production runs `up-to 9` until the T24 runbook. Schema acceptance tests: `migrations/schema_integration_test.go` (tables equal the `CREATE TABLE`s of Appendix A, uuidv7 ids, STORED generated columns, inline `tenant_source`, vocabularies, append-only and void-only rules as `logitrack_app`, allocators, the D5 guard) and `internal/platform/db/rls_catalog_test.go` (RLS flags, policy names, freeze triggers and `logitrack_app` privileges against Appendix C §C.3.0 and §C.3.2, read from the document).
+
 Integration tests (`-tags=integration`) use `internal/platform/db/pgtest`: one `postgres:18-alpine` container per test binary with `deploy/postgres-init/00-roles.sql` as an init script and a fresh database per test owned by `logitrack_migrator`. `make test-integration` points testcontainers at the active docker context (`DOCKER_HOST`).
 
-sqlc: `make sqlc` regenerates; `make gen-check` runs `sqlc diff` and `sqlc vet`. The first query (`internal/platform/db/queries/login.sql`) is the migrate preflight; domain tasks add one `sql` block per repo package.
+sqlc: `make sqlc` regenerates; `make gen-check` runs `sqlc diff` and `sqlc vet`. `omit_unused_structs` keeps each package to the models of the tables its queries use. The first query (`internal/platform/db/queries/login.sql`) is the migrate preflight; domain tasks add one `sql` block per repo package.
 
 ## Develop
 

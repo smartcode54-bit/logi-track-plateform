@@ -196,7 +196,46 @@ func TestUpWaitsForTheMigrationLock(t *testing.T) {
 	}
 }
 
-func TestPreambleObjectsBelongToTheMigrator(t *testing.T) {
+// The embedded chain at its production stop (R59, R88): up-to 9 applies the baseline and leaves
+// 0010_d5_unique_constraints pending; up then builds its indexes outside a transaction.
+func TestEmbeddedChainUpToNineLeavesD5Pending(t *testing.T) {
+	ctx := context.Background()
+	d := pgtest.NewDatabase(t)
+	r := migratetest.Runner(t, d, migrations.FS)
+	res, err := r.UpTo(ctx, 9)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 9 || res[8].Name != "0009_infra.sql" {
+		t.Fatalf("up-to 9 applied %+v", res)
+	}
+	pool := d.Pool(t, db.RoleMigrator)
+	var d5 int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_class WHERE relname IN
+		('vehicle_expenses_fuel_taxinv','chats_one_open_per_driver','customer_service_fees_one_per_type')`).Scan(&d5); err != nil || d5 != 0 {
+		t.Fatalf("%d D5 unique indexes exist at version 9 (%v)", d5, err)
+	}
+	st, err := r.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last := st[len(st)-1]; last.Name != "0010_d5_unique_constraints.sql" || last.Applied {
+		t.Fatalf("last status = %+v, want 0010_d5_unique_constraints.sql pending", last)
+	}
+	if res, err = r.Up(ctx); err != nil || len(res) != 1 || res[0].Name != "0010_d5_unique_constraints.sql" {
+		t.Fatalf("up applied %+v (%v)", res, err)
+	}
+	var valid int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+		WHERE i.indisunique AND i.indisvalid AND c.relname IN
+		('vehicle_expenses_fuel_taxinv','chats_one_open_per_driver','customer_service_fees_one_per_type')`).Scan(&valid); err != nil || valid != 3 {
+		t.Fatalf("%d valid D5 unique indexes after up, want 3 (%v)", valid, err)
+	}
+}
+
+// Every object belongs to logitrack_migrator (R66), except the SECURITY DEFINER functions that 0009
+// hands to logitrack_rls_definer (Appendix C §C.3.3).
+func TestChainObjectsBelongToTheMigrator(t *testing.T) {
 	ctx := context.Background()
 	d := pgtest.NewDatabase(t)
 	r := migratetest.Runner(t, d, migrations.FS)
@@ -207,10 +246,27 @@ func TestPreambleObjectsBelongToTheMigrator(t *testing.T) {
 	var foreign int
 	// citext is a trusted extension: its member functions belong to the bootstrap superuser.
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-		WHERE n.nspname = 'public' AND pg_get_userbyid(p.proowner) <> 'logitrack_migrator'
+		WHERE n.nspname IN ('public', 'etl') AND pg_get_userbyid(p.proowner) <> 'logitrack_migrator'
+		  AND NOT (p.prosecdef AND pg_get_userbyid(p.proowner) = 'logitrack_rls_definer')
 		  AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')`).
 		Scan(&foreign); err != nil || foreign != 0 {
-		t.Fatalf("%d public functions not owned by logitrack_migrator (%v)", foreign, err)
+		t.Fatalf("%d functions owned by neither logitrack_migrator nor (SECURITY DEFINER) logitrack_rls_definer (%v)", foreign, err)
+	}
+	var definer []string
+	if err := pool.QueryRow(ctx, `SELECT coalesce(array_agg(p.oid::regprocedure::text ORDER BY p.oid::regprocedure::text), '{}')
+		FROM pg_proc p WHERE pg_get_userbyid(p.proowner) = 'logitrack_rls_definer'`).Scan(&definer); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"app_recent_work_in_scope(uuid,uuid)", "app_task_in_scope(uuid)", "app_task_stops_in_scope(uuid)",
+		"app_trip_in_scope(uuid)", "driver_directory()", "next_invoice_seq(uuid,uuid,integer,integer,text)",
+		"next_task_seq(text,date)", "trg_driver_link_membership()"}; strings.Join(definer, " ") != strings.Join(want, " ") {
+		t.Fatalf("functions of logitrack_rls_definer = %v, want %v", definer, want)
+	}
+	var notMine int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname IN ('public', 'etl') AND c.relname <> 'goose_db_version'
+		  AND pg_get_userbyid(c.relowner) <> 'logitrack_migrator'`).Scan(&notMine); err != nil || notMine != 0 {
+		t.Fatalf("%d relations not owned by logitrack_migrator (%v)", notMine, err)
 	}
 	var day string
 	var quarantine string
@@ -274,6 +330,13 @@ func TestPreambleRefusesWrongLoginAndMissingRoles(t *testing.T) {
 	})
 
 	for _, tc := range []struct{ name, breakSQL, restoreSQL, want string }{
+		{"etl role missing",
+			"ALTER ROLE logitrack_etl RENAME TO logitrack_etl_gone", "ALTER ROLE logitrack_etl_gone RENAME TO logitrack_etl",
+			"role logitrack_etl is missing or has wrong attributes"},
+		{"rls_definer role missing",
+			"ALTER ROLE logitrack_rls_definer RENAME TO logitrack_rls_definer_gone",
+			"ALTER ROLE logitrack_rls_definer_gone RENAME TO logitrack_rls_definer",
+			"role logitrack_rls_definer is missing or has wrong attributes"},
 		{"readonly cannot log in",
 			"ALTER ROLE logitrack_readonly NOLOGIN", "ALTER ROLE logitrack_readonly LOGIN",
 			"role logitrack_readonly is missing or has wrong attributes"},

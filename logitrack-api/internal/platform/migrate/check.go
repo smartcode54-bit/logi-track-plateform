@@ -240,6 +240,19 @@ func inspect(name string, src []byte) (File, []string) {
 	return f, problems
 }
 
+// Code returns the SQL of a migration file without comments (goose annotations included), quoted
+// strings and quoted identifiers: the text the rules of Check match. Tests that look at a whole
+// chain use it too, e.g. the single grant site of the baseline (R66).
+func Code(src []byte) string {
+	var cs codeScanner
+	var b strings.Builder
+	for line := range strings.Lines(string(src)) {
+		b.WriteString(cs.strip(strings.TrimRight(line, "\r\n")))
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
 // codeScanner removes comments, quoted strings and quoted identifiers from SQL lines so the rules
 // match code only. Dollar-quoted bodies stay visible: a function body is code too (R34 applies to
 // the ids it generates).

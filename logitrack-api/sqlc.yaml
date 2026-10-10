@@ -1,6 +1,7 @@
 # sqlc v1.31.1 (developer-spec.md §2.4): make sqlc writes the code, make gen-check runs `sqlc diff`
 # and `sqlc vet`. The schema is the goose chain (sqlc reads only the Up sections). Each domain adds
 # one block with its queries next to its repo package; the go options below are the project defaults.
+# omit_unused_structs: a package gets the models of the tables its queries use, not all 85 (T04).
 version: "2"
 sql:
   - name: platform-db
@@ -14,3 +15,4 @@ sql:
         sql_package: pgx/v5
         emit_empty_slices: true
         emit_pointers_for_null_types: true
+        omit_unused_structs: true
