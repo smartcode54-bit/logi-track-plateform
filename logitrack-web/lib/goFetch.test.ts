@@ -110,6 +110,48 @@ describe("goFetch: same-origin BFF calls only", () => {
         expect(calls).toHaveLength(0);
     });
 
+    it("refuses dot segments in every spelling fetch would resolve, so a path cannot leave /api/go/v1", async () => {
+        const { goFetch } = await loadTab();
+        const origin = "http://web.test";
+        // Each of these would reach another path once the URL parser normalised it (e.g. /api/auth/refresh).
+        const escapes = [
+            "/v1/trips/%2e%2e/%2e%2e/%2e%2e/auth/refresh",
+            "/v1/%2e%2e/x",
+            "/v1/a/.%2e/x",
+            "/v1/a/%2E./x",
+            "/v1/a/%2E%2E/x",
+            "/v1/%2e/x",
+            "/v1/a/.\t./x",
+            "/v1/a/.\n./x",
+            "/v1/a/.\r./x",
+            "/v1/a\rb",
+            "/v1/a\u0000b",
+            "/v1/a%5cb",
+            "/v1/a%5Cb",
+            "/v1/a%zz",
+            "/v1/100%",
+        ];
+        for (const bad of escapes) {
+            expect(() => goFetch.goUrl(bad), JSON.stringify(bad)).toThrow(TypeError);
+        }
+        // Legitimate values pass, and every accepted URL resolves under /api/go/v1/ unchanged.
+        const ok = [
+            goFetch.goPath`/v1/trips/${"%2e%2e"}`,
+            goFetch.goPath`/v1/hubs/${"บางนา 26"}`,
+            "/v1/files/a.b/...",
+            goFetch.goPath`/v1/users/${"a..b"}`,
+            "/v1/search?q=..%2F..",
+        ];
+        for (const path of ok) {
+            const url = goFetch.goUrl(path, { next: "../../auth/logout" });
+            expect(new URL(url, origin).pathname.startsWith("/api/go/v1/"), url).toBe(true);
+        }
+        expect(goFetch.goUrl(goFetch.goPath`/v1/trips/${"%2e%2e"}`)).toBe("/api/go/v1/trips/%252e%252e");
+        // goPath does not encode dots, so a literal ".." value is still refused.
+        expect(() => goFetch.goUrl(goFetch.goPath`/v1/trips/${".."}`)).toThrow(TypeError);
+        expect(calls).toHaveLength(0);
+    });
+
     it("never lets the caller set credentials or ship files through the BFF", async () => {
         const { goFetch } = await loadTab();
         handler = () => json(200, { data: null });
@@ -382,5 +424,163 @@ describe("goFetch: 401 refresh and retry (R37, R78)", () => {
         expect(session.loginUrl()).toBe("/login");
         window.history.replaceState({}, "", "/app/users");
         expect(session.loginUrl({ code: "session_revoked" })).toBe("/login?next=%2Fapp%2Fusers&reason=revoked");
+    });
+});
+
+describe("onClaimsRefreshed: the follow-up of a claims_changed refresh (§10.4 step 3, Appendix E §E.8.3)", () => {
+    it("a 401 claims_changed runs the listener exactly once, before goFetch resolves", async () => {
+        const { goFetch, refresh } = await loadTab();
+        fakeSession({ accessValid: true, cookieVer: 1, userVer: 2 });
+        const order: string[] = [];
+        refresh.onClaimsRefreshed(() => order.push(`listener after ${refreshCalls().length} refresh, ${dataCalls().length} data calls`));
+        const res = await goFetch.goFetch<{ ver: number }>("/v1/me");
+        order.push("resolved");
+        expect(res.ver).toBe(2);
+        // After the forced refresh, before the retry and before the caller sees the result.
+        expect(order).toEqual(["listener after 1 refresh, 1 data calls", "resolved"]);
+    });
+
+    it("concurrent claims_changed 401s in one tab notify once", async () => {
+        const { goFetch, refresh } = await loadTab();
+        fakeSession({ accessValid: true, cookieVer: 1, userVer: 2 });
+        const listener = vi.fn();
+        refresh.onClaimsRefreshed(listener);
+        await Promise.all([goFetch.goFetch("/v1/me"), goFetch.goFetch("/v1/hubs"), goFetch.goFetch("/v1/trips/monitor")]);
+        expect(refreshCalls()).toHaveLength(1);
+        expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it("a tab served by another tab's forced refresh still runs its own listener once", async () => {
+        useLocks(new FakeLocks());
+        const tabA = await loadTab();
+        const tabB = await loadTab();
+        fakeSession({ accessValid: true, cookieVer: 1, userVer: 2 });
+        const inA = vi.fn();
+        const inB = vi.fn();
+        tabA.refresh.onClaimsRefreshed(inA);
+        tabB.refresh.onClaimsRefreshed(inB);
+        const [a, b] = await Promise.all([
+            tabA.goFetch.goFetch<{ ver: number }>("/v1/me"),
+            tabB.goFetch.goFetch<{ ver: number }>("/v1/me"),
+        ]);
+        expect([a.ver, b.ver]).toEqual([2, 2]);
+        expect(refreshCalls()).toHaveLength(1); // one tab refreshed, the other skipped on the forced marker
+        expect(inA).toHaveBeenCalledTimes(1);
+        expect(inB).toHaveBeenCalledTimes(1);
+    });
+
+    it("an unforced token_expired refresh does not notify", async () => {
+        const { goFetch, refresh } = await loadTab();
+        fakeSession({ accessValid: false });
+        const listener = vi.fn();
+        refresh.onClaimsRefreshed(listener);
+        await goFetch.goFetch("/v1/hubs");
+        expect(refreshCalls()).toHaveLength(1);
+        expect(listener).not.toHaveBeenCalled();
+    });
+
+    it("a refused forced refresh ends the session and does not notify", async () => {
+        const { goFetch, refresh, session } = await loadTab();
+        const navigate = vi.fn();
+        const ended = vi.fn();
+        const claims = vi.fn();
+        session.configureSessionEnd({ navigate });
+        session.onSessionEnd(ended);
+        refresh.onClaimsRefreshed(claims);
+        fakeSession({ accessValid: true, cookieVer: 1, userVer: 2, refreshOk: false });
+        await expect(goFetch.goFetch("/v1/me")).rejects.toMatchObject({ code: "token_expired" });
+        expect(ended).toHaveBeenCalledTimes(1);
+        expect(navigate).toHaveBeenCalledTimes(1);
+        expect(claims).not.toHaveBeenCalled();
+    });
+
+    it("a failing listener does not stop the others or the retry; unsubscribe stops it", async () => {
+        const { goFetch, refresh } = await loadTab();
+        const s = fakeSession({ accessValid: true, cookieVer: 1, userVer: 2 });
+        const second = vi.fn();
+        const off = refresh.onClaimsRefreshed(() => {
+            throw new Error("boom");
+        });
+        refresh.onClaimsRefreshed(second);
+        await expect(goFetch.goFetch<{ ver: number }>("/v1/me")).resolves.toMatchObject({ ver: 2 });
+        expect(second).toHaveBeenCalledTimes(1);
+        off();
+        s.userVer = 3; // another role change
+        await new Promise((r) => setTimeout(r, 2)); // the next forced refresh completes at a later instant
+        await goFetch.goFetch("/v1/me");
+        expect(second).toHaveBeenCalledTimes(2);
+    });
+});
+
+describe("session end on public pages (no reload loop on /login)", () => {
+    /** A browser with no cookies: Go says unauthenticated, the BFF refuses the refresh (no lt_rt). */
+    function signedOut() {
+        handler = (c) => (c.url === "/api/auth/refresh" ? goError(401, "unauthenticated") : goError(401, "unauthenticated"));
+    }
+
+    for (const page of ["/login", "/login?next=%2Fapp%2Fusers", "/about", "/"]) {
+        it(`a signed-out visitor on ${page} gets a plain 401: no navigation, no logout, no listeners`, async () => {
+            window.history.replaceState({}, "", page);
+            const { goFetch, session } = await loadTab();
+            const navigate = vi.fn();
+            const ended = vi.fn();
+            session.configureSessionEnd({ navigate });
+            session.onSessionEnd(ended);
+            signedOut();
+            await expect(goFetch.goFetch("/v1/me")).rejects.toMatchObject({ status: 401, code: "unauthenticated" });
+            // Each "page load" of the old loop: the second load behaves the same, still without leaving.
+            await expect(goFetch.goFetch("/v1/me")).rejects.toMatchObject({ code: "unauthenticated" });
+            expect(refreshCalls()).toHaveLength(2);
+            expect(navigate).not.toHaveBeenCalled();
+            expect(logoutCalls()).toHaveLength(0);
+            expect(ended).not.toHaveBeenCalled();
+        });
+    }
+
+    it("on /app the same signed-out 401 still goes to /login?next=", async () => {
+        window.history.replaceState({}, "", "/app/x");
+        const { goFetch, session } = await loadTab();
+        const navigate = vi.fn();
+        session.configureSessionEnd({ navigate });
+        signedOut();
+        await expect(goFetch.goFetch("/v1/me")).rejects.toMatchObject({ code: "unauthenticated" });
+        expect(navigate).toHaveBeenCalledTimes(1);
+        expect(navigate).toHaveBeenCalledWith("/login?next=%2Fapp%2Fx");
+        expect(logoutCalls()).toHaveLength(1);
+    });
+
+    it("a revoked session on /login is cleaned up without leaving the page, once for concurrent failures", async () => {
+        window.history.replaceState({}, "", "/login");
+        const { goFetch, session } = await loadTab();
+        const navigate = vi.fn();
+        const ended = vi.fn();
+        session.configureSessionEnd({ navigate });
+        session.onSessionEnd(ended);
+        handler = () => goError(401, "session_revoked");
+        await Promise.allSettled([goFetch.goFetch("/v1/me"), goFetch.goFetch("/v1/me/tenants")]);
+        expect(ended).toHaveBeenCalledTimes(1);
+        expect(logoutCalls()).toHaveLength(1);
+        expect(navigate).not.toHaveBeenCalled();
+    });
+
+    it("after a session end on /login, a later session end on /app still navigates", async () => {
+        window.history.replaceState({}, "", "/login");
+        const { goFetch, session } = await loadTab();
+        const navigate = vi.fn();
+        const ended = vi.fn();
+        session.configureSessionEnd({ navigate });
+        session.onSessionEnd(ended);
+        handler = () => goError(401, "session_revoked");
+        await expect(goFetch.goFetch("/v1/me")).rejects.toMatchObject({ code: "session_revoked" });
+        expect(navigate).not.toHaveBeenCalled();
+        await vi.waitFor(() => expect(logoutCalls()).toHaveLength(1));
+        await new Promise((r) => setTimeout(r, 0)); // the logout settled
+        // The user signs in again and the login page moves to /app on the client (no page load).
+        window.history.replaceState({}, "", "/app/users");
+        await expect(goFetch.goFetch("/v1/users")).rejects.toMatchObject({ code: "session_revoked" });
+        expect(navigate).toHaveBeenCalledTimes(1);
+        expect(navigate).toHaveBeenCalledWith("/login?next=%2Fapp%2Fusers&reason=revoked");
+        expect(ended).toHaveBeenCalledTimes(2);
+        expect(logoutCalls()).toHaveLength(2);
     });
 });

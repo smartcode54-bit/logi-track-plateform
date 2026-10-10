@@ -24,7 +24,7 @@ GEN_OUT       = deploy/rabbitmq-definitions.json api/routes.txt $(SQLC_OUT)
 # The secret-scan workflow (.github/scripts/secret-scan.sh) reads it through `make print-gitleaks-img`.
 GITLEAKS_IMG := zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
 
-.PHONY: help env dev-keys dev-db up down reset ps logs psql redis-cli amqp-ui minio-console tunnel \
+.PHONY: help env dev-keys dev-db up api-reload down reset ps logs psql redis-cli amqp-ui minio-console tunnel \
         migrate migrate-up-to migrate-new migrate-status migrate-down migrate-check migrate-roundtrip \
         seed seed-verify etl-fixtures etl-fixtures-check \
         test test-integration lint sqlc gen gen-check openapi web env-check secrets-scan print-gitleaks-img smoke
@@ -51,6 +51,9 @@ up: .env ## start the stack (EDGE=1 adds web + caddy, TW2); waits until every se
 	$(COMPOSE) up -d --wait postgres
 	$(MAKE) --no-print-directory dev-db
 	$(COMPOSE) $(PROFILES) up -d --build --wait
+
+api-reload: .env ## recreate only the api with the current .env (a WEB_FLAG_OVERRIDES change); no rebuild, no migrate
+	$(COMPOSE) up -d --no-deps --wait api
 
 down: ## stop the stack incl. profiled services, keep volumes
 	$(COMPOSE) --profile '*' down

@@ -221,6 +221,11 @@ describe("scripts/check-standalone.mjs", () => {
     write("lib/client.ts", 'export const u = "http://api:8080/v1/hubs";\n');
     write("features/x/api/useX.ts", "export const u = process.env.GO_API_INTERNAL_URL;\n");
     write("components/y.tsx", 'fetch("http://localhost:8081/v1/mobile/settings");\n');
+    // IPv6 loopback: the character before `[` is `/`, so a leading word boundary would never match.
+    write("lib/v6.ts", 'fetch("http://[::1]:8080/v1/hubs");\n');
+    write("components/v6any.tsx", "fetch(`http://[::]:8081/v1/mobile/settings`);\n");
+    // Look-alikes are not Go listeners.
+    write("lib/lookalike.ts", 'export const u = ["http://myapi:8080/x", "http://localhost:80801/x", "http://[::2]:8080/x"];\n');
     // Server code may read it: route handlers, the edge gate and server-only modules.
     write("app/api/go/[...path]/route.ts", "const base = process.env.GO_API_INTERNAL_URL;\n");
     write("proxy.ts", "const jwks = new URL('/.well-known/jwks.json', process.env.GO_API_INTERNAL_URL);\n");
@@ -228,9 +233,12 @@ describe("scripts/check-standalone.mjs", () => {
     // Tests may name anything.
     write("lib/goFetch.test.ts", 'const u = "http://api:8080";\n');
     const problems: string[] = checkSources({ webDir: web });
-    expect(problems).toHaveLength(3);
+    expect(problems).toHaveLength(5);
     expect(problems.join("\n")).toMatch(/lib\/client\.ts names a Go listener/);
     expect(problems.join("\n")).toMatch(/components\/y\.tsx names a Go listener/);
+    expect(problems.join("\n")).toMatch(/lib\/v6\.ts names a Go listener/);
+    expect(problems.join("\n")).toMatch(/components\/v6any\.tsx names a Go listener/);
+    expect(problems.join("\n")).not.toMatch(/lookalike/);
     expect(problems.join("\n")).toMatch(/features\/x\/api\/useX\.ts reads GO_API_INTERNAL_URL outside server code/);
     expect(check({ env, webDir: web }).problems).toEqual(problems);
     expect(checkSources({ webDir })).toEqual([]);

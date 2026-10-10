@@ -13,7 +13,7 @@
 //  4. Source code references only the allow-listed NEXT_PUBLIC_* names (§16.1, web-public).
 //  5. The browser holds no Go host (R41, T17): only server code (route handlers under app/api,
 //     proxy.ts, and modules that `import "server-only"`) names GO_API_INTERNAL_URL, and no source
-//     file names a Go listener of the compose stack (api:8080, localhost:8081, ...); the browser
+//     file names a Go listener of the compose stack (api:8080, localhost:8081, [::1]:8080, ...); the browser
 //     reaches Go only through lib/goFetch.ts and the same-origin BFF /api/go/v1/*.
 // Checks 4 and 5 need no build: `checkSources()` runs them (also from `pnpm test`).
 // Prints names and file paths only, never values.
@@ -57,8 +57,9 @@ const SOURCE_EXT = /\.(c|m)?(j|t)sx?$/;
 const TEST_FILE = /(\.test\.|\.spec\.|[\\/]__tests__[\\/])/;
 // A full name: ends in a letter or digit (a template prefix such as `NEXT_PUBLIC_FIREBASE_${k}` is skipped).
 const NEXT_PUBLIC_RX = /NEXT_PUBLIC_[A-Z0-9_]*[A-Z0-9]\b/g;
-// A Go listener of the compose stack (developer-spec.md §15: internal :8080, public :8081).
-const GO_HOST_RX = /\b(?:api|localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]):808[01]\b/;
+// A Go listener of the compose stack (developer-spec.md §15: internal :8080, public :8081). The word
+// boundary guards only the word-like hosts: before `[` a URL has `/`, which is no boundary.
+const GO_HOST_RX = /(?:\b(?:api|localhost|127\.0\.0\.1|0\.0\.0\.0)|\[::1?\]):808[01]\b/;
 const SERVER_ONLY_IMPORT_RX = /^\s*import\s+["']server-only["']\s*;?\s*$/m;
 
 /** Server code may read the Go URL: route handlers, the edge gate and `server-only` modules. */

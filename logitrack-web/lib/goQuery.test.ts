@@ -1,6 +1,7 @@
 // T17 (developer-spec.md §10.6, §10.7): TanStack queryFn / mutationFn factories over goFetch.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MutationObserver, QueryClient } from "@tanstack/react-query";
+import { newIdempotencyKey } from "./goFetch";
 import { goInfiniteQueryFn, goMutationFn, goNextPageParam, goQueryFn, idempotencyKeyFor } from "./goQuery";
 
 interface Call {
@@ -137,10 +138,83 @@ describe("goMutationFn", () => {
         expect(calls[1].body).toBeUndefined();
     });
 
-    it("keys one action per variables object", () => {
+    it("keys one action per variables object and refuses primitives it cannot remember", () => {
         const vars = { a: 1 };
         expect(idempotencyKeyFor(vars)).toBe(idempotencyKeyFor(vars));
         expect(idempotencyKeyFor({ a: 1 })).not.toBe(idempotencyKeyFor(vars));
-        expect(idempotencyKeyFor("x")).not.toBe(idempotencyKeyFor("x"));
+        for (const primitive of ["x", 1, undefined, null]) {
+            expect(() => idempotencyKeyFor(primitive), String(primitive)).toThrow(TypeError);
+        }
+    });
+
+    const busyThenOk = () => {
+        let attempt = 0;
+        handler = () =>
+            attempt++ === 0
+                ? json(503, { error: { code: "unavailable", message: "busy", details: {}, requestId: "r1" } })
+                : json(200, { data: { ok: true } });
+    };
+
+    it("an idempotent mutate(id) is refused before any request instead of sending a new key per attempt", async () => {
+        busyThenOk();
+        const client = newClient();
+        const observer = new MutationObserver(client, {
+            mutationFn: goMutationFn<{ ok: boolean }, string>({
+                method: "POST",
+                path: (id) => `/v1/trips/${id}/billing/compute`,
+                body: () => ({}),
+                idempotent: true,
+            }),
+            retry: 1,
+            retryDelay: 0,
+        });
+        await expect(observer.mutate("trip-1")).rejects.toThrow(/need object variables or an idempotencyKey/);
+        expect(calls).toHaveLength(0);
+    });
+
+    it("an explicit idempotencyKey from the variables is reused across a 503 and its retry", async () => {
+        busyThenOk();
+        const client = newClient();
+        const observer = new MutationObserver(client, {
+            mutationFn: goMutationFn<{ ok: boolean }, { id: string; idempotencyKey: string }>({
+                method: "POST",
+                path: (v) => `/v1/trips/${v.id}/billing/compute`,
+                body: () => ({}),
+                idempotencyKey: (v) => v.idempotencyKey,
+            }),
+            retry: 1,
+            retryDelay: 0,
+        });
+        const key = newIdempotencyKey();
+        await expect(observer.mutate({ id: "trip-1", idempotencyKey: key })).resolves.toEqual({ ok: true });
+        expect(calls).toHaveLength(2);
+        expect(calls.map((c) => c.headers.get("Idempotency-Key"))).toEqual([key, key]);
+        expect(calls.map((c) => c.body)).toEqual(["{}", "{}"]);
+        expect(calls[1].url).toBe("/api/go/v1/trips/trip-1/billing/compute");
+        handler = () => json(200, { data: { ok: true } });
+        await observer.mutate({ id: "trip-1", idempotencyKey: newIdempotencyKey() });
+        expect(calls[2].headers.get("Idempotency-Key")).not.toBe(key);
+    });
+
+    it("the same variables object passed again after a success is a new action with a new key", async () => {
+        handler = () => json(200, { data: { ok: true } });
+        const client = newClient();
+        client.setQueryData(["users"], [{ id: "u1", role: "admin" }]);
+        const row = client.getQueryData<{ id: string; role: string }[]>(["users"])![0];
+        const observer = new MutationObserver(client, {
+            mutationFn: goMutationFn<{ ok: boolean }, { id: string; role: string }>({
+                method: "POST",
+                path: (v) => `/v1/users/${v.id}/revoke-sessions`,
+                body: () => ({}),
+                idempotent: true,
+            }),
+        });
+        await observer.mutate(row);
+        // An equal refetch keeps the same reference (structural sharing).
+        client.setQueryData(["users"], [{ id: "u1", role: "admin" }]);
+        expect(client.getQueryData<{ id: string }[]>(["users"])![0]).toBe(row);
+        await observer.mutate(row);
+        expect(calls).toHaveLength(2);
+        expect(calls[1].headers.get("Idempotency-Key")).not.toBe(calls[0].headers.get("Idempotency-Key"));
     });
 });

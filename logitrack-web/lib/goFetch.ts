@@ -13,15 +13,17 @@
  *   key is fixed per call, so the retry after a refresh carries the same key (R53, R63).
  * - 401 (R37, R78): `token_expired`, or `unauthenticated` because the access cookie has expired,
  *   runs the shared refresh (lib/sharedRefresh.ts; forced only for `details.reason =
- *   "claims_changed"`) and retries exactly once. `session_revoked`, `invalid_token`, a refused
- *   refresh or a 401 on the retry ends the session (lib/sessionEnd.ts: listeners, then
- *   `/login?next=`). A refresh that cannot reach the BFF fails the call and ends nothing.
- *   `anonymous: true` calls skip all of this.
+ *   "claims_changed"`, after which this tab's `onClaimsRefreshed` listeners run) and retries
+ *   exactly once. `session_revoked`, `invalid_token`, a refused refresh or a 401 on the retry ends
+ *   the session (lib/sessionEnd.ts: listeners, logout, then `/login?next=` from a protected page).
+ *   On a public page (outside `/app`) an `unauthenticated` 401 whose refresh is refused is a
+ *   signed-out visitor, not a session end: the 401 is thrown as is. A refresh that cannot reach the
+ *   BFF fails the call and ends nothing. `anonymous: true` calls skip all of this.
  *
  * Browser only: the path is relative to the web origin.
  */
 import { ApiError, apiErrorFromResponse, networkError } from "./apiError";
-import { endSession } from "./sessionEnd";
+import { endSession, onProtectedPage } from "./sessionEnd";
 import { sharedRefresh } from "./sharedRefresh";
 
 export { ApiError, isApiError } from "./apiError";
@@ -72,24 +74,47 @@ export function newIdempotencyKey(): string {
 
 /**
  * Builds a Go path from a template, percent-encoding each interpolated value as one segment or
- * query value: goPath`/v1/trips/${id}/photos`.
+ * query value: goPath`/v1/trips/${id}/photos`. Every value that is not a constant (ids from the
+ * route, the query key or an API response) goes through goPath, never raw template interpolation:
+ * a raw `%2e%2e` or `/` would change which path the request reaches.
  */
 export function goPath(strings: TemplateStringsArray, ...values: Array<string | number>): string {
     return strings.reduce((acc, s, i) => acc + s + (i < values.length ? encodeURIComponent(String(values[i])) : ""), "");
 }
 
-/** `/api/go` + a checked `/v1/...` path + the merged query string. Anything else is a programming error. */
+/** C0 controls and DEL: the WHATWG URL parser strips tab, LF and CR, and none belongs in a path. */
+function hasControlChar(text: string): boolean {
+    for (let i = 0; i < text.length; i++) {
+        const c = text.charCodeAt(i);
+        if (c < 0x20 || c === 0x7f) return true;
+    }
+    return false;
+}
+
+/**
+ * `/api/go` + a checked `/v1/...` path + the merged query string. Anything else is a programming error.
+ * Each segment is checked as the URL parser will read it: a dot segment in any spelling (`..`,
+ * `%2e%2e`, `.%2E`, `.<tab>.`, ...) would be resolved by `fetch` before the request leaves the tab,
+ * so it is refused here, as are empty segments, an encoded `/` or `\`, control characters and
+ * malformed escapes; the built URL must still resolve under `/api/go/v1/`.
+ */
 export function goUrl(path: string, query?: QueryParams): string {
     if (typeof path !== "string" || !path.startsWith("/v1/")) {
         throw new TypeError("goFetch: the path must be a Go path starting with /v1/ (the BFF adds /api/go)");
     }
     const q = path.indexOf("?");
     const pathname = q === -1 ? path : path.slice(0, q);
-    if (pathname.includes("#") || pathname.includes("\\")) {
-        throw new TypeError("goFetch: the path must not contain '#' or '\\'");
+    if (pathname.includes("#") || pathname.includes("\\") || hasControlChar(pathname)) {
+        throw new TypeError("goFetch: the path must not contain '#', '\\' or control characters");
     }
     for (const segment of pathname.slice(1).split("/")) {
-        if (segment === "" || segment === "." || segment === ".." || /%(2f|5c)/i.test(segment)) {
+        let decoded: string;
+        try {
+            decoded = decodeURIComponent(segment);
+        } catch {
+            throw new TypeError("goFetch: malformed percent-escape in the path");
+        }
+        if (decoded === "" || decoded === "." || decoded === ".." || /[/\\]/.test(decoded)) {
             throw new TypeError("goFetch: empty, dot or encoded-slash path segments are refused");
         }
     }
@@ -100,7 +125,12 @@ export function goUrl(path: string, query?: QueryParams): string {
         }
     }
     const qs = params.toString();
-    return `${GO_API_PREFIX}${pathname}${qs ? `?${qs}` : ""}`;
+    const url = `${GO_API_PREFIX}${pathname}${qs ? `?${qs}` : ""}`;
+    // Backstop: whatever the checks above missed, the request must stay under /api/go/v1/.
+    if (!new URL(url, "http://web.invalid").pathname.startsWith(`${GO_API_PREFIX}/v1/`)) {
+        throw new TypeError("goFetch: the path resolves outside /api/go/v1");
+    }
+    return url;
 }
 
 function buildInit(options: GoFetchOptions): RequestInit {
@@ -198,6 +228,9 @@ export async function goFetchEnvelope<T>(path: string, options: GoFetchOptions =
     }
     const refreshed = await sharedRefresh({ force: first.details.reason === "claims_changed", since: startedAt });
     if (!refreshed) {
+        // No access cookie and no refresh token on a public page: a signed-out visitor (the login
+        // page's own ['me'] included), not a session to end.
+        if (first.code === "unauthenticated" && !onProtectedPage()) throw first;
         endSession(first);
         throw first;
     }
