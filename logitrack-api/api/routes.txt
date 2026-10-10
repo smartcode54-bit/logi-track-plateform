@@ -20,6 +20,7 @@ POST /v1/auth/password/reset internal,public
 POST /v1/auth/refresh internal,public
 POST /v1/auth/sse-ticket internal,public
 POST /v1/auth/tenant internal,public
+GET /v1/config/web-flags internal
 GET /v1/me internal
 PATCH /v1/me internal
 USE /v1/me internal

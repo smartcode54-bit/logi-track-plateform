@@ -2,7 +2,7 @@
 
 Go backend for the LogiTrack migration off Firebase (`mv-go`). Design: [`developer-spec.md`](../developer-spec.md) §2, routes in [Appendix B](../shared-docs/specs/mv-go/B-api-catalog.md). Branch policy: work lands by PR into `mv-go`, never `main` (R90).
 
-Status: **T01 scaffold + T02 local stack + T03 migrations + T04 core schema + T05 own auth + T06 Google sign-in + T36 billing engine + TW2 edge (web container + Caddy) + T14 CI**. One module, seven binaries, shared `internal/`; the first routes are `/v1/auth/*` and `/v1/me*` (T05).
+Status: **T01 scaffold + T02 local stack + T03 migrations + T04 core schema + T05 own auth + T06 Google sign-in + T36 billing engine + TW2 edge (web container + Caddy) + T14 CI + T17 web flags**. One module, seven binaries, shared `internal/`; the first routes are `/v1/auth/*` and `/v1/me*` (T05) and `GET /v1/config/web-flags` (T17).
 
 ## Layout
 
@@ -22,6 +22,7 @@ internal/auth/firebasescrypt verify-then-rehash of imported Firebase scrypt hash
 internal/auth/google         Google ID-token verifier (go-oidc, lazy discovery, aud allow list; googletest = in-process fake Google)
 internal/authz               request principal (T05 identity half; catalog and RequireCap with T07)
 internal/security            the only writer of security_events: security.Append in the caller's transaction (T05)
+internal/webcfg              runtime web domain flags: GET /v1/config/web-flags from PG_OWNED_DOMAINS + WEB_FLAG_OVERRIDES (T17)
 internal/platform/config     env loading: all missing/invalid names in one error, never values
 internal/platform/logx       zerolog + redacting writer (authorization, password, *token, cookie, idCard, ...)
 internal/platform/httpx      envelopes, error codes, request id, client IP, access log
@@ -78,6 +79,7 @@ Errors are always `{"error":{"code","message","details","requestId"}}` and `requ
 | `ARGON2_MEMORY_KB`, `ARGON2_ITERATIONS`, `ARGON2_PARALLELISM` | api | no | `65536`, `3`, `2` |
 | `FIREBASE_SCRYPT_SIGNER_KEY`, `_SALT_SEPARATOR`, `_ROUNDS`, `_MEM_COST` | api | all four or none | none: legacy hashes cannot sign in (`make env` sets the public firebase/scrypt test set locally) |
 | `RATE_LIMIT_ENABLED`, `RATE_LIMIT_LOGIN`, `RATE_LIMIT_PUBLIC_FORMS`, `RATE_LIMIT_EVIDENCE` | api | no | `true`, `10/1m` (login per IP; the 5-failure lockout always applies), `5/1h`, `60/1m`; parsed once by `ratelimit.Config` |
+| `PG_OWNED_DOMAINS`, `WEB_FLAG_OVERRIDES` | api | no | none (every web domain on Firestore); `.env.example` sets `PG_OWNED_DOMAINS=all` locally. See "Web flags" |
 
 A missing or invalid variable stops the process with exit code 2 and a message naming every offending variable (never its value). Startup logs list each variable as `set`/`unset`.
 
@@ -158,6 +160,10 @@ Go returns tokens in JSON bodies and never sets cookies (the BFF does, TW3). Rou
 - **Passwords**: Argon2id (parameters read back; weaker stored hashes re-hash on login), Firebase scrypt verify-then-rehash, `must_change_password` -> `403 password_change_required` with a single-use `passwordChangeTicket` redeemed at `/v1/auth/password/change`, forgot always `202` (outbox `auth.password_reset_requested`; the `notify.email` consumer of T10 calls `IssuePasswordResetToken`, which stores only the hash), 5 failures / 15 min lock an email (`423 locked`; each attempt is counted before its check). Every failed check costs one Argon2id plus, while `FIREBASE_SCRYPT_*` is set, one scrypt (no timing enumeration); at most `GOMAXPROCS / ARGON2_PARALLELISM` hashes run at once (`503` after 3 s); a login opens its session only while the row still holds the credential it verified, so a racing reset wins.
 - **Google sign-in** (T06, Appendix C §C.4.10): `GET /v1/auth/google/nonce` (web, through the BFF; single use, 10 min) and `POST /v1/auth/google {idToken, nonce?, platform, installId?, appVersion?}` with a GIS or `google_sign_in` ID token; no authorization-code flow (R23). `internal/auth/google` verifies with go-oidc (discovery on the first sign-in, so the api starts without Google; RS256; every `aud` in `GOOGLE_OIDC_ALLOWED_CLIENT_IDS`; `email_verified`). The account is the `auth_identities` Google `sub`, else the user with the verified email when Google is authoritative for it (a Gmail address or a Workspace account with `hd`), linked in the same transaction as `google_identity_linked`; otherwise `403 no_account` (no self-signup). A body nonce must be the token's and unused; a driver-app token (`azp` != `aud`) sent without one may carry the SDK's own nonce (iOS), which is ignored. Bad token or nonce `401 invalid_token`, Google unreachable `503`, variable unset `404`. Locally the variable is empty, so Google sign-in is off; tests use `googletest` (no network).
 - Every statement runs in `db.WithSystem` (`app.bypass_tenant=on`); queries are sqlc (`internal/auth/queries` -> `internal/auth/authdb`). Tests: `go test ./internal/auth/... ./internal/security/...` (unit: JWT, the firebase/scrypt public vectors, Argon2id and the hashing gate, policy, equal work per failed check) and `make test-integration` (PostgreSQL 18 + Redis 7 containers, both listeners; `hardening_integration_test.go` covers the races and lost Redis writes).
+
+## Web flags (T17, main spec §10.6, §12.1)
+
+`GET /v1/config/web-flags` (internal listener only, unauthenticated, `Cache-Control: no-store`) answers `{"data":{"domains":{"auth":"go","masterdata":"firebase",...}}}` for the nine domains `auth, masterdata, operations, billing, hr, comms, security, mobile_release, dashboard`. A domain listed in `PG_OWNED_DOMAINS` (empty, `all`, or a comma list) is `go`; each `WEB_FLAG_OVERRIDES` entry `domain=go|firebase` then replaces its domain, e.g. `auth=go` in P0 or `billing=firebase` to roll the billing pages back. Both are parsed at start-up and a bad value stops the api (exit 2, the message names the variable, never its value). The web reads the endpoint through the BFF as TanStack `['webFlags']` and polls it every 60 s, so a rollback is an env change plus a restart of the api container (`docker compose up -d api`), with no web rebuild (R35, R41). The Redis key `cache:web_flags` stays unused: the value is the api's own env.
 
 ## Billing engine (T36, main spec §6)
 

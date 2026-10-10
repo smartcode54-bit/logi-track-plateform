@@ -10,6 +10,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/app"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/webcfg"
 )
 
 func baseEnv() []string {
@@ -256,5 +257,38 @@ func TestAPIConfigParsesScryptParams(t *testing.T) {
 	}
 	if cfg.RateLimit.Limit(ratelimit.LoginIP) != (ratelimit.Limit{Count: 20, Window: 30 * time.Second}) {
 		t.Fatalf("login rate: %+v", cfg.RateLimit)
+	}
+}
+
+// PG_OWNED_DOMAINS and WEB_FLAG_OVERRIDES give the web flags of GET /v1/config/web-flags (T17,
+// R35, R41); a bad value stops the api at start-up instead of serving a wrong flag.
+func TestAPIConfigParsesWebFlags(t *testing.T) {
+	cfg, err := config.LoadFrom[app.APIConfig](baseEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range webcfg.Domains {
+		if cfg.WebFlags.Source(d) != webcfg.SourceFirebase {
+			t.Fatalf("unset variables: %s = %s, want firebase", d, cfg.WebFlags.Source(d))
+		}
+	}
+	cfg, err = config.LoadFrom[app.APIConfig](override(baseEnv(), []string{
+		"PG_OWNED_DOMAINS=all", "WEB_FLAG_OVERRIDES=billing=firebase",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.WebFlags.Source("billing") != webcfg.SourceFirebase || cfg.WebFlags.Source("auth") != webcfg.SourceGo {
+		t.Fatalf("flags = %v", cfg.WebFlags.Map())
+	}
+	for _, kv := range []string{"PG_OWNED_DOMAINS=finance", "WEB_FLAG_OVERRIDES=auth=postgres"} {
+		_, err := config.LoadFrom[app.APIConfig](override(baseEnv(), []string{kv}))
+		name, value, _ := strings.Cut(kv, "=")
+		if err == nil || !strings.Contains(err.Error(), name+": ") {
+			t.Fatalf("%s: want an error naming the variable, got %v", name, err)
+		}
+		if strings.Contains(err.Error(), value) {
+			t.Fatalf("the error echoes the value: %v", err)
+		}
 	}
 }

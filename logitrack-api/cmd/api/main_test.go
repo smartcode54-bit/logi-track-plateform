@@ -66,7 +66,8 @@ func startEnv(t *testing.T) {
 		t.Setenv(k, v)
 	}
 	clearEnv(t, "OTEL_EXPORTER_OTLP_ENDPOINT", "REDIS_KEY_PREFIX", "JWT_PREVIOUS_KEY_FILE", "FIREBASE_SCRYPT_SIGNER_KEY",
-		"FIREBASE_SCRYPT_SALT_SEPARATOR", "FIREBASE_SCRYPT_ROUNDS", "FIREBASE_SCRYPT_MEM_COST")
+		"FIREBASE_SCRYPT_SALT_SEPARATOR", "FIREBASE_SCRYPT_ROUNDS", "FIREBASE_SCRYPT_MEM_COST",
+		"PG_OWNED_DOMAINS", "WEB_FLAG_OVERRIDES")
 }
 
 func TestMissingRequiredEnvExitsNonZeroWithNames(t *testing.T) {
@@ -142,10 +143,11 @@ func TestRoutesTableMatchesTheCommittedFile(t *testing.T) {
 	if stdout.String() != string(committed) {
 		t.Fatalf("api/routes.txt is stale; run make gen\n--- generated\n%s--- committed\n%s", stdout.String(), committed)
 	}
-	// The auth groups (T05) reach the table through newAPI: /v1/auth on both listeners, /v1/me internal only.
+	// The auth groups (T05) and the web flags (T17) reach the table through newAPI: /v1/auth on both
+	// listeners, /v1/me and /v1/config internal only.
 	for _, want := range []string{"GET /healthz internal,public\n", "GET /readyz internal\n", "GET /startupz internal\n",
 		"POST /v1/auth/login internal,public\n", "POST /v1/auth/refresh internal,public\n", "GET /v1/me internal\n",
-		"DELETE /v1/me/sessions/:sid internal\n"} {
+		"DELETE /v1/me/sessions/:sid internal\n", "GET /v1/config/web-flags internal\n"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("table lacks %q:\n%s", want, stdout.String())
 		}

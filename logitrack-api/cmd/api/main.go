@@ -26,6 +26,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/webcfg"
 )
 
 func main() {
@@ -37,11 +38,13 @@ func main() {
 
 // newAPI is the single place where the route registry meets the listeners: serving and
 // `api routes` both build the API here, so the checked table is the served one. Domain route
-// groups are added to this call: the auth groups (T05) come from svc, which app.BuildAPI wires;
-// extra exists for tests. `api routes` passes a nil svc: Service.Groups only registers handlers
-// and never reads the service, so the table needs no database, Redis or signing key.
+// groups are added to this call: the auth groups (T05) come from svc, which app.BuildAPI wires,
+// and the web flags (T17) from the configuration; extra exists for tests. `api routes` passes a nil
+// svc: Service.Groups only registers handlers and never reads the service, so the table needs no
+// database, Redis or signing key.
 func newAPI(cfg *app.APIConfig, log zerolog.Logger, svc *auth.Service, extra ...ingress.Group) (*app.API, error) {
-	return app.NewAPI(cfg, log, append(svc.Groups(), extra...)...)
+	groups := append(svc.Groups(), webcfg.Group(cfg.WebFlags))
+	return app.NewAPI(cfg, log, append(groups, extra...)...)
 }
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
