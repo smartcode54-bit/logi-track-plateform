@@ -25,6 +25,7 @@ Future<String> _uploadStandbyPhoto({
 /// บันทึก standby record เมื่อ driver เช็คอินแล้วไม่มีงานจัดส่ง
 /// [worksheetImage] = ใบงานลูกค้า, [siteImage] = รูปถ่ายหน้างาน
 /// ผลข้างเคียง: อัพเดต tasks/{taskId} → Completed, trip_records/{tripId} → standby
+/// (trip_records อัปเดตเฉพาะเมื่อเที่ยวนั้นมีอยู่แล้วและเป็นของคนขับคนนี้)
 ///
 /// [customerId] คือลูกค้าที่จะวางบิล — **ต้องเก็บลงตัว record เอง** (ADR 0008 §1) ไม่ใช่ไปหา
 /// ผ่าน task ตอนคำนวณราคา เพราะ task ถูกแก้/ยกเลิก/ลบทีหลังได้ และ standby ที่ไม่มี task
@@ -95,6 +96,24 @@ Future<void> submitStandbyRecord({
     }
   }
 
+  // tripId is the loading page's Trip ID field (= trip_records doc id), and Standby is pressed
+  // before loading is saved — so that trip usually does not exist yet. The rules reject updating a
+  // missing or another driver's trip, and inside the batch that rejection also dropped the standby
+  // record (permission-denied). Only mark the trip when the server confirms it is this driver's;
+  // on read failure skip the label rather than block the driver.
+  DocumentReference<Map<String, dynamic>>? standbyTripRef;
+  if (tripId != null && tripId.isNotEmpty) {
+    final tripRef = db.collection('trip_records').doc(tripId);
+    try {
+      final trip = await tripRef.get(const GetOptions(source: Source.server));
+      if (trip.exists && trip.data()?['driverId'] == driverId) {
+        standbyTripRef = tripRef;
+      }
+    } catch (_) {
+      // offline / read failure — leave the trip untouched, still save the standby record
+    }
+  }
+
   final batch = db.batch();
 
   final resolvedCustomerId = customerId?.trim();
@@ -137,8 +156,8 @@ Future<void> submitStandbyRecord({
     });
   }
 
-  if (tripId != null && tripId.isNotEmpty) {
-    batch.update(db.collection('trip_records').doc(tripId), {
+  if (standbyTripRef != null) {
+    batch.update(standbyTripRef, {
       'status': 'standby',
       'updatedAt': FieldValue.serverTimestamp(),
     });
