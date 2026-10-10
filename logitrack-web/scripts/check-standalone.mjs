@@ -11,6 +11,11 @@
 //     which the server returns as they are. Pages rendered on demand cannot be covered by a
 //     build-time scan; the image build sets no sentinels, so only CI runs this value scan.
 //  4. Source code references only the allow-listed NEXT_PUBLIC_* names (§16.1, web-public).
+//  5. The browser holds no Go host (R41, T17): only server code (route handlers under app/api,
+//     proxy.ts, and modules that `import "server-only"`) names GO_API_INTERNAL_URL, and no source
+//     file names a Go listener of the compose stack (api:8080, localhost:8081, [::1]:8080, ...); the browser
+//     reaches Go only through lib/goFetch.ts and the same-origin BFF /api/go/v1/*.
+// Checks 4 and 5 need no build: `checkSources()` runs them (also from `pnpm test`).
 // Prints names and file paths only, never values.
 import fs from "node:fs";
 import path from "node:path";
@@ -52,6 +57,15 @@ const SOURCE_EXT = /\.(c|m)?(j|t)sx?$/;
 const TEST_FILE = /(\.test\.|\.spec\.|[\\/]__tests__[\\/])/;
 // A full name: ends in a letter or digit (a template prefix such as `NEXT_PUBLIC_FIREBASE_${k}` is skipped).
 const NEXT_PUBLIC_RX = /NEXT_PUBLIC_[A-Z0-9_]*[A-Z0-9]\b/g;
+// A Go listener of the compose stack (developer-spec.md §15: internal :8080, public :8081). The word
+// boundary guards only the word-like hosts: before `[` a URL has `/`, which is no boundary.
+const GO_HOST_RX = /(?:\b(?:api|localhost|127\.0\.0\.1|0\.0\.0\.0)|\[::1?\]):808[01]\b/;
+const SERVER_ONLY_IMPORT_RX = /^\s*import\s+["']server-only["']\s*;?\s*$/m;
+
+/** Server code may read the Go URL: route handlers, the edge gate and `server-only` modules. */
+function isServerSource(rel, text) {
+  return rel.startsWith("app/api/") || rel === "proxy.ts" || rel === "middleware.ts" || SERVER_ONLY_IMPORT_RX.test(text);
+}
 
 function* walk(dir, skip = () => false) {
   let entries;
@@ -109,15 +123,37 @@ export function check({ env = process.env, webDir = defaultWebDir } = {}) {
     }
   }
 
-  for (const dir of SOURCE_DIRS) {
-    for (const f of walk(path.join(webDir, dir), (p, e) => e.isDirectory() && e.name === "node_modules")) {
-      if (!SOURCE_EXT.test(f) || TEST_FILE.test(f)) continue;
-      for (const m of fs.readFileSync(f, "utf8").matchAll(NEXT_PUBLIC_RX)) {
-        if (!NEXT_PUBLIC_ALLOW.has(m[0])) problems.push(`${m[0]} in ${rel(f)} is not an allowed NEXT_PUBLIC_ name (developer-spec.md §16.1)`);
-      }
+  problems.push(...checkSources({ webDir }));
+  return { problems: [...new Set(problems)].sort(), sentinelsChecked: sentinels.map(([n]) => n) };
+}
+
+/**
+ * Checks 4 and 5 over the source tree (no build needed).
+ * @param {{ webDir?: string }} [options]
+ * @returns {string[]}
+ */
+export function checkSources({ webDir = defaultWebDir } = {}) {
+  const rel = (p) => path.relative(path.resolve(webDir, ".."), p);
+  const webRel = (p) => path.relative(webDir, p).split(path.sep).join("/");
+  const problems = [];
+  const files = SOURCE_DIRS.flatMap((dir) => [...walk(path.join(webDir, dir), (p, e) => e.isDirectory() && e.name === "node_modules")]);
+  for (const name of ["proxy.ts", "middleware.ts"]) {
+    if (fs.existsSync(path.join(webDir, name))) files.push(path.join(webDir, name));
+  }
+  for (const f of files) {
+    if (!SOURCE_EXT.test(f) || TEST_FILE.test(f)) continue;
+    const text = fs.readFileSync(f, "utf8");
+    for (const m of text.matchAll(NEXT_PUBLIC_RX)) {
+      if (!NEXT_PUBLIC_ALLOW.has(m[0])) problems.push(`${m[0]} in ${rel(f)} is not an allowed NEXT_PUBLIC_ name (developer-spec.md §16.1)`);
+    }
+    if (GO_HOST_RX.test(text)) {
+      problems.push(`${rel(f)} names a Go listener; the browser reaches Go only through /api/go (R41)`);
+    }
+    if (text.includes("GO_API_INTERNAL_URL") && !isServerSource(webRel(f), text)) {
+      problems.push(`${rel(f)} reads GO_API_INTERNAL_URL outside server code (app/api, proxy.ts, "server-only" modules; R41)`);
     }
   }
-  return { problems: [...new Set(problems)].sort(), sentinelsChecked: sentinels.map(([n]) => n) };
+  return [...new Set(problems)].sort();
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

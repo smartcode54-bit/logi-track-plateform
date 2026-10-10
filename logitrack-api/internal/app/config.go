@@ -20,6 +20,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/webcfg"
 )
 
 // Common is read by every Go process.
@@ -234,9 +235,15 @@ type APIConfig struct {
 	PublicAddr        string   `env:"API_PUBLIC_ADDR,required,notEmpty"`
 	PublicRouteGroups []string `env:"PUBLIC_ROUTE_GROUPS" envSeparator:"," envDefault:"/v1/mobile,/v1/auth,/public/v1,/evidence,/healthz"`
 	TrustedProxyCIDRs []string `env:"TRUSTED_PROXY_CIDRS" envSeparator:","`
+	// PG_OWNED_DOMAINS (the domains PostgreSQL writes, main spec §12.1) and WEB_FLAG_OVERRIDES give the
+	// web domain flags of GET /v1/config/web-flags (internal/webcfg, R35, R41).
+	PGOwnedDomains   string `env:"PG_OWNED_DOMAINS"`
+	WebFlagOverrides string `env:"WEB_FLAG_OVERRIDES"`
 
 	// TrustedProxies is TrustedProxyCIDRs parsed by Validate.
 	TrustedProxies []netip.Prefix `env:"-"`
+	// WebFlags is PGOwnedDomains with WebFlagOverrides layered on top, parsed by Validate.
+	WebFlags webcfg.Flags `env:"-"`
 }
 
 // Validate implements config.Validator.
@@ -302,6 +309,9 @@ func (c *APIConfig) Validate() error {
 		}
 		c.TrustedProxies = append(c.TrustedProxies, p)
 	}
+	flags, flagErrs := webcfg.Parse(c.PGOwnedDomains, c.WebFlagOverrides)
+	errs = append(errs, flagErrs...)
+	c.WebFlags = flags
 	if len(errs) > 0 {
 		return &config.Error{Invalid: errs}
 	}
