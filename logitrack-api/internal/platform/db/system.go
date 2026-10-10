@@ -28,8 +28,8 @@ const setContextSQL = `SELECT set_config('app.user_id', $1, true), set_config('a
 // identity writes after Go authorization, security-event appends, workers, the scheduler, ETL and seed.
 // The tenant-move and ETL GUCs are never set here. fn's error rolls the transaction back; a panic too.
 //
-// T07 adds WithPrincipal for request transactions and the CI analyzer that limits the packages allowed
-// to import WithSystem (internal/auth, internal/iam, internal/security, ...).
+// Request transactions use WithPrincipal instead. tools/analyzers/withsystem (make lint) fails the build
+// when a package outside its allow-list calls WithSystem (Appendix C §C.3.2).
 func WithSystem(ctx context.Context, b Beginner, tenantID *uuid.UUID, fn func(pgx.Tx) error) error {
 	return pgx.BeginFunc(ctx, b, func(tx pgx.Tx) error {
 		tid := ""

@@ -2,7 +2,7 @@
 
 Go backend for the LogiTrack migration off Firebase (`mv-go`). Design: [`developer-spec.md`](../developer-spec.md) §2, routes in [Appendix B](../shared-docs/specs/mv-go/B-api-catalog.md). Branch policy: work lands by PR into `mv-go`, never `main` (R90).
 
-Status: **T01 scaffold + T02 local stack + T03 migrations + T04 core schema + T05 own auth + T36 billing engine + TW2 edge (web container + Caddy) + T14 CI**. One module, seven binaries, shared `internal/`; the first routes are `/v1/auth/*` and `/v1/me*` (T05).
+Status: **T01 scaffold + T02 local stack + T03 migrations + T04 core schema + T05 own auth + T07 RBAC + T36 billing engine + TW2 edge (web container + Caddy) + T14 CI**. One module, seven binaries, shared `internal/`; the first routes are `/v1/auth/*` and `/v1/me*` (T05) and `/v1/roles` (T07).
 
 ## Layout
 
@@ -19,7 +19,10 @@ internal/auth                own auth (T05): login, refresh families, revocation
 internal/auth/token          Ed25519 access JWT: sign, verify (active + previous key), RFC 7638 kid, JWKS document
 internal/auth/password       Argon2id PHC hashing, re-hash on weaker parameters, password policy
 internal/auth/firebasescrypt verify-then-rehash of imported Firebase scrypt hashes
-internal/authz               request principal (T05 identity half; catalog and RequireCap with T07)
+internal/authz               request principal; 81-key catalog, role defaults, resolution, web route map, RequireCap/RequireTenant (T07)
+internal/authz/tsgen         writes the catalog to ../shared-docs/schemas/capabilities.ts (go generate)
+internal/iam                 per-request authorization (RBAC: overrides under rbac:ver, steward, contractor reach, X-Act-On-Tenant) + GET /v1/roles (T07)
+internal/scope               dispatcher / customer-scope reads: scope_* views only (repo/scope_*.sql -> scopedb, sqlc vet rule scope-views-only)
 internal/security            the only writer of security_events: security.Append in the caller's transaction (T05)
 internal/platform/config     env loading: all missing/invalid names in one error, never values
 internal/platform/logx       zerolog + redacting writer (authorization, password, *token, cookie, idCard, ...)
@@ -27,7 +30,7 @@ internal/platform/httpx      envelopes, error codes, request id, client IP, acce
 internal/platform/ingress    route groups and the public allow-list
 internal/platform/health     /healthz, /readyz, /startupz, drain state
 internal/platform/telemetry  OpenTelemetry (OTLP/HTTP) and Prometheus
-internal/platform/db         pgx pools per role (R66), WithSystem; dbq = sqlc output; pgtest = postgres:18-alpine for tests
+internal/platform/db         pgx pools per role (R66), WithPrincipal (T07) and WithSystem; dbq = sqlc output; pgtest = postgres:18-alpine for tests
 internal/platform/migrate    migration rules (R31), goose runner with a session lock; migratetest = round trip
 internal/platform/clock      Bangkok (+07:00) calendar: dates, days, months, Bangkok midnight; never the wall clock
 internal/platform/jsmath     JavaScript number semantics money code needs: Math.round, Round2, toFixed
@@ -37,6 +40,7 @@ internal/platform/httpx/ratelimit    GCRA buckets of Appendix B §B.6.3 + Fiber 
 internal/billing/compute     the billing engine (T36): pure port of lib/billingCompute.ts + the pure pricing rules
 internal/billing/documents   pure invoice layout rules: axis date, price rounds, line items (renderers: T39)
 internal/golden              test-only runner for testdata/golden vectors
+tools/analyzers/withsystem   fails make lint when db.WithSystem is called outside its allow-list (T07)
 migrations/                  NNNN_name.sql, embedded into cmd/migrate: the Appendix A baseline 0001-0010 (T03, T04)
 api/routes.txt               generated route table (method, path, listeners) checked by go-ci gen-check (T14)
 sqlc.yaml                    sqlc v1.31.1: schema = migrations/, one block per query package
@@ -156,6 +160,16 @@ Go returns tokens in JSON bodies and never sets cookies (the BFF does, TW3). Rou
 - **Revocation** (`auth.Service.RevokeInTx` + `Apply`): claims changes bump `auth_version` only; disable, password events, admin revoke, logout and reuse end sessions; every one queues outbox `user.sessions_revoked` on `user:{uid}` and, after COMMIT, raises `auth:user:ver:*` (only upward) and marks `auth:sess:revoked:*`; a failed write is retried in the background until the access tokens it judges expire (`auth_postcommit_failures_total{op}`; `Service.Close` stops the retries). `internal/iam` (T19) calls it for user administration and appends its row with `security.Append`. Lock order: every auth transaction that writes sessions or refresh tokens locks the `users` row first, then `sessions`, then `refresh_tokens`; `RevokeInTx` callers keep it.
 - **Passwords**: Argon2id (parameters read back; weaker stored hashes re-hash on login), Firebase scrypt verify-then-rehash, `must_change_password` -> `403 password_change_required` with a single-use `passwordChangeTicket` redeemed at `/v1/auth/password/change`, forgot always `202` (outbox `auth.password_reset_requested`; the `notify.email` consumer of T10 calls `IssuePasswordResetToken`, which stores only the hash), 5 failures / 15 min lock an email (`423 locked`; each attempt is counted before its check). Every failed check costs one Argon2id plus, while `FIREBASE_SCRYPT_*` is set, one scrypt (no timing enumeration); at most `GOMAXPROCS / ARGON2_PARALLELISM` hashes run at once (`503` after 3 s); a login opens its session only while the row still holds the credential it verified, so a racing reset wins.
 - Every statement runs in `db.WithSystem` (`app.bypass_tenant=on`); queries are sqlc (`internal/auth/queries` -> `internal/auth/authdb`). Tests: `go test ./internal/auth/... ./internal/security/...` (unit: JWT, the firebase/scrypt public vectors, Argon2id and the hashing gate, policy, equal work per failed check) and `make test-integration` (PostgreSQL 18 + Redis 7 containers, both listeners; `hardening_integration_test.go` covers the races and lost Redis writes).
+
+## RBAC and tenant isolation (T07, main spec §4.5-§4.7, Appendix C §C.2-§C.3)
+
+- **Catalog** (`internal/authz/catalog.go`): 81 colon keys (77 + 4 platform, R73) with module, class (`tenant`, `global`, `self`, `scope`, `platform`) and en/th titles; role, scope and platform default sets of §C.2.4 (`roles.go`). Tests read §C.2.3 / §C.2.4 from the specification and fail on any drift. `go generate ./internal/authz` writes `../shared-docs/schemas/capabilities.ts` (keys, catalog, defaults, steward keys, `ROUTE_CAPABILITIES` of the edge gate), checked by `make gen-check`; GET `/v1/roles` (internal) serves the same catalog.
+- **Per request** (`iam.RBAC`, wired as `auth.Deps.Authorizer`, so `auth.RequireAuth` runs it for every authenticated request): `X-Act-On-Tenant` (platform only; `<uuid>` acts as that tenant's tenant_admin, `*` is a read-only bypass for GET/HEAD; one `platform_cross_tenant_access` row per request committed before the handler, `503` when it cannot be written), then the tenant kind, the steward flag (own-fleet staff or platform_admin, R60), contractor reach (`cache:tenant:subtenants:{tid}`, staff only) and the effective set: role default -> platform-wide override -> tenant override (`rbac:caps:{tid}:{role}:{rbac:ver}`, 10 min; tenant_admin is not overridable; platform, scope and tenant-row `users:assign_role` overrides are ignored), global keys only for stewards, ∪ scope sets ∪ platform sets. `RBAC.BumpVersion` (`INCR rbac:ver`) after a matrix change makes it effective on the next request. Redis failures fall back to PostgreSQL.
+- **Guards** (`internal/authz/http.go`): `RequireCap(any-of...)` -> `403 permission_denied` with `details.missingCapability`; `RequireTenant` -> `403 tenant_required`; `RequirePlatform`, `RequireSteward`. An unresolved principal holds nothing.
+- **Transactions**: `db.WithPrincipal(ctx, pool, p, fn)` sets the nine GUCs of §C.3.2 from `authz.Principal.RLS()` in one round trip (READ ONLY for `*`; a writable bypass is refused). `db.WithSystem` is for work without a request principal; `go run ./tools/analyzers/withsystem` (part of `make lint`) fails when another package calls it.
+- **Scope principals** (dispatcher, customer scope) read only through `internal/scope/repo/scope_*.sql` on the `scope_*` views; sqlc vet rule `scope-views-only` fails on any base table or write, and `make gen-check` proves it against `internal/scope/testdata/vetcheck`.
+
+Tests: `go test ./internal/authz/ ./internal/scope/ ./tools/analyzers/...` (catalog vs Appendix C, role x route over the 53 legacy routes and every `app/app/**/page.tsx`, resolution, guards, GUC mapping, DTOs vs views, the vet rule) and `make test-integration` (`internal/iam`: real logins against PostgreSQL 18 + Redis 7; carrier staff read 0 own-fleet rows even with a crafted predicate, own-fleet staff reach their carriers, the steward rule at the capability and RLS layers, dispatcher and customer reads through the views only, `X-Act-On-Tenant` audit rows, override effective on the next request; `internal/platform/db`: the GUCs of `WithPrincipal`).
 
 ## Billing engine (T36, main spec §6)
 

@@ -17,6 +17,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/valyala/fasthttp"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/health"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
@@ -24,8 +25,8 @@ import (
 )
 
 // HeaderActOnTenant is the platform cross-tenant header; it is refused on the
-// public listener (Appendix B §B.1.5).
-const HeaderActOnTenant = "X-Act-On-Tenant"
+// public listener (Appendix B §B.1.5) and applied by iam.RBAC on the internal one.
+const HeaderActOnTenant = authz.HeaderActOnTenant
 
 // API is the api process: two Fiber listeners built from one route registry
 // plus the private metrics server.

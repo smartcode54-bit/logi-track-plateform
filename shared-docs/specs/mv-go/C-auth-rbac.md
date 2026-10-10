@@ -296,7 +296,7 @@ Rules: only the role docs `manager`, `operation_staff`, `operator`, `driver` pro
 
 ### C.2.7 Route -> capability map and the web edge gate
 
-`ROUTE_CAPABILITIES` (`logitrack-web/lib/capabilities.ts:340-394`, 53 entries) is regenerated from the catalog into the web. Changes:
+`ROUTE_CAPABILITIES` (`logitrack-web/lib/capabilities.ts:340-394`, 53 entries) is regenerated from the catalog into the web. The Go copy is `internal/authz/webroutes.go` (T07), generated with the catalog into `shared-docs/schemas/capabilities.ts` (`go generate ./internal/authz`, checked by `make gen-check`); it carries the changes below and those of main spec §10.5, and `internal/authz/webroutes_test.go` reads `lib/capabilities.ts` and every `app/app/**/page.tsx` at run time, so a page without a mapping or a legacy entry without a translation fails the Go tests. Changes:
 
 | Route | Today | New |
 |---|---|---|
@@ -326,12 +326,15 @@ type Principal struct {
     Dispatcher  bool             // `dsp`
     DriverID    *uuid.UUID       // `drv`
     PartyIDs    []uuid.UUID      // `cs`: billing_parties.id (customer scope or dispatcher grant)
-    Steward     bool             // (TenantKind == own_fleet && TenantRole != Driver) || HasPlatform(PlatformAdmin)
+    Steward     bool             // (TenantKind == own_fleet && staff role) || HasPlatform(PlatformAdmin) || ActOnTenant != nil
 
+    SubtenantIDs []uuid.UUID     // contractor reach of the effective tenant, staff only (C.3.4); GUC app.subtenant_ids
     Caps        CapSet           // resolved per request from catalog + overrides (Redis), never from the token
-    ActOnTenant *uuid.UUID       // set only by RequireCrossTenant (uuid form)
-    ActOnAll    bool             // set only by RequireCrossTenant ("*" form): read-only bypass
-    APIKeyID    *uuid.UUID       // set when the request carried X-Api-Key
+    ActOnTenant *uuid.UUID       // set only by RBAC.Authorize (X-Act-On-Tenant uuid form)
+    ActOnAll    bool             // set only by RBAC.Authorize ("*" form): read-only bypass
+    APIKeyID    *uuid.UUID       // set when the request carried X-Api-Key (T32)
+    APIKeyScope APIKeyScope      // api_keys.scope of that key (R82)
+    APIKeyCaps  []Cap            // api_keys.capabilities of a machine principal (amr=apikey)
 }
 
 func (p *Principal) Can(c Cap) bool                { return p.Caps.Has(c) }
@@ -339,19 +342,24 @@ func (p *Principal) HasPlatform(r PlatformRole) bool
 func (p *Principal) EffectiveTenant() *uuid.UUID   { if p.ActOnTenant != nil { return p.ActOnTenant }; return p.TenantID }
 
 // internal/auth/middleware.go (T05: a method of auth.Service, because internal/platform/httpx cannot import internal/auth)
-func (s *Service) RequireAuth() fiber.Handler        // JWT | Firebase ID token + cf_shim key | X-Api-Key -> Principal; 401 codes in C.4.3
-// internal/httpx/middleware.go
+func (s *Service) RequireAuth() fiber.Handler        // JWT | Firebase ID token + cf_shim key | X-Api-Key -> Principal; 401 codes in C.4.3;
+                                                     // then auth.Deps.Authorizer (iam.RBAC, T07) completes the principal
+// internal/iam/authorize.go (T07): RBAC.Authorize runs inside RequireAuth for every authenticated request
+func (r *RBAC) Authorize(c fiber.Ctx, p *authz.Principal) error // X-Act-On-Tenant (C.3.9; the RequireCrossTenant of the drafts),
+                                                     // then Resolve: tenant kind, Steward, SubtenantIDs, Caps (rbac:caps:{tid}:{role}:{rbac:ver})
+// internal/authz/http.go (T07; authz imports httpx, so the guards live next to the principal)
 func RequireCap(caps ...authz.Cap) fiber.Handler     // any-of; 403 {"error":{"code":"permission_denied","message":"...","details":{"missingCapability":["operations:manage_tasks"]},"requestId":"..."}}
-func RequireTenant() fiber.Handler                   // 403 tenant_required when EffectiveTenant() == nil
+func RequireTenant() fiber.Handler                   // 403 tenant_required when EffectiveTenant() == nil (X-Act-On-Tenant: * passes)
 func RequirePlatform(r authz.PlatformRole) fiber.Handler
 func RequireSteward() fiber.Handler                  // implied by every global-class key; explicit for platform-wide rows
-func RequireCrossTenant() fiber.Handler              // X-Act-On-Tenant (C.3.9)
 
 // route registration example
-tasks := v1.Group("/tasks", RequireAuth(authSvc), RequireTenant())
-tasks.Post("/", RequireCap(authz.OperationsManageTasks), h.CreateTask)
-tasks.Get("/", RequireCap(authz.OperationsViewFirstMile, authz.OperationsViewLineHaul), h.ListTasks)
+tasks := v1.Group("/tasks", authSvc.RequireAuth(), authz.RequireTenant())
+tasks.Post("/", authz.RequireCap(authz.OperationsManageTasks), h.CreateTask)
+tasks.Get("/", authz.RequireCap(authz.OperationsViewFirstMile, authz.OperationsViewLineHaul), h.ListTasks)
 ```
+
+The cross-tenant step is part of the authorization of every authenticated request rather than a guard a route may forget: a route that does not want platform principals simply holds no key they have. A principal that was not resolved (no Authorizer wired) holds no capabilities, so every `RequireCap` refuses and `db.WithPrincipal` sets neither `app.steward` nor `app.subtenant_ids`: it fails closed.
 
 Policy helpers for what RLS cannot express (`internal/authz/policy.go`):
 
@@ -505,7 +513,7 @@ DO $$ BEGIN EXECUTE format('ALTER DATABASE %I OWNER TO logitrack_migrator', curr
 - `0001_preamble` only **asserts** the roles: it raises unless `current_user = 'logitrack_migrator'` and the four other roles exist with the attributes above (`rolcanlogin`, `rolbypassrls`, `NOT rolsuper`) and the migrator may `SET ROLE logitrack_rls_definer`. Objects are therefore always owned by `logitrack_migrator`.
 - `0009_infra` is the **single GRANT site** (printed in Appendix A §A.2.8, `logitrack_readonly` included); it first checks that the RLS layout equals C.3.0 and ends with the SECURITY DEFINER hand-over (C.3.3). `logitrack_app`: USAGE on `public`; SELECT/INSERT/UPDATE/DELETE on every RLS table except the two counters, minus the append-only / void-only REVOKEs of Appendix A §A.1.8; SELECT on the seven `scope_*` views (C.3.7); sequence USAGE/SELECT; EXECUTE on the helpers; on the exempt tables exactly: `outbox_events` SELECT/INSERT/UPDATE/DELETE, `consumer_inbox` SELECT/INSERT/DELETE, `idempotency_keys` SELECT/INSERT/UPDATE/DELETE, `jobs` SELECT/INSERT/UPDATE, `notification_deliveries` SELECT/INSERT/UPDATE, `settings` SELECT/INSERT/UPDATE, `mobile_app_releases` SELECT/INSERT, `waitlist` SELECT/INSERT/DELETE, `partner_interest` SELECT/INSERT, `fuel_daily_snapshots` SELECT/INSERT, `fuel_monthly_snapshots` SELECT/INSERT/UPDATE; nothing on the counters or schema `etl`; SELECT on goose's `goose_db_version` (the `/startupz` version gate). `logitrack_etl` (`cmd/etl` and `cmd/seed` writes): SELECT/INSERT/UPDATE/DELETE on `public` and `etl` plus sequence USAGE/SELECT, **no `TRUNCATE`** (it would skip the append-only triggers), same REVOKEs. `logitrack_readonly`: USAGE + SELECT on `public` and `etl`. Function EXECUTE and `logitrack_rls_definer` grants: C.3.3.
 - Every RLS table (C.3.0) has `ENABLE ROW LEVEL SECURITY` **and** `FORCE ROW LEVEL SECURITY`, so the owner `logitrack_migrator` obeys policies too; Go data migrations and `cmd/seed` batches run through `db.WithSystem`, which sets `app.bypass_tenant` (the seed never sets `app.etl_load`, so the deferred link triggers still run).
-- Every request transaction is opened by `db.WithPrincipal(ctx, p, fn)`; every non-request transaction (worker consumer, scheduler job, outbox relay, `cmd/etl`, `cmd/seed`, login / refresh before a principal exists, identity writes after Go authorization, security-event append, anonymous form endpoints, storage key lookup after entity authorization, the three tenant-move paths) by `db.WithSystem(ctx, pool, tenantID *uuid.UUID, fn func(pgx.Tx) error)` (R12; `pool` is any `db.Beginner`, the logitrack_app pool in the api; shipped by T05 in `internal/platform/db/system.go`, `WithPrincipal` and the analyzer by T07). A CI analyzer (`tools/analyzers/withsystem`) fails the build when `WithSystem` is imported outside the allow-listed packages (`internal/auth`, `internal/iam`, `internal/security`, `internal/storage`, `internal/public`, `internal/platform/outbox`, `internal/platform/tenancy`, `cmd/worker/...`, `cmd/scheduler/...`, `cmd/etl/...`, `cmd/seed/...`).
+- Every request transaction is opened by `db.WithPrincipal(ctx, p, fn)`; every non-request transaction (worker consumer, scheduler job, outbox relay, `cmd/etl`, `cmd/seed`, login / refresh before a principal exists, identity writes after Go authorization, security-event append, anonymous form endpoints, storage key lookup after entity authorization, the three tenant-move paths) by `db.WithSystem(ctx, pool, tenantID *uuid.UUID, fn func(pgx.Tx) error)` (R12; `pool` is any `db.Beginner`, the logitrack_app pool in the api; shipped by T05 in `internal/platform/db/system.go`, `WithPrincipal` and the analyzer by T07). A CI analyzer (`tools/analyzers/withsystem`, run by `make lint`; standard library only, it parses the module and needs no type checking) fails the build when `WithSystem` is called outside the allow-listed packages (`internal/auth`, `internal/iam`, `internal/security`, `internal/storage`, `internal/public`, `internal/platform/outbox`, `internal/platform/inbox`, `internal/platform/tenancy`, the worker and scheduler code `internal/jobs`, `internal/notify`, `internal/scheduler` (T10), `cmd/worker/...`, `cmd/scheduler/...`, `cmd/etl/...`, `cmd/seed/...`, and `internal/platform/db` itself); `_test.go` files are exempt (fixtures play the system context as `cmd/seed` does). `WithPrincipal(ctx, pool, p, fn)` takes a `db.Principal` (`authz.Principal` implements it through `RLS()`, which maps the principal kinds of C.1.2 to the GUCs below; a machine principal sets `app.user_id` to its key id, which no `users` row has) and refuses `app.bypass_tenant` outside a READ ONLY transaction.
 - Both helpers issue one round trip right after `BEGIN` (transaction-local `set_config`, reset at COMMIT/ROLLBACK, safe with `pgxpool` reuse):
 
 ```sql
@@ -636,7 +644,7 @@ Strict per-tenant isolation would break day-one operations: legacy `subcontracto
 Design (R60; owner confirmation listed in main spec §19):
 
 - `tenants.contractor_tenant_id uuid NULL REFERENCES tenants(id)` (one level, no transitive reach, R56). ETL sets it to the own-fleet tenant for every tenant created from a legacy `subcontractors` doc; carriers onboarded later through `fleet:manage_subcontractors` default to the own fleet; carriers onboarded by a platform admin to work directly for a dispatcher have `NULL`. Changing it is `platform:manage_tenants` and appends `tenant_contractor_changed`.
-- `WithPrincipal` loads the active tenant's sub-tenants (`SELECT id FROM tenants WHERE contractor_tenant_id = $tid`, Redis `lt:{APP_ENV}:cache:tenant:subtenants:{tid}`, deleted on outbox `tenant.created` / `tenant.updated`) into `app.subtenant_ids`. Staff of a contractor tenant therefore have the same row reach over sub-tenant rows as over their own (`app_tenant_in_reach`); the reverse is never true. This keeps today's behaviour for the own fleet while a carrier that works directly for a dispatcher stays isolated from the own fleet — the separation ADR 0026 §6 is about.
+- The request's authorization (`iam.RBAC.Resolve`, T07) loads the active tenant's sub-tenants (`SELECT id FROM tenants WHERE contractor_tenant_id = $tid`, Redis `lt:{APP_ENV}:cache:tenant:subtenants:{tid}`, deleted on outbox `tenant.created` / `tenant.updated`) for staff roles only (a driver never reaches a sub-tenant), and `WithPrincipal` writes them into `app.subtenant_ids`. Staff of a contractor tenant therefore have the same row reach over sub-tenant rows as over their own (`app_tenant_in_reach`); the reverse is never true. This keeps today's behaviour for the own fleet while a carrier that works directly for a dispatcher stays isolated from the own fleet — the separation ADR 0026 §6 is about.
 - **Billing carrier (R61).** Rate cards, fuel adjustments, service fees, standby rates, `trip_billing_snapshots`, `billing_counters` (`tenant_id` + `tenant_source`) and `billing_statements` carry the tenant that owns the rate card (the billing carrier, the own fleet today, owner decision D6 in main spec §19), never the tenant that ran the trip. The `billing.compute` consumer stamps `trip_billing_snapshots.tenant_id` from the selected rate entry (own fleet when unpriced). A carrier therefore never reads the price its contractor charges the customer.
 - Standby billing fields stay inline on `standby_records` (Appendix A, `0004_operations`, R61), so a sub-tenant's staff could read them at row level. The standby repository therefore returns the `billing_*` columns only when the principal's tenant is the billing carrier of that row (the tenant owning the referenced `standby_rate_entries` / service fee, or the own fleet for unpriced rows); this is a service projection, asserted by the RLS test matrix (C.9.2 #13).
 
@@ -1081,7 +1089,7 @@ Link consistency is Appendix A DDL (`0004_operations`, constraint triggers defer
 
 ### C.3.7 Projections for dispatcher and customer-scope principals
 
-Row visibility comes from the `p_scope_read` policies; column projection comes from `security_invoker` views (PostgreSQL 15+, so RLS of the caller still applies through the view) and the sqlc queries built on them. Scope principals are served exclusively from these views; a sqlc vet rule rejects any query in `internal/*/repo/scope_*.sql` that names a base table.
+Row visibility comes from the `p_scope_read` policies; column projection comes from `security_invoker` views (PostgreSQL 15+, so RLS of the caller still applies through the view) and the sqlc queries built on them. Scope principals are served exclusively from these views. The queries live in `internal/scope/repo/scope_*.sql` (T07; sqlc block `scope`, generated into `internal/scope/scopedb` with camelCase JSON tags, so a DTO's keys are exactly the view's columns); a domain that needs another scope query adds it there. The sqlc vet rule `scope-views-only` of that block fails `make gen-check` when a query names any of the 85 tables of Appendix A as a whole word (joined, comma-joined, schema-qualified, quoted, in a subquery or a CTE) or writes; `make gen-check` also runs it over a negative fixture (`internal/scope/testdata/vetcheck`) and fails unless every fixture query is reported, and `internal/scope` tests keep the rule's table list equal to the `CREATE TABLE` statements and each DTO equal to its view.
 
 ```sql
 -- 0004_operations.sql
@@ -1149,7 +1157,9 @@ RLS is the safety net, not the only filter:
 | `*` | `platform_admin` or `support` with `platform:cross_tenant_read`; `GET`/`HEAD` only | read-only bypass: `BEGIN READ ONLY` + `app.bypass_tenant=on` | one `security_events` row per request |
 
 - Accepted only on the internal listener (web via BFF, which forwards it on an allow-list); the public listener rejects it with `400 header_not_allowed`. Dispatchers never use it: their reach is the `dsp` scope (R4).
-- `RequireCrossTenant()` writes `security_events{event_type:'platform_cross_tenant_access', severity:'warning', actor_user_id, tenant_id: <target or NULL>, details:{method, path, act_on_tenant, request_id, ip}}` in its **own committed transaction before** the handler's transaction begins. If the insert fails the request fails (no access without audit); a committed row for a request that later fails is harmless. A same-transaction insert is impossible for `*` because that transaction is read-only. Rows are append-only (trigger `security_events_immutable` in Appendix A `0008_platform` + `REVOKE UPDATE, DELETE` at the `0009` grant site), as today (`firestore.rules:475-478`).
+- Applied by `iam.RBAC.Authorize` inside `RequireAuth` for every authenticated request (T07; the `RequireCrossTenant()` of the drafts), so no route can ignore the header. A principal without a platform role (or an API key) gets `403 permission_denied` and no audit row; a malformed or repeated header is `400 bad_request`; an unknown tenant id `404 not_found`.
+- For a platform principal it writes `security_events{event_type:'platform_cross_tenant_access', severity:'warning', actor_user_id, tenant_id: <target or NULL>, details:{method, path, act_on_tenant, request_id, ip, platform_roles}}` in its **own committed transaction before** the handler's transaction begins, and before the method and capability checks, so a refused attempt (support with a uuid, a write with `*`; C.9.2 #16-#17) is on record too. If the insert fails the request fails with `503 unavailable` (no access without audit); a committed row for a request that later fails is harmless. A same-transaction insert is impossible for `*` because that transaction is read-only. Rows are append-only (trigger `security_events_immutable` in Appendix A `0008_platform` + `REVOKE UPDATE, DELETE` at the `0009` grant site), as today (`firestore.rules:475-478`).
+- Capabilities while acting (T07): with `<uuid>` the principal holds the `tenant_admin` set of the target (all 64 keys: acting as a tenant makes it a steward) plus its platform set, and gets the target's contractor reach; with `*` a `platform_admin` holds the `tenant_admin` set plus its platform set for reads only (GET/HEAD and the READ ONLY transaction), `support` only its own set; `RequireTenant` passes under `*` because the bypass covers every tenant.
 
 ### C.3.10 Write-time tenant resolution, orphans and quarantine
 
@@ -1328,7 +1338,7 @@ DDL: `api_keys` in Appendix A `0002_identity`: `name`, `scope` (`text NOT NULL C
 
 | `scope` (R82) | Key | Listener | Principal | Allowed routes |
 |---|---|---|---|---|
-| `integration`, `script` | tenant or platform key | internal (inside the private network) | service principal with exactly the key's capabilities; RLS context `app.role='user'` in the key's tenant (staff reach), or `app.steward=on` without tenant for a platform key | any internal route its capabilities allow, except `PUT /v1/app-releases/floor`, which accepts only a human JWT (ADR 0007: publishing a build never moves the floor) |
+| `integration`, `script` | tenant or platform key | internal (inside the private network) | service principal with exactly the key's capabilities; RLS context `app.role='user'` in the key's tenant (staff reach, no contractor reach), or `app.steward=on` without tenant for a platform key; `app.user_id` = the key id (T07: `authz.Principal` with `AMR="apikey"`; issuance and scope routing T32) | any internal route its capabilities allow, except `PUT /v1/app-releases/floor`, which accepts only a human JWT (ADR 0007: publishing a build never moves the floor) |
 | `release_publisher` (R43) | platform key holding `security:manage_mobile_release` | internal | service principal | only `POST /v1/app-releases/presign` and `POST /v1/app-releases` |
 | `cf_shim` (R25, R45) | platform key holding only the `mobile:*` keys of the shim targets | public, shim targets only | the **end user** identified by the Firebase ID token that must accompany the key (C.6.2), verified from P2 regardless of `AUTH_FIREBASE_BRIDGE_MODE`; the key adds attribution (`APIKeyID`) and the shim counter used as retirement evidence (R26) | the shim targets of the five mobile-called callables (C.6.5), paths as in Appendix B §B.2.22 |
 
@@ -1672,7 +1682,7 @@ This appendix owns `/v1/auth/*`, `/v1/me*`, `/v1/users*`, `/v1/tenants*`, `/v1/r
 | PUT / DELETE | `/v1/users/{id}/driver-link` | internal | `drivers:edit` + `users:manage` | `{driverId}` | `204`; `driver_linked` / `driver_unlinked` | P0 | `linkDriverToUser` (`users.ts:371-430`), `scripts/fix-driver-claim.js` |
 | POST / DELETE | `/v1/users/{id}/platform-roles`, `/v1/users/{id}/platform-roles/{role}` | internal | `platform:manage_platform_roles`; not self | `{role}` | `204`; `platform_role_granted` / `_revoked` | P0 | hardcoded `ADMIN_EMAILS` |
 | DELETE | `/v1/users/{id}` | internal | `platform_admin` | — | `204` (soft delete: `status='deleted'`, `deleted_at`; sessions revoked; `user_deleted`) | P6 | `onUserDeleted` (`triggers.ts:35`) |
-| GET | `/v1/roles` | internal | bearer | — | catalog `[{key, module, class, titleEn, titleTh}]` + role defaults | P0 | `CAPABILITY_META`, `DEFAULT_ROLE_CAPABILITIES` |
+| GET | `/v1/roles` | internal | bearer | — | `{capabilities:[{key, module, class, titleEn, titleTh}], roles:[{role, axis, capabilities}], stewardCapabilities}` (catalog, the 10 default sets of C.2.4, the 7 global keys; T07) | P0 | `CAPABILITY_META`, `DEFAULT_ROLE_CAPABILITIES` |
 | GET | `/v1/roles/matrix` | internal | `security:manage_roles` | `?tenantId=` (platform) | `{roles:[{role, capabilities:{key:{default, effective, overridden}}}]}` | P6 | `permissions_config` reads |
 | PUT | `/v1/roles/matrix` | internal | `security:manage_roles` | `{overrides:[{role, capability, allowed}]}` | `204`; `role_matrix_saved` with diff; `INCR rbac:ver` | P6 | matrix batch write + `logSecurityEvent` |
 | GET / POST / DELETE | `/v1/api-keys`, `/v1/api-keys/{id}` | internal | `security:manage_api_keys` (tenant keys); `platform_admin` (platform keys, incl. scopes `cf_shim` and `release_publisher`) | `{name, scope, capabilities[], expiresAt?, tenantId?}` (C.4.11) | `{id, keyPrefix, secret}` (secret once) | P2 (first consumer: the shims, T32) | API-keys page (no backend today) |

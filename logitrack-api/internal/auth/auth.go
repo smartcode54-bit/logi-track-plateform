@@ -25,6 +25,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/gofiber/fiber/v3"
 	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
@@ -72,10 +73,19 @@ type Config struct {
 	LoginIP ratelimit.Limit
 }
 
-// CapabilityResolver returns the effective capability keys of a principal for GET /v1/me. The catalog,
-// role defaults and overrides are T07 (internal/authz); until then GET /v1/me lists none.
+// CapabilityResolver returns the effective capability keys of a principal for GET /v1/me (T07:
+// iam.RBAC; the catalog, role defaults and overrides are internal/authz). Without one GET /v1/me lists
+// none.
 type CapabilityResolver interface {
 	Capabilities(ctx context.Context, p *authz.Principal) ([]string, error)
+}
+
+// Authorizer completes the principal of every authenticated request before the route runs (T07:
+// iam.RBAC): X-Act-On-Tenant with its audit row, the steward flag, contractor reach and the effective
+// capability set that authz.RequireCap and db.WithPrincipal read. Without one the principal stays
+// unresolved and holds no capabilities, so every capability guard refuses.
+type Authorizer interface {
+	Authorize(c fiber.Ctx, p *authz.Principal) error
 }
 
 // Deps are the collaborators of the service.
@@ -91,6 +101,7 @@ type Deps struct {
 	Policy       password.Policy
 	Log          zerolog.Logger
 	Capabilities CapabilityResolver // optional
+	Authorizer   Authorizer         // optional
 	Now          func() time.Time   // optional, defaults to time.Now
 }
 
@@ -105,6 +116,7 @@ type Service struct {
 	policy   password.Policy
 	log      zerolog.Logger
 	caps     CapabilityResolver
+	gate     Authorizer
 	now      func() time.Time
 	fallback prometheus.Counter
 	// postCommitFailed counts post-commit Redis writes that failed (op: version, revoked, rt_drop,
@@ -135,7 +147,7 @@ func New(cfg Config, d Deps) (*Service, error) {
 	}
 	s := &Service{
 		cfg: cfg, pool: d.Pool, store: d.Store, limiter: d.Limiter, keys: d.Keys, hasher: d.Hasher, policy: d.Policy,
-		log: d.Log, caps: d.Capabilities, now: d.Now,
+		log: d.Log, caps: d.Capabilities, gate: d.Authorizer, now: d.Now,
 		fallback: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "auth_revocation_fallback_total",
 			Help: "Per-request revocation checks answered from PostgreSQL because Redis was unreachable.",
