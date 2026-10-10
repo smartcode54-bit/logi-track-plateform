@@ -4,6 +4,7 @@ package iam_test
 
 import (
 	"context"
+	"encoding/json"
 	"maps"
 	"net/http"
 	"slices"
@@ -179,6 +180,20 @@ func TestScopePrincipals(t *testing.T) {
 	if who := w.whoami(cu); !slices.Equal(who.Caps, authz.ScopeDefaults(authz.ScopeCustomer).Strings()) {
 		t.Errorf("customer scope holds %v", who.Caps)
 	}
+
+	// A member who also holds a customer-kind scope keeps exactly its role set and its own tenant's rows:
+	// the customer-scope keys go only to a principal without a membership (C.1.2), because RLS serves a
+	// member with its staff reach, never with the scope's rows.
+	mx := w.user("member.x@example.test")
+	w.member(mx, w.C, "user")
+	w.exec(`INSERT INTO user_scopes (user_id, kind, billing_party_id) VALUES ($1, 'customer', $2)`, mx, w.X)
+	tok := w.login("member.x@example.test")
+	if who := w.whoami(tok); !slices.Equal(who.Caps, authz.RoleCaps(authz.User, false, nil).Strings()) {
+		t.Errorf("member of C with a customer scope holds %v, want its role set", who.Caps)
+	}
+	if got := keysOf(named(w, w.perTenant(tok, ""))); got != "C" {
+		t.Errorf("member of C with a customer scope reads %s, want C only", got)
+	}
 }
 
 // X-Act-On-Tenant (acceptance criterion 7, §C.3.9, §C.9.2 #16, #17).
@@ -262,11 +277,65 @@ func TestActOnTenant(t *testing.T) {
 		t.Errorf("support's refused attempts: %d audit rows, want 2", n-before)
 	}
 
-	// Malformed, repeated, unknown; and the public listener.
-	expect(t, w.get("/v1/rbactest/whoami", pa, hdr, "not-a-uuid"), http.StatusBadRequest, "bad_request")
-	expect(t, w.get("/v1/rbactest/whoami", pa, hdr, w.A, hdr, w.B), http.StatusBadRequest, "bad_request")
-	expect(t, w.get("/v1/rbactest/whoami", pa, hdr, "0199c000-0000-7000-8000-0000000000ff"), http.StatusNotFound, "not_found")
+	// Malformed, repeated, unknown: refused, and each attempt of a platform principal is on record with
+	// tenant_id NULL and its outcome (B.5.7: every X-Act-On-Tenant request).
+	const unknown = "0199c000-0000-7000-8000-0000000000ff"
+	for _, tc := range []struct {
+		headers           []string
+		status            int
+		code, outcome, as string
+	}{
+		{[]string{hdr, "not-a-uuid"}, http.StatusBadRequest, "bad_request", "malformed", "not-a-uuid"},
+		{[]string{hdr, w.A, hdr, w.B}, http.StatusBadRequest, "bad_request", "repeated", w.A + ", " + w.B},
+		{[]string{hdr, unknown}, http.StatusNotFound, "not_found", "unknown_tenant", unknown},
+		{[]string{hdr, strings.Repeat("x", 300)}, http.StatusBadRequest, "bad_request", "malformed", strings.Repeat("x", 128)},
+	} {
+		before := audit()
+		expect(t, w.get("/v1/rbactest/whoami", pa, tc.headers...), tc.status, tc.code)
+		if n := audit(); n != before+1 {
+			t.Errorf("%s: %d audit rows, want 1", tc.outcome, n-before)
+		}
+		var nullTenant bool
+		var outcome, value string
+		if err := w.etl.QueryRow(context.Background(), `SELECT tenant_id IS NULL, details->>'outcome', details->>'act_on_tenant'
+			FROM security_events WHERE event_type = $1 ORDER BY created_at DESC, id DESC LIMIT 1`,
+			iam.EventCrossTenantAccess).Scan(&nullTenant, &outcome, &value); err != nil {
+			t.Fatal(err)
+		}
+		if !nullTenant || outcome != tc.outcome || value != tc.as {
+			t.Errorf("%s: audit row tenant NULL %v, outcome %q, act_on_tenant %q (want %q)", tc.outcome, nullTenant, outcome, value, tc.as)
+		}
+	}
+	// The outcome of the requests above that reached the method and capability checks.
+	outcomes := map[string]int{}
+	rows, err := w.etl.Query(context.Background(), `SELECT details->>'outcome', count(*) FROM security_events
+		WHERE event_type = $1 GROUP BY 1`, iam.EventCrossTenantAccess)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var o string
+		var n int
+		if err := rows.Scan(&o, &n); err != nil {
+			t.Fatal(err)
+		}
+		outcomes[o] = n
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	// accepted: 2 whoami + 2 perTenant + POST as A + GET * + perTenant * (support); refused: POST * (pa),
+	// whoami as A (support), POST * (support).
+	if outcomes["accepted"] != 7 || outcomes["refused"] != 3 {
+		t.Errorf("audit outcomes %v, want 7 accepted and 3 refused", outcomes)
+	}
+
+	// Not audited: the public listener refuses the header before anything is decided.
+	before = audit()
 	expect(t, w.call(w.public, http.MethodPost, "/v1/auth/logout-all", pa, hdr, w.A), http.StatusBadRequest, "header_not_allowed")
+	if n := audit(); n != before {
+		t.Errorf("the public listener wrote %d audit rows", n-before)
+	}
 }
 
 // A role-matrix change is effective on the next request after INCR rbac:ver (acceptance criterion 8,
@@ -302,6 +371,42 @@ func TestOverrideEffectiveOnNextRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	expect(t, w.get("/v1/rbactest/rate-card", mg), http.StatusForbidden, authz.CodePermissionDenied)
+}
+
+// A cached role set is keyed by the fingerprint of the compiled-in defaults too (Appendix C §C.2.5): an
+// entry another release wrote for the same tenant, role and rbac:ver (here: an operator default that
+// still held accounting:view_rate_card) is never read, while one under this build's fingerprint is.
+func TestRoleSetCacheIsVersionedByTheDefaults(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	ver, err := w.rbac.Version(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := authz.TenantDefaults(authz.Operator)
+	stale.Add(authz.AccountingViewRateCard)
+	raw, err := json.Marshal(stale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seed := func(fp string) {
+		if err := w.rdb.Set(ctx, w.ks.RBACCapabilities(w.O, string(authz.Operator), ver, fp), raw, iam.CapsTTL).Err(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	op := w.login("op.o@example.test")
+	other := "00000000"
+	if other == authz.RoleSetFingerprint {
+		other = "ffffffff"
+	}
+	seed(other)
+	expect(t, w.get("/v1/rbactest/rate-card", op), http.StatusForbidden, authz.CodePermissionDenied)
+	// Control: the same entry under this build's fingerprint is the one the request reads.
+	if err := w.rdb.Del(ctx, w.ks.RBACCapabilities(w.O, string(authz.Operator), ver, authz.RoleSetFingerprint)).Err(); err != nil {
+		t.Fatal(err)
+	}
+	seed(authz.RoleSetFingerprint)
+	expect(t, w.get("/v1/rbactest/rate-card", op), http.StatusNoContent, "")
 }
 
 // GET /v1/me lists the resolved capabilities; GET /v1/roles serves the catalog.

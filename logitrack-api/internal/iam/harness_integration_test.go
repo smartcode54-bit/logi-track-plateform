@@ -66,6 +66,7 @@ type world struct {
 	pool     *pgxpool.Pool
 	etl      *pgx.Conn
 	rdb      *redis.Client
+	ks       cache.Keyspace
 	rbac     *iam.RBAC
 	internal string
 	public   string
@@ -101,6 +102,7 @@ func newWorld(t *testing.T) *world {
 
 	var ks cache.Keyspace
 	w.rdb, ks = cachetest.NewClient(t)
+	w.ks = ks
 	caches := cache.New(w.rdb, ks)
 	if w.rbac, err = iam.NewRBAC(iam.Deps{Pool: w.pool, Cache: caches, Redis: w.rdb, Log: zerolog.Nop()}); err != nil {
 		t.Fatal(err)

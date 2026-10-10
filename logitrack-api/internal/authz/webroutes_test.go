@@ -1,7 +1,10 @@
 package authz
 
 import (
+	"encoding/json"
+	"errors"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -12,22 +15,46 @@ import (
 	"github.com/google/uuid"
 )
 
-// legacyRoutes reads ROUTE_CAPABILITIES of logitrack-web/lib/capabilities.ts (the 53 entries of
-// :340-394) with each entry's legacy colon value.
+// legacyRoutes is the legacy web table: ROUTE_CAPABILITIES of logitrack-web/lib/capabilities.ts:340-394
+// (53 entries) with each entry's colon value, frozen in testdata/legacy_route_capabilities.json. TW3
+// moves the live table out of lib/capabilities.ts and re-keys it (main spec §10.5), and the generated
+// lib/routeCapabilities.ts comes from webroutes.go, so neither can serve as the reference for the
+// translation; TestLegacySnapshotMatchesTheLiveTable keeps the snapshot equal to the live table for as
+// long as that still exists.
 func legacyRoutes(t *testing.T) map[string]Cap {
 	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", "legacy_route_capabilities.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snap struct {
+		Routes map[string]Cap `json:"routes"`
+	}
+	if err := json.Unmarshal(b, &snap); err != nil {
+		t.Fatalf("testdata/legacy_route_capabilities.json: %v", err)
+	}
+	return snap.Routes
+}
+
+// liveLegacyRoutes parses ROUTE_CAPABILITIES of lib/capabilities.ts; ok is false once TW3 has moved
+// or re-keyed it (no `"/app...": CAPABILITIES.x` entries left).
+func liveLegacyRoutes(t *testing.T) (map[string]Cap, bool) {
+	t.Helper()
 	b, err := os.ReadFile(filepath.Join(moduleRoot(t), "..", "logitrack-web", "lib", "capabilities.ts"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, false
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
 	src := string(b)
+	i := strings.Index(src, "export const ROUTE_CAPABILITIES")
+	if i < 0 {
+		return nil, false
+	}
 	values := map[string]Cap{}
 	for _, m := range regexp.MustCompile(`(?m)^\s*([a-z_]+): "([a-z]+:[a-z_]+)",`).FindAllStringSubmatch(src, -1) {
 		values[m[1]] = Cap(m[2])
-	}
-	i := strings.Index(src, "export const ROUTE_CAPABILITIES")
-	if i < 0 {
-		t.Fatal("lib/capabilities.ts has no ROUTE_CAPABILITIES")
 	}
 	out := map[string]Cap{}
 	for _, m := range regexp.MustCompile(`"(/app[^"]*)": CAPABILITIES\.([a-z_]+)`).FindAllStringSubmatch(src[i:], -1) {
@@ -37,7 +64,20 @@ func legacyRoutes(t *testing.T) map[string]Cap {
 		}
 		out[m[1]] = v
 	}
-	return out
+	return out, len(out) > 0
+}
+
+// TestLegacySnapshotMatchesTheLiveTable: while lib/capabilities.ts still holds the legacy table, a
+// change to it (a sync from main adding a route) must reach the snapshot, and so the translation
+// tests below. After TW3 the snapshot is history and the test skips.
+func TestLegacySnapshotMatchesTheLiveTable(t *testing.T) {
+	live, ok := liveLegacyRoutes(t)
+	if !ok {
+		t.Skip("lib/capabilities.ts no longer holds the legacy ROUTE_CAPABILITIES (TW3); the snapshot is the reference")
+	}
+	if snap := legacyRoutes(t); !maps.Equal(live, snap) {
+		t.Fatalf("lib/capabilities.ts ROUTE_CAPABILITIES differs from testdata/legacy_route_capabilities.json:\nlive %v\nsnapshot %v", live, snap)
+	}
 }
 
 // The deliberate differences from the legacy table (Appendix C §C.2.7, main spec §10.5).
@@ -55,7 +95,7 @@ var (
 func TestWebRoutesTranslateTheLegacyTable(t *testing.T) {
 	legacy := legacyRoutes(t)
 	if len(legacy) != 53 {
-		t.Fatalf("lib/capabilities.ts ROUTE_CAPABILITIES has %d entries, want 53", len(legacy))
+		t.Fatalf("the legacy ROUTE_CAPABILITIES snapshot has %d entries, want 53", len(legacy))
 	}
 	for path, old := range legacy {
 		got, ok := webRoutes[path]
@@ -176,8 +216,8 @@ func edgePrincipals() map[string]*Principal {
 }
 
 // TestEveryRoleEveryRoute is the table-driven role × route test of Appendix C §C.9.1 for the web edge
-// gate: every principal class against every route of lib/capabilities.ts:340-394 (53) and the routes
-// §10.5 adds. The expectations are written out from the holder columns of §C.2.3 (global keys only
+// gate: every principal class against every route of the legacy table (lib/capabilities.ts:340-394, 53,
+// frozen in testdata) and the routes §10.5 adds. The expectations are written out from the holder columns of §C.2.3 (global keys only
 // for stewards; platform_admin acting through X-Act-On-Tenant holds the tenant_admin set), not
 // computed, so a change to the catalog, the defaults or the route map has to change this table too.
 func TestEveryRoleEveryRoute(t *testing.T) {

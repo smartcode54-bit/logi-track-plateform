@@ -1,10 +1,13 @@
 package authz
 
 import (
+	"context"
+	"errors"
 	"reflect"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 )
@@ -26,6 +29,9 @@ func TestPrincipalRLS(t *testing.T) {
 		{"customer scope",
 			Principal{UserID: uid, PartyIDs: []uuid.UUID{party}},
 			db.RLS{UserID: uid, Role: "customer", CustomerIDs: []uuid.UUID{party}}},
+		{"member with a customer-kind scope: membership only",
+			Principal{UserID: uid, TenantID: ptr(carrier), TenantRole: User, PartyIDs: []uuid.UUID{party}, SubtenantIDs: []uuid.UUID{sub}},
+			db.RLS{UserID: uid, TenantID: ptr(carrier), Role: "user", SubtenantIDs: []uuid.UUID{sub}}},
 		{"dispatcher",
 			Principal{UserID: uid, TenantID: ptr(carrier), TenantRole: Operator, Dispatcher: true, PartyIDs: []uuid.UUID{party}},
 			db.RLS{UserID: uid, TenantID: ptr(carrier), Role: "operator", Dispatcher: true, CustomerIDs: []uuid.UUID{party}}},
@@ -48,5 +54,21 @@ func TestPrincipalRLS(t *testing.T) {
 		if got := tc.p.RLS(); !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s:\n got %+v\nwant %+v", tc.name, got, tc.want)
 		}
+	}
+}
+
+// TestNilPrincipal: authz.PrincipalFrom returns a nil *Principal on a route mounted without
+// RequireAuth; RLS on it fails closed and db.WithPrincipal refuses it before BEGIN instead of panicking.
+func TestNilPrincipal(t *testing.T) {
+	var p *Principal
+	if got := p.RLS(); !reflect.DeepEqual(got, db.RLS{}) {
+		t.Errorf("nil principal RLS %+v, want the empty context", got)
+	}
+	err := db.WithPrincipal(context.Background(), nil, p, func(pgx.Tx) error {
+		t.Fatal("fn ran for a nil principal")
+		return nil
+	})
+	if !errors.Is(err, db.ErrNoPrincipal) {
+		t.Fatalf("WithPrincipal with a nil *Principal: %v, want db.ErrNoPrincipal", err)
 	}
 }

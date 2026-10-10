@@ -229,9 +229,11 @@ func (k Keyspace) AuthFirebaseUID(firebaseUID string) string {
 func (k Keyspace) RBACVersion() string { return k.Key(NSRBAC, "ver") }
 
 // RBACCapabilities is the effective capability set of a role in a tenant ("platform" for platform
-// roles) at matrix version ver.
-func (k Keyspace) RBACCapabilities(tenantOrPlatform, role string, ver int64) string {
-	return k.Key(NSRBAC, "caps", tenantOrPlatform, role, strconv.FormatInt(ver, 10))
+// roles) at matrix version ver (the override rows) and fingerprint fp of the compiled-in defaults
+// (authz.RoleSetFingerprint), so neither a matrix save nor a release that changes a default set can
+// leave a stale set in use (Appendix B §B.6.2, Appendix C §C.2.5).
+func (k Keyspace) RBACCapabilities(tenantOrPlatform, role string, ver int64, fp string) string {
+	return k.Key(NSRBAC, "caps", tenantOrPlatform, role, strconv.FormatInt(ver, 10), fp)
 }
 
 // --- idem: ---

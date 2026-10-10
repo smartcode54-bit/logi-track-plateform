@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/google/uuid"
@@ -31,6 +32,11 @@ type Principal interface {
 	RLS() RLS
 }
 
+// ErrNoPrincipal refuses a request transaction without a principal: a nil interface, or a nil pointer
+// in it (authz.PrincipalFrom on a route mounted without RequireAuth returns a nil *authz.Principal,
+// which is not a nil interface). Work without a request principal uses WithSystem.
+var ErrNoPrincipal = errors.New("db: WithPrincipal needs a principal (use WithSystem for system work)")
+
 // ErrBypassNeedsReadOnly refuses a request context that would bypass RLS in a writable transaction:
 // outside WithSystem the bypass exists only for the read-only X-Act-On-Tenant: * (Appendix C §C.3.2).
 var ErrBypassNeedsReadOnly = errors.New("db: app.bypass_tenant outside WithSystem needs a READ ONLY transaction")
@@ -45,8 +51,8 @@ const readOnlySQL = `SET TRANSACTION ISOLATION LEVEL READ COMMITTED READ ONLY`
 // principal that was not resolved sees less, never more: unset GUCs read as NULL, the empty string or
 // false, so the policies fail closed. fn's error rolls the transaction back; a panic too.
 func WithPrincipal(ctx context.Context, b Beginner, p Principal, fn func(pgx.Tx) error) error {
-	if p == nil {
-		return errors.New("db: WithPrincipal needs a principal (use WithSystem for system work)")
+	if isNil(p) {
+		return ErrNoPrincipal
 	}
 	r := p.RLS()
 	if r.Bypass && !r.ReadOnly {
@@ -63,6 +69,19 @@ func WithPrincipal(ctx context.Context, b Beginner, p Principal, fn func(pgx.Tx)
 		}
 		return fn(tx)
 	})
+}
+
+// isNil reports a nil Principal, including a typed nil pointer (or map, slice, func) inside the
+// interface, before RLS() would dereference it.
+func isNil(p Principal) bool {
+	if p == nil {
+		return true
+	}
+	switch v := reflect.ValueOf(p); v.Kind() {
+	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Func, reflect.Interface, reflect.Chan:
+		return v.IsNil()
+	}
+	return false
 }
 
 // args are the nine set_config values of setContextSQL, in its order.

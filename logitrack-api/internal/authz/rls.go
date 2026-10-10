@@ -18,11 +18,16 @@ import (
 //     staff only, so a driver never reaches a sub-tenant);
 //   - a customer-scope principal (cs, no tid) -> app.role = customer, app.customer_ids = cs;
 //   - a dispatcher -> its own membership plus app.dispatcher = on and app.customer_ids = cs;
+//   - a member whose cs holds customer-kind scopes only -> its membership alone: no RLS policy reads
+//     app.customer_ids without app.role = customer or app.dispatcher, and Effective grants no scope keys;
 //   - a platform principal without the header -> no tenant and no role: platform-shared reads only.
 //
 // app.steward comes from Steward, which internal/iam resolved (R60). An unresolved principal therefore
 // never gets the steward flag or contractor reach: it can only see less.
 func (p *Principal) RLS() db.RLS {
+	if p == nil {
+		return db.RLS{} // fails closed; db.WithPrincipal refuses a nil *Principal before calling RLS
+	}
 	r := db.RLS{UserID: p.UserID, Steward: p.Steward}
 	switch {
 	case p.ActOnAll:
@@ -51,7 +56,7 @@ func (p *Principal) RLS() db.RLS {
 	} else if p.IsCustomerScope() {
 		r.Role = string(ScopeCustomer)
 	}
-	if len(p.PartyIDs) > 0 {
+	if len(p.PartyIDs) > 0 && (p.Dispatcher || p.IsCustomerScope()) {
 		r.CustomerIDs = slices.Clone(p.PartyIDs)
 	}
 	r.Dispatcher = p.Dispatcher

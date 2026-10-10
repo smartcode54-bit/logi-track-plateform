@@ -1,6 +1,13 @@
 package authz
 
-import "github.com/google/uuid"
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"strconv"
+	"strings"
+
+	"github.com/google/uuid"
+)
 
 // Override is one role_capability_overrides row of the role being resolved (Appendix C §C.2.5).
 type Override struct {
@@ -53,6 +60,31 @@ func RoleCaps(role TenantRole, steward bool, overrides []Override) CapSet {
 	return ApplySteward(s, steward)
 }
 
+// roleSetRules is the version of the rules RoleCaps and Overridable apply. Bump it with any change to
+// their logic that leaves every default set and every key class as it was, so RoleSetFingerprint moves.
+const roleSetRules = 1
+
+// RoleSetFingerprint versions a cached role set (rbac:caps, Appendix C §C.2.5) by the code that computes
+// it: the first 8 hex digits of sha256 over roleSetRules, the default set of every tenant role and the
+// key and class of every catalog entry (Overridable and Known read them). rbac:ver versions the
+// override rows; this versions the compiled-in defaults, so a release that narrows or widens a default
+// set, or a rollback, never reads a set cached by another release, even while old and new pods run
+// side by side.
+var RoleSetFingerprint = roleSetFingerprint(TenantRoles, tenantDefaults, catalog)
+
+func roleSetFingerprint(roles []TenantRole, defaults map[TenantRole]CapSet, entries []CapInfo) string {
+	var b strings.Builder
+	b.WriteString("rules " + strconv.Itoa(roleSetRules) + "\n")
+	for _, r := range roles {
+		b.WriteString("role " + string(r) + " " + strings.Join(defaults[r].Strings(), ",") + "\n")
+	}
+	for _, e := range entries {
+		b.WriteString("key " + string(e.Key) + " " + string(e.Class) + "\n")
+	}
+	sum := sha256.Sum256([]byte(b.String()))
+	return hex.EncodeToString(sum[:])[:8]
+}
+
 // ApplySteward removes the global keys from s unless the principal is a steward (R60).
 func ApplySteward(s CapSet, steward bool) CapSet {
 	if steward {
@@ -90,9 +122,12 @@ func IsSteward(p *Principal, tenantKind string) bool {
 // p.EffectiveRole() in p.EffectiveTenant(), the caller loads the overrides) ∪ the fixed scope sets ∪
 // the fixed platform sets. Under X-Act-On-Tenant: * a platform_admin also holds the tenant_admin set
 // (reads only: the guard admits GET and HEAD and the transaction is READ ONLY), support only its own.
-// A machine principal (amr=apikey) holds exactly its key's capabilities that the class rule allows:
-// tenant keys only tenant keys, platform keys only global and mobile keys, never platform or scope keys
-// (C.4.11).
+// The customer-scope set goes only to a customer-scope principal (IsCustomerScope: no membership,
+// C.1.2), the same test Principal.RLS uses for app.role = customer: a member's customer-kind scopes are
+// ignored, because RLS would serve those keys with the member's staff reach, never with the scope's
+// rows. A machine principal (amr=apikey) holds exactly its key's capabilities that the class rule
+// allows: tenant keys only tenant keys, platform keys only global and mobile keys, never platform or
+// scope keys (C.4.11).
 func Effective(p *Principal, roleCaps CapSet) CapSet {
 	if p.IsMachine() {
 		var s CapSet
@@ -114,7 +149,7 @@ func Effective(p *Principal, roleCaps CapSet) CapSet {
 	if p.ActOnAll && p.HasPlatform(PlatformAdmin) {
 		s = s.Union(tenantDefaults[TenantAdmin])
 	}
-	if len(p.PartyIDs) > 0 && !p.Dispatcher {
+	if p.IsCustomerScope() {
 		s = s.Union(scopeDefaults[ScopeCustomer])
 	}
 	if p.Dispatcher {

@@ -26,9 +26,12 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 )
 
-// CapsTTL is the lifetime of a cached role set rbac:caps:{tenant}:{role}:{ver} (Appendix C §C.2.5).
-// The matrix version is part of the key, so a matrix save is effective on the next request without
-// deleting anything; the TTL only bounds what an INCR lost to a Redis outage can leave behind.
+// CapsTTL is the lifetime of a cached role set rbac:caps:{tenant}:{role}:{ver}:{fp} (Appendix C
+// §C.2.5). Both inputs of the set are part of the key: the matrix version rbac:ver (the override rows),
+// so a matrix save is effective on the next request without deleting anything, and the fingerprint of
+// the compiled-in defaults (authz.RoleSetFingerprint), so a release that changes a default set or a
+// key's class never reads, and its old pods never refill, the other release's entries. The TTL only
+// bounds what an INCR lost to a Redis outage can leave behind.
 const CapsTTL = 10 * time.Minute
 
 // redisTimeout bounds the rbac:ver round trip; a slow Redis costs a request at most this long before
@@ -221,9 +224,9 @@ func (r *RBAC) subtenants(ctx context.Context, tid uuid.UUID) ([]uuid.UUID, erro
 
 // roleSet is the set of role in tenant tid before the steward rule: the catalog default with the
 // platform-wide and tenant overrides applied. tenant_admin is not overridable and needs no lookup;
-// other roles are cached as rbac:caps:{tid}:{role}:{rbac:ver}, so a matrix save (overrides + INCR
-// rbac:ver, T51) is effective on the next request. When rbac:ver cannot be read the set comes from
-// PostgreSQL and is not cached.
+// other roles are cached as rbac:caps:{tid}:{role}:{rbac:ver}:{authz.RoleSetFingerprint}, so a matrix
+// save (overrides + INCR rbac:ver, T51) is effective on the next request and a release that changes the
+// defaults on its first. When rbac:ver cannot be read the set comes from PostgreSQL and is not cached.
 func (r *RBAC) roleSet(ctx context.Context, tid uuid.UUID, role authz.TenantRole) (authz.CapSet, error) {
 	if role == authz.TenantAdmin {
 		return authz.RoleCaps(role, true, nil), nil
@@ -243,7 +246,7 @@ func (r *RBAC) roleSet(ctx context.Context, tid uuid.UUID, role authz.TenantRole
 		r.log.Warn().Err(err).Msg("iam: rbac:ver unreadable; role set computed from PostgreSQL")
 		return load(ctx)
 	}
-	return cache.GetJSON(ctx, r.cache, r.ks.RBACCapabilities(tid.String(), string(role), ver), CapsTTL, load)
+	return cache.GetJSON(ctx, r.cache, r.ks.RBACCapabilities(tid.String(), string(role), ver, authz.RoleSetFingerprint), CapsTTL, load)
 }
 
 // overrides reads the platform-wide and tenant rows of role_capability_overrides for role in tid.

@@ -89,8 +89,8 @@ func TestWithPrincipalContext(t *testing.T) {
 	if err := db.WithPrincipal(ctx, pool, rls{UserID: user, Bypass: true}, func(pgx.Tx) error { return nil }); !errors.Is(err, db.ErrBypassNeedsReadOnly) {
 		t.Fatalf("a writable bypass must be refused, got %v", err)
 	}
-	if err := db.WithPrincipal(ctx, pool, nil, func(pgx.Tx) error { return nil }); err == nil {
-		t.Fatal("a nil principal must be refused")
+	if err := db.WithPrincipal(ctx, pool, nil, func(pgx.Tx) error { return nil }); !errors.Is(err, db.ErrNoPrincipal) {
+		t.Fatalf("a nil principal must be refused, got %v", err)
 	}
 	// An empty principal (nothing resolved) sees nothing.
 	err = db.WithPrincipal(ctx, pool, rls{}, func(tx pgx.Tx) error {

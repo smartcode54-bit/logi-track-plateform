@@ -1,6 +1,7 @@
 package scope
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -104,6 +105,51 @@ func TestScopeBlockUsesTheRule(t *testing.T) {
 	for _, f := range files {
 		if base := filepath.Base(f); !strings.HasPrefix(base, "scope_") || filepath.Ext(base) != ".sql" {
 			t.Errorf("%s: internal/scope/repo holds only scope_*.sql files", base)
+		}
+	}
+}
+
+// TestScopeQueriesLiveOnlyInScopeRepo is the other direction: scope-views-only is attached to the scope
+// block only (sqlc's CEL environment has no file name, so a rule cannot select scope_* files), so a
+// scope_*.sql file in any other query package would never be vetted (Appendix C §C.3.7).
+func TestScopeQueriesLiveOnlyInScopeRepo(t *testing.T) {
+	root := moduleRoot(t)
+	allowed := []string{
+		filepath.Join(root, "internal", "scope", "repo"),
+		filepath.Join(root, "internal", "scope", "testdata", "vetcheck", "queries"),
+	}
+	n := 0
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if name := d.Name(); p != root && (strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasPrefix(d.Name(), "scope_") || filepath.Ext(d.Name()) != ".sql" {
+			return nil
+		}
+		n++
+		if !slices.Contains(allowed, filepath.Dir(p)) {
+			rel, _ := filepath.Rel(root, p)
+			t.Errorf("%s: scope queries live only in internal/scope/repo, the one block scope-views-only vets", filepath.ToSlash(rel))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n == 0 {
+		t.Fatal("found no scope_*.sql file at all")
+	}
+	// No second block reads internal/scope/repo: it would generate the same queries without the rule.
+	cfg := readConfig(t, filepath.Join(root, "sqlc.yaml"))
+	for _, b := range cfg.SQL {
+		if b.Name != "scope" && filepath.Clean(b.Queries) == filepath.Join("internal", "scope", "repo") {
+			t.Errorf("sqlc block %s reads internal/scope/repo without being the scope block", b.Name)
 		}
 	}
 }

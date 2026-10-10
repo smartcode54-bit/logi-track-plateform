@@ -1,6 +1,9 @@
 package authz
 
 import (
+	"maps"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -115,6 +118,17 @@ func TestEffective(t *testing.T) {
 			t.Errorf("customer scope %v", got.Keys())
 		}
 	})
+	t.Run("member with a customer scope", func(t *testing.T) {
+		// RLS gives a member its staff reach and never the scope's rows (app.role stays the tenant role),
+		// so the member keeps exactly its role set: no operations:view_* from the customer scope.
+		p := &Principal{TenantID: ptr(carrier), TenantRole: User, PartyIDs: []uuid.UUID{party}}
+		if got, want := Effective(p, RoleCaps(User, false, nil)), RoleCaps(User, false, nil); got != want {
+			t.Errorf("member with a customer scope %v, want its role set %v", got.Keys(), want.Keys())
+		}
+		if p.IsCustomerScope() {
+			t.Error("a member is not a customer-scope principal")
+		}
+	})
 	t.Run("dispatcher", func(t *testing.T) {
 		p := &Principal{TenantID: ptr(carrier), TenantRole: User, Dispatcher: true, PartyIDs: []uuid.UUID{party}}
 		got := Effective(p, RoleCaps(User, false, nil))
@@ -156,4 +170,32 @@ func TestEffective(t *testing.T) {
 			t.Errorf("platform key %v, want its global and mobile keys", platformKey.Keys())
 		}
 	})
+}
+
+// TestRoleSetFingerprint: the rbac:caps key carries a fingerprint of the compiled-in defaults, so a
+// release that changes a default set or a key's class (which Overridable reads) reads its own cache
+// entries, never those of another release (Appendix C §C.2.5).
+func TestRoleSetFingerprint(t *testing.T) {
+	if len(RoleSetFingerprint) != 8 || strings.Trim(RoleSetFingerprint, "0123456789abcdef") != "" {
+		t.Fatalf("RoleSetFingerprint %q is not 8 hex digits", RoleSetFingerprint)
+	}
+	if got := roleSetFingerprint(TenantRoles, tenantDefaults, catalog); got != RoleSetFingerprint {
+		t.Fatalf("not deterministic: %s vs %s", got, RoleSetFingerprint)
+	}
+	narrowed := maps.Clone(tenantDefaults)
+	m := narrowed[Manager]
+	m.Remove(AccountingViewRateCard)
+	narrowed[Manager] = m
+	if tenantDefaults[Manager] == narrowed[Manager] || !tenantDefaults[Manager].Has(AccountingViewRateCard) {
+		t.Fatal("manager's default set is unchanged by the narrowing")
+	}
+	if roleSetFingerprint(TenantRoles, narrowed, catalog) == RoleSetFingerprint {
+		t.Error("narrowing manager's default set leaves the fingerprint unchanged")
+	}
+	reclassed := slices.Clone(catalog)
+	i := slices.IndexFunc(reclassed, func(e CapInfo) bool { return e.Key == FleetManageCustomers })
+	reclassed[i].Class = ClassTenant
+	if roleSetFingerprint(TenantRoles, tenantDefaults, reclassed) == RoleSetFingerprint {
+		t.Error("changing a key's class leaves the fingerprint unchanged")
+	}
 }
