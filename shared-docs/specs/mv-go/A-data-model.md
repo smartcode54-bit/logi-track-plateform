@@ -52,8 +52,9 @@ Plan §7 (R1–R35) and the cross-document resolutions (R36–R89, binding where
 | `0007_comms.sql` | device tokens, chats, messages, read state, broadcasts, recipients, reads, notification log | A.2.6 |
 | `0008_platform.sql` | settings, mobile app releases, security events, mobile installations, holidays, leave requests, waitlist, partner interest, fuel snapshots | A.2.7 |
 | `0009_infra.sql` | `outbox_events`, `consumer_inbox`, `idempotency_keys`, `jobs`, `etl.source_docs`, `etl.quarantine`, `etl.watermarks`, `etl.reconciliation_runs`; single grant site (`logitrack_readonly` included); hand-over of the SECURITY DEFINER functions to `logitrack_rls_definer` | A.2.8 |
+| `0011_file_objects_storage_backend.sql` | `file_objects.storage_backend` (`local` \| `s3`, NOT NULL without a default) and `storage_backend` among the columns `t_file_objects_commit_columns` fixes at upload (T11, owner addition of 2026-10-10) | A.2.9 |
 
-Phase placement (R59, R88): `0001`–`0009` are applied together in **P0** (issue T04); phases P1–P7 change which side *writes* a table, not whether it exists, so phase schema tasks become data-layer tasks. `0010_d5_unique_constraints.sql` (`-- +goose NO TRANSACTION`, `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS`: `chats_one_open_per_driver`, `vehicle_expenses_fuel_taxinv`, `customer_service_fees_one_per_type`) is authored by T04 and applied in production as a step of the P1 full-load runbook (T24): `goose up-to 9` → ETL → owner's quarantine sign-off → `goose up` (§A.4 D5). Dev, CI and seeded databases apply it immediately; later changes are 0011+.
+Phase placement (R59, R88): `0001`–`0009` are applied together in **P0** (issue T04); phases P1–P7 change which side *writes* a table, not whether it exists, so phase schema tasks become data-layer tasks. `0010_d5_unique_constraints.sql` (`-- +goose NO TRANSACTION`, `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS`: `chats_one_open_per_driver`, `vehicle_expenses_fuel_taxinv`, `customer_service_fees_one_per_type`) is authored by T04 and applied in production as a step of the P1 full-load runbook (T24): `goose up-to 9` → ETL → owner's quarantine sign-off → `goose up` (§A.4 D5). Dev, CI and seeded databases apply it immediately; later changes are 0011+ (`0011_file_objects_storage_backend.sql`, T11, §A.2.9). goose applies in order, so a database held at `up-to 9` receives 0011 only after 0010.
 
 ## A.1 Design principles
 
@@ -767,6 +768,7 @@ DROP FUNCTION IF EXISTS trg_file_objects_commit_columns();
   - A user holds an Argon2id `password_hash`, a legacy scrypt pair awaiting the first-login rehash (all-or-nothing, NULLed by that login), or neither (Google-only).
   - Refresh rotation sets `rotated_at` and `replaced_by` together; presenting a rotated token is reuse → revoke family + session (`refresh_reuse`) and bump `auth_version` (R2), except inside the 30 s grace for concurrent tabs or a retried mobile request (R37, Appendix C §C.4.4).
   - Public objects exist only for APKs (`visibility='public'` requires `purpose='apk'`); the rest is private (presigned GET). Pending uploads always carry `expires_at` for `storage.gc`.
+- `file_objects.storage_backend` (0011, §A.2.9): `local` or `s3`, where the object lives; set by every writer (presign, ETL copy `s3`, rendered documents), never changed outside `WithSystem`.
 - `file_objects.purpose` vocabulary (format CHECK only; the presign API in Appendix B owns the list): `trip_photo`, `checkin_photo`, `checkin_app_screenshot`, `standby_photo`, `incident_photo`, `chat_image`, `leave_evidence`, `maintenance_file`, `expense_receipt`, `expense_odometer`, `company_logo`, `company_stamp`, `company_signature`, `customer_logo`, `driver_profile`, `driver_id_card`, `driver_license`, `truck_photo`, `truck_document`, `truck_receipt`, `insurance_document`, `tenant_document`, `user_photo`, `penalty_evidence`, `statement_document`, `report`, `apk`. Server-only cache objects (`cache/staticmaps/`) are not registered.
 - Legacy Firestore source: `subcontractors` → `tenants` (`kind='carrier'`, `contractor_tenant_id` = own fleet) + `tenant_files`; Firebase Auth export + `users/{uid}` → `users`, `auth_identities`, `memberships`, `user_platform_roles`; `permissions_config/{role}` → `role_capability_overrides` (only keys that exist in the Go catalog; underscore matrix rows are mapped per Appendix C §C.2.6, the rest go to `etl.quarantine` with `unknown_capability_key`); every Firebase Storage URL → `file_objects` (key = URL path after `/o/`, token stripped); `drivers.statusHistory[]`, `trucks.statusHistory[]` (different shape) → `status_history`. `users.forceLogoutAt` has no column: forced logout is session revocation + `auth_version` bump + SSE `session.revoked`.
 - Indexes → live query.
@@ -3275,6 +3277,26 @@ Against the earlier drafts for 0006–0009, the ETL mapping and D1–D8: data mo
 | RT floor writer `PUT /v1/mobile/settings`; RT public-listener form routes | `PUT /v1/app-releases/floor`, `POST /v1/app-releases` (internal); BFF `/api/forms/*` → internal `POST /v1/waitlist`, `POST /v1/partner-interest` | R43, R44, R77 |
 | — | `holidays` CHECK `public ⇔ tenant_id IS NULL` | R12 |
 | D5 indexes spread over 0005–0007 | one `0010_d5_unique_constraints.sql`, authored in T04, applied in the T24 runbook after sign-off | R59, R88 |
+
+### A.2.9 Object storage backend (0011_file_objects_storage_backend.sql, T11)
+
+Owner addition of 2026-10-10: the first deployment stores uploads on the server's disk until an S3-compatible service exists (main spec §9.11). `STORAGE_BACKEND` picks the backend of new uploads; every row records its own, and reads, commits and `storage.gc` dispatch on it.
+
+```sql
+-- 0011_file_objects_storage_backend.sql
+-- +goose Up
+-- Rows that exist when this runs are ETL copies in MinIO (or none): 's3'. The default exists only for that
+-- backfill and is dropped at once, so every later INSERT names its backend (NOT NULL, no default).
+ALTER TABLE file_objects ADD COLUMN storage_backend text NOT NULL DEFAULT 's3'
+  CONSTRAINT file_objects_storage_backend_check CHECK (storage_backend IN ('local','s3'));
+ALTER TABLE file_objects ALTER COLUMN storage_backend DROP DEFAULT;
+-- Appendix C §C.3.6 with storage_backend among the columns fixed at upload (CREATE OR REPLACE of
+-- trg_file_objects_commit_columns(); the Down section restores the 0002 body and drops the column).
+```
+
+- No other table gets a backend column: every image or file reference of 0002–0008 is a `*_file_id` foreign key to `file_objects` (18 tables: `users`, `tenant_files`, `customers`, `companies`, `drivers`, `truck_files`, `tasks`, `trip_photos`, `standby_photos`, `incident_reports`, `statement_documents`, `vehicle_expenses`, `maintenance_files`, `transactions`, `driver_penalties`, `chat_messages`, `mobile_app_releases`, `leave_request_attachments`; per-column purposes in main spec §9.11). `migrations/schema_integration_test.go` ("file references") fails when a `*file_id` column lacks that key or the list changes.
+- Not registered and therefore without a row: `settings('mobile_app').apkDownloadUrl` (derived at publish time from the release's `file_objects` row), server-only `cache/staticmaps/` objects, ETL dumps under `etl/dumps/{ts}/`.
+- ETL (T15) writes `storage_backend = 's3'` on every copied object; the optional local → S3 copy job, if it is ever run, updates `bucket` and `storage_backend` together under `WithSystem`.
 
 ## A.3 ETL mapping (Firestore -> PostgreSQL)
 

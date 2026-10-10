@@ -168,7 +168,8 @@ by up to six lines after `:60`):
    `NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID`.
 10. **Ingress: two Go listeners.** `API_INTERNAL_ADDR` (private network) serves every route;
     `API_PUBLIC_ADDR` (behind Caddy) serves only `/v1/mobile/*`, `/v1/auth/*`, `/public/v1/*`
-    (reserved for signed third-party postbacks; none today), `/evidence/*`, `/healthz`, else 404.
+    (reserved for signed third-party postbacks; none today), `/evidence/*`, `/healthz`, else 404
+    (and `/media/*` for the local storage backend since the owner addition of 2026-10-10, see Notes).
     Release admin (`/v1/app-releases*`, `/v1/app-installations*`; `cmd/release` runs on the
     private network) and the anonymous forms (BFF `/api/forms/*` → `POST /v1/waitlist`,
     `POST /v1/partner-interest`, rate-limited) stay internal.
@@ -253,6 +254,19 @@ by up to six lines after `:60`):
   billing parity needs month-closes on both systems.
 - **Browser calling Go directly with CORS.** Rejected (local-only requirement): it exposes the whole
   API and keeps tokens in browser storage.
+
+## Notes
+
+- **2026-10-10, owner addition to issue T11 (local disk storage):** the first deployment (VM
+  `showkhun.co`, pm2 + nginx) has no S3-compatible service yet, so Decision 7 gains a second
+  backend behind the same storage interface: `STORAGE_BACKEND=local|s3` picks the backend of new
+  uploads, `file_objects.storage_backend` (migration 0011) records it per object and every read
+  dispatches on it, so local objects keep downloading after the switch to `s3`. Local objects live
+  under `LOCAL_MEDIA_DIR` and are served by the api with HMAC-signed, expiring URLs
+  (`LOCAL_MEDIA_PUBLIC_BASE_URL`, `LOCAL_MEDIA_SIGNING_KEY`); `app_releases/` stays unsigned.
+  This **widens Decision 10**: the route group `/media` joins the public listener
+  (`PUBLIC_ROUTE_GROUPS`, `ingress.PublicPrefixes`; nginx maps `logi.showkhun.co/media/` to it),
+  approved by the owner. Spec: `developer-spec.md` §2.6, §9.11, §16.1; Appendix A §A.2.9.
 
 ## Related
 

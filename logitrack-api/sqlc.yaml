@@ -204,3 +204,34 @@ sql:
               import: time
               type: Time
               pointer: true
+  # T11: file_objects (presign, commit, storage.gc) and the evidence tokens of trip_records / standby_records,
+  # all under db.WithSystem (internal/storage is on the allow-list of Appendix C §C.3.2).
+  - name: storage
+    engine: postgresql
+    schema: migrations
+    queries: internal/storage/queries
+    gen:
+      go:
+        package: storagedb
+        out: internal/storage/storagedb
+        sql_package: pgx/v5
+        emit_empty_slices: true
+        emit_pointers_for_null_types: true
+        omit_unused_structs: true
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: uuid
+            nullable: true
+            go_type:
+              import: github.com/google/uuid
+              type: UUID
+              pointer: true
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true

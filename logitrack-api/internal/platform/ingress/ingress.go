@@ -22,8 +22,10 @@ const (
 )
 
 // PublicPrefixes are the only groups that may ever be served on the public
-// listener. Widening this list needs an ADR (main spec §16, PUBLIC_ROUTE_GROUPS).
-var PublicPrefixes = []string{"/v1/mobile", "/v1/auth", "/public/v1", "/evidence", "/healthz"}
+// listener. Widening this list needs an ADR (main spec §16, PUBLIC_ROUTE_GROUPS):
+// /media is the owner-approved widening of 2026-10-10 for the local storage
+// backend (signed object URLs, T11; main spec §2.6, ADR 0029 notes).
+var PublicPrefixes = []string{"/v1/mobile", "/v1/auth", "/public/v1", "/evidence", "/healthz", "/media"}
 
 // IsPublicPrefix reports whether p is one of PublicPrefixes.
 func IsPublicPrefix(p string) bool { return slices.Contains(PublicPrefixes, p) }
@@ -34,6 +36,22 @@ type Group struct {
 	Prefix string
 	Public bool
 	Mount  func(r fiber.Router)
+	// UploadPaths are absolute path prefixes below Prefix (ending in "/") whose PUT
+	// requests may carry a body up to the API's upload limit (UPLOAD_MAX_BYTES)
+	// instead of the 4 MiB default: the local storage backend's upload routes (T11).
+	UploadPaths []string
+}
+
+// UploadPaths returns the upload path prefixes of the groups that listener mounts.
+func UploadPaths(listener string, groups []Group, allow []string) []string {
+	var out []string
+	for _, g := range groups {
+		if listener == Public && (!g.Public || !slices.Contains(allow, g.Prefix)) {
+			continue
+		}
+		out = append(out, g.UploadPaths...)
+	}
+	return out
 }
 
 // Validate rejects groups that would break the ingress policy.
@@ -52,6 +70,11 @@ func Validate(groups []Group) error {
 		}
 		if g.Mount == nil {
 			return fmt.Errorf("ingress: group %q has no Mount function", g.Prefix)
+		}
+		for _, u := range g.UploadPaths {
+			if !strings.HasPrefix(u, g.Prefix+"/") || !strings.HasSuffix(u, "/") {
+				return fmt.Errorf("ingress: upload path %q of group %q must be below the prefix and end in /", u, g.Prefix)
+			}
 		}
 	}
 	return nil
@@ -130,8 +153,8 @@ func RootMiddleware(app *fiber.App) int {
 }
 
 // PublicPathAllowed reports whether the public listener may serve path (main spec §2.6):
-// /healthz itself, or the group root or any path below /v1/mobile, /v1/auth, /public/v1
-// and /evidence. A sibling such as /v1/mobilex or a child such as /healthz/x is refused.
+// /healthz itself, or the group root or any path below /v1/mobile, /v1/auth, /public/v1,
+// /evidence and /media. A sibling such as /v1/mobilex or a child such as /healthz/x is refused.
 func PublicPathAllowed(path string) bool {
 	for _, p := range PublicPrefixes {
 		if path == p || (p != "/healthz" && strings.HasPrefix(path, p+"/")) {
@@ -143,7 +166,7 @@ func PublicPathAllowed(path string) bool {
 
 // PublicUseAllowed reports whether the public listener may hold a Use registration (middleware
 // or mounted sub-app) at path. Use matches every path at or below its own, so it is allowed
-// only where all of them are: at or below /v1/mobile, /v1/auth, /public/v1 and /evidence. At
+// only where all of them are: at or below /v1/mobile, /v1/auth, /public/v1, /evidence and /media. At
 // /healthz it would answer /healthz/anything, so it is refused there.
 func PublicUseAllowed(path string) bool {
 	return path != "/healthz" && PublicPathAllowed(path)

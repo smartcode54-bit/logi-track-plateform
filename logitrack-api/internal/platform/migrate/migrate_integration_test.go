@@ -219,10 +219,16 @@ func TestEmbeddedChainUpToNineLeavesD5Pending(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if last := st[len(st)-1]; last.Name != "0010_d5_unique_constraints.sql" || last.Applied {
-		t.Fatalf("last status = %+v, want 0010_d5_unique_constraints.sql pending", last)
+	// Everything after 9 waits with 0010: goose applies in order, so 0011+ (T11 onwards) follow the runbook.
+	for _, s := range st[9:] {
+		if s.Applied {
+			t.Fatalf("status %+v applied at version 9", s)
+		}
 	}
-	if res, err = r.Up(ctx); err != nil || len(res) != 1 || res[0].Name != "0010_d5_unique_constraints.sql" {
+	if st[9].Name != "0010_d5_unique_constraints.sql" {
+		t.Fatalf("first pending = %+v, want 0010_d5_unique_constraints.sql", st[9])
+	}
+	if res, err = r.Up(ctx); err != nil || len(res) != len(st)-9 || res[0].Name != "0010_d5_unique_constraints.sql" {
 		t.Fatalf("up applied %+v (%v)", res, err)
 	}
 	var valid int

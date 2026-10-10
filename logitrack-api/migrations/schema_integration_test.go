@@ -189,12 +189,13 @@ func TestUpAppliesTheWholeBaseline(t *testing.T) {
 		names = append(names, x.Name)
 	}
 	want := []string{"0001_preamble.sql", "0002_identity.sql", "0003_master.sql", "0004_operations.sql", "0005_billing.sql",
-		"0006_finance_hr.sql", "0007_comms.sql", "0008_platform.sql", "0009_infra.sql", "0010_d5_unique_constraints.sql"}
+		"0006_finance_hr.sql", "0007_comms.sql", "0008_platform.sql", "0009_infra.sql", "0010_d5_unique_constraints.sql",
+		"0011_file_objects_storage_backend.sql"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("up applied %v", names)
 	}
-	if v, err := r.Version(context.Background()); err != nil || v != 10 {
-		t.Fatalf("version = %d (%v), want 10", v, err)
+	if v, err := r.Version(context.Background()); err != nil || v != 11 {
+		t.Fatalf("version = %d (%v), want 11", v, err)
 	}
 }
 
@@ -314,6 +315,7 @@ func TestSchemaCatalog(t *testing.T) {
 			{"api_keys", "scope", []string{"integration", "script", "cf_shim", "release_publisher"}},                                 // R82
 			{"user_scopes", "kind", []string{"customer", "dispatcher"}},                                                              // R86
 			{"file_objects", "status", []string{"pending", "committed", "missing_at_source"}},                                        // R1
+			{"file_objects", "storage_backend", []string{"local", "s3"}},                                                             // 0011, T11
 			{"trip_billing_snapshots", "unpriced_reason", []string{"no_customer", "no_rate", "no_vehicle_class", "no_billing_date"}}, // R62
 			{"standby_records", "billing_unpriced_reason", []string{"no_customer", "no_rate", "no_ended_at"}},                        // R62
 			{"jobs", "status", []string{"queued", "running", "succeeded", "failed"}},                                                 // R64
@@ -321,6 +323,30 @@ func TestSchemaCatalog(t *testing.T) {
 				"maintenance_scheduled", "chat", "broadcast", "leave_decided", "session_revoked"}}, // R84
 		} {
 			sameSet(t, v.table+"."+v.column+" CHECK", checkValues(t, c, v.table, v.column), v.values)
+		}
+	})
+
+	// T11 (Appendix A §A.2.9): every stored image or file is reached through a *_file_id foreign key to file_objects,
+	// whose storage_backend says where it lives; no table keeps an object reference of its own.
+	t.Run("file references", func(t *testing.T) {
+		cols := strs(t, c, `SELECT format('%s.%s', a.attrelid::regclass, a.attname)
+			FROM pg_attribute a JOIN pg_class r ON r.oid = a.attrelid JOIN pg_namespace n ON n.oid = r.relnamespace
+			WHERE n.nspname = 'public' AND r.relkind = 'r' AND a.attnum > 0 AND NOT a.attisdropped
+			  AND (a.attname = 'file_id' OR a.attname LIKE '%\_file\_id')
+			  AND NOT EXISTS (SELECT 1 FROM pg_constraint k WHERE k.conrelid = a.attrelid AND k.contype = 'f'
+			                    AND k.confrelid = 'file_objects'::regclass AND k.conkey = ARRAY[a.attnum])`)
+		if len(cols) > 0 {
+			t.Errorf("file columns without a file_objects foreign key: %v", cols)
+		}
+		refs := strs(t, c, `SELECT DISTINCT conrelid::regclass::text FROM pg_constraint
+			WHERE contype = 'f' AND confrelid = 'file_objects'::regclass`)
+		sameSet(t, "tables referencing file_objects", refs, []string{"users", "tenant_files", "customers", "companies",
+			"drivers", "truck_files", "tasks", "trip_photos", "standby_photos", "incident_reports", "statement_documents",
+			"vehicle_expenses", "maintenance_files", "transactions", "driver_penalties", "chat_messages",
+			"mobile_app_releases", "leave_request_attachments"})
+		if nn := scalar[bool](t, c, `SELECT attnotnull AND NOT atthasdef FROM pg_attribute
+			WHERE attrelid = 'file_objects'::regclass AND attname = 'storage_backend'`); !nn {
+			t.Error("file_objects.storage_backend must be NOT NULL without a default (every writer names its backend)")
 		}
 	})
 
@@ -335,7 +361,7 @@ func TestSchemaCatalog(t *testing.T) {
 			"sessions.active_tenant_id uuid", "sessions.install_id text",
 			// R1
 			"file_objects.status text", "file_objects.purpose text", "file_objects.uploaded_by uuid",
-			"file_objects.tenant_id uuid", "file_objects.expires_at timestamp with time zone",
+			"file_objects.tenant_id uuid", "file_objects.expires_at timestamp with time zone", "file_objects.storage_backend text",
 			// R14, R18, R20, R47, R64
 			"broadcasts.voided_at timestamp with time zone", "billing_statements.withholding_tax_rate numeric(5,4)",
 			"standby_rate_entries.voided_at timestamp with time zone", "statement_documents.status text",
@@ -410,8 +436,8 @@ func TestSchemaCatalog(t *testing.T) {
 	// /startupz reads the applied version as logitrack_app; no runtime login may rewrite migration state.
 	t.Run("goose_db_version is read-only for the API and ETL logins", func(t *testing.T) {
 		app := connect(t, d, db.RoleApp)
-		if v := scalar[int64](t, app, `SELECT max(version_id) FROM goose_db_version`); v != 10 {
-			t.Errorf("logitrack_app reads version %d, want 10", v)
+		if v := scalar[int64](t, app, `SELECT max(version_id) FROM goose_db_version`); v != 11 {
+			t.Errorf("logitrack_app reads version %d, want 11", v)
 		}
 		for _, role := range []string{db.RoleApp, db.RoleETL} {
 			wantSQLState(t, connect(t, d, role), "42501", "permission denied", `DELETE FROM goose_db_version`)
@@ -667,8 +693,8 @@ func TestD5ConstraintsStopOnDuplicates(t *testing.T) {
 	if _, err := r.Up(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := r.Version(ctx); v != 10 {
-		t.Fatalf("version = %d, want 10", v)
+	if v, _ := r.Version(ctx); v != 11 { // 0010, then 0011 (T11) right after it
+		t.Fatalf("version = %d, want 11", v)
 	}
 	if n := scalar[int](t, owner, `SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid WHERE i.indisvalid
 		AND c.relname IN ('vehicle_expenses_fuel_taxinv','chats_one_open_per_driver','customer_service_fees_one_per_type')`); n != 3 {

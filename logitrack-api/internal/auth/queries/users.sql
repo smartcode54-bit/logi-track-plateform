@@ -73,11 +73,6 @@ SET last_login_lat        = sqlc.arg(lat),
     last_login_accuracy_m = sqlc.narg(accuracy_m)
 WHERE id = sqlc.arg(id);
 
--- name: FindOwnFile :one
--- photoKey of PATCH /v1/me: an object the caller uploaded itself.
-SELECT id FROM file_objects
-WHERE object_key = sqlc.arg(object_key) AND uploaded_by = sqlc.arg(user_id)::uuid AND deleted_at IS NULL;
-
 -- name: ListMemberships :many
 -- Active memberships in non-quarantine tenants, own fleet first (the default-tenant order).
 SELECT m.tenant_id, m.role, t.kind, t.name_th, t.name_en, t.status AS tenant_status

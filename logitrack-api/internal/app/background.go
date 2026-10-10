@@ -26,6 +26,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/realtime"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/telemetry"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/scheduler"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
 )
 
 // DeadLetterPollInterval is how often the worker refreshes mq_dead_letter_depth.
@@ -124,8 +125,14 @@ func RunWorker(ctx context.Context, stdout, stderr io.Writer) int {
 			if err != nil {
 				return background{}, &config.Error{Invalid: []string{"DATABASE_URL: " + err.Error()}}
 			}
-			regs, err := workerRegistrations(cfg, pool, log)
+			st, _, err := newStorage(storageBuild{Storage: cfg.Storage}, pool, log)
 			if err != nil {
+				pool.Close()
+				return background{}, err
+			}
+			regs, err := workerRegistrations(cfg, pool, st, log)
+			if err != nil {
+				st.Close()
 				pool.Close()
 				return background{}, err
 			}
@@ -141,7 +148,10 @@ func RunWorker(ctx context.Context, stdout, stderr io.Writer) int {
 						return runConsumers(cctx, conn, regs, opts, log, probe)
 					})
 				},
-				close:  pool.Close,
+				close: func() {
+					st.Close()
+					pool.Close()
+				},
 				checks: []health.Checker{checker{"postgres", pool.Ping}, checker{"rabbitmq", probe.Check}},
 			}, nil
 		})
@@ -149,7 +159,7 @@ func RunWorker(ctx context.Context, stdout, stderr io.Writer) int {
 
 // workerRegistrations are the consumers of the selected groups. Queues of those groups whose
 // consumer arrives with a later issue are not consumed (their messages wait in the queue).
-func workerRegistrations(cfg *WorkerConfig, pool *pgxpool.Pool, log zerolog.Logger) ([]mq.Registration, error) {
+func workerRegistrations(cfg *WorkerConfig, pool *pgxpool.Pool, st *storage.Service, log zerolog.Logger) ([]mq.Registration, error) {
 	available := map[string]mq.Registration{}
 	var sender email.Sender
 	if cfg.EmailEnabled {
@@ -167,6 +177,9 @@ func workerRegistrations(cfg *WorkerConfig, pool *pgxpool.Pool, log zerolog.Logg
 		WebBaseURL: cfg.PublicWebBaseURL, ResetTTL: cfg.PasswordResetTTL, Enabled: cfg.EmailEnabled, Log: log,
 	}
 	available[notify.QueueEmail] = mail.Registration()
+	if st != nil {
+		available[storage.QueueGC] = st.GCRegistration()
+	}
 
 	var regs []mq.Registration
 	var waiting []string

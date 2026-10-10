@@ -2,7 +2,7 @@
 
 Go backend for the LogiTrack migration off Firebase (`mv-go`). Design: [`developer-spec.md`](../developer-spec.md) §2, routes in [Appendix B](../shared-docs/specs/mv-go/B-api-catalog.md). Branch policy: work lands by PR into `mv-go`, never `main` (R90).
 
-Status: **T01 scaffold + T02 local stack + T03 migrations + T04 core schema + T05 own auth + T06 Google sign-in + T08 Firebase bridge + T36 billing engine + TW2 edge (web container + Caddy) + T14 CI**. One module, seven binaries, shared `internal/`; the first routes are `/v1/auth/*` and `/v1/me*` (T05).
+Status: **T01 scaffold + T02 local stack + T03 migrations + T04 core schema + T05 own auth + T06 Google sign-in + T08 Firebase bridge + T10 async + T11 object storage + T36 billing engine + TW2 edge (web container + Caddy) + T14 CI**. One module, seven binaries, shared `internal/`; the first routes are `/v1/auth/*` and `/v1/me*` (T05).
 
 ## Layout
 
@@ -45,10 +45,11 @@ internal/platform/asynctest  test-only RabbitMQ, Redis and Mailpit containers wi
 internal/jobs                jobs table, lock:job / lock:cron, GET /v1/jobs*, queue replay (T10)
 internal/scheduler           advisory-lock leader, Bangkok cron table, housekeeping jobs (T10)
 internal/notify              notify.email: reset and invite links in th + en (T10)
+internal/storage             object storage (T11): file_objects, presign/commit, GET /v1/files, s3 (minio-go) and local backends, /media, storage.gc, evidence tokens; storagetest = compose MinIO for tests
 internal/billing/compute     the billing engine (T36): pure port of lib/billingCompute.ts + the pure pricing rules
 internal/billing/documents   pure invoice layout rules: axis date, price rounds, line items (renderers: T39)
 internal/golden              test-only runner for testdata/golden vectors
-migrations/                  NNNN_name.sql, embedded into cmd/migrate: the Appendix A baseline 0001-0010 (T03, T04)
+migrations/                  NNNN_name.sql, embedded into cmd/migrate: the Appendix A baseline 0001-0010 (T03, T04), 0011 storage_backend (T11)
 api/routes.txt               generated route table (method, path, listeners) checked by go-ci gen-check (T14)
 sqlc.yaml                    sqlc v1.31.1: schema = migrations/, one block per query package
 testdata/golden/             language-neutral golden vectors exported from the TypeScript engines (main spec §6.16)
@@ -59,10 +60,10 @@ testdata/golden/             language-neutral golden vectors exported from the T
 | Listener | Env | Serves |
 |---|---|---|
 | internal | `API_INTERNAL_ADDR` | every route group, incl. `/readyz`, `/startupz` |
-| public | `API_PUBLIC_ADDR` | only groups marked public **and** listed in `PUBLIC_ROUTE_GROUPS` (subset of `/v1/mobile`, `/v1/auth`, `/public/v1`, `/evidence`, `/healthz`); everything else `404 not_found` |
+| public | `API_PUBLIC_ADDR` | only groups marked public **and** listed in `PUBLIC_ROUTE_GROUPS` (subset of `/v1/mobile`, `/v1/auth`, `/public/v1`, `/evidence`, `/media`, `/healthz`); everything else `404 not_found` |
 | metrics | `METRICS_ADDR` | `GET /metrics` (Prometheus), private |
 
-`api routes` builds the API through the same `newAPI` as serving (`cmd/api/main.go`; domain groups are added there), refuses a group marked public outside the list and any public route other than `/healthz` or a path below `/v1/mobile/`, `/v1/auth/`, `/public/v1/`, `/evidence/` (exit 1; serving refuses the same at startup), and prints one line per route with the listeners that may serve it. A middleware or sub-app registered with `Use` is listed as `USE PATH` and matches every path below it, so on the public listener it is allowed only at or below `/v1/mobile`, `/v1/auth`, `/public/v1` or `/evidence`, never at or below `/healthz`. The listener-wide middleware (`Use` at `/`, `newFiber`) is not a route and no route check sees what it serves: never add a path-dispatching one (pprof, expvar, static files, a proxy); `TestRootMiddlewareIsPinned` pins its size. `go generate` writes it to `api/routes.txt`, so a route or listener change shows up in review and `make gen-check` fails when the table is stale.
+`api routes` builds the API through the same `newAPI` as serving (`cmd/api/main.go`; domain groups are added there), refuses a group marked public outside the list and any public route other than `/healthz` or a path below `/v1/mobile/`, `/v1/auth/`, `/public/v1/`, `/evidence/` (exit 1; serving refuses the same at startup), and prints one line per route with the listeners that may serve it (`/media`: the owner-approved widening of 2026-10-10 for the local storage backend, T11). A middleware or sub-app registered with `Use` is listed as `USE PATH` and matches every path below it, so on the public listener it is allowed only at or below `/v1/mobile`, `/v1/auth`, `/public/v1` or `/evidence`, never at or below `/healthz`. The listener-wide middleware (`Use` at `/`, `newFiber`) is not a route and no route check sees what it serves: never add a path-dispatching one (pprof, expvar, static files, a proxy); `TestRootMiddlewareIsPinned` pins its size. `go generate` writes it to `api/routes.txt`, so a route or listener change shows up in review and `make gen-check` fails when the table is stale.
 
 `X-Forwarded-For` is honoured only when the TCP peer is inside `TRUSTED_PROXY_CIDRS`; the header is walked right to left and the first untrusted hop is the client. `X-Act-On-Tenant` is refused on the public listener (`400 header_not_allowed`).
 
@@ -82,7 +83,7 @@ Errors are always `{"error":{"code","message","details","requestId"}}` and `requ
 | `WORKER_CONSUMERS`, `RABBITMQ_PREFETCH` | worker | no | `all` (or a comma list of billing, notify, documents, integrations, hr, platform, sync); per-queue prefetch of Appendix B |
 | `EMAIL_ENABLED`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_FROM_NAME`, `SMTP_STARTTLS`, `PUBLIC_WEB_BASE_URL`, `PASSWORD_RESET_TTL` | worker (`PASSWORD_RESET_TTL` also api) | host, from and base URL when email is on | off, -, `587`, -, -, -, `LogiTrack`, `true`, -, `30m` |
 | `API_INTERNAL_ADDR`, `API_PUBLIC_ADDR` | api | yes | — |
-| `PUBLIC_ROUTE_GROUPS` | api | no | all five public groups |
+| `PUBLIC_ROUTE_GROUPS` | api | no | all six public groups |
 | `TRUSTED_PROXY_CIDRS` | api | no | none (no `X-Forwarded-For` trusted) |
 | `DATABASE_URL` (+ `DATABASE_MAX_CONNS`, `DATABASE_MIN_CONNS`) | api, worker, scheduler | yes | — (`logitrack_app`; the pool connects lazily, `/readyz` checks it in the api) |
 | `REDIS_URL`, `REDIS_KEY_PREFIX`, `REDIS_TLS` | api, scheduler | URL yes | prefix `lt:{APP_ENV}:` (any other value is refused), TLS off |
@@ -211,6 +212,32 @@ Golden vectors: `testdata/golden/billing` (see its README). `go test ./internal/
 - **Jobs API**: `GET /v1/jobs`, `GET /v1/jobs/{id}` (owner, or a platform role) and `POST /v1/admin/queues/{queue}/replay` (platform_admin) are mounted by `cmd/api` behind `auth.RequireAuth` (`app.JobGroups`). A replay creates a `queue.replay` job; the leader moves `{queue}.dead` back to `{queue}` with a fresh retry budget.
 - **Tests**: `make test-integration` runs `internal/platform/{mq,outbox,inbox}`, `internal/jobs`, `internal/scheduler` and `internal/notify` against postgres:18-alpine, rabbitmq:4-management-alpine, redis:7-alpine and axllent/mailpit (images read from the compose file).
 
+## Object storage (T11, main spec §9, §9.11)
+
+`internal/storage` keeps the `file_objects` registry (R1) behind one `Backend` interface with two implementations; `STORAGE_BACKEND` picks the backend of **new** uploads and every row records its own (`file_objects.storage_backend`, migration 0011), so reads, commits, re-signs and `storage.gc` follow the row.
+
+| Env | Processes | Default | Notes |
+|---|---|---|---|
+| `STORAGE_BACKEND` | api, worker | `s3` | `local` or `s3`; compose keeps `s3` |
+| `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_USE_PATH_STYLE`, `S3_USE_SSL` | api, worker | -, -, -, -, `true`, `false` | required with `s3`; an endpoint scheme must agree with `S3_USE_SSL` |
+| `S3_BUCKET`, `S3_PUBLIC_BUCKET` | api, worker | `logitrack`, `logitrack-public` | also label local rows |
+| `S3_PRESIGN_ENDPOINT`, `S3_PUBLIC_BASE_URL`, `CORS_ALLOWED_ORIGINS` | api | - | the origin URLs are signed for (required with `S3_ENDPOINT`), public-bucket base, browser origins |
+| `S3_PRESIGN_GET_TTL`, `S3_PRESIGN_PUT_TTL`, `UPLOAD_MAX_BYTES` | api | `1h`, `15m`, `10485760` | also bound local URLs and uploads (max 100 MiB) |
+| `LOCAL_MEDIA_DIR` | api, worker | - | absolute; required with `local`; keep it set after a switch to `s3` while local objects exist |
+| `LOCAL_MEDIA_PUBLIC_BASE_URL`, `LOCAL_MEDIA_SIGNING_KEY` | api | - | required with `LOCAL_MEDIA_DIR`; the key (secret, >= 32 bytes) signs local URLs |
+| `EVIDENCE_TOKEN_TTL_DAYS`, `EVIDENCE_PRESIGN_TTL` | api | `0`, `15m` | `0` = evidence tokens never expire (R30) |
+
+- **Presign** `POST /v1/uploads/presign` (internal, bearer, `presign_user` 120/min): purpose allow-list (`storage.Purposes`, key templates of main spec §9.2), content types, `sizeBytes <= UPLOAD_MAX_BYTES`, `pending` row (24 h), signed PUT with `Content-Type` signed. `s3`: URL on `S3_PRESIGN_ENDPOINT` (never `S3_ENDPOINT`), signed offline. `local`: `url` is the API path `/v1/uploads/local/{key}?X-LT-Expires&X-LT-Signature` (web through the BFF: `/api/go` + url); the driver app gets `${LOCAL_MEDIA_PUBLIC_BASE_URL}/{key}?...` (`PUT /media/{key}`, public listener). `key` re-signs a pending upload of the caller.
+- **Commit** `storage.Service.Commit(ctx, tx, CommitInput)` in the entity transaction: lock the row, Stat on its backend, size / type / sha256 as declared, `committed` + owner + outbox `storage.object_committed`; any failure is `422 invalid_argument` naming the key and the row stays pending. First caller: `PATCH /v1/me {photoKey}` (`user_photo`); `GET /v1/me` signs `photoUrl`.
+- **Download** `GET /v1/files?key=` (internal, bearer) 302 to a short-lived URL on the row's backend; readable are public objects, own uploads, and staff of the file's tenant or of its contractor (`p_read`), plus what a registered `storage.Authorizer` allows.
+- **Local backend**: files under `LOCAL_MEDIA_DIR/{private,public}/{key}` (0640, dirs 0750) with a `.meta/` sidecar (type, size, sha256), atomic writes through `.tmp/` (temp + fsync + rename), all access through `os.Root` (no traversal, no symlink escape). `GET|HEAD /media/{key}` (public listener) needs a valid signature except under `app_releases/`; a path ending in `/` is 404; tampered or expired signatures 403. The upload routes have their own body limit (`UPLOAD_MAX_BYTES`, 5 min read timeout) decided from the request head (`ingress.Group.UploadPaths` -> fasthttp `HeaderReceived`); every other route keeps 4 MiB. Only a pending local row takes bytes (a committed object cannot be overwritten, 409).
+- **S3 bootstrap**: the api re-asserts both buckets, the `app_releases/`-only public policy, the private bucket's CORS and the 30-day `cache/` lifecycle in the background until it succeeds. The pinned MinIO answers `NotImplemented` to bucket CORS, so compose's server-level `MINIO_API_CORS_ALLOW_ORIGIN` (from `CORS_ALLOWED_ORIGINS`) is the CORS in force. `/readyz` checks the active backend.
+- **storage.gc**: hourly command cron (scheduler) -> worker queue `storage.gc`: expired pending rows deleted with their objects on their own backend, one row per transaction; committed and `missing_at_source` rows never; partial local uploads older than 1 h swept.
+- **Evidence** (R30, R47): `storage.NewEvidenceToken`, `Service.ResolveEvidence` (trip first, then standby; revoked or, with a TTL, expired -> not found), `RevokeEvidence`, `EvidenceTokenForSend` (a revoked token is replaced only by a forced send), `EvidenceImageURL` (`EVIDENCE_PRESIGN_TTL`). The gallery route itself lands with P5.
+- **Deployment with nginx (first VM)**: `STORAGE_BACKEND=local`, `LOCAL_MEDIA_DIR` outside any web root, `LOCAL_MEDIA_PUBLIC_BASE_URL=https://logi.showkhun.co/media`, nginx `location /media/ { proxy_pass http://127.0.0.1:<API_PUBLIC_ADDR port>; client_max_body_size <UPLOAD_MAX_BYTES>; }` (path unchanged), and the BFF forwarding `PUT /api/go/v1/uploads/local/*` bodies up to `UPLOAD_MAX_BYTES`.
+
+Tests: `go test ./internal/storage/...` (keys, local backend, signatures, media routes, URLs signed for the presign origin) and `make test-integration` (`internal/storage`: compose MinIO + PostgreSQL: browser CORS preflight and PUT from `http://localhost:3000`, 422 commits, presigned GET expiry, GC on both backends, the backend switch, evidence verifier; `internal/app`: the local flow end to end through both listeners).
+
 ## Edge: web + Caddy (TW2, main spec §10.12, §15)
 
 `make up EDGE=1` adds two services (compose profile `edge`):
@@ -221,7 +248,7 @@ Golden vectors: `testdata/golden/billing` (see its README). `go test ./internal/
 | Site (local value) | Upstream | Notes |
 |---|---|---|
 | `WEB_DOMAIN` (`http://localhost`) | `web:3000` | compressed (zstd, gzip) except `/api/go/v1/events`, which streams unbuffered (`flush_interval -1`); Cache-Control comes from `next.config.ts` |
-| `API_PUBLIC_DOMAIN` (`http://api.localhost`) | the api **public** listener (`api` + `API_PUBLIC_ADDR`, so that value is `:port`; the api refuses a host part when `APP_ENV` is `dev` or `prod`) | only `/v1/mobile`, `/v1/auth`, `/public/v1`, `/evidence`, `/healthz`; anything else `404 not_found` in the Go envelope. Never the internal listener |
+| `API_PUBLIC_DOMAIN` (`http://api.localhost`) | the api **public** listener (`api` + `API_PUBLIC_ADDR`, so that value is `:port`; the api refuses a host part when `APP_ENV` is `dev` or `prod`) | only `/v1/mobile`, `/v1/auth`, `/public/v1`, `/evidence`, `/media`, `/healthz`; anything else `404 not_found` in the Go envelope. Never the internal listener |
 | `MEDIA_DOMAIN` (`http://media.localhost`) | `minio:9000` | Host passes unchanged, so a URL signed for `S3_PRESIGN_ENDPOINT` = `https://{MEDIA_DOMAIN}` verifies; `/minio/*` is 404 |
 | `http://:8090` (not published) | the api public listener | tunnel target: `/public/v1/*` only |
 

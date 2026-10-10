@@ -17,6 +17,7 @@ func workerEnv(extra ...string) []string {
 		"DATABASE_URL=postgres://u:p@localhost:5432/x", "RABBITMQ_URL=amqp://u:p@localhost:5672/",
 		"EMAIL_ENABLED=true", "SMTP_HOST=mailpit", "SMTP_PORT=1025", "SMTP_FROM=no-reply@logitrack.test",
 		"PUBLIC_WEB_BASE_URL=http://localhost:3000", "RABBITMQ_PREFETCH=", "SMTP_USER=", "SMTP_PASSWORD=",
+		"S3_ENDPOINT=http://minio:9000", "S3_REGION=us-east-1", "S3_ACCESS_KEY_ID=placeholder", "S3_SECRET_ACCESS_KEY=placeholder",
 	}, extra...)
 }
 

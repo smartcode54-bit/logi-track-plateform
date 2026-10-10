@@ -23,24 +23,6 @@ func (q *Queries) BumpAuthVersion(ctx context.Context, id uuid.UUID) (int32, err
 	return auth_version, err
 }
 
-const findOwnFile = `-- name: FindOwnFile :one
-SELECT id FROM file_objects
-WHERE object_key = $1 AND uploaded_by = $2::uuid AND deleted_at IS NULL
-`
-
-type FindOwnFileParams struct {
-	ObjectKey string
-	UserID    uuid.UUID
-}
-
-// photoKey of PATCH /v1/me: an object the caller uploaded itself.
-func (q *Queries) FindOwnFile(ctx context.Context, arg FindOwnFileParams) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, findOwnFile, arg.ObjectKey, arg.UserID)
-	var id uuid.UUID
-	err := row.Scan(&id)
-	return id, err
-}
-
 const getDriverForUser = `-- name: GetDriverForUser :one
 SELECT id, tenant_id, mobile FROM drivers WHERE user_id = $1::uuid
 `

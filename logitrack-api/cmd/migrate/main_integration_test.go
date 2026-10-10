@@ -77,10 +77,11 @@ func TestEmbeddedChainUp(t *testing.T) {
 	url := d.URL(db.RoleMigrator)
 	code, _, stderr := cli(t, url, migrations.FS, "up")
 	if code != 0 || !strings.Contains(stderr, `"file":"0001_preamble.sql"`) ||
-		!strings.Contains(stderr, `"file":"0010_d5_unique_constraints.sql"`) {
+		!strings.Contains(stderr, `"file":"0010_d5_unique_constraints.sql"`) ||
+		!strings.Contains(stderr, `"file":"0011_file_objects_storage_backend.sql"`) {
 		t.Fatalf("up: exit %d\n%s", code, stderr)
 	}
-	expectVersion(t, url, migrations.FS, "10")
+	expectVersion(t, url, migrations.FS, "11")
 }
 
 func TestRefusesOtherLogins(t *testing.T) {

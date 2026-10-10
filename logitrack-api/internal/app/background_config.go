@@ -38,6 +38,8 @@ type WorkerConfig struct {
 	Runtime
 	Database
 	AMQPEnv
+	// Storage: storage.gc deletes expired pending objects on their own backend (T11).
+	Storage
 	Prefetch  int      `env:"RABBITMQ_PREFETCH"`
 	Consumers []string `env:"WORKER_CONSUMERS" envSeparator:"," envDefault:"all"`
 
@@ -64,6 +66,7 @@ func (c *WorkerConfig) Validate() error {
 	c.Runtime.validate(&errs)
 	c.Database.validate(&errs)
 	c.AMQPEnv.validate(&errs)
+	c.Storage.validate(&errs)
 	if c.Prefetch < 0 || c.Prefetch > 1000 {
 		errs = append(errs, config.Invalidf("RABBITMQ_PREFETCH", "must be between 0 and 1000"))
 	}

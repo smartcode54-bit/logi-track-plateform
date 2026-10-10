@@ -183,3 +183,32 @@ func TestRootMiddlewareCountsTheListenerWideChain(t *testing.T) {
 		t.Fatalf("routes = %v", routes)
 	}
 }
+
+// /media is the owner-approved widening of 2026-10-10 (local storage backend, T11).
+func TestMediaIsPublicAndUploadPathsStayBelowTheirGroup(t *testing.T) {
+	if !IsPublicPrefix("/media") || !PublicPathAllowed("/media/*") || !PublicUseAllowed("/media") || PublicPathAllowed("/mediax") {
+		t.Fatal("/media must be a public group")
+	}
+	mount := func(fiber.Router) {}
+	for _, bad := range [][]string{{"/v1/files/"}, {"/media"}, {"/media/x"}, {"/mediax/"}} {
+		if err := Validate([]Group{{Prefix: "/media", Public: true, Mount: mount, UploadPaths: bad}}); err == nil {
+			t.Errorf("upload paths %v accepted", bad)
+		}
+	}
+	groups := []Group{
+		{Prefix: "/v1/uploads", Mount: mount, UploadPaths: []string{"/v1/uploads/local/"}},
+		{Prefix: "/media", Public: true, Mount: mount, UploadPaths: []string{"/media/"}},
+	}
+	if err := Validate(groups); err != nil {
+		t.Fatal(err)
+	}
+	if got := UploadPaths(Internal, groups, nil); !slices.Equal(got, []string{"/v1/uploads/local/", "/media/"}) {
+		t.Fatalf("internal upload paths %v", got)
+	}
+	if got := UploadPaths(Public, groups, []string{"/media"}); !slices.Equal(got, []string{"/media/"}) {
+		t.Fatalf("public upload paths %v", got)
+	}
+	if got := UploadPaths(Public, groups, []string{"/healthz"}); len(got) != 0 {
+		t.Fatalf("a group outside PUBLIC_ROUTE_GROUPS lends its upload paths: %v", got)
+	}
+}

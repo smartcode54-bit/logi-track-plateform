@@ -337,7 +337,7 @@ Resolved 2026-10-09 (Go module cache; `web:package.json` and npm).
 
 ### 2.6 Ingress policy
 
-`API_INTERNAL_ADDR` (compose network) mounts **every** route; `API_PUBLIC_ADDR` (behind Caddy) mounts only the groups below that are also in `PUBLIC_ROUTE_GROUPS`, anything else is **404, not 401**. `X-Forwarded-For` is trusted only from `TRUSTED_PROXY_CIDRS`; `/metrics` only on `METRICS_ADDR`.
+`API_INTERNAL_ADDR` (compose network) mounts **every** route; `API_PUBLIC_ADDR` (behind Caddy, or nginx on the first deployment) mounts only the groups below that are also in `PUBLIC_ROUTE_GROUPS`, anything else is **404, not 401**. `X-Forwarded-For` is trusted only from `TRUSTED_PROXY_CIDRS`; `/metrics` only on `METRICS_ADDR`.
 
 | Route group | Public | Caller |
 |---|---|---|
@@ -346,6 +346,7 @@ Resolved 2026-10-09 (Go module cache; `web:package.json` and npm).
 | `/public/v1/*` | yes | Third-party postbacks, per-provider signatures; empty today (R35, R44) |
 | `/evidence/{token}` (legacy `?k=`) | yes | LINE recipients; per-IP limit; revocable (R47) |
 | `/healthz` | yes | Caddy, compose |
+| `/media/*` | yes | Local storage backend only (§9.11): `GET`/`HEAD /media/{key}` signed, expiring object URLs (`app_releases/` unsigned) and the driver app's `PUT /media/{key}` signed upload; owner-approved widening of 2026-10-10 (ADR 0029 notes); 404 while `LOCAL_MEDIA_DIR` is unset |
 | `/v1/*` staff routes (e.g. `/v1/me`) | 404 | BFF only |
 | Mobile-release admin: `GET /v1/app-installations[/stats]`, `GET /v1/app-releases`, `PUT /v1/app-releases/floor`, `POST /v1/app-releases[/presign]` | 404 | BFF; `cmd/release` (`RELEASE_API_KEY`) on the VM or via SSH from CI (R43, R82) |
 | Anonymous forms `POST /v1/waitlist`, `POST /v1/partner-interest` | 404 | BFF `POST /api/forms/{waitlist,partner-interest}` (no auth), `RATE_LIMIT_PUBLIC_FORMS` (R44, R77) |
@@ -1098,7 +1099,7 @@ Exchanges `lt.events`, `lt.retry`, `lt.requeue` (topic), `lt.jobs`, `lt.dlx` (di
 
 The nightly `etl reconcile` (§13.10) runs as the `etl` process (`ETL_DATABASE_URL`): `logitrack_app` cannot read schema `etl`.
 
-As built (T10, `internal/scheduler`): the leader holds `pg_try_advisory_lock(hashtext('lt-scheduler'))` on a connection outside the pool and steps down when a ping of it fails; standbys retry every 2 s. Schedules are parsed by `robfig/cron/v3` and evaluated in `clock.Bangkok` (fixed +07:00, which is Asia/Bangkok: no DST) by the scheduler's own loop, so each fire knows its exact slot; `lock:cron:{job}:{scheduledFor}` (`SET NX`, 10 min) is taken before the `jobs` row (`params.scheduledFor`). Command fires (`jobs` row + `lt.jobs` outbox row) and local fires (SQL / Redis work in the scheduler, recorded as a `jobs` row `running` → `succeeded|failed`) share that path. Housekeeping runs as five jobs: `outbox.prune` (published rows, 7 d), `inbox.prune` (`consumer_inbox`, 30 d), `jobs.prune` (30 d; needs `DELETE` on `jobs`, granted in `0009`), `idempotency.prune`, `rtlog.trim` (exact `XTRIM MAXLEN RTLOG_MAXLEN` + TTL). The command crons whose consumer arrives later are listed in `scheduler.Pending` and not scheduled until their issue turns them on behind their gate: `cartrack.sync` (T53), `bangchak.snapshot` (T37), `billing.safety-net` (T38), `etl.sync` (T24), `storage.gc` (T11), `tenancy.orphan-scan` (T28).
+As built (T10, `internal/scheduler`): the leader holds `pg_try_advisory_lock(hashtext('lt-scheduler'))` on a connection outside the pool and steps down when a ping of it fails; standbys retry every 2 s. Schedules are parsed by `robfig/cron/v3` and evaluated in `clock.Bangkok` (fixed +07:00, which is Asia/Bangkok: no DST) by the scheduler's own loop, so each fire knows its exact slot; `lock:cron:{job}:{scheduledFor}` (`SET NX`, 10 min) is taken before the `jobs` row (`params.scheduledFor`). Command fires (`jobs` row + `lt.jobs` outbox row) and local fires (SQL / Redis work in the scheduler, recorded as a `jobs` row `running` → `succeeded|failed`) share that path. Housekeeping runs as five jobs: `outbox.prune` (published rows, 7 d), `inbox.prune` (`consumer_inbox`, 30 d), `jobs.prune` (30 d; needs `DELETE` on `jobs`, granted in `0009`), `idempotency.prune`, `rtlog.trim` (exact `XTRIM MAXLEN RTLOG_MAXLEN` + TTL). The command crons whose consumer arrives later are listed in `scheduler.Pending` and not scheduled until their issue turns them on behind their gate: `cartrack.sync` (T53), `bangchak.snapshot` (T37), `billing.safety-net` (T38), `etl.sync` (T24), `tenancy.orphan-scan` (T28). `storage.gc` is live since T11 (hourly command, worker consumer `storage.gc` in group `platform`, `internal/storage`).
 
 ### 7.5 Admin jobs and progress API
 
@@ -1256,11 +1257,11 @@ As-is: writers store Firebase download-token URLs, never paths; nothing is delet
 | `S3_BUCKET` (private) | no anonymous access; CORS origins `CORS_ALLOWED_ORIGINS` (its only use), `GET, HEAD, PUT`, headers `Content-Type, Content-Length, Content-Disposition, x-amz-*`, max-age 3600 | everything except APKs, incl. `etl/dumps/{ts}/`, `documents/`, `cache/` (lifecycle 30 d) |
 | `S3_PUBLIC_BUCKET` (public, R23) | anonymous GET | `app_releases/` only |
 
-`S3_ENDPOINT`: server-side address for every S3 call (compose `minio`). `S3_PRESIGN_ENDPOINT`: browser/APK-reachable origin used only to sign URLs (locally `http://localhost:9000`, elsewhere `https://{MEDIA_DOMAIN}`), via a second minio-go client with a fixed `S3_REGION` that signs offline. `MEDIA_DOMAIN`: the Caddy site fronting MinIO for presigned and public URLs; it must forward the original `Host` (SigV4 signs it). `S3_PUBLIC_BASE_URL`: base of public-bucket URLs. Buckets, policy and CORS are created idempotently at startup.
+`S3_ENDPOINT`: server-side address for every S3 call (compose `minio`). `S3_PRESIGN_ENDPOINT`: browser/APK-reachable origin used only to sign URLs (locally `http://localhost:9000`, elsewhere `https://{MEDIA_DOMAIN}`), via a second minio-go client with a fixed `S3_REGION` that signs offline. `MEDIA_DOMAIN`: the Caddy site fronting MinIO for presigned and public URLs; it must forward the original `Host` (SigV4 signs it). `S3_PUBLIC_BASE_URL`: base of public-bucket URLs. Buckets, policy and CORS are created idempotently at startup: the api asserts them in the background until it succeeds (T11, `storage.S3.Bootstrap`), so it starts while MinIO is still coming up; `/readyz` checks the active backend (`BucketExists` of `S3_BUCKET`, or a probe file in `LOCAL_MEDIA_DIR`). Verified in T11: the pinned MinIO answers `NotImplemented` to `PutBucketCors`, so the bucket CORS of the table above is applied through the server-level `MINIO_API_CORS_ALLOW_ORIGIN` (compose feeds it `CORS_ALLOWED_ORIGINS`), which covers both buckets; a provider with bucket CORS gets the private-bucket rule from the bootstrap. A presigned PUT signs `Content-Type`, so the object is stored with the declared type.
 
 ### 9.2 Key layout
 
-Legacy objects are copied 1:1 under their keys (the ETL never rebuilds a key); new writes use entity UUIDs, so renames never move objects (renamed trips keep objects under the OLD number, `fn:renameTripRecord.ts:43-45`). Private keys are read through presigned URLs.
+Legacy objects are copied 1:1 under their keys (the ETL never rebuilds a key); new writes use entity UUIDs, so renames never move objects (renamed trips keep objects under the OLD number, `fn:renameTripRecord.ts:43-45`). Private keys are read through presigned URLs. The templates live in Go (`internal/storage.Purposes`, one per purpose of Appendix A §A.2.1); `{name}` is the original file name reduced to `[A-Za-z0-9._-]` (at most 64 bytes, `file` when nothing is left) and the extension always comes from the content type (`jpg`, `png`, `webp`, `pdf`). A key is refused when it is empty, longer than 1024 bytes, absolute, ends in `/`, or has an empty, `.` or `..` segment, a backslash or a control character (`storage.ValidateKey`, every backend).
 
 | Purpose | New key | Legacy key (copied) |
 |---|---|---|
@@ -1268,10 +1269,11 @@ Legacy objects are copied 1:1 under their keys (the ETL never rebuilds a key); n
 | check-in | `checkin/{taskId}/{ms}.jpg`, `…/app_screenshot_{ms}.jpg` | same |
 | standby / incident | `standby/{id}/{customer_worksheet\|site_photo}-{ms}.jpg`; `incidents/{id}/{map\|situation1\|situation2}-{ms}.jpg` | `standby_records/{id}/{type}.jpg`; `incident_reports/{id}/{type}.jpg` |
 | chat / leave | `chats/{chatId}/{ms}.jpg`; `leave/{driverId}/{ms}_{i}.jpg` | `chat_media/{chatId}/{ms}.jpg`; `leave_evidence/{uid}/{ms}_{i}.jpg` |
-| maintenance / expense | `maintenance/{id}/invoice_{i}.jpg`, `trucks/{truckId}/maintenance/{ms}_{name}`; `expenses/{id}/{receipt\|odometer}-{ms}.jpg` | same, `trucks/documents/maintenance/{truckId}/…`; `vehicle_expenses/{id}/{type}.jpg` |
+| maintenance / expense | `maintenance/{id}/{image\|receipt\|invoice}_{ms}.{ext}` (T11; was `invoice_{i}.jpg`), `trucks/{truckId}/maintenance/{ms}_{name}`; `expenses/{id}/{receipt\|odometer}-{ms}.jpg` | same, `trucks/documents/maintenance/{truckId}/…`; `vehicle_expenses/{id}/{type}.jpg` |
 | driver PII (5 min, `drivers:view_pii`) | `drivers/{driverId}/{profile\|id_card\|license}-{ms}.{ext}` | `drivers/profile/…`, `drivers/documents/…` |
 | trucks / tenant docs | `trucks/{truckId}/{photos\|documents\|insurance\|receipts}/{ms}_{name}`; `subcontractors/{tenantId}/{id_cards\|company_docs}/…` | `trucks/**`; same |
-| customer logo / company assets | `customers/{id}/logo-{ms}.{ext}`; `companies/{id}/{logo\|stamp\|signature}.{ext}` (also read server-side for PDFs) | `customers/logos/{ts}_{name}`; same (no rule today, `web:features/companies/api/companies.ts:101`) |
+| customer logo / company assets | `customers/{id}/logo-{ms}.{ext}`; `companies/{id}/{logo\|stamp\|signature}-{ms}.{ext}` (T11 adds `-{ms}`: `(bucket, object_key)` is unique and a replaced file keeps its row, §9.3) (also read server-side for PDFs) | `customers/logos/{ts}_{name}`; same (no rule today, `web:features/companies/api/companies.ts:101`) |
+| profile photo / penalty evidence (T11) | `users/{userId}/photo-{ms}.{ext}` (`PATCH /v1/me photoKey`); `penalties/{id}/evidence-{ms}.{ext}` | not registered (§A.3.1); `penalty_evidence` per §A.3.7 |
 | statements / reports (15 min) | `documents/statements/{statementId}/{invoice_summary.pdf\|invoice_detail.xlsx\|bundle.zip\|receipt.pdf}`; `documents/reports/{jobId}/{name}` | — (browser today) |
 | APK (public URL) | public bucket `app_releases/{flavor}/logitrack-{flavor}-v{version}.apk` | same |
 | static-map cache (server only) | `cache/staticmaps/{hash}.png` | — |
@@ -1288,13 +1290,13 @@ DDL: Appendix A §A.2.1 (0002_identity, so later `*_file_id` FKs resolve): `UNIQ
 
 ### 9.4 Upload: presigned PUT + commit
 
-1. `POST /v1/uploads/presign` (web via the BFF; mobile `POST /v1/mobile/uploads/presign`) `{purpose, entityId?, contentType, sizeBytes, sha256?, key?}`: purpose allow-list (types, `sizeBytes ≤ UPLOAD_MAX_BYTES`), entity ownership or capability, `rl:presign_user` 120/min; key from the purpose template; `pending` row; returns `{key, url, method:"PUT", headers, expiresAt}` with TTL `S3_PRESIGN_PUT_TTL` (15 min). An existing pending `key` of the caller is re-signed (offline retry after expiry).
-2. The client PUTs the bytes straight to storage.
-3. Commit = the entity endpoint that references the key. In the entity tx the service loads the `pending` row (same uploader or tenant), `StatObject`s it (exists, size, type), sets `committed`, `owner_kind/owner_id`, clears `expires_at`, links the `*_file_id` and appends `storage.object_committed`; any failure → 422 naming the key, nothing half-committed. Driver commits from the offline outbox carry `client_op_id` (unique per driver on incidents, standby, expenses, leave and driver-created tasks; `chat_messages.client_message_id` per chat, R63) and an `Idempotency-Key` (Redis 24 h + `idempotency_keys` until `IDEMPOTENCY_TTL`, R53), so a replay never creates a second entity.
+1. `POST /v1/uploads/presign` (web via the BFF; mobile `POST /v1/mobile/uploads/presign`) `{purpose, entityId?, contentType, sizeBytes, sha256?, key?, variant?, fileName?}`: purpose allow-list (types, `sizeBytes ≤ UPLOAD_MAX_BYTES`), entity ownership or capability, `rl:presign_user` 120/min; key from the purpose template (`variant` = photo type, document kind or attachment index; `fileName` feeds `{name}`); `pending` row with `storage_backend` = `STORAGE_BACKEND`; returns `{key, url, method:"PUT", headers, expiresAt, storageBackend}` with TTL `S3_PRESIGN_PUT_TTL` (15 min). An existing pending `key` of the caller is re-signed (offline retry after expiry) on the row's own backend and lives another 24 h. T11 checks at presign only what needs no domain row (purpose, type, size, a profile photo is the caller's own, an active tenant unless `platform_admin`); the entity's ownership is checked by the entity endpoint at commit, since a pending upload can be committed only by its uploader or its tenant.
+2. The client sends `method` to `url` with exactly `headers` (`Content-Type` is signed). `url` is absolute for the `s3` backend (`S3_PRESIGN_ENDPOINT`) and for the driver app's `local` uploads (`LOCAL_MEDIA_PUBLIC_BASE_URL`); for the web's `local` uploads it is a path on the Go API (`/v1/uploads/local/{key}?...`), which the browser calls through the BFF as `/api/go` + `url` (§9.11).
+3. Commit = the entity endpoint that references the key (`storage.Service.Commit`, first user `PATCH /v1/me photoKey`). In the entity tx the service locks the `pending` row (same uploader or tenant), Stats it on the row's backend (exists, size equal to the declared `sizeBytes` and at most `UPLOAD_MAX_BYTES`, content type as declared, sha256 where the backend knows it), sets `committed`, `owner_kind/owner_id`, clears `expires_at`, links the `*_file_id` and appends `storage.object_committed`; any failure → `422 invalid_argument` with `details.fields[{field, reason, params.key}]`, `reason` ∈ `not_found`, `purpose_mismatch`, `already_committed`, `upload_missing`, `size_mismatch`, `too_large`, `content_type_mismatch`, `checksum_mismatch`; the transaction rolls back, so the row stays pending. Committing the same key to the same owner again returns the row (outbox replay). Driver commits from the offline outbox carry `client_op_id` (unique per driver on incidents, standby, expenses, leave and driver-created tasks; `chat_messages.client_message_id` per chat, R63) and an `Idempotency-Key` (Redis 24 h + `idempotency_keys` until `IDEMPOTENCY_TTL`, R53), so a replay never creates a second entity.
 
 ### 9.5 Download TTLs
 
-Entity payloads carry `key` + presigned `url` (`S3_PRESIGN_GET_TTL`, 1 h); `GET /v1/files?key=` (mobile `GET /v1/mobile/files?key=`; entity authorisation) → 302 to a presigned GET (`S3_PRESIGN_GET_TTL`); photo lists (`GET /v1/trips/{id}/photos`) 15 min; driver PII (`GET /v1/drivers/{id}/documents/{kind}`, `drivers:view_pii`) 5 min; documents and reports 15 min, `Content-Disposition` with the real customer code (`invoice_{customerCode}_{YYYYMM}.zip`); evidence images `EVIDENCE_PRESIGN_TTL` (15 min). `looksLikeImageUrl` (`web:features/maintenance/utils/looksLikeImageUrl.ts:4`) becomes `content_type`. All prefixes are private (closes the PII hole).
+Entity payloads carry `key` + presigned `url` (`S3_PRESIGN_GET_TTL`, 1 h); `GET /v1/files?key=` (mobile `GET /v1/mobile/files?key=`; entity authorisation) → 302 to a presigned GET (`S3_PRESIGN_GET_TTL`) on the object's own backend, `Cache-Control: private, no-store` (T11: readable are public objects, the caller's own uploads (also while pending), and committed objects of the caller's tenant or of a carrier working for it when the caller is staff, as the RLS policy `p_read`; every other owner kind becomes readable through the `storage.Authorizer` its domain registers, "a file is readable iff its referencing row is"; anything else is 404); photo lists (`GET /v1/trips/{id}/photos`) 15 min; driver PII (`GET /v1/drivers/{id}/documents/{kind}`, `drivers:view_pii`) 5 min; documents and reports 15 min, `Content-Disposition` with the real customer code (`invoice_{customerCode}_{YYYYMM}.zip`); evidence images `EVIDENCE_PRESIGN_TTL` (15 min). `looksLikeImageUrl` (`web:features/maintenance/utils/looksLikeImageUrl.ts:4`) becomes `content_type`. All prefixes are private (closes the PII hole).
 
 ### 9.6 Evidence gallery (R30, R47)
 
@@ -1324,6 +1326,46 @@ Replaces jsPDF + `xlsx-js-style` + `jszip` in `web:lib/billingDocument.ts` (spli
 ### 9.10 MinIO → S3-compatible swap
 
 minio-go v7.3.0 uses the S3 API only (no MinIO admin APIs at runtime), so a swap is configuration: the `S3_*` names of §16 (endpoint, presign endpoint, region, keys, buckets, addressing, TLS, public base URL, TTLs), `UPLOAD_MAX_BYTES` and `MEDIA_DOMAIN` (or the provider host). The provider needs SigV4 presigned PUT/GET, the chosen addressing style, public read (or a CDN) for the public bucket, bucket CORS and object metadata. Moving providers is a key-preserving copy (`file_objects` stores bucket + key, never URLs), an env change and an `api` / `worker` restart.
+
+### 9.11 Local disk backend (owner addition to T11, 2026-10-10)
+
+The first deployment (VM `showkhun.co`, pm2 + nginx, no S3 yet) stores uploads on the server's disk. Both backends sit behind one Go interface (`internal/storage.Backend`):
+
+| Item | Contract |
+|---|---|
+| Choice | `STORAGE_BACKEND=local\|s3` picks the backend of **new** uploads only. Every row records its own (`file_objects.storage_backend`, migration 0011, NOT NULL without a default); reads, commits, re-signs and `storage.gc` dispatch on it, so local objects keep working after the switch to `s3`. Retiring local = set `STORAGE_BACKEND=s3` once the `S3_*` env is filled in, keeping `LOCAL_MEDIA_DIR` (and its URL settings) while local rows exist; an optional copy job may move them later (not needed for correctness). Compose keeps `s3` |
+| Files | under `LOCAL_MEDIA_DIR` (outside any web root): `private/{key}`, `public/app_releases/...`, a JSON sidecar per object under `.meta/` (content type, size, sha256: what S3 keeps as object metadata) and partial uploads under `.tmp/`. Writes are atomic (temp file, fsync, rename; sidecar first); files 0640, directories 0750; every access goes through one `os.Root`, so no key or planted symlink leaves the directory; keys pass `storage.ValidateKey` (the S3 key layout of §9.2 reused) |
+| Upload | `POST /v1/uploads/presign` returns, for `local`, an upload URL on the API with an HMAC-SHA256 signature (`LOCAL_MEDIA_SIGNING_KEY`) over method, key, expiry and `Content-Type`, valid `S3_PRESIGN_PUT_TTL`: `PUT /v1/uploads/local/{key}?X-LT-Expires&X-LT-Signature` on the internal listener for the web (through the BFF), `PUT /media/{key}?...` on the public listener for the driver app. The two upload routes have their own body limit `UPLOAD_MAX_BYTES` and a 5 min read timeout (fasthttp `HeaderReceived`, decided from the request head before the body is read); every other route keeps 4 MiB. Only a pending local row takes bytes, so a still-valid URL cannot overwrite a committed object (`409 failed_precondition`, `reason=not_pending`); a missing, tampered or expired signature is `403 permission_denied` (`details.reason` `signature_invalid` \| `signature_expired`); an invalid key is 404 |
+| Commit | as for S3 (§9.4): stat + size/type (+ sha256 when declared) check of the file on disk inside the entity tx |
+| Download | `${LOCAL_MEDIA_PUBLIC_BASE_URL}/{key}`; on the deployment `https://logi.showkhun.co/media/{key}` (nginx maps `logi.showkhun.co/media/` to the Go public listener with the path unchanged). Private objects need a signed, expiring URL (`X-LT-Expires`, `X-LT-Signature`, optional signed `response-content-disposition`; TTL as the presigned GET, `GET /v1/files?key=` 302s to it); `app_releases/` is unsigned (`Cache-Control: public, max-age=31536000, immutable`). A path ending in `/` (a directory) is 404, never an index. Go streams the file (`Content-Type` from the sidecar, `X-Content-Type-Options: nosniff`, `Cache-Control: private, max-age={seconds left}`); `X-Accel-Redirect` is not used |
+| Ingress | `/media` is an owner-approved widening of `PUBLIC_ROUTE_GROUPS` / `ingress.PublicPrefixes` (§2.6, ADR 0029 notes); the Caddy `API_PUBLIC_DOMAIN` site forwards it too |
+| GC, evidence | `storage.gc` deletes expired pending rows with their objects on both backends (and partial uploads older than 1 h under `.tmp/`); evidence gallery images are signed on their own backend for `EVIDENCE_PRESIGN_TTL` |
+| Env | `STORAGE_BACKEND` (api, worker), `LOCAL_MEDIA_DIR` (api, worker), `LOCAL_MEDIA_PUBLIC_BASE_URL` (api), `LOCAL_MEDIA_SIGNING_KEY` (api, secret) — §16.1. With `STORAGE_BACKEND=local` the `S3_*` server names may stay empty; `S3_BUCKET` / `S3_PUBLIC_BUCKET` (defaults `logitrack`, `logitrack-public`) still label the rows |
+
+**Where every stored image or file lives** (0011 adds no other backend column: each table reaches `file_objects` through a `*_file_id` foreign key, and `file_objects.storage_backend` says where the object is; a schema test keeps it so):
+
+| Table (migration) | Column | Purpose(s) |
+|---|---|---|
+| `users` (0002) | `photo_file_id` | `user_photo` |
+| `tenant_files` (0002) | `file_id` | `tenant_document` |
+| `customers` (0003) | `logo_file_id` | `customer_logo` |
+| `companies` (0003) | `logo_file_id`, `stamp_file_id`, `signature_file_id` | `company_logo`, `company_stamp`, `company_signature` |
+| `drivers` (0003) | `profile_file_id`, `id_card_file_id`, `license_file_id` | `driver_profile`, `driver_id_card`, `driver_license` |
+| `truck_files` (0003) | `file_id` | `truck_photo`, `truck_document`, `truck_receipt`, `insurance_document` |
+| `tasks` (0004) | `check_in_photo_file_id`, `check_in_app_screenshot_file_id` | `checkin_photo`, `checkin_app_screenshot` |
+| `trip_photos` (0004) | `file_id` | `trip_photo` |
+| `standby_photos` (0004) | `file_id` | `standby_photo` |
+| `incident_reports` (0004) | `map_photo_file_id`, `situation1_photo_file_id`, `situation2_photo_file_id` | `incident_photo` |
+| `statement_documents` (0005) | `file_id` | `statement_document` |
+| `vehicle_expenses` (0006) | `receipt_file_id`, `odometer_file_id` | `expense_receipt`, `expense_odometer` |
+| `maintenance_files` (0006) | `file_id` | `maintenance_file` |
+| `transactions` (0006) | `receipt_file_id` | `truck_receipt` (tax / insurance renewal receipts) |
+| `driver_penalties` (0006) | `evidence_file_id` | `penalty_evidence` |
+| `chat_messages` (0007) | `image_file_id` | `chat_image` |
+| `mobile_app_releases` (0008) | `apk_file_id` | `apk` (public bucket `app_releases/`) |
+| `leave_request_attachments` (0008) | `file_id` | `leave_evidence` |
+
+Not registered, so outside this list: `settings('mobile_app').apkDownloadUrl` (a URL derived at publish time from the release's `file_objects` row), the server-only `cache/staticmaps/` objects and the ETL dumps under `etl/dumps/{ts}/`; broadcasts carry no media.
 
 ## 10. Web tier: Next.js BFF and TanStack Query
 
@@ -2196,7 +2238,7 @@ Images and ports are in §15.2. Host ports bind `127.0.0.1` except Caddy's 80/44
 | `postgres` | `pg_isready` | **PGDATA `/var/lib/postgresql/18/docker`, volume at `/var/lib/postgresql`**, not `.../data` (R34; old volumes need `make reset`); `postgres-init/` creates the §15.3 roles and `logitrack_test` |
 | `redis` | `redis-cli ping` | AOF on, `noeviction` (idempotency keys never evicted) |
 | `rabbitmq` | `rabbitmq-diagnostics -q ping` | exchanges `lt.events`, `lt.jobs`, `lt.retry`, `lt.requeue`, `lt.dlx`; quorum queues, 5 retries then DLQ (R54) |
-| `minio` + `minio-init` | gated by `minio-init` | Images (T02): the official `minio/minio` and `minio/mc` images are no longer published, so compose pins Chainguard's source builds by digest (`cgr.dev/chainguard/minio`, `cgr.dev/chainguard/minio-client:latest-dev`); swapping to another S3-compatible server changes only `S3_*` values. `minio-init` creates both buckets, anonymous download on `app_releases/`, 30-day expiry on `cache/`; the api bootstrap re-asserts them and the private-bucket CORS from `CORS_ALLOWED_ORIGINS` (§9.1), which compose also feeds to MinIO's server-level `MINIO_API_CORS_ALLOW_ORIGIN`. UNVERIFIED: per-bucket CORS on the pinned MinIO |
+| `minio` + `minio-init` | gated by `minio-init` | Images (T02): the official `minio/minio` and `minio/mc` images are no longer published, so compose pins Chainguard's source builds by digest (`cgr.dev/chainguard/minio`, `cgr.dev/chainguard/minio-client:latest-dev`); swapping to another S3-compatible server changes only `S3_*` values. `minio-init` creates both buckets, anonymous download on `app_releases/`, 30-day expiry on `cache/`; the api bootstrap re-asserts them and the private-bucket CORS from `CORS_ALLOWED_ORIGINS` (§9.1), which compose also feeds to MinIO's server-level `MINIO_API_CORS_ALLOW_ORIGIN`. Verified in T11: the pinned MinIO has no bucket CORS API (`NotImplemented`), so the server-level setting is the one in force (a browser PUT from `http://localhost:3000` passes it, `internal/storage` integration test) |
 | `mailpit` | — | SMTP 1025; reset and invite mails |
 | `migrate` | exits 0 | `migrate up` with `MIGRATE_DATABASE_URL`; prod `up-to 9` until the P1 sign-off |
 | `api` | `wget /readyz` on 8080 | one image with all binaries; internal 8080 (dev only), public 8081 via Caddy, metrics 9090 |
@@ -2393,7 +2435,7 @@ Legend:
 | **Go ingress (two listeners)** | | | | | |
 | `API_INTERNAL_ADDR` | no | api | P0 / — | MISSING | private listener: every `/v1/*` group incl. `/v1/events`, `/v1/bridge/*`, release admin (R43), JWKS, `/healthz`; the only listener the BFF and `cmd/release` call |
 | `API_PUBLIC_ADDR` | no | api, caddy | P0 / — | MISSING | behind Caddy: only `/v1/mobile/*`, `/v1/auth/*`, `/public/v1/*` (empty, signed postbacks only, R44), `/evidence/*`, `/healthz`; anything else 404. Caddy dials `api` + this value, so it is written `:port` (TW2): with a host part the dial address breaks (`0.0.0.0:8081` adapts to `api0.0.0.0:8081`, a 502 on every route; `[::]:8081` stops Caddy). The api refuses a host part when `APP_ENV` is `dev` or `prod`; `local` keeps `host:port` for `go run`; envcheck holds `.env.example` to `:port` |
-| `PUBLIC_ROUTE_GROUPS` | no | api | P0 / — | MISSING | public allow-list (the five groups); widening needs an ADR |
+| `PUBLIC_ROUTE_GROUPS` | no | api | P0 / — | MISSING | public allow-list (the six groups: the five of §2.6 plus `/media`, the owner-approved widening of 2026-10-10 for the local storage backend, ADR 0029 notes); widening needs an ADR |
 | `TRUSTED_PROXY_CIDRS` | no | api | P0 / — | MISSING | Caddy and `web` CIDRs whose `X-Forwarded-For` is honoured; locally `172.16.0.0/12,192.168.0.0/16` (Docker and OrbStack networks, TW2); prod the edge network's subnet |
 | `PUBLIC_API_BASE_URL` | no | api, worker | P0 / — | MISSING | `https://{API_PUBLIC_DOMAIN}` |
 | `PUBLIC_WEB_BASE_URL` | no | api, worker | P0 / — | MISSING | `https://{WEB_DOMAIN}`; reset and invite links |
@@ -2432,7 +2474,11 @@ Legend:
 | `S3_PUBLIC_BASE_URL` | no | api, seed | P0 / — | MISSING | base URL of public-bucket objects (through `MEDIA_DOMAIN`); APK link in `settings` `mobile_app` |
 | `CORS_ALLOWED_ORIGINS` | no | api, infra | P0 / — | MISSING | only the private bucket's CORS (browser PUT/GET on presigned URLs); Go answers no browser CORS. Compose also feeds MinIO's server-level `MINIO_API_CORS_ALLOW_ORIGIN` from it (per-bucket CORS UNVERIFIED, §15) |
 | `S3_PRESIGN_GET_TTL`, `S3_PRESIGN_PUT_TTL` | no | api | P0 / — | MISSING | 1 h lists, 15 min uploads |
-| `UPLOAD_MAX_BYTES` | no | api | P0 / — | MISSING | 10 MB, checked at commit |
+| `UPLOAD_MAX_BYTES` | no | api | P0 / — | MISSING | 10 MB (at most 100 MiB): presign refuses more, the local upload route reads no more (its own body limit; every other route keeps 4 MiB), checked again at commit |
+| `STORAGE_BACKEND` | no | api, worker | P0 / — | MISSING | `local` or `s3` (default `s3`; compose keeps `s3`): backend of **new** uploads; reads, commits and `storage.gc` dispatch on each row's `file_objects.storage_backend` (§9.11, T11 owner addition) |
+| `LOCAL_MEDIA_DIR` | no | api, worker | P0 / — | MISSING | absolute directory of the `local` backend, outside any web root (files 0640, dirs 0750); required with `STORAGE_BACKEND=local` and kept set after a switch to `s3` while local objects exist |
+| `LOCAL_MEDIA_PUBLIC_BASE_URL` | no | api | P0 / — | MISSING | base of local object URLs, served by `GET /media/{key}` on the public listener; deployment `https://logi.showkhun.co/media` (nginx maps `/media/` to the public listener, path unchanged); required with `LOCAL_MEDIA_DIR` |
+| `LOCAL_MEDIA_SIGNING_KEY` | yes | api | P0 / — | MISSING | HMAC-SHA256 key (at least 32 bytes) of the local backend's signed upload and download URLs; required with `LOCAL_MEDIA_DIR`; rotating it invalidates the URLs in flight only (TTL-bounded) |
 | `MINIO_ROOT_USER` | no | infra | P0 / — | MISSING | admin only |
 | `MINIO_ROOT_PASSWORD` | yes | infra | P0 / — | MISSING | admin only |
 | `IMAGES_THUMBNAIL_ENABLED` | no | worker | P2 / — | MISSING | optional `images.thumbnail` |
@@ -2857,7 +2903,7 @@ Numbers are stable because other documents cite them. Q1-Q12 come from the appro
 | Batching of `setCustomClaims` / `setLoading` (`web:context/auth.tsx:47-49`) | not checked | moot once `['me']` replaces it | P0 (TW4) |
 | "Customer with 0 trips sees every incident" | depends on data | unreachable under server scope | P2 |
 | BFF latency and SSE through Caddy and Next.js | no Go API yet | load test in TW3, TW5 | P0-P1 |
-| MinIO per-bucket CORS in the pinned image | image not pinned yet | T02 check; else server-level setting from `CORS_ALLOWED_ORIGINS` | P0 |
+| MinIO per-bucket CORS in the pinned image | **resolved in T11**: `PutBucketCors` answers `NotImplemented`; the server-level `MINIO_API_CORS_ALLOW_ORIGIN` from `CORS_ALLOWED_ORIGINS` applies (both buckets) | — | P0 |
 | `bahttext` on fractional satang and negatives | package not installed | golden tests against the npm package | P3 |
 | Stored `companies.withholdingTaxRate`; `subcontractors.code` (read by `fn:lineNotify.ts:141`) | not read | ETL report | P1-P3 |
 | Maintenance invoice URL field name | not confirmed in code | `rewrite-urls` unmapped hits | P0 ETL |
