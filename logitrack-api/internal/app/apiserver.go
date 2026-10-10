@@ -2,17 +2,15 @@ package app
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
-	"time"
 
-	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/password"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/token"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/health"
@@ -48,23 +46,17 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 	if err != nil {
 		return nil, nil, &config.Error{Invalid: []string{"DATABASE_URL: " + err.Error()}}
 	}
-	ropts, err := redis.ParseURL(cfg.RedisURL)
-	if err != nil {
+	// One Redis client for the process, built by cache.Open (T09): it honours context deadlines with
+	// short socket timeouts, so an unreachable or hung Redis fails fast and the per-request revocation
+	// check answers from PostgreSQL (Appendix C §C.4.3) instead of stalling every request, and it
+	// carries the money-path guard (Appendix B §B.6.1). URL query parameters (dial_timeout, ...) still
+	// win. go-redis's own log lines go through the redacting logger.
+	cache.RouteDriverLogs(log)
+	rdb, _, err := cache.Open(cache.Options{URL: cfg.RedisURL, Prefix: cfg.RedisKeyPrefix, AppEnv: cfg.AppEnv, TLS: cfg.RedisTLS})
+	if err != nil { // never carries the URL
 		pool.Close()
-		return nil, nil, &config.Error{Invalid: []string{"REDIS_URL: not a valid redis URL"}}
+		return nil, nil, &config.Error{Invalid: []string{err.Error()}}
 	}
-	if cfg.RedisTLS && ropts.TLSConfig == nil {
-		ropts.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
-	}
-	// An unreachable Redis must fail fast: the per-request revocation check then answers from
-	// PostgreSQL (Appendix C §C.4.3). URL query parameters (dial_timeout, ...) still win.
-	if ropts.DialTimeout == 0 {
-		ropts.DialTimeout = 2 * time.Second
-	}
-	if ropts.DialerRetries == 0 {
-		ropts.DialerRetries = 2
-	}
-	rdb := redis.NewClient(ropts)
 	closeAll := func() {
 		pool.Close()
 		if err := rdb.Close(); err != nil {
