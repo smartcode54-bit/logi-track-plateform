@@ -165,6 +165,9 @@ func principalFromClaims(c *token.Claims) (*authz.Principal, bool) {
 	}
 	p := &authz.Principal{UserID: uid, SessionID: sid, AuthVersion: c.Version, AMR: c.AMR, TokenID: c.ID,
 		Dispatcher: c.Dispatcher}
+	if c.ExpiresAt != nil {
+		p.TokenExpiresAt = c.ExpiresAt.Time
+	}
 	if c.TenantID != "" {
 		tid, err := uuid.Parse(c.TenantID)
 		role := authz.TenantRole(c.Role)

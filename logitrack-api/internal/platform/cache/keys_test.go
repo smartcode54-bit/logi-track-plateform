@@ -57,6 +57,7 @@ func allKeys(ks Keyspace) map[string]string {
 		"CacheChannel":         ks.CacheChannel(),
 		"RealtimeSeq":          ks.RealtimeSeq(),
 		"RealtimeLog":          ks.RealtimeLog("user:u1"),
+		"RealtimeMarks":        ks.RealtimeMarks(),
 		"JobLock":              ks.JobLock("payroll.run", "2026-10"),
 		"CronLock":             ks.CronLock("rtlog.trim", "2026-10-10T04:00"),
 	}
@@ -93,6 +94,8 @@ func TestSpecKeyShapes(t *testing.T) {
 		"RateLimit":          "lt:prod:rl:login_ip:s",
 		"CacheChannel":       "lt:prod:rt:cache",
 		"RealtimeSeq":        "lt:prod:rtlog:seq",
+		"RealtimeMarks":      "lt:prod:rtlog:marks",
+		"SSEConnections":     "lt:prod:rl:sse_conns:u1",
 		"GeoReverse":         "lt:prod:cache:geo:rev:13.75000:100.50000",
 		"RBACCapabilities":   "lt:prod:rbac:caps:platform:tenant_admin:3:1a2b3c4d",
 	}

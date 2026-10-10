@@ -2,7 +2,7 @@
 
 Go backend for the LogiTrack migration off Firebase (`mv-go`). Design: [`developer-spec.md`](../developer-spec.md) §2, routes in [Appendix B](../shared-docs/specs/mv-go/B-api-catalog.md). Branch policy: work lands by PR into `mv-go`, never `main` (R90).
 
-Status: **T01 scaffold + T02 local stack + T03 migrations + T04 core schema + T05 own auth + T06 Google sign-in + T07 RBAC + T08 Firebase bridge + T36 billing engine + TW2 edge (web container + Caddy) + T14 CI + T17 web flags**. One module, seven binaries, shared `internal/`; the first routes are `/v1/auth/*` and `/v1/me*` (T05), `/v1/roles` (T07) and `GET /v1/config/web-flags` (T17).
+Status: **T01 scaffold + T02 local stack + T03 migrations + T04 core schema + T05 own auth + T06 Google sign-in + T07 RBAC + T08 Firebase bridge + T36 billing engine + TW2 edge (web container + Caddy) + T14 CI + T17 web flags + T12 SSE**. One module, seven binaries, shared `internal/`; the first routes are `/v1/auth/*` and `/v1/me*` (T05), `/v1/roles` (T07), `GET /v1/config/web-flags` (T17) and the SSE streams `GET /v1/events` / `GET /v1/mobile/events` (T12).
 
 ## Layout
 
@@ -27,6 +27,7 @@ internal/iam                 per-request authorization (RBAC: overrides under rb
 internal/scope               dispatcher / customer-scope reads: scope_* views only (repo/scope_*.sql -> scopedb, sqlc vet rule scope-views-only)
 internal/security            the only writer of security_events: security.Append in the caller's transaction (T05)
 internal/webcfg              runtime web domain flags: GET /v1/config/web-flags from PG_OWNED_DOMAINS + WEB_FLAG_OVERRIDES (T17)
+internal/sse                 SSE streams GET /v1/events (web, bearer) and GET /v1/mobile/events (ticket): topics, leases, replay, live relay (T12)
 internal/platform/config     env loading: all missing/invalid names in one error, never values
 internal/platform/logx       zerolog + redacting writer (authorization, password, *token, cookie, idCard, ...)
 internal/platform/httpx      envelopes, error codes, request id, client IP, access log
@@ -43,7 +44,7 @@ internal/platform/httpx/ratelimit    GCRA buckets of Appendix B §B.6.3 + Fiber 
 internal/platform/mq         RabbitMQ topology (Appendix B §B.5), Declare, confirm Publisher, Consume with the retry ladder (T10)
 internal/platform/outbox     outbox.Append (the only way to emit) and the relay: LISTEN + tick, SKIP LOCKED, confirms (T10)
 internal/platform/inbox      consumer_inbox claim in the side-effect transaction (T10)
-internal/platform/realtime   SSE topics and the Redis writer: INCR rtlog:seq, XADD {seq}-0, PUBLISH rt:{topic} (T10)
+internal/platform/realtime   SSE topics and the Redis writer: INCR rtlog:seq, XADD {seq}-0, PUBLISH rt:{topic} (T10); per replica the Hub (PSUBSCRIBE rt:*), the replay Reader and the SSE event names (T12)
 internal/platform/email      SMTP sender (multipart, UTF-8) for notify.email (T10)
 internal/platform/asynctest  test-only RabbitMQ, Redis and Mailpit containers with the compose images (T10)
 internal/jobs                jobs table, lock:job / lock:cron, GET /v1/jobs*, queue replay (T10)
@@ -83,7 +84,7 @@ Errors are always `{"error":{"code","message","details","requestId"}}` and `requ
 | `METRICS_ADDR` | api, worker, scheduler | yes | — |
 | `SHUTDOWN_TIMEOUT` | api, worker, scheduler | no | `30s` |
 | `RABBITMQ_URL` | worker, scheduler | yes | — (`api` never connects; the broker connection is retried with backoff) |
-| `OUTBOX_RELAY_INTERVAL`, `OUTBOX_BATCH_SIZE`, `RTLOG_MAXLEN`, `RTLOG_TTL` | scheduler | no | `200ms`, `500`, `1000`, `24h` |
+| `OUTBOX_RELAY_INTERVAL`, `OUTBOX_BATCH_SIZE`, `RTLOG_MAXLEN`, `RTLOG_TTL` | scheduler (`RTLOG_TTL` also api, same value) | no | `200ms`, `500`, `1000`, `24h` |
 | `WORKER_CONSUMERS`, `RABBITMQ_PREFETCH` | worker | no | `all` (or a comma list of billing, notify, documents, integrations, hr, platform, sync); per-queue prefetch of Appendix B |
 | `EMAIL_ENABLED`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_FROM_NAME`, `SMTP_STARTTLS`, `PUBLIC_WEB_BASE_URL`, `PASSWORD_RESET_TTL` | worker (`PASSWORD_RESET_TTL` also api) | host, from and base URL when email is on | off, -, `587`, -, -, -, `LogiTrack`, `true`, -, `30m` |
 | `API_INTERNAL_ADDR`, `API_PUBLIC_ADDR` | api | yes | — |
@@ -100,12 +101,13 @@ Errors are always `{"error":{"code","message","details","requestId"}}` and `requ
 | `AUTH_FIREBASE_BRIDGE_MODE` | api | no | `off` (`off`, `mobile`, `web`, `both`; any mode but `off` needs the next two) |
 | `FIREBASE_PROJECT_ID`, `GOOGLE_APPLICATION_CREDENTIALS` | api | with the bridge | none: no Firebase ID-token verification, no custom tokens, no mirror (the key file is read at start-up; unreadable or malformed = exit 2, naming the variable only). The service account needs Firebase Authentication Admin (`roles/firebaseauth.admin`) on the project, and no token-creator role; without the grant every mirrored change is `503 bridge_unavailable` (main spec §16.1) |
 | `PG_OWNED_DOMAINS`, `WEB_FLAG_OVERRIDES` | api | no | none (every web domain on Firestore); `.env.example` sets `PG_OWNED_DOMAINS=all` locally. See "Web flags" |
+| `SSE_PING_INTERVAL`, `SSE_MAX_CONN_PER_USER`, `MOBILE_SSE_ENABLED` | api | no | `25s` (1s-5m), `5` (1-100), `false` (`GET /v1/mobile/events` answers 404). See "Realtime" |
 
 A missing or invalid variable stops the process with exit code 2 and a message naming every offending variable (never its value). Startup logs list each variable as `set`/`unset`.
 
 ## Lifecycle
 
-`SIGTERM` → `/readyz` answers `503 unavailable` (`details.reason=draining`) → after a grace of `min(5s, SHUTDOWN_TIMEOUT/3)` both listeners stop accepting and in-flight requests drain within the rest of `SHUTDOWN_TIMEOUT` → exit 0. `/healthz` stays 200 until the listener closes.
+`SIGTERM` → `/readyz` answers `503 unavailable` (`details.reason=draining`) → after a grace of `min(5s, SHUTDOWN_TIMEOUT/3)` every SSE stream gets `event: reconnect` `{"reason":"shutdown"}` and closes (`API.OnDrain`), both listeners stop accepting and in-flight requests drain within the rest of `SHUTDOWN_TIMEOUT` → exit 0. `/healthz` stays 200 until the listener closes.
 
 Exit codes: `0` ok, `1` runtime error, `2` configuration error, `3` not implemented yet.
 
@@ -230,6 +232,21 @@ Golden vectors: `testdata/golden/billing` (see its README). `go test ./internal/
 - **Cron** (Bangkok, leader only, `lock:cron:{job}:{scheduledFor}`): `auth.token-cleanup` every 10 min, and at 04:00 `outbox.prune`, `inbox.prune`, `jobs.prune`, `idempotency.prune`, `rtlog.trim`; the command crons of §7.4 join with their consumers (`scheduler.Pending`).
 - **Jobs API**: `GET /v1/jobs`, `GET /v1/jobs/{id}` (owner, or a platform role) and `POST /v1/admin/queues/{queue}/replay` (platform_admin) are mounted by `cmd/api` behind `auth.RequireAuth` (`app.JobGroups`). A replay creates a `queue.replay` job; the leader moves `{queue}.dead` back to `{queue}` with a fresh retry budget.
 - **Tests**: `make test-integration` runs `internal/platform/{mq,outbox,inbox}`, `internal/jobs`, `internal/scheduler` and `internal/notify` against postgres:18-alpine, rabbitmq:4-management-alpine, redis:7-alpine and axllent/mailpit (images read from the compose file).
+
+## Realtime (T12, main spec §8, Appendix B §B.4)
+
+| Route | Listener | Credential | Implicit topics |
+|---|---|---|---|
+| `GET /v1/events[?topics=]` | internal (404 on public) | bearer (the BFF forwards `lt_at`); a `ticket` parameter is `400` and is not spent | `sse.WebTopics`: `user:{uid}`, `driver:{did}`, `global` (staff), `platform:security`, `dispatch:*` (dispatchers, instead of tenant tasks/trips), `tenant:{tid}:{family}` by capability (+ the same families of contractor sub-tenants for own-fleet staff), `tenant:{tid}:config` (members) |
+| `GET /v1/mobile/events?ticket=[&topics=]` | public (and internal), 404 unless `MOBILE_SSE_ENABLED` | single-use ticket from `POST /v1/auth/sse-ticket` (60 s, `GETDEL`); never a bearer | `user:{uid}`, `driver:{did}` |
+
+- **Fan-out**: the scheduler's relay writes (`realtime.Writer`: `INCR rtlog:seq`, `XADD rtlog:{topic} {seq}-0`, `rtlog:marks`, `PUBLISH rt:{topic}`); every api replica runs one `realtime.Hub` (`PSUBSCRIBE lt:{env}:rt:*`, started by `API.OnServe`) that hands each message to the local streams of its topic without blocking (a full 1024-message buffer ends that stream with `reconnect` `lagging`; a re-established subscription ends every stream with `reconnect` `interrupted`, since Redis keeps nothing for a disconnected subscriber).
+- **Frames**: `retry: 3000`; events `id: <seq>` / `event: <name>` / `data: {"type","topic","eventId","data"}`; an id-only frame with the sequence at connect; `: ping` every `SSE_PING_INTERVAL`; `reconnect` (`token_expiring` 30 s before `exp`, `shutdown`, `lagging`, `interrupted`, `roles_changed`, `connection_limit`) and `resync` (`unknown_id`, `trimmed`, `expired`, `too_far_behind`). Event names per topic: `realtime.EventName`.
+- **Replay**: `Last-Event-ID: n` reads `rtlog:seq` and every log (`XINFO`, `XRANGE (n-0 + COUNT 501`) in one `MULTI`, merges by id, then streams live events above that sequence. Resync instead when `n` was never issued, a log was trimmed past it (`entries-added` above the length and the first entry after `n`), a log that expired could have held later events and `rtlog:marks` dates `n` before `RTLOG_TTL`, or more than 500 events follow on one topic.
+- **Limit**: `rl:sse_conns:{userId}` is a sorted set of leases (3 x `SSE_PING_INTERVAL`, renewed by each heartbeat): the 6th stream of a user is `429 resource_exhausted` (`Retry-After: 60`), a crashed replica's leases expire. Redis or the hub unavailable: `503` (`Retry-After: 3`).
+- **Auth**: a live `session.revoked` for the stream's session (or `claims_changed`) ends it; ticket streams end one `JWT_ACCESS_TTL` after redemption. Explicit `chat:{id}` topics are read under `db.WithPrincipal` (`internal/sse/queries`): the chat's driver or staff with `chat:view` in reach.
+
+Tests: `go test ./internal/platform/realtime/ ./internal/sse/` (event names, hub dispatch, topic sets, query rules) and `make test-integration` (`internal/sse`: two replicas on one PostgreSQL 18 and Redis 7, a revocation made on replica A reaching a stream on replica B through the relay, replay across topics, every resync reason, the 6th stream, tickets on both listeners, chat visibility, token expiry, shutdown and an interrupted subscription).
 
 ## Edge: web + Caddy (TW2, main spec §10.12, §15)
 

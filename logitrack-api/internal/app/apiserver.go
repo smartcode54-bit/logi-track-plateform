@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
@@ -22,14 +24,27 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/health"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/realtime"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/sse"
 )
 
 // APIDeps are the services BuildAPI wires and cmd/api's newAPI turns into route groups. `api routes`
 // passes the zero value: Groups only registers handlers and never reads a service.
 type APIDeps struct {
-	Auth *auth.Service
-	Jobs *jobs.Service
+	Auth   *auth.Service
+	Jobs   *jobs.Service
+	Events *sse.Service
 }
+
+// EventGroups are GET /v1/events (internal, behind auth.RequireAuth) and GET /v1/mobile/events (public,
+// SSE ticket) of T12 (main spec §8, Appendix B §B.2.20, §B.2.21).
+func EventGroups(d APIDeps) []ingress.Group {
+	return d.Events.Groups(d.Auth.RequireAuth())
+}
+
+// SSELease is how long an SSE stream holds its slot in rl:sse_conns:{userId} without a renewal: three
+// heartbeats, so one late ping does not free it while a crashed replica's slots free themselves.
+func SSELease(ping time.Duration) time.Duration { return 3 * ping }
 
 // JobGroups are GET /v1/jobs, GET /v1/jobs/{id} and POST /v1/admin/queues/{queue}/replay (T10) behind
 // auth.RequireAuth: owners read their jobs, platform_admin and support read all, platform_admin
@@ -141,10 +156,38 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		svc.Close()
 		closeConns()
 	}
-	a, err := build(APIDeps{Auth: svc, Jobs: jobs.NewService(pool, jobs.NewRedisLocker(rdb, ks))})
+	// Realtime (T12): one PSUBSCRIBE rt:* loop per replica feeds the local SSE streams; the replay reads
+	// the rtlog: streams the scheduler's relay writes, with the same RTLOG_TTL.
+	hub := realtime.NewHub(rdb, ks, log, 0)
+	events, err := sse.New(sse.Config{
+		PingInterval: cfg.SSEPingInterval, MaxConnPerUser: cfg.SSEMaxConnPerUser, MobileEnabled: cfg.MobileSSEEnabled,
+	}, sse.Deps{
+		Hub: hub, Reader: realtime.NewReader(rdb, ks, cfg.RTLogTTL),
+		Conns:   ratelimit.NewConnLimiter(rdb, ks, cfg.SSEMaxConnPerUser, SSELease(cfg.SSEPingInterval)),
+		Tickets: svc, Pool: pool, Log: log,
+	})
 	if err != nil {
 		closeAll()
 		return nil, nil, err
+	}
+	a, err := build(APIDeps{Auth: svc, Jobs: jobs.NewService(pool, jobs.NewRedisLocker(rdb, ks)), Events: events})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
+	a.OnServe(func(ctx context.Context) {
+		if err := hub.Run(ctx); err != nil {
+			log.Error().Err(err).Msg("realtime fan-out stopped")
+		}
+	})
+	a.OnDrain(events.Drain)
+	for name, c := range map[string]interface {
+		Register(prometheus.Registerer) error
+	}{"realtime": hub, "sse": events} {
+		if err := c.Register(a.metrics.Registry); err != nil {
+			closeAll()
+			return nil, nil, fmt.Errorf("register %s metrics: %w", name, err)
+		}
 	}
 	if err := svc.Register(a.metrics.Registry); err != nil {
 		closeAll()
