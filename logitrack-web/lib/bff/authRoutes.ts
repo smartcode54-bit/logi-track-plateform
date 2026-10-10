@@ -8,8 +8,8 @@
  * | `POST /api/auth/login` | `POST /v1/auth/login` | sets `lt_at` + `lt_rt`; 200 with Go's body minus the tokens |
  * | `GET /api/auth/google/nonce` | `GET /v1/auth/google/nonce` | pass-through |
  * | `POST /api/auth/google` | `POST /v1/auth/google` | as login |
- * | `POST /api/auth/refresh` `{force?}` | `POST /v1/auth/refresh` | 204: a no-op while `lt_at` has more than 120 s left unless `force` (R78), else both cookies rotated; 401 clears both |
- * | `GET /api/auth/refresh?next=` | same | the proxy.ts bounce of a navigation: rotate, then 303 to `next` (an `/app` path) or 303 `/login?next=` |
+ * | `POST /api/auth/refresh` `{force?}` | `POST /v1/auth/refresh` | 204: a no-op while `lt_at` has more than 120 s left unless `force` (R78), else both cookies rotated; refused (no `lt_rt`, Go 401): 401, both cleared; other failures pass through, cookies kept |
+ * | `GET /api/auth/refresh?next=` | same | the proxy.ts bounce of a navigation: rotate, then 303 to `next` (an `/app` path); refused: 303 `/login?next=`, both cleared; Go unreachable or failing: 503/504, cookies kept; not a navigation: 400 |
  * | `POST /api/auth/logout` | `POST /v1/auth/logout` | revokes the session, expires both cookies, 204 |
  * | `POST /api/auth/tenant` `{tenantId}` | `POST /v1/auth/tenant` | replaces `lt_at`, 204 |
  * | `POST /api/auth/firebase-token` | `POST /v1/bridge/firebase-token` | pass-through of the custom token (P0 until TW7, R80) |
@@ -18,6 +18,8 @@
  * Errors from Go pass through with their status, envelope, `X-Request-Id` and `Retry-After`.
  */
 import "server-only";
+
+import { createHash } from "node:crypto";
 
 import { secondsLeft, verifyAccessToken } from "./accessToken";
 import { bffConfig, type BffConfig } from "./config";
@@ -49,6 +51,11 @@ import {
 export const REFRESH_NOOP_SECONDS = 120;
 /** Where a refresh lands when `next` is missing or unacceptable. */
 export const DEFAULT_NEXT = "/app";
+
+/** A rotation's new pair also answers requests that present the same refresh token this long after it. */
+export const ROTATION_SHARE_MS = 10_000;
+/** At most this many finished rotations are kept for sharing (the oldest are dropped first). */
+export const ROTATION_SHARE_MAX_ENTRIES = 1_000;
 
 const MAX_BODY_BYTES = 16 * 1024;
 const PASSED_HEADERS = ["content-type", "retry-after"];
@@ -160,8 +167,29 @@ async function goCall(req: Request, ctx: Ctx, call: GoCall): Promise<{ ok: true;
     return { ok: true, res: result.res };
 }
 
-/** Go's answer as it came (status, body, Content-Type, X-Request-Id, Retry-After), no-store, plus Set-Cookie lines. */
-async function passThrough(res: Response, ctx: Ctx, ...setCookie: string[]): Promise<Response> {
+/** A response as data: one Go call may answer several requests, and a Response body is read once. */
+interface Answer {
+    status: number;
+    headers: [string, string][];
+    body: string | null;
+}
+
+function hasNoBody(status: number): boolean {
+    return status === 204 || status === 205 || status === 304;
+}
+
+async function toAnswer(res: Response): Promise<Answer> {
+    return { status: res.status, headers: [...res.headers], body: hasNoBody(res.status) || res.body === null ? null : await res.text() };
+}
+
+function fromAnswer(a: Answer, ...setCookie: string[]): Response {
+    const headers = new Headers(a.headers);
+    setCookies(headers, ...setCookie);
+    return new Response(a.body, { status: a.status, headers });
+}
+
+/** Go's answer as it came (status, body, Content-Type, X-Request-Id, Retry-After), no-store. */
+async function passThroughAnswer(res: Response, ctx: Ctx): Promise<Answer> {
     const headers = new Headers();
     for (const name of PASSED_HEADERS) {
         const v = res.headers.get(name);
@@ -169,9 +197,12 @@ async function passThrough(res: Response, ctx: Ctx, ...setCookie: string[]): Pro
     }
     headers.set("Cache-Control", "no-store");
     headers.set(HEADER_REQUEST_ID, res.headers.get(HEADER_REQUEST_ID) ?? ctx.requestId);
-    setCookies(headers, ...setCookie);
-    const body = res.status === 204 || res.status === 304 ? null : await res.text();
-    return new Response(body, { status: res.status, headers });
+    return { status: res.status, headers: [...headers], body: hasNoBody(res.status) ? null : await res.text() };
+}
+
+/** {@link passThroughAnswer} as a Response, plus Set-Cookie lines. */
+async function passThrough(res: Response, ctx: Ctx, ...setCookie: string[]): Promise<Response> {
+    return fromAnswer(await passThroughAnswer(res, ctx), ...setCookie);
 }
 
 function badUpstream(ctx: Ctx): Response {
@@ -233,27 +264,121 @@ export async function googleNonce(req: Request, deps: AuthDeps = {}): Promise<Re
     return passThrough(call.res, ctx);
 }
 
+type Rotated = { kind: "rotated"; accessToken: string; refreshToken: string; requestId: string };
 type Rotation =
-    | { kind: "rotated"; setCookie: string[]; requestId: string }
-    | { kind: "refused"; res: Response; setCookie: string[] }
-    | { kind: "failed"; response: Response };
+    | Rotated
+    /** Go refused the refresh token (401): the session is over, both cookies are cleared. */
+    | { kind: "refused"; answer: Answer; revoked: boolean }
+    /** Go unreachable, timed out or failing otherwise: the session may still be valid. */
+    | { kind: "failed"; answer: Answer };
 
-/** `POST /v1/auth/refresh` with the `lt_rt` value: new cookies, or a refusal that clears both. */
+function isRevoked(body: string | null): boolean {
+    try {
+        const parsed = JSON.parse(body ?? "") as { error?: { code?: unknown } };
+        return parsed.error?.code === "session_revoked";
+    } catch {
+        return false;
+    }
+}
+
+/** `POST /v1/auth/refresh` with the `lt_rt` value. */
 async function rotate(req: Request, ctx: Ctx, refreshToken: string): Promise<Rotation> {
     const call = await goCall(req, ctx, { method: "POST", path: "/v1/auth/refresh", body: { refreshToken } });
-    if (!call.ok) return { kind: "failed", response: call.response };
+    if (!call.ok) return { kind: "failed", answer: await toAnswer(call.response) };
     const res = call.res;
-    if (res.status === 401) return { kind: "refused", res, setCookie: [clearAccessCookie(ctx.cfg), clearRefreshCookie(ctx.cfg)] };
-    if (res.status !== 200) return { kind: "failed", response: await passThrough(res, ctx) };
+    if (res.status === 401) {
+        const answer = await passThroughAnswer(res, ctx);
+        return { kind: "refused", answer, revoked: isRevoked(answer.body) };
+    }
+    if (res.status !== 200) return { kind: "failed", answer: await passThroughAnswer(res, ctx) };
     const data = await readData(res);
     if (!data || !isCookieSafeToken(data.accessToken) || !isCookieSafeToken(data.refreshToken)) {
-        return { kind: "failed", response: badUpstream(ctx) };
+        return { kind: "failed", answer: await toAnswer(badUpstream(ctx)) };
     }
     return {
         kind: "rotated",
-        setCookie: [accessCookie(data.accessToken, ctx.cfg), refreshCookie(data.refreshToken, ctx.cfg)],
+        accessToken: data.accessToken,
+        refreshToken: data.refreshToken,
         requestId: res.headers.get(HEADER_REQUEST_ID) ?? ctx.requestId,
     };
+}
+
+/*
+ * Rotations shared within this process. Go answers a refresh token presented again within its 30 s
+ * reuse grace with a sibling and revokes the successor it issued first (Appendix C §C.4.4), so two
+ * rotations of one token leave the browser signed in only if it applies the later Set-Cookie last.
+ * Navigations run outside the browser's refresh lock (two tabs restored at once, a navigation racing
+ * another tab's POST), so the requests of one token share one Go call here: concurrent ones wait for
+ * it, and an unforced one up to ROTATION_SHARE_MS later (sent before the browser applied the first
+ * Set-Cookie) gets the same pair. A forced refresh waits for a rotation in flight but never takes a
+ * finished one, which may predate the claims change it is after (R78). Failures are shared only with
+ * the requests waiting for them. Keys are sha256 of the token. Keeping a pair for 10 s gives nobody
+ * more than Go's grace already does (whoever presents the old token within 30 s gets a valid pair),
+ * and once the successor itself comes back to be rotated the pair is dropped, so a late copy of the
+ * old token reaches Go (grace or reuse detection) as before. Web replicas do not share this: requests of one
+ * token that land on different replicas still rely on Go's grace and on the browser applying the
+ * later Set-Cookie last (at worst one forced sign-in).
+ */
+let rotationsInFlight = new Map<string, Promise<Rotation>>();
+let rotationsDone = new Map<string, { expiresAt: number; rotation: Rotated; successor: string }>();
+/** The key of a shared rotation's new refresh token -> the key of the token it replaced. */
+let rotatedFrom = new Map<string, string>();
+
+/** Tests: forget every shared rotation. */
+export function resetRotationsForTests(): void {
+    rotationsInFlight = new Map();
+    rotationsDone = new Map();
+    rotatedFrom = new Map();
+}
+
+function rotationKey(cfg: BffConfig, refreshToken: string): string {
+    return createHash("sha256").update(cfg.goApiInternalUrl).update("\n").update(refreshToken).digest("hex");
+}
+
+function forgetDone(key: string): void {
+    const done = rotationsDone.get(key);
+    if (!done) return;
+    rotationsDone.delete(key);
+    if (rotatedFrom.get(done.successor) === key) rotatedFrom.delete(done.successor);
+}
+
+function rememberDone(key: string, rotation: Rotated, cfg: BffConfig, now: number): void {
+    forgetDone(key);
+    // One lifetime for all, so insertion order is age order: drop the expired, then the oldest over the cap.
+    for (const [k, d] of rotationsDone) {
+        if (d.expiresAt > now && rotationsDone.size < ROTATION_SHARE_MAX_ENTRIES) break;
+        forgetDone(k);
+    }
+    const successor = rotationKey(cfg, rotation.refreshToken);
+    rotationsDone.set(key, { expiresAt: now + ROTATION_SHARE_MS, rotation, successor });
+    rotatedFrom.set(successor, key);
+}
+
+/** The rotation of `refreshToken`, through the sharing described above. */
+function sharedRotation(req: Request, ctx: Ctx, refreshToken: string, forced: boolean): Promise<Rotation> {
+    const now = ctx.deps.now?.() ?? Date.now();
+    const key = rotationKey(ctx.cfg, refreshToken);
+    const done = rotationsDone.get(key);
+    if (done && done.expiresAt <= now) forgetDone(key);
+    else if (done && !forced) return Promise.resolve(done.rotation);
+    let pending = rotationsInFlight.get(key);
+    if (!pending) {
+        // The browser now rotates the successor of a shared rotation: stop handing out that pair.
+        const predecessor = rotatedFrom.get(key);
+        if (predecessor !== undefined) forgetDone(predecessor);
+        pending = rotate(req, ctx, refreshToken)
+            .then((r) => {
+                if (r.kind === "rotated") rememberDone(key, r, ctx.cfg, ctx.deps.now?.() ?? Date.now());
+                return r;
+            })
+            .finally(() => rotationsInFlight.delete(key));
+        rotationsInFlight.set(key, pending);
+    }
+    return pending;
+}
+
+function rotatedCookies(r: Rotated, cfg: BffConfig): string[] {
+    return [accessCookie(r.accessToken, cfg), refreshCookie(r.refreshToken, cfg)];
 }
 
 /**
@@ -286,11 +411,11 @@ export async function refreshPost(req: Request, deps: AuthDeps = {}): Promise<Re
             }
         }
     }
-    const r = await rotate(req, ctx, rt);
-    if (r.kind === "failed") return r.response;
-    if (r.kind === "refused") return passThrough(r.res, ctx, ...r.setCookie);
+    const r = await sharedRotation(req, ctx, rt, force);
+    if (r.kind === "failed") return fromAnswer(r.answer);
+    if (r.kind === "refused") return fromAnswer(r.answer, clearAccessCookie(ctx.cfg), clearRefreshCookie(ctx.cfg));
     const headers = noStore(new Headers(), r.requestId);
-    setCookies(headers, ...r.setCookie);
+    setCookies(headers, ...rotatedCookies(r, ctx.cfg));
     return new Response(null, { status: 204, headers });
 }
 
@@ -321,23 +446,16 @@ function seeOther(location: string, requestId: string, setCookie: string[] = [])
     return new Response(null, { status: 303, headers });
 }
 
-async function revokedReason(res: Response): Promise<boolean> {
-    try {
-        const body = (await res.clone().json()) as { error?: { code?: unknown } };
-        return body.error?.code === "session_revoked";
-    } catch {
-        return false;
-    }
-}
-
 /**
  * GET /api/auth/refresh?next=: the navigation form of the refresh, reached from a proxy.ts redirect
  * when `lt_at` is missing, expired or stale. It always rotates (the gate sends navigations here only
  * when the access token cannot be used), then 303 to `next`; a refused refresh clears both cookies
  * and 303s to `/login?next=`. Top-level navigations only: a request whose `Sec-Fetch-Mode` is not
  * `navigate` (a router prefetch or an RSC fetch following the gate's redirect) is 400 without
- * rotating, and Next falls back to a document navigation to this URL. A rotation outside the browser's
- * refresh lock is absorbed by Go's 30 s reuse grace (R37).
+ * rotating, and Next falls back to a document navigation to this URL. Navigations run outside the
+ * browser's refresh lock: concurrent ones, and one racing a tab's POST, share one rotation in this
+ * process (see the rotation sharing above); Go's 30 s reuse grace covers a retry and the requests that
+ * reach different web replicas (R37).
  */
 export async function refreshGet(req: Request, deps: AuthDeps = {}): Promise<Response> {
     const ctx = context(req, deps);
@@ -349,11 +467,11 @@ export async function refreshGet(req: Request, deps: AuthDeps = {}): Promise<Res
     const next = safeNext(new URL(req.url).searchParams.get("next"));
     const rt = cookie(req, REFRESH_COOKIE);
     if (!rt) return seeOther(loginLocation(next), ctx.requestId, [clearAccessCookie(ctx.cfg)]);
-    const r = await rotate(req, ctx, rt);
-    if (r.kind === "rotated") return seeOther(next, r.requestId, r.setCookie);
-    if (r.kind === "refused") return seeOther(loginLocation(next, await revokedReason(r.res)), ctx.requestId, r.setCookie);
+    const r = await sharedRotation(req, ctx, rt, false);
+    if (r.kind === "rotated") return seeOther(next, r.requestId, rotatedCookies(r, ctx.cfg));
+    if (r.kind === "refused") return seeOther(loginLocation(next, r.revoked), ctx.requestId, [clearAccessCookie(ctx.cfg), clearRefreshCookie(ctx.cfg)]);
     // Go unreachable or failing: the session may be fine, so keep the cookies and let the user retry.
-    const status = r.response.status === 504 ? 504 : 503;
+    const status = r.answer.status === 504 ? 504 : 503;
     return new Response("Service temporarily unavailable, please retry.\nระบบไม่พร้อมใช้งานชั่วคราว กรุณาลองใหม่อีกครั้ง\n", {
         status,
         headers: noStore(new Headers({ "Content-Type": "text/plain; charset=utf-8", "Retry-After": "5" }), ctx.requestId),

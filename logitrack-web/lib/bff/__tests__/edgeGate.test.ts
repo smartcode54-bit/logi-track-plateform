@@ -1,7 +1,7 @@
 // @vitest-environment node
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { resetJwksForTests } from "../accessToken";
+import { JWKS_FORCED_RELOAD_INTERVAL_MS, resetJwksForTests } from "../accessToken";
 import { edgeGate, ME_CACHE_TTL_MS, resetGateCacheForTests } from "../edgeGate";
 import { FakeGo, goError, newSigningKey, parseSetCookie, signAccess, WEB_ORIGIN, webRequest, type SigningKey, type TokenClaims } from "./fakeGo";
 
@@ -9,12 +9,13 @@ const go = new FakeGo();
 let key: SigningKey;
 let previous: SigningKey;
 let stranger: SigningKey;
+let rotated: SigningKey;
 let clock = Date.now();
 const now = () => clock;
 
 beforeAll(async () => {
     await go.start();
-    [key, previous, stranger] = await Promise.all([newSigningKey(), newSigningKey(), newSigningKey()]);
+    [key, previous, stranger, rotated] = await Promise.all([newSigningKey(), newSigningKey(), newSigningKey(), newSigningKey()]);
 });
 afterAll(async () => {
     await go.stop();
@@ -23,10 +24,12 @@ beforeEach(() => {
     clock = Date.now();
     go.published = [key];
     go.jwksStatus = 200;
+    go.jwksFetches = 0;
     resetJwksForTests();
     resetGateCacheForTests();
 });
 afterEach(() => {
+    vi.useRealTimers();
     go.requests.length = 0;
     go.routes.clear();
 });
@@ -102,6 +105,74 @@ describe("edge gate (proxy.ts, R39)", () => {
         serveMe(() => me());
         expect(await gate("/app/dashboard", {}, previous)).toBeUndefined();
         expect(await gate("/app/dashboard", {}, key)).toBeUndefined();
+    });
+
+    describe("a key Go publishes while the web holds a key set fetched less than 30 s ago (jose's cooldown)", () => {
+        // The rotation runbook (Appendix C §C.4.2) deploys the new key as active at once: right after
+        // the api restarts, logins and refreshes carry a kid the cached set does not have yet.
+        function expectLogin(res: Response | undefined) {
+            expect(location(res)).toBe(`${WEB_ORIGIN}/login?next=%2Fapp%2Fdashboard`);
+            expect(parseSetCookie(res!.headers.get("set-cookie")!).attrs.get("max-age")).toBe("0");
+        }
+
+        /** Moves the clock jose and the gate read. */
+        function advance(ms: number) {
+            vi.setSystemTime(Date.now() + ms);
+            clock += ms;
+        }
+
+        it("lets a token of the new key through with one more fetch, and keeps verifying the previous key", async () => {
+            serveMe(() => me());
+            expect(await gate("/app/dashboard")).toBeUndefined();
+            expect(go.jwksFetches).toBe(1);
+            go.published = [rotated, key]; // the api restarted with a new active key
+            const res = await gate("/app/dashboard", {}, rotated);
+            expect(res).toBeUndefined();
+            expect(go.jwksFetches).toBe(2);
+            expect(await gate("/app/dashboard", {}, key)).toBeUndefined();
+            expect(await gate("/app/dashboard", {}, rotated)).toBeUndefined();
+            expect(go.jwksFetches).toBe(2);
+        });
+
+        it("still sends a kid Go never published to /login, forcing at most one fetch every 5 s", async () => {
+            vi.useFakeTimers({ toFake: ["Date"] });
+            serveMe(() => me());
+            expect(await gate("/app/dashboard")).toBeUndefined();
+            expectLogin(await gate("/app/dashboard", {}, stranger));
+            expect(go.jwksFetches).toBe(2);
+            advance(JWKS_FORCED_RELOAD_INTERVAL_MS - 1_000);
+            expectLogin(await gate("/app/dashboard", {}, stranger)); // the last fetch is that recent: its answer stands
+            expect(go.jwksFetches).toBe(2);
+            advance(1_000);
+            expectLogin(await gate("/app/dashboard", {}, stranger));
+            expect(go.jwksFetches).toBe(3);
+        });
+
+        it("answers 503 and signs nobody out while that fetch fails, then lets the token through", async () => {
+            vi.useFakeTimers({ toFake: ["Date"] });
+            serveMe(() => me());
+            expect(await gate("/app/dashboard")).toBeUndefined();
+            go.published = [rotated, key];
+            go.jwksStatus = 500;
+            for (const res of [await gate("/app/dashboard", {}, rotated), await gate("/app/dashboard", {}, rotated)]) {
+                expect(res!.status).toBe(503);
+                expect(res!.headers.get("set-cookie")).toBeNull();
+            }
+            expect(go.jwksFetches).toBe(2); // the second request inside the 5 s interval did not fetch
+            go.jwksStatus = 200;
+            advance(JWKS_FORCED_RELOAD_INTERVAL_MS);
+            expect(await gate("/app/dashboard", {}, rotated)).toBeUndefined();
+            expect(go.jwksFetches).toBe(3);
+        });
+
+        it("shares one forced fetch between concurrent requests", async () => {
+            serveMe(() => me());
+            expect(await gate("/app/dashboard")).toBeUndefined();
+            go.published = [rotated, key];
+            const results = await Promise.all([1, 2, 3].map(() => gate("/app/dashboard", {}, rotated)));
+            expect(results).toEqual([undefined, undefined, undefined]);
+            expect(go.jwksFetches).toBe(2);
+        });
     });
 
     it("sends a driver-only principal to /app/unauthorized without asking Go", async () => {

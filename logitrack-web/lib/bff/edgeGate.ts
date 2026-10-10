@@ -4,7 +4,9 @@
  *
  * 1. No `lt_at` -> 307 `/api/auth/refresh?next=<path+query>` (that route can read `lt_rt`).
  * 2. Verify `lt_at` against the Go JWKS (lib/bff/accessToken.ts). Expired -> step 1. Invalid -> expire
- *    `lt_at`, 307 `/login?next=`. JWKS unreadable -> 503 (nobody is signed out by an api restart).
+ *    `lt_at`, 307 `/login?next=`. JWKS unreadable -> 503 (nobody is signed out by an api restart). A
+ *    `kid` the cached key set lacks is looked up in a fresh fetch first, so a key rotation signs
+ *    nobody out either.
  * 3. A principal whose only role is `driver` -> 307 `/app/unauthorized` (drivers hold only `mobile:*`).
  * 4. Capabilities are not in the token: internal `GET /v1/me` with the same bearer, cached in this
  *    process per `(sid, ver, tid)` for 60 s, so a role change (new `ver`) or a tenant switch (new

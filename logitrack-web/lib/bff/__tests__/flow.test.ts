@@ -13,7 +13,7 @@ import { goFetch } from "../../goFetch";
 import { configureSessionEnd } from "../../sessionEnd";
 import { LAST_FORCED_REFRESH_KEY, LAST_REFRESH_KEY } from "../../sharedRefresh";
 import { resetJwksForTests } from "../accessToken";
-import { logout, refreshPost } from "../authRoutes";
+import { logout, refreshPost, resetRotationsForTests } from "../authRoutes";
 import { proxyToGo } from "../goProxy";
 import { FakeGo, goError, newSigningKey, parseSetCookie, signAccess, WEB_ORIGIN, type SigningKey } from "./fakeGo";
 
@@ -110,6 +110,7 @@ afterAll(async () => {
 });
 beforeEach(() => {
     resetJwksForTests();
+    resetRotationsForTests();
     storage.delete(LAST_REFRESH_KEY);
     storage.delete(LAST_FORCED_REFRESH_KEY);
     go.on("POST", "/v1/auth/refresh", (r) => {

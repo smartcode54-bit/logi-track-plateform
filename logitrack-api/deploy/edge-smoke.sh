@@ -83,7 +83,9 @@ b=$(req "$web" -w ' %{http_code}' "http://$web/api/go/v1/me")
 [[ "$b" == *'"code":"unauthenticated"'*' 401' ]] && ok "/api/go/v1/me without a cookie: Go's 401 unauthenticated passes through" || bad "/api/go/v1/me -> ${b: -3}"
 b=$(req "$web" -w ' %{http_code}' -X PATCH -H 'Origin: https://evil.example' -H 'Sec-Fetch-Site: cross-site' -H 'Content-Type: application/json' -d '{}' "http://$web/api/go/v1/me")
 [[ "$b" == *'"reason":"origin"'*' 403' ]] && ok "foreign-Origin mutation -> 403 permission_denied (origin)" || bad "foreign-Origin mutation -> ${b: -3}"
-h=$(req "$web" -o /dev/null -D - -X POST -H "Origin: $origin" -H 'Content-Type: application/json' -d '{"email":"nobody@example.test","password":"not the password 1"}' "http://$web/api/auth/login" | tr -d '\r')
+# A fresh address each run: Go counts failures per email whether or not the user exists and answers
+# 423 locked after 5 in 15 min (Appendix C §C.4.12), so a fixed one would fail from the 6th run on.
+h=$(req "$web" -o /dev/null -D - -X POST -H "Origin: $origin" -H 'Content-Type: application/json' -d "{\"email\":\"$id@example.test\",\"password\":\"not the password 1\"}" "http://$web/api/auth/login" | tr -d '\r')
 if grep -q '^HTTP/[0-9.]* 401' <<<"$h" && ! grep -qi '^set-cookie:' <<<"$h"; then ok "a failed login is 401 and sets no cookie"; else bad "failed login: $(head -1 <<<"$h")"; fi
 
 echo "api ($api): only the Go public listener"

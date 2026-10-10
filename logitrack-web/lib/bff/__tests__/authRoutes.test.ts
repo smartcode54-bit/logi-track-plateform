@@ -2,7 +2,19 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { resetJwksForTests } from "../accessToken";
-import { firebaseToken, google, googleNonce, login, logout, refreshGet, refreshPost, safeNext, tenant } from "../authRoutes";
+import {
+    firebaseToken,
+    google,
+    googleNonce,
+    login,
+    logout,
+    refreshGet,
+    refreshPost,
+    resetRotationsForTests,
+    ROTATION_SHARE_MS,
+    safeNext,
+    tenant,
+} from "../authRoutes";
 import { FakeGo, goError, newSigningKey, parseSetCookie, SAME_ORIGIN, setCookies, signAccess, WEB_ORIGIN, webRequest, type SigningKey } from "./fakeGo";
 
 const go = new FakeGo();
@@ -18,6 +30,7 @@ afterAll(async () => {
 });
 beforeEach(() => {
     resetJwksForTests();
+    resetRotationsForTests();
 });
 afterEach(() => {
     go.requests.length = 0;
@@ -274,6 +287,100 @@ describe("GET /api/auth/refresh?next= (the proxy.ts bounce)", () => {
         });
         expect(res.status).toBe(503);
         expect(setCookies(res)).toEqual([]);
+    });
+});
+
+describe("rotation sharing: one Go rotation per refresh token in this process", () => {
+    // Go answers a token presented again within its 30 s grace with a sibling and revokes the first
+    // successor (Appendix C §C.4.4): two rotations of one token keep the browser signed in only if it
+    // applies the later Set-Cookie last. Navigations run outside the browser's refresh lock.
+    const nav = { "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "none" };
+    let clock = 0;
+    const deps = () => ({ config: go.config(), now: () => clock });
+    let issued = 0;
+
+    beforeEach(() => {
+        clock = Date.now();
+        issued = 0;
+        go.on("POST", "/v1/auth/refresh", () => {
+            issued += 1;
+            return { status: 200, delayMs: 30, body: { data: tokens(100 + issued) } };
+        });
+    });
+
+    const bounce = (rt: string) => refreshGet(webRequest("/api/auth/refresh?next=/app/drivers", { headers: nav, cookies: { lt_rt: rt } }), deps());
+    const post = (rt: string, force = false) =>
+        refreshPost(webRequest("/api/auth/refresh", { ...json(force ? { force: true } : {}), cookies: { lt_rt: rt } }), deps());
+    const newRt = (res: Response) => cookiesOf(res).get("lt_rt")?.value;
+
+    it("makes one Go call for two concurrent bounces, and both set the same pair", async () => {
+        const [a, b] = await Promise.all([bounce("rt0"), bounce("rt0")]);
+        expect(go.calls("POST", "/v1/auth/refresh")).toHaveLength(1);
+        for (const res of [a, b]) {
+            expect(res.status).toBe(303);
+            expect(res.headers.get("location")).toBe("/app/drivers");
+            expect(newRt(res)).toBe("refresh-token-101");
+            expect(cookiesOf(res).get("lt_at")?.value).toBe("access.token.v101");
+        }
+    });
+
+    it("makes one Go call for a bounce racing a tab's POST", async () => {
+        const [a, b] = await Promise.all([bounce("rt0"), post("rt0")]);
+        expect(go.calls("POST", "/v1/auth/refresh")).toHaveLength(1);
+        expect([a.status, b.status]).toEqual([303, 204]);
+        expect(newRt(a)).toBe("refresh-token-101");
+        expect(newRt(b)).toBe("refresh-token-101");
+    });
+
+    it("answers a request sent before the browser applied the first Set-Cookie with the same pair, for 10 s", async () => {
+        expect(newRt(await bounce("rt0"))).toBe("refresh-token-101");
+        clock += ROTATION_SHARE_MS - 1;
+        expect(newRt(await post("rt0"))).toBe("refresh-token-101");
+        expect(go.calls("POST", "/v1/auth/refresh")).toHaveLength(1);
+        clock += 1;
+        expect(newRt(await bounce("rt0"))).toBe("refresh-token-102"); // Go decides (its grace, or reuse)
+        expect(go.calls("POST", "/v1/auth/refresh")).toHaveLength(2);
+    });
+
+    it("sends a late copy of the old token to Go once the browser presents the successor", async () => {
+        expect(newRt(await bounce("rt0"))).toBe("refresh-token-101");
+        expect(newRt(await post("refresh-token-101"))).toBe("refresh-token-102");
+        expect(newRt(await bounce("rt0"))).toBe("refresh-token-103");
+        expect(go.calls("POST", "/v1/auth/refresh").map((r) => JSON.parse(r.body).refreshToken)).toEqual(["rt0", "refresh-token-101", "rt0"]);
+    });
+
+    it("lets a forced refresh wait for a rotation in flight but never take a finished one (R78)", async () => {
+        const [a, b] = await Promise.all([bounce("rt0"), post("rt0", true)]);
+        expect(newRt(a)).toBe("refresh-token-101");
+        expect(newRt(b)).toBe("refresh-token-101");
+        expect(newRt(await post("rt0", true))).toBe("refresh-token-102");
+        expect(go.calls("POST", "/v1/auth/refresh")).toHaveLength(2);
+    });
+
+    it("gives a refusal to every waiting request, clearing both cookies, and keeps none", async () => {
+        go.on("POST", "/v1/auth/refresh", () => ({ status: 401, delayMs: 30, body: goError("session_revoked") }));
+        const [a, b] = await Promise.all([bounce("rt0"), post("rt0")]);
+        expect(go.calls("POST", "/v1/auth/refresh")).toHaveLength(1);
+        expect(a.status).toBe(303);
+        expect(a.headers.get("location")).toBe("/login?next=%2Fapp%2Fdrivers&reason=revoked");
+        expect(b.status).toBe(401);
+        expect((await b.json()).error.code).toBe("session_revoked");
+        for (const res of [a, b]) expect([...cookiesOf(res).values()].map((c) => `${c.name}:${c.attrs.get("max-age")}`).sort()).toEqual(["lt_at:0", "lt_rt:0"]);
+        await post("rt0");
+        expect(go.calls("POST", "/v1/auth/refresh")).toHaveLength(2);
+    });
+
+    it("gives a Go failure to every waiting request, keeping the cookies, and keeps none", async () => {
+        go.on("POST", "/v1/auth/refresh", () => ({ status: 503, delayMs: 30, headers: { "Retry-After": "7" }, body: goError("unavailable") }));
+        const [a, b] = await Promise.all([bounce("rt0"), post("rt0")]);
+        expect(go.calls("POST", "/v1/auth/refresh")).toHaveLength(1);
+        expect(a.status).toBe(503);
+        expect(b.status).toBe(503);
+        expect(b.headers.get("retry-after")).toBe("7");
+        expect((await b.json()).error.code).toBe("unavailable");
+        expect([...setCookies(a), ...setCookies(b)]).toEqual([]);
+        await bounce("rt0");
+        expect(go.calls("POST", "/v1/auth/refresh")).toHaveLength(2);
     });
 });
 

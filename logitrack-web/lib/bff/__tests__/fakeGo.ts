@@ -85,6 +85,8 @@ export class FakeGo {
     /** Keys published in the JWKS, in order (active first). */
     published: SigningKey[] = [];
     jwksStatus = 200;
+    /** JWKS documents served (they are not in `requests`). */
+    jwksFetches = 0;
     private server?: http.Server;
     url = "";
 
@@ -106,6 +108,7 @@ export class FakeGo {
                 const rec: Recorded = { method: req.method ?? "", url: req.url ?? "", headers: req.headers, body: Buffer.concat(chunks).toString("utf8") };
                 const path = rec.url.split("?")[0];
                 if (path === "/.well-known/jwks.json") {
+                    this.jwksFetches += 1;
                     res.writeHead(this.jwksStatus, { "Content-Type": "application/json", "Cache-Control": "public, max-age=300" });
                     res.end(JSON.stringify({ keys: this.published.map((k) => k.jwk) }));
                     return;
