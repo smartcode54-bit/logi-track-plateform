@@ -144,6 +144,25 @@ func (c *WorkerConfig) Validate() error {
 	return nil
 }
 
+// MigrateConfig is the migrate process configuration: goose runs as logitrack_migrator (R66, R87).
+type MigrateConfig struct {
+	Common
+	DatabaseURL string `env:"MIGRATE_DATABASE_URL,required,notEmpty"`
+}
+
+// Validate implements config.Validator.
+func (c *MigrateConfig) Validate() error {
+	var errs []string
+	c.validate(&errs) // Common.validate
+	if c.DatabaseURL != "" && !strings.HasPrefix(c.DatabaseURL, "postgres://") && !strings.HasPrefix(c.DatabaseURL, "postgresql://") {
+		errs = append(errs, config.Invalidf("MIGRATE_DATABASE_URL", "must be a postgres:// URL"))
+	}
+	if len(errs) > 0 {
+		return &config.Error{Invalid: errs}
+	}
+	return nil
+}
+
 // checkAddr accepts "host:port", "[ipv6]:port" or ":port"; port 0 asks the OS
 // for a free port (tests). The message never echoes the value.
 func checkAddr(addr string) error {

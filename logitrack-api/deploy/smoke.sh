@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# T02 acceptance checks against the running local stack (make up first). Prints no secret values.
+# T02/T03 acceptance checks against the running local stack (make up first). Prints no secret values.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 compose=(docker compose -f deploy/docker-compose.yml --env-file .env)
@@ -13,7 +13,7 @@ for s in postgres redis rabbitmq minio mailpit api worker scheduler; do
   state=$("${compose[@]}" ps --format '{{.Service}} {{.State}} {{.Health}}' "$s" 2>/dev/null | awk '{print $2"/"$3}')
   case "$state" in running/healthy|running/) ok "$s $state" ;; *) bad "$s ${state:-absent}" ;; esac
 done
-for s in rabbitmq-init minio-init; do
+for s in rabbitmq-init minio-init migrate; do
   code=$("${compose[@]}" ps -a --format '{{.Service}} {{.ExitCode}}' "$s" | awk '{print $2}')
   [ "$code" = "0" ] && ok "$s exited 0" || bad "$s exit=${code:-absent}"
 done
@@ -36,6 +36,17 @@ for url in DATABASE_URL MIGRATE_DATABASE_URL ETL_DATABASE_URL; do
 done
 wrong=$(sed -E 's#^(postgres://[^:]+:)[^@]+@#\1not-the-password@#' <<<"$(val DATABASE_URL)")
 [ -z "$(login "$wrong" || true)" ] && ok "a wrong password is rejected" || bad "wrong password accepted"
+
+echo "migrations"
+want=$(find migrations -maxdepth 1 -name '[0-9][0-9][0-9][0-9]_*.sql' | wc -l | tr -d ' ')
+v=$(q "SELECT coalesce(max(version_id), 0) FROM goose_db_version")
+[ "$v" = "$want" ] && ok "schema at version $v (every embedded migration)" || bad "schema version $v, want $want"
+# R66: functions belong to logitrack_migrator, except SECURITY DEFINER ones that 0009 hands to
+# logitrack_rls_definer; citext's members belong to the bootstrap superuser (trusted extension).
+o=$(q "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('public','etl') AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e') AND NOT (pg_get_userbyid(p.proowner) = 'logitrack_migrator' OR (p.prosecdef AND pg_get_userbyid(p.proowner) = 'logitrack_rls_definer'))")
+[ "$o" = "0" ] && ok "schema functions owned by logitrack_migrator or, if SECURITY DEFINER, logitrack_rls_definer (R66)" || bad "$o functions with an unexpected owner"
+"${compose[@]}" run --rm -T migrate status -fail-on-pending >/dev/null 2>&1 \
+  && ok "migrate status: nothing pending" || bad "migrate status reports pending migrations"
 
 echo "minio"
 pub=$(val S3_PUBLIC_BUCKET); priv=$(val S3_BUCKET)

@@ -167,11 +167,8 @@ Roles and privileges (R66, R87). `deploy/postgres-init/00-roles.sql` (Appendix C
 ```sql
 -- 0001_preamble.sql
 -- +goose Up
-CREATE EXTENSION IF NOT EXISTS citext;   -- case-insensitive emails and business codes
-CREATE SCHEMA IF NOT EXISTS etl;         -- ETL bookkeeping; tables in 0009
-
 -- Roles come from deploy/postgres-init/00-roles.sql (R66); no migration creates a role or holds a credential.
--- Assert the login and the five roles, so a wrong URL or a missing role fails before any object exists.
+-- Assert the login and the five roles first, so a wrong URL or a missing role fails before any object exists.
 -- +goose StatementBegin
 DO $$
 DECLARE
@@ -204,6 +201,9 @@ BEGIN
 END
 $$;
 -- +goose StatementEnd
+
+CREATE EXTENSION IF NOT EXISTS citext;   -- case-insensitive emails and business codes
+CREATE SCHEMA IF NOT EXISTS etl;         -- ETL bookkeeping; tables in 0009
 
 -- No GRANT/REVOKE in 0001-0008: 0009_infra is the single grant site (A.2.8).
 
@@ -412,6 +412,7 @@ DROP SCHEMA etl;
 
 **Notes (0001)**
 
+- Authored with T03 as `logitrack-api/migrations/0001_preamble.sql`, the Appendix C block inline (each generator and trigger body in its own `StatementBegin` / `StatementEnd`). goose applies the file in one transaction, so a refused login or a missing role rolls back every object of 0001 (no `citext`, no `etl`); the assertion is the first statement so that its error is the first one reported, and `cmd/migrate` checks the login before goose runs as well. goose itself commits `goose_db_version` before 0001 runs, owned by whichever login ran it: after a run outside `cmd/migrate` with the wrong login, drop that table (it holds no applied version) before `migrate up`.
 - Roles (R66, A.2): the assertion also rejects a superuser login (it would silently bypass RLS) and checks that `logitrack_migrator` may `SET ROLE logitrack_rls_definer` (0009 hand-over, `app_drop_definer_function()`). `logitrack_readonly` sees RLS tables only after an operator-logged `app.bypass_tenant`. Every privilege comes from 0009.
 - `app.bypass_tenant` is an ordinary GUC; its protection is that only `db.WithSystem` and the read-only `X-Act-On-Tenant: *` path set it and that `logitrack_app` connections run sqlc-generated statements only. Appendix C §C.3 owns the policy semantics.
 - `app_subtenant_ids()` / `app_tenant_in_reach()` implement contractor reach and `app_is_steward()` the steward rule (R60); `app_tenant_move_allowed()` and `app_etl_load()` are read by `trg_freeze_tenant_id` (Appendix C §C.3.6); `app_is_scope()` marks customer-scope and dispatcher principals; `app_quarantine_tenant_id()` is IMMUTABLE and equals the id of the row 0002 inserts. `app_customer_ids()` holds `billing_parties.id` values (JWT `cs`, from `user_scopes.billing_party_id`), never `customers.id` (R12).

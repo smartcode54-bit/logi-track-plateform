@@ -2,7 +2,7 @@
 
 Go backend for the LogiTrack migration off Firebase (`mv-go`). Design: [`developer-spec.md`](../developer-spec.md) §2, routes in [Appendix B](../shared-docs/specs/mv-go/B-api-catalog.md). Branch policy: work lands by PR into `mv-go`, never `main` (R90).
 
-Status: **T01 scaffold + T02 local stack**. One module, seven binaries, shared `internal/`; no domain routes yet.
+Status: **T01 scaffold + T02 local stack + T03 migrations**. One module, seven binaries, shared `internal/`; no domain routes yet.
 
 ## Layout
 
@@ -10,7 +10,7 @@ Status: **T01 scaffold + T02 local stack**. One module, seven binaries, shared `
 cmd/api          two HTTP listeners (internal + public) and /metrics
 cmd/worker       background consumers (T10); today: /metrics + wait for SIGTERM
 cmd/scheduler    cron + outbox relay (T10); today: /metrics + wait for SIGTERM
-cmd/migrate      goose migrations (T03)        — exits 3 until implemented
+cmd/migrate      goose chain embedded from migrations/, run as logitrack_migrator (T03)
 cmd/seed         seed profiles (T16)           — exits 3 until implemented
 cmd/etl          Firestore/GCS → PG/MinIO (T15) — exits 3 until implemented
 cmd/release      APK publish CLI (T52)         — exits 3 until implemented
@@ -21,6 +21,10 @@ internal/platform/httpx      envelopes, error codes, request id, client IP, acce
 internal/platform/ingress    route groups and the public allow-list
 internal/platform/health     /healthz, /readyz, /startupz, drain state
 internal/platform/telemetry  OpenTelemetry (OTLP/HTTP) and Prometheus
+internal/platform/db         pgx pools per role (R66); dbq = sqlc output; pgtest = postgres:18-alpine for tests
+internal/platform/migrate    migration rules (R31), goose runner with a session lock; migratetest = round trip
+migrations/                  NNNN_name.sql, embedded into cmd/migrate (0001_preamble today; 0002-0010 in T04)
+sqlc.yaml                    sqlc v1.31.1: schema = migrations/, one block per query package
 ```
 
 ## Listeners (main spec §2.6)
@@ -76,8 +80,8 @@ make smoke
 
 - `make env` writes `.env` (mode 0600, gitignored) from `.env.example`: secret names get random local-only values and the three DB URLs are composed for the R66 roles. Integration credentials stay blank, so FCM, LINE, Cartrack, Google and the SMTP relay are off locally (mail goes to mailpit).
 - `make dev-keys` writes `deploy/dev-secrets/jwt-ed25519.pem` (gitignored) and sets `JWT_ACTIVE_KID` (RFC 7638 thumbprint).
-- `make up` starts PostgreSQL 18, Redis 7, RabbitMQ 4 (+ definitions from `internal/platform/mq`), MinIO (+ buckets), mailpit, api, worker and scheduler, sets the role passwords (`make dev-db`) and waits until all are healthy. Profiles: `tools` (migrate, seed, etl), `mocks` (WireMock), `obs` (Jaeger), `tunnel`; `EDGE=1` adds web and Caddy once TW2 lands.
-- `make smoke` checks the T02 acceptance criteria against the running stack.
+- `make up` starts PostgreSQL 18, Redis 7, RabbitMQ 4 (+ definitions from `internal/platform/mq`), MinIO (+ buckets), mailpit, sets the role passwords (`make dev-db`), runs `migrate up`, then starts api, worker and scheduler (they wait for migrate to exit 0) and waits until all are healthy. Profiles: `tools` (seed, etl), `mocks` (WireMock), `obs` (Jaeger), `tunnel`; `EDGE=1` adds web and Caddy once TW2 lands.
+- `make smoke` checks the T02 and T03 acceptance criteria against the running stack.
 
 | Service | Host port (127.0.0.1) | Notes |
 |---|---|---|
@@ -92,12 +96,36 @@ Each Go service receives exactly the §16.1 names whose consumer column lists it
 
 MinIO: the official `minio/minio` and `minio/mc` images are no longer published, so compose uses Chainguard's source builds (`cgr.dev/chainguard/minio`, `cgr.dev/chainguard/minio-client:latest-dev`) pinned by digest. Any S3-compatible server can replace it later; only the `S3_*` values change.
 
+## Migrations (T03, main spec §3.5)
+
+goose v3.28 runs the files of `migrations/` (embedded into the binary, so the `make migrate*` targets rebuild the image first) as `logitrack_migrator` through `MIGRATE_DATABASE_URL`; `migrate` refuses any other login, and `0001_preamble` repeats the check inside the database, where a refusal rolls the whole file back (R66). A session advisory lock serialises concurrent runs. goose creates `goose_db_version` before the first migration, owned by the login that runs it: if goose was ever run by hand with another login, drop that table before `make migrate`.
+
+| Command | What it does |
+|---|---|
+| `make migrate` | `migrate up`: every pending migration (local, CI and seeded databases) |
+| `make migrate-up-to V=9` | stop at a version; production stays at `up-to 9` until the P1 runbook applies `0010_d5_unique_constraints` (R59, R88) |
+| `make migrate-status` | every migration with `applied` / `pending`; `migrate status -fail-on-pending` exits 1 |
+| `make migrate-down` | one step back; `down` and `down-to` are refused when `APP_ENV=prod` |
+| `make migrate-new NAME=add_x` | writes the next `NNNN_add_x.sql` on the host |
+| `make migrate-check` | the R31 rules, no database |
+| `make migrate-roundtrip` | up → down-to floor → up on `postgres:18-alpine`, comparing `pg_dump --schema-only` |
+
+Rules (`migrate check`, also part of `make gen-check`): files `NNNN_name.sql` numbered 1..N without gaps; every file has `-- +goose Up` and `-- +goose Down`; an empty Down only in a data migration whose header (before `-- +goose Up`) says `-- irreversible` (the round trip then rolls back only to the highest such version); `-- +goose NO TRANSACTION` exactly when the Up or Down builds or drops an index `CONCURRENTLY`; no empty `StatementBegin` block (goose would silently drop the next statement); ids default to `uuidv7()`, never `gen_random_uuid()`; no goose `ENVSUB`. Comments, strings and quoted identifiers are ignored when matching. Once a migration is applied to a database that is kept (from the P0 deploy on), it is never edited: follow-ups take the next number.
+
+Integration tests (`-tags=integration`) use `internal/platform/db/pgtest`: one `postgres:18-alpine` container per test binary with `deploy/postgres-init/00-roles.sql` as an init script and a fresh database per test owned by `logitrack_migrator`. `make test-integration` points testcontainers at the active docker context (`DOCKER_HOST`).
+
+sqlc: `make sqlc` regenerates; `make gen-check` runs `sqlc diff` and `sqlc vet`. The first query (`internal/platform/db/queries/login.sql`) is the migrate preflight; domain tasks add one `sql` block per repo package.
+
 ## Develop
 
 Go `1.27` with `toolchain go1.27.2` (stdlib security fixes; the go command downloads it automatically).
 
 ```bash
 go test -race ./...
+```
+
+```bash
+make test-integration
 ```
 
 ```bash

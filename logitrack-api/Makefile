@@ -9,10 +9,18 @@ PROFILES     := $(if $(EDGE),--profile edge,)
 SEED_PROFILE ?= smoke
 GOLANGCI     := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 GOVULNCHECK  := go run golang.org/x/vuln/cmd/govulncheck@latest
+SQLC         := go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
+# testcontainers talks to the daemon of the active docker context (Docker Desktop, OrbStack, colima).
+DOCKER_HOST  ?= $(shell docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null)
+# The chain is embedded in the image, so every migrate run rebuilds it (cached when nothing changed).
+MIGRATE      := $(COMPOSE) run --rm --build migrate
+# sqlc output directories (the `out:` of each sqlc.yaml block).
+SQLC_OUT      = $(shell awk '$$1 == "out:" {print $$2}' sqlc.yaml)
 GITLEAKS_IMG := zricethezav/gitleaks:v8.30.1
 
 .PHONY: help env dev-keys dev-db up down reset ps logs psql redis-cli amqp-ui minio-console tunnel \
-        migrate migrate-new migrate-status migrate-down seed seed-verify etl-fixtures \
+        migrate migrate-up-to migrate-new migrate-status migrate-down migrate-check migrate-roundtrip \
+        seed seed-verify etl-fixtures \
         test test-integration lint sqlc gen gen-check openapi web env-check secrets-scan smoke
 
 help: ## list targets
@@ -67,18 +75,28 @@ tunnel: ## expose only /public/v1/* through Cloudflare (TUNNEL_TOKEN; Caddy site
 	$(COMPOSE) --profile tunnel up -d tunnel
 
 ## --- database and data -------------------------------------------------------------------
-migrate: ## goose up (cmd/migrate lands in T03)
-	$(COMPOSE) --profile tools run --rm migrate up
+migrate: ## apply every migration (make up runs this first; prod pins up-to 9 until the P1 runbook, R59)
+	$(MIGRATE) up
 
-migrate-status: ## goose status
-	$(COMPOSE) --profile tools run --rm migrate status
+migrate-up-to: ## apply up to a version: make migrate-up-to V=9
+	@test -n "$(V)" || { echo "V is required" >&2; exit 2; }
+	$(MIGRATE) up-to $(V)
 
-migrate-down: ## goose down one step
-	$(COMPOSE) --profile tools run --rm migrate down
+migrate-status: ## list every migration and its state
+	$(MIGRATE) status
 
-migrate-new: ## create a migration: make migrate-new NAME=...
+migrate-down: ## roll back the latest migration (refused when APP_ENV=prod)
+	$(MIGRATE) down
+
+migrate-new: ## write the next migration file on the host: make migrate-new NAME=add_x
 	@test -n "$(NAME)" || { echo "NAME is required" >&2; exit 2; }
-	$(COMPOSE) --profile tools run --rm migrate create $(NAME) sql
+	go run ./cmd/migrate create -dir migrations $(NAME)
+
+migrate-check: ## lint migrations/ (R31): numbering, Up and Down, NO TRANSACTION, uuidv7
+	go run ./cmd/migrate check -dir migrations
+
+migrate-roundtrip: ## up -> down-to floor -> up on postgres:18-alpine via testcontainers (R31)
+	DOCKER_HOST=$(DOCKER_HOST) go test -race -count=1 -tags=integration -run 'RoundTrip|UpToNine' ./internal/platform/migrate/ ./cmd/migrate/
 
 seed: ## seed a profile (SEED_PROFILE=smoke|demo|load; cmd/seed lands in T16)
 	$(COMPOSE) --profile tools run --rm seed --profile $(SEED_PROFILE)
@@ -93,22 +111,30 @@ etl-fixtures: ## dry-run ETL over the fixtures against logitrack_test (T15)
 test: ## unit tests with the race detector
 	go test -race ./...
 
-test-integration: ## integration tests against the compose stack or testcontainers
-	go test -race -tags=integration ./...
+test-integration: ## unit + integration tests (testcontainers: postgres:18-alpine with 00-roles.sql)
+	DOCKER_HOST=$(DOCKER_HOST) go test -race -tags=integration ./...
 
-lint: ## golangci-lint (incl. staticcheck), go vet, govulncheck
-	go vet ./...
-	$(GOLANGCI) run ./...
-	$(GOVULNCHECK) ./...
+lint: ## golangci-lint (incl. staticcheck), go vet, govulncheck; integration-tagged files included
+	go vet -tags=integration ./...
+	$(GOLANGCI) run --build-tags=integration ./...
+	$(GOVULNCHECK) -tags=integration ./...
 
-gen: ## regenerate generated files (RabbitMQ definitions; sqlc and OpenAPI join in T03 and later)
+gen: ## regenerate generated files (RabbitMQ definitions, sqlc; OpenAPI joins with T05)
 	go generate ./...
+	$(SQLC) generate
 
-gen-check: gen ## fail when generated files are stale
-	git diff --exit-code -- deploy/rabbitmq-definitions.json
+gen-check: ## fail when generated files are stale or orphaned, or the migration rules break (go-ci gen-check, T14)
+	$(SQLC) diff
+	$(SQLC) vet
+	go run ./cmd/migrate check -dir migrations
+	go generate ./...
+	@# A query file that was removed leaves its .sql.go behind; regenerate from scratch to expose it.
+	rm -f $(addsuffix /*.sql.go,$(SQLC_OUT))
+	$(SQLC) generate
+	git diff --exit-code -- deploy/rabbitmq-definitions.json $(SQLC_OUT)
 
-sqlc: ## sqlc generate (T03)
-	@echo "sqlc lands in issue T03" >&2; exit 3
+sqlc: ## sqlc generate (schema = migrations/, queries next to their package)
+	$(SQLC) generate
 
 openapi: ## OpenAPI -> web types and Dart models (R27; first routes in T05)
 	@echo "the OpenAPI pipeline lands with the first routes (T05)" >&2; exit 3
