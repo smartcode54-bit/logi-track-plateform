@@ -13,14 +13,15 @@ func TestTopicCatalogue(t *testing.T) {
 		"user:" + id, "driver:" + id, "chat:" + id, "tenant:" + id + ":tasks", "tenant:" + id + ":trips",
 		"tenant:" + id + ":chats", "tenant:" + id + ":fleet", "tenant:" + id + ":hr", "tenant:" + id + ":expenses",
 		"tenant:" + id + ":billing", "tenant:" + id + ":vehicle_locations", "tenant:" + id + ":config",
-		"global", "platform:security", "dispatch:tasks", "dispatch:trips",
+		"global", "platform:security", "dispatch:" + id + ":tasks", "dispatch:" + id + ":trips",
 	} {
 		if !ValidTopic(ok) {
 			t.Errorf("%s rejected", ok)
 		}
 	}
 	for _, bad := range []string{"", "seq", "user:abc", "tenant:" + id, "tenant:" + id + ":payroll", "global:x",
-		"dispatch:chats", "users:" + id, "rt:global", "tenant:" + id + ":tasks\nPUBLISH"} {
+		"dispatch:chats", "dispatch:tasks", "dispatch:trips", "dispatch:" + id + ":chats", "dispatch:" + id,
+		"users:" + id, "rt:global", "tenant:" + id + ":tasks\nPUBLISH"} {
 		if ValidTopic(bad) {
 			t.Errorf("%q accepted", bad)
 		}

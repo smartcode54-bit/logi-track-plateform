@@ -34,10 +34,11 @@ func TestEventNameMapsPerTopic(t *testing.T) {
 		{"tenant:" + tid + ":config", "roles.changed", "roles.changed", true},
 		{"global", "settings.changed", "mobile_settings.changed", true},
 		{"global", "hubs.changed", "hubs.changed", true},
-		{"dispatch:trips", "trip.delivered", "trip.delivered", true},
-		{"dispatch:trips", "trip.priced", "", false},
-		{"dispatch:trips", "trip.repriced", "", false},
-		{"dispatch:trips", "standby.priced", "", false},
+		{"dispatch:" + tid + ":trips", "trip.delivered", "trip.delivered", true},
+		{"dispatch:" + tid + ":tasks", "task.assigned", "task.assigned", true},
+		{"dispatch:" + tid + ":trips", "trip.priced", "", false},
+		{"dispatch:" + tid + ":trips", "trip.repriced", "", false},
+		{"dispatch:" + tid + ":trips", "standby.priced", "", false},
 		{"global", "", "", false},
 		{"global", "x\nevent: y", "", false},
 	} {
@@ -50,7 +51,7 @@ func TestEventNameMapsPerTopic(t *testing.T) {
 
 func TestTopicBuildersAreInTheCatalogue(t *testing.T) {
 	for _, topic := range []string{UserTopic(tid), DriverTopic(tid), ChatTopic(tid), TopicGlobal, TopicPlatformSecurity,
-		TopicDispatchTasks, TopicDispatchTrips} {
+		DispatchTopic(tid, FamilyTasks), DispatchTopic(tid, FamilyTrips)} {
 		if !ValidTopic(topic) {
 			t.Errorf("%s is not in the catalogue", topic)
 		}
@@ -75,7 +76,8 @@ func TestWriterRefusesTopicsOutsideTheCatalogue(t *testing.T) {
 	t.Cleanup(func() { _ = rdb.Close() })
 	w := NewWriter(rdb, ks, 0, 0)
 	for _, bad := range []string{"tenant:" + tid + ":payroll", "tenants:" + tid + ":tasks", "cache", "seq", "marks",
-		"global:x", "platform:audit", "dispatch:chats", "user:U", "chat:" + tid + ":x"} {
+		"global:x", "platform:audit", "dispatch:chats", "dispatch:tasks", "dispatch:" + tid + ":fleet", "user:U",
+		"chat:" + tid + ":x"} {
 		_, err := w.Publish(context.Background(), Event{Type: "x.y", EventID: "e", Topics: []string{"global", bad}})
 		if !errors.Is(err, ErrInvalidTopic) {
 			t.Errorf("%q: %v, want ErrInvalidTopic", bad, err)

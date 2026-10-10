@@ -49,6 +49,34 @@ func NewReader(rdb redis.UniversalClient, ks cache.Keyspace, ttl time.Duration) 
 	return &Reader{rdb: rdb, ks: ks, ttl: ttl}
 }
 
+// Seq reads rtlog:seq, the id of the last event published (0 before the first).
+func (r *Reader) Seq(ctx context.Context) (int64, error) {
+	n, err := r.rdb.Get(ctx, r.ks.RealtimeSeq()).Int64()
+	if errors.Is(err, redis.Nil) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("realtime: read rtlog:seq: %w", err)
+	}
+	return n, nil
+}
+
+// Request is what a stream asks Snapshot for.
+type Request struct {
+	// Topics are the connection's topics.
+	Topics []string
+	// After and Replay come from Last-Event-ID: with Replay, the events after After on the
+	// non-ephemeral topics are replayed (Snapshot.Events).
+	After  int64
+	Replay bool
+	// Control topics (a subset of Topics; ephemeral ones are ignored) are read over (Since, Seq] whether
+	// or not the connection replays (Snapshot.Control): internal/sse reads Since = rtlog:seq before it
+	// checks the stream's credential, so these are the events published while the stream was being
+	// authorised and subscribed, which its credential cannot reflect (session.revoked, roles.changed).
+	Control []string
+	Since   int64
+}
+
 // Snapshot is the state a stream starts from.
 type Snapshot struct {
 	// Seq is rtlog:seq when the snapshot was taken: every event of the connection's non-ephemeral
@@ -61,29 +89,39 @@ type Snapshot struct {
 	// Resync is non-empty when the requested id cannot be replayed (Resync* reasons); Events is then
 	// empty.
 	Resync string
+	// Control are the events of Request.Control with an id in (Since, Seq], ascending by id (at most
+	// MaxReplayPerTopic per topic: the window lasts milliseconds), whatever Resync says.
+	Control []Message
 }
 
-// Snapshot reads the global sequence and, when replay is set, everything after id `after` on the
-// non-ephemeral topics, in one MULTI so the sequence and the logs agree (the writer's script is atomic,
-// so no event can fall between them). The id is unusable (Resync) when it is above the sequence; when
-// a log was trimmed past it (RTLOG_MAXLEN: XINFO entries-added above the length and the first entry
-// after the id; or max-deleted-entry-id after it); when a log that could have held later events
-// expired and the id is older than RTLOG_TTL (rtlog:marks dates it); or when a topic has more than
-// MaxReplayPerTopic events after it.
-func (r *Reader) Snapshot(ctx context.Context, topics []string, after int64, replay bool) (Snapshot, error) {
-	var logs []string
-	if replay {
-		for _, t := range topics {
-			if !Ephemeral(t) {
-				logs = append(logs, t)
-			}
+// Snapshot reads the global sequence, the control window and, when replay is set, everything after
+// id `after` on the non-ephemeral topics, in one MULTI so the sequence and the logs agree (the
+// writer's script is atomic, so no event can fall between them). The id is unusable (Resync) when it
+// is above the sequence; when a log was trimmed past it (RTLOG_MAXLEN: XINFO entries-added above the
+// length and the first entry after the id; or max-deleted-entry-id after it); when a log that could
+// have held later events expired and the id is older than RTLOG_TTL (rtlog:marks dates it); or when a
+// topic has more than MaxReplayPerTopic events after it.
+func (r *Reader) Snapshot(ctx context.Context, req Request) (Snapshot, error) {
+	after, replay := req.After, req.Replay
+	var logs, control []string
+	for _, t := range req.Topics {
+		if Ephemeral(t) {
+			continue
+		}
+		if replay {
+			logs = append(logs, t)
+		}
+		if slices.Contains(req.Control, t) && !slices.Contains(control, t) {
+			control = append(control, t)
 		}
 	}
 	infos := make([]*redis.XInfoStreamCmd, len(logs))
 	ranges := make([]*redis.XMessageSliceCmd, len(logs))
+	windows := make([]*redis.XMessageSliceCmd, len(control))
 	var seqCmd *redis.StringCmd
 	var timeCmd *redis.TimeCmd
 	start := "(" + strconv.FormatInt(after, 10) + "-0"
+	since := "(" + strconv.FormatInt(max(req.Since, 0), 10) + "-0"
 	// The aggregate error is the first failed command's; each command is checked below instead, since a
 	// missing log answers XINFO with an error that is no failure.
 	_, _ = r.rdb.TxPipelined(ctx, func(p redis.Pipeliner) error {
@@ -93,6 +131,9 @@ func (r *Reader) Snapshot(ctx context.Context, topics []string, after int64, rep
 			key := r.ks.RealtimeLog(t)
 			infos[i] = p.XInfoStream(ctx, key)
 			ranges[i] = p.XRangeN(ctx, key, start, "+", MaxReplayPerTopic+1)
+		}
+		for i, t := range control {
+			windows[i] = p.XRangeN(ctx, r.ks.RealtimeLog(t), since, "+", MaxReplayPerTopic)
 		}
 		return nil
 	})
@@ -107,6 +148,18 @@ func (r *Reader) Snapshot(ctx context.Context, topics []string, after int64, rep
 		return Snapshot{}, fmt.Errorf("realtime: read the Redis clock: %w", err)
 	}
 	snap := Snapshot{Seq: seq}
+	for i, t := range control {
+		msgs, err := windows[i].Result()
+		if err != nil {
+			return Snapshot{}, fmt.Errorf("realtime: XRANGE %s: %w", t, err)
+		}
+		for _, x := range msgs {
+			if m, ok := fromStream(t, x); ok && m.ID <= seq {
+				snap.Control = append(snap.Control, m)
+			}
+		}
+	}
+	slices.SortStableFunc(snap.Control, func(a, b Message) int { return cmp.Compare(a.ID, b.ID) })
 	if !replay {
 		return snap, nil
 	}

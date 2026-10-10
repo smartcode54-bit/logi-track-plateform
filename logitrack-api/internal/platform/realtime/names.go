@@ -2,12 +2,10 @@ package realtime
 
 import "strings"
 
-// Topic families of the catalogue (Appendix B §B.4.2), as the prefix or the whole topic.
+// The topics of the catalogue without an id (Appendix B §B.4.2).
 const (
 	TopicGlobal           = "global"
 	TopicPlatformSecurity = "platform:security"
-	TopicDispatchTasks    = "dispatch:tasks"
-	TopicDispatchTrips    = "dispatch:trips"
 )
 
 // Tenant topic families: tenant:{tid}:{family} (Appendix B §B.4.2).
@@ -23,12 +21,16 @@ const (
 	FamilyConfig           = "config"
 )
 
-// UserTopic, DriverTopic, ChatTopic and TenantTopic build the per-entity topics (ids in lower case,
-// as uuid.UUID.String writes them).
-func UserTopic(userID string) string             { return "user:" + userID }
-func DriverTopic(driverID string) string         { return "driver:" + driverID }
-func ChatTopic(chatID string) string             { return "chat:" + chatID }
-func TenantTopic(tenantID, family string) string { return "tenant:" + tenantID + ":" + family }
+// UserTopic, DriverTopic, ChatTopic, TenantTopic and DispatchTopic build the per-entity topics (ids in
+// lower case, as uuid.UUID.String writes them). DispatchTopic takes FamilyTasks or FamilyTrips: the
+// operational events of one billing party's work, for the dispatchers whose grant (cs) names that party;
+// producers publish one per distinct party of the row (billing, linked and stop parties, the set
+// app_task_in_scope / app_trip_in_scope check).
+func UserTopic(userID string) string              { return "user:" + userID }
+func DriverTopic(driverID string) string          { return "driver:" + driverID }
+func ChatTopic(chatID string) string              { return "chat:" + chatID }
+func TenantTopic(tenantID, family string) string  { return "tenant:" + tenantID + ":" + family }
+func DispatchTopic(partyID, family string) string { return "dispatch:" + partyID + ":" + family }
 
 // SSE event names the relay's event types are mapped to (Appendix B §B.4.3); the rest keep their type.
 const (

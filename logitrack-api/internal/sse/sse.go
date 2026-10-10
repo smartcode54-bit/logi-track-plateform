@@ -13,7 +13,8 @@
 // the rtlog: streams (or sends resync), then relays the live events of its replica's realtime.Hub.
 // It sends ": ping" every SSE_PING_INTERVAL and ends with event: reconnect 30 s before the access
 // token expires, on shutdown and when it falls behind; session.revoked for its own session (or with
-// reason claims_changed) and roles.changed on its tenant end it so the client reopens with fresh claims.
+// reason claims_changed) and roles.changed on its tenant end it so the client reopens with fresh claims,
+// including when they were published while the stream was connecting (serve).
 //
 // Wire format: "retry: 3000" first; every event is
 //
@@ -96,6 +97,11 @@ const (
 // HeaderLastEventID is the reconnect position the browser sends (forwarded by the BFF).
 const HeaderLastEventID = "Last-Event-ID"
 
+// QueryLastEventID is the query form of the position on GET /v1/events, read only without the header:
+// the web provider recreates the stream with ?lastEventId= (main spec §10.8), and the browser's own
+// reconnect of that URL sends a newer header.
+const QueryLastEventID = "lastEventId"
+
 // Config is the SSE part of the api configuration (main spec §16.1).
 type Config struct {
 	PingInterval   time.Duration // SSE_PING_INTERVAL
@@ -108,12 +114,21 @@ type TicketAuthenticator interface {
 	SSETicketPrincipal(ctx context.Context, ticket string) (*authz.Principal, error)
 }
 
+// SessionChecker re-checks a principal's session once its stream has subscribed
+// (auth.Service.CheckSession): revoked is 401 session_revoked, a stale AuthVersion 401 token_expired
+// with details.reason claims_changed.
+type SessionChecker interface {
+	CheckSession(ctx context.Context, p *authz.Principal) error
+}
+
 // Deps are the collaborators of the service.
 type Deps struct {
 	Hub     *rt.Hub
 	Reader  *rt.Reader
 	Conns   *ratelimit.ConnLimiter
 	Tickets TicketAuthenticator
+	// Sessions re-checks the principal after the stream subscribed (serve).
+	Sessions SessionChecker
 	// Pool is the logitrack_app pool: explicit chat topics are authorised by reading the chat under
 	// db.WithPrincipal, so RLS decides.
 	Pool db.Beginner
@@ -122,13 +137,14 @@ type Deps struct {
 
 // Service serves the two stream routes.
 type Service struct {
-	cfg     Config
-	hub     *rt.Hub
-	reader  *rt.Reader
-	conns   *ratelimit.ConnLimiter
-	tickets TicketAuthenticator
-	pool    db.Beginner
-	log     zerolog.Logger
+	cfg      Config
+	hub      *rt.Hub
+	reader   *rt.Reader
+	conns    *ratelimit.ConnLimiter
+	tickets  TicketAuthenticator
+	sessions SessionChecker
+	pool     db.Beginner
+	log      zerolog.Logger
 
 	open    *prometheus.GaugeVec
 	ends    *prometheus.CounterVec
@@ -138,14 +154,14 @@ type Service struct {
 
 // New builds the service.
 func New(cfg Config, d Deps) (*Service, error) {
-	if d.Hub == nil || d.Reader == nil || d.Conns == nil || d.Tickets == nil || d.Pool == nil {
-		return nil, errors.New("sse: hub, reader, connection limiter, ticket authenticator and pool are required")
+	if d.Hub == nil || d.Reader == nil || d.Conns == nil || d.Tickets == nil || d.Sessions == nil || d.Pool == nil {
+		return nil, errors.New("sse: hub, reader, connection limiter, ticket authenticator, session checker and pool are required")
 	}
 	if cfg.PingInterval <= 0 || cfg.MaxConnPerUser < 1 {
 		return nil, errors.New("sse: SSE_PING_INTERVAL and SSE_MAX_CONN_PER_USER must be positive")
 	}
 	return &Service{
-		cfg: cfg, hub: d.Hub, reader: d.Reader, conns: d.Conns, tickets: d.Tickets, pool: d.Pool, log: d.Log,
+		cfg: cfg, hub: d.Hub, reader: d.Reader, conns: d.Conns, tickets: d.Tickets, sessions: d.Sessions, pool: d.Pool, log: d.Log,
 		open: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "sse_streams",
 			Help: "Open SSE streams of this replica, by kind (web, mobile).",
@@ -185,9 +201,29 @@ func (s *Service) Drain() { s.hub.Drain() }
 // handlers and never reads s, so cmd/api `routes` can pass a nil *Service.
 func (s *Service) Groups(requireAuth fiber.Handler) []ingress.Group {
 	return []ingress.Group{
-		{Prefix: "/v1/events", Mount: func(r fiber.Router) { r.Get("", requireAuth, s.handleWeb) }},
+		{Prefix: "/v1/events", Mount: func(r fiber.Router) { r.Get("", s.markSince, requireAuth, s.handleWeb) }},
 		{Prefix: "/v1/mobile", Public: true, Mount: s.MountMobile},
 	}
+}
+
+// sinceKey is the Locals key of the rtlog:seq markSince read.
+type sinceKey struct{}
+
+// since is rtlog:seq read before the credential was checked, or why it could not be.
+type since struct {
+	seq int64
+	err error
+}
+
+// markSince reads rtlog:seq before requireAuth checks the credential. The events after it are the ones
+// the credential may not reflect: serve reads the stream's control topics from there (main spec §8.2,
+// refinement 6). A failure is kept for handleWeb, so a request without a valid credential is still 401.
+func (s *Service) markSince(c fiber.Ctx) error {
+	if c.Method() != fiber.MethodHead {
+		seq, err := s.reader.Seq(c.Context())
+		c.Locals(sinceKey{}, since{seq: seq, err: err})
+	}
+	return c.Next()
 }
 
 // MountMobile registers GET /events on a /v1/mobile router.
@@ -198,18 +234,26 @@ func (s *Service) handleWeb(c fiber.Ctx) error {
 	if c.Method() == fiber.MethodHead {
 		return headOnly(c)
 	}
-	if err := checkQuery(c, "topics"); err != nil {
+	if err := checkQuery(c, "topics", QueryLastEventID); err != nil {
 		return err
 	}
 	p := authz.PrincipalFrom(c)
 	if p == nil {
 		return httpx.ErrUnauthenticated()
 	}
+	mark, ok := c.Locals(sinceKey{}).(since)
+	if !ok {
+		mark.err = errors.New("sse: rtlog:seq was not read before authentication")
+	}
+	if mark.err != nil {
+		s.refused.WithLabelValues("unavailable").Inc()
+		return errUnavailable(c, mark.err)
+	}
 	topics, err := s.topics(c.Context(), p, WebTopics(p), c.Query("topics"))
 	if err != nil {
 		return err
 	}
-	return s.serve(c, p, KindWeb, topics)
+	return s.serve(c, p, KindWeb, topics, mark.seq)
 }
 
 // handleMobile is GET /v1/mobile/events?ticket=[&topics=]: the ticket is the only credential.
@@ -227,6 +271,12 @@ func (s *Service) handleMobile(c fiber.Ctx) error {
 	if err != nil {
 		return err // before the ticket is spent
 	}
+	// Before the ticket is redeemed, for the same reason as markSince.
+	seq, err := s.reader.Seq(c.Context())
+	if err != nil {
+		s.refused.WithLabelValues("unavailable").Inc()
+		return errUnavailable(c, err)
+	}
 	p, err := s.tickets.SSETicketPrincipal(c.Context(), c.Query("ticket"))
 	if err != nil {
 		return err
@@ -235,7 +285,7 @@ func (s *Service) handleMobile(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	return s.serve(c, p, KindMobile, topics)
+	return s.serve(c, p, KindMobile, topics, seq)
 }
 
 // headOnly answers HEAD without opening a stream.
@@ -246,7 +296,7 @@ func headOnly(c fiber.Ctx) error {
 }
 
 // checkQuery refuses query parameters outside allowed (400 bad_request, Appendix B §B.1.5); a ticket
-// is accepted on /v1/mobile/events only.
+// is accepted on /v1/mobile/events only, lastEventId on /v1/events only.
 func checkQuery(c fiber.Ctx, allowed ...string) error {
 	for k := range c.Queries() {
 		if slices.Contains(allowed, k) {
@@ -261,7 +311,9 @@ func checkQuery(c fiber.Ctx, allowed ...string) error {
 	return nil
 }
 
-// splitTopics parses ?topics= (comma separated); each entry must be a catalogue topic.
+// splitTopics parses ?topics= (comma separated); each entry must be a catalogue topic, and there are at
+// most MaxExplicitTopics. A bad value of the known parameter is 422 invalid_argument with
+// details.fields[0].field "topics" (Appendix B §B.1.5), reason unknown_topic or too_many.
 func splitTopics(raw string) ([]string, error) {
 	var out []string
 	for t := range strings.SplitSeq(raw, ",") {
@@ -269,16 +321,18 @@ func splitTopics(raw string) ([]string, error) {
 			continue
 		}
 		if !rt.ValidTopic(t) {
-			return nil, httpx.ErrBadRequest("topics must be topics of the catalogue (Appendix B §B.4.2)").
-				WithDetails(map[string]any{"reason": "unknown_topic"})
+			return nil, httpx.ErrInvalidArgument(httpx.FieldViolation{
+				Field: "topics", Reason: "unknown_topic", Params: map[string]any{"topic": t},
+			})
 		}
 		if !slices.Contains(out, t) {
 			out = append(out, t)
 		}
 	}
 	if len(out) > MaxExplicitTopics {
-		return nil, httpx.ErrBadRequest(fmt.Sprintf("at most %d explicit topics", MaxExplicitTopics)).
-			WithDetails(map[string]any{"reason": "too_many_topics"})
+		return nil, httpx.ErrInvalidArgument(httpx.FieldViolation{
+			Field: "topics", Reason: "too_many", Params: map[string]any{"max": MaxExplicitTopics},
+		})
 	}
 	return out, nil
 }
@@ -349,9 +403,19 @@ func errUnavailable(c fiber.Ctx, cause error) error {
 
 // serve takes the lease, subscribes, reads the replay snapshot and starts the stream. Everything that
 // can fail does so before the first byte, so a refusal is an ordinary JSON error.
-func (s *Service) serve(c fiber.Ctx, p *authz.Principal, kind string, topics []string) error {
+//
+// The principal was authenticated before the subscription existed, so a revocation or role change
+// published in between would reach the stream neither live (it came before Subscribe, or its id is at
+// or below the snapshot's Seq) nor as a reason to end. Two checks close that window (main spec §8.2,
+// refinement 6): once subscribed and after the snapshot, the session is checked again (a revoked one is
+// 401 session_revoked, stale claims 401 token_expired with claims_changed: the revocation markers and
+// versions are written before session.revoked is published); and the snapshot reads the stream's
+// control topics (user:{uid}, tenant:{tid}:config) from sinceSeq, rtlog:seq read before the
+// credential was checked, so an ending event in (sinceSeq, Seq] ends the stream at once (roles.changed
+// has no marker to re-check). Anything published after Seq arrives live.
+func (s *Service) serve(c fiber.Ctx, p *authz.Principal, kind string, topics []string, sinceSeq int64) error {
 	ctx := c.Context()
-	after, replay, badID := parseLastEventID(c.Get(HeaderLastEventID))
+	after, replay, badID := parseLastEventID(lastEventID(c))
 	sub, err := s.hub.Subscribe(topics)
 	if err != nil {
 		s.refused.WithLabelValues("unavailable").Inc()
@@ -372,30 +436,49 @@ func (s *Service) serve(c fiber.Ctx, p *authz.Principal, kind string, topics []s
 		return httpx.NewError(http.StatusTooManyRequests, httpx.CodeResourceExhaust, "too many open realtime streams").
 			WithDetails(map[string]any{"bucket": "sse_conns", "limit": s.conns.Max(), "retryAfterSeconds": secs})
 	}
-	snap, err := s.reader.Snapshot(ctx, topics, after, replay)
+	st := &stream{
+		s: s, kind: kind, userID: userID, streamID: streamID, sessionID: p.SessionID,
+		tenantConfig: configTopic(p), sub: sub,
+		conn: c.RequestCtx().Conn(), log: zerolog.Ctx(ctx).With().Str("component", "sse").Str("kind", kind).Logger(),
+	}
+	var control []string
+	for _, t := range []string{rt.UserTopic(userID), st.tenantConfig} {
+		if t != "" && slices.Contains(topics, t) {
+			control = append(control, t)
+		}
+	}
+	snap, err := s.reader.Snapshot(ctx, rt.Request{Topics: topics, After: after, Replay: replay, Control: control, Since: sinceSeq})
 	if err != nil {
 		sub.Close()
 		s.release(userID, streamID)
 		s.refused.WithLabelValues("unavailable").Inc()
 		return errUnavailable(c, err)
 	}
+	if err := s.sessions.CheckSession(ctx, p); err != nil {
+		sub.Close()
+		s.release(userID, streamID)
+		return err
+	}
 	if badID {
 		snap.Resync = rt.ResyncUnknownID
 	}
-	life := time.Until(p.TokenExpiresAt) - ExpiryLead
-	if p.TokenExpiresAt.IsZero() {
-		life = DefaultLife
+	st.snap = snap
+	for _, m := range snap.Control {
+		if end := st.ends(m); end != "" {
+			st.pending, st.pendingEnd = m, end
+			break
+		}
 	}
-	st := &stream{
-		s: s, kind: kind, userID: userID, streamID: streamID, sessionID: p.SessionID,
-		tenantConfig: configTopic(p), sub: sub, snap: snap, life: life,
-		conn: c.RequestCtx().Conn(), log: zerolog.Ctx(ctx).With().Str("component", "sse").Str("kind", kind).Logger(),
+	st.life = time.Until(p.TokenExpiresAt) - ExpiryLead
+	if p.TokenExpiresAt.IsZero() {
+		st.life = DefaultLife
 	}
 	c.Set(fiber.HeaderContentType, fiber.MIMETextEventStream)
 	c.Set(fiber.HeaderCacheControl, "no-cache, no-transform")
 	c.Set("X-Accel-Buffering", "no")
-	// The stream owns the connection to the end: no keep-alive reuse after it, so the write deadlines
-	// set on the connection never reach another response.
+	// The stream owns the connection to the end: no keep-alive reuse after it, so the write deadline left
+	// on the connection (never cleared, so fasthttp's final write stays bounded too) never reaches
+	// another response.
 	c.RequestCtx().SetConnectionClose()
 	c.Status(http.StatusOK)
 	s.open.WithLabelValues(kind).Inc()
@@ -408,6 +491,14 @@ func configTopic(p *authz.Principal) string {
 		return rt.TenantTopic(tid.String(), rt.FamilyConfig)
 	}
 	return ""
+}
+
+// lastEventID is the Last-Event-ID header or, without one, ?lastEventId= (QueryLastEventID).
+func lastEventID(c fiber.Ctx) string {
+	if v := strings.TrimSpace(c.Get(HeaderLastEventID)); v != "" {
+		return v
+	}
+	return c.Query(QueryLastEventID)
 }
 
 // parseLastEventID reads Last-Event-ID: absent means no replay; anything but a non-negative integer is
@@ -445,6 +536,10 @@ type stream struct {
 	life         time.Duration
 	conn         net.Conn
 	log          zerolog.Logger
+	// pending is the first event of the control window (Snapshot.Control) that ends a stream, and
+	// pendingEnd why: the stream delivers it right after its opening frames and ends, as it would live.
+	pending    rt.Message
+	pendingEnd string
 
 	lastID    int64
 	lastNames []string
@@ -467,32 +562,30 @@ func (st *stream) run(w *bufio.Writer) {
 		st.s.open.WithLabelValues(st.kind).Dec()
 		st.s.ends.WithLabelValues(reason).Inc()
 		if st.conn != nil {
-			_ = st.conn.SetWriteDeadline(time.Time{})
+			// One more bounded window for fasthttp's final write (the frames still in its pipe and the
+			// terminating chunk): clearing the deadline would leave that write unbounded for a client
+			// that stopped reading, holding the connection and the drain past SHUTDOWN_TIMEOUT.
+			_ = st.conn.SetWriteDeadline(time.Now().Add(WriteTimeout))
 		}
 		st.log.Debug().Str("reason", reason).Dur("duration", time.Since(start)).Msg("sse stream ended")
 	}()
-	if st.write(w, fmt.Appendf(nil, "retry: %d\n\n", Retry.Milliseconds())) != nil {
+	if st.open(w) != nil {
 		return
 	}
-	if st.snap.Resync != "" {
-		st.s.resyncs.WithLabelValues(st.snap.Resync).Inc()
-		if st.write(w, resyncFrame(st.snap.Seq, st.snap.Resync)) != nil {
-			return
-		}
-	} else {
-		for _, m := range st.snap.Events {
-			if _, err := st.deliver(w, m); err != nil {
+	if st.pendingEnd != "" {
+		replayed := slices.ContainsFunc(st.snap.Events, func(m rt.Message) bool {
+			return m.ID == st.pending.ID && m.Topic == st.pending.Topic
+		})
+		if !replayed {
+			if _, err := st.deliver(w, st.pending); err != nil {
 				return
 			}
 		}
-		if len(st.snap.Events) == 0 || st.snap.Seq > st.lastID {
-			// Sets the client's Last-Event-ID to the sequence at connect (past the events of other topics)
-			// without dispatching anything, so a reconnect replays from here even before the first event.
-			if st.write(w, fmt.Appendf(nil, "id: %d\n\n", st.snap.Seq)) != nil {
-				return
-			}
-			st.lastID, st.lastNames = st.snap.Seq, nil
+		reason = st.pendingEnd
+		if reason == ReasonRolesChanged {
+			_ = st.write(w, reconnectFrame(reason))
 		}
+		return
 	}
 	if st.life <= 0 {
 		reason = ReasonTokenExpiring
@@ -507,7 +600,7 @@ func (st *stream) run(w *bufio.Writer) {
 		select {
 		case m := <-st.sub.C():
 			if !rt.Ephemeral(m.Topic) && m.ID <= st.snap.Seq {
-				continue // in the replay snapshot, or before the client's position
+				continue // in the replay snapshot, before the client's position, or judged by serve
 			}
 			end, err := st.deliver(w, m)
 			if err != nil {
@@ -546,6 +639,37 @@ func (st *stream) run(w *bufio.Writer) {
 	}
 }
 
+// open writes the opening frames: retry, then resync, or the replay and the id-only frame with the
+// sequence at connect. Both leave the client's Last-Event-ID at that sequence, and lastID records it,
+// so a late ephemeral event (relayed live even at or below it) never moves the position back.
+func (st *stream) open(w *bufio.Writer) error {
+	if err := st.write(w, fmt.Appendf(nil, "retry: %d\n\n", Retry.Milliseconds())); err != nil {
+		return err
+	}
+	if st.snap.Resync != "" {
+		st.s.resyncs.WithLabelValues(st.snap.Resync).Inc()
+		if err := st.write(w, resyncFrame(st.snap.Seq, st.snap.Resync)); err != nil {
+			return err
+		}
+		st.lastID, st.lastNames = st.snap.Seq, nil
+		return nil
+	}
+	for _, m := range st.snap.Events {
+		if _, err := st.deliver(w, m); err != nil {
+			return err
+		}
+	}
+	if len(st.snap.Events) == 0 || st.snap.Seq > st.lastID {
+		// Sets the client's Last-Event-ID to the sequence at connect (past the events of other topics)
+		// without dispatching anything, so a reconnect replays from here even before the first event.
+		if err := st.write(w, fmt.Appendf(nil, "id: %d\n\n", st.snap.Seq)); err != nil {
+			return err
+		}
+		st.lastID, st.lastNames = st.snap.Seq, nil
+	}
+	return nil
+}
+
 // deliver writes one event (live or replayed) unless the topic never carries it to clients or the same
 // event already went out under the same name; end is non-empty when a live delivery must end the stream.
 func (st *stream) deliver(w *bufio.Writer, m rt.Message) (end string, err error) {
@@ -580,15 +704,31 @@ func (st *stream) deliver(w *bufio.Writer, m rt.Message) (end string, err error)
 		st.lastNames = append(st.lastNames, name)
 	}
 	if m.ID <= st.snap.Seq {
-		return "", nil // replayed: the stream was opened after the event, with claims that reflect it
+		// Replayed: an event published before the credential was checked is reflected in it, and serve
+		// already judged the ones published since (the control window, Snapshot.Control).
+		return "", nil
+	}
+	return st.ends(m), nil
+}
+
+// ends reports whether event m ends the stream: a session.revoked on the stream's user topic that
+// revokes it, or a roles.changed on its tenant's config topic (the implicit topics must be recomputed).
+func (st *stream) ends(m rt.Message) string {
+	name, ok := rt.EventName(m.Topic, m.Type)
+	if !ok {
+		return ""
+	}
+	data := m.Data
+	if len(data) == 0 {
+		data = json.RawMessage("{}")
 	}
 	switch {
 	case name == rt.EventSessionRevoked && m.Topic == rt.UserTopic(st.userID) && st.revokes(data):
-		return endSessionRevoked, nil
-	case name == rt.EventRolesChanged && m.Topic == st.tenantConfig:
-		return ReasonRolesChanged, nil
+		return endSessionRevoked
+	case name == rt.EventRolesChanged && st.tenantConfig != "" && m.Topic == st.tenantConfig:
+		return ReasonRolesChanged
 	}
-	return "", nil
+	return ""
 }
 
 // revokes reports whether a session.revoked payload ends this stream: its own session is among

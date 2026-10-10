@@ -164,7 +164,7 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 	}, sse.Deps{
 		Hub: hub, Reader: realtime.NewReader(rdb, ks, cfg.RTLogTTL),
 		Conns:   ratelimit.NewConnLimiter(rdb, ks, cfg.SSEMaxConnPerUser, SSELease(cfg.SSEPingInterval)),
-		Tickets: svc, Pool: pool, Log: log,
+		Tickets: svc, Sessions: svc, Pool: pool, Log: log,
 	})
 	if err != nil {
 		closeAll()

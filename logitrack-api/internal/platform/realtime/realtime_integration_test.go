@@ -74,9 +74,10 @@ func TestReaderDetectsMaxlenTrimming(t *testing.T) {
 	ctx := context.Background()
 	w := realtime.NewWriter(rdb, ks, 10, time.Hour)
 	r := realtime.NewReader(rdb, ks, time.Hour)
+	tasks := realtime.DispatchTopic("0199c000-0000-7000-8000-0000000000b1", realtime.FamilyTasks)
 	var ids []int64
 	for range 30 {
-		n, err := w.Publish(ctx, realtime.Event{Type: "task.updated", EventID: "e", Topics: []string{"dispatch:tasks"}})
+		n, err := w.Publish(ctx, realtime.Event{Type: "task.updated", EventID: "e", Topics: []string{tasks}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -85,23 +86,70 @@ func TestReaderDetectsMaxlenTrimming(t *testing.T) {
 	if _, err := w.Trim(ctx); err != nil {
 		t.Fatal(err)
 	}
-	info, err := rdb.XInfoStream(ctx, ks.RealtimeLog("dispatch:tasks")).Result()
+	info, err := rdb.XInfoStream(ctx, ks.RealtimeLog(tasks)).Result()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if info.MaxDeletedEntryID != "0-0" {
 		t.Logf("max-deleted-entry-id is %s (Redis now records MAXLEN trimming)", info.MaxDeletedEntryID)
 	}
-	snap, err := r.Snapshot(ctx, []string{"dispatch:tasks"}, ids[5], true)
+	snap, err := r.Snapshot(ctx, realtime.Request{Topics: []string{tasks}, After: ids[5], Replay: true})
 	if err != nil || snap.Resync != realtime.ResyncTrimmed {
 		t.Fatalf("after a trimmed id: %+v %v", snap, err)
 	}
-	snap, err = r.Snapshot(ctx, []string{"dispatch:tasks"}, ids[24], true)
+	snap, err = r.Snapshot(ctx, realtime.Request{Topics: []string{tasks}, After: ids[24], Replay: true})
 	if err != nil || snap.Resync != "" || len(snap.Events) != 5 || snap.Events[0].ID != ids[25] || snap.Seq != ids[29] {
 		t.Fatalf("inside the kept tail: %+v %v", snap, err)
 	}
-	snap, err = r.Snapshot(ctx, []string{"dispatch:tasks"}, 0, false)
+	snap, err = r.Snapshot(ctx, realtime.Request{Topics: []string{tasks}})
 	if err != nil || snap.Resync != "" || len(snap.Events) != 0 || snap.Seq != ids[29] {
 		t.Fatalf("no replay: %+v %v", snap, err)
+	}
+}
+
+// The control window: Snapshot returns the events of the control topics after Since and up to Seq,
+// with or without a replay and whatever the replay's verdict, and nothing of the other topics or from
+// before Since. Seq reads the same sequence.
+func TestSnapshotReadsTheControlWindow(t *testing.T) {
+	rdb, ks := cachetest.NewClient(t)
+	ctx := context.Background()
+	w := realtime.NewWriter(rdb, ks, 1000, time.Hour)
+	r := realtime.NewReader(rdb, ks, time.Hour)
+	const id = "0199c000-0000-7000-8000-0000000000c1"
+	user, config := realtime.UserTopic(id), realtime.TenantTopic(id, realtime.FamilyConfig)
+	publish := func(typ string, topics ...string) int64 {
+		n, err := w.Publish(ctx, realtime.Event{Type: typ, EventID: "e", Topics: topics, Data: json.RawMessage(`{}`)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	publish("roles.changed", config) // before Since
+	since, err := r.Seq(ctx)
+	if err != nil || since == 0 {
+		t.Fatalf("Seq %d %v", since, err)
+	}
+	revoked := publish("user.sessions_revoked", user)
+	publish("hubs.changed", "global") // not a control topic
+	roles := publish("roles.changed", config)
+	topics := []string{"global", config, user}
+	for _, replay := range []bool{false, true} {
+		snap, err := r.Snapshot(ctx, realtime.Request{Topics: topics, After: since + 1000, Replay: replay,
+			Control: []string{user, config}, Since: since})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if snap.Seq != roles || len(snap.Control) != 2 || snap.Control[0].ID != revoked || snap.Control[0].Topic != user ||
+			snap.Control[1].ID != roles || snap.Control[1].Type != "roles.changed" {
+			t.Fatalf("replay %v: %+v", replay, snap)
+		}
+		if replay && snap.Resync != realtime.ResyncUnknownID {
+			t.Fatalf("the window is read whatever the replay's verdict: %+v", snap)
+		}
+	}
+	// A control topic the stream does not follow is not read.
+	snap, err := r.Snapshot(ctx, realtime.Request{Topics: []string{"global"}, Control: []string{user}, Since: since})
+	if err != nil || len(snap.Control) != 0 {
+		t.Fatalf("%+v %v", snap, err)
 	}
 }

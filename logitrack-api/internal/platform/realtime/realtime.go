@@ -42,10 +42,13 @@ const (
 
 const uuidRx = `[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`
 
-// topicRx is the closed topic catalogue of Appendix B §B.4.2 (R51): no other topic exists.
+// topicRx is the closed topic catalogue of Appendix B §B.4.2 (R51): no other topic exists. The
+// dispatcher topics are per billing party (dispatch:{partyId}:{tasks|trips}), so a dispatcher's stream
+// reaches no further than its grant (Appendix C §C.1.7).
 var topicRx = regexp.MustCompile(`^(?:(?:user|driver|chat):` + uuidRx +
 	`|tenant:` + uuidRx + `:(?:tasks|trips|chats|fleet|hr|expenses|billing|vehicle_locations|config)` +
-	`|global|platform:security|dispatch:(?:tasks|trips))$`)
+	`|dispatch:` + uuidRx + `:(?:tasks|trips)` +
+	`|global|platform:security)$`)
 
 // ValidTopic reports whether t is a topic of the catalogue (uuids in lower case).
 func ValidTopic(t string) bool { return topicRx.MatchString(t) }

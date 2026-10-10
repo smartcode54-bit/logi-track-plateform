@@ -166,8 +166,27 @@ type replica struct {
 	stop             func()
 }
 
+// replicaDeps replace collaborators of the SSE service, so a test can run a step inside the connect
+// window: pool wraps the logitrack_app pool of the chat checks, reader is the replay reader's Redis
+// client.
+type replicaDeps struct {
+	pool   db.Beginner
+	reader redis.UniversalClient
+}
+
 func (w *world) replica(cfg sse.Config) *replica {
 	w.t.Helper()
+	return w.replicaWith(cfg, replicaDeps{})
+}
+
+func (w *world) replicaWith(cfg sse.Config, deps replicaDeps) *replica {
+	w.t.Helper()
+	if deps.pool == nil {
+		deps.pool = w.pool
+	}
+	if deps.reader == nil {
+		deps.reader = w.rdb
+	}
 	if cfg.PingInterval == 0 {
 		cfg.PingInterval = ping
 	}
@@ -176,9 +195,9 @@ func (w *world) replica(cfg sse.Config) *replica {
 	}
 	hub := realtime.NewHub(w.rdb, w.ks, zerolog.Nop(), 0)
 	events, err := sse.New(cfg, sse.Deps{
-		Hub: hub, Reader: realtime.NewReader(w.rdb, w.ks, time.Hour),
+		Hub: hub, Reader: realtime.NewReader(deps.reader, w.ks, time.Hour),
 		Conns:   ratelimit.NewConnLimiter(w.rdb, w.ks, cfg.MaxConnPerUser, app.SSELease(cfg.PingInterval)),
-		Tickets: w.auth, Pool: w.pool, Log: zerolog.Nop(),
+		Tickets: w.auth, Sessions: w.auth, Pool: deps.pool, Log: zerolog.Nop(),
 	})
 	if err != nil {
 		w.t.Fatal(err)

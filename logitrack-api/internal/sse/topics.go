@@ -17,7 +17,7 @@ type tenantFamily struct {
 }
 
 // tenantFamilies are the capability-gated tenant topics. tasks and trips go to dispatchers as
-// dispatch:tasks / dispatch:trips instead; config (every member) is handled apart.
+// dispatch:{partyId}:tasks / dispatch:{partyId}:trips instead; config (every member) is handled apart.
 var tenantFamilies = []tenantFamily{
 	{rt.FamilyTasks, []authz.Cap{authz.OperationsViewFirstMile, authz.OperationsViewLineHaul}},
 	{rt.FamilyTrips, []authz.Cap{authz.OperationsViewDriverMon}},
@@ -46,11 +46,14 @@ func isStaff(p *authz.Principal) bool {
 // §8.2, Appendix B §B.4.2), sorted:
 //
 //   - user:{uid} always; driver:{did} for a driver principal;
-//   - global for every staff principal; platform:security with security:view_audit for platform
-//     principals and own-fleet staff;
-//   - dispatch:tasks (operations:view_first_mile | operations:view_line_haul | dispatch:view_operations)
-//     and dispatch:trips (operations:view_driver_monitor | dispatch:view_operations) for a dispatcher,
-//     instead of the tenant tasks and trips topics;
+//   - global for every staff principal; platform:security for platform principals with
+//     security:view_audit (security_events of every tenant: Appendix C §C.2.3 row 58 gives tenant staff
+//     their own tenant's rows only, so own-fleet audit viewers keep the poll);
+//   - for a dispatcher, per billing party of its grant (cs, Appendix C §C.1.7),
+//     dispatch:{partyId}:tasks (operations:view_first_mile | operations:view_line_haul |
+//     dispatch:view_operations) and dispatch:{partyId}:trips (operations:view_driver_monitor |
+//     dispatch:view_operations), instead of the tenant tasks and trips topics: the stream reaches the
+//     parties RLS lets the dispatcher read, no further;
 //   - per effective tenant, the families of tenantFamilies the principal's capabilities open, and
 //     tenant:{tid}:config for its members; staff with contractor reach (R60) also get the same families
 //     (config excepted) of every sub-tenant, the rows RLS lets them read;
@@ -64,15 +67,19 @@ func WebTopics(p *authz.Principal) []string {
 	if staff {
 		out = append(out, rt.TopicGlobal)
 	}
-	if p.Can(authz.SecurityViewAudit) && (p.IsPlatform() || p.TenantKind == authz.TenantKindOwnFleet) {
+	if p.IsPlatform() && p.Can(authz.SecurityViewAudit) {
 		out = append(out, rt.TopicPlatformSecurity)
 	}
 	if p.Dispatcher {
-		if canAny(p, authz.OperationsViewFirstMile, authz.OperationsViewLineHaul, authz.DispatchViewOperations) {
-			out = append(out, rt.TopicDispatchTasks)
-		}
-		if canAny(p, authz.OperationsViewDriverMon, authz.DispatchViewOperations) {
-			out = append(out, rt.TopicDispatchTrips)
+		tasks := canAny(p, authz.OperationsViewFirstMile, authz.OperationsViewLineHaul, authz.DispatchViewOperations)
+		trips := canAny(p, authz.OperationsViewDriverMon, authz.DispatchViewOperations)
+		for _, party := range p.PartyIDs {
+			if tasks {
+				out = append(out, rt.DispatchTopic(party.String(), rt.FamilyTasks))
+			}
+			if trips {
+				out = append(out, rt.DispatchTopic(party.String(), rt.FamilyTrips))
+			}
 		}
 	}
 	if tid := p.EffectiveTenant(); tid != nil && !p.IsCustomerScope() && !p.IsMachine() {

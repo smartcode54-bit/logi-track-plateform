@@ -161,9 +161,16 @@ func TestExplicitChatTopic(t *testing.T) {
 	_, resp = w.open(r.internal+"/v1/events?topics=tenant:"+w.other+":tasks", "Authorization",
 		"Bearer "+w.login(r.internal, "ta@example.test", "web").access)
 	expect(t, resp, http.StatusForbidden, authz.CodePermissionDenied)
+	// A value outside the catalogue is a bad value of a known parameter: 422 naming the field.
 	_, resp = w.open(r.internal+"/v1/events?topics=tenant:"+w.own+":payroll", "Authorization",
 		"Bearer "+w.login(r.internal, "ta@example.test", "web").access)
-	expect(t, resp, http.StatusBadRequest, httpx.CodeBadRequest)
+	expect(t, resp, http.StatusUnprocessableEntity, httpx.CodeInvalidArgument)
+	if fields, _ := resp.detail("fields").([]any); len(fields) != 1 || fields[0].(map[string]any)["field"] != "topics" {
+		t.Fatalf("%s", resp.raw)
+	}
+	// The same on the mobile route, checked before the ticket (this one is already spent).
+	_, resp = w.open(r.public + "/v1/mobile/events?topics=dispatch:tasks&ticket=" + url.QueryEscape(tk))
+	expect(t, resp, http.StatusUnprocessableEntity, httpx.CodeInvalidArgument)
 
 	w.publish("chat.message_created", `{"id":"m1","text":"hello"}`, topic, realtime.TenantTopic(w.own, realtime.FamilyChats))
 	for _, c := range []*client{staff, driver} {
