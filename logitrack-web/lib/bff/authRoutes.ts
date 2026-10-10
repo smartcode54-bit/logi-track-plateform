@@ -21,6 +21,7 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 
+import { safeNext } from "../safeNext";
 import { secondsLeft, verifyAccessToken } from "./accessToken";
 import { bffConfig, type BffConfig } from "./config";
 import {
@@ -49,8 +50,8 @@ import {
 
 /** POST /api/auth/refresh is a no-op while the access token has more than this left (R37, R78). */
 export const REFRESH_NOOP_SECONDS = 120;
-/** Where a refresh lands when `next` is missing or unacceptable. */
-export const DEFAULT_NEXT = "/app";
+// The `next` of a refresh navigation (and of the login page): a same-origin `/app` path, else `/app`.
+export { DEFAULT_NEXT, safeNext } from "../safeNext";
 
 /** A rotation's new pair also answers requests that present the same refresh token this long after it. */
 export const ROTATION_SHARE_MS = 10_000;
@@ -417,27 +418,6 @@ export async function refreshPost(req: Request, deps: AuthDeps = {}): Promise<Re
     const headers = noStore(new Headers(), r.requestId);
     setCookies(headers, ...rotatedCookies(r, ctx.cfg));
     return new Response(null, { status: 204, headers });
-}
-
-/**
- * The `next` of a refresh navigation: a same-origin path in the `/app` route group (the proxy.ts
- * matcher), else `/app`. Absolute URLs, `//host`, backslashes and control characters are refused.
- */
-export function safeNext(raw: string | null): string {
-    if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.includes("\\")) return DEFAULT_NEXT;
-    for (let i = 0; i < raw.length; i++) {
-        const c = raw.charCodeAt(i);
-        if (c < 0x20 || c === 0x7f) return DEFAULT_NEXT;
-    }
-    let url: URL;
-    try {
-        url = new URL(raw, "http://web.invalid");
-    } catch {
-        return DEFAULT_NEXT;
-    }
-    if (url.origin !== "http://web.invalid") return DEFAULT_NEXT;
-    if (url.pathname !== "/app" && !url.pathname.startsWith("/app/")) return DEFAULT_NEXT;
-    return url.pathname + url.search;
 }
 
 function seeOther(location: string, requestId: string, setCookie: string[] = []): Response {

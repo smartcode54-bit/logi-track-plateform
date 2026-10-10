@@ -6,6 +6,9 @@ import { QUERY_POLICY, queryKeys } from "./queryKeys";
 describe("queryKeys (W6)", () => {
     it("builds the catalogued keys", () => {
         expect(queryKeys.me()).toEqual(["me"]);
+        expect(queryKeys.myTenants()).toEqual(["me", "tenants"]);
+        expect(queryKeys.tenants.list({ all: true })).toEqual(["tenants", { all: true }]);
+        expect(queryKeys.tenants.members("t1", { role: "tenant_admin" })).toEqual(["tenants", "t1", "members", { role: "tenant_admin" }]);
         expect(queryKeys.webFlags()).toEqual(["webFlags"]);
         expect(queryKeys.badges()).toEqual(["badges"]);
         expect(queryKeys.hubs.all()).toEqual(["hubs"]);
@@ -25,6 +28,8 @@ describe("queryKeys (W6)", () => {
         expect(partialMatchKey(queryKeys.companies.owner(), queryKeys.companies.all())).toBe(true);
         expect(partialMatchKey(queryKeys.trips.detail("t1"), queryKeys.trips.all())).toBe(true);
         expect(partialMatchKey(queryKeys.customers.all(), queryKeys.hubs.all())).toBe(false);
+        expect(partialMatchKey(queryKeys.myTenants(), queryKeys.me())).toBe(true);
+        expect(partialMatchKey(queryKeys.tenants.members("t1", {}), queryKeys.tenants.all())).toBe(true);
     });
 
     it("carries the stale / gc rows of developer-spec.md §10.7", () => {

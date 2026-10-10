@@ -12,7 +12,10 @@ import {
     isCustomerPrincipal,
     legacyRoleOf,
     meQueryOptions,
+    myTenantsQueryOptions,
     parseMe,
+    parseMyTenants,
+    readMe,
     type MeDTO,
 } from "./me";
 import { homeRouteOf } from "./homeRoute";
@@ -106,6 +109,31 @@ describe("['me'] query", () => {
     it("lets any other error through", async () => {
         vi.stubGlobal("fetch", vi.fn(async () => new Response("<html>bad gateway</html>", { status: 502 })));
         await expect(fetchMe({ signal: new AbortController().signal })).rejects.toMatchObject({ status: 502, code: "unavailable" });
+    });
+});
+
+describe("reads of GET /v1/me outside the query (T18: a sign-in, a tenant switch)", () => {
+    it("readMe goes through parseMe and throws a 401 instead of resolving to null", async () => {
+        vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ data: { id: "u1" } }), { status: 200 })));
+        await expect(readMe()).rejects.toMatchObject({ code: "bad_response" });
+        vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ data: me() }), { status: 200 })));
+        await expect(readMe()).resolves.toMatchObject({ id: "u1", capabilities: ["fleet:view_trucks", "users:manage"] });
+    });
+});
+
+describe("['me','tenants'] (T18 tenant switcher)", () => {
+    it("is GET /v1/me/tenants under the ['me'] prefix with the ['me'] policy, and keeps the tenant status", () => {
+        const options = myTenantsQueryOptions(true);
+        expect(options.queryKey).toEqual(["me", "tenants"]);
+        expect(options.staleTime).toBe(300_000);
+        expect(options.gcTime).toBe(1_800_000);
+        expect(
+            parseMyTenants([
+                { id: "t1", nameTh: "ท", nameEn: null, kind: "carrier", role: "manager", status: "suspended" },
+                { nameTh: "no id" },
+            ])
+        ).toEqual([{ id: "t1", nameTh: "ท", nameEn: null, kind: "carrier", role: "manager", status: "suspended" }]);
+        expect(() => parseMyTenants({ id: "t1" })).toThrowError(expect.objectContaining({ code: "bad_response" }));
     });
 });
 

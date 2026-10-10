@@ -1,31 +1,36 @@
+"use client";
+
+/**
+ * Forgot password through Go (T18; Appendix C §C.4.9; R4): `POST /api/go/v1/auth/password/forgot
+ * {email, locale}` always answers 202, whether or not the address has an account, so the page shows
+ * the same message either way. The emailed link opens `/reset-password#token=...`.
+ */
 import { useState } from "react";
-import { auth } from "@/firebase/client";
-import { sendPasswordResetEmail } from "firebase/auth";
+
+import { useLanguage } from "@/context/language";
+import { apiErrorText } from "@/lib/apiError";
+import { requestPasswordReset } from "@/lib/authClient";
 
 export function useForgotPassword() {
-  const [email, setEmail] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
+    const { t, language } = useLanguage();
+    const [email, setEmail] = useState("");
+    const [loading, setLoading] = useState(false);
+    const [sent, setSent] = useState(false);
+    const [error, setError] = useState("");
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setMessage("");
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoading(true);
+        setError("");
+        try {
+            await requestPasswordReset(email.trim(), language);
+            setSent(true);
+        } catch (err) {
+            setError(apiErrorText(err, t));
+        } finally {
+            setLoading(false);
+        }
+    };
 
-    try {
-      await sendPasswordResetEmail(auth, email);
-      setMessage("Password reset email sent! Please check your inbox.");
-    } catch (error: any) {
-      console.error("Error sending password reset email:", error);
-      if (error.code === "auth/user-not-found") {
-         setMessage("This email address is not registered.");
-      } else {
-         setMessage("An error occurred. Please try again.");
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return { email, setEmail, loading, message, handleSubmit };
+    return { email, setEmail, loading, sent, error, handleSubmit, t };
 }

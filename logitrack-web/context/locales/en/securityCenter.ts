@@ -345,4 +345,6 @@ export default {
     "securityCenter.mobileRelease.confirmAction": "Force update",
     "securityCenter.mobileRelease.forced": "Minimum version is now {version}.",
     "securityCenter.mobileRelease.forceFailed": "Could not set the minimum version.",
+    // Tenants page (T18)
+    "securityCenter.tenants": "Tenants",
 };

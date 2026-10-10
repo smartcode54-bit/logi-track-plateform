@@ -37,6 +37,11 @@ function fromKey<TKey, R>(value: FromKey<TKey, R>, queryKey: TKey): R {
 export interface GoQueryFnOptions<TKey> {
     /** Query parameters, fixed or derived from the query key (the key holds every filter, W6). */
     query?: FromKey<TKey, QueryParams | undefined>;
+    /**
+     * Request headers, fixed or derived from the key (`X-Act-On-Tenant` of a platform read, Appendix C
+     * §C.3.9). Whatever changes them belongs in the key, so another reach never reuses a cached page.
+     */
+    headers?: FromKey<TKey, Record<string, string> | undefined>;
 }
 
 /** A `queryFn` that GETs a Go path (fixed or derived from the key) and resolves its `data`. */
@@ -44,7 +49,8 @@ export function goQueryFn<TData, TKey extends QueryKey = QueryKey>(
     path: FromKey<TKey, string>,
     options: GoQueryFnOptions<TKey> = {}
 ): QueryFunction<TData, TKey> {
-    return ({ queryKey, signal }) => goFetch<TData>(fromKey(path, queryKey), { signal, query: fromKey(options.query, queryKey) });
+    return ({ queryKey, signal }) =>
+        goFetch<TData>(fromKey(path, queryKey), { signal, query: fromKey(options.query, queryKey), headers: fromKey(options.headers, queryKey) });
 }
 
 /** One keyset page: `data` holds the page's items, `nextCursor` is absent on the last page. */
@@ -62,6 +68,7 @@ export function goInfiniteQueryFn<TItem, TKey extends QueryKey = QueryKey>(
         goFetchEnvelope<TItem[]>(fromKey(path, queryKey), {
             signal,
             query: { ...fromKey(options.query, queryKey), cursor: pageParam },
+            headers: fromKey(options.headers, queryKey),
         });
 }
 

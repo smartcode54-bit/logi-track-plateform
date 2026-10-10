@@ -38,6 +38,9 @@ export const PAGE_SOURCE = "/:path((?!_next/|api/|app/|app$).*)";
 export const ASSET_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "svg", "ico", "webp", "avif", "ttf", "otf", "woff", "woff2"];
 export const ASSET_SOURCE = `/:path((?!_next/|api/|app/).+\\.(?:${ASSET_EXTENSIONS.join("|")}))`;
 
+/** The page of the password reset and invite links (`/reset-password#token=`, T18). */
+export const RESET_PASSWORD_PATH = "/reset-password";
+
 const monorepoRoot = path.join(__dirname, "..");
 
 const nextConfig: NextConfig = {
@@ -87,6 +90,9 @@ const nextConfig: NextConfig = {
       { source: ASSET_SOURCE, headers: [{ key: "Cache-Control", value: ASSET_CACHE_CONTROL }] },
       // `/app/:path*` also matches `/app` itself.
       { source: "/app/:path*", headers: [{ key: "Cache-Control", value: APP_CACHE_CONTROL }] },
+      // The reset and invite links carry their token in the fragment; no Referer leaves the page either
+      // (Appendix C §C.4.9). A later rule wins, so this replaces SECURITY_HEADERS' Referrer-Policy here.
+      { source: RESET_PASSWORD_PATH, headers: [{ key: "Referrer-Policy", value: "no-referrer" }] },
     ];
   },
   async redirects() {
