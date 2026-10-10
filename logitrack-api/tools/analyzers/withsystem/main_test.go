@@ -200,6 +200,44 @@ func TestSystemHandOffs(t *testing.T) {
 	}
 }
 
+const authPkg = `"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"`
+
+// TestRolePlayPrincipal: auth.RolePlayPrincipal builds a principal from a user id without a credential, so
+// only internal/auth and the --verify role-play of cmd/seed may name it (plain, renamed or dot import);
+// another function of internal/auth is not reported.
+func TestRolePlayPrincipal(t *testing.T) {
+	pre := "package billing\n\nimport "
+	call := pre + authPkg + "\n\nvar f = auth.RolePlayPrincipal\n"        // 1
+	renamed := pre + "a " + authPkg + "\n\nvar f = a.RolePlayPrincipal\n" // 1
+	dot := pre + ". " + authPkg + "\n\nvar f = RolePlayPrincipal\n"       // 1
+	other := pre + authPkg + "\n\nvar f = auth.PrincipalFrom\n"           // clean
+	root := write(t, map[string]string{
+		"go.mod":                           "module example\n",
+		"internal/billing/call.go":         call,
+		"internal/billing/renamed.go":      renamed,
+		"internal/billing/dot.go":          dot,
+		"internal/billing/other.go":        other,
+		"internal/billing/call_test.go":    call, // test files are exempt
+		"cmd/seed/internal/seed/verify.go": strings.Replace(call, "package billing", "package seed", 1),
+		"internal/auth/roleplay.go":        strings.Replace(call, "package billing", "package auth", 1),
+	})
+	findings, err := Check(root, Allowed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := map[string]int{}
+	for _, f := range files(root, findings) {
+		count[f]++
+	}
+	want := map[string]int{"internal/billing/call.go": 1, "internal/billing/renamed.go": 1, "internal/billing/dot.go": 1}
+	if !maps.Equal(count, want) {
+		for _, f := range findings {
+			t.Log(f)
+		}
+		t.Fatalf("findings per file %v, want %v", count, want)
+	}
+}
+
 // TestModuleIsClean runs the analyzer on this module, so go test ./... guards it too.
 func TestModuleIsClean(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", "..", ".."))

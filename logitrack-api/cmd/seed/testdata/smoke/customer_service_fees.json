@@ -1,0 +1,5 @@
+[
+{"id": "@SF01", "tenant_id": "@TN_OWN", "tenant_source": "form", "billing_party_id": "@BP_SPK", "fee_type": "extra_stop", "amount_thb": "300.00", "unit": "per_stop", "note": "ค่าโยกจุดที่ 2 ขึ้นไป", "created_at": "2026-06-25T09:40:00+07:00"},
+{"id": "@SF02", "tenant_id": "@TN_OWN", "tenant_source": "form", "billing_party_id": "@BP_TTP", "fee_type": "standby", "amount_thb": "500.00", "unit": "per_trip", "created_at": "2026-06-25T09:40:00+07:00"},
+{"id": "@SF03", "tenant_id": "@TN_OWN", "tenant_source": "form", "billing_party_id": "@BP_CJSF", "fee_type": "waiting_time", "amount_thb": "200.00", "unit": "per_trip", "note": "ไม่ถูกใช้โดย engine; มีไว้ยืนยันว่า fee_type อื่นไม่รั่วเข้า multi-drop", "created_at": "2026-06-25T09:40:00+07:00"}
+]

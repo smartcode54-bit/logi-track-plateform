@@ -1,0 +1,4 @@
+[
+{"id": "@TX01", "tenant_id": "@TN_OWN", "tenant_source": "form", "tx_type": "driver_payout", "sub_type": "Driver Compensation", "amount_thb": "650.00", "payment_method": "transfer", "tx_date": "2026-08-18", "tx_date_source": "bangkok", "driver_id": "@D1", "payroll_run_id": "@PR01", "pay_period": "2026-08", "pay_round": "R1", "performed_by_user_id": "@U_WRT_ADMIN", "created_at": "2026-08-18T10:00:00+07:00"},
+{"id": "@TX02", "tenant_id": "@TN_OWN", "tenant_source": "form", "tx_type": "driver_payout", "sub_type": "Driver Compensation", "amount_thb": "100.00", "payment_method": "transfer", "tx_date": "2026-09-02", "tx_date_source": "bangkok", "driver_id": "@D1", "payroll_run_id": "@PR02", "pay_period": "2026-08", "pay_round": "R2", "performed_by_user_id": "@U_WRT_ADMIN", "created_at": "2026-09-02T10:00:00+07:00"}
+]

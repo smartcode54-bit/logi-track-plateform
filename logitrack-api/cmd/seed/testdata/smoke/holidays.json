@@ -1,0 +1,6 @@
+[
+{"id": "@HO1", "holiday_date": "2026-07-28", "holiday_type": "public", "status": "published", "name": "วันเฉลิมพระชนมพรรษา", "name_en": "King's Birthday", "name_th": "วันเฉลิมพระชนมพรรษา", "is_recurring": true, "created_by": "@U_WRT_ADMIN", "created_at": "2026-01-05T09:00:00+07:00"},
+{"id": "@HO2", "holiday_date": "2026-08-12", "holiday_type": "public", "status": "published", "name": "วันแม่แห่งชาติ", "name_en": "Mother's Day", "name_th": "วันแม่แห่งชาติ", "is_recurring": true, "created_by": "@U_WRT_ADMIN", "created_at": "2026-01-05T09:00:00+07:00"},
+{"id": "@HO3", "holiday_date": "2026-10-13", "holiday_type": "public", "status": "published", "name": "วันนวมินทรมหาราช", "name_en": "King Bhumibol Memorial Day", "name_th": "วันนวมินทรมหาราช", "is_recurring": true, "created_by": "@U_WRT_ADMIN", "created_at": "2026-01-05T09:00:00+07:00"},
+{"id": "@HO4", "tenant_id": "@TN_OWN", "holiday_date": "2026-12-30", "holiday_type": "company", "status": "draft", "name": "วันหยุดบริษัท (ร่าง)", "is_recurring": false, "created_by": "@U_WRT_ADMIN", "created_at": "2026-09-20T10:00:00+07:00"}
+]

@@ -1,0 +1,4 @@
+[
+{"id": "@US_CJSF", "user_id": "@U_CJSF_CUST", "kind": "customer", "billing_party_id": "@BP_CJSF", "created_by": "@U_WRT_ADMIN", "created_at": "2026-01-05T09:00:00+07:00"},
+{"id": "@US_TTP", "user_id": "@U_TTP_DISP", "kind": "dispatcher", "billing_party_id": "@BP_TTP", "created_by": "@U_PLAT", "created_at": "2026-01-05T09:00:00+07:00"}
+]

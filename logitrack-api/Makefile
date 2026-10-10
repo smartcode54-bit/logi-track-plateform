@@ -29,7 +29,7 @@ GITLEAKS_IMG := zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16
 
 .PHONY: help env dev-keys dev-db up api-reload down reset ps logs psql redis-cli amqp-ui minio-console tunnel \
         migrate migrate-up-to migrate-apply migrate-new migrate-status migrate-down migrate-check migrate-roundtrip \
-        seed seed-verify etl-fixtures etl-fixtures-check \
+        seed seed-verify seed-budget etl-fixtures etl-fixtures-check \
         test test-integration lint sqlc gen gen-check openapi web env-check secrets-scan print-gitleaks-img smoke
 
 help: ## list targets
@@ -61,9 +61,10 @@ api-reload: .env ## recreate only the api with the current .env (a WEB_FLAG_OVER
 down: ## stop the stack incl. profiled services, keep volumes
 	$(COMPOSE) --profile '*' down
 
-reset: ## drop all volumes and start again (seeding arrives with T16)
+reset: ## drop all volumes, start again and seed SEED_PROFILE (default smoke)
 	$(COMPOSE) --profile '*' down -v
 	$(MAKE) --no-print-directory up
+	$(MAKE) --no-print-directory seed
 
 ps: ## service status
 	$(COMPOSE) --profile '*' ps
@@ -114,11 +115,14 @@ migrate-check: ## lint migrations/ (R31): numbering, Up and Down, NO TRANSACTION
 migrate-roundtrip: ## up -> down-to floor -> up on postgres:18-alpine via testcontainers (R31)
 	DOCKER_HOST=$(DOCKER_HOST) go test -race -count=1 -tags=integration -run 'RoundTrip|UpToNine|HeldVersion' ./internal/platform/migrate/ ./cmd/migrate/
 
-seed: ## seed a profile (SEED_PROFILE=smoke|demo|load; cmd/seed lands in T16)
+seed: ## seed a profile (SEED_PROFILE=smoke|demo|load): --reset, then the profile through ETL_DATABASE_URL (Appendix D)
 	$(COMPOSE) --profile tools run --rm seed --profile $(SEED_PROFILE)
 
-seed-verify: ## seed --verify invariants (T16)
-	$(COMPOSE) --profile tools run --rm seed --verify
+seed-verify: ## the twelve invariants of Appendix D §D.3 for SEED_PROFILE (on a freshly seeded, quiescent stack); exit 1 violation, 2 dependency unreachable
+	$(COMPOSE) --profile tools run --rm seed --verify --profile $(SEED_PROFILE)
+
+seed-budget: ## T16 AC: seed --profile smoke < 5 s at the .env.example Argon2id cost (testcontainers, no race detector)
+	DOCKER_HOST=$(DOCKER_HOST) go test -count=1 -tags=integration -run 'TestSmokeLoadVerifyTwice$$' ./cmd/seed/
 
 etl-fixtures: ## dry-run ETL over the fixtures against logitrack_test (T15)
 	$(COMPOSE) --profile tools run --rm etl load --dry-run --fixtures

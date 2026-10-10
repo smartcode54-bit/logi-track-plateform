@@ -1,0 +1,5 @@
+[
+{"id": "@LV01", "tenant_id": "@TN_OWN", "tenant_source": "driver", "driver_id": "@D1", "leave_type": "sick", "status": "approved", "start_date": "2026-09-14", "end_date": "2026-09-15", "reason": "ไข้หวัด", "approver_user_id": "@U_WRT_MGR", "decided_at": "2026-09-13T17:00:00+07:00", "client_op_id": "fa948f1f-c859-5f3e-9882-814b53d6ddec", "created_at": "2026-09-13T08:00:00+07:00"},
+{"id": "@LV02", "tenant_id": "@TN_OWN", "tenant_source": "driver", "driver_id": "@D2", "leave_type": "business", "status": "pending", "start_date": "2026-10-05", "end_date": "2026-10-06", "reason": "ติดต่อราชการ", "client_op_id": "9871df56-5ad1-574c-ab0b-fed94f900eb4", "created_at": "2026-09-29T20:00:00+07:00"},
+{"id": "@LV03", "tenant_id": "@TN_OWN", "tenant_source": "driver", "driver_id": "@D3", "leave_type": "sick", "status": "rejected", "start_date": "2026-08-03", "end_date": "2026-08-04", "reason": "ปวดหลัง", "approver_user_id": "@U_WRT_MGR", "decided_at": "2026-08-03T12:00:00+07:00", "rejection_reason": "ไม่มีใบรับรองแพทย์", "client_op_id": "8bf05e3a-3ad2-5515-9bbc-27ce3690175d", "created_at": "2026-08-03T07:00:00+07:00"}
+]

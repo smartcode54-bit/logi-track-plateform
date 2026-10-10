@@ -1,0 +1,7 @@
+[
+{"id": "@PDS05_1", "trip_id": "@TR05", "stop_index": 1, "destination_raw": "SPK890103", "destination_hub_id": "@H_SPK103", "status": "delivered", "delivered_at": "2026-08-20T11:10:00+07:00", "completed_seq": 1},
+{"id": "@PDS05_2", "trip_id": "@TR05", "stop_index": 2, "destination_raw": "SPK890146", "destination_hub_id": "@H_SPK146", "status": "delivered", "delivered_at": "2026-08-20T16:30:00+07:00", "completed_seq": 2},
+{"id": "@PDS16_1", "trip_id": "@TR16", "stop_index": 1, "destination_raw": "SPK890146", "destination_hub_id": "@H_SPK146", "status": "delivered", "delivered_at": "2026-08-26T15:20:00+07:00", "completed_seq": 2},
+{"id": "@PDS16_2", "trip_id": "@TR16", "stop_index": 2, "destination_raw": "SPK890103", "destination_hub_id": "@H_SPK103", "status": "delivered", "delivered_at": "2026-08-26T13:05:00+07:00", "completed_seq": 1},
+{"id": "@PDS16_3", "trip_id": "@TR16", "stop_index": 3, "destination_raw": "SPK890174", "destination_hub_id": "@H_SPK174", "status": "delivered", "delivered_at": "2026-08-26T17:55:00+07:00", "completed_seq": 3}
+]

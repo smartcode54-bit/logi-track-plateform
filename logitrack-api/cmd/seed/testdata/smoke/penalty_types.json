@@ -1,0 +1,4 @@
+[
+{"config_id": "@CC1", "code": "LATE_SLA", "name_en": "Late against SLA", "name_th": "ส่งงานล่าช้ากว่า SLA", "default_amount_thb": "3000.00"},
+{"config_id": "@CC2", "code": "LATE_SLA", "name_en": "Late against SLA", "name_th": "ส่งงานล่าช้ากว่า SLA", "default_amount_thb": "3000.00"}
+]

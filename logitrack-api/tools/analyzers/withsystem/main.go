@@ -18,6 +18,9 @@
 //   - a composite literal of authz.Principal outside PrincipalAllowed, and a write of its
 //     X-Act-On-Tenant fields ActOnAll / ActOnTenant outside ActOnAllowed: the principal of a request
 //     comes from auth.RequireAuth and is completed by iam.RBAC.Authorize, nowhere else;
+//   - a reference to auth.RolePlayPrincipal outside RolePlayAllowed: it builds a principal from a user id
+//     without a credential, for cmd/seed --verify (Appendix D §D.3 #10); a request principal comes from
+//     auth.RequireAuth;
 //   - a string literal that names a request GUC (app.user_id ... app.bypass_tenant) or the tenant-move
 //     and ETL GUCs, or calls set_config, outside the packages of GUCRules: the raw way around both
 //     helpers.
@@ -52,6 +55,9 @@ const AuthzImport = "github.com/smartcode54-bit/logi-track-plateform/logitrack-a
 
 // InboxImport is the package of inbox.Run, which runs a consumer's callback in a WithSystem transaction.
 const InboxImport = "github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/inbox"
+
+// AuthImport is the package of auth.RolePlayPrincipal.
+const AuthImport = "github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
 
 // JobsImport is the package of jobs.Service.Submit, whose SubmitInput.InTx hook runs in Submit's
 // WithSystem transaction.
@@ -88,6 +94,9 @@ var RLSAllowed = []string{"internal/platform/db", "internal/authz"}
 // PrincipalAllowed may build an authz.Principal: auth.RequireAuth from a verified credential, iam while
 // resolving it, and authz itself.
 var PrincipalAllowed = []string{"internal/auth", "internal/iam", "internal/authz"}
+
+// RolePlayAllowed may call auth.RolePlayPrincipal: its definition and the --verify role-play of cmd/seed.
+var RolePlayAllowed = []string{"internal/auth", "cmd/seed"}
 
 // ActOnAllowed may write Principal.ActOnAll / ActOnTenant: iam.RBAC.Authorize (X-Act-On-Tenant, C.3.9)
 // and authz.
@@ -207,6 +216,7 @@ func inspect(f *ast.File) []hit {
 	azNames, azDot := importNames(f, AuthzImport)
 	ibNames, ibDot := importNames(f, InboxImport)
 	jbNames, jbDot := importNames(f, JobsImport)
+	auNames, auDot := importNames(f, AuthImport)
 	importsJobs := jbDot || len(jbNames) > 0
 	// Identifiers that declare or select a name rather than refer to a dot-imported one.
 	declared := map[*ast.Ident]bool{}
@@ -238,6 +248,7 @@ func inspect(f *ast.File) []hit {
 	isAuthz := func(e ast.Expr, sel string) bool { return isRef(e, sel, azNames, azDot, declared) }
 	isInbox := func(e ast.Expr, sel string) bool { return isRef(e, sel, ibNames, ibDot, declared) }
 	isJobs := func(e ast.Expr, sel string) bool { return isRef(e, sel, jbNames, jbDot, declared) }
+	isAuth := func(e ast.Expr, sel string) bool { return isRef(e, sel, auNames, auDot, declared) }
 	const (
 		inTxWhat = "a jobs.SubmitInput InTx hook (it runs in Submit's db.WithSystem transaction)"
 		inTxFix  = "read tenant rows under db.WithPrincipal before Submit; only allow-listed packages pass a hook"
@@ -251,6 +262,9 @@ func inspect(f *ast.File) []hit {
 				out = append(out, hit{e.Pos(), "db.WithSystem", "use db.WithPrincipal", nil})
 			case isDB(e, "RLS"):
 				out = append(out, hit{e.Pos(), "db.RLS", "pass the request's authz.Principal to db.WithPrincipal", RLSAllowed})
+			case isAuth(e, "RolePlayPrincipal"):
+				out = append(out, hit{e.Pos(), "auth.RolePlayPrincipal (a principal without a credential)",
+					"take the request principal from auth.RequireAuth", RolePlayAllowed})
 			case isInbox(e, "Run"):
 				out = append(out, hit{e.Pos(), "inbox.Run (a db.WithSystem transaction)",
 					"only allow-listed consumer packages run it; a domain consumer joins Allowed in its own task", nil})

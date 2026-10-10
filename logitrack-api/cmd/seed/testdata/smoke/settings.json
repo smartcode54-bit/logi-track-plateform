@@ -1,0 +1,4 @@
+[
+{"key": "mobile_app", "value": {"minAllowedVersion": "3.4.0", "minAllowedVersionSetAt": "2026-09-15T10:00:00+07:00", "minAllowedVersionSetBy": "@U_PLAT", "latestVersion": "3.5.0", "latestBuildNumber": "1", "apkDownloadUrl": "$seed:S3_PUBLIC_BASE_URL + /app_releases/prod/logitrack-prod-v3.5.0.apk", "flavor": "prod", "releasedAt": "2026-09-10T18:00:00+07:00"}, "updated_at": "2026-09-15T10:00:00+07:00", "updated_by": "@U_PLAT"},
+{"key": "distances_last_calculated", "value": {"at": "2026-07-01T03:00:00+07:00", "pairs": 2}, "updated_at": "2026-07-01T03:00:00+07:00", "updated_by": "@U_WRT_OPS"}
+]

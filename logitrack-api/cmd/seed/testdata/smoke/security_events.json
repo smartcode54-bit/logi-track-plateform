@@ -1,0 +1,3 @@
+[
+{"id": "@SE1", "created_at": "2026-09-30T11:00:00+07:00", "event_type": "platform_cross_tenant_access", "severity": "warning", "summary": "platform_admin read tenant TTP tasks via X-Act-On-Tenant", "details": {"method": "GET", "path": "/v1/tasks", "act_on_tenant": "@TN_TTP"}, "actor_user_id": "@U_PLAT", "actor_email": "platform.admin@logitrack.test", "tenant_id": "@TN_TTP", "request_id": "seed-req-0001"}
+]
