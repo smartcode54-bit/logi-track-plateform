@@ -61,9 +61,10 @@ api-reload: .env ## recreate only the api with the current .env (a WEB_FLAG_OVER
 down: ## stop the stack incl. profiled services, keep volumes
 	$(COMPOSE) --profile '*' down
 
-reset: ## drop all volumes and start again (seeding arrives with T16)
+reset: ## drop all volumes, start again and seed SEED_PROFILE (default smoke)
 	$(COMPOSE) --profile '*' down -v
 	$(MAKE) --no-print-directory up
+	$(MAKE) --no-print-directory seed
 
 ps: ## service status
 	$(COMPOSE) --profile '*' ps
@@ -114,11 +115,11 @@ migrate-check: ## lint migrations/ (R31): numbering, Up and Down, NO TRANSACTION
 migrate-roundtrip: ## up -> down-to floor -> up on postgres:18-alpine via testcontainers (R31)
 	DOCKER_HOST=$(DOCKER_HOST) go test -race -count=1 -tags=integration -run 'RoundTrip|UpToNine|HeldVersion' ./internal/platform/migrate/ ./cmd/migrate/
 
-seed: ## seed a profile (SEED_PROFILE=smoke|demo|load; cmd/seed lands in T16)
+seed: ## seed a profile (SEED_PROFILE=smoke|demo|load): --reset, then the profile through ETL_DATABASE_URL (Appendix D)
 	$(COMPOSE) --profile tools run --rm seed --profile $(SEED_PROFILE)
 
-seed-verify: ## seed --verify invariants (T16)
-	$(COMPOSE) --profile tools run --rm seed --verify
+seed-verify: ## the twelve invariants of Appendix D §D.3 for SEED_PROFILE; exit 1 violation, 2 dependency unreachable
+	$(COMPOSE) --profile tools run --rm seed --verify --profile $(SEED_PROFILE)
 
 etl-fixtures: ## dry-run ETL over the fixtures against logitrack_test (T15)
 	$(COMPOSE) --profile tools run --rm etl load --dry-run --fixtures

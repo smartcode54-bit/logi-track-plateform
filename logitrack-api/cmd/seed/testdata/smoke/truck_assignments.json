@@ -1,0 +1,6 @@
+[
+{"id": "@TA1", "tenant_id": "@TN_OWN", "tenant_source": "self", "truck_id": "@T1", "driver_id": "@D1", "status": "active", "admin_user_id": "@U_WRT_OPS", "admin_label": "WRT Operation Staff", "created_at": "2026-01-05T09:00:00+07:00"},
+{"id": "@TA2", "tenant_id": "@TN_OWN", "tenant_source": "self", "truck_id": "@T2", "driver_id": "@D2", "status": "active", "admin_user_id": "@U_WRT_OPS", "admin_label": "WRT Operation Staff", "created_at": "2026-01-05T09:00:00+07:00"},
+{"id": "@TA3", "tenant_id": "@TN_NWR", "tenant_source": "self", "truck_id": "@T5", "driver_id": "@D6", "status": "revoked", "admin_user_id": "@U_NWR_ADMIN", "admin_label": "NWR หัวหน้ากลุ่ม", "created_at": "2026-06-01T09:00:00+07:00", "revoked_at": "2026-09-01T09:00:00+07:00"},
+{"id": "@TA4", "tenant_id": "@TN_TTP", "tenant_source": "self", "truck_id": "@T6", "driver_id": "@D6", "status": "active", "admin_label": "System", "created_at": "2026-09-01T09:00:00+07:00"}
+]

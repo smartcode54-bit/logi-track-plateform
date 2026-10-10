@@ -1,0 +1,4 @@
+[
+{"id": "@BC01", "tenant_id": "@TN_OWN", "created_by_user_id": "@U_WRT_MGR", "created_by_name": "ฝ่ายปฏิบัติการ", "title": "วันหยุด 12 ส.ค.", "message_text": "วันที่ 12 ส.ค. เป็นวันหยุด คิดค่าเที่ยวอัตราวันหยุด", "recipient_group": "all_driver", "recipient_count": 3, "sent_at": "2026-08-10T09:00:00+07:00"},
+{"id": "@BC02", "tenant_id": "@TN_OWN", "created_by_user_id": "@U_WRT_MGR", "created_by_name": "ฝ่ายปฏิบัติการ", "title": "ทดสอบ", "message_text": "ข้อความส่งผิดกลุ่ม", "recipient_group": "all_driver", "recipient_count": 3, "sent_at": "2026-09-01T09:00:00+07:00", "voided_at": "2026-09-01T09:05:00+07:00"}
+]

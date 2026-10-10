@@ -2,7 +2,7 @@
 
 Go backend for the LogiTrack migration off Firebase (`mv-go`). Design: [`developer-spec.md`](../developer-spec.md) §2, routes in [Appendix B](../shared-docs/specs/mv-go/B-api-catalog.md). Branch policy: work lands by PR into `mv-go`, never `main` (R90).
 
-Status: **T01 scaffold + T02 local stack + T03 migrations + T04 core schema + T05 own auth + T06 Google sign-in + T07 RBAC + T08 Firebase bridge + T10 async + T11 object storage + T36 billing engine + TW2 edge (web container + Caddy) + T14 CI + T17 web flags**. One module, seven binaries, shared `internal/`; the first routes are `/v1/auth/*` and `/v1/me*` (T05), `/v1/roles` (T07) and `GET /v1/config/web-flags` (T17).
+Status: **T01 scaffold + T02 local stack + T03 migrations + T04 core schema + T05 own auth + T06 Google sign-in + T07 RBAC + T08 Firebase bridge + T10 async + T11 object storage + T16 seed + T36 billing engine + TW2 edge (web container + Caddy) + T14 CI + T17 web flags**. One module, seven binaries, shared `internal/`; the first routes are `/v1/auth/*` and `/v1/me*` (T05), `/v1/roles` (T07) and `GET /v1/config/web-flags` (T17).
 
 ## Layout
 
@@ -11,7 +11,7 @@ cmd/api          two HTTP listeners (internal + public) and /metrics
 cmd/worker       RabbitMQ consumers of WORKER_CONSUMERS: retries 5 -> {queue}.dead, consumer_inbox (T10)
 cmd/scheduler    leader-only: outbox relay, Bangkok cron, dead-letter replays (T10)
 cmd/migrate      goose chain embedded from migrations/, run as logitrack_migrator (T03)
-cmd/seed         seed profiles (T16)           — exits 3 until implemented
+cmd/seed         seed profiles smoke|demo|load, --reset, --verify (T16, Appendix D); fixture in cmd/seed/testdata
 cmd/etl          Firestore/GCS → PG/MinIO (T15) — exits 3 until implemented
 cmd/release      APK publish CLI (T52)         — exits 3 until implemented
 internal/app                 process wiring, configs, API server (BuildAPI: pool, Redis, auth), graceful shutdown
@@ -241,12 +241,12 @@ Golden vectors: `testdata/golden/billing` (see its README). `go test ./internal/
 
 | Env | Processes | Default | Notes |
 |---|---|---|---|
-| `STORAGE_BACKEND` | api, worker | `s3` | `local` or `s3`; compose keeps `s3` |
+| `STORAGE_BACKEND` | api, worker, seed | `s3` | `local` or `s3`; compose keeps `s3` |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_USE_PATH_STYLE`, `S3_USE_SSL` | api, worker | -, -, -, -, `true`, `false` | required with `s3`; an endpoint scheme must agree with `S3_USE_SSL` |
 | `S3_BUCKET`, `S3_PUBLIC_BUCKET` | api, worker | `logitrack`, `logitrack-public` | also label local rows |
 | `S3_PRESIGN_ENDPOINT`, `S3_PUBLIC_BASE_URL`, `CORS_ALLOWED_ORIGINS` | api | - | the origin URLs are signed for (required with `S3_ENDPOINT`), public-bucket base, browser origins |
 | `S3_PRESIGN_GET_TTL`, `S3_PRESIGN_PUT_TTL`, `UPLOAD_MAX_BYTES` | api | `1h`, `15m`, `10485760` | also bound local URLs and uploads (max 100 MiB) |
-| `LOCAL_MEDIA_DIR` | api, worker | - | absolute; required with `local`; keep it set after a switch to `s3` while local objects exist |
+| `LOCAL_MEDIA_DIR` | api, worker, seed | - | absolute; required with `local`; keep it set after a switch to `s3` while local objects exist |
 | `LOCAL_MEDIA_PUBLIC_BASE_URL`, `LOCAL_MEDIA_SIGNING_KEY` | api | - | required with `LOCAL_MEDIA_DIR`; the key (secret, >= 32 bytes) signs local URLs |
 | `EVIDENCE_TOKEN_TTL_DAYS`, `EVIDENCE_PRESIGN_TTL` | api | `0`, `15m` | `0` = evidence tokens never expire (R30); with a TTL a token's age counts from its embedded issue time (legacy tokens: the row's `created_at`) |
 
@@ -260,6 +260,26 @@ Golden vectors: `testdata/golden/billing` (see its README). `go test ./internal/
 - **Deployment with nginx (first VM)**: `STORAGE_BACKEND=local`, `LOCAL_MEDIA_DIR` outside any web root, `LOCAL_MEDIA_PUBLIC_BASE_URL=https://logi.showkhun.co/media`, nginx `location /media/ { proxy_pass http://127.0.0.1:<API_PUBLIC_ADDR port>; client_max_body_size <UPLOAD_MAX_BYTES>; proxy_request_buffering on; }` (path unchanged; request buffering is nginx's default and must stay on, so a slow uplink or a head-only request is absorbed by nginx), and the BFF forwarding `PUT /api/go/v1/uploads/local/*` bodies up to `UPLOAD_MAX_BYTES` with their `Content-Length` and a 5-minute timeout instead of `GO_API_INTERNAL_TIMEOUT_MS` (Appendix E §E.8.2). Migrations: `migrate up-to 9` then `migrate apply 11` (0011 is the storage column; 0010 waits for the P1 sign-off).
 
 Tests: `go test ./internal/storage/...` (keys, local backend, signatures, media routes, URLs signed for the presign origin) and `make test-integration` (`internal/storage`: compose MinIO + PostgreSQL: browser CORS preflight and PUT from `http://localhost:3000`, sized and create-once S3 PUTs (403 on another length, 412 on a second PUT), 422 commits, presigned GET expiry (skew-tolerant poll), driver PII reads, GC on both backends, the backend switch, the production P0 schema (`up-to 9` + `apply 11`), a local PUT racing a commit, bootstrap keeping operator bucket settings, evidence verifier; `internal/app`: the local flow end to end through both listeners, unsigned heads refused with 413).
+
+## Seed (T16, main spec §14, Appendix D)
+
+`cmd/seed` builds the same database, object store and Redis state on every machine and in CI. Profiles: `smoke` is the Appendix D §D.4 fixture verbatim (`cmd/seed/testdata/smoke/<table>.json`, 285 rows + the quarantine tenant of migration 0002, 16 objects; the appendix is the review copy and these files win), `demo` adds the multi-tenant identities (own fleet `WRT`, carrier `NWR` working for it, carrier `TTP` without a contractor link: each with a tenant_admin, staff and a dispatcher, customer-scope users for CJSF/SPX/SPK, platform support; the broker driver D6 moved NWR -> TTP, R24), `load` adds eight carriers and ~1,200 users (past the legacy `listUsers(1000)` cap). The volume generators of §D.1.2 (hubs, tasks, trips, rate cards, ...) join with T26, T35 and T43 through the same generator framework.
+
+| Command | What it does |
+|---|---|
+| `make seed` (`SEED_PROFILE=smoke\|demo\|load`) | `--reset` (default with `APP_ENV=local`), then the profile; prints the D7 fixture's temporary password once |
+| `make seed-verify` | the twelve invariants of Appendix D §D.3 + the per-table count diff + the fingerprint; exit 0 pass, 1 violation, 2 dependency unreachable |
+| `make reset` | `down -v`, `up`, `seed` |
+| `seed --dry-run --profile demo` | the plan's per-table counts; nothing written, no database needed |
+| `seed --mode upsert` | missing rows only (`ON CONFLICT DO NOTHING`); `APP_ENV=dev` needs `--allow-shared` and forces it, never resets |
+| `seed --emit-events` | leaves the seeded outbox rows unpublished so the relay and worker run them |
+
+- **Ids**: uuid v5 of `"<table>:<natural key>"` in `SEED_NAMESPACE` (default `dd659aa7-…`); the registry `cmd/seed/testdata/registry.json` holds the 227 symbols of §D.4.2 (a test recomputes every documented uuid). `OWN_FLEET_TENANT_ID` replaces only the own-fleet id; the quarantine tenant keeps the fixed id of migration 0002. Generators draw from PCG streams of `SEED_RANDOM_SEED`, one per generator.
+- **Connections (R66, R87)**: every write goes through `ETL_DATABASE_URL` (`logitrack_etl`) in one `db.WithSystem` transaction: tables in the §D.1.5 order, forward references back-filled, `task_number_counters` derived, then the billing engine recomputes every engine-written snapshot and standby price and any difference rolls the load back. `--reset` truncates through `MIGRATE_DATABASE_URL` (the schema-version check too), deletes every tenant but the quarantine row through `ETL_DATABASE_URL`, removes the objects listed in `file_objects` and unlinks `lt:{APP_ENV}:*` with `SCAN` + `UNLINK`. Each URL is checked against its role at start; nothing uses `SET ROLE`.
+- **`--verify`** reads on `ETL_DATABASE_URL` and role-plays isolation on `DATABASE_URL` as `logitrack_app` with the context a request gets: `auth.RolePlayPrincipal` (the user's memberships and scopes, mapped as for a token; the WithSystem analyzer allows it only in `internal/auth` and `cmd/seed`) -> `iam.RBAC.Resolve` -> `db.WithPrincipal`. It checks #10c (dispatcher, carrier tenant_admin, customer), #10d (contractor reach) and, for every carrier staff principal, that no row of another tenant is readable in any RLS table.
+- **Media**: 640x480 JPEGs and 512x512 PNGs with the overlay `{type} · {code} · {Bangkok time}` in Sarabun (`cmd/seed/assets`, OFL), one-page placeholder PDFs for statement documents (until `documents.render`, T39), the all-zero 1 MiB APK; written through `internal/storage` to `STORAGE_BACKEND`, sizes and sha256 recorded from the bytes. Native keys follow `storage.Purposes` (tested), legacy keys stay verbatim.
+- **Safety**: profile loads, `--reset` and `--verify` refuse `APP_ENV=prod`; `SEED_DEFAULT_PASSWORD` is hashed once (Argon2id) and never printed; every address is `@logitrack.test`. `seed bootstrap-platform-admins` (and the bootstrap super admin) land with T19 and exit 3 until then.
+- **Tests**: `go test ./cmd/seed/...` (registry vs Appendix D, fixture closure, key templates, media, safety flags) and `make test-integration` (`cmd/seed`: smoke < 5 s and twice with the same fingerprint, demo, load, a permissive policy on `tasks` failing --verify with exit 1, a load with `DATABASE_URL` unreachable, reset keeping the quarantine row and foreign Redis keys, an engine mismatch rolling the load back, upsert idempotence, the role-play context equal to §D.3's).
 
 ## Edge: web + Caddy (TW2, main spec §10.12, §15)
 
@@ -335,7 +355,7 @@ Three workflows run on pushes and pull requests of `mv-go` and `mv-go-**`. `go-c
 
 | Workflow | Jobs |
 |---|---|
-| `go-ci` (`.github/workflows/go-ci.yml`) | `changes` (skips the Go jobs when no checked path changed); `lint` (`make lint`); `gen-check` (`make gen-check`, `make env-check`, clean tree); `migrate` (`make migrate-check`, `make migrate-roundtrip`); `test` (`make test-integration TESTFLAGS=-count=1`); `goldens` (`make test` on amd64 with `GOAMD64=v3` and on arm64); `stack` (`make env dev-keys up smoke`, then seed smoke + verify once T16 lands); `etl-fixtures` (`make etl-fixtures-check` once T15 adds the fixtures); `build` (image with every binary, pushed to `ghcr.io/smartcode54-bit/logitrack-api:{sha}` only from `mv-go`, `:v{semver}` from an `api-v{semver}` tag on `mv-go`); `web-ci` (waits for the web `CI` run of the same commit, if its path filter started one); `go-ci` (sums them up) |
+| `go-ci` (`.github/workflows/go-ci.yml`) | `changes` (skips the Go jobs when no checked path changed); `lint` (`make lint`); `gen-check` (`make gen-check`, `make env-check`, clean tree); `migrate` (`make migrate-check`, `make migrate-roundtrip`); `test` (`make test-integration TESTFLAGS=-count=1`); `goldens` (`make test` on amd64 with `GOAMD64=v3` and on arm64); `stack` (`make env dev-keys up smoke`, then `seed --profile smoke` + `seed --verify` twice with the two fingerprints diffed); `etl-fixtures` (`make etl-fixtures-check` once T15 adds the fixtures); `build` (image with every binary, pushed to `ghcr.io/smartcode54-bit/logitrack-api:{sha}` only from `mv-go`, `:v{semver}` from an `api-v{semver}` tag on `mv-go`); `web-ci` (waits for the web `CI` run of the same commit, if its path filter started one); `go-ci` (sums them up) |
 | `secret-scan` (`.github/workflows/secret-scan.yml`) | gitleaks v8.30.1 over the commits of the push or PR (`.github/scripts/secret-scan.sh BASE HEAD` runs it locally), findings redacted; merge commits are scanned against their first parent; no allow-list counts (a `.gitleaks.toml` or `.gitleaksignore` in the tree fails, in-repo gitleaks config and `gitleaks:allow` are ignored); a gitleaks error or skipped commits fail the scan. `.github/scripts/secret-scan-selftest.sh` proves this on throwaway repositories first |
 | `CI` (`.github/workflows/ci.yml`) | the web checks, now also for `mv-go` and `mv-go-**` (path filter and `main` entries unchanged); `refuse-main-head` fails a PR whose head branch is `main` outside `main` |
 

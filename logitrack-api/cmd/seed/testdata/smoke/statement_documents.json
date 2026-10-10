@@ -1,0 +1,4 @@
+[
+{"id": "@SD1_INV", "statement_id": "@ST1", "kind": "invoice_summary_pdf", "file_id": "@FO_ST1_INV", "status": "ready", "rendered_at": "2026-08-02T10:00:00+07:00", "created_at": "2026-08-02T10:00:00+07:00"},
+{"id": "@SD1_RCPT", "statement_id": "@ST1", "kind": "receipt_pdf", "file_id": "@FO_ST1_RCPT", "status": "ready", "rendered_at": "2026-08-25T14:00:00+07:00", "created_at": "2026-08-25T14:00:00+07:00"}
+]

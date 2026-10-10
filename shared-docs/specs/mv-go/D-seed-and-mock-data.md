@@ -2,7 +2,7 @@
 
 > Part of the mv-go migration spec (Firebase -> Go 1.27 + Fiber v3 + PostgreSQL 18 + RabbitMQ + Redis + MinIO). Main spec: [developer-spec.md](../../../developer-spec.md) — §14 summarises this appendix, §15 is the local stack that runs it, §16 is the canonical environment table, §6 owns the billing and compensation rules the golden vectors below exercise, §13 owns the ETL. Siblings: [Appendix A](./A-data-model.md) (DDL; every table and column name here follows it), [Appendix B](./B-api-catalog.md) (endpoints, queues, SSE topics, Redis keys), [Appendix C](./C-auth-rbac.md) (roles, capability catalog, RLS), [Appendix E](./E-web-fetch-audit.md) (web fetch audit). Decision record: [ADR 0029](../../adr/0029-migrate-firebase-stack-to-go-postgres.md).
 >
-> Status: documentation only. No Go code exists yet; `logitrack-api/cmd/seed` and `logitrack-api/cmd/etl` are the planned locations (main spec §12). Names follow the final Appendix A DDL: a checker parsed its `CREATE TABLE` statements and confirmed that every sample key is a column or an `_` annotation, every NOT NULL column without a default is present, every simple `CHECK (col IN ...)` holds and every `@SYM` resolves. Applied: R1–R35 and R36–R90, notably R55 (`users.legacy_auth_uid`, `auth_identities`), R56 (`tenants.name_th`, `contractor_tenant_id`; the quarantine tenant with the fixed id `00000000-0000-7000-8000-00000000000f` comes from migration 0002), R57 (only `outbox_events.id` is an identity), R61 (billing rows on the billing carrier's tenant), R62 (stored unpriced reasons), R63 (`client_op_id`), R64 (`jobs.params`), R65 (lower_snake statuses), R68 (reason codes), R74 and R87 (bucket and database-URL names).
+> Status: `logitrack-api/cmd/seed` implements this appendix since T16 (issue #36): the smoke fixture is `cmd/seed/testdata/smoke/<table>.json` with the registry `cmd/seed/testdata/registry.json` (both win on conflict with this copy), the invariants of §D.3 run on PostgreSQL 18 in `cmd/seed/internal/seed/invariants.go`, and the demo / load profiles carry the T16 identity generator while the volume generators join with T26, T35 and T43. `logitrack-api/cmd/etl` (§D.5) is still planned (T15). Names follow the final Appendix A DDL: a checker parsed its `CREATE TABLE` statements and confirmed that every sample key is a column or an `_` annotation, every NOT NULL column without a default is present, every simple `CHECK (col IN ...)` holds and every `@SYM` resolves. Applied: R1–R35 and R36–R90, notably R55 (`users.legacy_auth_uid`, `auth_identities`), R56 (`tenants.name_th`, `contractor_tenant_id`; the quarantine tenant with the fixed id `00000000-0000-7000-8000-00000000000f` comes from migration 0002), R57 (only `outbox_events.id` is an identity), R61 (billing rows on the billing carrier's tenant), R62 (stored unpriced reasons), R63 (`client_op_id`), R64 (`jobs.params`), R65 (lower_snake statuses), R68 (reason codes), R74 and R87 (bucket and database-URL names).
 
 The seed has three jobs: (1) give every developer and CI run the same database, object store and Redis state in seconds; (2) cover every workflow state the Go services must handle, including the legacy shapes the ETL produces; (3) act as executable golden vectors — every priced row in §D.4 states the formula and expected result, and `seed --verify` recomputes them. The seed never touches Firestore, never runs against production, and is separate from the ETL, whose fixtures are in §D.5.
 
@@ -24,7 +24,7 @@ The seed has three jobs: (1) give every developer and CI run the same database, 
 | `seed --mode upsert` | Inserts only missing rows (`ON CONFLICT DO NOTHING`), never updates; for topping up a shared dev database. |
 | `seed --emit-events` | Leaves the seeded `outbox_events` rows unpublished so the `scheduler` relay publishes them and a running `worker` consumes them (end-to-end smoke of `billing.compute`, `notify.fcm`, `documents.render`). Without it, outbox rows are written as already-published history and no side effect fires. |
 | `seed --dry-run` | Builds the plan, prints per-table counts, writes nothing. |
-| `seed bootstrap-platform-admins` | Grants `user_platform_roles(platform_admin, granted_by NULL)` to every existing user listed in `PLATFORM_ADMIN_EMAILS` and appends a `platform_role_granted` security event (`{source:'bootstrap'}`); idempotent (Appendix C §C.5.5). The only subcommand allowed with `APP_ENV=prod`. |
+| `seed bootstrap-platform-admins` | Grants `user_platform_roles(platform_admin, granted_by NULL)` to every existing user listed in `PLATFORM_ADMIN_EMAILS` and appends a `platform_role_granted` security event (`{source:'bootstrap'}`); idempotent (Appendix C §C.5.5). The only subcommand allowed with `APP_ENV=prod`. Lands with T19 together with the bootstrap super admin of a fresh deployment (owner addition to issue #39); until then it exits 3. The profiles never create the deployment's super admin: they carry the fixture's `U_PLAT` only. |
 
 **Environment** (names only; values never appear in this repository; canonical table with secret flags and owning process in main spec §16):
 
@@ -34,39 +34,39 @@ The seed has three jobs: (1) give every developer and CI run the same database, 
 | `SEED_RANDOM_SEED` | PCG seed for every generator (§D.1.4). |
 | `SEED_ANCHOR_DATE` | Last day of generated data (Bangkok date); ignored by `smoke`, whose dates are literal. |
 | `SEED_NAMESPACE` | uuid v5 namespace (§D.1.3); empty means the fixed default. |
-| `SEED_DEFAULT_PASSWORD` | Secret, local/CI only. Hashed with Argon2id at load time for every seeded password user; never printed or logged. |
+| `SEED_DEFAULT_PASSWORD` | Secret, local/CI only. Hashed with Argon2id once per load (every seeded password user shares that PHC string, which keeps the 1,200-user load fast); never printed or logged. The must-change-password fixture `U_D7` gets a temporary password drawn from `SEED_RANDOM_SEED` instead, printed once on stdout like the real `POST /v1/users/{id}/password/temporary`. |
 | `OWN_FLEET_TENANT_ID` | Optional; when set, the own-fleet tenant row uses this uuid instead of the derived one (R7, R56: read only by `cmd/seed` and `cmd/etl`). The quarantine tenant is never seeded: migration 0002 inserts it with its fixed id. |
 | `APP_ENV` | Safety guard and Redis key prefix `lt:{APP_ENV}:` (R26). |
 | `ETL_DATABASE_URL` | Writes and the read-only `--verify` checks (`logitrack_etl`, R87). |
 | `DATABASE_URL` | `--verify` isolation role-play as `logitrack_app` (#10c, #10d; R87). |
 | `MIGRATE_DATABASE_URL` | `--reset` `TRUNCATE` and the schema-version check (owner; `logitrack_etl` has no `TRUNCATE`, Appendix A §A.2.8). |
 | `REDIS_URL` | Key purge (§D.1.7) and the hub-map check (#8). |
-| `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET`, `S3_PUBLIC_BUCKET`, `S3_PUBLIC_BASE_URL`, `S3_USE_PATH_STYLE`, `S3_USE_SSL` | MinIO writes for placeholder media (§D.1.6): `S3_BUCKET` private (local `logitrack`), `S3_PUBLIC_BUCKET` public (local `logitrack-public`, `app_releases/` only) (R23, R74); `S3_PUBLIC_BASE_URL` builds the APK link. The seed signs no URL, so `S3_PRESIGN_ENDPOINT` is not read. |
+| `STORAGE_BACKEND`, `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET`, `S3_PUBLIC_BUCKET`, `S3_PUBLIC_BASE_URL`, `S3_USE_PATH_STYLE`, `S3_USE_SSL`, `LOCAL_MEDIA_DIR`, `LOCAL_MEDIA_PUBLIC_BASE_URL` | Placeholder media (§D.1.6) go through `internal/storage` to the backend of `STORAGE_BACKEND` (compose: `s3`, MinIO), and `file_objects.storage_backend` records it (main spec §9.11): `S3_BUCKET` private (local `logitrack`), `S3_PUBLIC_BUCKET` public (local `logitrack-public`, `app_releases/` only) (R23, R74), both also the labels of local rows; the backend's public base (`S3_PUBLIC_BASE_URL` or `LOCAL_MEDIA_PUBLIC_BASE_URL`) builds the APK link. The seed signs no URL, so `S3_PRESIGN_ENDPOINT` and `LOCAL_MEDIA_SIGNING_KEY` are not read. |
 | `FIREBASE_SCRYPT_SIGNER_KEY`, `FIREBASE_SCRYPT_SALT_SEPARATOR`, `FIREBASE_SCRYPT_ROUNDS`, `FIREBASE_SCRYPT_MEM_COST` | Locally and in CI these hold the public test parameter set of the `firebase/scrypt` repository (its `tests/01-known-value.sh` vectors, Appendix C §C.5.3), never the production parameters. The seed uses them to produce one legacy Firebase-scrypt hash so the verify-then-rehash login path (main spec §4) runs locally. |
 | `ARGON2_MEMORY_KB`, `ARGON2_ITERATIONS`, `ARGON2_PARALLELISM` | Argon2id parameters of every seeded password hash (the values the `api` verifies with). |
 | `PLATFORM_ADMIN_EMAILS` | Read only by `seed bootstrap-platform-admins`; the profiles insert the fixture's platform role (`U_PLAT`) instead. |
 | `PLAYWRIGHT_TEST_USER_EMAIL`, `PLAYWRIGHT_TEST_USER_PASSWORD` | Not read by the seed; e2e points them at `wrt.admin@logitrack.test` and `SEED_DEFAULT_PASSWORD`. |
 
-**Safety guard.** Profile loads, `--reset` and `--verify` refuse `APP_ENV=prod` (only `bootstrap-platform-admins` runs there); in `dev` they require `--allow-shared` and force `--mode upsert` (no truncation of a shared database). It never connects to Firestore or GCS.
+**Safety guard.** Profile loads, `--reset`, `--dry-run` and `--verify` refuse `APP_ENV=prod` (only `bootstrap-platform-admins` will run there, T19); in `dev` they require `--allow-shared` and force `--mode upsert` (no truncation of a shared database; `--reset` is refused). Every e-mail address of a plan must be under `@logitrack.test` (the plan is refused otherwise), `SEED_DEFAULT_PASSWORD` is hashed once and never printed or logged, and each database URL is checked against its login role at start (`logitrack_etl`, `logitrack_migrator`, `logitrack_app`; none may be a superuser). It never connects to Firestore or GCS.
 
-**Connections and row-level security (R66, R87).** Writes use `ETL_DATABASE_URL` (`logitrack_etl`, BYPASSRLS, the `cmd/etl` load path), each batch inside `db.WithSystem(ctx, tenantID)` (R12). The seed never sets `app.etl_load`, so deferred checks such as `t_driver_link_membership` run (the load order satisfies them). `--verify` reads on the same connection and role-plays isolation (#10c, #10d) on `DATABASE_URL` as `logitrack_app`; nothing uses `SET ROLE`. `FORCE ROW LEVEL SECURITY` stays on throughout.
+**Connections and row-level security (R66, R87).** Writes use `ETL_DATABASE_URL` (`logitrack_etl`, BYPASSRLS, the `cmd/etl` load path), the whole profile in one `db.WithSystem` transaction (R12), so a failed engine check (§D.1.4) rolls everything back. The seed never sets `app.etl_load`, so deferred checks such as `t_driver_link_membership` run (the load order satisfies them). `--verify` reads on the same login in a read-only transaction and role-plays isolation (#10c, #10d and the per-carrier check of §D.3 #10) on `DATABASE_URL` as `logitrack_app` with the context a request gets: `auth.RolePlayPrincipal` builds the user's principal from its memberships, platform roles and scopes exactly as an access token maps them, `iam.RBAC.Resolve` completes it (steward flag, contractor reach) and `db.WithPrincipal` sets the GUCs, so no `set_config` is written by hand (the WithSystem analyzer keeps raw GUC SQL in `internal/platform/db` and allows `auth.RolePlayPrincipal` only in `internal/auth` and `cmd/seed`, Appendix C §C.3.2); nothing uses `SET ROLE`. `FORCE ROW LEVEL SECURITY` stays on throughout.
 
 ### D.1.2 Profiles and volumes
 
-`smoke` counts are exact (they are the §D.4 rows). `demo` counts adapt the delivery plan's "full" profile to two carrier tenants and the R24 additions. `load` counts are a sizing target of about ten times the delivery plan's estimate of today's volume, with users above the legacy `listUsers(1000)` cap so the keyset-pagination check of Appendix C §C.7 item 21 runs on seeded data. UNVERIFIED: real per-collection sizes (the estimate is not measured; owner question Q7, main spec §19.2).
+`smoke` counts are exact (they are the §D.4 rows). The identity rows of `demo` and `load` are exact too (the T16 generator, below). The other `demo` counts adapt the delivery plan's "full" profile to two carrier tenants and the R24 additions and are targets of the volume generators (T26 master data, T35 operations, T43 billing and finance); until those land, `demo` and `load` carry the smoke rows for those tables. `load` counts are a sizing target of about ten times the delivery plan's estimate of today's volume, with users above the legacy `listUsers(1000)` cap so the keyset-pagination check of Appendix C §C.7 item 21 runs on seeded data. UNVERIFIED: real per-collection sizes (the estimate is not measured; owner question Q7, main spec §19.2).
 
 | Table | smoke | demo | load | Notes |
 |---|---:|---:|---:|---|
-| tenants | 4 | 4 | 12 | own fleet + carriers NWR (broker, contractor of the own fleet, R60) and TTP (dispatcher org, no contractor link) + the quarantine row of migration 0002 (not seeded); load adds 8 carriers. If the owner puts TTP in reach (Q13, main spec §19.2), set `TN_TTP.contractor_tenant_id` to `TN_OWN` and invert the TTP half of #10d |
+| tenants | 4 | 4 | 12 | own fleet + carriers NWR (broker, contractor of the own fleet, R60) and TTP (dispatcher org, no contractor link) + the quarantine row of migration 0002 (not seeded); load adds 8 carriers `L01`…`L08` (the even ones work for the own fleet). If the owner puts TTP in reach (Q13, main spec §19.2), set `TN_TTP.contractor_tenant_id` to `TN_OWN` and invert the TTP half of #10d |
 | billing_parties | 5 | 6 | 30 | demo adds a tenant-kind party for TTP |
 | customers | 4 | 4 | 12 | CJSF (plan basis), TTP, SPX, SPK |
 | companies | 1 | 1 | 1 | owner (invoice issuer) |
-| users | 12 | 22 | 1,200 | every role, every login path (§D.2 #23); load exceeds the legacy 1,000-user listing cap |
-| memberships | 11 | 21 | 1,180 | incl. one suspended (moved broker driver) |
-| auth_identities | 5 | ~12 | ~1,200 | Google subject + legacy Firebase uids (Appendix A §A.3.1) |
-| user_platform_roles | 1 | 2 | 2 | platform_admin; demo adds `support` |
-| user_scopes | 2 | 2 | 15 | customer + dispatcher |
-| role_capability_overrides | 1 | 3 | 20 | catalog itself lives in Go (R5/R6) |
+| users | 12 | 23 | 1,199 | every role, every login path (§D.2 #23); demo adds 11 personas (below); load adds 147 per load carrier (tenant_admin, 2 managers, 144 operators), past the legacy 1,000-user listing cap |
+| memberships | 11 | 19 | 1,195 | incl. one suspended (moved broker driver) |
+| auth_identities | 5 | 5 | 5 | Google subject + legacy Firebase uids (Appendix A §A.3.1); the generated personas sign in with a password only |
+| user_platform_roles | 1 | 2 | 2 | platform_admin; demo adds `support` (`platform.support@logitrack.test`, granted by `U_PLAT`) |
+| user_scopes | 2 | 6 | 6 | customer + dispatcher; demo adds a dispatcher in the own fleet (over `BP_SPX`) and in NWR (over `BP_SPK`) and customer-scope users for SPX and SPK |
+| role_capability_overrides | 1 | 1 | 1 | catalog itself lives in Go (R5/R6); demo's `nwr.operator` is the principal `RCO1` applies to; more overrides join with T26 |
 | hubs | 9 | 27 | 404 | demo: 23 hubs + 4 SOC (incl. `0STANDBY`, skipped by distance rule) |
 | hub_name_aliases | 7 | ~45 | ~800 | name→code only |
 | hub_soc_distances | 2 | ~120 | ~2,400 | same-network pairs × 2 directions; synthetic haversine × 1.3 at 35 km/h |
@@ -102,7 +102,17 @@ The seed has three jobs: (1) give every developer and CI run the same database, 
 | jobs | 2 | 4 | 10 | |
 | security_events | 1 | 12 | 2,000 | |
 
-Time budgets (targets, to be measured in T16): `smoke` load < 5 s (delivery-plan acceptance for T16), `demo` < 2 min including ~3,600 objects, `load` < 30 min using `COPY`.
+Time budgets: `smoke` load < 5 s (delivery-plan acceptance for T16; measured in T16 at about 0.5 s for the whole command against the testcontainers stack: role and schema checks, Argon2id at the `.env.example` cost, `--reset`, the 15 stored objects, the load and the engine check), `demo` < 2 min including ~3,600 objects once T35 adds them, `load` < 30 min using `COPY` once the volume generators exist (T16's identity-only load profile runs in about 0.5 s).
+
+**Demo personas (T16, owner addition to issue #36).** `demo` makes multi-tenancy visible at once. On top of the smoke identities (`wrt.admin`, `wrt.manager`, `wrt.ops`, `nwr.admin`, `ttp.dispatch`, `cjsf.viewer`, the platform admin, and the broker driver `D6` whose NWR membership is suspended and TTP membership active, R24) the generator adds, with ids uuid v5 of `users:<email>` and `user_scopes:<email>:<kind>:<party code>` and the password `SEED_DEFAULT_PASSWORD`:
+
+| Tenant | tenant_admin | staff | dispatcher (membership + `user_scopes` dispatcher) |
+|---|---|---|---|
+| own fleet `WRT` | `wrt.admin` (smoke) | `wrt.manager`, `wrt.ops` (smoke), `wrt.operator` | `wrt.dispatch` (operation_staff, over `BP_SPX`) |
+| carrier `NWR` (contractor → own fleet) | `nwr.admin` (smoke) | `nwr.manager`, `nwr.ops`, `nwr.operator` | `nwr.dispatch` (operation_staff, over `BP_SPK`) |
+| carrier `TTP` (no contractor link) | `ttp.admin` | `ttp.ops` | `ttp.dispatch` (smoke, over `BP_TTP`) |
+
+Customer-scope users (no membership): `cjsf.viewer` (smoke), `spx.viewer`, `spk.viewer`. Platform: `platform.admin` (smoke), `platform.support` (`support`). `--verify` role-plays every carrier staff principal without a dispatcher grant (§D.3 #10).
 
 ### D.1.3 Deterministic identifiers: uuid v5 in the seed, `uuidv7()` at runtime
 
@@ -129,16 +139,16 @@ Runtime rows are different on purpose. Application inserts omit `id` and take `D
 
 ### D.1.5 Load order and trigger-safe writes
 
-Order (one transaction per table group; `db.WithSystem` per tenant batch):
+Order (one `db.WithSystem` transaction for the whole profile, so the engine check of §D.1.4 can roll it back; one batched round trip per table):
 tenants (own fleet first; carriers point at it through `contractor_tenant_id`; the quarantine row already exists) → users → auth_identities → file_objects → customers → billing_parties → companies → memberships, user_platform_roles, user_scopes, role_capability_overrides → hubs → hub_name_aliases → hub_soc_distances → trucks → drivers → truck_assignments → maintenance_records → customer_rate_entries, customer_fuel_rate_adjustments, customer_service_fees, standby_rate_entries → tasks → task_delivery_stops → trip_records → trip_no_history → trip_delivery_stops → trip_photos → standby_records → incident_reports → outbox_events → trip_billing_snapshots → trip_billing_stop_breakdown → billing_statements → billing_statement_lines → billing_counters → statement_documents → vehicle_expenses → driver_compensation_configs → penalty_types → driver_penalties → payroll_runs → payroll_line_items → payroll_penalty_applications → transactions → driver_advances → chats → chat_messages → broadcasts → broadcast_reads → leave_requests → holidays → mobile_app_releases → mobile_installations → device_tokens → settings → jobs → security_events; finally `task_number_counters` is derived (`last_seq` = highest three-digit `NNN` per `(task_type, plan_date)`, R10) so the next `POST` continues the sequence.
 
-`file_objects.owner_id` has no foreign key, so objects load before their owners. Four forward references are written NULL first and back-filled in the same transaction: `drivers.current_assignment_id` ↔ `truck_assignments.driver_id`, `drivers.active_task_id` → `tasks`, `trucks.active_maintenance_id` ↔ `maintenance_records.truck_id`, `payroll_runs.ledger_transaction_id` ↔ `transactions.payroll_run_id` (deferred FK).
+`file_objects.owner_id` has no foreign key, so objects load before their owners. Four forward references are written NULL first and back-filled in the same transaction: `drivers.current_assignment_id` ↔ `truck_assignments.driver_id`, `drivers.active_task_id` → `tasks`, `trucks.active_maintenance_id` ↔ `maintenance_records.truck_id`, `payroll_runs.ledger_transaction_id` ↔ `transactions.payroll_run_id` (deferred FK). The back-fill is an `UPDATE`, so `trg_set_updated_at` stamps those rows' `updated_at` with the load time (the only clock value of a load; the fingerprint of #12 leaves `updated_at` out). Every other omitted column whose default reads the clock gets the row's `created_at` (§D.4.1), and an omitted column with a random default (`uuidv7()`) is refused, so a fixture row without its id cannot slip through.
 
 Trigger rules from Appendix A that shape the writes:
 
 | Rule | Seed behaviour |
 |---|---|
-| `payroll_line_items` writable only while the run is `draft` | Insert every run as `draft`, then its lines and `payroll_penalty_applications`, then the ledger `transactions`, then `UPDATE` status / `approved_*` / `ledger_transaction_id` / `payment_*`. |
+| `payroll_line_items` writable only while the run is `draft` | Insert every run as `draft`, then its lines and `payroll_penalty_applications`, then the ledger `transactions`, then `UPDATE` status / `approved_*` / `ledger_transaction_id` / `payment_*`. The trigger fires `BEFORE INSERT`, ahead of `ON CONFLICT`, so `--mode upsert` writes lines only under runs it inserted itself. |
 | Append-only (`transactions`, `security_events`, `billing_statement_lines`, `trip_no_history`, `fuel_daily_snapshots`, `status_history`) | Insert only (`logitrack_etl` holds no `UPDATE` / `DELETE` on them, Appendix A §A.1.8); `--mode upsert` uses `ON CONFLICT DO NOTHING`. |
 | Void-only announcements (`customer_rate_entries`, `customer_fuel_rate_adjustments`) | Inserted in their final state; the void trigger fires on `UPDATE` only, the `CHECK` requires `voided_at` on voided rows, and the seeded voided rows also carry `voided_by` (what the trigger demands of new voids). |
 | `standby_rate_entries` soft delete (R20) | Voided rows carry `voided_at`; the engine treats them as absent (legacy deleted them). |
@@ -153,12 +163,12 @@ All media goes through the same storage service the API uses (`internal/storage`
 |---|---|
 | Trip, check-in, standby, incident, chat, leave, expense, maintenance photos | 640×480 JPEG (quality 70); background colour from a hash of the object key; overlay `{photo_type or purpose} · {trip_no or entity code} · {Bangkok datetime}` drawn with Sarabun Regular (a copy of `logitrack-web/public/fonts/Sarabun-Regular.ttf`, OFL, vendored into `cmd/seed/assets/`) |
 | Company logo / stamp / signature | 512×512 PNG with the same overlay |
-| Statement documents | One-page PDF produced in-process by the `documents.render` renderer (main spec §7) |
+| Statement documents | One-page placeholder PDF (A4, the placeholder JPEG with the same overlay as its image) until the `documents.render` renderer lands (T39, main spec §7); the rows and keys are already those of `statement_documents` |
 | APK | 1,048,576 bytes of `0x00` (sha256 `30e14955ebf1352266dc2ff8067e68104607e750abb9d3b36582b8af909fcb58`) at `app_releases/prod/logitrack-prod-v3.5.0.apk` in `S3_PUBLIC_BUCKET` |
 
-Flow per object: generate bytes → `PutObject` to `S3_BUCKET` (private) or, for `app_releases/` only, `S3_PUBLIC_BUCKET` (R23, R74) → insert `file_objects` with `status='committed'`, `size_bytes` and `sha256` taken from the bytes. Native rows use the new key convention (`trips/{trip uuid}/{photo_type}-{ms}.jpg`, `checkin/{task uuid}/{ms}.jpg`, `incidents/{id}/situation1-{ms}.jpg`, `chats/{chat id}/{ms}.jpg`, `expenses/{id}/receipt-{ms}.jpg`, `documents/statements/{statement id}/…`, `companies/{id}/{logo|stamp|signature}.png`; key layout of main spec §9.2). Rows that stand for ETL-migrated data keep legacy keys verbatim, including a photo that stays under the pre-rename trip number (`trip_records/36601950/seal.jpg` for trip `ZXZB26072300103`), because objects are never moved on rename.
+Flow per object: generate bytes → `Backend.Put` on the backend of `STORAGE_BACKEND` (main spec §9.11; compose: MinIO) into `S3_BUCKET` (private) or, for `app_releases/` only, `S3_PUBLIC_BUCKET` (R23, R74), eight objects at a time → insert `file_objects` with `status='committed'`, `committed_at` = `created_at`, `storage_backend` = the backend, `size_bytes` and `sha256` taken from the bytes (a fixture literal that differs, such as the APK's, aborts the load). Native rows use the key templates of `internal/storage.Purposes` (`trips/{trip uuid}/{photo_type}-{ms}.jpg`, `checkin/{task uuid}/{ms}.jpg`, `incidents/{id}/situation1-{ms}.jpg`, `chats/{chat id}/{ms}.jpg`, `expenses/{id}/receipt-{ms}.jpg`, `documents/statements/{statement id}/…`, `companies/{id}/{logo|stamp|signature}-{ms}.png`, `{ms}` = the row's `created_at`; key layout of main spec §9.2): a unit test rebuilds every native fixture key from its purpose, owner, variant and `created_at`. T16 moved the company assets to the `-{ms}` form T11 adopted (a fixed key could not take a second upload), which changed the natural keys and uuids of `FO_LOGO`, `FO_STAMP` and `FO_SIG` (§D.4.2). Rows that stand for ETL-migrated data keep legacy keys verbatim, including a photo that stays under the pre-rename trip number (`trip_records/36601950/seal.jpg` for trip `ZXZB26072300103`), because objects are never moved on rename.
 
-Two deliberate non-happy states: `status='missing_at_source'` (row exists, no object; HEAD returns 404) and `status='pending'` (object uploaded, never committed, `expires_at` in the past, so `storage.gc` deletes object and row on its next run). The fixture shows generated sizes and hashes as `$seed:generated`. JPEG/PNG bytes are stable for a given Go toolchain; stability across Go versions is UNVERIFIED (the standard encoders do not promise it), so `--verify` compares MinIO with `file_objects`, never with hard-coded hashes — except the all-zero APK.
+Two deliberate non-happy states: `status='missing_at_source'` (row exists, no object; HEAD returns 404) and `status='pending'` (object uploaded, never committed, `expires_at` in the past, so `storage.gc` deletes object and row on its next run). The fixture shows generated sizes and hashes as `$seed:generated`. JPEG/PNG bytes are stable for a given Go toolchain (a test draws twice and compares); stability across Go versions is UNVERIFIED (the standard encoders do not promise it), so `--verify` compares the store with `file_objects`, never with hard-coded hashes — except the all-zero APK.
 
 ### D.1.7 Idempotent re-runs
 
@@ -169,11 +179,11 @@ Two deliberate non-happy states: `status='missing_at_source'` (row exists, no ob
 3. Delete Redis keys under `lt:{APP_ENV}:` with `SCAN` + `UNLINK` — never `FLUSHDB`, because Redis may be shared with other services or environments.
 4. Load the profile. RabbitMQ is untouched: the seed publishes nothing; outbox rows are inserted with `published_at` set unless `--emit-events`.
 
-Two consecutive runs therefore produce identical ids, row counts, object keys and object hashes (invariant 12). `--mode upsert` inserts missing rows only and re-PUTs objects with identical bytes; it never issues `UPDATE`, which the append-only and void-only tables would reject anyway.
+Two consecutive runs therefore produce identical ids, row counts, object keys and object hashes (invariant 12). `--mode upsert` inserts missing rows only and re-PUTs objects with identical bytes; it never issues an `UPDATE` of an existing row (the back-fill of §D.1.5 touches only rows it inserted, and `task_number_counters` only rises), which the append-only and void-only tables would reject anyway.
 
 ### D.1.8 `seed --verify`
 
-`--verify` runs the twelve checks of §D.3. Each SQL check returns violating rows (any row = failure). Go-side parts: (a) every `trip_billing_snapshots` row whose `computed_by` is not `etl` or `manual_edit`, and every priced standby row, is recomputed by the engine and must match exactly (R20: the 0.005 THB tolerance applies only to legacy multi-drop totals and `net_amount`; smoke has none); (b) every committed object is `StatObject`-ed and its size and sha256 compared; (c) the Redis hub maps are warmed and checked (#8); (d) the isolation role-play runs on `DATABASE_URL` (#10c, #10d), every other check on `ETL_DATABASE_URL` (R87). Output is one line per invariant plus a per-table count diff against the profile manifest. CI (main spec §17, go-ci `test` job) runs `seed --profile smoke` then `seed --verify` against service containers (`postgres:18-alpine`, Redis, RabbitMQ, MinIO).
+`--verify` runs the twelve checks of §D.3. Each SQL check returns violating rows (any row = failure). Go-side parts: (a) every `trip_billing_snapshots` row whose `computed_by` is not `etl` or `manual_edit`, and every completed standby row with a price or a stored reason, is recomputed by the engine (`compute.PriceTrip`, `compute.PriceStandby` over the tables read in the same transaction) and must match exactly: estimate, base and stop charge, rate entry, fuel adjustment, lookup codes, round and band, category, `manual_override`, or the unpriced reason (R20: the 0.005 THB tolerance applies only to legacy multi-drop totals and `net_amount`; smoke has none); the load runs the same check over the seeded rows and rolls back on a difference; (b) every row of `file_objects` is stat-ed on its own backend: a committed or pending object must exist with the recorded size and its bytes must hash to the recorded sha256 (read through `storage.Reader`; S3 keeps no sha256 of its own), a `missing_at_source` row must have none; (c) the Redis hub maps are warmed through the API's read-through cache and checked (#8); (d) the isolation role-play runs on `DATABASE_URL` (#10c, #10d and every carrier staff principal), every other check on `ETL_DATABASE_URL` in a read-only transaction (R87). Output is one line per invariant (PASS/FAIL with up to 20 violating rows), the per-table count diff against the profile manifest (the plan's rows plus the quarantine tenant and the derived `task_number_counters`), and the fingerprint block last. Exit 0 pass, 1 violation or count difference, 2 when a dependency is unreachable or a check cannot run. CI (main spec §17, go-ci `stack` job) runs `seed --profile smoke` then `seed --verify` twice against the compose stack and diffs the two fingerprint blocks; `make test-integration` covers smoke, demo and load on testcontainers (`postgres:18-alpine`, `redis:7-alpine`, MinIO).
 
 ### D.1.9 Synthetic data rules
 
@@ -213,21 +223,21 @@ Symbols refer to the rows of §D.4 (registry in §D.4.2). "Demo" counts are addi
 | 17 | Mobile installations and forced update | `blocked`, `outdated`, `current`, `ahead` (dev flavor); release; invalid FCM token pruning | `MI03` 3.3.2 < floor 3.4.0, `MI02` 3.4.1, `MI01` 3.5.0, `MI04` 3.6.0 `dev`; `settings.mobile_app`; `MR01` + `FO_APK`; `device_tokens` row for D7 answered `UNREGISTERED` | 14 installations | `GET /v1/app-installations[/stats]` (`security:view_mobile_clients`, R43), `GET /v1/mobile/settings`, `notify.fcm` |
 | 18 | Tenancy | own_fleet + 2 carriers + quarantine; carrier-run trip billed by the own fleet; contractor reach (R60) | `TN_OWN`, `TN_NWR` (broker, contractor of `TN_OWN`), `TN_TTP` (dispatcher org, also customer `CU_TTP`, no contractor link), `TN_QUAR` (0002) with `TK25` (`tenant_source='quarantine'`); `TR02` run by NWR, billed to SPX, snapshot on `TN_OWN` (R61) | + 1 carrier-run trip per carrier per day | RLS (Appendix C), #10, `tenancy.orphan-scan`, `GET /v1/tenants/quarantine/rows` |
 | 19 | Broker driver who moved tenant (R24) | membership `suspended` in the old carrier, `active` in the new one; historic rows keep their frozen tenant; orphan scan reports `tenant_source='driver'` drift | `D6`, memberships `U_D6`@`TN_NWR` suspended / `U_D6`@`TN_TTP` active, `TA3` revoked / `TA4` active, `TK02` (`tenant_source='driver'`, tenant NWR), `TR02`, `JB2` result | 1 | `tenancy.orphan-scan`, #10 |
-| 20 | Customer user | customer scope only, no membership | `U_CJSF_CUST` + `user_scopes` (`customer`, `BP_CJSF`) | 1 | RLS customer branch, #10 |
-| 21 | Dispatcher | membership in its own organisation's tenant (R13) + dispatcher scope; creates the cross-tenant pending call-out; never sees cost/HR | `U_TTP_DISP` (`operation_staff` in `TN_TTP`, scope `dispatcher` → `BP_TTP`); creator of `TK20`, `TK22`, `TK24`; sees `TK08` (own-fleet task billed to TTP) | 1 | `scope_*` views (R85), SSE `dispatch:*`, #10 |
+| 20 | Customer user | customer scope only, no membership | `U_CJSF_CUST` + `user_scopes` (`customer`, `BP_CJSF`) | + `spx.viewer`, `spk.viewer` (§D.1.2 demo personas) | RLS customer branch, #10 |
+| 21 | Dispatcher | membership in its own organisation's tenant (R13) + dispatcher scope; creates the cross-tenant pending call-out; never sees cost/HR | `U_TTP_DISP` (`operation_staff` in `TN_TTP`, scope `dispatcher` → `BP_TTP`); creator of `TK20`, `TK22`, `TK24`; sees `TK08` (own-fleet task billed to TTP) | + `wrt.dispatch` (own fleet, over `BP_SPX`), `nwr.dispatch` (NWR, over `BP_SPK`): a dispatcher per tenant | `scope_*` views (R85), SSE `dispatch:*`, #10 |
 | 22 | platform_admin | platform role, no tenant membership; audited cross-tenant read | `U_PLAT` + `user_platform_roles` (`granted_by` NULL = bootstrap); `SE1` (`platform_cross_tenant_access` on `TN_TTP`) | + `support` | `X-Act-On-Tenant` (Appendix C), #10 |
-| 23 | Authentication paths | Argon2id; legacy Firebase scrypt verify-then-rehash; Google OIDC subject; disabled; must change password; legacy `partner` claim → `tenant_admin` | `U_WRT_*` (Argon2id), `U_D1` (scrypt fixture, `password_hash` NULL), `U_D2` (Google identity `AI_D2_G`), `AI_*_FB` (legacy Firebase uids), `U_D3` (`disabled`, `auth_version` 3), `U_D7` (`must_change_password`), `U_NWR_ADMIN` | 22 users | `/v1/auth/*` (Appendix C); `U_D7` login answers `403 password_change_required` with a single-use `passwordChangeTicket` and no tokens (R79); `U_D3` gets no session |
+| 23 | Authentication paths | Argon2id; legacy Firebase scrypt verify-then-rehash; Google OIDC subject; disabled; must change password; legacy `partner` claim → `tenant_admin` | `U_WRT_*` (Argon2id), `U_D1` (scrypt fixture, `password_hash` NULL), `U_D2` (Google identity `AI_D2_G`), `AI_*_FB` (legacy Firebase uids), `U_D3` (`disabled`, `auth_version` 3), `U_D7` (`must_change_password`), `U_NWR_ADMIN` | 23 users | `/v1/auth/*` (Appendix C); `U_D7` login answers `403 password_change_required` with a single-use `passwordChangeTicket` and no tokens (R79); `U_D3` gets no session |
 | 24 | Storage lifecycle and evidence links | `committed`; `pending` past `expires_at`; `missing_at_source`; legacy key under the old trip number; public APK; evidence link live and revoked (R47) | `FO_*` 16 rows: `FO_TR17_PEND`, `FO_TR19_PC`, `FO_TR03_SEAL`, `FO_APK`; `TR01` live token, `TR21` revoked token | ~3,600 | `storage.gc`, `GET /evidence/{token}` (200 for `TR01`, 404 for `TR21`), #9 |
 | 25 | Async plumbing | published outbox history; long-running jobs; consumer replay guard | `EV1`–`EV3`; `JB1`, `JB2`; `TR14` snapshot `last_event_id` = 1, the identity of `EV1`'s row (R17, R57) | ~1,500 events | relay, `consumer_inbox` |
 | 26 | Hub/place resolution | name→code aliases only; OCR text left unresolved; `SPK-GW` as destination collapses to `SPK`; composite `CODE - name`; driver-created hub | 7 `hub_name_aliases`; `TR09` origin `ประเวศ18 (OCR)` (no hub) and lookup destination `SPK`; `TK21` `SPK890174 - ห้วยขวาง10`; `H_BANGNA` (`created_by_driver`) | ~45 aliases, 10 unresolved origins | Redis `cache:hubs:n2c` / `cache:hubs:c2n`, #8 |
-| 27 | Per-tenant capability override | one deny override | `RCO1` (NWR `operator` `fleet:view_live_map` = false) | 3 | `GET /v1/me` capability resolution |
+| 27 | Per-tenant capability override | one deny override | `RCO1` (NWR `operator` `fleet:view_live_map` = false) | `nwr.operator` is the principal it applies to; more overrides with T26 | `GET /v1/me` capability resolution |
 | 28 | Offline idempotency (R63) | replay after `IDEMPOTENCY_TTL` returns the existing row | `client_op_id` on `IR1`, `SB01`–`SB04`, `EX01`, `EX02`, `EX04`, `LV01`–`LV03`; `client_message_id` on `CM1`–`CM3`; NULL on staff and legacy rows (`EX03`, `TK15`) | every driver-created row, incl. tasks | `(driver_id, client_op_id)` unique indexes |
 
 ---
 
 ## D.3 Invariants checked by seed --verify
 
-The twelve invariants of the delivery plan, rewritten against Appendix A names. Every query returns **violating** rows; `--verify` fails on any row. Literals (trip numbers, symbols) refer to the smoke fixture; in `demo` and `load` the generator records the equivalent rows by natural key and the same queries run with those keys. `:'sym'` placeholders are psql variables bound from the §D.4.2 registry. UNVERIFIED: the queries were checked against the Appendix A DDL and the Appendix C policies only, not executed on PostgreSQL 18 (in particular #2a, #2b and the RLS role-play of #10c, #10d); T16 runs them first.
+The twelve invariants of the delivery plan, rewritten against Appendix A names. Every query returns **violating** rows; `--verify` fails on any row. Literals (trip numbers, symbols) refer to the smoke fixture, which `demo` and `load` contain unchanged. `:'sym'` placeholders are bound from the §D.4.2 registry. Since T16 the queries run on PostgreSQL 18 as written here (`cmd/seed/internal/seed/invariants.go`; ids are cast to text so a violating row prints readably) and pass on `smoke`, `demo` and `load`. The role-play of #10c and #10d no longer spells out `set_config`: the SELECTs below run inside the request context the API builds for the named user (§D.1.1, Connections), which sets exactly the GUC values shown in the comments (an integration test compares them).
 
 **1. Trip integrity.** Every trip has a task in the same tenant and a truck snapshot (id + plate + class), except orphan-plate rows (no `truck_id`, plate present).
 
@@ -420,34 +430,37 @@ WHERE table_schema = 'public' AND table_name IN
       ('scope_tasks','scope_trips','scope_standby','scope_incidents','scope_drivers','scope_trucks','scope_tenants')
   AND (column_name LIKE 'billing%' OR column_name LIKE '%_thb' OR column_name LIKE '%party_id'
        OR column_name IN ('evidence_token','id_card','id_card_file_id','license_file_id','birth_date','truck_license_id'));
--- 10c (DATABASE_URL, logitrack_app; dispatcher role-play, repeated with the NWR tenant_admin and the CJSF customer)
-BEGIN;
-SELECT set_config('app.user_id', :'U_TTP_DISP', true), set_config('app.tenant_id', :'TN_TTP', true),
-       set_config('app.role', 'operation_staff', true), set_config('app.driver_id', '', true),
-       set_config('app.customer_ids', :'BP_TTP', true), set_config('app.subtenant_ids', '', true),
-       set_config('app.dispatcher', 'on', true), set_config('app.steward', 'off', true),
-       set_config('app.bypass_tenant', 'off', true);
+-- 10c: DATABASE_URL (logitrack_app), read-only, as each of
+--   U_TTP_DISP in TN_TTP: app.role operation_staff, app.customer_ids BP_TTP, app.dispatcher on, app.steward off
+--   U_NWR_ADMIN in TN_NWR: app.role tenant_admin, app.steward off
+--   U_CJSF_CUST (no tenant): app.role customer, app.customer_ids BP_CJSF
+-- $1 = the principal's tenant (NULL for the customer, hence IS DISTINCT FROM)
 SELECT 'trip_billing_snapshots' AS t, count(*) FROM trip_billing_snapshots HAVING count(*) > 0
 UNION ALL SELECT 'customer_rate_entries', count(*) FROM customer_rate_entries HAVING count(*) > 0
-UNION ALL SELECT 'payroll_runs', count(*) FROM payroll_runs WHERE tenant_id <> :'TN_TTP' HAVING count(*) > 0
-UNION ALL SELECT 'vehicle_expenses', count(*) FROM vehicle_expenses WHERE tenant_id <> :'TN_TTP' HAVING count(*) > 0
-UNION ALL SELECT 'maintenance_records', count(*) FROM maintenance_records WHERE tenant_id <> :'TN_TTP' HAVING count(*) > 0;
-ROLLBACK;
--- 10d (DATABASE_URL; own-fleet operation_staff, sub-tenants as WithPrincipal loads them, Appendix C §C.3.4)
-BEGIN;
-SELECT set_config('app.user_id', :'U_WRT_OPS', true), set_config('app.tenant_id', :'TN_OWN', true),
-       set_config('app.role', 'operation_staff', true), set_config('app.driver_id', '', true),
-       set_config('app.customer_ids', '', true), set_config('app.subtenant_ids', :'TN_NWR', true),
-       set_config('app.dispatcher', 'off', true), set_config('app.steward', 'on', true),
-       set_config('app.bypass_tenant', 'off', true);
+UNION ALL SELECT 'payroll_runs', count(*) FROM payroll_runs WHERE tenant_id IS DISTINCT FROM $1 HAVING count(*) > 0
+UNION ALL SELECT 'vehicle_expenses', count(*) FROM vehicle_expenses WHERE tenant_id IS DISTINCT FROM $1 HAVING count(*) > 0
+UNION ALL SELECT 'maintenance_records', count(*) FROM maintenance_records WHERE tenant_id IS DISTINCT FROM $1 HAVING count(*) > 0;
+-- and, as U_TTP_DISP, the own-fleet task billed to TTP stays visible through the projection
+SELECT 'scope_tasks must show FM-12082026-001 to the dispatcher' WHERE NOT EXISTS (SELECT 1 FROM scope_tasks WHERE id = :'TK08');
+-- 10d: DATABASE_URL, as U_WRT_OPS in TN_OWN: app.role operation_staff, app.subtenant_ids TN_NWR (contractor reach,
+-- loaded by iam.RBAC.Resolve, Appendix C §C.3.4), app.steward on
 SELECT 'NWR trip TR02 must be in reach' AS problem
 WHERE NOT EXISTS (SELECT 1 FROM trip_records WHERE trip_no = 'ZXZB26072200102')
 UNION ALL
 SELECT 'TTP tasks must be out of reach' FROM tasks WHERE tenant_id = :'TN_TTP' HAVING count(*) > 0;
-ROLLBACK;
+-- 10e (owner addition to issue #36): DATABASE_URL, as every carrier staff principal without a dispatcher grant (one
+-- per tenant and role: smoke nwr.admin; demo adds nwr.manager, nwr.ops, nwr.operator, ttp.admin, ttp.ops; load the
+-- L01-L08 tenant_admins, managers and operators); one row per RLS table with a tenant_id stamp it may SELECT
+-- (catalog: relrowsecurity, has_table_privilege('logitrack_app', ...); billing_parties excluded, its tenant_id is a
+-- reference), $1 = the carrier
+SELECT 'tenants', count(*) FROM tenants WHERE id <> $1 HAVING count(*) > 0
+UNION ALL SELECT '<table>', count(*) FROM <table> WHERE tenant_id IS NOT NULL AND tenant_id <> $1 HAVING count(*) > 0
+-- ... for every such table; and the principal must read its own tenants row (an empty context cannot pass)
 ```
 
-Smoke: every part returns 0 rows (`TK02`/`TR02` pass 10a through `U_D6`'s suspended NWR membership); the 10c session still sees `TK08` through `scope_tasks`. The drift itself is reported by `tenancy.orphan-scan` (`JB2`).
+The exempt-service-layer tables (RLS off: `outbox_events`, `jobs`, `notification_deliveries`, `settings`, `mobile_app_releases`, ...) are out of #10e on purpose: `logitrack_app` reads them unfiltered and the owning service decides access (Appendix C §C.3.0). A permissive policy that opens a tenant table to `logitrack_app` makes #10e fail with exit 1 (integration test).
+
+Smoke: every part returns 0 rows (`TK02`/`TR02` pass 10a through `U_D6`'s suspended NWR membership); the 10c dispatcher still sees `TK08` through `scope_tasks`. The drift itself is reported by `tenancy.orphan-scan` (`JB2`).
 
 **11. Bangkok calendar.** Every Bangkok-day column equals `bkk_date()` of its instant under both legacy `effective_from_at` conventions (Bangkok midnight and 07:00 ICT); payroll windows start at Bangkok midnight and R1 ends on day 16; new ledger rows use the Bangkok date; the 00:21 ICT switch-day trip prices under the later round.
 
@@ -464,15 +477,14 @@ UNION ALL SELECT 'switch-day round', t.trip_no FROM trip_records t JOIN trip_bil
   WHERE t.trip_no = 'ZXJB26081600104' AND s.round_effective_from_date IS DISTINCT FROM DATE '2026-08-16';
 ```
 
-**12. Determinism.** Running the profile twice yields the same fingerprint; every seeded uuid is version 5 (§D.1.3). `--verify` prints the fingerprint as its last output block; CI runs `seed --reset` twice and diffs the two blocks (nothing is stored in Redis, whose namespaces are reserved by R26).
+**12. Determinism.** Running the profile twice yields the same fingerprint; every seeded uuid is version 5 (§D.1.3). `--verify` prints the fingerprint as its last output block: for every seeded table (and the derived `task_number_counters`) the row count and the md5 of its primary-key columns plus a few business columns, ordered; CI runs `seed --reset` twice and diffs the two blocks (nothing is stored in Redis, whose namespaces are reserved by R26). `updated_at` and the password hashes stay out: the back-fill of §D.1.5 stamps the load time, and Argon2id salts are random.
 
 ```sql
-SELECT 'tenants' AS t, count(*) AS n, md5(string_agg(id::text, ',' ORDER BY id)) AS h FROM tenants
-UNION ALL SELECT 'tasks', count(*), md5(string_agg(id::text, ',' ORDER BY id)) FROM tasks
-UNION ALL SELECT 'trip_records', count(*), md5(string_agg(id::text || coalesce(t.trip_no, ''), ',' ORDER BY id)) FROM trip_records t
-UNION ALL SELECT 'trip_billing_snapshots', count(*), md5(string_agg(trip_id::text || coalesce(estimate_thb::text, '-'), ',' ORDER BY trip_id)) FROM trip_billing_snapshots
-UNION ALL SELECT 'file_objects', count(*), md5(string_agg(object_key || coalesce(sha256, '-'), ',' ORDER BY object_key)) FROM file_objects;
--- (generated for every seeded table; abbreviated here)
+-- per table <t> with primary key (k1, k2, ...) and extra columns (trip_records: trip_no; tasks: task_no;
+-- trip_billing_snapshots: estimate_thb; file_objects: object_key, sha256; outbox_events: event_id; users: email)
+SELECT count(*), md5(coalesce(string_agg(r, ',' ORDER BY r), ''))
+FROM (SELECT concat_ws('|', coalesce(k1::text, '-'), coalesce(k2::text, '-'), ..., coalesce(extra::text, '-')) AS r FROM <t>) x;
+-- non-v5 ids, for every seeded table whose primary key is a uuid id
 SELECT 'non-v5 id' AS problem, 'tenants' AS t, id FROM tenants
   WHERE uuid_extract_version(id) <> 5
     AND kind <> 'quarantine'   -- fixed id from migration 0002 (R56)
@@ -481,6 +493,8 @@ UNION ALL SELECT 'non-v5 id', 'tasks', id FROM tasks WHERE uuid_extract_version(
 UNION ALL SELECT 'non-v5 id', 'trip_records', id FROM trip_records WHERE uuid_extract_version(id) <> 5;
 -- (generated for every table with a uuid primary key)
 ```
+
+Rows created by the running application after the seed (uuidv7) fail #12 and the count diff by design: `--verify` checks a freshly seeded database.
 
 ---
 
@@ -494,7 +508,7 @@ These rows are the `smoke` profile: 286 rows in 58 tables (285 seeded, plus the 
 - Keys starting with `_` are annotations, never inserted: expected values of generated `STORED` columns (`_plan_date`, `_billing_axis_date`, `_expense_date`, `_effective_from_date`) and expected outcomes (`_billing`, `_status`, `_effect`) that `--verify` checks.
 - Strings starting with `$seed:` are computed at load time (§D.1.9).
 - `file_objects.bucket` shows the local `S3_BUCKET` / `S3_PUBLIC_BUCKET` values (R74); the seed writes the configured ones, while natural keys keep these literals.
-- `client_op_id` / `client_message_id` on native driver-created rows are uuid v5 of `client_op:<symbol>` in the seed namespace (R63); staff-created and legacy rows leave them NULL.
+- `client_op_id` / `client_message_id` on native driver-created rows are uuid v5 of `client_op:<symbol>` in the seed namespace (R63); staff-created and legacy rows leave them NULL. The fixture holds the values of the default namespace (a test recomputes them); another `SEED_NAMESPACE` keeps them, which only matters for their uniqueness per driver.
 - The `TN_QUAR` row is shown for completeness (`_source`): migration 0002 inserts it and the seed never does (R56).
 - An omitted column takes its Appendix A default or NULL, except that, for determinism, an omitted timestamp whose default is `now()` (`updated_at`, `computed_at`, `last_seen_at`, …) and the `committed_at` of a committed object are set to the row's `created_at`, or `2026-01-05T09:00:00+07:00` when the row has none.
 - Money is a JSON string with two decimals (`NUMERIC(14,2)`, R20); multipliers six decimals; litres and price per litre three; reference fuel prices two.
@@ -767,9 +781,9 @@ Namespace `dd659aa7-e92b-55af-b6f0-51075452cf69`; uuid = uuid v5(namespace, `"<t
 | `EV2` | `task.assigned:FM-01102026-001` | `8deb2367-8450-5701-853d-abbb5ca284d2` |
 | `EV3` | `statement.created:CJSF-202608-001` | `086e497a-beeb-5a46-a6f2-348296439855` |
 | **file_objects** | | |
-| `FO_LOGO` | `logitrack:companies/@CO_WRT/logo.png` | `81fb591e-cbd7-5827-8682-d4efe53b10a2` |
-| `FO_STAMP` | `logitrack:companies/@CO_WRT/stamp.png` | `fe048686-353d-5ccc-b9c4-33d40159249f` |
-| `FO_SIG` | `logitrack:companies/@CO_WRT/signature.png` | `6cf5a398-9711-509f-a4fa-c37aa8a4c1bb` |
+| `FO_LOGO` | `logitrack:companies/@CO_WRT/logo-1767578400000.png` | `13d07204-f31e-5885-8bd6-b58aedb4b39d` |
+| `FO_STAMP` | `logitrack:companies/@CO_WRT/stamp-1767578400000.png` | `5642c434-e7f8-5a4d-b27f-9f5e00b21f14` |
+| `FO_SIG` | `logitrack:companies/@CO_WRT/signature-1767578400000.png` | `3dc86679-a13e-5ecf-9946-25fd81e21550` |
 | `FO_TR01_SEAL` | `logitrack:trips/@TR01/seal-1783651800000.jpg` | `85916ff1-773d-5919-a3d7-43f0d63ff845` |
 | `FO_TR03_SEAL` | `logitrack:trip_records/36601950/seal.jpg` | `9af3308e-07c5-5a09-889c-b3226d5e7df0` |
 | `FO_TR16_S2` | `logitrack:trips/@TR16/stop_2_arrived-1787724300000.jpg` | `a036b0c2-9075-5490-8cc5-ec16d8fb9d63` |
@@ -1505,9 +1519,9 @@ Legacy Firebase uids are `firebase_legacy` identities (Appendix A §A.3.1); `U_D
 
 ```json
 [
-{"id": "@FO_LOGO", "bucket": "logitrack", "object_key": "companies/@CO_WRT/logo.png", "content_type": "image/png", "size_bytes": "$seed:generated", "sha256": "$seed:generated", "visibility": "private", "purpose": "company_logo", "owner_kind": "company", "owner_id": "@CO_WRT", "tenant_id": "@TN_OWN", "status": "committed", "uploaded_by": "@U_WRT_ADMIN", "created_at": "2026-01-05T09:00:00+07:00"},
-{"id": "@FO_STAMP", "bucket": "logitrack", "object_key": "companies/@CO_WRT/stamp.png", "content_type": "image/png", "size_bytes": "$seed:generated", "sha256": "$seed:generated", "visibility": "private", "purpose": "company_stamp", "owner_kind": "company", "owner_id": "@CO_WRT", "tenant_id": "@TN_OWN", "status": "committed", "uploaded_by": "@U_WRT_ADMIN", "created_at": "2026-01-05T09:00:00+07:00"},
-{"id": "@FO_SIG", "bucket": "logitrack", "object_key": "companies/@CO_WRT/signature.png", "content_type": "image/png", "size_bytes": "$seed:generated", "sha256": "$seed:generated", "visibility": "private", "purpose": "company_signature", "owner_kind": "company", "owner_id": "@CO_WRT", "tenant_id": "@TN_OWN", "status": "committed", "uploaded_by": "@U_WRT_ADMIN", "created_at": "2026-01-05T09:00:00+07:00"},
+{"id": "@FO_LOGO", "bucket": "logitrack", "object_key": "companies/@CO_WRT/logo-1767578400000.png", "content_type": "image/png", "size_bytes": "$seed:generated", "sha256": "$seed:generated", "visibility": "private", "purpose": "company_logo", "owner_kind": "company", "owner_id": "@CO_WRT", "tenant_id": "@TN_OWN", "status": "committed", "uploaded_by": "@U_WRT_ADMIN", "created_at": "2026-01-05T09:00:00+07:00"},
+{"id": "@FO_STAMP", "bucket": "logitrack", "object_key": "companies/@CO_WRT/stamp-1767578400000.png", "content_type": "image/png", "size_bytes": "$seed:generated", "sha256": "$seed:generated", "visibility": "private", "purpose": "company_stamp", "owner_kind": "company", "owner_id": "@CO_WRT", "tenant_id": "@TN_OWN", "status": "committed", "uploaded_by": "@U_WRT_ADMIN", "created_at": "2026-01-05T09:00:00+07:00"},
+{"id": "@FO_SIG", "bucket": "logitrack", "object_key": "companies/@CO_WRT/signature-1767578400000.png", "content_type": "image/png", "size_bytes": "$seed:generated", "sha256": "$seed:generated", "visibility": "private", "purpose": "company_signature", "owner_kind": "company", "owner_id": "@CO_WRT", "tenant_id": "@TN_OWN", "status": "committed", "uploaded_by": "@U_WRT_ADMIN", "created_at": "2026-01-05T09:00:00+07:00"},
 {"id": "@FO_TR01_SEAL", "bucket": "logitrack", "object_key": "trips/@TR01/seal-1783651800000.jpg", "content_type": "image/jpeg", "size_bytes": "$seed:generated", "sha256": "$seed:generated", "visibility": "private", "purpose": "trip_photo", "owner_kind": "trip", "owner_id": "@TR01", "tenant_id": "@TN_OWN", "status": "committed", "uploaded_by": "@U_D1", "created_at": "2026-07-10T09:50:00+07:00"},
 {"id": "@FO_TR03_SEAL", "bucket": "logitrack", "object_key": "trip_records/36601950/seal.jpg", "content_type": "image/jpeg", "size_bytes": "$seed:generated", "sha256": "$seed:generated", "visibility": "private", "purpose": "trip_photo", "owner_kind": "trip", "owner_id": "@TR03", "tenant_id": "@TN_OWN", "status": "committed", "legacy_url": "https://firebasestorage.googleapis.com/v0/b/seed-legacy-bucket/o/trip_records%2F36601950%2Fseal.jpg?alt=media", "created_at": "2026-07-23T07:58:00+07:00"},
 {"id": "@FO_TR16_S2", "bucket": "logitrack", "object_key": "trips/@TR16/stop_2_arrived-1787724300000.jpg", "content_type": "image/jpeg", "size_bytes": "$seed:generated", "sha256": "$seed:generated", "visibility": "private", "purpose": "trip_photo", "owner_kind": "trip", "owner_id": "@TR16", "tenant_id": "@TN_OWN", "status": "committed", "uploaded_by": "@U_D2", "created_at": "2026-08-26T13:05:00+07:00"},

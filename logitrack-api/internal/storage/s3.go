@@ -52,7 +52,10 @@ type S3 struct {
 	public *url.URL
 }
 
-var _ Backend = (*S3)(nil)
+var (
+	_ Backend = (*S3)(nil)
+	_ Reader  = (*S3)(nil)
+)
 
 // splitEndpoint turns S3_ENDPOINT or S3_PRESIGN_ENDPOINT into minio-go's host[:port] and TLS flag. An origin with a
 // path, query or credentials is refused (minio-go endpoints are bare hosts).
@@ -208,6 +211,22 @@ func (s *S3) Stat(ctx context.Context, o Object) (Info, error) {
 func (s *S3) Put(ctx context.Context, o Object, r io.Reader, size int64, contentType string) error {
 	_, err := s.client.PutObject(ctx, o.Bucket, o.Key, r, size, minio.PutObjectOptions{ContentType: contentType})
 	return err
+}
+
+// Read implements Reader.
+func (s *S3) Read(ctx context.Context, o Object) (io.ReadCloser, error) {
+	obj, err := s.client.GetObject(ctx, o.Bucket, o.Key, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, err
+	}
+	if _, err := obj.Stat(); err != nil { // GetObject is lazy: the first call reaches the server
+		_ = obj.Close()
+		if notFound(err) {
+			return nil, ErrObjectNotFound
+		}
+		return nil, err
+	}
+	return obj, nil
 }
 
 // Delete implements Backend (S3 answers 204 for a missing key too).

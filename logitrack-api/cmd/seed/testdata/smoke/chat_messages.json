@@ -1,0 +1,5 @@
+[
+{"id": "@CM1", "chat_id": "@CH01", "sender_user_id": "@U_D2", "sender_role": "driver", "text": "ยางหลังซ้ายแตกช่วงบางนา ขอความช่วยเหลือ", "message_type": "normal", "client_message_id": "39c7b7db-3b71-5ef7-b5af-853bd09f5585", "created_at": "2026-09-29T10:08:00+07:00"},
+{"id": "@CM2", "chat_id": "@CH01", "sender_user_id": "@U_D2", "sender_role": "driver", "image_file_id": "@FO_CH01_IMG", "message_type": "normal", "client_message_id": "829f0111-1ef7-5fdf-a068-c72129e641d8", "created_at": "2026-09-29T10:09:00+07:00"},
+{"id": "@CM3", "chat_id": "@CH02", "sender_user_id": "@U_WRT_OPS", "sender_role": "admin", "text": "รับทราบ เปลี่ยนเส้นทางได้ครับ", "message_type": "normal", "client_message_id": "9ad4a825-c451-51d2-a939-ff8e3debd586", "created_at": "2026-09-18T08:20:00+07:00"}
+]

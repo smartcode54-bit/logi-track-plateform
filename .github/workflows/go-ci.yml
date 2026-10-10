@@ -202,17 +202,18 @@ jobs:
           docker compose -f deploy/docker-compose.yml --env-file .env logs --no-color --tail=100 postgres redis rabbitmq minio
           make up
       - run: make smoke
-      - name: Seed the smoke profile and verify its invariants (T16)
+      # Appendix D §D.1.8: seed --profile smoke then seed --verify (12 invariants, exit 1 on a violation, 2 when a
+      # dependency is unreachable), twice; invariant 12 diffs the two fingerprint blocks.
+      - name: Seed the smoke profile twice and verify its invariants (T16)
         run: |
+          set -o pipefail
           compose=(docker compose -f deploy/docker-compose.yml --env-file .env --profile tools)
-          rc=0
-          "${compose[@]}" run --rm -T seed --profile smoke || rc=$?
-          if [ "$rc" -eq 3 ]; then
-            echo "::notice title=seed::cmd/seed is not implemented yet (exit 3, T16): seed --profile smoke and seed --verify skipped"
-            exit 0
-          fi
-          [ "$rc" -eq 0 ]
-          "${compose[@]}" run --rm -T seed --verify
+          for n in 1 2; do
+            "${compose[@]}" run --rm -T seed --profile smoke
+            "${compose[@]}" run --rm -T seed --verify --profile smoke | tee "$RUNNER_TEMP/seed-verify-$n.txt"
+          done
+          diff <(sed -n '/^fingerprint:/,$p' "$RUNNER_TEMP/seed-verify-1.txt") \
+               <(sed -n '/^fingerprint:/,$p' "$RUNNER_TEMP/seed-verify-2.txt")
       - name: Service state
         if: failure()
         run: |
