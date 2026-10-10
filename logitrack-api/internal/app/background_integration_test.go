@@ -44,6 +44,8 @@ func TestWorkerAndSchedulerProcesses(t *testing.T) {
 		"WORKER_CONSUMERS": "notify", "EMAIL_ENABLED": "true", "SMTP_HOST": mp.SMTPHost,
 		"SMTP_PORT": strconv.Itoa(mp.SMTPPort), "SMTP_FROM": "no-reply@logitrack.test", "SMTP_STARTTLS": "false",
 		"PUBLIC_WEB_BASE_URL": "http://localhost:3000", "OUTBOX_RELAY_INTERVAL": "1m", // only NOTIFY wakes the relay
+		// The worker's storage (storage.gc, T11): the local backend, as on the first deployment.
+		"STORAGE_BACKEND": "local", "LOCAL_MEDIA_DIR": t.TempDir(),
 	} {
 		t.Setenv(k, v)
 	}

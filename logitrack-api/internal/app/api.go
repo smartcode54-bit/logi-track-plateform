@@ -8,6 +8,7 @@ import (
 	"net"
 	"runtime/debug"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -42,7 +43,22 @@ type API struct {
 	internalLn net.Listener
 	publicLn   net.Listener
 	metricsSrv *telemetry.MetricsServer
+
+	// background run for the life of Serve (OnServe); drainers run after the readiness grace (OnDrain).
+	background []func(context.Context)
+	drainers   []func()
+	bgCancel   context.CancelFunc
+	bgDone     sync.WaitGroup
 }
+
+// OnServe registers fn to run while Serve runs: it starts before the listeners serve and its context is
+// cancelled once they stopped (the SSE fan-out subscription, T12). Register before Serve.
+func (a *API) OnServe(fn func(ctx context.Context)) { a.background = append(a.background, fn) }
+
+// OnDrain registers fn to run when shutdown has turned readiness to 503 and the grace has passed, just
+// before the listeners stop: long-lived responses end there (SSE streams send event: reconnect, main
+// spec §8.2), so the drain does not wait SHUTDOWN_TIMEOUT for them. Register before Serve.
+func (a *API) OnDrain(fn func()) { a.drainers = append(a.drainers, fn) }
 
 // BaseGroups are the route groups every api build has: liveness on both
 // listeners, readiness and startup on the internal one only.
@@ -74,7 +90,66 @@ func NewAPI(cfg *APIConfig, log zerolog.Logger, extra ...ingress.Group) (*API, e
 	a.public = a.newFiber(ingress.Public)
 	ingress.Mount(a.internal, ingress.Internal, groups, nil)
 	ingress.Mount(a.public, ingress.Public, groups, cfg.PublicRouteGroups)
+	a.uploadLimit(a.internal, ingress.Uploads(ingress.Internal, groups, nil))
+	a.uploadLimit(a.public, ingress.Uploads(ingress.Public, groups, cfg.PublicRouteGroups))
 	return a, nil
+}
+
+// DefaultBodyLimit is the API's request body limit (Appendix B §B.1.5: 413 payload_too_large above it).
+const DefaultBodyLimit = 4 << 20
+
+// UploadReadTimeout replaces the 30 s read timeout of a signed upload: a 10 MB photo over a slow mobile link
+// takes longer than that.
+const UploadReadTimeout = 5 * time.Minute
+
+// uploadLimit gives a PUT below an upload route (the local storage backend's uploads, T11) its own body limit and
+// read timeout when the route's check passes on the request head: fasthttp calls HeaderReceived after the headers
+// and before it reads (or allocates for) the body. The check verifies the upload signature, which covers the
+// declared size, so the limit is that size (at most UPLOAD_MAX_BYTES). Every other request, an unsigned or
+// tampered upload included, keeps the 4 MiB / 30 s defaults and is refused with 413 above 4 MiB before its body
+// is buffered; the handler verifies the signature again.
+func (a *API) uploadLimit(app *fiber.App, uploads []ingress.Upload) {
+	if len(uploads) == 0 || a.cfg.UploadMaxBytes <= 0 {
+		return
+	}
+	app.Server().HeaderReceived = func(h *fasthttp.RequestHeader) fasthttp.RequestConfig {
+		if !h.IsPut() {
+			return fasthttp.RequestConfig{}
+		}
+		p, q := requestTarget(h.RequestURI())
+		for _, u := range uploads {
+			if !strings.HasPrefix(p, u.Prefix) {
+				continue
+			}
+			n := u.Limit(ingress.UploadHead{Path: p, Query: q, ContentType: string(h.ContentType()), ContentLength: h.ContentLength()})
+			if n > 0 && n <= a.cfg.UploadMaxBytes {
+				return fasthttp.RequestConfig{MaxRequestBodySize: int(n), ReadTimeout: UploadReadTimeout}
+			}
+			return fasthttp.RequestConfig{}
+		}
+		return fasthttp.RequestConfig{}
+	}
+}
+
+// requestTarget splits a request target (origin form, or absolute form "http://host/path?query") into the raw
+// path Fiber routes on and the raw query.
+func requestTarget(uri []byte) (path, query string) {
+	s := string(uri)
+	if i := strings.Index(s, "://"); i >= 0 && !strings.HasPrefix(s, "/") {
+		s = s[i+3:]
+		if j := strings.IndexAny(s, "/?#"); j >= 0 && s[j] == '/' {
+			s = s[j:]
+		} else if j >= 0 {
+			s = "/" + s[j:]
+		} else {
+			s = "/"
+		}
+	}
+	if i := strings.IndexByte(s, '#'); i >= 0 {
+		s = s[:i]
+	}
+	path, query, _ = strings.Cut(s, "?")
+	return path, query
 }
 
 // Routes returns the routes each listener serves, keyed by ingress.Internal and ingress.Public.
@@ -106,7 +181,7 @@ func (a *API) newFiber(listener string) *fiber.App {
 		ReadTimeout:  30 * time.Second,
 		// No write timeout: SSE responses stream for minutes (main spec §8).
 		IdleTimeout: 120 * time.Second,
-		BodyLimit:   4 << 20,
+		BodyLimit:   DefaultBodyLimit,
 		// Header and path strings are copied, so values captured by logs and
 		// spans (exported after the request) never alias reused buffers.
 		Immutable: true,
@@ -224,12 +299,18 @@ func (a *API) Addrs() (internal, public, metrics string) {
 
 // Serve runs both listeners until ctx is cancelled, then shuts down
 // gracefully: readiness turns 503, a short grace lets load balancers notice,
-// and in-flight requests drain within SHUTDOWN_TIMEOUT.
+// the OnDrain hooks end the long-lived responses, and in-flight requests
+// drain within SHUTDOWN_TIMEOUT. The OnServe functions run meanwhile.
 func (a *API) Serve(ctx context.Context) error {
 	if a.internalLn == nil {
 		if err := a.Listen(); err != nil {
 			return err
 		}
+	}
+	bgCtx, bgCancel := context.WithCancel(context.Background())
+	a.bgCancel = bgCancel
+	for _, fn := range a.background {
+		a.bgDone.Go(func() { fn(bgCtx) })
 	}
 	serveErr := make(chan error, 2)
 	for _, s := range []struct {
@@ -265,6 +346,9 @@ func (a *API) Shutdown() error {
 	grace := min(DrainGrace, a.cfg.ShutdownTimeout/3)
 	a.log.Info().Dur("grace", grace).Dur("timeout", a.cfg.ShutdownTimeout).Msg("draining")
 	time.Sleep(grace)
+	for _, drain := range a.drainers {
+		drain()
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.ShutdownTimeout-grace)
 	defer cancel()
@@ -279,6 +363,10 @@ func (a *API) Shutdown() error {
 		wg.Go(func() { errs[i] = stop(ctx) })
 	}
 	wg.Wait()
+	if a.bgCancel != nil {
+		a.bgCancel()
+		a.bgDone.Wait()
+	}
 	err := errors.Join(errs...)
 	if err != nil {
 		a.log.Error().Err(err).Msg("shutdown incomplete")

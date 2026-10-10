@@ -31,9 +31,12 @@ describe("parseProxyTarget", () => {
             segments: ["v1", "trips", "monitor"],
             search: "?from=2026-10-01&x=a%20b",
             isEvents: false,
+            isLocalUpload: false,
         });
         expect(parseProxyTarget(`${WEB_ORIGIN}/api/go/v1/customers/a%20b`)).toMatchObject({ ok: true, segments: ["v1", "customers", "a b"] });
-        expect(parseProxyTarget(`${WEB_ORIGIN}/api/go/v1/events?lastEventId=7-0`)).toMatchObject({ ok: true, isEvents: true });
+        expect(parseProxyTarget(`${WEB_ORIGIN}/api/go/v1/events?lastEventId=7-0`)).toMatchObject({ ok: true, isEvents: true, isLocalUpload: false });
+        expect(parseProxyTarget(`${WEB_ORIGIN}/api/go/v1/uploads/local/trips/a/b.jpg?X-LT-Expires=1`)).toMatchObject({ ok: true, isLocalUpload: true });
+        expect(parseProxyTarget(`${WEB_ORIGIN}/api/go/v1/uploads/presign`)).toMatchObject({ ok: true, isLocalUpload: false });
     });
 
     it.each([
@@ -247,6 +250,56 @@ describe("proxyToGo", () => {
         const [seen] = go.calls("GET", "/v1/events");
         expect(seen.url).toBe("/v1/events?topics=a");
         expect(seen.headers["last-event-id"]).toBe("7-0");
+    });
+
+    describe("local uploads (developer-spec.md §9.11, §10.14 #12)", () => {
+        /** A body of `chunks` x 1 KiB, one chunk every `everyMs`: a slow uplink. */
+        function throttled(chunks: number, everyMs: number): ReadableStream<Uint8Array> {
+            let sent = 0;
+            return new ReadableStream({
+                async pull(c) {
+                    if (sent === chunks) return c.close();
+                    await new Promise((r) => setTimeout(r, everyMs));
+                    sent += 1;
+                    c.enqueue(new Uint8Array(1024).fill(65));
+                },
+            });
+        }
+
+        function upload(path: string, chunks: number, everyMs: number, method = "PUT") {
+            return new Request(`${WEB_ORIGIN}${path}`, {
+                method,
+                headers: { ...SAME_ORIGIN, "Content-Type": "image/jpeg", "Content-Length": String(chunks * 1024) },
+                body: throttled(chunks, everyMs),
+                duplex: "half",
+            } as RequestInit);
+        }
+
+        it("streams a throttled PUT that outlasts GO_API_INTERNAL_TIMEOUT_MS to Go with the browser's Content-Length", async () => {
+            go.on("PUT", "/v1/uploads/local/trips/t1/p.jpg", (r) => ({ status: 200, body: { data: { size: r.body.length } } }));
+            const res = await proxyToGo(upload("/api/go/v1/uploads/local/trips/t1/p.jpg?X-LT-Expires=9&X-LT-Signature=s", 6, 60), {
+                config: go.config({ goTimeoutMs: 100 }),
+            });
+            expect(res.status).toBe(200);
+            expect(await res.json()).toEqual({ data: { size: 6 * 1024 } });
+            const [seen] = go.calls("PUT", "/v1/uploads/local/trips/t1/p.jpg");
+            expect(seen.url).toBe("/v1/uploads/local/trips/t1/p.jpg?X-LT-Expires=9&X-LT-Signature=s");
+            expect(seen.headers["content-length"]).toBe(String(6 * 1024));
+            expect(seen.headers["transfer-encoding"]).toBeUndefined();
+            expect(seen.headers["content-type"]).toBe("image/jpeg");
+        });
+
+        it("keeps GO_API_INTERNAL_TIMEOUT_MS and a chunked body on every other route", async () => {
+            go.on("PUT", "/v1/customers/c1", () => ({ status: 200, body: { data: {} } }));
+            const slow = await proxyToGo(upload("/api/go/v1/customers/c1", 6, 60), { config: go.config({ goTimeoutMs: 100 }) });
+            expect(slow.status).toBe(504);
+            go.requests.length = 0;
+            const fast = await proxyToGo(upload("/api/go/v1/customers/c1", 2, 1), { config: go.config() });
+            expect(fast.status).toBe(200);
+            const [seen] = go.calls("PUT", "/v1/customers/c1");
+            expect(seen.headers["content-length"]).toBeUndefined();
+            expect(seen.headers["transfer-encoding"]).toBe("chunked");
+        });
     });
 
     it("aborts the Go request when the browser goes away", async () => {

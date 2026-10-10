@@ -40,6 +40,8 @@ type WorkerConfig struct {
 	Database
 	Redis // idem:fcm and idem:push keys of notify.fcm (Appendix B §B.6.2)
 	AMQPEnv
+	// Storage: storage.gc deletes expired pending objects on their own backend (T11).
+	Storage
 	Prefetch  int      `env:"RABBITMQ_PREFETCH"`
 	Consumers []string `env:"WORKER_CONSUMERS" envSeparator:"," envDefault:"all"`
 
@@ -72,6 +74,7 @@ func (c *WorkerConfig) Validate() error {
 	c.Database.validate(&errs)
 	c.Redis.validate(c.AppEnv, &errs)
 	c.AMQPEnv.validate(&errs)
+	c.Storage.validate(&errs)
 	if c.Prefetch < 0 || c.Prefetch > 1000 {
 		errs = append(errs, config.Invalidf("RABBITMQ_PREFETCH", "must be between 0 and 1000"))
 	}

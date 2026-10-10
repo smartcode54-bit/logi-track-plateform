@@ -69,7 +69,9 @@ func main() {
 		"S3_ACCESS_KEY_ID":      "logitrack-app",
 		"S3_SECRET_ACCESS_KEY":  random(40),
 		"API_KEY_PEPPER":        random(48),
-		"SEED_DEFAULT_PASSWORD": random(20),
+		// Signs the local storage backend's URLs when STORAGE_BACKEND=local is tried locally (T11).
+		"LOCAL_MEDIA_SIGNING_KEY": random(48),
+		"SEED_DEFAULT_PASSWORD":   random(20),
 		// The public test parameter set of the firebase/scrypt repository (Appendix D: local and CI
 		// only, never the production Console values), so the verify-then-rehash login runs locally.
 		"FIREBASE_SCRYPT_SIGNER_KEY":     firebaseScryptPublicSigner,

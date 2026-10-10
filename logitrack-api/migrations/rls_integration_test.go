@@ -51,8 +51,8 @@ func TestDriverMaintenanceGateIsTenantBound(t *testing.T) {
 			start_date, status, notes) VALUES ($1, $2, 'CM', 'engine', current_date, 'in_progress', $3) RETURNING id::text`,
 			tenant, truckID, notes)
 		f := scalar[string](t, etl, `INSERT INTO file_objects (bucket, object_key, tenant_id, purpose, status, committed_at,
-			owner_kind, owner_id) VALUES ('private', $1, $2, 'maintenance_receipt', 'committed', now(), 'maintenance', $3)
-			RETURNING id::text`, "maintenance/"+m+"/receipt.jpg", tenant, m)
+			owner_kind, owner_id, storage_backend) VALUES ('private', $1, $2, 'maintenance_receipt', 'committed', now(),
+			'maintenance', $3, 's3') RETURNING id::text`, "maintenance/"+m+"/receipt.jpg", tenant, m)
 		exec(t, etl, `INSERT INTO maintenance_files (maintenance_id, file_id, kind) VALUES ($1, $2, 'receipt')`, m, f)
 		return m
 	}
@@ -117,8 +117,9 @@ func TestDriverMaintenanceGateIsTenantBound(t *testing.T) {
 }
 
 // file_objects (C.3.5 p_commit, C.3.6 t_file_objects_commit_columns): outside WithSystem an update
-// may only commit an upload. The tenant, identity and exposure columns stay as uploaded, and status
-// moves only pending -> committed; WithSystem (re-home C.3.10, missing_at_source) is unaffected.
+// may only commit an upload. The tenant, identity, exposure and storage-backend (0011) columns stay as
+// uploaded, and status moves only pending -> committed; WithSystem (re-home C.3.10, missing_at_source)
+// is unaffected.
 func TestFileObjectsUpdateOnlyCommits(t *testing.T) {
 	d, _ := migrated(t)
 	etl := connect(t, d, db.RoleETL)
@@ -128,8 +129,8 @@ func TestFileObjectsUpdateOnlyCommits(t *testing.T) {
 	op := scalar[string](t, etl, `INSERT INTO users (email) VALUES ('ops@example.test') RETURNING id::text`)
 	drv := principal(t, d, u, a, "driver", "app.driver_id", "0199c000-0000-7000-8000-0000000000d1")
 	upload := func(key string) string {
-		return scalar[string](t, drv, `INSERT INTO file_objects (bucket, object_key, tenant_id, purpose, uploaded_by, expires_at)
-			VALUES ('private', $1, $2, 'trip_photo', $3, now() + interval '1 hour') RETURNING id::text`, key, a, u)
+		return scalar[string](t, drv, `INSERT INTO file_objects (bucket, object_key, tenant_id, purpose, uploaded_by, expires_at,
+			storage_backend) VALUES ('private', $1, $2, 'trip_photo', $3, now() + interval '1 hour', 'local') RETURNING id::text`, key, a, u)
 	}
 	const commit = `UPDATE file_objects SET status = 'committed', committed_at = now(), expires_at = NULL,
 		owner_kind = 'trip', owner_id = uuidv7() WHERE id = $1`
@@ -142,6 +143,7 @@ func TestFileObjectsUpdateOnlyCommits(t *testing.T) {
 		"object_key = 'uploads/other.jpg'",
 		"uploaded_by = '" + op + "'",
 		"status = 'missing_at_source'",
+		"storage_backend = 's3'", // 0011: where an object lives is fixed at upload too (T11)
 	} {
 		wantSQLState(t, drv, "42501", "fixed at upload", "UPDATE file_objects SET "+set+" WHERE id = $1", f)
 	}

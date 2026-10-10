@@ -65,6 +65,11 @@ func composeService(name string) (image string, command []string, err error) {
 	return svc.Image, svc.Command, nil
 }
 
+// ComposeService is composeService for the other test helpers that start a compose image (storagetest: MinIO).
+func ComposeService(name string) (image string, command []string, err error) {
+	return composeService(name)
+}
+
 var (
 	rabbitOnce sync.Once
 	rabbit     *Rabbit

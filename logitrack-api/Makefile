@@ -28,7 +28,7 @@ SCOPE_VETCHECK = internal/scope/testdata/vetcheck
 GITLEAKS_IMG := zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
 
 .PHONY: help env dev-keys dev-db up api-reload down reset ps logs psql redis-cli amqp-ui minio-console tunnel \
-        migrate migrate-up-to migrate-new migrate-status migrate-down migrate-check migrate-roundtrip \
+        migrate migrate-up-to migrate-apply migrate-new migrate-status migrate-down migrate-check migrate-roundtrip \
         seed seed-verify etl-fixtures etl-fixtures-check \
         test test-integration lint sqlc gen gen-check openapi web env-check secrets-scan print-gitleaks-img smoke
 
@@ -87,12 +87,16 @@ tunnel: ## expose only /public/v1/* through Cloudflare (TUNNEL_TOKEN; via the Ca
 	$(COMPOSE) --profile tunnel up -d tunnel
 
 ## --- database and data -------------------------------------------------------------------
-migrate: ## apply every migration (make up runs this first; prod pins up-to 9 until the P1 runbook, R59)
+migrate: ## apply every migration (make up runs this first; prod runs up-to 9 + apply 11 until the P1 runbook, R59)
 	$(MIGRATE) up
 
 migrate-up-to: ## apply up to a version: make migrate-up-to V=9
 	@test -n "$(V)" || { echo "V is required" >&2; exit 2; }
 	$(MIGRATE) up-to $(V)
+
+migrate-apply: ## apply one version ahead of the held 0010 (the production P0 step): make migrate-apply V=11
+	@test -n "$(V)" || { echo "V is required" >&2; exit 2; }
+	$(MIGRATE) apply $(V)
 
 migrate-status: ## list every migration and its state
 	$(MIGRATE) status
@@ -108,7 +112,7 @@ migrate-check: ## lint migrations/ (R31): numbering, Up and Down, NO TRANSACTION
 	go run ./cmd/migrate check -dir migrations
 
 migrate-roundtrip: ## up -> down-to floor -> up on postgres:18-alpine via testcontainers (R31)
-	DOCKER_HOST=$(DOCKER_HOST) go test -race -count=1 -tags=integration -run 'RoundTrip|UpToNine' ./internal/platform/migrate/ ./cmd/migrate/
+	DOCKER_HOST=$(DOCKER_HOST) go test -race -count=1 -tags=integration -run 'RoundTrip|UpToNine|HeldVersion' ./internal/platform/migrate/ ./cmd/migrate/
 
 seed: ## seed a profile (SEED_PROFILE=smoke|demo|load; cmd/seed lands in T16)
 	$(COMPOSE) --profile tools run --rm seed --profile $(SEED_PROFILE)

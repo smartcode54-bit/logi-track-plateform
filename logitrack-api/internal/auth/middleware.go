@@ -87,19 +87,34 @@ func (s *Service) Authenticate(ctx context.Context, raw string) (*authz.Principa
 	if !ok {
 		return nil, errInvalidToken()
 	}
+	if err := s.CheckSession(ctx, p); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+// CheckSession is the revocation half of Authenticate, for a principal built earlier: the session is
+// not revoked and the principal's AuthVersion is users.auth_version (same Redis pipeline, same
+// PostgreSQL fallback, same outcomes). An SSE stream calls it once it has subscribed (T12, main spec
+// §8.2): the stream authenticated before its subscription was live, and a revocation published in
+// between would otherwise reach neither. Both the post-commit hook and the outbox relay's
+// RevocationHook write the marker and raise the version before session.revoked is published, so every
+// revocation published before this call is visible to it. A ticket principal (SSETicketPrincipal)
+// carries the version read at redemption.
+func (s *Service) CheckSession(ctx context.Context, p *authz.Principal) error {
 	revoked, current, err := s.revocation(ctx, p)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	switch {
 	case revoked:
-		return nil, errSessionRevoked()
+		return errSessionRevoked()
 	case p.AuthVersion < current:
-		return nil, errTokenExpired(ReasonClaimsChanged)
+		return errTokenExpired(ReasonClaimsChanged)
 	case p.AuthVersion > current:
-		return nil, errInvalidToken() // never issued: versions only grow
+		return errInvalidToken() // never issued: versions only grow
 	}
-	return p, nil
+	return nil
 }
 
 // redisCheckTimeout bounds the per-request Redis pipeline: a slow or unreachable Redis falls back to
@@ -165,6 +180,9 @@ func principalFromClaims(c *token.Claims) (*authz.Principal, bool) {
 	}
 	p := &authz.Principal{UserID: uid, SessionID: sid, AuthVersion: c.Version, AMR: c.AMR, TokenID: c.ID,
 		Dispatcher: c.Dispatcher}
+	if c.ExpiresAt != nil {
+		p.TokenExpiresAt = c.ExpiresAt.Time
+	}
 	if c.TenantID != "" {
 		tid, err := uuid.Parse(c.TenantID)
 		role := authz.TenantRole(c.Role)

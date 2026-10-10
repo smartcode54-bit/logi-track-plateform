@@ -26,12 +26,16 @@ func TestTableAndPending(t *testing.T) {
 	table := Table(nil, nil)
 	var names []string
 	for _, j := range table {
-		if _, err := parser.Parse(j.Spec); err != nil || j.Kind != Local || j.Run == nil {
+		// Local jobs run in the scheduler; command jobs (storage.gc, T11) only publish job.{name}.
+		if _, err := parser.Parse(j.Spec); err != nil || (j.Kind == Local) != (j.Run != nil) {
 			t.Fatalf("%s: %v", j.Name, err)
 		}
 		names = append(names, j.Name)
 	}
-	want := []string{"auth.token-cleanup", "outbox.prune", "inbox.prune", "jobs.prune", "idempotency.prune", "rtlog.trim"}
+	want := []string{"storage.gc", "auth.token-cleanup", "outbox.prune", "inbox.prune", "jobs.prune", "idempotency.prune", "rtlog.trim"}
+	if table[0].Kind != Command || table[0].Spec != "0 * * * *" {
+		t.Fatalf("storage.gc is the hourly command cron of Appendix B §B.5.6: %+v", table[0])
+	}
 	if !slices.Equal(names, want) {
 		t.Fatalf("live table %v, want %v", names, want)
 	}

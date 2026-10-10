@@ -18,7 +18,11 @@
  *   `Set-Cookie` of the answer are dropped; redirects are passed to the browser (`GET /v1/files`).
  * - `GO_API_INTERNAL_TIMEOUT_MS` and the browser's abort apply; `v1/events` (SSE) has no timeout,
  *   gets `Cache-Control: no-cache, no-transform` and `X-Accel-Buffering: no`, and its `lastEventId`
- *   query parameter becomes `Last-Event-ID` (Appendix E §E.5.1).
+ *   query parameter becomes `Last-Event-ID` when the request has none (Appendix E §E.5.1).
+ * - `PUT v1/uploads/local/*` (local storage backend, developer-spec.md §9.11): the browser's
+ *   `Content-Length` is forwarded with the streamed body, because the upload signature covers it and
+ *   Go refuses a chunked body, and the timeout is Go's 5 min upload read timeout instead of
+ *   `GO_API_INTERNAL_TIMEOUT_MS` (a 10 MB file over a slow uplink outlasts 30 s).
  * - It never refreshes (R37): `lt_rt` has `Path=/api/auth` and never reaches it; a 401 goes back to
  *   the browser's goFetch, which runs the shared refresh. No body inspection, caching or decision.
  */
@@ -73,11 +77,14 @@ const DROPPED_RESPONSE_HEADERS = [
     "set-cookie",
 ];
 
+/** Timeout of `PUT v1/uploads/local/*`: Go's `UploadReadTimeout` (developer-spec.md §9.11). */
+export const LOCAL_UPLOAD_TIMEOUT_MS = 300_000;
+
 /** Statuses whose response has no body (the Response constructor refuses one). */
 const NULL_BODY_STATUS = new Set([101, 103, 204, 205, 304]);
 
 export type ProxyTarget =
-    | { ok: true; segments: string[]; search: string; isEvents: boolean }
+    | { ok: true; segments: string[]; search: string; isEvents: boolean; isLocalUpload: boolean }
     | { ok: false; status: 400 | 404; message: string };
 
 /** C0 controls and DEL. */
@@ -122,7 +129,8 @@ export function parseProxyTarget(rawUrl: string): ProxyTarget {
         return { ok: false, status: 404, message: "not found" };
     }
     const isEvents = lower.length === 2 && lower[1] === "events";
-    return { ok: true, segments, search, isEvents };
+    const isLocalUpload = lower.length >= 4 && lower[1] === "uploads" && lower[2] === "local";
+    return { ok: true, segments, search, isEvents, isLocalUpload };
 }
 
 /** `{GO_API_INTERNAL_URL}/v1/...` with re-encoded segments and the query kept. */
@@ -160,6 +168,11 @@ export async function proxyToGo(req: Request, deps: ProxyDeps = {}): Promise<Res
         const v = req.headers.get(name);
         if (v !== null) headers.set(name, v);
     }
+    const localUpload = target.isLocalUpload && method === "PUT";
+    if (localUpload) {
+        const length = req.headers.get("content-length");
+        if (length !== null && /^\d{1,15}$/.test(length)) headers.set("Content-Length", length);
+    }
     const at = cookie(req, ACCESS_COOKIE);
     if (at) headers.set("Authorization", `Bearer ${at}`);
     headers.set(HEADER_REQUEST_ID, requestId);
@@ -184,7 +197,12 @@ export async function proxyToGo(req: Request, deps: ProxyDeps = {}): Promise<Res
     const result = await callUpstream(
         upstreamUrl(cfg, target.segments, search),
         { method, headers, ...(hasBody ? { body: req.body, duplex: "half" as const } : {}) },
-        { cfg, signal: req.signal, timeout: !target.isEvents, fetchImpl: deps.fetchImpl }
+        {
+            cfg,
+            signal: req.signal,
+            timeoutMs: target.isEvents ? null : localUpload ? LOCAL_UPLOAD_TIMEOUT_MS : undefined,
+            fetchImpl: deps.fetchImpl,
+        }
     );
     if (!result.ok) {
         if (result.kind !== "aborted") {

@@ -220,6 +220,32 @@ func parseClientIDs(in []string) ([]string, bool) {
 	return out, true
 }
 
+// Realtime is the SSE configuration of the api process (main spec §8.2, §16.1).
+type Realtime struct {
+	// SSE_PING_INTERVAL: the ": ping" heartbeat of every stream; also renews the stream's lease in
+	// rl:sse_conns:{userId} (three intervals long).
+	SSEPingInterval time.Duration `env:"SSE_PING_INTERVAL" envDefault:"25s"`
+	// SSE_MAX_CONN_PER_USER: open streams per user across every replica; the next one is 429.
+	SSEMaxConnPerUser int `env:"SSE_MAX_CONN_PER_USER" envDefault:"5"`
+	// RTLOG_TTL: the replay window the scheduler's writer keeps; the api reads it to tell a Last-Event-ID
+	// older than that window (resync). Both processes must hold the same value.
+	RTLogTTL time.Duration `env:"RTLOG_TTL" envDefault:"24h"`
+	// MOBILE_SSE_ENABLED: GET /v1/mobile/events (P7a); off, the route answers 404.
+	MobileSSEEnabled bool `env:"MOBILE_SSE_ENABLED" envDefault:"false"`
+}
+
+func (r Realtime) validate(errs *[]string) {
+	if r.SSEPingInterval < time.Second || r.SSEPingInterval > 5*time.Minute {
+		*errs = append(*errs, config.Invalidf("SSE_PING_INTERVAL", "must be between 1s and 5m"))
+	}
+	if r.SSEMaxConnPerUser < 1 || r.SSEMaxConnPerUser > 100 {
+		*errs = append(*errs, config.Invalidf("SSE_MAX_CONN_PER_USER", "must be between 1 and 100"))
+	}
+	if r.RTLogTTL < time.Minute {
+		*errs = append(*errs, config.Invalidf("RTLOG_TTL", "must be at least 1m"))
+	}
+}
+
 // APIConfig is the api process configuration.
 type APIConfig struct {
 	Common
@@ -228,12 +254,15 @@ type APIConfig struct {
 	Redis
 	Auth
 	Bridge
+	Realtime
+	Storage
+	StorageAPI
 	// RateLimit is RATE_LIMIT_ENABLED and RATE_LIMIT_{LOGIN,PUBLIC_FORMS,EVIDENCE}, parsed once by
 	// ratelimit.Config (Validate below) for the rate-limit middleware and the auth buckets alike.
 	RateLimit         ratelimit.Config
 	InternalAddr      string   `env:"API_INTERNAL_ADDR,required,notEmpty"`
 	PublicAddr        string   `env:"API_PUBLIC_ADDR,required,notEmpty"`
-	PublicRouteGroups []string `env:"PUBLIC_ROUTE_GROUPS" envSeparator:"," envDefault:"/v1/mobile,/v1/auth,/public/v1,/evidence,/healthz"`
+	PublicRouteGroups []string `env:"PUBLIC_ROUTE_GROUPS" envSeparator:"," envDefault:"/v1/mobile,/v1/auth,/public/v1,/evidence,/healthz,/media"`
 	TrustedProxyCIDRs []string `env:"TRUSTED_PROXY_CIDRS" envSeparator:","`
 	// PG_OWNED_DOMAINS (the domains PostgreSQL writes, main spec §12.1) and WEB_FLAG_OVERRIDES give the
 	// web domain flags of GET /v1/config/web-flags (internal/webcfg, R35, R41).
@@ -255,6 +284,9 @@ func (c *APIConfig) Validate() error {
 	c.Redis.validate(c.AppEnv, &errs)
 	c.Auth.validate(&errs)
 	c.Bridge.validate(&errs)
+	c.Realtime.validate(&errs)
+	c.Storage.validate(&errs)
+	c.StorageAPI.validate(c.Storage, &errs)
 	if err := c.RateLimit.Validate(); err != nil {
 		var cerr *config.Error
 		if errors.As(err, &cerr) {

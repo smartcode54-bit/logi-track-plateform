@@ -27,6 +27,9 @@ func TestUsageErrors(t *testing.T) {
 		{"up-to"},
 		{"up-to", "0"},
 		{"up-to", "nine"},
+		{"apply"},
+		{"apply", "0"},
+		{"apply", "11", "12"},
 		{"down-to", "-1"},
 		{"down-to", "1", "2"},
 		{"status", "now"},
@@ -39,7 +42,8 @@ func TestUsageErrors(t *testing.T) {
 			t.Errorf("%v: exit %d, stderr %q", args, code, stderr)
 		}
 	}
-	if code, stdout, _ := runCLI(t, nil, "help"); code != 0 || !strings.Contains(stdout, "up-to VERSION") {
+	if code, stdout, _ := runCLI(t, nil, "help"); code != 0 || !strings.Contains(stdout, "up-to VERSION") ||
+		!strings.Contains(stdout, "apply VERSION") {
 		t.Errorf("help: exit %d", code)
 	}
 }

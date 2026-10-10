@@ -408,7 +408,7 @@ On tenant tables the uniform `p_driver_read` / `p_driver_insert` / `p_driver_upd
 | `tenants` (0002) | yes | tenant (keyed on `id`) | G-base, `p_read`, `p_update_own` | quarantine row readable only under bypass; `kind`, `status`, `code`, `contractor_tenant_id` platform-only (iam, `WithSystem`); trigger `t_tenant_admin_columns` |
 | `tenant_files` (0002) | yes | tenant | G-tenant, `p_steward` | carrier documents; stewards (`fleet:manage_subcontractors`) reach every carrier |
 | `users` (0002) | yes | platform-only | G-base, `p_self_read`, `p_self_update`, `p_staff_read` | iam writes under `WithSystem`; `PATCH /v1/me` limited by trigger `t_users_self_columns` |
-| `file_objects` (0002) | yes | nullable-tenant | G-base, `p_read`, `p_upload`, `p_commit` | NULL tenant = platform object (APK, unattributed legacy object); cross-tenant readers go through the storage service; outside `WithSystem` an update may only commit (`t_file_objects_commit_columns`, C.3.6) |
+| `file_objects` (0002) | yes | nullable-tenant | G-base, `p_read`, `p_upload`, `p_commit` | NULL tenant = platform object (APK, unattributed legacy object); cross-tenant readers go through the storage service; outside `WithSystem` an update may only commit (`t_file_objects_commit_columns`, C.3.6; `storage_backend` fixed too since 0011) |
 | `auth_identities`, `user_platform_roles` (0002) | yes | platform-only | G-base, `p_self_read` | auth / iam services write |
 | `sessions` (0002) | yes | platform-only | G-base, `p_self_read` | auth service; staff views through iam |
 | `refresh_tokens`, `password_reset_tokens` (0002) | yes | platform-only | G-base | auth service; reset tokens also the `notify.email` consumer |
@@ -1054,6 +1054,8 @@ BEGIN
 END $$;
 CREATE TRIGGER t_file_objects_commit_columns BEFORE UPDATE ON file_objects
   FOR EACH ROW EXECUTE FUNCTION trg_file_objects_commit_columns();
+-- 0011_file_objects_storage_backend.sql (T11) replaces this body with storage_backend added to both column lists:
+-- where an object lives (local disk or S3) is fixed at upload too; a copy job moves it under WithSystem.
 
 -- 0002_identity.sql: without bypass (p_update_own) only profile columns of a tenant change; the structural columns
 -- are platform-only (platform:manage_tenants, WithSystem)

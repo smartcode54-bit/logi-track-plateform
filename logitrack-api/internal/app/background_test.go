@@ -101,6 +101,8 @@ func TestBackgroundReadinessReportsDependencies(t *testing.T) {
 		"DATABASE_URL": "postgres://placeholder@127.0.0.1:1/placeholder?sslmode=disable&connect_timeout=1",
 		"RABBITMQ_URL": "amqp://127.0.0.1:2/", "REDIS_URL": "redis://127.0.0.1:3/0",
 		"WORKER_CONSUMERS": "notify",
+		"S3_ENDPOINT":      "http://127.0.0.1:4", "S3_REGION": "us-east-1", "S3_ACCESS_KEY_ID": "placeholder",
+		"S3_SECRET_ACCESS_KEY": "placeholder",
 	} {
 		t.Setenv(k, v)
 	}

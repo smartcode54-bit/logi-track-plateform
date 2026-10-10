@@ -99,15 +99,16 @@ export type UpstreamResult =
     | { ok: false; kind: "timeout" | "unreachable" | "aborted"; error: unknown };
 
 /**
- * One request to the api's internal listener. `signal` is the caller's (a closed tab), the timeout
- * is `GO_API_INTERNAL_TIMEOUT_MS` unless `timeout: false` (SSE). Redirects are not followed.
+ * One request to the api's internal listener. `signal` is the caller's (a closed tab); `timeoutMs` is
+ * `GO_API_INTERNAL_TIMEOUT_MS` unless given (`null`: none, for SSE). Redirects are not followed.
  */
 export async function callUpstream(
     url: string,
     init: RequestInit & { duplex?: "half" },
-    opts: { cfg: BffConfig; signal?: AbortSignal; timeout?: boolean; fetchImpl?: typeof fetch }
+    opts: { cfg: BffConfig; signal?: AbortSignal; timeoutMs?: number | null; fetchImpl?: typeof fetch }
 ): Promise<UpstreamResult> {
-    const timeoutSignal = opts.timeout === false ? undefined : AbortSignal.timeout(opts.cfg.goTimeoutMs);
+    const ms = opts.timeoutMs === undefined ? opts.cfg.goTimeoutMs : opts.timeoutMs;
+    const timeoutSignal = ms === null ? undefined : AbortSignal.timeout(ms);
     const signals = [opts.signal, timeoutSignal].filter((s): s is AbortSignal => s !== undefined);
     const signal = signals.length === 0 ? undefined : signals.length === 1 ? signals[0] : AbortSignal.any(signals);
     try {

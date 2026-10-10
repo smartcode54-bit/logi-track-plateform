@@ -63,13 +63,17 @@ func startEnv(t *testing.T) {
 		"DATABASE_URL": "postgres://logitrack_app@127.0.0.1:1/logitrack", "REDIS_URL": "redis://127.0.0.1:1/0",
 		"JWT_SIGNING_KEY_FILE": key, "JWT_ACTIVE_KID": kid, "JWT_ISSUER": "http://localhost", "JWT_AUDIENCE": "logitrack-test",
 		"ARGON2_MEMORY_KB": "8192", "ARGON2_ITERATIONS": "1",
+		// The s3 backend (the default) with a closed endpoint: storage connects lazily too (placeholders).
+		"STORAGE_BACKEND": "s3", "S3_ENDPOINT": "http://127.0.0.1:1", "S3_PRESIGN_ENDPOINT": "http://localhost:9000",
+		"S3_REGION": "us-east-1", "S3_ACCESS_KEY_ID": "placeholder", "S3_SECRET_ACCESS_KEY": "placeholder",
 	} {
 		t.Setenv(k, v)
 	}
 	clearEnv(t, "OTEL_EXPORTER_OTLP_ENDPOINT", "REDIS_KEY_PREFIX", "JWT_PREVIOUS_KEY_FILE", "FIREBASE_SCRYPT_SIGNER_KEY",
 		"FIREBASE_SCRYPT_SALT_SEPARATOR", "FIREBASE_SCRYPT_ROUNDS", "FIREBASE_SCRYPT_MEM_COST",
 		"AUTH_FIREBASE_BRIDGE_MODE", "FIREBASE_PROJECT_ID", "GOOGLE_APPLICATION_CREDENTIALS",
-		"PG_OWNED_DOMAINS", "WEB_FLAG_OVERRIDES")
+		"PG_OWNED_DOMAINS", "WEB_FLAG_OVERRIDES",
+		"LOCAL_MEDIA_DIR", "LOCAL_MEDIA_PUBLIC_BASE_URL", "LOCAL_MEDIA_SIGNING_KEY", "S3_USE_SSL", "CORS_ALLOWED_ORIGINS")
 }
 
 // An unreadable service-account file stops a bridged api with the configuration exit code, naming the
@@ -232,14 +236,15 @@ func TestRoutesRefusesAPublicGroupOutsideTheAllowList(t *testing.T) {
 // middleware passes, and Use matches by prefix, so the table shows what answers below PATH.
 func TestRoutesListsUseRegistrations(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := routes(nil, &stdout, &stderr, ingress.Group{Prefix: "/v1/mobile", Public: true, Mount: func(r fiber.Router) {
+	// /public/v1 has no group of its own yet (the served /v1/mobile group belongs to the SSE stream, T12).
+	code := routes(nil, &stdout, &stderr, ingress.Group{Prefix: "/public/v1", Public: true, Mount: func(r fiber.Router) {
 		r.Use(func(c fiber.Ctx) error { return c.Next() })
-		r.Get("/tasks", nop)
+		r.Post("/webhooks/x", nop)
 	}})
 	if code != app.ExitOK {
 		t.Fatalf("exit %d, stderr %q", code, stderr.String())
 	}
-	for _, want := range []string{"USE /v1/mobile internal,public\n", "GET /v1/mobile/tasks internal,public\n"} {
+	for _, want := range []string{"USE /public/v1 internal,public\n", "POST /public/v1/webhooks/x internal,public\n"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("table lacks %q:\n%s", want, stdout.String())
 		}

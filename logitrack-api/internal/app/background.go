@@ -28,6 +28,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/realtime"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/telemetry"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/scheduler"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
 )
 
 // DeadLetterPollInterval is how often the worker refreshes mq_dead_letter_depth.
@@ -134,13 +135,22 @@ func RunWorker(ctx context.Context, stdout, stderr io.Writer) int {
 				pool.Close()
 				return background{}, &config.Error{Invalid: []string{err.Error()}}
 			}
+			st, _, err := newStorage(storageBuild{Storage: cfg.Storage}, pool, log)
+			if err != nil {
+				pool.Close()
+				if cerr := rdb.Close(); cerr != nil {
+					log.Warn().Err(cerr).Msg("redis close")
+				}
+				return background{}, err
+			}
 			closeAll := func() {
+				st.Close()
 				pool.Close()
 				if err := rdb.Close(); err != nil {
 					log.Warn().Err(err).Msg("redis close")
 				}
 			}
-			regs, err := workerRegistrations(cfg, pool, rdb, ks, log)
+			regs, err := workerRegistrations(cfg, pool, st, rdb, ks, log)
 			if err != nil {
 				closeAll()
 				return background{}, err
@@ -169,7 +179,7 @@ func RunWorker(ctx context.Context, stdout, stderr io.Writer) int {
 
 // workerRegistrations are the consumers of the selected groups. Queues of those groups whose
 // consumer arrives with a later issue are not consumed (their messages wait in the queue).
-func workerRegistrations(cfg *WorkerConfig, pool *pgxpool.Pool, rdb *redis.Client, ks cache.Keyspace, log zerolog.Logger) ([]mq.Registration, error) {
+func workerRegistrations(cfg *WorkerConfig, pool *pgxpool.Pool, st *storage.Service, rdb *redis.Client, ks cache.Keyspace, log zerolog.Logger) ([]mq.Registration, error) {
 	available := map[string]mq.Registration{}
 	var sender email.Sender
 	if cfg.EmailEnabled {
@@ -187,6 +197,9 @@ func workerRegistrations(cfg *WorkerConfig, pool *pgxpool.Pool, rdb *redis.Clien
 		WebBaseURL: cfg.PublicWebBaseURL, ResetTTL: cfg.PasswordResetTTL, Enabled: cfg.EmailEnabled, Log: log,
 	}
 	available[notify.QueueEmail] = mail.Registration()
+	if st != nil {
+		available[storage.QueueGC] = st.GCRegistration()
+	}
 
 	fcm := &notify.FCM{Pool: pool, Redis: rdb, Keys: ks, Enabled: cfg.FCMEnabled, Log: log}
 	if cfg.FCMEnabled && slices.Contains(cfg.Groups, "notify") {
