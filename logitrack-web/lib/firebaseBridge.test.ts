@@ -293,3 +293,19 @@ describe("states seen by AuthProvider", () => {
         expect(second.seen[0]).toBe("pending");
     });
 });
+
+describe("SDK loading (developer-spec.md §10.11)", () => {
+    it("loads firebase/auth through named re-exports, never as a dynamic namespace import", async () => {
+        const { readFileSync } = await import("fs");
+        const path = await import("path");
+        const strip = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+        // A namespace object from `import("firebase/auth")` marks every export used, so webpack keeps all of
+        // @firebase/auth in the initial JS of every route that also loads firebase/client statically.
+        const bridge = strip(readFileSync(path.resolve(__dirname, "firebaseBridge.ts"), "utf8"));
+        expect(bridge).not.toMatch(/import\(\s*["']firebase\//);
+        expect(bridge).toMatch(/import\(\s*["']\.\/firebaseBridgeSdk["']\s*\)/);
+        const sdk = strip(readFileSync(path.resolve(__dirname, "firebaseBridgeSdk.ts"), "utf8"));
+        expect(sdk).not.toMatch(/export \* from/);
+        expect(sdk).toMatch(/export \{ getIdTokenResult, signInWithCustomToken, signOut \} from "firebase\/auth"/);
+    });
+});

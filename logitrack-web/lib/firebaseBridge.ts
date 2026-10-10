@@ -104,12 +104,12 @@ export function configureFirebaseBridge(deps: (() => Promise<BridgeDeps>) | unde
 }
 
 async function defaultDeps(): Promise<BridgeDeps> {
-    const [{ auth }, sdk] = await Promise.all([import("@/firebase/client"), import("firebase/auth")]);
+    const { auth, getIdTokenResult, signInWithCustomToken, signOut } = await import("./firebaseBridgeSdk");
     return {
         auth,
-        signInWithCustomToken: sdk.signInWithCustomToken,
-        signOut: sdk.signOut,
-        getIdTokenResult: (user) => sdk.getIdTokenResult(user),
+        signInWithCustomToken,
+        signOut,
+        getIdTokenResult: (user) => getIdTokenResult(user),
         mint: firebaseCustomToken,
         sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     };

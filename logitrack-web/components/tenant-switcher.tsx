@@ -2,29 +2,38 @@
 
 /**
  * Tenant switcher of the app header (T18 owner addition, 2026-10-10; R83). Shown only when
- * `GET /v1/me/tenants` lists more than one tenant. A switch calls `POST /api/auth/tenant`, which
- * replaces `lt_at`; `['me']`, the Firebase bridge and every tenant-scoped query follow
- * (context/auth.tsx `switchTenant`), and the route is checked again by the edge gate (`router.refresh`).
+ * `GET /v1/me/tenants` lists more than one tenant; the select itself is a lazily loaded chunk
+ * (components/tenant-switcher-menu.tsx), so single-tenant principals never download it. A switch
+ * calls `POST /api/auth/tenant`, which replaces `lt_at`; `['me']`, the Firebase bridge and every
+ * tenant-scoped query follow (context/auth.tsx `switchTenant`, lib/queryClient.ts `watchPrincipal`),
+ * and the route is checked again by the edge gate (`router.refresh`).
  */
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { Building2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/context/auth";
 import { useLanguage } from "@/context/language";
-import { tenantName } from "@/features/auth/api/me";
+import { tenantName, type MeTenant } from "@/features/auth/api/me";
 import { useMyTenants } from "@/features/auth/api/useMe";
 import { apiErrorText } from "@/lib/apiError";
+
+const TenantSwitcherMenu = dynamic(() => import("./tenant-switcher-menu"), { ssr: false, loading: () => null });
 
 export function TenantSwitcher() {
     const auth = useAuth();
     const router = useRouter();
     const { t, language } = useLanguage();
-    const signedIn = Boolean(auth?.me);
-    const { data: tenants } = useMyTenants(signedIn);
+    const userId = auth?.me?.id;
+    const { data: fetched } = useMyTenants(Boolean(userId));
     const [switching, setSwitching] = useState(false);
+    // A tenant switch resets `['me','tenants']` with every other query (`watchPrincipal`); the same
+    // user's list stays on screen while it refetches, so the switcher does not blink out. Never another
+    // user's list: it is kept per user id.
+    const [last, setLast] = useState<{ userId: string; tenants: MeTenant[] } | null>(null);
+    if (userId && fetched && (last?.userId !== userId || last.tenants !== fetched)) setLast({ userId, tenants: fetched });
+    const tenants = fetched ?? (last && last.userId === userId ? last.tenants : undefined);
 
     if (!auth?.me || !tenants || tenants.length <= 1) return null;
     const active = auth.me.tenant?.id ?? "";
@@ -44,26 +53,5 @@ export function TenantSwitcher() {
         }
     };
 
-    return (
-        <div className="flex items-center gap-2" data-testid="tenant-switcher">
-            {switching ? (
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden />
-            ) : (
-                <Building2 className="h-4 w-4 text-muted-foreground" aria-hidden />
-            )}
-            <Select value={active} onValueChange={(v) => void choose(v)} disabled={switching}>
-                <SelectTrigger className="h-8 w-[140px] md:w-[220px]" aria-label={t("nav.switchTenant")}>
-                    <SelectValue placeholder={t("nav.switchTenant")} />
-                </SelectTrigger>
-                <SelectContent position="popper" className="z-[1005]">
-                    {tenants.map((tenant) => (
-                        <SelectItem key={tenant.id} value={tenant.id} disabled={tenant.status !== undefined && tenant.status !== "active"}>
-                            {tenantName(tenant, language)}
-                            <span className="ml-2 text-xs text-muted-foreground">{t(`users.tenantRole.${tenant.role}`)}</span>
-                        </SelectItem>
-                    ))}
-                </SelectContent>
-            </Select>
-        </div>
-    );
+    return <TenantSwitcherMenu tenants={tenants} active={active} switching={switching} onChoose={(id) => void choose(id)} />;
 }
