@@ -68,18 +68,27 @@ func (s *State) Startupz(c fiber.Ctx) error {
 
 // Readyz is 200 when started, not draining and every checker passes.
 func (s *State) Readyz(c fiber.Ctx) error {
+	if err := s.Ready(c.Context()); err != nil {
+		return err
+	}
+	return httpx.JSON(c, http.StatusOK, map[string]string{"status": "ready"})
+}
+
+// Ready is the decision of Readyz without HTTP, for the processes that answer /readyz on
+// METRICS_ADDR (worker, scheduler): nil when ready, else a 503 unavailable *httpx.Error whose
+// details give the reason (draining, starting, or dependencies with the failed checks).
+func (s *State) Ready(ctx context.Context) error {
 	if s.draining.Load() {
 		return httpx.ErrUnavailable("draining").WithDetails(map[string]any{"reason": "draining"})
 	}
 	if !s.started.Load() {
 		return httpx.ErrUnavailable("starting").WithDetails(map[string]any{"reason": "starting"})
 	}
-	failed := s.run(c.Context())
-	if len(failed) > 0 {
+	if failed := s.run(ctx); len(failed) > 0 {
 		return httpx.ErrUnavailable("dependency check failed").
 			WithDetails(map[string]any{"reason": "dependencies", "checks": failed})
 	}
-	return httpx.JSON(c, http.StatusOK, map[string]string{"status": "ready"})
+	return nil
 }
 
 // run executes all checkers concurrently and returns name -> error text for

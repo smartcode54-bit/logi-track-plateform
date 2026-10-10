@@ -8,6 +8,7 @@
 GET /healthz internal,public
 GET /readyz internal
 GET /startupz internal
+POST /v1/admin/queues/:queue/replay internal
 USE /v1/auth internal,public
 POST /v1/auth/google internal,public
 GET /v1/auth/google/nonce internal,public
@@ -20,6 +21,8 @@ POST /v1/auth/password/reset internal,public
 POST /v1/auth/refresh internal,public
 POST /v1/auth/sse-ticket internal,public
 POST /v1/auth/tenant internal,public
+GET /v1/jobs internal
+GET /v1/jobs/:id internal
 GET /v1/me internal
 PATCH /v1/me internal
 USE /v1/me internal
