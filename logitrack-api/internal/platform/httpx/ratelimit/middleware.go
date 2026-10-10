@@ -63,7 +63,7 @@ func (l *Limiter) Middleware(enabled bool, rules ...Rule) fiber.Handler {
 			r.Limit = r.Bucket.Default
 		}
 		r.Cost = max(r.Cost, 1)
-		if r.By == nil || !r.Limit.valid() || r.Cost > r.Limit.Count {
+		if r.By == nil || !r.Limit.Valid() || r.Cost > r.Limit.Count {
 			panic(fmt.Sprintf("ratelimit: rule for bucket %q needs By and a valid limit (limit %s, cost %d)", r.Bucket.Name, r.Limit, r.Cost))
 		}
 	}

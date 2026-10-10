@@ -1,7 +1,8 @@
 //go:build integration
 
 // Integration tests of the auth service (Appendix C §C.9.3): PostgreSQL 18 with the full goose chain
-// (pgtest, logitrack_app login), a real Redis 7 container, and both HTTP listeners of the api process.
+// (pgtest, logitrack_app login), a real Redis 7 container (cachetest: the compose image and flags, a
+// logical database per harness), and both HTTP listeners of the api process.
 package auth_test
 
 import (
@@ -18,7 +19,6 @@ import (
 	"os"
 	"slices"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -28,16 +28,17 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/app"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/firebasescrypt"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/password"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/token"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache/cachetest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db/pgtest"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/migrate/migratetest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/migrations"
@@ -53,57 +54,11 @@ const (
 // login never re-hashes unless a test wants it to.
 var fast = password.Params{MemoryKB: 8 * 1024, Iterations: 1, Parallelism: 1}
 
-var (
-	redisOnce sync.Once
-	redisCtr  testcontainers.Container
-	redisAddr string
-	redisErr  error
-	prefixSeq atomic.Int64
-)
-
 func TestMain(m *testing.M) {
 	app.DrainGrace = 0
 	code := pgtest.Main(m)
-	if redisCtr != nil {
-		_ = testcontainers.TerminateContainer(redisCtr)
-	}
+	cachetest.TerminateShared()
 	os.Exit(code)
-}
-
-// sharedRedis starts one redis:7-alpine container per test binary (the compose image, R26).
-func sharedRedis(t *testing.T) string {
-	t.Helper()
-	redisOnce.Do(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-		defer cancel()
-		redisCtr, redisErr = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-			ContainerRequest: testcontainers.ContainerRequest{
-				Image:        "redis:7-alpine",
-				ExposedPorts: []string{"6379/tcp"},
-				Cmd:          []string{"redis-server", "--appendonly", "no", "--maxmemory-policy", "noeviction"},
-				WaitingFor:   wait.ForLog("Ready to accept connections"),
-			},
-			Started: true,
-		})
-		if redisErr != nil {
-			return
-		}
-		host, err := redisCtr.Host(ctx)
-		if err != nil {
-			redisErr = err
-			return
-		}
-		port, err := redisCtr.MappedPort(ctx, "6379/tcp")
-		if err != nil {
-			redisErr = err
-			return
-		}
-		redisAddr = host + ":" + port.Port()
-	})
-	if redisErr != nil {
-		t.Fatalf("redis: %v", redisErr)
-	}
-	return redisAddr
 }
 
 // clock is the service clock; tests move it forward instead of sleeping.
@@ -118,7 +73,10 @@ type harness struct {
 	pool     *pgxpool.Pool
 	etl      *pgx.Conn
 	rdb      *redis.Client
-	prefix   string
+	ks       cache.Keyspace
+	prefix   string               // ks.Prefix()
+	limiter  *ratelimit.Limiter   // the rate limiter of every service on rdb, as in the api process
+	limits   *prometheus.Registry // its metrics
 	svc      *auth.Service
 	keys     *token.KeySet
 	clock    *clock
@@ -147,9 +105,14 @@ func newHarness(t *testing.T, opts ...option) *harness {
 	if _, err := h.etl.Exec(ctx, `SELECT set_config('app.bypass_tenant', 'on', false)`); err != nil {
 		t.Fatal(err)
 	}
-	h.rdb = redis.NewClient(&redis.Options{Addr: sharedRedis(t)})
-	t.Cleanup(func() { _ = h.rdb.Close() })
-	h.prefix = fmt.Sprintf("lt:t%d:", prefixSeq.Add(1))
+	// A fresh logical database of the binary's redis:7-alpine container (compose image and flags) per
+	// harness, under the process keyspace lt:local:, which the shared rate limiter requires (R26).
+	h.rdb, h.ks = cachetest.NewClient(t)
+	h.prefix = h.ks.Prefix()
+	h.limiter, h.limits = ratelimit.New(h.rdb, h.ks, zerolog.Nop()), prometheus.NewRegistry()
+	if err := h.limiter.Register(h.limits); err != nil {
+		t.Fatal(err)
+	}
 	sp, err := firebasescrypt.ParseParams("jxspr8Ki0RYycVU8zykbdLGjFQ3McFUH0uiiTvC8pVMXAn210wjLNmdZJzxUECKbm0QsEmYUSDzZvpjeJ9WmXA==",
 		"Bw==", 8, 14)
 	if err != nil {
@@ -158,7 +121,7 @@ func newHarness(t *testing.T, opts ...option) *harness {
 	h.scrypt = *sp
 	cfg := auth.Config{
 		RefreshTTLWeb: 168 * time.Hour, RefreshTTLMobile: 2160 * time.Hour, PasswordResetTTL: 30 * time.Minute,
-		Scrypt: sp, RateLimitEnabled: true, LoginIP: auth.Limit{Count: 1000, Window: time.Minute},
+		Scrypt: sp, RateLimitEnabled: true, LoginIP: ratelimit.Limit{Count: 1000, Window: time.Minute},
 	}
 	for _, o := range opts {
 		o(&cfg)
@@ -166,6 +129,12 @@ func newHarness(t *testing.T, opts ...option) *harness {
 	h.svc, h.keys = h.service(cfg, h.rdb)
 	h.serve(h.svc)
 	return h
+}
+
+// redisOptions addresses the harness's Redis database, for a second client with its own hooks.
+func (h *harness) redisOptions() *redis.Options {
+	o := h.rdb.Options()
+	return &redis.Options{Addr: o.Addr, DB: o.DB}
 }
 
 // service builds an auth.Service on the harness database with its own key set and Redis client.
@@ -187,9 +156,13 @@ func (h *harness) service(cfg auth.Config, rdb redis.UniversalClient) (*auth.Ser
 	if err != nil {
 		h.t.Fatal(err)
 	}
+	limiter := h.limiter
+	if rdb != redis.UniversalClient(h.rdb) {
+		limiter = ratelimit.New(rdb, h.ks, zerolog.Nop()) // a replica with a Redis connection of its own
+	}
 	svc, err := auth.New(cfg, auth.Deps{
-		Pool: h.pool, Store: auth.NewStore(rdb, h.prefix), Keys: keys, Hasher: hasher, Policy: policy,
-		Log: zerolog.Nop(), Now: h.clock.Now,
+		Pool: h.pool, Store: auth.NewStore(rdb, h.prefix), Limiter: limiter,
+		Keys: keys, Hasher: hasher, Policy: policy, Log: zerolog.Nop(), Now: h.clock.Now,
 	})
 	if err != nil {
 		h.t.Fatal(err)

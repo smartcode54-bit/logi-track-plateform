@@ -3,6 +3,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -15,6 +16,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/firebasescrypt"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
 )
 
@@ -115,12 +117,9 @@ type Auth struct {
 	ScryptSaltSep      string        `env:"FIREBASE_SCRYPT_SALT_SEPARATOR"`
 	ScryptRounds       int           `env:"FIREBASE_SCRYPT_ROUNDS"`
 	ScryptMemCost      int           `env:"FIREBASE_SCRYPT_MEM_COST"`
-	RateLimitEnabled   bool          `env:"RATE_LIMIT_ENABLED" envDefault:"true"`
-	RateLimitLogin     string        `env:"RATE_LIMIT_LOGIN" envDefault:"10/1m"`
 
 	// Parsed by Validate.
-	Scrypt    *firebasescrypt.Params `env:"-"`
-	LoginRate auth.Limit             `env:"-"`
+	Scrypt *firebasescrypt.Params `env:"-"`
 }
 
 func (a *Auth) validate(errs *[]string) {
@@ -147,22 +146,6 @@ func (a *Auth) validate(errs *[]string) {
 		*errs = append(*errs, err.Error()+" (set all four FIREBASE_SCRYPT_* or none)")
 	}
 	a.Scrypt = sp
-	l, err := parseRate(a.RateLimitLogin)
-	if err != nil {
-		*errs = append(*errs, config.Invalidf("RATE_LIMIT_LOGIN", "must be count/window, e.g. 10/1m"))
-	}
-	a.LoginRate = l
-}
-
-// parseRate reads "count/window" (window a Go duration such as 1m or 15m).
-func parseRate(v string) (auth.Limit, error) {
-	c, w, ok := strings.Cut(strings.TrimSpace(v), "/")
-	n, err1 := strconv.Atoi(c)
-	d, err2 := time.ParseDuration(w)
-	if !ok || err1 != nil || err2 != nil || n < 1 || d <= 0 {
-		return auth.Limit{}, fmt.Errorf("invalid rate")
-	}
-	return auth.Limit{Count: n, Window: d}, nil
 }
 
 // APIConfig is the api process configuration.
@@ -172,6 +155,9 @@ type APIConfig struct {
 	Database
 	Redis
 	Auth
+	// RateLimit is RATE_LIMIT_ENABLED and RATE_LIMIT_{LOGIN,PUBLIC_FORMS,EVIDENCE}, parsed once by
+	// ratelimit.Config (Validate below) for the rate-limit middleware and the auth buckets alike.
+	RateLimit         ratelimit.Config
 	InternalAddr      string   `env:"API_INTERNAL_ADDR,required,notEmpty"`
 	PublicAddr        string   `env:"API_PUBLIC_ADDR,required,notEmpty"`
 	PublicRouteGroups []string `env:"PUBLIC_ROUTE_GROUPS" envSeparator:"," envDefault:"/v1/mobile,/v1/auth,/public/v1,/evidence,/healthz"`
@@ -189,6 +175,14 @@ func (c *APIConfig) Validate() error {
 	c.Database.validate(&errs)
 	c.Redis.validate(c.AppEnv, &errs)
 	c.Auth.validate(&errs)
+	if err := c.RateLimit.Validate(); err != nil {
+		var cerr *config.Error
+		if errors.As(err, &cerr) {
+			errs = append(errs, cerr.Invalid...)
+		} else {
+			errs = append(errs, err.Error())
+		}
+	}
 	for _, kv := range [][2]string{{"API_INTERNAL_ADDR", c.InternalAddr}, {"API_PUBLIC_ADDR", c.PublicAddr}} {
 		if err := checkAddr(kv[1]); err != nil {
 			errs = append(errs, config.Invalidf(kv[0], "%v", err))

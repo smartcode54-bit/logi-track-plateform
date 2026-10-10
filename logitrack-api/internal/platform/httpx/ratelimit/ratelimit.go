@@ -36,7 +36,7 @@ func ParseLimit(s string) (Limit, error) {
 	n, err1 := strconv.Atoi(strings.TrimSpace(c))
 	d, err2 := time.ParseDuration(strings.TrimSpace(w))
 	lim := Limit{Count: n, Window: d}
-	if !ok || err1 != nil || err2 != nil || !lim.valid() {
+	if !ok || err1 != nil || err2 != nil || !lim.Valid() {
 		return Limit{}, errors.New("ratelimit: want count/window, e.g. 10/1m")
 	}
 	return lim, nil
@@ -44,8 +44,10 @@ func ParseLimit(s string) (Limit, error) {
 
 func (l Limit) String() string { return strconv.Itoa(l.Count) + "/" + l.Window.String() }
 
-// valid: a positive count and an emission interval window/count of at least 1µs.
-func (l Limit) valid() bool {
+// Valid reports a positive count and an emission interval window/count of at least 1µs, the limits
+// AllowN accepts. Callers that take a limit from configuration check it when they are built, so it
+// never fails at request time (Config.Validate, Middleware, internal/auth).
+func (l Limit) Valid() bool {
 	return l.Count > 0 && l.Window > 0 && l.Window/time.Duration(l.Count) >= time.Microsecond
 }
 
@@ -101,7 +103,7 @@ func (l *Limiter) Allow(ctx context.Context, bucket, subject string, lim Limit) 
 // Errors come back with Allowed = true: a Redis failure, which the caller may fail open on (the
 // middleware does, Appendix B §B.6.3), or ErrInvalidLimit, a bug the caller must not treat as one.
 func (l *Limiter) AllowN(ctx context.Context, bucket, subject string, lim Limit, n int) (Decision, error) {
-	if !lim.valid() || n < 1 || n > lim.Count {
+	if !lim.Valid() || n < 1 || n > lim.Count {
 		return Decision{Allowed: true}, fmt.Errorf("%w: %s, cost %d, bucket %s", ErrInvalidLimit, lim, n, bucket)
 	}
 	emission := max(1, (lim.Window / time.Duration(lim.Count)).Microseconds())

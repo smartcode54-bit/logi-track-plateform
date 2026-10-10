@@ -20,10 +20,14 @@ import (
 //	auth:user:ver:{userId}     string users.auth_version, TTL 1 h, only ever raised
 //	auth:pwchg:{ticket}        string {"userId","authVersion"}, 10 min, single use (GETDEL)
 //	auth:sse:{ticket}          string {"userId","sessionId"}, 60 s, single use (GETDEL)
-//	rl:{bucket}:{subject}      fixed-window counters of the auth buckets (Appendix B §B.6.3)
+//	rl:login_fail:{sha256hex}  integer sign-in attempts of one email (full sha256 hex of the normalised
+//	                           address), window LockoutWindow (Appendix C §C.4.8, §C.4.12)
+//
+// The request buckets of the auth routes (login_ip, refresh_session, sse_ticket, forgot_*, reset_ip)
+// are GCRA state of the shared limiter (ratelimit.Limiter, Service.limit), not keys of this store.
 //
 // Not every key is a disposable cache. auth:rt entries are a pure index (Refresh always decides in
-// PostgreSQL) and the rl counters protect capacity, so losing them is harmless. auth:sess:revoked and
+// PostgreSQL), so losing them is harmless; losing a login_fail count ends a lockout early. auth:sess:revoked and
 // auth:user:ver are security-relevant until the access tokens they judge expire: while the version key
 // is cached, the revoked marker is the only per-request evidence of a session that ended without a
 // version bump, and a version raise that never lands keeps the old claims valid. Their post-commit
@@ -34,9 +38,10 @@ type Store struct {
 	prefix string
 }
 
-// callTimeout bounds every Redis call of the request path: an unreachable or slow Redis costs a
-// request at most this long before the caller falls back (revocation check), fails open (rate limits)
-// or answers 503 (tickets).
+// callTimeout bounds every Redis call of this store on the request path: an unreachable or slow Redis
+// costs a request at most this long before the caller falls back (revocation check), goes on without
+// the lockout state (logged) or answers 503 (tickets). The request buckets have the limiter's own
+// bound (300 ms, ratelimit.Limiter).
 const callTimeout = 500 * time.Millisecond
 
 // NewStore wraps a client; prefix is the REDIS_KEY_PREFIX value ("lt:{APP_ENV}:").
@@ -79,16 +84,6 @@ if (not cur) or v > cur then
 end
 redis.call('PEXPIRE', KEYS[1], ARGV[2])
 return cur`)
-
-// hitScript is a fixed-window counter: the first hit opens the window.
-var hitScript = redis.NewScript(`
-local n = redis.call('INCR', KEYS[1])
-local ttl = redis.call('PTTL', KEYS[1])
-if n == 1 or ttl < 0 then
-  redis.call('PEXPIRE', KEYS[1], ARGV[1])
-  ttl = tonumber(ARGV[1])
-end
-return {n, ttl}`)
 
 // reserveScript counts a sign-in attempt before its password is checked, so concurrent attempts cannot
 // all pass a lockout check made before any of them failed: the first attempt opens the window and the
@@ -262,21 +257,6 @@ func (s *Store) takeTicket(ctx context.Context, kind, ticket string, v any) (boo
 		return false, err
 	}
 	return json.Unmarshal(b, v) == nil, nil
-}
-
-// hit counts one request in rl:{bucket}:{subject} and returns the count in the current window and the
-// time until the window closes.
-func (s *Store) hit(ctx context.Context, bucket, subject string, window time.Duration) (int64, time.Duration, error) {
-	ctx, cancel := bound(ctx)
-	defer cancel()
-	res, err := hitScript.Run(ctx, s.rdb, []string{s.key("rl", bucket, subject)}, window.Milliseconds()).Int64Slice()
-	if err != nil {
-		return 0, 0, err
-	}
-	if len(res) != 2 {
-		return 0, 0, errors.New("auth: unexpected rate-limit reply")
-	}
-	return res[0], time.Duration(res[1]) * time.Millisecond, nil
 }
 
 // reserveAttempt counts one sign-in attempt for subject (rl:login_fail) and returns the attempts in the

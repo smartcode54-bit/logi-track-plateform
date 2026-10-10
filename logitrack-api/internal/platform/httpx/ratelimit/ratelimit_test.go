@@ -44,7 +44,7 @@ func TestBucketCatalog(t *testing.T) {
 		}
 		names[b.Name] = true
 		noDefault := b.Name == Webhook.Name || b.Name == LoginFail.Name
-		if noDefault == b.Default.valid() {
+		if noDefault == b.Default.Valid() {
 			t.Errorf("%s: default %v (only webhook and login_fail have none)", b.Name, b.Default)
 		}
 	}
