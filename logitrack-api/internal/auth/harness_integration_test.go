@@ -83,11 +83,19 @@ type harness struct {
 	internal string
 	public   string
 	scrypt   firebasescrypt.Params
+	google   auth.GoogleVerifier // nil: Google sign-in off
 }
 
 type option func(*auth.Config)
 
 func newHarness(t *testing.T, opts ...option) *harness {
+	t.Helper()
+	return newHarnessWith(t, nil, opts...)
+}
+
+// newHarnessWith builds the harness with the Google verifier that google returns for the harness clock
+// (google_integration_test.go); a nil google leaves Google sign-in off.
+func newHarnessWith(t *testing.T, google func(now func() time.Time) auth.GoogleVerifier, opts ...option) *harness {
 	t.Helper()
 	ctx := context.Background()
 	d := pgtest.NewDatabase(t)
@@ -95,6 +103,9 @@ func newHarness(t *testing.T, opts ...option) *harness {
 		t.Fatal(err)
 	}
 	h := &harness{t: t, d: d, pool: d.Pool(t, db.RoleApp), clock: &clock{}}
+	if google != nil {
+		h.google = google(h.clock.Now)
+	}
 	var err error
 	if h.etl, err = pgx.Connect(ctx, d.URL(db.RoleETL)); err != nil {
 		t.Fatal(err)
@@ -162,7 +173,7 @@ func (h *harness) service(cfg auth.Config, rdb redis.UniversalClient) (*auth.Ser
 	}
 	svc, err := auth.New(cfg, auth.Deps{
 		Pool: h.pool, Store: auth.NewStore(rdb, h.prefix), Limiter: limiter,
-		Keys: keys, Hasher: hasher, Policy: policy, Log: zerolog.Nop(), Now: h.clock.Now,
+		Keys: keys, Hasher: hasher, Policy: policy, Google: h.google, Log: zerolog.Nop(), Now: h.clock.Now,
 	})
 	if err != nil {
 		h.t.Fatal(err)

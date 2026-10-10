@@ -9,6 +9,8 @@ GET /healthz internal,public
 GET /readyz internal
 GET /startupz internal
 USE /v1/auth internal,public
+POST /v1/auth/google internal,public
+GET /v1/auth/google/nonce internal,public
 POST /v1/auth/login internal,public
 POST /v1/auth/logout internal,public
 POST /v1/auth/logout-all internal,public

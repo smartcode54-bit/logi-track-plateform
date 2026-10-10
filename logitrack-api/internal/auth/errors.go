@@ -18,6 +18,7 @@ const (
 	CodeInvalidToken           = "invalid_token"
 	CodeInvalidCredentials     = "invalid_credentials"
 	CodeAccountDisabled        = "account_disabled"
+	CodeNoAccount              = "no_account"
 	CodeDriverProfileRequired  = "driver_profile_required"
 	CodePasswordChangeRequired = "password_change_required"
 	CodePermissionDenied       = "permission_denied"
@@ -49,6 +50,11 @@ func errInvalidCredentials() *httpx.Error {
 
 func errAccountDisabled() *httpx.Error {
 	return httpx.NewError(http.StatusForbidden, CodeAccountDisabled, "account disabled")
+}
+
+// errNoAccount answers a Google sign-in that resolves to no usable user: no self-signup (C.4.10).
+func errNoAccount() *httpx.Error {
+	return httpx.NewError(http.StatusForbidden, CodeNoAccount, "no LogiTrack account is linked to this Google account")
 }
 
 func errDriverProfileRequired() *httpx.Error {
