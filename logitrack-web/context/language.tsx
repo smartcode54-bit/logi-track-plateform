@@ -1,8 +1,17 @@
 "use client";
 
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
-import { DEFAULT_LANGUAGE, isLanguage, loadDictionary, type Dictionary, type Language } from "./locales/load";
+import {
+    DEFAULT_LANGUAGE,
+    isLanguage,
+    loadDictionary,
+    loadNamespace,
+    type Dictionary,
+    type Language,
+    type SplitNamespace,
+} from "./locales/load";
+import { namespacesForPath } from "./locales/routes";
 
 type TParams = Record<string, string | number>;
 
@@ -13,6 +22,17 @@ type LanguageContextType = {
 };
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
+
+type NamespaceStatus = "ready" | "loading" | "failed";
+
+type NamespaceContextType = {
+    /** Marks `names` as needed while the caller is mounted; returns the release function. */
+    requireNamespaces: (names: readonly SplitNamespace[]) => () => void;
+    loaded: ReadonlySet<SplitNamespace>;
+    failed: ReadonlySet<SplitNamespace>;
+};
+
+const NamespaceContext = createContext<NamespaceContextType | undefined>(undefined);
 
 const STORAGE_KEY = "language";
 
@@ -25,10 +45,13 @@ function storedLanguage(): Language {
     }
 }
 
-// Start fetching the stored language's dictionary as soon as this module runs in the browser, in
-// parallel with hydration instead of after the provider's first effect. Failures surface there.
+// Start fetching the stored language's dictionary, and the split namespaces of the route being
+// opened, as soon as this module runs in the browser: in parallel with hydration instead of after the
+// provider's first effect. Failures surface there.
 if (typeof window !== "undefined") {
-    loadDictionary(storedLanguage()).catch(() => undefined);
+    const language = storedLanguage();
+    loadDictionary(language).catch(() => undefined);
+    for (const ns of namespacesForPath(window.location.pathname)) loadNamespace(language, ns).catch(() => undefined);
 }
 
 function translate(dictionary: Dictionary, key: string, fallbackOrParams?: string | TParams): string {
@@ -72,27 +95,75 @@ function LanguageLoadError() {
     );
 }
 
+type Loaded = {
+    language: Language;
+    base: Dictionary;
+    /** Split namespaces merged for `language` (developer-spec.md §10.11 step 2). */
+    namespaces: Partial<Record<SplitNamespace, Dictionary>>;
+};
+
+const EMPTY_SET: ReadonlySet<SplitNamespace> = new Set();
+
 /**
  * Translation context. Only the active language's dictionary is ever loaded (`./locales/load.ts`,
  * developer-spec.md §10.11): the stored preference, else English, then the other language once the
  * user toggles. Children render once that dictionary is in, so the server and the first client
  * render show the loading screen and hydration never depends on the stored language.
+ *
+ * The base dictionary leaves out the split namespaces (`accounting`, `driverMonitor`); the route
+ * groups that render them ask for them through `useLocaleNamespaces` (the `/app` layout's
+ * `RouteNamespaces`), and a language toggle loads the new language's base and the namespaces in use
+ * before switching, so the screen never shows a raw key.
+ *
+ * `t` changes only when the language or the merged dictionary does (TW4): effects must not list it as
+ * a dependency (a toggle would re-run them); callbacks read it through `useEffectEvent`.
  */
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
-    const [state, setState] = useState<{ language: Language; dictionary: Dictionary } | null>(null);
+    const [state, setState] = useState<Loaded | null>(null);
     // null: the stored preference. `fallback` marks the default language tried after it failed.
     const [choice, setChoice] = useState<{ language: Language; fallback: boolean } | null>(null);
     const [failed, setFailed] = useState(false);
+    const [nsFailed, setNsFailed] = useState<ReadonlySet<SplitNamespace>>(EMPTY_SET);
 
-    // One load per choice. The cleanup drops a load that a newer choice overtook, so the language
-    // asked for last always wins, and the current language stays on screen until the new one is in.
+    // Namespaces wanted by mounted route groups, reference-counted; `active` is their sorted list.
+    const counts = useRef(new Map<SplitNamespace, number>());
+    const [active, setActive] = useState<readonly SplitNamespace[]>([]);
+
+    const requireNamespaces = useCallback((names: readonly SplitNamespace[]) => {
+        const publish = () => setActive([...counts.current.keys()].sort());
+        for (const n of names) counts.current.set(n, (counts.current.get(n) ?? 0) + 1);
+        publish();
+        return () => {
+            for (const n of names) {
+                const c = (counts.current.get(n) ?? 0) - 1;
+                if (c > 0) counts.current.set(n, c);
+                else counts.current.delete(n);
+            }
+            publish();
+        };
+    }, []);
+
+    // One load per choice: the base dictionary and the namespaces in use, switched in together. The
+    // cleanup drops a load that a newer choice overtook, so the language asked for last always wins,
+    // and the current language stays on screen until the new one is in.
     useEffect(() => {
         const language = choice?.language ?? storedLanguage();
+        // Child effects (the route group's request) run before this one, so the map is current.
+        const wanted = [...counts.current.keys()];
         let current = true;
-        loadDictionary(language).then(
-            (dictionary) => {
-                // Re-choosing the current language keeps the same value, so `t` stays the same too.
-                if (current) setState((prev) => (prev?.dictionary === dictionary ? prev : { language, dictionary }));
+        Promise.all([
+            loadDictionary(language),
+            Promise.all(wanted.map((ns) => loadNamespace(language, ns).then((d) => [ns, d] as const, () => undefined))),
+        ]).then(
+            ([base, nsEntries]) => {
+                if (!current) return;
+                setState((prev) => {
+                    // Re-choosing the current language keeps the same value, so `t` stays the same too.
+                    if (prev?.language === language && prev.base === base) return prev;
+                    const namespaces: Loaded["namespaces"] = {};
+                    for (const entry of nsEntries) if (entry) namespaces[entry[0]] = entry[1];
+                    return { language, base, namespaces };
+                });
             },
             (error) => {
                 if (!current) return;
@@ -110,6 +181,35 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
         };
     }, [choice]);
 
+    // Namespaces a route group needs that the current language has not merged yet.
+    const language = state?.language;
+    const missingKey = state ? active.filter((ns) => !state.namespaces[ns]).join(",") : "";
+    useEffect(() => {
+        if (!language || missingKey === "") return;
+        let current = true;
+        for (const ns of missingKey.split(",") as SplitNamespace[]) {
+            loadNamespace(language, ns).then(
+                (dictionary) => {
+                    if (!current) return;
+                    setState((prev) =>
+                        prev && prev.language === language && !prev.namespaces[ns]
+                            ? { ...prev, namespaces: { ...prev.namespaces, [ns]: dictionary } }
+                            : prev
+                    );
+                    setNsFailed((prev) => (prev.has(ns) ? new Set([...prev].filter((n) => n !== ns)) : prev));
+                },
+                (error) => {
+                    if (!current) return;
+                    console.error(`[language] loading the "${ns}" namespace of "${language}" failed`, error);
+                    setNsFailed((prev) => (prev.has(ns) ? prev : new Set([...prev, ns])));
+                }
+            );
+        }
+        return () => {
+            current = false;
+        };
+    }, [language, missingKey]);
+
     const setLanguage = useCallback((lang: Language) => {
         try {
             window.localStorage.setItem(STORAGE_KEY, lang);
@@ -119,18 +219,37 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
         setChoice({ language: lang, fallback: false });
     }, []);
 
-    const value = useMemo<LanguageContextType | null>(() => {
+    const messages = useMemo<Dictionary | null>(() => {
         if (!state) return null;
-        const { language, dictionary } = state;
-        return {
-            language,
-            setLanguage,
-            t: (key, fallbackOrParams) => translate(dictionary, key, fallbackOrParams),
-        };
-    }, [state, setLanguage]);
+        const parts = Object.values(state.namespaces);
+        return parts.length === 0 ? state.base : Object.assign({}, state.base, ...parts);
+    }, [state]);
+
+    const t = useCallback<LanguageContextType["t"]>(
+        (key, fallbackOrParams) => translate(messages ?? {}, key, fallbackOrParams),
+        [messages]
+    );
+
+    const value = useMemo<LanguageContextType | null>(
+        () => (language ? { language, setLanguage, t } : null),
+        [language, setLanguage, t]
+    );
+
+    const loaded = useMemo<ReadonlySet<SplitNamespace>>(
+        () => (state ? new Set(Object.keys(state.namespaces) as SplitNamespace[]) : EMPTY_SET),
+        [state]
+    );
+    const nsValue = useMemo<NamespaceContextType>(
+        () => ({ requireNamespaces, loaded, failed: nsFailed }),
+        [requireNamespaces, loaded, nsFailed]
+    );
 
     if (!value) return failed ? <LanguageLoadError /> : <LanguageLoading />;
-    return <LanguageContext.Provider value={value}>{children}</LanguageContext.Provider>;
+    return (
+        <LanguageContext.Provider value={value}>
+            <NamespaceContext.Provider value={nsValue}>{children}</NamespaceContext.Provider>
+        </LanguageContext.Provider>
+    );
 }
 
 export function useLanguage() {
@@ -139,4 +258,24 @@ export function useLanguage() {
         throw new Error("useLanguage must be used within a LanguageProvider");
     }
     return context;
+}
+
+/**
+ * Asks for the split namespaces `names` while the caller is mounted (a route group, see
+ * `./locales/routes.ts`) and reports whether the active language has them: `ready` once merged into
+ * `t`, `failed` when a chunk could not be fetched.
+ */
+export function useLocaleNamespaces(names: readonly SplitNamespace[]): NamespaceStatus {
+    const context = useContext(NamespaceContext);
+    if (context === undefined) {
+        throw new Error("useLocaleNamespaces must be used within a LanguageProvider");
+    }
+    const { requireNamespaces, loaded, failed } = context;
+    const key = names.join(",");
+    useEffect(() => {
+        if (key === "") return;
+        return requireNamespaces(key.split(",") as SplitNamespace[]);
+    }, [key, requireNamespaces]);
+    if (names.every((n) => loaded.has(n))) return "ready";
+    return names.some((n) => failed.has(n)) ? "failed" : "loading";
 }

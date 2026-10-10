@@ -9,6 +9,8 @@ import { LazyDialog, LazyDialogLoading } from "@/components/lazy-dialog";
 import { LineHaulTaskDialog } from "./task-dialog";
 import { useLanguage } from "@/context/language";
 import { useCustomerScope } from "@/hooks/useCustomerScope";
+import { useHubs } from "@/features/hubs/api/useHubs";
+import { selectHubRows, type HubRow } from "@/features/hubs/api/selectors";
 import { PagePermissionGuard } from "@/components/page-permission-guard";
 import { CAPABILITIES } from "@/lib/capabilities";
 
@@ -78,12 +80,17 @@ function toDate(val: unknown): Date | null {
     return null;
 }
 
+const NO_HUB_ROWS: HubRow[] = [];
+
 export default function LineHaulPage() {
     const { t } = useLanguage();
     const { customerScopeId, isCustomer } = useCustomerScope();
     const [date, setDate] = useState<Date | undefined>(new Date());
     const [tasks, setTasks] = useState<FirstMileTask[]>([]);
-    const [hubs, setHubs] = useState<Record<string, any>[]>([]);
+    // `['hubs']` from the tab's cache (TW4): read once per stale time across the boards, the monitor
+    // and billing; the refresh button refetches it.
+    const { data: hubRows, refetch: refetchHubs } = useHubs(selectHubRows);
+    const hubs: Record<string, any>[] = hubRows ?? NO_HUB_ROWS;
     const [selectedHub, setSelectedHub] = useState<string>("all");
     const [selectedSOC, setSelectedSOC] = useState<string>("all");
 
@@ -99,35 +106,6 @@ export default function LineHaulPage() {
     // Resolve helper Auth UIDs → names for the open task detail
     const helperNames = useDriverNamesByAuthId(detailTask?.helperDriverIds);
 
-    // Fetch Hubs directly from Firestore
-    const fetchHubs = async () => {
-        try {
-            const querySnapshot = await getDocs(collection(db, "hubs"));
-            const hubList = querySnapshot.docs.map(doc => {
-                const data = doc.data();
-                return {
-                    'Hub Code': data.source_id ?? data.hubId ?? data.hubCode,
-                    'Hub Name': data.source_name_en ?? data.hubName,
-                    'Hub Name Th':
-                        (data.source_name_th ?? data.hubTHName ?? data.hub_th_name ?? data.station_name_th ?? "") ||
-                        undefined,
-                    // J&T hubs keep their real name on the linked customer — fallback for display (ADR 0019 follow-up)
-                    linkedCustomerName: data.linkedCustomerName,
-                    lat: data.latitude ?? data.lat,
-                    lng: data.longitude ?? data.lng,
-                    source: 'custom',
-                    id: doc.id
-                };
-            });
-            setHubs(hubList);
-        } catch (err) {
-            console.error("Failed to fetch hubs", err);
-        }
-    };
-
-    useEffect(() => {
-        fetchHubs();
-    }, []);
 
     // When task detail opens, fetch linked trip_record (by taskId)
     useEffect(() => {
@@ -296,7 +274,7 @@ export default function LineHaulPage() {
                     </p>
                 </div>
                 <div className="flex gap-3">
-                    <Button variant="outline" size="icon" onClick={() => fetchHubs()} aria-label="Refresh">
+                    <Button variant="outline" size="icon" onClick={() => void refetchHubs()} aria-label="Refresh">
                         <RefreshCw className="h-4 w-4" />
                     </Button>
                     {!isCustomer && (

@@ -24,14 +24,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HubDialog } from "../first-mile/hub-dialog";
 import { LazyDialog, LazyDialogLoading } from "@/components/lazy-dialog";
-import { collection, getDocs, doc, getDoc } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "@/firebase/client";
 import { useAuth } from "@/context/auth";
 import { useLanguage } from "@/context/language";
 import { COLLECTIONS } from "@/lib/collections";
 import type { CustomerLinkKind, Hub, StationType } from "@/validate/hubSchema";
-import { getCustomers, type CustomerData } from "@/features/customers/api/customers";
+import type { CustomerData } from "@/features/customers/api/customers";
+import { useCustomers } from "@/features/customers/api/useCustomers";
+import { hubsQueryOptions, type HubDTO } from "@/features/hubs/api/hubs";
+import { hubRecord } from "@/features/hubs/api/selectors";
+import { useQuery } from "@tanstack/react-query";
 import {
     Select,
     SelectContent,
@@ -111,13 +115,19 @@ function mapDocToSourceRow(doc: { id: string; data: Record<string, unknown> }): 
     };
 }
 
+const NO_CUSTOMERS: CustomerData[] = [];
+const NO_SOURCES: SourceRow[] = [];
+
+/** `['hubs']` -> the table rows (customer code and name are joined in the component). */
+function selectSourceRowsBase(hubs: HubDTO[]): SourceRow[] {
+    return hubs.map((hub) => mapDocToSourceRow({ id: hub.id, data: hubRecord(hub) }));
+}
+
 export default function SourcesPage() {
     const { t } = useLanguage();
     const auth = useAuth();
     const isAdmin = auth?.customClaims?.admin === true;
-    const [sources, setSources] = useState<SourceRow[]>([]);
     const [search, setSearch] = useState("");
-    const [loading, setLoading] = useState(true);
     const [editOpen, setEditOpen] = useState(false);
     const [editSource, setEditSource] = useState<SourceRow | null>(null);
     /** คลิกแถวตามราง → แผนที่บินไปที่พิกัดและแสดง tooltip */
@@ -134,40 +144,25 @@ export default function SourcesPage() {
     const [showOnlyNew, setShowOnlyNew] = useState(false);
     /** ลูกค้าใน Dropdown — "all" = ไม่กรอง | "__unlinked__" = ยังไม่ผูกลูกค้า */
     const [customerFilterId, setCustomerFilterId] = useState<string>("all");
-    const [customerOptions, setCustomerOptions] = useState<CustomerData[]>([]);
+    // `['hubs']` and `['customers']` (TW4). This page edits hubs, so it refetches the list whenever it
+    // opens instead of trusting a copy up to 10 minutes old; each save invalidates `['hubs']`.
+    const hubsQuery = useQuery({ ...hubsQueryOptions, select: selectSourceRowsBase, refetchOnMount: "always" });
+    const { data: customerList } = useCustomers();
+    const customerOptions = customerList ?? NO_CUSTOMERS;
+    const loading = hubsQuery.isFetching;
+    const sources = useMemo<SourceRow[]>(() => {
+        const customerById = new Map(customerOptions.map((c) => [c.id, c]));
+        return (hubsQuery.data ?? NO_SOURCES).map((row) => {
+            const c = row.linkedCustomerId ? customerById.get(row.linkedCustomerId) : undefined;
+            return { ...row, linkedCustomerCode: c?.code, linkedCustomerName: c?.name };
+        });
+    }, [hubsQuery.data, customerOptions]);
+    // Manual refresh; the hub and import dialogs invalidate `['hubs']` themselves after a save.
+    const refreshHubs = () => void hubsQuery.refetch();
 
     /** จำนวนแถวต่อหน้า fix ที่ 10 */
     const itemsPerPage = 10;
 
-    const fetchHubs = async () => {
-        setLoading(true);
-        try {
-            const [querySnapshot, customers] = await Promise.all([
-                getDocs(collection(db, COLLECTIONS.HUBS)),
-                getCustomers(),
-            ]);
-            setCustomerOptions(customers);
-            const customerById = new Map(customers.map((c) => [c.id, c]));
-            const list: SourceRow[] = querySnapshot.docs.map((d) => {
-                const row = mapDocToSourceRow({ id: d.id, data: d.data() as Record<string, unknown> });
-                const c = row.linkedCustomerId ? customerById.get(row.linkedCustomerId) : undefined;
-                return {
-                    ...row,
-                    linkedCustomerCode: c?.code,
-                    linkedCustomerName: c?.name,
-                };
-            });
-            setSources(list);
-        } catch (error) {
-            console.error("Error fetching sources:", error);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    useEffect(() => {
-        fetchHubs();
-    }, []);
 
     const fetchLastCalculated = async () => {
         try {
@@ -343,7 +338,7 @@ export default function SourcesPage() {
                         variant="outline"
                         size="sm"
                         className="h-9 w-9 shrink-0 p-0"
-                        onClick={() => fetchHubs()}
+                        onClick={refreshHubs}
                         disabled={loading}
                         aria-label={t("firstMile.sources.refresh")}
                     >
@@ -383,7 +378,7 @@ export default function SourcesPage() {
                             </Button>
                         }
                     >
-                        {(dialog) => <PickupLocationImportDialog {...dialog} onSuccess={fetchHubs} />}
+                        {(dialog) => <PickupLocationImportDialog {...dialog} />}
                     </LazyDialog>
                     <HubDialog
                         trigger={
@@ -392,7 +387,6 @@ export default function SourcesPage() {
                                 {t("firstMile.sources.newSource")}
                             </Button>
                         }
-                        onSuccess={fetchHubs}
                     />
                     <HubDialog
                         open={editOpen}
@@ -412,7 +406,6 @@ export default function SourcesPage() {
                         } : undefined}
                         documentId={editSource?.id}
                         onSuccess={() => {
-                            fetchHubs();
                             setEditOpen(false);
                             setEditSource(null);
                         }}
@@ -484,7 +477,7 @@ export default function SourcesPage() {
                                     variant="outline"
                                     size="sm"
                                     className="h-8 shrink-0"
-                                    onClick={() => fetchHubs()}
+                                    onClick={refreshHubs}
                                     disabled={loading}
                                     aria-label={t("firstMile.sources.refresh")}
                                 >

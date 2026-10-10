@@ -81,7 +81,10 @@ export const webFlagsQueryOptions = queryOptions({
  */
 export async function resolveDomainSource(client: QueryClient, domain: WebDomain): Promise<DomainSource> {
     try {
-        const flags = await client.ensureQueryData({ ...webFlagsQueryOptions, revalidateIfStale: true });
+        // No retries here (TW4): a domain fetch must not wait out the client's network/5xx retry
+        // policy for the flags; on failure it uses the last known flags or Firestore at once, and the
+        // 60 s poll (useWebFlagsSync) keeps retrying in the background.
+        const flags = await client.ensureQueryData({ ...webFlagsQueryOptions, revalidateIfStale: true, retry: false });
         return flags.domains[domain];
     } catch {
         return client.getQueryData<WebFlags>(WEB_FLAGS_KEY)?.domains[domain] ?? "firebase";

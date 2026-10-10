@@ -4,6 +4,7 @@ import {
     entrypointChain,
     gateViolations,
     isForbiddenPackage,
+    localeFileOfModulePath,
     localeOfModulePath,
     packageOfModulePath,
     routeOfEntrypoint,
@@ -118,5 +119,33 @@ describe("buildReport and the gate", () => {
     it("renders a Markdown row per route", () => {
         const md = toMarkdown(report, undefined);
         expect(md).toContain("| /app/income | 0.3 KB | 0.9 KB | 4 | xlsx 0.1 KB | none |");
+    });
+});
+
+describe("split locale namespaces (TW4, developer-spec.md §10.11 step 2)", () => {
+    const locale = (label: string, files: string[]) =>
+        chunk(label, 10, [], files.map((f) => mod(`./context/locales/${f}.ts`, 1)));
+
+    it("names the dictionary file of a module path", () => {
+        expect(localeFileOfModulePath("./context/locales/th/accounting.ts")).toBe("th/accounting");
+        expect(localeFileOfModulePath("./context/language.tsx + 43 modules (concatenated)/context/locales/en/common.ts")).toBe("en/common");
+        expect(localeFileOfModulePath("./context/locales/load.ts")).toBeUndefined();
+    });
+
+    it("lists the locale chunks and passes when the base chunks leave the split namespaces out", () => {
+        const report = buildReport([
+            locale("static/chunks/locale-en.78cfc6bc765aa383.js", ["en/index", "en/common", "en/imagePreview"]),
+            locale("static/chunks/locale-en-accounting.js", ["en/accounting"]),
+            locale("static/chunks/locale-en-driverMonitor.js", ["en/driverMonitor"]),
+        ]);
+        expect(report.localeChunks?.["static/chunks/locale-en.js"]?.files).toEqual(["en/common", "en/imagePreview", "en/index"]);
+        expect(gateViolations(report, undefined)).toEqual([]);
+    });
+
+    it("flags a base dictionary chunk that carries a split namespace", () => {
+        const report = buildReport([locale("static/chunks/locale-th.js", ["th/index", "th/common", "th/accounting"])]);
+        expect(gateViolations(report, undefined)).toEqual([
+            "static/chunks/locale-th.js: the th base dictionary chunk holds accounting (load per route group)",
+        ]);
     });
 });

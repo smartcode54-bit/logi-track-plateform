@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { format } from "date-fns";
@@ -11,7 +11,19 @@ import { taskSchema as firstMileTaskSchema, Task as FirstMileTask, normalizeSocI
 import { hubSourceIdHasSpxSuffix } from "@/validate/hubSchema";
 import { Driver } from "@/validate/driverSchema";
 import { taskService, TaskTruck } from "../services/taskService";
-import { getCustomers, CustomerData } from "@/features/customers/api/customers";
+import type { CustomerData } from "@/features/customers/api/customers";
+import { useCustomers } from "@/features/customers/api/useCustomers";
+import { useHubs } from "@/features/hubs/api/useHubs";
+import { selectHubRows } from "@/features/hubs/api/selectors";
+
+const NO_ROWS: Record<string, any>[] = [];
+
+/** Task boards pick a source from hubs: SOC-like and return-center stations are destinations. */
+function isHubStation(st: string): boolean {
+    const v = String(st ?? "").trim().toUpperCase();
+    if (v === "SOC" || v === "RETURN_CENTER" || v.startsWith("SOC")) return false;
+    return true;
+}
 
 export function useFirstMileTask({
     mode,
@@ -26,9 +38,6 @@ export function useFirstMileTask({
     setIsOpen: (open: boolean) => void;
     onSuccess?: () => void;
 }) {
-    const [hubs, setHubs] = useState<Record<string, any>[]>([]);
-    const [hubOptions, setHubOptions] = useState<Record<string, any>[]>([]);
-    const [socOptions, setSocOptions] = useState<{ source_id: string; name: string }[]>([]);
     const [trucks, setTrucks] = useState<TaskTruck[]>([]);
     const [drivers, setDrivers] = useState<Driver[]>([]);
     const [loading, setLoading] = useState(false);
@@ -36,7 +45,30 @@ export function useFirstMileTask({
     const [hubSearch, setHubSearch] = useState("");
     const [activeTaskDriverIds, setActiveTaskDriverIds] = useState<Set<string>>(new Set());
     const [newCheckInPhotoFile, setNewCheckInPhotoFile] = useState<File | null>(null);
-    const [customersById, setCustomersById] = useState<Map<string, CustomerData>>(new Map());
+    // Master data from the tab's cache (`['hubs']`, `['customers']`, TW4): no read of its own when
+    // the board already loaded them.
+    const { data: hubRows } = useHubs(selectHubRows);
+    const hubs = (hubRows ?? NO_ROWS) as Record<string, any>[];
+    const hubOptions = useMemo(() => hubs.filter((h) => isHubStation(h.station_type ?? "")), [hubs]);
+    const socOptions = useMemo<{ source_id: string; name: string }[]>(() => {
+        return hubs
+            .filter((h) => {
+                const st = String(h.station_type ?? "").trim().toUpperCase();
+                const code = String(h["Hub Code"] ?? "").trim();
+                return st.startsWith("SOC") && !/^\d/.test(code);
+            })
+            .map((h) => ({
+                source_id: (h["Hub Code"] ?? "").toString(),
+                name: (h["Hub Name Th"] ?? h["Hub Name"] ?? h["Hub Code"] ?? "").toString(),
+            }))
+            .filter((s) => s.source_id.length > 0);
+    }, [hubs]);
+    const { data: customers } = useCustomers();
+    const customersById = useMemo(() => {
+        const customerMap = new Map<string, CustomerData>();
+        (customers ?? []).forEach((customer) => customerMap.set(customer.id, customer));
+        return customerMap;
+    }, [customers]);
 
     const form = useForm<FirstMileTask>({
         resolver: zodResolver(firstMileTaskSchema as any),
@@ -66,38 +98,9 @@ export function useFirstMileTask({
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const hubList = await taskService.fetchHubs();
-                setHubs(hubList);
-
-                const isHub = (st: string) => {
-                    const v = String(st ?? "").trim().toUpperCase();
-                    if (v === "SOC" || v === "RETURN_CENTER" || v.startsWith("SOC")) return false;
-                    return true;
-                };
-                setHubOptions(hubList.filter((h: any) => isHub(h.station_type ?? "")));
-
-                const socList = hubList
-                    .filter((h: any) => {
-                        const st = String(h.station_type ?? "").trim().toUpperCase();
-                        const code = String(h["Hub Code"] ?? "").trim();
-                        return st.startsWith("SOC") && !/^\d/.test(code);
-                    })
-                    .map((h: any) => ({
-                        source_id: (h["Hub Code"] ?? "").toString(),
-                        name: (h["Hub Name Th"] ?? h["Hub Name"] ?? h["Hub Code"] ?? "").toString(),
-                    }))
-                    .filter((s: any) => s.source_id.length > 0);
-                setSocOptions(socList);
-
-                const truckList = await taskService.fetchTrucks();
+                const [truckList, driverList] = await Promise.all([taskService.fetchTrucks(), taskService.fetchDrivers()]);
                 setTrucks(truckList);
-
-                const driverList = await taskService.fetchDrivers();
                 setDrivers(driverList);
-                const customers = await getCustomers();
-                const customerMap = new Map<string, CustomerData>();
-                customers.forEach((customer) => customerMap.set(customer.id, customer));
-                setCustomersById(customerMap);
             } catch (err) {
                 console.error("Failed to fetch data", err);
             }

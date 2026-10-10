@@ -2,6 +2,8 @@ import { collection, getDocs, query, where, getCountFromServer } from "firebase/
 import { db } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { Driver } from "@/validate/driverSchema";
+import { fetchHubsCached } from "@/features/hubs/api/hubs";
+import { selectHubRows, type HubRow } from "@/features/hubs/api/selectors";
 
 /** The subset of a trucks/{id} doc the task dialogs need to pick a vehicle for a job. */
 export interface TaskTruck {
@@ -16,26 +18,14 @@ export interface TaskTruck {
 }
 
 export const taskService = {
-  async fetchHubs() {
-    const snapshot = await getDocs(collection(db, "hubs"));
-    return snapshot.docs.map(doc => {
-      const data = doc.data();
-      return {
-        'Hub Code': data.source_id ?? data.hubId ?? data.hubCode,
-        'Hub Name': data.source_name_en ?? data.hubName,
-        'Hub Name Th':
-          (data.source_name_th ?? data.hubTHName ?? data.hub_th_name ?? data.station_name_th ?? "") || undefined,
-        station_type: data.station_type ?? "",
-        linkedCustomerId: data.linkedCustomerId ?? "",
-        customerLinkKind: data.customerLinkKind ?? "",
-        lat: data.latitude ?? data.lat,
-        lng: data.longitude ?? data.lng,
-        source: 'custom',
-        id: doc.id
-      };
-    });
+  /**
+   * Hub rows for the task dialogs and import dialogs, from the tab's `['hubs']` cache (TW4): one
+   * read of the collection per stale time for every caller (features/hubs/api).
+   */
+  async fetchHubs(): Promise<HubRow[]> {
+    return selectHubRows(await fetchHubsCached());
   },
-  
+
   async fetchTrucks(): Promise<TaskTruck[]> {
     const snapshot = await getDocs(collection(db, COLLECTIONS.TRUCKS));
     return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as TaskTruck));

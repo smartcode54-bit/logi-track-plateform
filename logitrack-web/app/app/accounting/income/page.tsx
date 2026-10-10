@@ -49,6 +49,8 @@ import {
 import type { Task } from "@/validate/taskSchema";
 import type { TripRecord } from "@/validate/tripRecordSchema";
 import { primaryHubLabelFromFirestoreData } from "@/lib/hubDisplay";
+import { fetchHubsCached, invalidateHubs, type HubDTO } from "@/features/hubs/api/hubs";
+import { hubRecord } from "@/features/hubs/api/selectors";
 import { resolveDisplayJobCategory } from "@/lib/jobCategory";
 import { EditBillingDialog } from "@/features/accounting";
 import { toast } from "sonner";
@@ -176,12 +178,38 @@ function chunkArray<T>(arr: T[], size: number): T[][] {
     return chunks;
 }
 
-let _hubNameCache: HubNameMap | null = null;
-let _hubNameToCodeCache: Map<string, string> | null = null;
-
-function clearHubCache() {
-    _hubNameCache = null;
-    _hubNameToCodeCache = null;
+/**
+ * Code -> display name and name -> code maps of the hub list (`['hubs']`, the tab's cache since TW4,
+ * which replaced this page's module-level hub cache).
+ */
+function buildIncomeHubMaps(hubs: readonly HubDTO[]): { hubNames: HubNameMap; hubNameToCode: Map<string, string> } {
+    const hubNames: HubNameMap = new Map<string, string>();
+    const hubNameToCode = new Map<string, string>();
+    for (const hub of hubs) {
+        const hd = hubRecord(hub);
+        const sourceId = String(hd.source_id ?? hd.hubId ?? hd.hubCode ?? "").trim();
+        if (!sourceId) continue;
+        const label = primaryHubLabelFromFirestoreData(hd);
+        const displayName = label.trim() || sourceId;
+        const keys = new Set<string>();
+        keys.add(sourceId);
+        keys.add(sourceId.toUpperCase());
+        for (const extra of extraDestinationLookupKeys(sourceId)) {
+            keys.add(extra);
+        }
+        for (const k of keys) {
+            if (k) hubNames.set(k, displayName);
+        }
+        // Build reverse map: display name / Thai / English names → PDP code
+        for (const nameField of ["source_name_th", "source_name_en", "hubName"] as const) {
+            const n = typeof hd[nameField] === "string" ? (hd[nameField] as string).trim() : "";
+            if (n && !hubNameToCode.has(n)) hubNameToCode.set(n, sourceId);
+        }
+        if (displayName !== sourceId && !hubNameToCode.has(displayName)) {
+            hubNameToCode.set(displayName, sourceId);
+        }
+    }
+    return { hubNames, hubNameToCode };
 }
 
 export default function AccountingIncomePage() {
@@ -290,46 +318,7 @@ export default function AccountingIncomePage() {
             const customerMap = new Map<string, Customer & { id: string }>();
             (customerList as (Customer & { id: string })[]).forEach((c) => customerMap.set(c.id, c));
 
-            let hubNames = _hubNameCache;
-            let hubNameToCode = _hubNameToCodeCache;
-            if (!hubNames) {
-                const hubsSnap = await getDocs(collection(db, COLLECTIONS.HUBS));
-                hubNames = new Map<string, string>();
-                hubNameToCode = new Map<string, string>();
-                hubsSnap.docs.forEach((hubDoc) => {
-                    const hd = hubDoc.data() as Record<string, unknown>;
-                    const sourceId = String(hd.source_id ?? hd.hubId ?? hd.hubCode ?? "").trim();
-                    if (!sourceId) return;
-                    const label = primaryHubLabelFromFirestoreData(hd);
-                    const displayName = label.trim() || sourceId;
-                    const keys = new Set<string>();
-                    keys.add(sourceId);
-                    keys.add(sourceId.toUpperCase());
-                    for (const extra of extraDestinationLookupKeys(sourceId)) {
-                        keys.add(extra);
-                    }
-                    for (const k of keys) {
-                        if (k) hubNames!.set(k, displayName);
-                    }
-                    // Build reverse map: display name / Thai / English names → PDP code
-                    for (const nameField of ["source_name_th", "source_name_en", "hubName"] as const) {
-                        const n = typeof hd[nameField] === "string" ? (hd[nameField] as string).trim() : "";
-                        if (n && !hubNameToCode!.has(n)) hubNameToCode!.set(n, sourceId);
-                    }
-                    if (displayName !== sourceId && !hubNameToCode!.has(displayName)) {
-                        hubNameToCode!.set(displayName, sourceId);
-                    }
-                });
-                _hubNameCache = hubNames;
-                _hubNameToCodeCache = hubNameToCode;
-            } else if (!hubNameToCode) {
-                // Build reverse from cached code→name map
-                hubNameToCode = new Map<string, string>();
-                hubNames.forEach((name, code) => {
-                    if (!hubNameToCode!.has(name)) hubNameToCode!.set(name, code);
-                });
-                _hubNameToCodeCache = hubNameToCode;
-            }
+            const { hubNames, hubNameToCode } = buildIncomeHubMaps(await fetchHubsCached());
             setHubNameMap(hubNames);
 
             const snap = await getDocs(
@@ -944,8 +933,7 @@ export default function AccountingIncomePage() {
                         {t("accounting.income.export")}
                     </Button>
                     <Button variant="outline" onClick={() => {
-                        clearHubCache();
-                        void loadData();
+                        void invalidateHubs().then(loadData);
                     }}>
                         <RefreshCw className="h-4 w-4 mr-2" />
                         {t("common.refresh")}

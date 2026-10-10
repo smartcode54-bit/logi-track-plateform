@@ -1,24 +1,47 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
-import { User, signOut, signInWithEmailAndPassword } from "firebase/auth";
+/**
+ * `useAuth()`: an adapter over `['me']` that keeps the shape its 41 consumers know (developer-spec.md
+ * §10.6, Appendix E §E.3.3-§E.3.4; TW4).
+ *
+ * - Who is signed in, the role and the capabilities come from `['me']` (`GET /v1/me`, Go session
+ *   in the HttpOnly cookies, R36): `customClaims` is synthesised from it for `getRole()`, `isAdmin()`
+ *   and `can()` until TW7 (`claimsFromMe`), so no page reads Firebase claims or `permissions_config`
+ *   to decide what a user may do.
+ * - `currentUser` stays the Firebase user of the bridge session (R80) until TW7: Firestore-backed
+ *   pages still write with its uid. Its token contributes only the legacy Firestore ids
+ *   (`customerScopeId`, `partnerScopeId`, `driverId`) that those pages filter by.
+ * - The context value is memoised and every function in it is stable, so a render of the provider
+ *   no longer re-renders and re-runs the effects of every consumer (ends `context/auth.tsx:171`).
+ *
+ * T18 owns the login and logout UI flows, the bridge sign-in (`POST /api/auth/firebase-token`) and the
+ * removal of `setAdminClaims` and the `forceLogoutAt` listener, which stay below until then.
+ */
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { getIdToken, getIdTokenResult, onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from "firebase/auth";
+import { httpsCallable, getFunctions } from "firebase/functions";
+import { doc, onSnapshot, type Timestamp } from "firebase/firestore";
 import { auth, db } from "@/firebase/client";
 import { resolveLoginGeoForClient, updateUserLastLogin } from "@/lib/updateUserLastLogin";
-import { onAuthStateChanged } from "firebase/auth";
-import { getIdTokenResult, getIdToken } from "firebase/auth";
-import { getFunctions, httpsCallable, connectFunctionsEmulator } from "firebase/functions";
-import { doc, onSnapshot, Timestamp } from "firebase/firestore";
-
-type ParsedTokenResult = {
-  [key: string]: any;
-};
+import { sharedRefresh } from "@/lib/sharedRefresh";
+import { AUTH_LOGOUT_PATH } from "@/lib/sessionEnd";
+import { queryKeys } from "@/lib/queryKeys";
+import { resetSessionCache } from "@/lib/queryClient";
+import { claimsFromMe, meQueryOptions, type MeDTO, type SynthesizedClaims } from "@/features/auth/api/me";
 
 type AuthContextType = {
+  /** The Firebase user of the bridge session (Firestore pages) until TW7; null without one. */
   currentUser: User | null;
+  /** `['me']`: the Go principal, null when signed out. Prefer `useMe(select)` in new code. */
+  me: MeDTO | null;
   logout: () => Promise<void>;
   login: (email: string, pass: string) => Promise<void>;
-  customClaims: ParsedTokenResult | null;
+  /** Legacy claims synthesised from `['me']` (plus the bridge token's legacy ids) until TW7. */
+  customClaims: SynthesizedClaims | null;
+  /** True until both `['me']` and the Firebase session state are first known. */
   loading: boolean;
+  /** Forced refresh (new access token with fresh claims, R78), then `['me']` and the bridge token again. */
   refreshClaims: () => Promise<void>;
 };
 
@@ -27,60 +50,59 @@ const AuthContext = createContext<AuthContextType | null>(null);
 // Initialize Firebase Functions
 const functions = getFunctions(undefined, "asia-southeast1");
 
-// Connect to emulator in development
-if (process.env.NODE_ENV === "development" && typeof window !== "undefined") {
-  // Uncomment the following line to use Functions emulator in development
-  // connectFunctionsEmulator(functions, "localhost", 5001);
-}
+type FirebaseSession = {
+  /** The first `onAuthStateChanged` callback has run. */
+  ready: boolean;
+  user: User | null;
+  claims: Record<string, unknown> | null;
+};
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [customClaims, setCustomClaims] = useState<ParsedTokenResult | null>(null);
-  const [loading, setLoading] = useState(true);
+  const client = useQueryClient();
+  const meQuery = useQuery(meQueryOptions);
+  const [firebase, setFirebase] = useState<FirebaseSession>({ ready: false, user: null, claims: null });
 
-
+  // The Firebase (bridge) session: its user and the legacy ids in its token claims.
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setCurrentUser(user ? user : null);
-      if (user) {
-        try {
-          const tokenResult = await getIdTokenResult(user);
-          setCustomClaims(tokenResult.claims ?? null);
-          setLoading(false); // ให้ redirect ทำงานได้ทันที (ไม่รอ setAdminClaims)
-          // อัปเดต claims ในพื้นหลังถ้า setAdminClaims ส่งคืน admin
-          try {
-            const setAdminClaimsFunction = httpsCallable(functions, "setAdminClaims");
-            const result = await setAdminClaimsFunction();
-            const resultData = result.data as { admin?: boolean };
-            if (resultData.admin === true) {
-              await getIdToken(user, true);
-              const updatedTokenResult = await getIdTokenResult(user);
-              setCustomClaims(updatedTokenResult.claims ?? null);
-            }
-          } catch (funcError) {
-            console.error("[Auth] Error calling setAdminClaims:", funcError);
-          }
-        } catch (error) {
-          console.error("[Auth] Error getting token:", error);
-          setLoading(false);
+      if (!user) {
+        setFirebase({ ready: true, user: null, claims: null });
+        return;
+      }
+      let claims: Record<string, unknown> | null = null;
+      try {
+        claims = (await getIdTokenResult(user)).claims ?? null;
+      } catch (error) {
+        console.error("[Auth] Error getting token:", error);
+      }
+      setFirebase({ ready: true, user, claims });
+      // Until T18's bridge mints the legacy claims: keep Firestore rules' admin claim current.
+      try {
+        const setAdminClaimsFunction = httpsCallable(functions, "setAdminClaims");
+        const result = await setAdminClaimsFunction();
+        const resultData = result.data as { admin?: boolean };
+        if (resultData.admin === true) {
+          await getIdToken(user, true);
+          const updated = (await getIdTokenResult(user)).claims ?? null;
+          setFirebase((prev) => (prev.user === user ? { ...prev, claims: updated } : prev));
         }
-      } else {
-        setCustomClaims(null);
-        setLoading(false);
+      } catch (funcError) {
+        console.error("[Auth] Error calling setAdminClaims:", funcError);
       }
     });
     return () => unsubscribe();
   }, []);
 
-  // Force logout listener: log out only when forceLogoutAt CHANGES to a new value
-  // after the listener has already seen an initial value. We don't compare against
+  // Force logout listener (replaced by SSE `session.revoked` in T18/TW5): log out of Firebase only when
+  // forceLogoutAt CHANGES after the listener has seen an initial value. We don't compare against
   // wall-clock time (client clocks can drift relative to Firestore server time).
   //
-  // NOTE: The listener may fail with "permission-denied" if the user's token
-  // claims haven't propagated yet or the user doc doesn't exist. We retry
-  // with exponential back-off up to a few times before giving up silently.
+  // NOTE: The listener may fail with "permission-denied" if the user's token claims haven't
+  // propagated yet or the user doc doesn't exist. We retry with exponential back-off up to a few
+  // times before giving up silently.
+  const firebaseUid = firebase.user?.uid;
   useEffect(() => {
-    if (!currentUser?.uid) return;
+    if (!firebaseUid) return;
     let cancelled = false;
     let unsubscribe: (() => void) | null = null;
     let retryCount = 0;
@@ -88,7 +110,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     function subscribe() {
       if (cancelled) return;
-      const userDocRef = doc(db, "users", currentUser!.uid);
+      const userDocRef = doc(db, "users", firebaseUid!);
       let initialForceLogoutMs: number | null = null;
       let initialized = false;
 
@@ -111,7 +133,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             console.error("[Auth] Error during forced logout:", err);
           }
         }
-      }, (err: any) => {
+      }, (err: { code?: string }) => {
         // Gracefully handle permission-denied (claims not ready, doc missing, etc.)
         const code = err?.code || "";
         if (code === "permission-denied" || code === "PERMISSION_DENIED") {
@@ -134,44 +156,68 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       cancelled = true;
       unsubscribe?.();
     };
-  }, [currentUser?.uid]);
+  }, [firebaseUid]);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
+    // The Go session first: the BFF revokes it and expires both cookies whatever Go answers.
+    try {
+      await fetch(AUTH_LOGOUT_PATH, { method: "POST", credentials: "same-origin" });
+    } catch (error) {
+      console.error("[Auth] Error ending the session:", error);
+    }
+    // No data of this user survives in the tab; `['me']` reads as signed out without a request.
+    resetSessionCache(client);
     try {
       await signOut(auth);
-      // currentUser will be set to null automatically by onAuthStateChanged
     } catch (error) {
       console.error("Error signing out:", error);
       throw error; // Re-throw to let component handle it
     }
-  };
+  }, [client]);
 
-  const login = async (email: string, pass: string) => {
-    const cred = await signInWithEmailAndPassword(auth, email, pass);
-    if (cred.user) {
-      const geo = await resolveLoginGeoForClient();
-      await updateUserLastLogin(cred.user, geo);
-    }
-  };
+  const login = useCallback(
+    async (email: string, pass: string) => {
+      const cred = await signInWithEmailAndPassword(auth, email, pass);
+      if (cred.user) {
+        const geo = await resolveLoginGeoForClient();
+        await updateUserLastLogin(cred.user, geo);
+      }
+      // A sign-in changes who `['me']` is (the BFF login of T18 sets the cookies before this runs).
+      await client.invalidateQueries({ queryKey: queryKeys.me() });
+    },
+    [client]
+  );
 
-  const refreshClaims = async () => {
-    if (!auth.currentUser) return;
+  const refreshClaims = useCallback(async () => {
     try {
-      console.log("[Auth] Force refreshing ID token to get updated claims...");
-      await getIdToken(auth.currentUser, true); // force refresh
-      const updatedTokenResult = await getIdTokenResult(auth.currentUser);
-      setCustomClaims(updatedTokenResult.claims ?? null);
-      console.log("[Auth] Claims refreshed:", updatedTokenResult.claims);
+      // A forced refresh runs the onClaimsRefreshed listeners, which invalidate ['me'] and active queries.
+      if (!(await sharedRefresh({ force: true, since: Date.now() }))) {
+        await client.invalidateQueries({ queryKey: queryKeys.me() });
+      }
+    } catch (error) {
+      console.error("[Auth] Error refreshing the session:", error);
+    }
+    const user = auth.currentUser;
+    if (!user) return;
+    try {
+      await getIdToken(user, true); // the bridge token's legacy ids
+      const claims = (await getIdTokenResult(user)).claims ?? null;
+      setFirebase((prev) => (prev.user === user ? { ...prev, claims } : prev));
     } catch (error) {
       console.error("[Auth] Error refreshing claims:", error);
     }
-  };
+  }, [client]);
 
-  return (
-    <AuthContext.Provider value={{ currentUser, logout, login, customClaims, loading, refreshClaims }}>
-      {children}
-    </AuthContext.Provider>
+  const me = meQuery.data ?? null;
+  const customClaims = useMemo(() => claimsFromMe(me, firebase.claims), [me, firebase.claims]);
+  const loading = meQuery.isPending || !firebase.ready;
+
+  const value = useMemo<AuthContextType>(
+    () => ({ currentUser: firebase.user, me, logout, login, customClaims, loading, refreshClaims }),
+    [firebase.user, me, logout, login, customClaims, loading, refreshClaims]
   );
-}
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+};
 
 export const useAuth = () => useContext(AuthContext);

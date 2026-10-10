@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useEffectEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { useBreadcrumb } from "@/context/breadcrumb";
 import { useLanguage } from "@/context/language";
@@ -21,10 +21,14 @@ export function useTruckPreview() {
     const [viewerIndex, setViewerIndex] = useState(0);
     const [subcontractors, setSubcontractors] = useState<any[]>([]);
 
+    // The active language when the effect's code runs: `t` is not a dependency, so a language
+    // toggle no longer refetches (TW4, developer-spec.md §10.6).
+    const translateNow = useEffectEvent((key: string) => t(key));
+
     useEffect(() => {
         const fetchTruck = async () => {
             if (!truckId) {
-                setError(t("trucks.detail.noId"));
+                setError(translateNow("trucks.detail.noId"));
                 setIsLoading(false);
                 return;
             }
@@ -33,7 +37,7 @@ export function useTruckPreview() {
                 setError(null);
                 const data = await getTruckByIdClient(truckId);
                 if (!data) {
-                    setError(t("trucks.detail.notFound"));
+                    setError(translateNow("trucks.detail.notFound"));
                     return;
                 }
                 setTruck(data);
@@ -43,7 +47,7 @@ export function useTruckPreview() {
                 setAssignmentHistory(history);
             } catch (err) {
                 console.error("Error fetching truck:", err);
-                setError(err instanceof Error ? err.message : t("trucks.detail.error"));
+                setError(err instanceof Error ? err.message : translateNow("trucks.detail.error"));
             } finally {
                 setIsLoading(false);
             }
@@ -54,7 +58,7 @@ export function useTruckPreview() {
         return () => {
             setCustomLastItem(null);
         };
-    }, [truckId, setCustomLastItem, t]);
+    }, [truckId, setCustomLastItem]);
 
     useEffect(() => {
         getSubcontractors().then(setSubcontractors);

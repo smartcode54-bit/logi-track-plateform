@@ -8,6 +8,7 @@ import { db } from "@/firebase/client";
 import { useLanguage } from "@/context/language";
 import type { LazyDialogControl } from "@/components/lazy-dialog";
 import type { CustomerLinkKind, StationType } from "@/validate/hubSchema";
+import { invalidateHubs } from "@/features/hubs/api/hubs";
 import { COLLECTIONS } from "@/lib/collections";
 import { getAllCustomersForCodeLookup } from "@/features/customers/api/customers";
 
@@ -94,7 +95,7 @@ interface ParsedRow {
 }
 
 interface PickupImportDialogProps {
-    onSuccess: () => void;
+    onSuccess?: () => void;
 }
 
 /**
@@ -361,10 +362,12 @@ export function PickupLocationImportDialog({ onSuccess, open, setOpen }: PickupI
                 await batch.commit();
                 setProgress(10 + Math.round(((i + 1) / totalBatches) * 90));
             }
+            // Every page reading `['hubs']` sees the imported rows (TW4).
+            await invalidateHubs();
 
             setUploading(false);
             setOpen(false);
-            onSuccess();
+            onSuccess?.();
             setData([]);
             setFile(null);
         } catch (err) {
