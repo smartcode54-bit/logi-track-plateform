@@ -29,6 +29,8 @@ GET /v1/jobs/:id internal
 GET /v1/me internal
 PATCH /v1/me internal
 USE /v1/me internal
+PUT /v1/me/devices internal
+DELETE /v1/me/devices/:installId internal
 GET /v1/me/sessions internal
 DELETE /v1/me/sessions/:sid internal
 GET /v1/me/tenants internal
