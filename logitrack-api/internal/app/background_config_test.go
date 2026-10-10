@@ -15,9 +15,11 @@ func workerEnv(extra ...string) []string {
 	return append([]string{
 		"APP_ENV=local", "METRICS_ADDR=127.0.0.1:9091",
 		"DATABASE_URL=postgres://u:p@localhost:5432/x", "RABBITMQ_URL=amqp://u:p@localhost:5672/",
+		"REDIS_URL=redis://localhost:6379/0",
 		"EMAIL_ENABLED=true", "SMTP_HOST=mailpit", "SMTP_PORT=1025", "SMTP_FROM=no-reply@logitrack.test",
 		"PUBLIC_WEB_BASE_URL=http://localhost:3000", "RABBITMQ_PREFETCH=", "SMTP_USER=", "SMTP_PASSWORD=",
 		"S3_ENDPOINT=http://minio:9000", "S3_REGION=us-east-1", "S3_ACCESS_KEY_ID=placeholder", "S3_SECRET_ACCESS_KEY=placeholder",
+		"FCM_ENABLED=false", "FCM_PROJECT_ID=", "FCM_SERVICE_ACCOUNT_JSON=",
 	}, extra...)
 }
 
@@ -37,8 +39,33 @@ func TestWorkerConfigDefaults(t *testing.T) {
 	if !slices.Equal(cfg.Groups, app.WorkerGroups) || len(app.WorkerGroups) != 7 {
 		t.Fatalf("WORKER_CONSUMERS=all resolves to %v (groups %v)", cfg.Groups, app.WorkerGroups)
 	}
-	if cfg.Prefetch != 0 || cfg.PasswordResetTTL != 30*time.Minute || !cfg.SMTPStartTLS || cfg.SMTPFromName != "LogiTrack" {
+	if cfg.Prefetch != 0 || cfg.PasswordResetTTL != 30*time.Minute || !cfg.SMTPStartTLS || cfg.SMTPFromName != "LogiTrack" ||
+		cfg.FCMEnabled || cfg.RedisKeyPrefix != "lt:local:" {
 		t.Fatalf("defaults: %+v", cfg)
+	}
+}
+
+// FCM on needs the project and the key file's path (main spec §16.1); off (the local default) needs
+// neither. The key file itself is read when the worker builds notify.fcm.
+func TestWorkerConfigFCM(t *testing.T) {
+	cfg, err := config.LoadFrom[app.WorkerConfig](workerEnv("FCM_ENABLED=true", "FCM_PROJECT_ID=logitrack-prod",
+		"FCM_SERVICE_ACCOUNT_JSON=/run/secrets/fcm.json"))
+	if err != nil || !cfg.FCMEnabled || cfg.FCMProjectID != "logitrack-prod" || cfg.FCMServiceAccountJSON != "/run/secrets/fcm.json" {
+		t.Fatalf("%+v %v", cfg, err)
+	}
+	for env, want := range map[string]string{
+		"FCM_PROJECT_ID=":           "FCM_PROJECT_ID",
+		"FCM_PROJECT_ID=Not_A_Proj": "FCM_PROJECT_ID",
+		"FCM_SERVICE_ACCOUNT_JSON=": "FCM_SERVICE_ACCOUNT_JSON",
+	} {
+		_, err := config.LoadFrom[app.WorkerConfig](workerEnv("FCM_ENABLED=true", "FCM_PROJECT_ID=logitrack-prod",
+			"FCM_SERVICE_ACCOUNT_JSON=/run/secrets/fcm.json", env))
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: %v, want %q", env, err, want)
+		}
+	}
+	if _, err := config.LoadFrom[app.WorkerConfig](workerEnv("REDIS_URL=")); err == nil || !strings.Contains(err.Error(), "REDIS_URL") {
+		t.Errorf("the worker needs REDIS_URL: %v", err)
 	}
 }
 
@@ -120,7 +147,8 @@ func TestSchedulerConfig(t *testing.T) {
 func TestBackgroundConfigsDescribeOnlyTheirNames(t *testing.T) {
 	w := config.Describe[app.WorkerConfig]()
 	s := config.Describe[app.SchedulerConfig]()
-	for _, n := range []string{"RABBITMQ_URL", "WORKER_CONSUMERS", "SMTP_PASSWORD", "PASSWORD_RESET_TTL", "PUBLIC_WEB_BASE_URL"} {
+	for _, n := range []string{"RABBITMQ_URL", "WORKER_CONSUMERS", "SMTP_PASSWORD", "PASSWORD_RESET_TTL", "PUBLIC_WEB_BASE_URL",
+		"REDIS_URL", "REDIS_KEY_PREFIX", "REDIS_TLS", "FCM_ENABLED", "FCM_PROJECT_ID", "FCM_SERVICE_ACCOUNT_JSON"} {
 		if _, ok := w[n]; !ok {
 			t.Errorf("worker does not read %s", n)
 		}
@@ -130,7 +158,7 @@ func TestBackgroundConfigsDescribeOnlyTheirNames(t *testing.T) {
 			t.Errorf("scheduler does not read %s", n)
 		}
 	}
-	for _, n := range []string{"SMTP_PASSWORD", "WORKER_CONSUMERS"} {
+	for _, n := range []string{"SMTP_PASSWORD", "WORKER_CONSUMERS", "FCM_SERVICE_ACCOUNT_JSON"} {
 		if _, ok := s[n]; ok {
 			t.Errorf("scheduler reads %s", n)
 		}

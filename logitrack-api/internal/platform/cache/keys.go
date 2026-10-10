@@ -249,6 +249,12 @@ func (k Keyspace) IdemFCM(messageID, tokenID string) string {
 	return k.Key(NSIdem, "fcm", messageID, tokenID)
 }
 
+// IdemFCMLog is the hash of the settled pushes of one FCM message (field = tokenId), so a retry logs
+// the pushes of an earlier attempt whose device has left its plan. "log" is never a tokenId (16 hex).
+func (k Keyspace) IdemFCMLog(messageID string) string {
+	return k.Key(NSIdem, "fcm", messageID, "log")
+}
+
 // IdemTasksChangedPush dedupes the silent tasks_changed push of a driver for 30 s (R21).
 func (k Keyspace) IdemTasksChangedPush(driverID string) string {
 	return k.Key(NSIdem, "push", "tasks_changed", driverID)
