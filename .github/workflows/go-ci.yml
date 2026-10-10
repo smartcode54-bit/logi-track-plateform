@@ -1,0 +1,366 @@
+# go-ci: the checks of logitrack-api on the mv-go integration branch (developer-spec.md §17.2,
+# issue T14). Every job runs a Makefile target, so CI and `make` agree.
+#
+# R90: main is live production. This workflow has no main trigger, deploys nothing, and pushes an
+# image only for commits on mv-go (and api-v* tags cut from mv-go).
+#
+# No `paths:` filter: a workflow skipped by one would leave a required check pending forever.
+# The `changes` job skips the Go jobs of a pull request or feature-branch push when nothing they
+# check changed (never on mv-go), and the `go-ci` job sums up every job, so branch protection on
+# mv-go needs only `go-ci` and `secret-scan`.
+name: go-ci
+
+on:
+  push:
+    branches: [mv-go, 'mv-go-**']
+    tags: ['api-v*']
+  pull_request:
+    branches: [mv-go, 'mv-go-**']
+
+permissions:
+  contents: read
+
+# One group per commit on mv-go: a group keeps at most one pending run and cancels an older pending
+# one, so a shared mv-go group would drop the run (and the image) of a commit merged between two
+# others. With a group per SHA no mv-go run waits behind or replaces another, every mv-go push runs
+# every job (go-ci-changes.sh) and each one pushes :{sha}. Elsewhere a newer push supersedes.
+concurrency:
+  group: go-ci-${{ github.event_name }}-${{ github.ref == 'refs/heads/mv-go' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/mv-go' }}
+
+env:
+  IMAGE: ghcr.io/smartcode54-bit/logitrack-api
+
+jobs:
+  changes:
+    name: changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      go: ${{ steps.diff.outputs.go }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: diff
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BEFORE: ${{ github.event.before }}
+        run: .github/scripts/go-ci-changes.sh
+
+  lint:
+    name: lint
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: logitrack-api
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-go
+        with:
+          cache-key: lint
+      # gofmt, go mod tidy -diff, go vet, golangci-lint, govulncheck (integration-tagged files included)
+      - run: make lint
+
+  gen-check:
+    name: gen-check
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: logitrack-api
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-go
+        with:
+          cache-key: gen-check
+      # sqlc diff + vet, migrate check (R31), go generate (RabbitMQ definitions; api/routes.txt, which
+      # refuses a public route outside /v1/mobile/*, /v1/auth/*, /public/v1/*, /evidence/*, /healthz),
+      # sqlc regenerated from scratch, then nothing generated may differ from the commit.
+      - run: make gen-check
+      # .env.example and the compose environments against developer-spec.md §16.1.
+      - run: make env-check
+      - name: Nothing else was generated or changed
+        run: |
+          git status --porcelain
+          test -z "$(git status --porcelain)"
+
+  migrate:
+    name: migrate
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: logitrack-api
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-go
+        with:
+          cache-key: migrate
+      # R31: NNNN numbering, Up and Down in every file, NO TRANSACTION only for CONCURRENTLY,
+      # an empty Down only under `-- irreversible`, uuidv7().
+      - run: make migrate-check
+      # postgres:18-alpine (testcontainers, 00-roles.sql first, R66): up -> pg_dump A -> down-to the
+      # highest irreversible version (else 0) -> up -> pg_dump B, A == B, nothing pending; plus
+      # up-to 9 leaving 0010_d5_unique_constraints pending and `up` applying it (R59, R88).
+      - run: make migrate-roundtrip
+
+  test:
+    name: test
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: logitrack-api
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-go
+        with:
+          cache-key: test
+      # Unit and integration tests with the race detector; integration tests run on postgres:18-alpine
+      # through testcontainers (internal/platform/db/pgtest). Golden vectors are ordinary tests.
+      - run: make test-integration TESTFLAGS=-count=1
+
+  goldens:
+    name: goldens (${{ matrix.arch }})
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # GOAMD64=v3 lets the compiler fuse multiply-add like arm64 does; parity math must not
+          # move by a satang either way (developer-spec.md §6.2).
+          - { arch: amd64-v3, runner: ubuntu-24.04, goamd64: v3 }
+          - { arch: arm64, runner: ubuntu-24.04-arm, goamd64: v1 }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: logitrack-api
+    env:
+      GOAMD64: ${{ matrix.goamd64 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-go
+        with:
+          cache-key: goldens
+      - run: make test TESTFLAGS=-count=1
+
+  stack:
+    name: stack
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: logitrack-api
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-go
+        with:
+          cache-key: stack
+      # .env with random throwaway values and the local JWT key; nothing is printed.
+      - run: make env dev-keys
+      # The compose services pinned in deploy/docker-compose.yml: postgres:18-alpine, redis:7-alpine,
+      # rabbitmq:4-management-alpine, MinIO by digest, mailpit; then migrate up, api, worker, scheduler.
+      # One retry: a broker that exits during its first boot on a fresh runner (seen once, not
+      # locally) is restarted; the warning and the logs keep it visible, and a second failure fails.
+      - name: make up
+        run: |
+          make up && exit 0
+          echo "::warning title=stack::make up failed on the first attempt; the service logs follow, then one retry"
+          docker compose -f deploy/docker-compose.yml --env-file .env --profile '*' ps -a
+          docker compose -f deploy/docker-compose.yml --env-file .env logs --no-color --tail=100 postgres redis rabbitmq minio
+          make up
+      - run: make smoke
+      - name: Seed the smoke profile and verify its invariants (T16)
+        run: |
+          compose=(docker compose -f deploy/docker-compose.yml --env-file .env --profile tools)
+          rc=0
+          "${compose[@]}" run --rm -T seed --profile smoke || rc=$?
+          if [ "$rc" -eq 3 ]; then
+            echo "::notice title=seed::cmd/seed is not implemented yet (exit 3, T16): seed --profile smoke and seed --verify skipped"
+            exit 0
+          fi
+          [ "$rc" -eq 0 ]
+          "${compose[@]}" run --rm -T seed --verify
+      - name: Service state
+        if: failure()
+        run: |
+          docker compose -f deploy/docker-compose.yml --env-file .env --profile '*' ps -a
+          docker compose -f deploy/docker-compose.yml --env-file .env logs --no-color --tail=200 \
+            postgres redis rabbitmq rabbitmq-init minio-init migrate api worker scheduler
+
+  etl-fixtures:
+    name: etl-fixtures
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: logitrack-api
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: fixtures
+        run: |
+          if [ -d cmd/etl/testdata/firestore-fixtures ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=etl-fixtures::cmd/etl/testdata/firestore-fixtures lands with T15; nothing to load yet"
+          fi
+      - if: steps.fixtures.outputs.present == 'true'
+        uses: ./.github/actions/setup-go
+        with:
+          cache-key: etl-fixtures
+      # T15: dry run against the committed quarantine snapshot, a real load at up-to 9, then `up`
+      # applies 0010_d5_unique_constraints on the fixture set (R31, R59, R88).
+      - if: steps.fixtures.outputs.present == 'true'
+        run: make etl-fixtures-check
+
+  build:
+    name: build
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: image
+        name: Tags (push only for mv-go and api-v* tags cut from mv-go)
+        run: |
+          push=false version=${GITHUB_SHA::12} tags="$IMAGE:$GITHUB_SHA"
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF" = refs/heads/mv-go ]; then
+            push=true
+          elif [ "$GITHUB_EVENT_NAME" = push ] && [[ "$GITHUB_REF" == refs/tags/api-v* ]]; then
+            version=${GITHUB_REF#refs/tags/api-}
+            if [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+              echo "::error::${GITHUB_REF_NAME} is not api-vMAJOR.MINOR.PATCH[-PRERELEASE]"; exit 1
+            fi
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/mv-go; then
+              echo "::error::${GITHUB_REF_NAME} is not on mv-go; images are cut from mv-go only (R90)"; exit 1
+            fi
+            push=true tags="$tags,$IMAGE:$version"
+          fi
+          {
+            echo "push=$push"
+            echo "version=$version"
+            echo "tags=$tags"
+          } >> "$GITHUB_OUTPUT"
+          echo "push=$push tags=$tags"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - if: steps.image.outputs.push == 'true'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      # One image, every binary under /app/bin (developer-spec.md §2.1).
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: logitrack-api
+          file: logitrack-api/deploy/Dockerfile
+          platforms: linux/amd64
+          build-args: VERSION=${{ steps.image.outputs.version }}
+          tags: ${{ steps.image.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.image.outputs.version }}
+            org.opencontainers.image.title=logitrack-api
+            org.opencontainers.image.description=LogiTrack Go backend: api, worker, scheduler, migrate, seed, etl, release
+          load: true
+          push: ${{ steps.image.outputs.push == 'true' }}
+          cache-from: type=gha,scope=logitrack-api
+          cache-to: type=gha,mode=max,scope=logitrack-api
+      - name: The image holds every binary and its embedded migration chain passes the R31 rules
+        run: |
+          bins=$(docker run --rm --entrypoint ls "$IMAGE:$GITHUB_SHA" /app/bin | sort | tr '\n' ' ')
+          echo "/app/bin: $bins"
+          test "$bins" = "api etl migrate release scheduler seed worker "
+          docker run --rm --entrypoint /app/bin/migrate "$IMAGE:$GITHUB_SHA" check
+          docker run --rm --entrypoint /app/bin/api "$IMAGE:$GITHUB_SHA" routes
+
+  # Web CI (ci.yml) keeps its path filter: its main entries stay as they are (R90) and Deploy
+  # listens to it. This job waits for the CI run of the same commit and event, when there is one,
+  # so the go-ci check also stands for the web checks.
+  web-ci:
+    name: web-ci
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      actions: read
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          runs="repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$SHA&event=$GITHUB_EVENT_NAME&per_page=20"
+          id=""
+          # CI starts on the same event as go-ci; when no run appears, its path filter skipped the commit.
+          for _ in $(seq 1 12); do
+            id=$(gh api "$runs" --jq '.workflow_runs | sort_by(.created_at) | last | .id // empty')
+            [ -n "$id" ] && break
+            sleep 10
+          done
+          if [ -z "$id" ]; then
+            echo "::notice title=web-ci::no CI run for ${SHA::12} ($GITHUB_EVENT_NAME): the web paths did not change"
+            exit 0
+          fi
+          while :; do
+            IFS=$'\t' read -r status conclusion url < <(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id" \
+              --jq '[.status, (.conclusion // "-"), .html_url] | @tsv')
+            [ "$status" = completed ] && break
+            sleep 20
+          done
+          echo "CI run $url: $conclusion"
+          test "$conclusion" = success
+
+  go-ci:
+    name: go-ci
+    if: always()
+    needs: [changes, lint, gen-check, migrate, test, goldens, stack, etl-fixtures, build, web-ci]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<<"$NEEDS"
+          test "$(jq -r .changes.result <<<"$NEEDS")" = success
+          bad=$(jq -r '[to_entries[] | select(.value.result != "success" and .value.result != "skipped") | .key] | join(", ")' <<<"$NEEDS")
+          if [ -n "$bad" ]; then echo "::error::not green: $bad"; exit 1; fi

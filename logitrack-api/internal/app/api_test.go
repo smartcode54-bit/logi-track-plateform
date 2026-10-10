@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/netip"
@@ -22,6 +23,13 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/logx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/telemetry"
 )
+
+// client never keeps a connection for reuse. With keep-alive, net/http may dial a spare connection
+// while the previous one is still being returned to its pool and then park the spare unused;
+// fasthttp, like net/http, counts a connection that has sent no request as idle only after 5 s,
+// so a drain within the 5 s SHUTDOWN_TIMEOUT of these tests waited for it and failed with
+// "context deadline exceeded" on a loaded machine (seen in go-ci, T14).
+var client = &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
 
 // syncBuffer collects log lines written concurrently by both listeners.
 type syncBuffer struct {
@@ -137,7 +145,7 @@ func waitReady(t *testing.T, addr string) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		if resp, err := http.Get("http://" + addr + "/healthz"); err == nil {
+		if resp, err := client.Get("http://" + addr + "/healthz"); err == nil {
 			_ = resp.Body.Close()
 			return
 		}
@@ -152,7 +160,7 @@ func get(t *testing.T, addr, path string, hdr map[string]string) (int, map[strin
 	for k, v := range hdr {
 		req.Header.Set(k, v)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,6 +259,54 @@ func TestPublicGroupOutsideFixedListIsRejected(t *testing.T) {
 	}
 }
 
+// The route table behind `api routes` (go-ci gen-check): the public listener holds only the
+// allow-listed groups, the internal one every route; automatic HEAD routes are not listed.
+func TestRoutesPerListener(t *testing.T) {
+	log, _ := logx.New(logx.Options{Level: "info", Format: "json", Out: io.Discard})
+	cfg := &app.APIConfig{PublicRouteGroups: ingress.PublicPrefixes}
+	a, err := app.NewAPI(cfg, log, testGroups()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.CheckRoutes(); err != nil {
+		t.Fatal(err)
+	}
+	render := func(rs []ingress.Route) string {
+		var parts []string
+		for _, r := range rs {
+			parts = append(parts, r.Method+" "+r.Path)
+		}
+		return strings.Join(parts, ", ")
+	}
+	routes := a.Routes()
+	if got, want := render(routes[ingress.Public]),
+		"GET /healthz, POST /v1/mobile/echo, GET /v1/mobile/panic, GET /v1/mobile/slow, GET /v1/mobile/whoami"; got != want {
+		t.Fatalf("public routes:\n got %s\nwant %s", got, want)
+	}
+	if got, want := render(routes[ingress.Internal]),
+		"GET /healthz, GET /readyz, GET /startupz, POST /v1/mobile/echo, GET /v1/mobile/panic, GET /v1/mobile/slow, "+
+			"GET /v1/mobile/whoami, GET /v1/staff-probe, GET /v1/staff-probe/slow"; got != want {
+		t.Fatalf("internal routes:\n got %s\nwant %s", got, want)
+	}
+}
+
+// The listener-wide middleware (Use at "/") is not a route, so CheckRoutes cannot judge it, and a
+// path-dispatching middleware there (pprof, expvar) would serve paths outside the allow-list on the
+// public listener. Its size is pinned: raise a count only after reviewing the handler it adds.
+func TestRootMiddlewareIsPinned(t *testing.T) {
+	log, _ := logx.New(logx.Options{Level: "info", Format: "json", Out: io.Discard})
+	a, err := app.NewAPI(&app.APIConfig{PublicRouteGroups: ingress.PublicPrefixes}, log, testGroups()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// request id, listener, client ip, access log, tracing, metrics, recover; public adds the
+	// X-Act-On-Tenant refusal.
+	want := map[string]int{ingress.Internal: 7, ingress.Public: 8}
+	if got := a.RootMiddleware(); !maps.Equal(got, want) {
+		t.Fatalf("listener-wide middleware per listener = %v, want %v", got, want)
+	}
+}
+
 func TestXForwardedForOnlyFromTrustedProxies(t *testing.T) {
 	ip := func(h *harness, xff string) string {
 		_, body, _ := get(t, h.public, "/v1/mobile/whoami", map[string]string{"X-Forwarded-For": xff})
@@ -336,7 +392,7 @@ func TestMetricsServedOnSeparateAddressWithRouteTemplates(t *testing.T) {
 	if st, _, _ := get(t, h.public, "/metrics", nil); st != 404 {
 		t.Fatalf("/metrics must not be on the public listener, got %d", st)
 	}
-	resp, err := http.Get("http://" + h.metrics + "/metrics")
+	resp, err := client.Get("http://" + h.metrics + "/metrics")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -376,7 +432,7 @@ func TestShutdownTurnsReadinessUnavailableThenDrains(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("shutdown did not complete")
 	}
-	if _, err := http.Get("http://" + h.internal + "/healthz"); err == nil {
+	if _, err := client.Get("http://" + h.internal + "/healthz"); err == nil {
 		t.Fatal("internal listener still accepting after shutdown")
 	}
 }
@@ -460,7 +516,7 @@ func TestBodyTooLargeRecordedWithRealStatus(t *testing.T) {
 
 func scrapeMetrics(t *testing.T, h *harness) string {
 	t.Helper()
-	resp, err := http.Get("http://" + h.metrics + "/metrics")
+	resp, err := client.Get("http://" + h.metrics + "/metrics")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -479,7 +535,7 @@ func TestShutdownStopsBothListenersTogetherAndDrains(t *testing.T) {
 	inflight := func(addr, ms string) chan result {
 		ch := make(chan result, 1)
 		go func() {
-			resp, err := http.Get("http://" + addr + "/v1/staff-probe/slow?ms=" + ms)
+			resp, err := client.Get("http://" + addr + "/v1/staff-probe/slow?ms=" + ms)
 			if err != nil {
 				ch <- result{err: err}
 				return
@@ -491,7 +547,7 @@ func TestShutdownStopsBothListenersTogetherAndDrains(t *testing.T) {
 	}
 	publicLong := make(chan result, 1)
 	go func() {
-		resp, err := http.Get("http://" + h.public + "/v1/mobile/slow?ms=1500")
+		resp, err := client.Get("http://" + h.public + "/v1/mobile/slow?ms=1500")
 		if err != nil {
 			publicLong <- result{err: err}
 			return
@@ -530,7 +586,7 @@ func TestXForwardedForAcrossSeveralFieldLines(t *testing.T) {
 	h := start(t, "127.0.0.1/32")
 	req, _ := http.NewRequest("GET", "http://"+h.public+"/v1/mobile/whoami", nil)
 	req.Header["X-Forwarded-For"] = []string{"198.51.100.66", "203.0.113.7"}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}

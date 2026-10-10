@@ -1,0 +1,30 @@
+name: Set up Go for logitrack-api
+description: >
+  Go from logitrack-api/go.mod (its toolchain directive) plus a module and build cache per job and
+  runner architecture: the jobs of go-ci build different tools (golangci-lint, sqlc) and tests, so
+  one shared cache key would keep only whichever job saved first.
+inputs:
+  cache-key:
+    description: Job-specific part of the cache key.
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: logitrack-api/go.mod
+        cache: false
+    - id: dirs
+      shell: bash
+      run: |
+        echo "gocache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+        echo "gomodcache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ${{ steps.dirs.outputs.gocache }}
+          ${{ steps.dirs.outputs.gomodcache }}
+        # The Makefile pins the tool versions, go.sum the modules.
+        key: go-${{ runner.os }}-${{ runner.arch }}-${{ inputs.cache-key }}-${{ hashFiles('logitrack-api/go.sum', 'logitrack-api/Makefile') }}
+        restore-keys: |
+          go-${{ runner.os }}-${{ runner.arch }}-${{ inputs.cache-key }}-
