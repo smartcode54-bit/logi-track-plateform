@@ -277,7 +277,8 @@ func (k Keyspace) RateLimit(bucket, subject string) string {
 	return k.Key(NSRateLimit, bucket, subject)
 }
 
-// SSEConnections counts the open SSE streams of a user.
+// SSEConnections holds the leases of a user's open SSE streams (a sorted set: member = stream id, score =
+// lease expiry), capped at SSE_MAX_CONN_PER_USER (ratelimit.ConnLimiter, T12).
 func (k Keyspace) SSEConnections(userID string) string {
 	return k.Key(NSRateLimit, "sse_conns", userID)
 }
@@ -298,6 +299,12 @@ func (k Keyspace) RealtimeSeq() string { return k.Key(NSRealtimeLog, "seq") }
 
 // RealtimeLog is the replay stream of a topic.
 func (k Keyspace) RealtimeLog(topic string) string { return k.Key(NSRealtimeLog, topic) }
+
+// RealtimeMarks maps each Redis-clock minute with events to the first sequence number published in it
+// (a sorted set: score = Unix minute, member = sequence), kept for RTLOG_TTL plus an hour. The SSE replay
+// reads it to tell whether a Last-Event-ID is older than RTLOG_TTL, which a stream that expired cannot
+// say about itself (T12). Topics never collide with it: "marks" is not in the catalogue.
+func (k Keyspace) RealtimeMarks() string { return k.Key(NSRealtimeLog, "marks") }
 
 // --- lock: ---
 

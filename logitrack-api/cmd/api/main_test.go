@@ -236,14 +236,15 @@ func TestRoutesRefusesAPublicGroupOutsideTheAllowList(t *testing.T) {
 // middleware passes, and Use matches by prefix, so the table shows what answers below PATH.
 func TestRoutesListsUseRegistrations(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := routes(nil, &stdout, &stderr, ingress.Group{Prefix: "/v1/mobile", Public: true, Mount: func(r fiber.Router) {
+	// /public/v1 has no group of its own yet (the served /v1/mobile group belongs to the SSE stream, T12).
+	code := routes(nil, &stdout, &stderr, ingress.Group{Prefix: "/public/v1", Public: true, Mount: func(r fiber.Router) {
 		r.Use(func(c fiber.Ctx) error { return c.Next() })
-		r.Get("/tasks", nop)
+		r.Post("/webhooks/x", nop)
 	}})
 	if code != app.ExitOK {
 		t.Fatalf("exit %d, stderr %q", code, stderr.String())
 	}
-	for _, want := range []string{"USE /v1/mobile internal,public\n", "GET /v1/mobile/tasks internal,public\n"} {
+	for _, want := range []string{"USE /public/v1 internal,public\n", "POST /public/v1/webhooks/x internal,public\n"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("table lacks %q:\n%s", want, stdout.String())
 		}

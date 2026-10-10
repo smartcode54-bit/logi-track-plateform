@@ -227,6 +227,28 @@ sql:
               import: github.com/google/uuid
               type: UUID
               pointer: true
+  # T12: the audience of a chat for an explicit chat:{id} SSE topic, read under db.WithPrincipal (RLS decides).
+  - name: sse
+    engine: postgresql
+    schema: migrations
+    queries: internal/sse/queries
+    gen:
+      go:
+        package: ssedb
+        out: internal/sse/ssedb
+        sql_package: pgx/v5
+        emit_empty_slices: true
+        emit_pointers_for_null_types: true
+        omit_unused_structs: true
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: uuid
+            nullable: true
+            go_type:
+              import: github.com/google/uuid
+              type: UUID
+              pointer: true
   # T07: dispatcher and customer-scope principals read only the scope_* projections (Appendix C §C.3.7, R85).
   # Every query of this block lives in a scope_*.sql file and passes the scope-views-only rule below.
   - name: scope
