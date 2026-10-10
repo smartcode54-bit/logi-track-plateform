@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 import { enUS, th as thLocale } from "date-fns/locale";
-import * as XLSX from "xlsx";
 import {
     Truck,
     PackageCheck,
@@ -544,6 +543,8 @@ export default function DriverMonitorDashboard() {
         try {
             const list = await getTripsForExportResolved(criteria);
             const { headers, rows } = buildExportTable(list, criteria.destinationFilter);
+            // xlsx loads on export, never with the page (developer-spec.md §10.11).
+            const XLSX = await import("xlsx");
             const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, "Trips");

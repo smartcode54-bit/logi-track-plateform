@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import { endOfDay, format, startOfDay } from "date-fns";
-import { Calendar as CalendarIcon, Plus } from "lucide-react";
-import { LineHaulImportDialog } from "./import-dialog";
+import { Calendar as CalendarIcon, FileSpreadsheet, Plus } from "lucide-react";
+import { LazyDialog } from "@/components/lazy-dialog";
 import { LineHaulTaskDialog } from "./task-dialog";
 import { useLanguage } from "@/context/language";
 import { useCustomerScope } from "@/hooks/useCustomerScope";
@@ -62,6 +63,9 @@ import { MoreHorizontal, Pencil, RefreshCw } from "lucide-react";
 import { EditTripDetailsDialog } from "@/app/app/driver-monitor/EditTripDetailsDialog";
 import type { TripRecord } from "@/validate/tripRecordSchema";
 import { useDriverNamesByAuthId } from "@/hooks/useDriverNamesByAuthId";
+
+// Import dialogs carry xlsx: loaded on the first open only (developer-spec.md §10.11).
+const LineHaulImportDialog = dynamic(() => import("./import-dialog").then((m) => m.LineHaulImportDialog), { ssr: false });
 
 function toDate(val: unknown): Date | null {
     if (!val) return null;
@@ -294,7 +298,16 @@ export default function LineHaulPage() {
                     </Button>
                     {!isCustomer && (
                         <>
-                            <LineHaulImportDialog onSuccess={() => { }} />
+                            <LazyDialog
+                                trigger={
+                                    <Button variant="outline" className="gap-2">
+                                        <FileSpreadsheet className="h-4 w-4" />
+                                        {t("firstMile.import.button")}
+                                    </Button>
+                                }
+                            >
+                                {(dialog) => <LineHaulImportDialog {...dialog} onSuccess={() => { }} />}
+                            </LazyDialog>
                             <div className="flex gap-3">
                                 <Button onClick={handleCreate}>
                                     <Plus className="mr-2 h-4 w-4" />

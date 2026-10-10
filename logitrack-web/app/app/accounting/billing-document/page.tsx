@@ -5,13 +5,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useLanguage } from "@/context/language";
 import { getCustomers } from "@/features/customers/api/customers";
 import type { Customer } from "@/validate/customerSchema";
-import {
-    downloadBillingZip,
-    type BillingTripRow,
-    type BillingCustomer,
-    type BillingPeriod,
-    type BillingProviderInfo,
-} from "@/lib/billingDocument";
+import type {
+    BillingTripRow,
+    BillingCustomer,
+    BillingPeriod,
+    BillingProviderInfo,
+} from "@/lib/billingDocumentModel";
 import { saveBillingStatement } from "@/lib/billingStatement";
 import { getOwnerCompany } from "@/features/companies/api/companies";
 import {
@@ -19,10 +18,10 @@ import {
     fetchBillingTripRows,
     fetchStandbyBillingDiagnostics,
     fetchTripsMissingBillingDate,
-    UnpricedStandbyPanel,
     type StandbyBillingDiagnostics,
     type TripMissingBillingDate,
-} from "@/features/accounting";
+} from "@/features/accounting/api/billing";
+import { UnpricedStandbyPanel } from "@/features/accounting";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -472,6 +471,8 @@ export default function BillingDocumentPage() {
                 // Still proceed with download even if statement save fails
             }
 
+            // jspdf / xlsx-js-style load only when a document is generated (developer-spec.md §10.11).
+            const { downloadBillingZip } = await import("@/lib/billingDocumentRender");
             await downloadBillingZip(filteredTrips, selectedCustomer, period, invoiceNumber, ownerProvider, showActualPickup);
         } finally {
             setGenerating(false);

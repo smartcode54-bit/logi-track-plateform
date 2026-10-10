@@ -8,6 +8,7 @@ import { format } from "date-fns";
 import { collection, writeBatch, doc } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import { useLanguage } from "@/context/language";
+import type { LazyDialogControl } from "@/components/lazy-dialog";
 import { COLLECTIONS } from "@/lib/collections";
 import { taskService, TaskTruck } from "@/features/tasks/services/taskService";
 import { taskTruckTypeFromTruckDoc } from "@/lib/truckType";
@@ -18,13 +19,11 @@ const normalizePlate = (plate: unknown) => String(plate ?? "").toUpperCase().rep
 
 import { Button } from "@/components/ui/button";
 import {
-    Dialog,
     DialogContent,
     DialogDescription,
     DialogFooter,
     DialogHeader,
     DialogTitle,
-    DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -83,9 +82,12 @@ const parseCellDate = (raw: unknown, withTime: boolean): Date | undefined => {
     return isNaN(d.getTime()) ? undefined : d;
 };
 
-export function JobImportDialog({ onSuccess }: ImportDialogProps) {
+/**
+ * The dialog body (`DialogContent`). Pages render it inside `LazyDialog`, through `next/dynamic`, so
+ * this module and xlsx load on the first open, not with the page (developer-spec.md §10.11).
+ */
+export function JobImportDialog({ onSuccess, open, setOpen }: ImportDialogProps & LazyDialogControl) {
     const { t } = useLanguage();
-    const [open, setOpen] = useState(false);
     const [file, setFile] = useState<File | null>(null);
     const [data, setData] = useState<ImportRow[]>([]);
     const [uploading, setUploading] = useState(false);
@@ -366,153 +368,145 @@ export function JobImportDialog({ onSuccess }: ImportDialogProps) {
     const validCount = data.filter((d) => d.isValid).length;
 
     return (
-        <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-                <Button variant="outline" className="gap-2">
-                    <FileSpreadsheet className="h-4 w-4" />
-                    {t("jobAssign.import.button", "นำเข้าจากไฟล์")}
-                </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-5xl max-h-[85vh] flex flex-col">
-                <DialogHeader>
-                    <DialogTitle>{t("jobAssign.import.title", "นำเข้างาน (FM + LH ไฟล์เดียว)")}</DialogTitle>
-                    <DialogDescription>{t("jobAssign.import.description", "ไฟล์เดียว ใส่คอลัมน์ FM/LH ต่อแถวเพื่อแยกประเภทงาน")}</DialogDescription>
-                </DialogHeader>
+        <DialogContent className="max-w-5xl max-h-[85vh] flex flex-col">
+            <DialogHeader>
+                <DialogTitle>{t("jobAssign.import.title", "นำเข้างาน (FM + LH ไฟล์เดียว)")}</DialogTitle>
+                <DialogDescription>{t("jobAssign.import.description", "ไฟล์เดียว ใส่คอลัมน์ FM/LH ต่อแถวเพื่อแยกประเภทงาน")}</DialogDescription>
+            </DialogHeader>
 
-                <div className="flex-1 overflow-hidden flex flex-col gap-4">
-                    {!file ? (
-                        <div className="flex flex-col gap-4 h-full">
-                            <div className="flex justify-between items-center">
-                                <span className="text-sm text-muted-foreground">{t("firstMile.import.templateHint")}</span>
-                                <Button variant="outline" size="sm" onClick={handleDownloadTemplate} className="gap-2">
-                                    <Download className="h-4 w-4" />
-                                    {t("firstMile.import.downloadTemplate")}
-                                </Button>
-                            </div>
-                            <div
-                                className="border-2 border-dashed rounded-lg p-12 flex flex-col items-center justify-center text-muted-foreground hover:bg-muted/50 transition-colors cursor-pointer"
-                                onClick={() => fileInputRef.current?.click()}
-                            >
-                                <Upload className="h-12 w-12 mb-4 text-gray-400" />
-                                <p className="font-medium text-lg">{t("firstMile.import.clickUpload")}</p>
-                                <p className="text-sm">{t("firstMile.import.formatsSupported")}</p>
-                                <input ref={fileInputRef} type="file" accept=".xlsx, .xls" className="hidden" onChange={handleFileChange} />
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="flex flex-col gap-4 h-full">
-                            <div className="flex items-center justify-between bg-muted/30 p-3 rounded-md border">
-                                <div className="flex items-center gap-3">
-                                    <div className="bg-green-100 p-2 rounded"><FileSpreadsheet className="h-5 w-5 text-green-600" /></div>
-                                    <div>
-                                        <p className="font-medium text-sm">{file.name}</p>
-                                        <p className="text-xs text-muted-foreground">{data.length} {t("firstMile.import.recordsFound")}</p>
-                                    </div>
-                                </div>
-                                <Button variant="ghost" size="icon" onClick={() => { setFile(null); setData([]); }}><X className="h-4 w-4" /></Button>
-                            </div>
-
-                            {error && (
-                                <Alert variant="destructive">
-                                    <AlertCircle className="h-4 w-4" />
-                                    <AlertTitle>{t("firstMile.import.error")}</AlertTitle>
-                                    <AlertDescription>{error}</AlertDescription>
-                                </Alert>
-                            )}
-
-                            <div className="border rounded-md flex-1 overflow-hidden">
-                                <ScrollArea className="h-[420px]">
-                                    <Table>
-                                        <TableHeader>
-                                            <TableRow className="bg-muted/50">
-                                                <TableHead>{t("firstMile.import.table.row")}</TableHead>
-                                                <TableHead>{t("jobAssign.table.jobType", "ชนิดงาน")}</TableHead>
-                                                <TableHead>{t("firstMile.task.date", "วันแผนงาน")}</TableHead>
-                                                <TableHead>{t("jobAssign.table.actualPickup", "วันรับงานจริง")}</TableHead>
-                                                <TableHead>{t("firstMile.task.customer", "ลูกค้า")}</TableHead>
-                                                <TableHead>{t("firstMile.import.table.source")}</TableHead>
-                                                <TableHead>{t("firstMile.import.table.dest")}</TableHead>
-                                                <TableHead>{t("firstMile.import.table.jobCategory")}</TableHead>
-                                                <TableHead>{t("firstMile.import.table.truckType")}</TableHead>
-                                                <TableHead>{t("firstMile.import.table.status")}</TableHead>
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            {data.map((row) => (
-                                                <TableRow key={row.id} className={!row.isValid ? "bg-red-50" : ""}>
-                                                    <TableCell className="font-mono text-xs">{row.id + 1}</TableCell>
-                                                    <TableCell>
-                                                        <select
-                                                            className="h-8 text-xs rounded border bg-background px-2"
-                                                            value={row.taskType}
-                                                            onChange={(e) => setRowType(row.id, e.target.value as JobType)}
-                                                        >
-                                                            <option value="FIRST_MILE">FM</option>
-                                                            <option value="LINE_HAUL">LH</option>
-                                                        </select>
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <Input type="date" className="h-8 text-xs w-36" value={format(row.date, "yyyy-MM-dd")} onChange={(e) => setRowDate(row.id, e.target.value)} />
-                                                    </TableCell>
-                                                    <TableCell className="text-xs whitespace-nowrap">
-                                                        {row.actualPickupAt ? format(row.actualPickupAt, "dd/MM/yy HH:mm") : <span className="text-muted-foreground">-</span>}
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <select
-                                                            className={`h-8 text-xs rounded border bg-background px-2 min-w-[140px] ${!row.billingCustomerId ? "border-red-400" : ""}`}
-                                                            value={row.billingCustomerId ?? ""}
-                                                            onChange={(e) => setRowCustomer(row.id, e.target.value)}
-                                                        >
-                                                            <option value="">{t("firstMile.task.selectCustomer", "เลือกลูกค้า")}</option>
-                                                            {customers.map((c) => (
-                                                                <option key={c.id} value={c.id}>{c.code ? `${c.code} — ${c.name}` : c.name}</option>
-                                                            ))}
-                                                        </select>
-                                                    </TableCell>
-                                                    <TableCell>{row.sourceHub}</TableCell>
-                                                    <TableCell>
-                                                        <span className={row.destination ? "text-green-600 font-medium" : "text-red-500"}>
-                                                            {row.destination || t("firstMile.import.unknown")}
-                                                        </span>
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        {row.jobCategory
-                                                            ? t(`firstMile.task.jobCategory.${row.jobCategory === "SUPPLEMENTARY" ? "supplementary" : "primary"}`)
-                                                            : <span className="text-red-500">{t("firstMile.import.unknown")}</span>}
-                                                    </TableCell>
-                                                    <TableCell>{row.truckType}</TableCell>
-                                                    <TableCell>
-                                                        {row.isValid ? <Check className="h-4 w-4 text-green-500" /> : <span className="text-xs text-red-500 font-medium">{row.invalidReason || t("firstMile.import.invalid")}</span>}
-                                                    </TableCell>
-                                                </TableRow>
-                                            ))}
-                                        </TableBody>
-                                    </Table>
-                                </ScrollArea>
-                            </div>
-                        </div>
-                    )}
-                </div>
-
-                <DialogFooter className="mt-4">
-                    {uploading ? (
-                        <div className="w-full space-y-2">
-                            <div className="flex justify-between text-xs">
-                                <span>{t("firstMile.import.uploading")}</span>
-                                <span>{progress}%</span>
-                            </div>
-                            <Progress value={progress} />
-                        </div>
-                    ) : (
-                        <>
-                            <Button variant="outline" onClick={() => setOpen(false)}>{t("firstMile.import.cancel")}</Button>
-                            <Button onClick={handleUpload} disabled={!file || validCount === 0 || uploading}>
-                                {t("firstMile.import.upload")} {validCount} {t("firstMile.import.records")}
+            <div className="flex-1 overflow-hidden flex flex-col gap-4">
+                {!file ? (
+                    <div className="flex flex-col gap-4 h-full">
+                        <div className="flex justify-between items-center">
+                            <span className="text-sm text-muted-foreground">{t("firstMile.import.templateHint")}</span>
+                            <Button variant="outline" size="sm" onClick={handleDownloadTemplate} className="gap-2">
+                                <Download className="h-4 w-4" />
+                                {t("firstMile.import.downloadTemplate")}
                             </Button>
-                        </>
-                    )}
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+                        </div>
+                        <div
+                            className="border-2 border-dashed rounded-lg p-12 flex flex-col items-center justify-center text-muted-foreground hover:bg-muted/50 transition-colors cursor-pointer"
+                            onClick={() => fileInputRef.current?.click()}
+                        >
+                            <Upload className="h-12 w-12 mb-4 text-gray-400" />
+                            <p className="font-medium text-lg">{t("firstMile.import.clickUpload")}</p>
+                            <p className="text-sm">{t("firstMile.import.formatsSupported")}</p>
+                            <input ref={fileInputRef} type="file" accept=".xlsx, .xls" className="hidden" onChange={handleFileChange} />
+                        </div>
+                    </div>
+                ) : (
+                    <div className="flex flex-col gap-4 h-full">
+                        <div className="flex items-center justify-between bg-muted/30 p-3 rounded-md border">
+                            <div className="flex items-center gap-3">
+                                <div className="bg-green-100 p-2 rounded"><FileSpreadsheet className="h-5 w-5 text-green-600" /></div>
+                                <div>
+                                    <p className="font-medium text-sm">{file.name}</p>
+                                    <p className="text-xs text-muted-foreground">{data.length} {t("firstMile.import.recordsFound")}</p>
+                                </div>
+                            </div>
+                            <Button variant="ghost" size="icon" onClick={() => { setFile(null); setData([]); }}><X className="h-4 w-4" /></Button>
+                        </div>
+
+                        {error && (
+                            <Alert variant="destructive">
+                                <AlertCircle className="h-4 w-4" />
+                                <AlertTitle>{t("firstMile.import.error")}</AlertTitle>
+                                <AlertDescription>{error}</AlertDescription>
+                            </Alert>
+                        )}
+
+                        <div className="border rounded-md flex-1 overflow-hidden">
+                            <ScrollArea className="h-[420px]">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow className="bg-muted/50">
+                                            <TableHead>{t("firstMile.import.table.row")}</TableHead>
+                                            <TableHead>{t("jobAssign.table.jobType", "ชนิดงาน")}</TableHead>
+                                            <TableHead>{t("firstMile.task.date", "วันแผนงาน")}</TableHead>
+                                            <TableHead>{t("jobAssign.table.actualPickup", "วันรับงานจริง")}</TableHead>
+                                            <TableHead>{t("firstMile.task.customer", "ลูกค้า")}</TableHead>
+                                            <TableHead>{t("firstMile.import.table.source")}</TableHead>
+                                            <TableHead>{t("firstMile.import.table.dest")}</TableHead>
+                                            <TableHead>{t("firstMile.import.table.jobCategory")}</TableHead>
+                                            <TableHead>{t("firstMile.import.table.truckType")}</TableHead>
+                                            <TableHead>{t("firstMile.import.table.status")}</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {data.map((row) => (
+                                            <TableRow key={row.id} className={!row.isValid ? "bg-red-50" : ""}>
+                                                <TableCell className="font-mono text-xs">{row.id + 1}</TableCell>
+                                                <TableCell>
+                                                    <select
+                                                        className="h-8 text-xs rounded border bg-background px-2"
+                                                        value={row.taskType}
+                                                        onChange={(e) => setRowType(row.id, e.target.value as JobType)}
+                                                    >
+                                                        <option value="FIRST_MILE">FM</option>
+                                                        <option value="LINE_HAUL">LH</option>
+                                                    </select>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Input type="date" className="h-8 text-xs w-36" value={format(row.date, "yyyy-MM-dd")} onChange={(e) => setRowDate(row.id, e.target.value)} />
+                                                </TableCell>
+                                                <TableCell className="text-xs whitespace-nowrap">
+                                                    {row.actualPickupAt ? format(row.actualPickupAt, "dd/MM/yy HH:mm") : <span className="text-muted-foreground">-</span>}
+                                                </TableCell>
+                                                <TableCell>
+                                                    <select
+                                                        className={`h-8 text-xs rounded border bg-background px-2 min-w-[140px] ${!row.billingCustomerId ? "border-red-400" : ""}`}
+                                                        value={row.billingCustomerId ?? ""}
+                                                        onChange={(e) => setRowCustomer(row.id, e.target.value)}
+                                                    >
+                                                        <option value="">{t("firstMile.task.selectCustomer", "เลือกลูกค้า")}</option>
+                                                        {customers.map((c) => (
+                                                            <option key={c.id} value={c.id}>{c.code ? `${c.code} — ${c.name}` : c.name}</option>
+                                                        ))}
+                                                    </select>
+                                                </TableCell>
+                                                <TableCell>{row.sourceHub}</TableCell>
+                                                <TableCell>
+                                                    <span className={row.destination ? "text-green-600 font-medium" : "text-red-500"}>
+                                                        {row.destination || t("firstMile.import.unknown")}
+                                                    </span>
+                                                </TableCell>
+                                                <TableCell>
+                                                    {row.jobCategory
+                                                        ? t(`firstMile.task.jobCategory.${row.jobCategory === "SUPPLEMENTARY" ? "supplementary" : "primary"}`)
+                                                        : <span className="text-red-500">{t("firstMile.import.unknown")}</span>}
+                                                </TableCell>
+                                                <TableCell>{row.truckType}</TableCell>
+                                                <TableCell>
+                                                    {row.isValid ? <Check className="h-4 w-4 text-green-500" /> : <span className="text-xs text-red-500 font-medium">{row.invalidReason || t("firstMile.import.invalid")}</span>}
+                                                </TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            </ScrollArea>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            <DialogFooter className="mt-4">
+                {uploading ? (
+                    <div className="w-full space-y-2">
+                        <div className="flex justify-between text-xs">
+                            <span>{t("firstMile.import.uploading")}</span>
+                            <span>{progress}%</span>
+                        </div>
+                        <Progress value={progress} />
+                    </div>
+                ) : (
+                    <>
+                        <Button variant="outline" onClick={() => setOpen(false)}>{t("firstMile.import.cancel")}</Button>
+                        <Button onClick={handleUpload} disabled={!file || validCount === 0 || uploading}>
+                            {t("firstMile.import.upload")} {validCount} {t("firstMile.import.records")}
+                        </Button>
+                    </>
+                )}
+            </DialogFooter>
+        </DialogContent>
     );
 }

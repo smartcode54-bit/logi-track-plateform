@@ -12,8 +12,8 @@ import {
 } from "@/lib/billingStatement";
 import { getCustomers } from "@/features/customers/api/customers";
 import type { Customer } from "@/validate/customerSchema";
-import { downloadBillingZip, downloadReceiptPdf, type BillingCustomer } from "@/lib/billingDocument";
-import { fetchBillingTripRows } from "@/features/accounting";
+import type { BillingCustomer } from "@/lib/billingDocumentModel";
+import { fetchBillingTripRows } from "@/features/accounting/api/billing";
 import { useLanguage } from "@/context/language";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -277,6 +277,8 @@ export default function BillingResultPage() {
             // actual trip/standby rows for this customer + period so the redownloaded ZIP
             // has real line items instead of an empty invoice.
             const trips = await fetchBillingTripRows(stmt.customerId, stmt.period);
+            // The document renderers (jspdf, xlsx-js-style) load on demand (developer-spec.md §10.11).
+            const { downloadBillingZip } = await import("@/lib/billingDocumentRender");
             await downloadBillingZip(trips, toBillingCustomer(customer), stmt.period, stmt.invoiceNumber);
         } catch (e) {
             console.error(e);
@@ -294,6 +296,7 @@ export default function BillingResultPage() {
         setIssuingReceiptId(stmt.id);
         try {
             const trips = await fetchBillingTripRows(stmt.customerId, stmt.period);
+            const { downloadReceiptPdf } = await import("@/lib/billingDocumentRender");
             await downloadReceiptPdf(trips, toBillingCustomer(customer), stmt.period, stmt.invoiceNumber);
         } catch (e) {
             console.error(e);

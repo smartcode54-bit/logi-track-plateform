@@ -15,8 +15,8 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { format } from "date-fns";
 import { loadThaiFont, registerThaiFont, fetchImageAsBase64, imageFormat } from "./pdfThai";
-import type { BillingProviderInfo, BillingCustomer, BillingPeriod } from "./billingDocument";
-import type { ShopeeReportTripRow, BillingHalf } from "@/features/accounting";
+import type { BillingProviderInfo, BillingCustomer, BillingPeriod } from "./billingDocumentModel";
+import type { ShopeeReportTripRow, BillingHalf } from "@/features/accounting/api/billing";
 
 // ─── Layout constants (A4 portrait, mm) ───────────────────────────────────────
 const PAGE_W = 210;

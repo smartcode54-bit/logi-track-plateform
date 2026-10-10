@@ -1,24 +1,23 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { Upload, X, FileSpreadsheet, Check, AlertCircle, Download } from "lucide-react";
 import { collection, writeBatch, doc } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import { useLanguage } from "@/context/language";
+import type { LazyDialogControl } from "@/components/lazy-dialog";
 import type { CustomerLinkKind, StationType } from "@/validate/hubSchema";
 import { COLLECTIONS } from "@/lib/collections";
 import { getAllCustomersForCodeLookup } from "@/features/customers/api/customers";
 
 import { Button } from "@/components/ui/button";
 import {
-    Dialog,
     DialogContent,
     DialogDescription,
     DialogFooter,
     DialogHeader,
     DialogTitle,
-    DialogTrigger,
 } from "@/components/ui/dialog";
 import {
     Table,
@@ -98,15 +97,30 @@ interface PickupImportDialogProps {
     onSuccess: () => void;
 }
 
-export function PickupLocationImportDialog({ onSuccess }: PickupImportDialogProps) {
+/**
+ * The dialog body (`DialogContent`). Pages render it inside `LazyDialog`, through `next/dynamic`, so
+ * this module and xlsx load on the first open, not with the page (developer-spec.md §10.11).
+ */
+export function PickupLocationImportDialog({ onSuccess, open, setOpen }: PickupImportDialogProps & LazyDialogControl) {
     const { t } = useLanguage();
-    const [open, setOpen] = useState(false);
     const [file, setFile] = useState<File | null>(null);
     const [data, setData] = useState<ParsedRow[]>([]);
     const [uploading, setUploading] = useState(false);
     const [progress, setProgress] = useState(0);
     const [error, setError] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // When the dialog opens while a Radix popper (a Select or a menu of the page) still holds
+    // focus, drop that focus so it does not stay behind the modal.
+    useEffect(() => {
+        if (!open) return;
+        queueMicrotask(() => {
+            const active = document.activeElement;
+            if (active instanceof HTMLElement && active.closest("[data-radix-popper-content-wrapper]")) {
+                active.blur();
+            }
+        });
+    }, [open]);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const selectedFile = e.target.files?.[0];
@@ -363,201 +377,177 @@ export function PickupLocationImportDialog({ onSuccess }: PickupImportDialogProp
     const validCount = data.filter((d) => d.isValid).length;
 
     return (
-        <Dialog
-            open={open}
-            onOpenChange={(next) => {
-                setOpen(next);
-                if (next) {
-                    queueMicrotask(() => {
-                        const t = document.activeElement;
-                        if (
-                            t instanceof HTMLElement &&
-                            t.closest("[data-radix-popper-content-wrapper]")
-                        ) {
-                            t.blur();
-                        }
-                    });
-                }
-            }}
-        >
-            <DialogTrigger asChild>
-                <Button variant="outline" className="gap-2">
-                    <FileSpreadsheet className="h-4 w-4" />
-                    {t("firstMile.sourcesImport.button")}
-                </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col">
-                <DialogHeader>
-                    <DialogTitle>{t("firstMile.sourcesImport.title")}</DialogTitle>
-                    <DialogDescription>{t("firstMile.sourcesImport.description")}</DialogDescription>
-                </DialogHeader>
+        <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col">
+            <DialogHeader>
+                <DialogTitle>{t("firstMile.sourcesImport.title")}</DialogTitle>
+                <DialogDescription>{t("firstMile.sourcesImport.description")}</DialogDescription>
+            </DialogHeader>
 
-                <div className="flex-1 overflow-hidden flex flex-col gap-4">
-                    {!file ? (
-                        <div className="flex flex-col gap-4 h-full">
-                            <div className="flex justify-between items-center">
-                                <span className="text-sm text-muted-foreground">
-                                    {t("firstMile.sourcesImport.templateHint")}
-                                </span>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={handleDownloadTemplate}
-                                    className="gap-2"
-                                >
-                                    <Download className="h-4 w-4" />
-                                    {t("firstMile.sourcesImport.downloadTemplate")}
-                                </Button>
-                            </div>
-
-                            <div
-                                className="border-2 border-dashed rounded-lg p-12 flex flex-col items-center justify-center text-muted-foreground hover:bg-muted/50 transition-colors cursor-pointer"
-                                onClick={() => fileInputRef.current?.click()}
-                            >
-                                <Upload className="h-12 w-12 mb-4 text-muted-foreground" />
-                                <p className="font-medium text-lg">{t("firstMile.sourcesImport.clickUpload")}</p>
-                                <p className="text-sm">{t("firstMile.sourcesImport.formatsSupported")}</p>
-                                <input
-                                    ref={fileInputRef}
-                                    type="file"
-                                    accept=".xlsx,.xls"
-                                    className="hidden"
-                                    onChange={handleFileChange}
-                                />
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="flex flex-col gap-4 h-full min-h-0">
-                            <div className="flex items-center justify-between bg-muted/30 p-3 rounded-md border">
-                                <div className="flex items-center gap-3">
-                                    <div className="bg-green-100 dark:bg-green-900/30 p-2 rounded">
-                                        <FileSpreadsheet className="h-5 w-5 text-green-600 dark:text-green-400" />
-                                    </div>
-                                    <div>
-                                        <p className="font-medium text-sm">{file.name}</p>
-                                        <p className="text-xs text-muted-foreground">
-                                            {data.length} {t("firstMile.sourcesImport.recordsFound")} • {validCount}{" "}
-                                            valid
-                                        </p>
-                                    </div>
-                                </div>
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => {
-                                        setFile(null);
-                                        setData([]);
-                                        setError(null);
-                                    }}
-                                >
-                                    <X className="h-4 w-4" />
-                                </Button>
-                            </div>
-
-                            {error && (
-                                <Alert variant="destructive">
-                                    <AlertCircle className="h-4 w-4" />
-                                    <AlertTitle>{t("firstMile.sourcesImport.error")}</AlertTitle>
-                                    <AlertDescription>{error}</AlertDescription>
-                                </Alert>
-                            )}
-
-                            <div className="border rounded-md flex-1 min-h-0 overflow-hidden">
-                                <ScrollArea className="h-[320px] w-full">
-                                    <div className="min-w-[760px] p-1">
-                                        <Table>
-                                            <TableHeader>
-                                                <TableRow className="bg-muted/50">
-                                                    <TableHead className="w-10">
-                                                        {t("firstMile.sourcesImport.table.row")}
-                                                    </TableHead>
-                                                    <TableHead className="w-[100px]">
-                                                        {t("firstMile.sourcesImport.table.docId")}
-                                                    </TableHead>
-                                                    <TableHead>{t("firstMile.sourcesImport.table.sourceId")}</TableHead>
-                                                    <TableHead>{t("firstMile.sourcesImport.table.nameSPX")}</TableHead>
-                                                    <TableHead>{t("firstMile.sourcesImport.table.nameThai")}</TableHead>
-                                                    <TableHead>{t("firstMile.sourcesImport.table.latitude")}</TableHead>
-                                                    <TableHead>{t("firstMile.sourcesImport.table.longitude")}</TableHead>
-                                                    <TableHead>{t("firstMile.sourcesImport.table.stationType")}</TableHead>
-                                                    <TableHead>{t("firstMile.sourcesImport.table.customerCode")}</TableHead>
-                                                    <TableHead className="w-20">
-                                                        {t("firstMile.sourcesImport.table.status")}
-                                                    </TableHead>
-                                                </TableRow>
-                                            </TableHeader>
-                                            <TableBody>
-                                                {data.map((row) => (
-                                                    <TableRow
-                                                        key={row.id}
-                                                        className={!row.isValid ? "bg-destructive/5" : ""}
-                                                    >
-                                                        <TableCell className="font-mono text-xs">{row.id + 1}</TableCell>
-                                                        <TableCell className="font-mono text-xs truncate max-w-[100px]">
-                                                            {row.firestoreDocId || "—"}
-                                                        </TableCell>
-                                                        <TableCell className="font-medium">
-                                                            {row.source_id || "—"}
-                                                        </TableCell>
-                                                        <TableCell>{row.source_name_en || "—"}</TableCell>
-                                                        <TableCell className="text-muted-foreground text-xs">
-                                                            {row.source_name_th ?? "—"}
-                                                        </TableCell>
-                                                        <TableCell className="text-muted-foreground">
-                                                            {row.latitude != null ? row.latitude.toFixed(5) : "—"}
-                                                        </TableCell>
-                                                        <TableCell className="text-muted-foreground">
-                                                            {row.longitude != null ? row.longitude.toFixed(5) : "—"}
-                                                        </TableCell>
-                                                        <TableCell>{row.station_type}</TableCell>
-                                                        <TableCell className="font-mono text-xs">
-                                                            {row.customerCodeCell || "—"}
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            {row.isValid ? (
-                                                                <Check className="h-4 w-4 text-green-500" />
-                                                            ) : (
-                                                                <span className="text-xs text-destructive font-medium">
-                                                                    {row.invalidDetail ?? t("firstMile.sourcesImport.invalid")}
-                                                                </span>
-                                                            )}
-                                                        </TableCell>
-                                                    </TableRow>
-                                                ))}
-                                            </TableBody>
-                                        </Table>
-                                    </div>
-                                </ScrollArea>
-                            </div>
-                        </div>
-                    )}
-                </div>
-
-                <DialogFooter className="mt-4">
-                    {uploading ? (
-                        <div className="w-full space-y-2">
-                            <div className="flex justify-between text-xs">
-                                <span>{t("firstMile.sourcesImport.uploading")}</span>
-                                <span>{progress}%</span>
-                            </div>
-                            <Progress value={progress} />
-                        </div>
-                    ) : (
-                        <>
-                            <Button variant="outline" onClick={() => setOpen(false)}>
-                                {t("firstMile.sourcesImport.cancel")}
-                            </Button>
+            <div className="flex-1 overflow-hidden flex flex-col gap-4">
+                {!file ? (
+                    <div className="flex flex-col gap-4 h-full">
+                        <div className="flex justify-between items-center">
+                            <span className="text-sm text-muted-foreground">
+                                {t("firstMile.sourcesImport.templateHint")}
+                            </span>
                             <Button
-                                onClick={handleUpload}
-                                disabled={!file || data.length === 0 || validCount === 0 || uploading}
+                                variant="outline"
+                                size="sm"
+                                onClick={handleDownloadTemplate}
+                                className="gap-2"
                             >
-                                {t("firstMile.sourcesImport.upload")} {validCount}{" "}
-                                {t("firstMile.sourcesImport.records")}
+                                <Download className="h-4 w-4" />
+                                {t("firstMile.sourcesImport.downloadTemplate")}
                             </Button>
-                        </>
-                    )}
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+                        </div>
+
+                        <div
+                            className="border-2 border-dashed rounded-lg p-12 flex flex-col items-center justify-center text-muted-foreground hover:bg-muted/50 transition-colors cursor-pointer"
+                            onClick={() => fileInputRef.current?.click()}
+                        >
+                            <Upload className="h-12 w-12 mb-4 text-muted-foreground" />
+                            <p className="font-medium text-lg">{t("firstMile.sourcesImport.clickUpload")}</p>
+                            <p className="text-sm">{t("firstMile.sourcesImport.formatsSupported")}</p>
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept=".xlsx,.xls"
+                                className="hidden"
+                                onChange={handleFileChange}
+                            />
+                        </div>
+                    </div>
+                ) : (
+                    <div className="flex flex-col gap-4 h-full min-h-0">
+                        <div className="flex items-center justify-between bg-muted/30 p-3 rounded-md border">
+                            <div className="flex items-center gap-3">
+                                <div className="bg-green-100 dark:bg-green-900/30 p-2 rounded">
+                                    <FileSpreadsheet className="h-5 w-5 text-green-600 dark:text-green-400" />
+                                </div>
+                                <div>
+                                    <p className="font-medium text-sm">{file.name}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                        {data.length} {t("firstMile.sourcesImport.recordsFound")} • {validCount}{" "}
+                                        valid
+                                    </p>
+                                </div>
+                            </div>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => {
+                                    setFile(null);
+                                    setData([]);
+                                    setError(null);
+                                }}
+                            >
+                                <X className="h-4 w-4" />
+                            </Button>
+                        </div>
+
+                        {error && (
+                            <Alert variant="destructive">
+                                <AlertCircle className="h-4 w-4" />
+                                <AlertTitle>{t("firstMile.sourcesImport.error")}</AlertTitle>
+                                <AlertDescription>{error}</AlertDescription>
+                            </Alert>
+                        )}
+
+                        <div className="border rounded-md flex-1 min-h-0 overflow-hidden">
+                            <ScrollArea className="h-[320px] w-full">
+                                <div className="min-w-[760px] p-1">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow className="bg-muted/50">
+                                                <TableHead className="w-10">
+                                                    {t("firstMile.sourcesImport.table.row")}
+                                                </TableHead>
+                                                <TableHead className="w-[100px]">
+                                                    {t("firstMile.sourcesImport.table.docId")}
+                                                </TableHead>
+                                                <TableHead>{t("firstMile.sourcesImport.table.sourceId")}</TableHead>
+                                                <TableHead>{t("firstMile.sourcesImport.table.nameSPX")}</TableHead>
+                                                <TableHead>{t("firstMile.sourcesImport.table.nameThai")}</TableHead>
+                                                <TableHead>{t("firstMile.sourcesImport.table.latitude")}</TableHead>
+                                                <TableHead>{t("firstMile.sourcesImport.table.longitude")}</TableHead>
+                                                <TableHead>{t("firstMile.sourcesImport.table.stationType")}</TableHead>
+                                                <TableHead>{t("firstMile.sourcesImport.table.customerCode")}</TableHead>
+                                                <TableHead className="w-20">
+                                                    {t("firstMile.sourcesImport.table.status")}
+                                                </TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {data.map((row) => (
+                                                <TableRow
+                                                    key={row.id}
+                                                    className={!row.isValid ? "bg-destructive/5" : ""}
+                                                >
+                                                    <TableCell className="font-mono text-xs">{row.id + 1}</TableCell>
+                                                    <TableCell className="font-mono text-xs truncate max-w-[100px]">
+                                                        {row.firestoreDocId || "—"}
+                                                    </TableCell>
+                                                    <TableCell className="font-medium">
+                                                        {row.source_id || "—"}
+                                                    </TableCell>
+                                                    <TableCell>{row.source_name_en || "—"}</TableCell>
+                                                    <TableCell className="text-muted-foreground text-xs">
+                                                        {row.source_name_th ?? "—"}
+                                                    </TableCell>
+                                                    <TableCell className="text-muted-foreground">
+                                                        {row.latitude != null ? row.latitude.toFixed(5) : "—"}
+                                                    </TableCell>
+                                                    <TableCell className="text-muted-foreground">
+                                                        {row.longitude != null ? row.longitude.toFixed(5) : "—"}
+                                                    </TableCell>
+                                                    <TableCell>{row.station_type}</TableCell>
+                                                    <TableCell className="font-mono text-xs">
+                                                        {row.customerCodeCell || "—"}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {row.isValid ? (
+                                                            <Check className="h-4 w-4 text-green-500" />
+                                                        ) : (
+                                                            <span className="text-xs text-destructive font-medium">
+                                                                {row.invalidDetail ?? t("firstMile.sourcesImport.invalid")}
+                                                            </span>
+                                                        )}
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </div>
+                            </ScrollArea>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            <DialogFooter className="mt-4">
+                {uploading ? (
+                    <div className="w-full space-y-2">
+                        <div className="flex justify-between text-xs">
+                            <span>{t("firstMile.sourcesImport.uploading")}</span>
+                            <span>{progress}%</span>
+                        </div>
+                        <Progress value={progress} />
+                    </div>
+                ) : (
+                    <>
+                        <Button variant="outline" onClick={() => setOpen(false)}>
+                            {t("firstMile.sourcesImport.cancel")}
+                        </Button>
+                        <Button
+                            onClick={handleUpload}
+                            disabled={!file || data.length === 0 || validCount === 0 || uploading}
+                        >
+                            {t("firstMile.sourcesImport.upload")} {validCount}{" "}
+                            {t("firstMile.sourcesImport.records")}
+                        </Button>
+                    </>
+                )}
+            </DialogFooter>
+        </DialogContent>
     );
 }
