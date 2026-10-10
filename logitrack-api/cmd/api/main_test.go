@@ -63,13 +63,17 @@ func startEnv(t *testing.T) {
 		"DATABASE_URL": "postgres://logitrack_app@127.0.0.1:1/logitrack", "REDIS_URL": "redis://127.0.0.1:1/0",
 		"JWT_SIGNING_KEY_FILE": key, "JWT_ACTIVE_KID": kid, "JWT_ISSUER": "http://localhost", "JWT_AUDIENCE": "logitrack-test",
 		"ARGON2_MEMORY_KB": "8192", "ARGON2_ITERATIONS": "1",
+		// The s3 backend (the default) with a closed endpoint: storage connects lazily too (placeholders).
+		"STORAGE_BACKEND": "s3", "S3_ENDPOINT": "http://127.0.0.1:1", "S3_PRESIGN_ENDPOINT": "http://localhost:9000",
+		"S3_REGION": "us-east-1", "S3_ACCESS_KEY_ID": "placeholder", "S3_SECRET_ACCESS_KEY": "placeholder",
 	} {
 		t.Setenv(k, v)
 	}
 	clearEnv(t, "OTEL_EXPORTER_OTLP_ENDPOINT", "REDIS_KEY_PREFIX", "JWT_PREVIOUS_KEY_FILE", "FIREBASE_SCRYPT_SIGNER_KEY",
 		"FIREBASE_SCRYPT_SALT_SEPARATOR", "FIREBASE_SCRYPT_ROUNDS", "FIREBASE_SCRYPT_MEM_COST",
 		"AUTH_FIREBASE_BRIDGE_MODE", "FIREBASE_PROJECT_ID", "GOOGLE_APPLICATION_CREDENTIALS",
-		"PG_OWNED_DOMAINS", "WEB_FLAG_OVERRIDES")
+		"PG_OWNED_DOMAINS", "WEB_FLAG_OVERRIDES",
+		"LOCAL_MEDIA_DIR", "LOCAL_MEDIA_PUBLIC_BASE_URL", "LOCAL_MEDIA_SIGNING_KEY", "S3_USE_SSL", "CORS_ALLOWED_ORIGINS")
 }
 
 // An unreadable service-account file stops a bridged api with the configuration exit code, naming the

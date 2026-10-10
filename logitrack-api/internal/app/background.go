@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
@@ -23,9 +24,11 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/health"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/mq"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/outbox"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/push"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/realtime"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/telemetry"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/scheduler"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
 )
 
 // DeadLetterPollInterval is how often the worker refreshes mq_dead_letter_depth.
@@ -115,7 +118,8 @@ func runBackground[T any](ctx context.Context, process string, stdout, stderr io
 
 // RunWorker is the worker process (main spec §2.1, §7.2-§7.3): it asserts the RabbitMQ topology and
 // consumes the queues of the WORKER_CONSUMERS groups that have a consumer, with the retry ladder of
-// Appendix B §B.5.4, until SIGTERM.
+// Appendix B §B.5.4, until SIGTERM. Readiness needs PostgreSQL, Redis (notify.fcm's idem: keys) and the
+// broker session.
 func RunWorker(ctx context.Context, stdout, stderr io.Writer) int {
 	return runBackground(ctx, "worker", stdout, stderr,
 		func(c *WorkerConfig) (Common, Runtime) { return c.Common, c.Runtime },
@@ -124,9 +128,31 @@ func RunWorker(ctx context.Context, stdout, stderr io.Writer) int {
 			if err != nil {
 				return background{}, &config.Error{Invalid: []string{"DATABASE_URL: " + err.Error()}}
 			}
-			regs, err := workerRegistrations(cfg, pool, log)
+			// The process's one Redis client and keyspace, built like the api's and the scheduler's (T09).
+			cache.RouteDriverLogs(log)
+			rdb, ks, err := cache.Open(cache.Options{URL: cfg.RedisURL, Prefix: cfg.RedisKeyPrefix, AppEnv: cfg.AppEnv, TLS: cfg.RedisTLS})
+			if err != nil { // never carries the URL
+				pool.Close()
+				return background{}, &config.Error{Invalid: []string{err.Error()}}
+			}
+			st, _, err := newStorage(storageBuild{Storage: cfg.Storage}, pool, log)
 			if err != nil {
 				pool.Close()
+				if cerr := rdb.Close(); cerr != nil {
+					log.Warn().Err(cerr).Msg("redis close")
+				}
+				return background{}, err
+			}
+			closeAll := func() {
+				st.Close()
+				pool.Close()
+				if err := rdb.Close(); err != nil {
+					log.Warn().Err(err).Msg("redis close")
+				}
+			}
+			regs, err := workerRegistrations(cfg, pool, st, rdb, ks, log)
+			if err != nil {
+				closeAll()
 				return background{}, err
 			}
 			opts := mq.ConsumerOptions{
@@ -141,15 +167,19 @@ func RunWorker(ctx context.Context, stdout, stderr io.Writer) int {
 						return runConsumers(cctx, conn, regs, opts, log, probe)
 					})
 				},
-				close:  pool.Close,
-				checks: []health.Checker{checker{"postgres", pool.Ping}, checker{"rabbitmq", probe.Check}},
+				close: closeAll,
+				checks: []health.Checker{
+					checker{"postgres", pool.Ping},
+					checker{"redis", func(ctx context.Context) error { return rdb.Ping(ctx).Err() }},
+					checker{"rabbitmq", probe.Check},
+				},
 			}, nil
 		})
 }
 
 // workerRegistrations are the consumers of the selected groups. Queues of those groups whose
 // consumer arrives with a later issue are not consumed (their messages wait in the queue).
-func workerRegistrations(cfg *WorkerConfig, pool *pgxpool.Pool, log zerolog.Logger) ([]mq.Registration, error) {
+func workerRegistrations(cfg *WorkerConfig, pool *pgxpool.Pool, st *storage.Service, rdb *redis.Client, ks cache.Keyspace, log zerolog.Logger) ([]mq.Registration, error) {
 	available := map[string]mq.Registration{}
 	var sender email.Sender
 	if cfg.EmailEnabled {
@@ -167,6 +197,29 @@ func workerRegistrations(cfg *WorkerConfig, pool *pgxpool.Pool, log zerolog.Logg
 		WebBaseURL: cfg.PublicWebBaseURL, ResetTTL: cfg.PasswordResetTTL, Enabled: cfg.EmailEnabled, Log: log,
 	}
 	available[notify.QueueEmail] = mail.Registration()
+	if st != nil {
+		available[storage.QueueGC] = st.GCRegistration()
+	}
+
+	fcm := &notify.FCM{Pool: pool, Redis: rdb, Keys: ks, Enabled: cfg.FCMEnabled, Log: log}
+	if cfg.FCMEnabled && slices.Contains(cfg.Groups, "notify") {
+		// No I/O beyond reading the key file: the access token is fetched on the first send, so the worker
+		// starts while Google is unreachable. An unreadable or malformed file names the variable only.
+		creds, err := push.LoadCredentials(cfg.FCMServiceAccountJSON)
+		if err != nil {
+			return nil, &config.Error{Invalid: []string{err.Error()}}
+		}
+		if p := creds.ProjectID(); p != "" && p != cfg.FCMProjectID {
+			log.Warn().Msg("FCM: the FCM_SERVICE_ACCOUNT_JSON service account belongs to another project than FCM_PROJECT_ID")
+		}
+		client, err := push.New(push.Config{ProjectID: cfg.FCMProjectID, Tokens: creds.TokenSource(nil)})
+		if err != nil {
+			return nil, &config.Error{Invalid: []string{"FCM_PROJECT_ID: " + err.Error()}}
+		}
+		fcm.Sender = client
+	}
+	log.Info().Bool("fcm_enabled", cfg.FCMEnabled).Msg("notify.fcm")
+	available[notify.QueueFCM] = fcm.Registration()
 
 	var regs []mq.Registration
 	var waiting []string

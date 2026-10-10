@@ -72,15 +72,60 @@ func TestUpToNineStatusUpAndDown(t *testing.T) {
 	}
 }
 
+// The production order of P0 through the binary (R59, R88): up-to 9, apply 11 (the T11 storage
+// schema ahead of the held 0010), both repeatable; status shows 0010 pending; the P1 runbook's up
+// applies it.
+func TestUpToNineApplyElevenThenUp(t *testing.T) {
+	d := pgtest.NewDatabase(t)
+	url := d.URL(db.RoleMigrator)
+	for range 2 {
+		if code, _, stderr := cli(t, url, migrations.FS, "up-to", "9"); code != 0 {
+			t.Fatalf("up-to 9: exit %d\n%s", code, stderr)
+		}
+		if code, _, stderr := cli(t, url, migrations.FS, "apply", "11"); code != 0 {
+			t.Fatalf("apply 11: exit %d\n%s", code, stderr)
+		}
+	}
+	expectVersion(t, url, migrations.FS, "11")
+	code, stdout, stderr := cli(t, url, migrations.FS, "status")
+	if code != 0 {
+		t.Fatalf("status: exit %d\n%s", code, stderr)
+	}
+	for _, want := range []string{
+		`(?m)^0010\s+pending\s+-\s+0010_d5_unique_constraints\.sql$`,
+		`(?m)^0011\s+applied\s+\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\s+0011_file_objects_storage_backend\.sql$`,
+	} {
+		if !regexp.MustCompile(want).MatchString(stdout) {
+			t.Fatalf("status output does not match %s:\n%s", want, stdout)
+		}
+	}
+	if code, _, stderr := cli(t, url, migrations.FS, "status", "-fail-on-pending"); code != 1 {
+		t.Fatalf("status -fail-on-pending with 0010 held: exit %d\n%s", code, stderr)
+	}
+	code, _, stderr = cli(t, url, migrations.FS, "up")
+	if code != 0 || !strings.Contains(stderr, `"file":"0010_d5_unique_constraints.sql"`) {
+		t.Fatalf("up: exit %d\n%s", code, stderr)
+	}
+	if code, _, stderr := cli(t, url, migrations.FS, "status", "-fail-on-pending"); code != 0 {
+		t.Fatalf("status after up: exit %d\n%s", code, stderr)
+	}
+	// apply refuses to skip a version that is not held.
+	d2 := pgtest.NewDatabase(t)
+	if code, _, stderr := cli(t, d2.URL(db.RoleMigrator), migrations.FS, "apply", "11"); code != 1 || !strings.Contains(stderr, "would skip pending 0001_preamble.sql") {
+		t.Fatalf("apply 11 on an empty database: exit %d\n%s", code, stderr)
+	}
+}
+
 func TestEmbeddedChainUp(t *testing.T) {
 	d := pgtest.NewDatabase(t)
 	url := d.URL(db.RoleMigrator)
 	code, _, stderr := cli(t, url, migrations.FS, "up")
 	if code != 0 || !strings.Contains(stderr, `"file":"0001_preamble.sql"`) ||
-		!strings.Contains(stderr, `"file":"0010_d5_unique_constraints.sql"`) {
+		!strings.Contains(stderr, `"file":"0010_d5_unique_constraints.sql"`) ||
+		!strings.Contains(stderr, `"file":"0011_file_objects_storage_backend.sql"`) {
 		t.Fatalf("up: exit %d\n%s", code, stderr)
 	}
-	expectVersion(t, url, migrations.FS, "10")
+	expectVersion(t, url, migrations.FS, "11")
 }
 
 func TestRefusesOtherLogins(t *testing.T) {

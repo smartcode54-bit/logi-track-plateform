@@ -1,5 +1,5 @@
-// Package notify holds the notification consumers of the worker (main spec §7.6). This issue (T10)
-// brings notify.email; notify.fcm and notify.line follow in T13 and T49.
+// Package notify holds the notification consumers of the worker (main spec §7.6): notify.email (T10),
+// notify.fcm (T13, fcm.go, with the legacy push payloads in pushes.go); notify.line follows in T49.
 package notify
 
 import (

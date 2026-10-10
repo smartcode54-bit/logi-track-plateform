@@ -15,10 +15,11 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
 )
 
-// Me is the body of GET /v1/me (Appendix C §C.8). photoUrl stays null until the storage service (T11)
-// can presign the profile photo; legacyAuthUid (the user's Firebase uid) is present only while the
+// Me is the body of GET /v1/me (Appendix C §C.8). photoUrl is a short-lived URL of the profile photo signed by
+// the storage service (S3_PRESIGN_GET_TTL; null without a photo or when storage cannot sign); legacyAuthUid (the user's Firebase uid) is present only while the
 // Firebase bridge mints custom tokens for the web and the user has one (T08): the web compares it with
 // the signed-in Firebase uid and asks for a new custom token when they differ; capabilities come from
 // the CapabilityResolver (T07).
@@ -53,11 +54,13 @@ type CustomerScope struct {
 // Me is GET /v1/me for the principal's active tenant.
 func (s *Service) Me(ctx context.Context, p *authz.Principal) (*Me, error) {
 	var out *Me
+	var photo *uuid.UUID
 	err := s.system(ctx, func(q *authdb.Queries) error {
 		u, err := q.GetUser(ctx, p.UserID)
 		if err != nil {
 			return err
 		}
+		photo = u.PhotoFileID
 		a, err := loadAxes(ctx, q, p.UserID)
 		if err != nil {
 			return err
@@ -100,6 +103,14 @@ func (s *Service) Me(ctx context.Context, p *authz.Principal) (*Me, error) {
 	if err != nil {
 		return nil, err
 	}
+	if photo != nil && s.files != nil {
+		// A storage outage leaves photoUrl null instead of failing the whole profile.
+		if u, err := s.files.SignedURL(ctx, *photo, 0); err == nil {
+			out.PhotoURL = &u
+		} else {
+			s.log.Warn().Err(err).Msg("profile photo URL not signed")
+		}
+	}
 	if s.caps != nil {
 		caps, err := s.caps.Capabilities(ctx, p)
 		if err != nil {
@@ -135,17 +146,22 @@ func (s *Service) PatchMe(ctx context.Context, p *authz.Principal, in PatchMeInp
 	if len(v) > 0 {
 		return nil, httpx.ErrInvalidArgument(v...)
 	}
-	err := s.system(ctx, func(q *authdb.Queries) error {
+	err := s.systemTx(ctx, func(tx pgx.Tx, q *authdb.Queries) error {
 		var photo *uuid.UUID
 		if in.PhotoKey != nil {
-			id, err := q.FindOwnFile(ctx, authdb.FindOwnFileParams{ObjectKey: *in.PhotoKey, UserID: p.UserID})
-			if errors.Is(err, pgx.ErrNoRows) {
-				return httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "photoKey", Reason: "not_found"})
+			if s.files == nil {
+				return httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "photoKey", Reason: "not_found",
+					Params: map[string]any{"key": *in.PhotoKey}})
 			}
+			// The upload from POST /v1/uploads/presign (purpose user_photo) is committed in this transaction: Stat
+			// on its backend, size and type as declared; only the caller's own upload (no tenant fallback).
+			f, err := s.files.Commit(ctx, tx, storage.CommitInput{
+				Key: *in.PhotoKey, Field: "photoKey", Purposes: []string{"user_photo"}, OwnerID: p.UserID, UserID: p.UserID,
+			})
 			if err != nil {
 				return err
 			}
-			photo = &id
+			photo = &f.ID
 		}
 		if in.DisplayName != nil || photo != nil {
 			if err := q.UpdateProfile(ctx, authdb.UpdateProfileParams{DisplayName: in.DisplayName, PhotoFileID: photo, ID: p.UserID}); err != nil {

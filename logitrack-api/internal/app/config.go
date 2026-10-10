@@ -255,12 +255,14 @@ type APIConfig struct {
 	Auth
 	Bridge
 	Realtime
+	Storage
+	StorageAPI
 	// RateLimit is RATE_LIMIT_ENABLED and RATE_LIMIT_{LOGIN,PUBLIC_FORMS,EVIDENCE}, parsed once by
 	// ratelimit.Config (Validate below) for the rate-limit middleware and the auth buckets alike.
 	RateLimit         ratelimit.Config
 	InternalAddr      string   `env:"API_INTERNAL_ADDR,required,notEmpty"`
 	PublicAddr        string   `env:"API_PUBLIC_ADDR,required,notEmpty"`
-	PublicRouteGroups []string `env:"PUBLIC_ROUTE_GROUPS" envSeparator:"," envDefault:"/v1/mobile,/v1/auth,/public/v1,/evidence,/healthz"`
+	PublicRouteGroups []string `env:"PUBLIC_ROUTE_GROUPS" envSeparator:"," envDefault:"/v1/mobile,/v1/auth,/public/v1,/evidence,/healthz,/media"`
 	TrustedProxyCIDRs []string `env:"TRUSTED_PROXY_CIDRS" envSeparator:","`
 	// PG_OWNED_DOMAINS (the domains PostgreSQL writes, main spec §12.1) and WEB_FLAG_OVERRIDES give the
 	// web domain flags of GET /v1/config/web-flags (internal/webcfg, R35, R41).
@@ -283,6 +285,8 @@ func (c *APIConfig) Validate() error {
 	c.Auth.validate(&errs)
 	c.Bridge.validate(&errs)
 	c.Realtime.validate(&errs)
+	c.Storage.validate(&errs)
+	c.StorageAPI.validate(c.Storage, &errs)
 	if err := c.RateLimit.Validate(); err != nil {
 		var cerr *config.Error
 		if errors.As(err, &cerr) {

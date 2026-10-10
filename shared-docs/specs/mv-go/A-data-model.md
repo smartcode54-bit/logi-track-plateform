@@ -27,7 +27,7 @@ Plan §7 (R1–R35) and the cross-document resolutions (R36–R89, binding where
 | R14 | `statement_documents`, `billing_statement_lines`, `hub_soc_distances(direction)`, `trip_no_history`; truck current assignment derived | A.2.2–A.2.4 |
 | R15, R62 | `tasks.truck_type` NULL legal; unpriced reasons `no_customer\|no_rate\|no_vehicle_class\|no_billing_date` (trips), `no_customer\|no_rate\|no_ended_at` (standby) | A.2.3, A.2.4 |
 | R16–R20, R53 | Rate-entry tie-break; `last_event_id`; money writes read PostgreSQL only; WHT `NUMERIC(5,4)` snapshot; `NUMERIC(14,2)`; standby rates soft-deleted; `photo_type_known` STORED | A.1.5, A.2.3, A.2.4 |
-| R30, R47 | Evidence tokens non-expiring; `evidence_token_revoked_at` on `trip_records` and `standby_records` (revoke routes in Appendix B); no separate link table | A.2.3 |
+| R30, R47 | Evidence tokens non-expiring; `evidence_token_revoked_at` on `trip_records` and `standby_records` (revoke routes in Appendix B); no separate link table; Go mints v1 tokens that carry their issue time (main spec §9.6), legacy tokens load unchanged | A.2.3 |
 | R31 | Every file has a Down | A.2 |
 | R34, R57 | Every id `uuid DEFAULT uuidv7()`, `status_history` and `trip_no_history` included; the only identity column is `outbox_events.id` (0009), stored by `last_event_id bigint` without FK; generated columns `STORED` | A.1.1, A.1.10 |
 | R55 | `users.legacy_auth_uid` / `drivers.legacy_auth_uid`; scrypt pair (bytea), `status`, `auth_version`, `must_change_password`, `password_changed_at`; no platform-admin flag, revocation epoch or force-logout column | A.2.1 |
@@ -52,8 +52,9 @@ Plan §7 (R1–R35) and the cross-document resolutions (R36–R89, binding where
 | `0007_comms.sql` | device tokens, chats, messages, read state, broadcasts, recipients, reads, notification log | A.2.6 |
 | `0008_platform.sql` | settings, mobile app releases, security events, mobile installations, holidays, leave requests, waitlist, partner interest, fuel snapshots | A.2.7 |
 | `0009_infra.sql` | `outbox_events`, `consumer_inbox`, `idempotency_keys`, `jobs`, `etl.source_docs`, `etl.quarantine`, `etl.watermarks`, `etl.reconciliation_runs`; single grant site (`logitrack_readonly` included); hand-over of the SECURITY DEFINER functions to `logitrack_rls_definer` | A.2.8 |
+| `0011_file_objects_storage_backend.sql` | `file_objects.storage_backend` (`local` \| `s3`, NOT NULL without a default) and `storage_backend` among the columns `t_file_objects_commit_columns` fixes at upload (T11, owner addition of 2026-10-10) | A.2.9 |
 
-Phase placement (R59, R88): `0001`–`0009` are applied together in **P0** (issue T04); phases P1–P7 change which side *writes* a table, not whether it exists, so phase schema tasks become data-layer tasks. `0010_d5_unique_constraints.sql` (`-- +goose NO TRANSACTION`, `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS`: `chats_one_open_per_driver`, `vehicle_expenses_fuel_taxinv`, `customer_service_fees_one_per_type`) is authored by T04 and applied in production as a step of the P1 full-load runbook (T24): `goose up-to 9` → ETL → owner's quarantine sign-off → `goose up` (§A.4 D5). Dev, CI and seeded databases apply it immediately; later changes are 0011+.
+Phase placement (R59, R88): `0001`–`0009` are applied together in **P0** (issue T04); phases P1–P7 change which side *writes* a table, not whether it exists, so phase schema tasks become data-layer tasks. `0010_d5_unique_constraints.sql` (`-- +goose NO TRANSACTION`, `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS`: `chats_one_open_per_driver`, `vehicle_expenses_fuel_taxinv`, `customer_service_fees_one_per_type`) is authored by T04 and applied in production as a step of the P1 full-load runbook (T24): `goose up-to 9` → `migrate apply 11` → ETL → owner's quarantine sign-off → `goose up` (§A.4 D5). Dev, CI and seeded databases apply it immediately; later changes are 0011+ (`0011_file_objects_storage_backend.sql`, T11, §A.2.9). 0011 ships in production P0 ahead of the held 0010 (`migrate apply 11`; the storage routes and `storage.gc` need its column from the first deployment on), and the P1 runbook's `goose up` then applies 0010 out of order, the only gap the runner allows (`internal/platform/migrate.Held`, main spec §3.5).
 
 ## A.1 Design principles
 
@@ -767,6 +768,7 @@ DROP FUNCTION IF EXISTS trg_file_objects_commit_columns();
   - A user holds an Argon2id `password_hash`, a legacy scrypt pair awaiting the first-login rehash (all-or-nothing, NULLed by that login), or neither (Google-only).
   - Refresh rotation sets `rotated_at` and `replaced_by` together; presenting a rotated token is reuse → revoke family + session (`refresh_reuse`) and bump `auth_version` (R2), except inside the 30 s grace for concurrent tabs or a retried mobile request (R37, Appendix C §C.4.4).
   - Public objects exist only for APKs (`visibility='public'` requires `purpose='apk'`); the rest is private (presigned GET). Pending uploads always carry `expires_at` for `storage.gc`.
+- `file_objects.storage_backend` (0011, §A.2.9): `local` or `s3`, where the object lives; set by every writer (presign, ETL copy `s3`, rendered documents), never changed outside `WithSystem`.
 - `file_objects.purpose` vocabulary (format CHECK only; the presign API in Appendix B owns the list): `trip_photo`, `checkin_photo`, `checkin_app_screenshot`, `standby_photo`, `incident_photo`, `chat_image`, `leave_evidence`, `maintenance_file`, `expense_receipt`, `expense_odometer`, `company_logo`, `company_stamp`, `company_signature`, `customer_logo`, `driver_profile`, `driver_id_card`, `driver_license`, `truck_photo`, `truck_document`, `truck_receipt`, `insurance_document`, `tenant_document`, `user_photo`, `penalty_evidence`, `statement_document`, `report`, `apk`. Server-only cache objects (`cache/staticmaps/`) are not registered.
 - Legacy Firestore source: `subcontractors` → `tenants` (`kind='carrier'`, `contractor_tenant_id` = own fleet) + `tenant_files`; Firebase Auth export + `users/{uid}` → `users`, `auth_identities`, `memberships`, `user_platform_roles`; `permissions_config/{role}` → `role_capability_overrides` (only keys that exist in the Go catalog; underscore matrix rows are mapped per Appendix C §C.2.6, the rest go to `etl.quarantine` with `unknown_capability_key`); every Firebase Storage URL → `file_objects` (key = URL path after `/o/`, token stripped); `drivers.statusHistory[]`, `trucks.statusHistory[]` (different shape) → `status_history`. `users.forceLogoutAt` has no column: forced logout is session revocation + `auth_version` bump + SSE `session.revoked`.
 - Indexes → live query.
@@ -1343,7 +1345,7 @@ CREATE TABLE trip_records (
   review_reason                text,
   resubmitted_at               timestamptz,
   line_delivered_notified_at   timestamptz,                -- LINE idempotency flag
-  evidence_token               text,                       -- public gallery key /evidence/{token}; non-expiring (R30)
+  evidence_token               text,                       -- public gallery key /evidence/{token}; non-expiring (R30); Go v1 token carries its issue time (main spec §9.6), legacy 16-char tokens load as is
   evidence_token_revoked_at    timestamptz,                -- POST /v1/trips/{id}/evidence/revoke (R47); next forced LINE send mints a new token
   created_at                   timestamptz NOT NULL DEFAULT now(),   -- legacy: device time at loading (Depart axis); ETL coalesces (R19)
   updated_at                   timestamptz NOT NULL DEFAULT now(),
@@ -1457,7 +1459,7 @@ CREATE TABLE standby_records (
   billing_unpriced_reason     text CHECK (billing_unpriced_reason IN ('no_customer','no_rate','no_ended_at')),
   billing_computed_at         timestamptz,
   line_notified_at            timestamptz,
-  evidence_token              text,                        -- non-expiring (R30)
+  evidence_token              text,                        -- non-expiring (R30); v1 or legacy format as on trip_records
   evidence_token_revoked_at   timestamptz,                 -- POST /v1/standby/{id}/evidence/revoke (R47)
   client_op_id                uuid,                        -- offline op id (R63)
   created_at                  timestamptz NOT NULL DEFAULT now(),
@@ -1714,7 +1716,7 @@ DROP FUNCTION assert_tenant_matches(text, uuid, uuid, text, uuid, uuid);
   - `trip_no` is unique and obeys the Firestore doc-id rule (projectable during coexistence); renames append to `trip_no_history` and never move objects.
   - Photos merge by type (`UNIQUE (trip_id, photo_type)`, last wins); unknown types load with `photo_type_known = false` (R19). Stop destinations are unique per task (409 `duplicate_destination`); stop progress is unique per `(trip, stop_index)`, so `POST /v1/mobile/trips/{id}/stops/{index}/deliver` is idempotent per index.
   - Standby pricing columns stay inline (R61) and the standby repository returns `billing_*` only to the billing carrier's principals (Appendix C §C.3.4). `service_fee` prices carry no rate-entry FK; an unpriced standby carries exactly one reason (`no_customer|no_rate|no_ended_at`, R62) and no estimate; `ended_at` is never derived (legacy `endedAt = trip.updatedAt` loads as stored).
-  - Evidence tokens are non-expiring and revocable (R30, R47): `/evidence/{token}` checks `evidence_token_revoked_at IS NULL`; the revoke routes set it and the next forced LINE send mints a new token.
+  - Evidence tokens are non-expiring and revocable (R30, R47): `/evidence/{token}` checks `evidence_token_revoked_at IS NULL`; the revoke routes set it and the next forced LINE send mints a new token. Go mints v1 tokens only (`storage.NewEvidenceToken`: version byte, 8-byte Unix issue seconds, 16 random bytes, base64url, 34 characters); with `EVIDENCE_TOKEN_TTL_DAYS` > 0 a token's age counts from its embedded issue time, a legacy token's from the row's `created_at` (main spec §9.6).
   - Tenant consistency: constraint triggers enforce at commit that a trip is on its task's tenant, a standby record on its task's (else trip's) tenant and an incident on its trip's tenant; a parent changes tenant only if its children move in the same transaction (re-home, R13). A writer referencing a parent it cannot see under RLS gets `insufficient_privilege`. Rows without a parent link are not checked; `tenant_source='driver'` drift is reported by `tenancy.orphan-scan`.
   - `created_at` on trips, standby records and incidents is `NOT NULL DEFAULT now()`; ETL supplies the legacy value and, for trips, `COALESCE(createdAt, std, deliveredTimestamp, Firestore create time)` with the field-quarantine entry `created_at_derived` (R19, R68), so a billable trip is never dropped.
 - Legacy Firestore source: `tasks` (+ `deliveryStops[]`) → `tasks`, `task_delivery_stops`; `trip_records` (+ `photos[]`, `deliveryStopsProgress[]`, `renamedFrom*`) → `trip_records`, `trip_photos`, `trip_delivery_stops`, `trip_no_history`; the `billing*` fields of a trip go to `trip_billing_snapshots` (0005), except `billingCustomerId` / `billingDate` which stay on `trip_records` as `billing_party_id` / `billing_date`; `standby_records` (+ `photos[]`) → `standby_records`, `standby_photos`; `incidentReport` → `incident_reports`; `vehicle_locations/{GPSVehicleId}` → `vehicle_locations` keyed by truck. The `checkin` collection (rules only, no reader or writer) gets no table.
@@ -2698,7 +2700,7 @@ DROP TABLE device_tokens;
 
 **Notes (0007)**
 
-- **`device_tokens` (R4).** PK `(user_id, install_id)`, `token` UNIQUE, `driver_id` nullable. `PUT /v1/me/devices` (web) and `PUT /v1/mobile/me/devices` (APK) upsert `{installId, token, platform, appFlavor}` on the PK (Appendix B §B.2.3, §B.2.21); a token already held by another `(user_id, install_id)` (shared phone) is deleted in the same transaction, so the UNIQUE index never fails. `POST /v1/auth/logout` deletes the install's row and `notify.fcm` deletes it on FCM `UNREGISTERED` (Appendix B §B.5.3). Today two stores exist: `drivers/{id}.fcmToken` for task pushes (`driver_repository.dart:73-83`, read by `triggers.ts:279-293`) and `users/{uid}.fcmTokens` with the fixed key `app` for chat and broadcast (`fcm_service.dart:28-50`, read by `chat.ts:13-27`; integrations report "FCM"). ETL rule: §A.3.1.
+- **`device_tokens` (R4).** PK `(user_id, install_id)`, `token` UNIQUE, `driver_id` nullable. `PUT /v1/me/devices` (web) and `PUT /v1/mobile/me/devices` (APK) upsert `{installId, token, platform, appFlavor}` on the PK (Appendix B §B.2.3, §B.2.21); a token already held by another `(user_id, install_id)` (shared phone) is deleted in the same transaction, so the UNIQUE index never fails. `POST /v1/auth/logout` deletes the install's row and `notify.fcm` deletes it on FCM `UNREGISTERED` (Appendix B §B.5.3). As built (T13): `driver_id` is written from `drivers.user_id` at registration and is informational; `notify.fcm` reaches a driver through `drivers.user_id` → `device_tokens.user_id` (at most 10 rows per driver, the most recently seen), so a driver re-linked to another user never reaches the old user's devices. The move is narrowed, because a token proves no possession of the device: it leaves the caller's own rows, and another user's row only when that row's `install_id` is the install the caller's session signed in on (shared phone; a `device_token_moved` security event in the same transaction); any other holder keeps it and the registration is `409 already_exists`. A registration keeps the user's 10 most recently seen rows (`last_seen_at`) and deletes the rest. Today two stores exist: `drivers/{id}.fcmToken` for task pushes (`driver_repository.dart:73-83`, read by `triggers.ts:279-293`) and `users/{uid}.fcmTokens` with the fixed key `app` for chat and broadcast (`fcm_service.dart:28-50`, read by `chat.ts:13-27`; integrations report "FCM"). ETL rule: §A.3.1.
 - **Chats.** Legacy `chats.driverId` is the auth uid; PostgreSQL references `drivers.id`, and the recipient user is always `drivers.user_id`, so a re-link (`PUT /v1/users/{id}/driver-link`) leaves no stale user on the chat. "One open chat per driver" is `chats_one_open_per_driver ON chats (driver_id) WHERE status <> 'closed'` (R14), created by `0010` after the duplicate report is signed off (§A.4 D5, R59); `POST /v1/chats/{id}/reopen` answers `409 already_exists` while another non-closed chat exists.
 - **Chat messages** are keyset-paginated on `(created_at, id)` (W9, 50 per page), replacing the unbounded listeners (`room/page.tsx:89-91`, `chat_repository.dart:87-94`). `client_message_id` (body `clientMessageId`) is unique per chat (R63): the durable replay key of the offline outbox beyond `IDEMPOTENCY_TTL` (R53), and the id the web uses to match its optimistic message with the SSE `message.created` echo on `chat:{chatId}`.
 - **Read state** is a row per `(chat, user)`, written only by `POST /v1/chats/{id}/read` (fixes the write inside the snapshot callback, `chat/room/page.tsx:108-113`, Appendix E).
@@ -3276,6 +3278,28 @@ Against the earlier drafts for 0006–0009, the ETL mapping and D1–D8: data mo
 | — | `holidays` CHECK `public ⇔ tenant_id IS NULL` | R12 |
 | D5 indexes spread over 0005–0007 | one `0010_d5_unique_constraints.sql`, authored in T04, applied in the T24 runbook after sign-off | R59, R88 |
 
+### A.2.9 Object storage backend (0011_file_objects_storage_backend.sql, T11)
+
+Owner addition of 2026-10-10: the first deployment stores uploads on the server's disk until an S3-compatible service exists (main spec §9.11). `STORAGE_BACKEND` picks the backend of new uploads; every row records its own, and reads, commits and `storage.gc` dispatch on it.
+
+```sql
+-- 0011_file_objects_storage_backend.sql
+-- Production applies it in P0 (`migrate up-to 9`, then `migrate apply 11`), ahead of the held 0010.
+-- +goose Up
+-- Rows that exist when this runs (none in production, which applies it before the ETL; a dev database loaded
+-- before T11) are MinIO objects: 's3'. The default exists only for that backfill and is dropped at once, so
+-- every later INSERT names its backend (NOT NULL, no default).
+ALTER TABLE file_objects ADD COLUMN storage_backend text NOT NULL DEFAULT 's3'
+  CONSTRAINT file_objects_storage_backend_check CHECK (storage_backend IN ('local','s3'));
+ALTER TABLE file_objects ALTER COLUMN storage_backend DROP DEFAULT;
+-- Appendix C §C.3.6 with storage_backend among the columns fixed at upload (CREATE OR REPLACE of
+-- trg_file_objects_commit_columns(); the Down section restores the 0002 body and drops the column).
+```
+
+- No other table gets a backend column: every image or file reference of 0002–0008 is a `*_file_id` foreign key to `file_objects` (18 tables: `users`, `tenant_files`, `customers`, `companies`, `drivers`, `truck_files`, `tasks`, `trip_photos`, `standby_photos`, `incident_reports`, `statement_documents`, `vehicle_expenses`, `maintenance_files`, `transactions`, `driver_penalties`, `chat_messages`, `mobile_app_releases`, `leave_request_attachments`; per-column purposes in main spec §9.11). `migrations/schema_integration_test.go` ("file references") fails when a `*file_id` column lacks that key or the list changes.
+- Not registered and therefore without a row: `settings('mobile_app').apkDownloadUrl` (derived at publish time from the release's `file_objects` row), server-only `cache/staticmaps/` objects, ETL dumps under `etl/dumps/{ts}/`.
+- ETL (T15) writes `storage_backend = 's3'` on every copied object: the P1 full load, `etl-fixtures` (at `up-to 9` + `apply 11`, the production P0 schema), `etl.sync` and `media-copy` all run on a schema that has the column, because production applies 0011 in P0 ahead of the held 0010 (main spec §3.5, §19). Legacy keys keep their spelling, segments longer than 255 bytes included (S3 limits only the whole 1024-byte key); such objects stay on `s3`, since the local backend refuses a segment over 255 bytes (250 for the last). The optional local → S3 copy job, if it is ever run, updates `bucket` and `storage_backend` together under `WithSystem`.
+
 ## A.3 ETL mapping (Firestore -> PostgreSQL)
 
 Tool: `cmd/etl` (`dump` → NDJSON per collection, `load`, `mirror`, `project`, `media-copy`, `rewrite-urls`, `reconcile`, `export-back`, `quarantine list|resolve`, `repair <name>`, `status`, plus the auth steps `auth-import`, `auth-weak-scan`, `auth-tail` of [Appendix C](./C-auth-rbac.md) §C.5); the process, runbook and coexistence sync are [main spec](../../../developer-spec.md) §13. It connects as `logitrack_etl` through `ETL_DATABASE_URL` (BYPASSRLS, R66); `cmd/seed` writes through the same role and load path (R87). Source is a live Admin SDK read, not the `gcloud firestore export` format (that export is kept only as the immutable archive). Default rule for fields not listed below: camelCase → snake_case, same meaning, cast per §A.3.0. Only quirks and non-obvious moves are listed. Citations are to the fact-base reports (schemas, legacy-quirks "Qn", billing, integrations, auth) unless a repo path is given.
@@ -3596,7 +3620,7 @@ The data-model design left eight owner decisions (DM §4). The plan (R1–R35) a
 -- +goose NO TRANSACTION
 -- Authored in issue T04 with the baseline; applied as a step of the P1 initial full-load runbook (issue T24) after the
 -- owner signs off the ETL quarantine report (R59, R88).
--- Production: goose up-to 9 -> ETL -> quarantine sign-off -> goose up.
+-- Production: goose up-to 9 -> migrate apply 11 -> ETL -> quarantine sign-off -> goose up.
 -- Dev / CI / seed: applied right after 0009 (no legacy duplicates).
 -- CREATE INDEX CONCURRENTLY cannot run inside a transaction block (R31); each statement runs on its own.
 

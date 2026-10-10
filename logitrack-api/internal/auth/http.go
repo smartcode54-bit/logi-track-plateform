@@ -18,8 +18,8 @@ import (
 //     logout-all, tenant, password forgot / reset / change, sse-ticket. The session exchange (T08, P7a)
 //     joins this group.
 //   - /v1/me (internal only): GET/PATCH /v1/me, GET /v1/me/tenants, GET /v1/me/sessions,
-//     DELETE /v1/me/sessions/{sid}. The driver-app aliases under /v1/mobile/me* come with the mobile
-//     group (T55).
+//     DELETE /v1/me/sessions/{sid}, PUT /v1/me/devices and DELETE /v1/me/devices/{installId} (T13). The
+//     driver-app aliases under /v1/mobile/me* come with the mobile group (T55; MountDevices serves both).
 //   - /v1/bridge (internal only, T08): POST /v1/bridge/firebase-token, 404 unless the Firebase bridge
 //     mode includes web (removed with TW7).
 //
@@ -57,6 +57,7 @@ func (s *Service) mountMe(r fiber.Router) {
 	r.Get("/tenants", s.handleMyTenants)
 	r.Get("/sessions", s.handleMySessions)
 	r.Delete("/sessions/:sid", s.handleRevokeMySession)
+	s.MountDevices(r)
 }
 
 // noStore keeps tokens and identity out of every cache, and sets Retry-After on 423 and 429.

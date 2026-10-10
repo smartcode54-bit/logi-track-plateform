@@ -3,9 +3,11 @@
 # USE = middleware or a mounted sub-app (Use), matching every path at or below PATH; the
 # listener-wide middleware at / is not listed.
 # public = served on API_PUBLIC_ADDR when its group is in PUBLIC_ROUTE_GROUPS; only
-# /v1/mobile/*, /v1/auth/*, /public/v1/*, /evidence/* and /healthz qualify (main spec §2.6),
-# and USE only at or below the first four.
+# /v1/mobile/*, /v1/auth/*, /public/v1/*, /evidence/*, /media/* and /healthz qualify (main spec
+# §2.6), and USE only at or below the first five.
 GET /healthz internal,public
+GET /media/* internal,public
+PUT /media/* internal,public
 GET /readyz internal
 GET /startupz internal
 POST /v1/admin/queues/:queue/replay internal
@@ -25,13 +27,18 @@ USE /v1/bridge internal
 POST /v1/bridge/firebase-token internal
 GET /v1/config/web-flags internal
 GET /v1/events internal
+GET /v1/files internal
 GET /v1/jobs internal
 GET /v1/jobs/:id internal
 GET /v1/me internal
 PATCH /v1/me internal
 USE /v1/me internal
+PUT /v1/me/devices internal
+DELETE /v1/me/devices/:installId internal
 GET /v1/me/sessions internal
 DELETE /v1/me/sessions/:sid internal
 GET /v1/me/tenants internal
 GET /v1/mobile/events internal,public
 GET /v1/roles internal
+PUT /v1/uploads/local/* internal
+POST /v1/uploads/presign internal

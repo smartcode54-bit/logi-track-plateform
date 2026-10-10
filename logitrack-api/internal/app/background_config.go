@@ -8,6 +8,7 @@ import (
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/mq"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/push"
 )
 
 // AMQPEnv is the RabbitMQ connection (api never has one, main spec §16.1).
@@ -37,9 +38,17 @@ type WorkerConfig struct {
 	Common
 	Runtime
 	Database
+	Redis // idem:fcm and idem:push keys of notify.fcm (Appendix B §B.6.2)
 	AMQPEnv
+	// Storage: storage.gc deletes expired pending objects on their own backend (T11).
+	Storage
 	Prefetch  int      `env:"RABBITMQ_PREFETCH"`
 	Consumers []string `env:"WORKER_CONSUMERS" envSeparator:"," envDefault:"all"`
+
+	// notify.fcm (main spec §7.6): FCM HTTP v1 with the messaging-only service account. Off locally.
+	FCMEnabled            bool   `env:"FCM_ENABLED"`
+	FCMProjectID          string `env:"FCM_PROJECT_ID"`
+	FCMServiceAccountJSON string `env:"FCM_SERVICE_ACCOUNT_JSON"`
 
 	// notify.email (main spec §7.6)
 	PublicWebBaseURL string        `env:"PUBLIC_WEB_BASE_URL"`
@@ -63,7 +72,9 @@ func (c *WorkerConfig) Validate() error {
 	c.Common.validate(&errs)
 	c.Runtime.validate(&errs)
 	c.Database.validate(&errs)
+	c.Redis.validate(c.AppEnv, &errs)
 	c.AMQPEnv.validate(&errs)
+	c.Storage.validate(&errs)
 	if c.Prefetch < 0 || c.Prefetch > 1000 {
 		errs = append(errs, config.Invalidf("RABBITMQ_PREFETCH", "must be between 0 and 1000"))
 	}
@@ -98,6 +109,14 @@ func (c *WorkerConfig) Validate() error {
 	}
 	if c.PasswordResetTTL < time.Minute || c.PasswordResetTTL > 24*time.Hour {
 		errs = append(errs, config.Invalidf("PASSWORD_RESET_TTL", "must be between 1m and 24h"))
+	}
+	if c.FCMEnabled {
+		if !push.ValidProjectID(c.FCMProjectID) {
+			errs = append(errs, config.Invalidf("FCM_PROJECT_ID", "must be a Firebase project id when FCM_ENABLED is true"))
+		}
+		if c.FCMServiceAccountJSON == "" {
+			errs = append(errs, config.Invalidf("FCM_SERVICE_ACCOUNT_JSON", "must name the service-account key file when FCM_ENABLED is true"))
+		}
 	}
 	if len(errs) > 0 {
 		return &config.Error{Invalid: errs}

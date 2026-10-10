@@ -33,13 +33,15 @@ var Pending = []struct{ Name, Spec, Issue, Gate string }{
 	{"bangchak.snapshot", "0 5 * * *", "T37", "FUEL_MONTHLY_SNAPSHOT_ENABLED"},
 	{"billing.safety-net", "*/15 * * * *", "T38", ""},
 	{"etl.sync", "*/5 * * * *", "T24", "ETL_SYNC_ENABLED"},
-	{"storage.gc", "0 * * * *", "T11", ""},
 	{"tenancy.orphan-scan", "0 3 * * *", "T28", ""},
 }
 
-// Table is the live cron table (Asia/Bangkok): the P0 housekeeping that the scheduler runs itself.
+// Table is the live cron table (Asia/Bangkok): the P0 housekeeping that the scheduler runs itself, and the
+// command crons whose consumer has landed (storage.gc, T11: hourly job.storage.gc to the worker's storage.gc
+// queue, Appendix B §B.5.6).
 func Table(pool *pgxpool.Pool, rt *realtime.Writer) []Job {
 	return []Job{
+		{Name: "storage.gc", Spec: "0 * * * *", Kind: Command},
 		{Name: "auth.token-cleanup", Spec: "*/10 * * * *", Kind: Local, Run: func(ctx context.Context) (any, error) {
 			return TokenCleanup(ctx, pool, time.Now())
 		}},

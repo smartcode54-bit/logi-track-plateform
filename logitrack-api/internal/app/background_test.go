@@ -91,7 +91,8 @@ func startProcess(t *testing.T, main func(context.Context, io.Writer, io.Writer)
 }
 
 // The worker's and the scheduler's /readyz on METRICS_ADDR check their dependencies (Appendix B
-// §B.2.1): unreachable PostgreSQL, RabbitMQ or Redis answer 503 unavailable with details.checks. A
+// §B.2.1): unreachable PostgreSQL, RabbitMQ or Redis answer 503 unavailable with details.checks (the
+// worker's Redis holds notify.fcm's idem: keys, T13). A
 // scheduler that is not the leader holds no broker connection, so RabbitMQ is not among its checks.
 // Placeholder URLs on closed loopback ports: nothing is reached.
 func TestBackgroundReadinessReportsDependencies(t *testing.T) {
@@ -100,6 +101,8 @@ func TestBackgroundReadinessReportsDependencies(t *testing.T) {
 		"DATABASE_URL": "postgres://placeholder@127.0.0.1:1/placeholder?sslmode=disable&connect_timeout=1",
 		"RABBITMQ_URL": "amqp://127.0.0.1:2/", "REDIS_URL": "redis://127.0.0.1:3/0",
 		"WORKER_CONSUMERS": "notify",
+		"S3_ENDPOINT":      "http://127.0.0.1:4", "S3_REGION": "us-east-1", "S3_ACCESS_KEY_ID": "placeholder",
+		"S3_SECRET_ACCESS_KEY": "placeholder",
 	} {
 		t.Setenv(k, v)
 	}
@@ -120,7 +123,7 @@ func TestBackgroundReadinessReportsDependencies(t *testing.T) {
 	addr := freeAddr(t)
 	t.Setenv("METRICS_ADDR", addr)
 	stop := startProcess(t, app.RunWorker)
-	waitReadiness(t, addr, 10*time.Second, unreachable("postgres", "rabbitmq"))
+	waitReadiness(t, addr, 10*time.Second, unreachable("postgres", "redis", "rabbitmq"))
 	stop()
 
 	addr = freeAddr(t)
