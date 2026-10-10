@@ -46,15 +46,21 @@ func (s *Service) Groups(o HTTPOptions) []ingress.Group {
 		presign = append(presign, o.PresignLimit)
 	}
 	presign = append(presign, h.presign)
+	// The large-body exemption exists only while the local backend does: without it the routes answer 404 and
+	// every PUT keeps the 4 MiB limit.
+	var apiUpload, mediaUpload []string
+	if s != nil && s.local != nil {
+		apiUpload, mediaUpload = []string{LocalUploadPath + "/"}, []string{MediaPrefix + "/"}
+	}
 	return []ingress.Group{
-		{Prefix: UploadsPrefix, UploadPaths: []string{LocalUploadPath + "/"}, Mount: func(r fiber.Router) {
+		{Prefix: UploadsPrefix, UploadPaths: apiUpload, Mount: func(r fiber.Router) {
 			r.Post("/presign", o.Auth, presign...)
 			r.Put("/local/*", h.upload)
 		}},
 		{Prefix: FilesPrefix, Mount: func(r fiber.Router) {
 			r.Get("", o.Auth, h.file)
 		}},
-		{Prefix: MediaPrefix, Public: true, UploadPaths: []string{MediaPrefix + "/"}, Mount: func(r fiber.Router) {
+		{Prefix: MediaPrefix, Public: true, UploadPaths: mediaUpload, Mount: func(r fiber.Router) {
 			r.Get("/*", h.media)
 			r.Put("/*", h.upload)
 		}},

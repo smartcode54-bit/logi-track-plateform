@@ -250,6 +250,7 @@ func StorageCaller(c fiber.Ctx) (storage.Caller, bool) {
 		Staff:   tid != nil && role != "" && role != authz.Driver,
 		Steward: p.Steward || p.HasPlatform(authz.PlatformAdmin),
 		ReadAll: p.ActOnAll,
+		Machine: p.IsMachine(),
 	}, true
 }
 

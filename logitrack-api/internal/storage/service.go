@@ -66,6 +66,8 @@ type Caller struct {
 	Steward bool
 	// ReadAll is the audited read-only cross-tenant bypass (X-Act-On-Tenant: *, Appendix C §C.3.9): every file.
 	ReadAll bool
+	// Machine is an API-key principal: it has no users row, so it never uploads (uploaded_by references users).
+	Machine bool
 }
 
 // Authorizer decides whether the caller may read a file committed to an entity of its owner kind ("a file is
@@ -180,7 +182,7 @@ func violation(field, reason string, params map[string]any) *httpx.Error {
 	return httpx.ErrInvalidArgument(httpx.FieldViolation{Field: field, Reason: reason, Params: params})
 }
 
-// PresignInput is the body of POST /v1/uploads/presign (Appendix B §B.2.21). Variant (photo type, document kind,
+// PresignInput is the body of POST /v1/uploads/presign (Appendix B §B.2.20). Variant (photo type, document kind,
 // attachment index) and FileName (truck and tenant documents keep a readable name) feed the key template.
 type PresignInput struct {
 	Purpose     string `json:"purpose"`
@@ -263,6 +265,9 @@ func (s *Service) Presign(ctx context.Context, c Caller, in PresignInput, opts P
 	// The entity's own guard runs at commit, in the entity transaction; at presign only self-owned purposes are
 	// checked here (a pending upload lives in the caller's tenant and can be committed only by its own uploader or
 	// tenant, so a foreign entity id in a key grants nothing).
+	if c.Machine {
+		return nil, errPermission("machine_principal")
+	}
 	if p.OwnerKind == OwnerUser && entity != c.UserID {
 		return nil, errPermission("not_own_profile")
 	}

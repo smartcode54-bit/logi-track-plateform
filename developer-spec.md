@@ -37,7 +37,7 @@
 - **ลำดับเฟส:** P0 ฐาน → P1 master data (ETL โหลดทุก collection) → P2 operations → P3 billing (PDF/XLSX ที่ Go) → P4 HR → P5 comms → P6 security/dashboard (ถอด Firebase SDK จาก web) → P7 mobile (P7a แอป, P7b สลับ writer) → P8 ปิดระบบเดิม — **web ก่อน mobile ท้ายสุด**; ระหว่างทาง mirror Firestore→PG + compat projection PG→Firestore เฉพาะที่แอปเก่าหรือ Cloud Functions ยังอ่าน
 - **PostgreSQL 18** (`postgres:18-alpine`): id = `uuidv7()` native, generated column ต้อง `STORED`
 - **Web:** Next.js standalone หลัง Caddy + BFF — **browser ไม่เรียก Go ตรง**, cookie HttpOnly (§2.2), TanStack Query v5
-- **Go เปิด public เฉพาะ** `/v1/mobile/*`, `/v1/auth/*`, `/public/v1/*` (postback ภายนอก — วันนี้ยังไม่มี), `/evidence/*`, `/healthz`; admin ของ mobile release และฟอร์ม waitlist / partner interest อยู่ internal
+- **Go เปิด public เฉพาะ** `/v1/mobile/*`, `/v1/auth/*`, `/public/v1/*` (postback ภายนอก — วันนี้ยังไม่มี), `/evidence/*`, `/media/*` (ไฟล์บนดิสก์ของ storage แบบ `local`, owner อนุมัติ 2026-10-10), `/healthz`; admin ของ mobile release และฟอร์ม waitlist / partner interest อยู่ internal
 - **Billing port แบบ bit-for-bit** เป็น Go package เดียว + golden tests จาก vitest 20 ไฟล์ (แก้/คงไว้ §1.12, §6.18; parity allow-list §6.17; ช่องโหว่ §1.8)
 - **Deploy ตัดสินแล้ว (R30):** VM เดียว + docker compose ตลอด P0–P6
 - **Owner ต้องทำก่อน P0:** (1) rotate Cartrack credentials ที่หลุดใน `logitrack-mobile/.env.dev`/`.env.prod` (track ใน git, bundle ลง APK) และ `logitrack-web/functions/scripts/{check-creds,test-cartrack,test-cartrack-full}.js` — งานนี้**ไม่ได้อ่านค่า**; (2) ส่ง Firebase "Password hash parameters" ทางช่อง secret; (3) ตั้งชื่อ domain (`WEB_DOMAIN`, `API_PUBLIC_DOMAIN`, `MEDIA_DOMAIN`) + ผู้ดูแล DNS/ACME; (4) ตอบ §19
@@ -618,7 +618,7 @@ Today any signed-in user reads `tasks` and `trip_records` (`firestore.rules:195-
 
 ### 5.2 Listeners and ingress
 
-The ingress policy is §2.6 (and §B.1.2): `API_INTERNAL_ADDR` mounts every route; `API_PUBLIC_ADDR` behind Caddy only `/v1/mobile/*`, `/v1/auth/*`, `/public/v1/*`, `/evidence/*`, `/healthz` (filtered by `PUBLIC_ROUTE_GROUPS`), else **404**; `/metrics` on `METRICS_ADDR`. Path decisions:
+The ingress policy is §2.6 (and §B.1.2): `API_INTERNAL_ADDR` mounts every route; `API_PUBLIC_ADDR` behind Caddy only `/v1/mobile/*`, `/v1/auth/*`, `/public/v1/*`, `/evidence/*`, `/media/*` (local storage backend, §9.11), `/healthz` (filtered by `PUBLIC_ROUTE_GROUPS`), else **404**; `/metrics` on `METRICS_ADDR`. Path decisions:
 
 - **Web:** no build-time API URL or domain-flag variable; flags from `GET /v1/config/web-flags` (R41).
 - **Mobile (R42):** every driver endpoint under `/v1/mobile/*`, re-mounting staff services with driver scoping.
@@ -2436,7 +2436,7 @@ Legend:
 | `PPROF_ENABLED` | no | api | P0 / — | MISSING | `false` outside `local` |
 | **Go ingress (two listeners)** | | | | | |
 | `API_INTERNAL_ADDR` | no | api | P0 / — | MISSING | private listener: every `/v1/*` group incl. `/v1/events`, `/v1/bridge/*`, release admin (R43), JWKS, `/healthz`; the only listener the BFF and `cmd/release` call |
-| `API_PUBLIC_ADDR` | no | api, caddy | P0 / — | MISSING | behind Caddy: only `/v1/mobile/*`, `/v1/auth/*`, `/public/v1/*` (empty, signed postbacks only, R44), `/evidence/*`, `/healthz`; anything else 404. Caddy dials `api` + this value, so it is written `:port` (TW2): with a host part the dial address breaks (`0.0.0.0:8081` adapts to `api0.0.0.0:8081`, a 502 on every route; `[::]:8081` stops Caddy). The api refuses a host part when `APP_ENV` is `dev` or `prod`; `local` keeps `host:port` for `go run`; envcheck holds `.env.example` to `:port` |
+| `API_PUBLIC_ADDR` | no | api, caddy | P0 / — | MISSING | behind Caddy: only `/v1/mobile/*`, `/v1/auth/*`, `/public/v1/*` (empty, signed postbacks only, R44), `/evidence/*`, `/media/*` (local storage backend, §9.11), `/healthz`; anything else 404. Caddy dials `api` + this value, so it is written `:port` (TW2): with a host part the dial address breaks (`0.0.0.0:8081` adapts to `api0.0.0.0:8081`, a 502 on every route; `[::]:8081` stops Caddy). The api refuses a host part when `APP_ENV` is `dev` or `prod`; `local` keeps `host:port` for `go run`; envcheck holds `.env.example` to `:port` |
 | `PUBLIC_ROUTE_GROUPS` | no | api | P0 / — | MISSING | public allow-list (the six groups: the five of §2.6 plus `/media`, the owner-approved widening of 2026-10-10 for the local storage backend, ADR 0029 notes); widening needs an ADR |
 | `TRUSTED_PROXY_CIDRS` | no | api | P0 / — | MISSING | Caddy and `web` CIDRs whose `X-Forwarded-For` is honoured; locally `172.16.0.0/12,192.168.0.0/16` (Docker and OrbStack networks, TW2); prod the edge network's subnet |
 | `PUBLIC_API_BASE_URL` | no | api, worker | P0 / — | MISSING | `https://{API_PUBLIC_DOMAIN}` |

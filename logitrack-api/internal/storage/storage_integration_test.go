@@ -370,6 +370,21 @@ func TestPresignRulesAndReadRules(t *testing.T) {
 	if _, err := svc.Presign(ctx, storage.Caller{UserID: f.driver}, storage.PresignInput{Purpose: "chat_image", EntityID: entity, ContentType: "image/jpeg", SizeBytes: 1}, storage.PutOptions{}); err == nil {
 		t.Fatal("an upload without a tenant")
 	}
+	machine := f.caller(uuid.New(), f.own, false)
+	machine.Machine = true
+	if _, err := svc.Presign(ctx, machine, storage.PresignInput{Purpose: "chat_image", EntityID: entity, ContentType: "image/jpeg", SizeBytes: 1}, storage.PutOptions{}); err == nil {
+		t.Fatal("an API-key principal uploaded")
+	}
+	// A steward acting in no tenant (platform_admin) uploads a platform object.
+	if p, err := svc.Presign(ctx, storage.Caller{UserID: f.staff, Steward: true}, storage.PresignInput{Purpose: "chat_image", EntityID: entity,
+		ContentType: "image/jpeg", SizeBytes: 1}, storage.PutOptions{}); err != nil {
+		t.Fatalf("steward platform upload: %v", err)
+	} else {
+		var tenant *uuid.UUID
+		if err := f.etl.QueryRow(ctx, `SELECT tenant_id FROM file_objects WHERE object_key = $1`, p.Key).Scan(&tenant); err != nil || tenant != nil {
+			t.Fatalf("platform object tenant %v %v", tenant, err)
+		}
+	}
 
 	p, err := svc.Presign(ctx, driver, storage.PresignInput{Purpose: "chat_image", EntityID: entity, ContentType: "image/jpeg", SizeBytes: 4}, storage.PutOptions{})
 	if err != nil {
@@ -413,6 +428,7 @@ func TestPresignRulesAndReadRules(t *testing.T) {
 		"driver of the same": {f.caller(f.staff, f.own, false), false},
 		"staff of a carrier": {f.caller(f.subStaff, f.sub, true), false},
 		"unrelated staff":    {f.caller(f.otherStaff, f.other, true), false},
+		"read-only bypass":   {storage.Caller{UserID: f.otherStaff, ReadAll: true}, true},
 	} {
 		_, err := svc.DownloadURL(ctx, tc.c, p.Key)
 		if (err == nil) != tc.ok {
