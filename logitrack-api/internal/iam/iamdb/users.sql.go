@@ -12,6 +12,32 @@ import (
 	"github.com/google/uuid"
 )
 
+const activeTenantMembers = `-- name: ActiveTenantMembers :many
+SELECT user_id FROM memberships WHERE tenant_id = $1 AND status = 'active' ORDER BY user_id
+`
+
+// The active members of a tenant whose claims a status change alters (PATCH /v1/tenants/{id} suspend or reactivate),
+// in user id order (the users rows are locked in that order).
+func (q *Queries) ActiveTenantMembers(ctx context.Context, tenantID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, activeTenantMembers, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var user_id uuid.UUID
+		if err := rows.Scan(&user_id); err != nil {
+			return nil, err
+		}
+		items = append(items, user_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const countOtherScopes = `-- name: CountOtherScopes :one
 SELECT count(*)::int FROM user_scopes WHERE user_id = $1 AND kind <> $2
 `
@@ -847,8 +873,53 @@ func (q *Queries) SetDriverUser(ctx context.Context, arg SetDriverUserParams) er
 	return err
 }
 
+const targetPrivileges = `-- name: TargetPrivileges :one
+SELECT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = $1::uuid)::boolean AS platform_role,
+       array(SELECT m.tenant_id FROM memberships m WHERE m.user_id = $1::uuid ORDER BY m.tenant_id)::uuid[] AS tenant_ids,
+       array(SELECT m.tenant_id FROM memberships m WHERE m.user_id = $1::uuid AND m.role = 'tenant_admin'
+             ORDER BY m.tenant_id)::uuid[] AS admin_tenant_ids,
+       EXISTS (SELECT 1 FROM user_scopes s WHERE s.user_id = $1::uuid AND s.kind = 'dispatcher')::boolean AS dispatcher,
+       EXISTS (SELECT 1 FROM user_scopes s WHERE s.user_id = $1::uuid AND s.kind = 'customer')::boolean AS customer
+`
+
+type TargetPrivilegesRow struct {
+	PlatformRole   bool
+	TenantIds      []uuid.UUID
+	AdminTenantIds []uuid.UUID
+	Dispatcher     bool
+	Customer       bool
+}
+
+// What the target holds beyond the caller's reach (Appendix C §C.8 "Reach": an admin route acts only on a user it
+// outranks): a platform role, every membership tenant and the tenants it administers (any status, unfiltered by
+// reach), and its scope kinds.
+func (q *Queries) TargetPrivileges(ctx context.Context, id uuid.UUID) (TargetPrivilegesRow, error) {
+	row := q.db.QueryRow(ctx, targetPrivileges, id)
+	var i TargetPrivilegesRow
+	err := row.Scan(
+		&i.PlatformRole,
+		&i.TenantIds,
+		&i.AdminTenantIds,
+		&i.Dispatcher,
+		&i.Customer,
+	)
+	return i, err
+}
+
+const tenantExists = `-- name: TenantExists :one
+SELECT EXISTS (SELECT 1 FROM tenants WHERE id = $1)::boolean AS found
+`
+
+// The read of GET /v1/tenants/{id}/members (no lock).
+func (q *Queries) TenantExists(ctx context.Context, id uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, tenantExists, id)
+	var found bool
+	err := row.Scan(&found)
+	return found, err
+}
+
 const tenantForMembership = `-- name: TenantForMembership :one
-SELECT kind, status FROM tenants WHERE id = $1
+SELECT kind, status FROM tenants WHERE id = $1 FOR KEY SHARE
 `
 
 type TenantForMembershipRow struct {
@@ -856,6 +927,8 @@ type TenantForMembershipRow struct {
 	Status string
 }
 
+// FOR KEY SHARE: a membership write takes the tenant before the user (the order of PATCH /v1/tenants/{id}, which
+// locks the tenant and then bumps its members), and the membership's foreign key needs this lock anyway.
 func (q *Queries) TenantForMembership(ctx context.Context, id uuid.UUID) (TenantForMembershipRow, error) {
 	row := q.db.QueryRow(ctx, tenantForMembership, id)
 	var i TenantForMembershipRow

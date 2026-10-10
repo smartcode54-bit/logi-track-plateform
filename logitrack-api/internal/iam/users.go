@@ -560,13 +560,12 @@ func (a *Admin) CreateUser(c call, in CreateUserInput) (*CreateUserResult, error
 
 // --- target guards ---------------------------------------------------------------------------------------
 
-// visible checks that an admin route may act on user id: not the caller (403), and inside the write reach
-// (404 otherwise, so a user outside the reach does not exist for the caller).
-func (a *Admin) visible(c call, q *iamdb.Queries, id uuid.UUID) error {
+// inReach checks that an admin route may name user id: not the caller (403), and inside r (404 otherwise, so a
+// user outside the reach does not exist for the caller).
+func (a *Admin) inReach(c call, q *iamdb.Queries, id uuid.UUID, r reach) error {
 	if err := notSelf(c.p, id); err != nil {
 		return err
 	}
-	r := writeReach(c.p)
 	in, err := q.UserInReach(c.ctx, iamdb.UserInReachParams{ID: id, AllUsers: r.all, TenantIds: r.tenants, ScopeOnly: r.scopeOnly})
 	if err != nil {
 		return err
@@ -577,10 +576,70 @@ func (a *Admin) visible(c call, q *iamdb.Queries, id uuid.UUID) error {
 	return nil
 }
 
-// target locks the user an admin write changes, after visible: 404 when it does not exist for the caller or
-// is deleted. It is the first lock of the transaction (users -> sessions -> refresh_tokens, C.4.4).
+// Reasons of the 403 an admin route answers for a user the caller does not outrank (details.reason).
+const (
+	ReasonPlatformTarget  = "platform_target"   // a platform role or a dispatcher grant: only a platform admin
+	ReasonOutsideReach    = "outside_reach"     // a membership in a tenant outside the caller's reach
+	ReasonTenantAdminOnly = "tenant_admin_only" // tenant_admin of a tenant the caller does not administer
+	ReasonStewardOnly     = "steward_only"      // a customer scope: a steward or a platform admin
+)
+
+// outranks refuses (403 permission_denied, details.reason) an admin route on a user that holds more than the
+// caller may manage (Appendix C §C.8 "Reach"). Reach alone is not enough: the routes act on the whole account
+// (a temporary password is returned to the caller, an email change takes the reset link), so a user who shares
+// one membership with the caller would otherwise hand over everything else it holds. A non-machine
+// platform_admin (or a read under X-Act-On-Tenant: *) passes; anyone else needs a target that holds no platform
+// role and no dispatcher grant (both minted by platform admins only), a customer scope only when the caller is a
+// steward (customer scopes are minted by stewards, R60), every membership inside r, and tenant_admin only in a
+// tenant the caller administers (CanAssignRole: an own-fleet admin manages its carriers' members, not their
+// admins; a manager given users:manage by an override does not manage its tenant_admin).
+func (a *Admin) outranks(c call, q *iamdb.Queries, id uuid.UUID, r reach) error {
+	p := c.p
+	if r.all || (p.HasPlatform(authz.PlatformAdmin) && !p.IsMachine()) {
+		return nil
+	}
+	t, err := q.TargetPrivileges(c.ctx, id)
+	if err != nil {
+		return err
+	}
+	deny := func(reason, msg string) error {
+		return authz.ErrPermissionDenied(msg).WithDetails(map[string]any{"reason": reason})
+	}
+	switch {
+	case t.PlatformRole || t.Dispatcher:
+		return deny(ReasonPlatformTarget, "the user holds a platform role or a dispatcher grant; only a platform admin manages it")
+	case t.Customer && stewardOrPlatform(p) != nil:
+		return deny(ReasonStewardOnly, "the user holds a customer scope; the own fleet or a platform admin manages it")
+	}
+	for _, tid := range t.TenantIds {
+		if !r.hasTenant(tid) {
+			return deny(ReasonOutsideReach, "the user also belongs to a tenant outside the caller's reach")
+		}
+	}
+	for _, tid := range t.AdminTenantIds {
+		if !isTenantAdminOf(p, tid) {
+			return deny(ReasonTenantAdminOnly, "the user is a tenant_admin; only a tenant_admin of its tenant or a platform admin manages it")
+		}
+	}
+	return nil
+}
+
+// visible checks that a route without a lock (a read, or the pre-check of a write) may act on user id inside r:
+// not the caller (403), in reach (404), outranked (403).
+func (a *Admin) visible(c call, q *iamdb.Queries, id uuid.UUID, r reach) error {
+	if err := a.inReach(c, q, id, r); err != nil {
+		return err
+	}
+	return a.outranks(c, q, id, r)
+}
+
+// target locks the user an admin write changes: not the caller (403), in the write reach (404, also when the
+// user is deleted), then, under the lock (every grant change locks the users row first), outranked by the
+// caller (403). The users row is the first lock of the transaction after the tenant of a membership write
+// (tenants -> users -> sessions -> refresh_tokens, C.4.4).
 func (a *Admin) target(c call, q *iamdb.Queries, id uuid.UUID) (iamdb.LockAdminUserRow, error) {
-	if err := a.visible(c, q, id); err != nil {
+	r := writeReach(c.p)
+	if err := a.inReach(c, q, id, r); err != nil {
 		return iamdb.LockAdminUserRow{}, err
 	}
 	u, err := q.LockAdminUser(c.ctx, id)
@@ -593,7 +652,7 @@ func (a *Admin) target(c call, q *iamdb.Queries, id uuid.UUID) (iamdb.LockAdminU
 	if u.Status == "deleted" {
 		return u, httpx.ErrNotFound()
 	}
-	return u, nil
+	return u, a.outranks(c, q, id, r)
 }
 
 // --- profile --------------------------------------------------------------------------------------------
@@ -738,7 +797,7 @@ func (a *Admin) TemporaryPassword(c call, id uuid.UUID) (string, error) {
 	// The checks that need no lock first, so a refused request hashes nothing.
 	var isDriver bool
 	err := a.read(c.ctx, func(q *iamdb.Queries) error {
-		if err := a.visible(c, q, id); err != nil {
+		if err := a.visible(c, q, id, writeReach(c.p)); err != nil {
 			return err
 		}
 		var err error
@@ -789,14 +848,13 @@ type Session struct {
 	LastSeenAt  time.Time `json:"lastSeenAt"`
 }
 
-// Sessions is GET /v1/users/{id}/sessions (users:revoke_sessions, not self): the live sessions.
+// Sessions is GET /v1/users/{id}/sessions (users:revoke_sessions, not self): the live sessions. A read, so the
+// read reach applies (a platform admin reads any user's sessions under X-Act-On-Tenant: *, as GET /v1/users/{id});
+// the target must still be outranked (sessions carry IPs and user agents).
 func (a *Admin) Sessions(c call, id uuid.UUID) ([]Session, error) {
-	if err := notSelf(c.p, id); err != nil {
-		return nil, err
-	}
 	var out []Session
 	err := a.read(c.ctx, func(q *iamdb.Queries) error {
-		if err := a.visible(c, q, id); err != nil {
+		if err := a.visible(c, q, id, readReach(c.p)); err != nil {
 			return err
 		}
 		rows, err := q.ListAdminSessions(c.ctx, iamdb.ListAdminSessionsParams{UserID: id, Now: a.clock()})

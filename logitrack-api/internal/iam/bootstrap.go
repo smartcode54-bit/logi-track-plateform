@@ -50,16 +50,37 @@ func contains(list []string, s string) bool {
 }
 
 // PlatformAdminsResult is the outcome of BootstrapPlatformAdmins: addresses granted now, already holding the
-// role, and without a user; Outside lists platform_admin holders whose address is not in the list (reported,
-// never revoked: a later grant through POST /v1/users/{id}/platform-roles is legitimate).
+// role, and without a user; Refused lists the users of a listed address the bootstrap may not grant (see
+// BootstrapRefusal); Outside lists platform_admin holders whose address is not in the list (reported, never
+// revoked: a later grant through POST /v1/users/{id}/platform-roles is legitimate).
 type PlatformAdminsResult struct {
 	Granted, Held, Missing, Outside []string
+	Refused                         []Refusal
 }
 
+// Refusal is a listed address whose user the bootstrap did not grant, and why (a Refuse* reason).
+type Refusal struct {
+	Email  string
+	UserID uuid.UUID
+	Reason string
+}
+
+// Why the bootstrap refuses platform_admin to the user of a listed address (Appendix C §C.5.5): a platform admin
+// verifies the account and grants it through POST /v1/users/{id}/platform-roles instead.
+const (
+	// RefuseAddressUnproven: the address was not imported from Firebase (the firebase_legacy identity's address),
+	// set by the bootstrap or set by a platform admin; whoever created or renamed the account set it.
+	RefuseAddressUnproven = "address_unproven"
+	// RefuseOtherTenant: the user belongs to a tenant other than the own fleet (a carrier admin manages it).
+	RefuseOtherTenant = "carrier_membership"
+	// RefuseScope: the user holds a customer scope or a dispatcher grant.
+	RefuseScope = "scope_holder"
+)
+
 // BootstrapPlatformAdmins grants platform_admin (granted_by NULL) to the users of emails (cmd/seed
-// bootstrap-platform-admins, idempotent). Each grant bumps auth_version, announces claims_changed on
-// user:{uid} through outbox user.sessions_revoked (the relay re-applies the cached version) and records
-// platform_role_granted {source: bootstrap} in the same transaction.
+// bootstrap-platform-admins, idempotent) that are eligible (bootstrapGrant). Each grant bumps auth_version,
+// announces claims_changed on user:{uid} through outbox user.sessions_revoked (the relay re-applies the cached
+// version) and records platform_role_granted {source: bootstrap} in the same transaction.
 func BootstrapPlatformAdmins(ctx context.Context, tx pgx.Tx, emails []string, now time.Time) (PlatformAdminsResult, error) {
 	var res PlatformAdminsResult
 	q := iamdb.New(tx)
@@ -77,14 +98,16 @@ func BootstrapPlatformAdmins(ctx context.Context, tx pgx.Tx, emails []string, no
 			res.Missing = append(res.Missing, e)
 			continue
 		}
-		granted, err := grantBootstrapRole(ctx, tx, q, id, now)
-		if err != nil {
+		out, refusal, err := bootstrapGrant(ctx, tx, q, id, now)
+		switch {
+		case err != nil:
 			return res, err
-		}
-		if granted {
+		case out == roleGranted:
 			res.Granted = append(res.Granted, e)
-		} else {
+		case out == roleHeld:
 			res.Held = append(res.Held, e)
+		default:
+			res.Refused = append(res.Refused, Refusal{Email: e, UserID: id, Reason: refusal})
 		}
 	}
 	outside, err := q.PlatformAdminsOutside(ctx, emails)
@@ -101,19 +124,43 @@ func BootstrapPlatformAdmins(ctx context.Context, tx pgx.Tx, emails []string, no
 	return res, nil
 }
 
-// grantBootstrapRole inserts platform_admin for id unless it is held; a grant changes the user's claims.
-func grantBootstrapRole(ctx context.Context, tx pgx.Tx, q *iamdb.Queries, id uuid.UUID, now time.Time) (bool, error) {
+type roleOutcome int
+
+const (
+	roleGranted roleOutcome = iota
+	roleHeld
+	roleRefused
+)
+
+// bootstrapGrant inserts platform_admin for id unless it is held or the user is not eligible (refusal names why,
+// BootstrapEligibility): the user is locked first, so its address and grants cannot change under the check. A grant
+// changes the user's claims.
+func bootstrapGrant(ctx context.Context, tx pgx.Tx, q *iamdb.Queries, id uuid.UUID, now time.Time) (roleOutcome, string, error) {
 	if _, err := q.LockAdminUser(ctx, id); err != nil {
-		return false, err
+		return roleRefused, "", err
+	}
+	el, err := q.BootstrapEligibility(ctx, id)
+	if err != nil {
+		return roleRefused, "", err
+	}
+	switch {
+	case el.Held:
+		return roleHeld, "", nil
+	case !el.AddressProven:
+		return roleRefused, RefuseAddressUnproven, nil
+	case el.OtherTenant:
+		return roleRefused, RefuseOtherTenant, nil
+	case el.HasScope:
+		return roleRefused, RefuseScope, nil
 	}
 	n, err := q.InsertPlatformRole(ctx, iamdb.InsertPlatformRoleParams{UserID: id, Role: string(authz.PlatformAdmin)})
 	if err != nil || n == 0 {
-		return false, err
+		return roleHeld, "", err
 	}
 	if err := bootstrapClaimsChanged(ctx, tx, q, id); err != nil {
-		return false, err
+		return roleRefused, "", err
 	}
-	return true, security.Append(ctx, tx, security.Event{
+	return roleGranted, "", security.Append(ctx, tx, security.Event{
 		EventType: EventPlatformRoleGranted, Severity: security.SeverityWarning, Summary: "platform_admin granted by the bootstrap",
 		Details: map[string]any{"role": string(authz.PlatformAdmin), "source": "bootstrap"}, TargetUserID: &id, OccurredAt: now,
 	})
@@ -158,14 +205,21 @@ type BootstrapAdminResult struct {
 	Reactivated bool // the account was disabled, reset_required or flagged must-change: usable again
 	RoleGranted bool // platform_admin granted now
 	RoleHeld    bool // platform_admin held already
+	// RoleRefused is the Refuse* reason when the address is in PLATFORM_ADMIN_EMAILS but the account is not eligible
+	// (an existing account whose address someone else set, or that belongs to a carrier or holds a scope).
+	RoleRefused string
+	// RoleOutsideList: the address is not in PLATFORM_ADMIN_EMAILS but the user holds platform_admin (kept and
+	// reported, never revoked, as bootstrap-platform-admins does).
+	RoleOutsideList bool
 }
 
 // ApplyBootstrapAdmin creates or updates the bootstrap super admin (idempotent: a second run with the same
 // password changes nothing). The account is active, holds the Argon2id hash, no legacy hash and no
 // must-change flag (the operator chose the password); a changed password revokes every session (reason
 // password_reset) and records password_changed {source: bootstrap}. platform_admin is granted only when
-// PlatformAdmin is true (the email is in PLATFORM_ADMIN_EMAILS). Every change appends its security event in
-// the same transaction.
+// PlatformAdmin is true (the email is in PLATFORM_ADMIN_EMAILS) and the account is eligible (bootstrapGrant: an
+// existing account whose address a non-platform admin set is refused); a holder outside the list is reported.
+// Every change appends its security event in the same transaction.
 func ApplyBootstrapAdmin(ctx context.Context, tx pgx.Tx, in BootstrapAdmin) (BootstrapAdminResult, error) {
 	var res BootstrapAdminResult
 	email, ok := normalizeEmail(in.Email)
@@ -236,12 +290,20 @@ func ApplyBootstrapAdmin(ctx context.Context, tx pgx.Tx, in BootstrapAdmin) (Boo
 			}
 		}
 	}
-	if in.PlatformAdmin {
-		granted, err := grantBootstrapRole(ctx, tx, q, res.UserID, in.Now)
+	if !in.PlatformAdmin {
+		roles, err := q.ListUserPlatformRoles(ctx, []uuid.UUID{res.UserID})
 		if err != nil {
 			return res, err
 		}
-		res.RoleGranted, res.RoleHeld = granted, !granted
+		for _, r := range roles {
+			res.RoleOutsideList = res.RoleOutsideList || r.Role == string(authz.PlatformAdmin)
+		}
+		return res, nil
 	}
+	out, refusal, err := bootstrapGrant(ctx, tx, q, res.UserID, in.Now)
+	if err != nil {
+		return res, err
+	}
+	res.RoleGranted, res.RoleHeld, res.RoleRefused = out == roleGranted, out == roleHeld, refusal
 	return res, nil
 }

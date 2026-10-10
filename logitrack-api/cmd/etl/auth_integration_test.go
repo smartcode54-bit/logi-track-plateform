@@ -73,11 +73,13 @@ func scryptUser(t *testing.T, p firebasescrypt.Params, pw, saltSeed string) (has
 func ms(t time.Time) string { return strconv.FormatInt(t.UnixMilli(), 10) }
 
 // authFixture writes the export and a dump (users and drivers documents) and seeds the rows the claims refer to:
-// the own fleet, carrier NWR (subcontractors/subNWR), customer CJSF (customers/custCJSF), driver drvDoc1 (own
-// fleet, by doc id) and the driver of uidDriver2 (NWR, by auth uid).
+// the own fleet (subcontractors/subOWN, the settings/tenancy shape), carrier NWR (subcontractors/subNWR), customer
+// CJSF (customers/custCJSF), driver drvDoc1 (own fleet, by doc id), the driver of uidDriver2 (NWR, by auth uid) and
+// a user created in Go that already holds boss@legacy.test.
 func authFixture(t *testing.T, h *harness, p firebasescrypt.Params) (exportPath, dumpDir string, uids []string) {
 	t.Helper()
-	h.exec(`INSERT INTO tenants (id, kind, name_th, name_en) VALUES ($1, 'own_fleet', 'Own', 'Own')`, ownFleet)
+	h.exec(`INSERT INTO tenants (id, kind, legacy_doc_id, name_th, name_en) VALUES ($1, 'own_fleet', 'subOWN', 'Own', 'Own')`, ownFleet)
+	h.system(`INSERT INTO users (email, display_name) VALUES ('boss@legacy.test', 'Created in Go')`)
 	nwr := h.id(`INSERT INTO tenants (kind, legacy_doc_id, code, name_th, legal_type, contractor_tenant_id)
 		VALUES ('carrier', 'subNWR', 'NWR', 'NWR', 'company', $1) RETURNING id::text`, ownFleet)
 	h.exec(`INSERT INTO billing_parties (kind, tenant_id) VALUES ('tenant', $1)`, nwr)
@@ -93,6 +95,8 @@ func authFixture(t *testing.T, h *harness, p firebasescrypt.Params) (exportPath,
 	d1h, d1s := scryptUser(t, p, "0812345678", "d1")
 	d2h, d2s := scryptUser(t, p, weakLiteral, "d2")
 	ah, as := scryptUser(t, p, strongPw, "ad")
+	lh, ls := scryptUser(t, p, weakLiteral, "dl")
+	ph, ps := scryptUser(t, p, "0895551234", "dp")
 	users := []exportUser{
 		{"localId": "uidAdmin", "email": "Admin@Legacy.test", "emailVerified": true, "passwordHash": ah, "salt": as,
 			"createdAt": at(0), "lastSignedInAt": at(10), "customAttributes": `{"admin":true}`},
@@ -125,6 +129,15 @@ func authFixture(t *testing.T, h *harness, p firebasescrypt.Params) (exportPath,
 		{"localId": "uidBadHash", "email": "bad@legacy.test", "passwordHash": "!!not base64!!", "salt": "c2FsdA==",
 			"createdAt": at(17), "customAttributes": `{"role":"user"}`},
 		{"localId": "uidBadClaims", "email": "claims@legacy.test", "createdAt": at(18), "customAttributes": `{not json`},
+		// Review panel: a partner claim naming the own fleet's doc is no own-fleet admin; a listed address held by
+		// another user; drivers whose rows load at P1 (the weak scan still reaches them).
+		{"localId": "uidPartnerOwn", "email": "partner3@legacy.test", "createdAt": at(19),
+			"customAttributes": `{"role":"partner","partnerScopeId":"subOWN"}`},
+		{"localId": "uidBoss", "email": "Boss@legacy.test", "createdAt": at(20), "customAttributes": `{"admin":true}`},
+		{"localId": "uidDriverLater", "email": "d10@legacy.test", "passwordHash": lh, "salt": ls, "createdAt": at(21),
+			"customAttributes": `{"role":"driver","driverId":"drvLater"}`},
+		{"localId": "uidDriverPhone", "email": "d11@legacy.test", "passwordHash": ph, "salt": ps, "createdAt": at(22),
+			"customAttributes": `{"role":"driver","driverId":"drvPhoneLater"}`},
 	}
 	for _, u := range users {
 		uids = append(uids, u["localId"].(string))
@@ -161,6 +174,7 @@ func authFixture(t *testing.T, h *harness, p firebasescrypt.Params) (exportPath,
 	}
 	if err := w.WriteCollection("drivers", false, []dump.Doc{
 		doc("drivers", "drvDoc2", map[string]any{"authId": "uidDriver2", "fcmToken": "tok-d2", "firstName": "Wichai"}),
+		doc("drivers", "drvPhoneLater", map[string]any{"authId": "uidDriverPhone", "mobile": "089-555-1234", "firstName": "Later"}),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -243,19 +257,19 @@ func flagsOf(line map[string]string) []string {
 func TestAuthImport(t *testing.T) {
 	h := newHarness(t)
 	p, scryptEnv := publicScrypt(t)
-	h.extra = append(scryptEnv, "PLATFORM_ADMIN_EMAILS=admin@legacy.test")
+	h.extra = append(scryptEnv, "PLATFORM_ADMIN_EMAILS=admin@legacy.test,boss@legacy.test")
 	exportPath, dumpDir, uids := authFixture(t, h, p)
 	report := filepath.Join(t.TempDir(), "migration_users_report.csv")
 
 	// A dry run writes the report and commits nothing.
 	h.mustRun("auth-import", "--export="+exportPath, "--dump="+dumpDir, "--default-member-domain=logitrack.test",
 		"--report="+report, "--dry-run", "--exported-at=2026-10-01T00:00:00Z")
-	if n := h.scalar(`SELECT count(*) FROM users`).(int64); n != 0 {
+	if n := h.scalar(`SELECT count(*) FROM users WHERE legacy_auth_uid IS NOT NULL`).(int64); n != 0 {
 		t.Fatalf("a dry run committed %d users", n)
 	}
 	out := h.mustRun("auth-import", "--export="+exportPath, "--dump="+dumpDir, "--default-member-domain=logitrack.test",
 		"--report="+report, "--exported-at=2026-10-01T00:00:00Z")
-	if !strings.Contains(out, "imported 19") || strings.Contains(out, "@") {
+	if !strings.Contains(out, "imported 23") || strings.Contains(out, "@") {
 		t.Fatalf("summary: %q (counts only, no addresses)", out)
 	}
 	// AC: every exported Firebase user has exactly one users row with its legacy_auth_uid.
@@ -301,6 +315,10 @@ func TestAuthImport(t *testing.T) {
 		{"uidDriverMissing", nil, []string{"no_password", "driver_unresolved"}},
 		{"uidBadHash", []string{"own:user"}, []string{"bad_hash"}},
 		{"uidBadClaims", nil, []string{"no_password", "bad_claims", "no_role"}},
+		{"uidPartnerOwn", nil, []string{"no_password", "partner_own_fleet"}},
+		{"uidBoss", []string{"own:tenant_admin"}, []string{"duplicate_email", "no_password", "platform_admin_conflict"}},
+		{"uidDriverLater", nil, []string{"driver_unresolved"}},
+		{"uidDriverPhone", nil, []string{"driver_unresolved"}},
 	} {
 		if got := member(tc.uid); !slices.Equal(got, tc.memberships) {
 			t.Errorf("%s memberships %v, want %v", tc.uid, got, tc.memberships)
@@ -353,7 +371,10 @@ func TestAuthImport(t *testing.T) {
 		lastLogin == nil || !lastLogin.Equal(time.Date(2025, 6, 21, 0, 0, 0, 0, time.UTC)) {
 		t.Errorf("uidAdmin: email %v, hash %d bytes, salt %d bytes, last login %v (%v)", email, len(hash), len(salt), lastLogin, src)
 	}
-	for uid, want := range map[string]*string{"uidDup": nil, "uidNoEmail": nil} {
+	if got := rep["uidDriver1"]["memberships"]; got != "own_fleet:driver" {
+		t.Errorf("an own-fleet grant is reported as %q, want own_fleet:driver", got)
+	}
+	for uid, want := range map[string]*string{"uidDup": nil, "uidNoEmail": nil, "uidBoss": nil} {
 		var e *string
 		if err := h.pool.QueryRow(h.ctx, `SELECT email::text FROM users WHERE legacy_auth_uid = $1`, uid).Scan(&e); err != nil {
 			t.Fatal(err)
@@ -421,13 +442,16 @@ func TestAuthImport(t *testing.T) {
 	pool := h.d.Pool(t, db.RoleETL)
 	var res iam.PlatformAdminsResult
 	if err := db.WithSystem(h.ctx, pool, nil, func(tx pgx.Tx) (err error) {
-		res, err = iam.BootstrapPlatformAdmins(h.ctx, tx, []string{"admin@legacy.test", "nobody@legacy.test"}, time.Now())
+		res, err = iam.BootstrapPlatformAdmins(h.ctx, tx, []string{"admin@legacy.test", "boss@legacy.test", "nobody@legacy.test"}, time.Now())
 		return err
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// boss@legacy.test belongs to the user created in Go without a proven address (not the imported uidBoss, which
+	// got no address): refused, never granted.
 	if !slices.Equal(res.Granted, []string{"admin@legacy.test"}) || !slices.Equal(res.Missing, []string{"nobody@legacy.test"}) ||
-		len(res.Outside) != 0 {
+		len(res.Outside) != 0 || len(res.Refused) != 1 || res.Refused[0].Email != "boss@legacy.test" ||
+		res.Refused[0].Reason != iam.RefuseAddressUnproven {
 		t.Errorf("bootstrap: %+v", res)
 	}
 	if got := h.texts(`SELECT u.email::text FROM user_platform_roles r JOIN users u ON u.id = r.user_id
@@ -464,7 +488,9 @@ func mapsEqual(a, b map[string]string) bool {
 	return true
 }
 
-// AC: weak-password matches are flagged (must_change_password), never printed.
+// AC: weak-password matches are flagged (must_change_password), never printed. Every account with a legacy hash is
+// scanned, so drivers whose rows load at P1 (uidDriverLater, uidDriverPhone: no drivers row, no membership) are
+// flagged before the P0 cut-over: by the file's candidates, and by their mobile digits through --dump.
 func TestAuthWeakScan(t *testing.T) {
 	h := newHarness(t)
 	p, scryptEnv := publicScrypt(t)
@@ -473,8 +499,8 @@ func TestAuthWeakScan(t *testing.T) {
 	h.extra = scryptEnv
 	dir := t.TempDir()
 	cands := filepath.Join(dir, "candidates.txt")
-	// A global literal, and a keyed candidate that matches nothing (the admin is not a driver anyway).
-	if err := os.WriteFile(cands, []byte("# test candidates\n"+weakLiteral+"\nuidadmin\t"+strongPw+"\n"), 0o600); err != nil {
+	// A global literal, and a keyed candidate that is not the admin's password (the admin is scanned: clean).
+	if err := os.WriteFile(cands, []byte("# test candidates\n"+weakLiteral+"\nuidadmin\tnot the admin password 9\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	report := filepath.Join(dir, "weak.csv")
@@ -487,7 +513,8 @@ func TestAuthWeakScan(t *testing.T) {
 			t.Fatalf("exit %d: %s", code, errb)
 		}
 		rb, _ := os.ReadFile(report)
-		for _, secret := range []string{weakLiteral, strongPw, "0812345678", "66812345678"} {
+		for _, secret := range []string{weakLiteral, strongPw, "0812345678", "66812345678", "0895551234", "66895551234",
+			"not the admin password 9"} {
 			if strings.Contains(out+errb+string(rb), secret) {
 				t.Fatalf("a candidate password reached the output or the report")
 			}
@@ -500,23 +527,46 @@ func TestAuthWeakScan(t *testing.T) {
 	}
 	code, out, errb = h.run("auth-weak-scan", "--candidates-file="+cands, "--with-mobile", "--report="+report)
 	check(code, out, errb)
-	if got := flagged(); !slices.Equal(got, []string{"uidDriver1", "uidDriver2"}) {
-		t.Fatalf("flagged %v, want the two driver accounts", got)
+	// The literal flags uidDriver2 and uidDriverLater (no drivers row yet); the drivers row's mobile flags uidDriver1.
+	if got := flagged(); !slices.Equal(got, []string{"uidDriver1", "uidDriver2", "uidDriverLater"}) {
+		t.Fatalf("flagged %v, want the three weak accounts", got)
 	}
-	if !strings.Contains(out, "flagged 2") {
+	if !strings.Contains(out, "5 account(s), 2 of them driver accounts") || !strings.Contains(out, "flagged 3") ||
+		!strings.Contains(out, "warning: 2 scanned account(s) belong to no tenant yet") {
 		t.Errorf("summary %q", out)
 	}
 	f, _ := os.Open(report)
 	recs, err := csv.NewReader(f).ReadAll()
 	_ = f.Close()
-	if err != nil || len(recs) != 3 || !slices.Equal(recs[0], []string{"tenant_id", "tenant_name", "user_id", "uid", "email", "outcome"}) {
+	if err != nil || len(recs) != 6 ||
+		!slices.Equal(recs[0], []string{"tenant_id", "tenant_name", "user_id", "uid", "email", "account", "outcome"}) {
 		t.Fatalf("report %v %v", recs, err)
+	}
+	lines := map[string][]string{}
+	for _, r := range recs[1:] {
+		lines[r[3]] = r
+	}
+	if l := lines["uidDriverLater"]; l == nil || l[0] != "" || l[5] != "other" || l[6] != "flagged" {
+		t.Errorf("uidDriverLater line %v", l)
+	}
+	if l := lines["uidAdmin"]; l == nil || l[0] != ownFleet || l[5] != "other" || l[6] != "clean" {
+		t.Errorf("uidAdmin line %v", l)
+	}
+	// --dump gives --with-mobile the mobile of a driver whose row has not loaded (uidDriverPhone).
+	h.system(`UPDATE users SET must_change_password = false`)
+	code, out, errb = h.run("auth-weak-scan", "--with-mobile", "--dump="+dumpDir)
+	check(code, out, errb)
+	if got := flagged(); !slices.Equal(got, []string{"uidDriver1", "uidDriverPhone"}) || strings.Contains(out, "warning") {
+		t.Errorf("flagged %v with --dump (%q)", got, out)
+	}
+	if code, _, _ := h.run("auth-weak-scan", "--candidates-file="+cands, "--dump="+dumpDir); code != 2 {
+		t.Errorf("--dump without --with-mobile: exit %d", code)
 	}
 	// Without the mobile candidates only the literal matches; without the parameters the scan does not start.
 	h.system(`UPDATE users SET must_change_password = false`)
 	code, out, errb = h.run("auth-weak-scan", "--candidates-file="+cands)
 	check(code, out, errb)
-	if got := flagged(); !slices.Equal(got, []string{"uidDriver2"}) {
+	if got := flagged(); !slices.Equal(got, []string{"uidDriver2", "uidDriverLater"}) {
 		t.Errorf("flagged %v without --with-mobile", got)
 	}
 	h.extra = nil

@@ -172,6 +172,37 @@ func TestBootstrapAdmin(t *testing.T) {
 		WHERE u.email = 'ops@logitrack.test'`) != 0 {
 		t.Errorf("an address outside PLATFORM_ADMIN_EMAILS got platform_admin:\n%s", r.stdout)
 	}
+	// Review panel: an address left out of PLATFORM_ADMIN_EMAILS while the user still holds platform_admin is
+	// reported as held outside the list (kept), never as "not granted".
+	b4 := s.bootstrapEnv("BOOTSTRAP_ADMIN_EMAIL="+email, "PLATFORM_ADMIN_EMAILS=ops@logitrack.test")
+	b4.env = append(b4.env, "BOOTSTRAP_ADMIN_PASSWORD=another-Bootstrap-passphrase-2")
+	r = b4.mustSeed(t, "--bootstrap-admin")
+	if strings.Contains(r.stdout, "not granted") || !strings.Contains(r.stdout,
+		"unchanged; platform_admin held but the address is not in PLATFORM_ADMIN_EMAILS (warning: kept") || admins() != 1 {
+		t.Errorf("a holder outside the list:\n%s", r.stdout)
+	}
+	// Review panel: an existing account whose address nobody proved (created outside the import, the bootstrap and a
+	// platform admin, e.g. by a carrier tenant_admin) is never granted, by either command.
+	if err := db.WithSystem(context.Background(), s.d.Pool(t, db.RoleETL), nil, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `INSERT INTO users (email, display_name) VALUES ('claimed@logitrack.test', 'x')`)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	claimedRoles := func() int {
+		return count(`SELECT count(*) FROM user_platform_roles r JOIN users u ON u.id = r.user_id WHERE u.email = 'claimed@logitrack.test'`)
+	}
+	r = s.bootstrapEnv("BOOTSTRAP_ADMIN_EMAIL=claimed@logitrack.test", "PLATFORM_ADMIN_EMAILS=claimed@logitrack.test").
+		mustSeed(t, "--bootstrap-admin")
+	if !strings.Contains(r.stdout, "platform_admin refused (warning)") || !strings.Contains(r.stdout, "address_unproven") ||
+		claimedRoles() != 0 {
+		t.Errorf("--bootstrap-admin over an unproven account:\n%s", r.stdout)
+	}
+	r = s.bootstrapEnv("PLATFORM_ADMIN_EMAILS=claimed@logitrack.test").mustSeed(t, "bootstrap-platform-admins")
+	if !strings.Contains(r.stdout, "refused 1") || !strings.Contains(r.stdout, "claimed@logitrack.test (user ") ||
+		claimedRoles() != 0 {
+		t.Errorf("bootstrap-platform-admins over an unproven account:\n%s", r.stdout)
+	}
 	// bootstrap-platform-admins: idempotent; the smoke fixture's platform admin is reported as outside the list.
 	r = b2.mustSeed(t, "bootstrap-platform-admins")
 	if !strings.Contains(r.stdout, "granted 0, already held 1, no user 0") ||

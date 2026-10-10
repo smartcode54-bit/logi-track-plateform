@@ -90,7 +90,9 @@ type Files interface {
 // accounts, whose parties are global master data, R60, and imported accounts still without a role). A
 // platform_admin writes any user and any tenant's memberships without the header
 // (Appendix B §B.1.4); everyone else writes only inside the same reach. A user outside the reach does not
-// exist for the caller (404). Admin routes never act on the caller itself (Appendix C §C.4.7).
+// exist for the caller (404). Inside it, a route that targets a user also needs a user the caller outranks
+// (outranks, 403): no platform role or dispatcher grant, every membership in reach, tenant_admin only where the
+// caller administers. Admin routes never act on the caller itself (Appendix C §C.4.7).
 type Admin struct {
 	pool  db.Beginner
 	auth  *auth.Service
@@ -183,7 +185,7 @@ func canAssign(p *authz.Principal, t uuid.UUID, newRole, oldRole authz.TenantRol
 	}
 	if (newRole == authz.TenantAdmin || oldRole == authz.TenantAdmin) && !isTenantAdminOf(p, t) {
 		return authz.ErrPermissionDenied("only a tenant_admin of the tenant or a platform admin grants or changes tenant_admin").
-			WithDetails(map[string]any{"reason": "tenant_admin_only"})
+			WithDetails(map[string]any{"reason": ReasonTenantAdminOnly})
 	}
 	return nil
 }
@@ -205,7 +207,7 @@ func stewardOrPlatform(p *authz.Principal) error {
 		return nil
 	}
 	return authz.ErrPermissionDenied("customer scopes are managed by the own fleet or a platform admin").
-		WithDetails(map[string]any{"reason": "steward_only"})
+		WithDetails(map[string]any{"reason": ReasonStewardOnly})
 }
 
 // tx runs fn in one WithSystem transaction and applies the collected auth post-commit writes after COMMIT.

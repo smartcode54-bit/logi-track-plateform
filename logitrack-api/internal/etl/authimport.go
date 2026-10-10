@@ -114,6 +114,12 @@ const (
 	FlagGoogleConflict      = "google_conflict"
 	FlagDeviceTokenConflict = "device_token_conflict"
 	FlagPlatformAdmin       = "platform_admin_bootstrap"
+	// FlagPlatformAdminConflict: the address is in PLATFORM_ADMIN_EMAILS but another account holds it, so this
+	// account is imported without it and the bootstrap never grants it (it considers the holder, C.5.5).
+	FlagPlatformAdminConflict = "platform_admin_conflict"
+	// FlagPartnerOwnFleet: a partner claim names the own fleet's subcontractors doc; partner means carrier
+	// tenant_admin (D2), so no membership is granted and the owner decides (an own-fleet staff role, by hand).
+	FlagPartnerOwnFleet = "partner_own_fleet"
 )
 
 // AuthImportOptions select what one auth-import run does.
@@ -390,7 +396,11 @@ func (e *Engine) importUser(ctx context.Context, tx pgx.Tx, o AuthImportOptions,
 		}
 	}
 	if slices.Contains(o.PlatformAdminEmails, line.Email) && line.Email != "" {
-		line.flag(FlagPlatformAdmin)
+		if email != nil {
+			line.flag(FlagPlatformAdmin)
+		} else {
+			line.flag(FlagPlatformAdminConflict, "the listed address belongs to another account; the bootstrap considers that account only")
+		}
 	}
 	switch {
 	case !hashOK:
@@ -543,15 +553,23 @@ func (e *Engine) grantClaims(ctx context.Context, tx pgx.Tx, o AuthImportOptions
 		line.flag(FlagBadClaims)
 	}
 	own := e.cfg.OwnFleetTenantID
-	member := func(tenant uuid.UUID, role, label string) error {
+	// label names a tenant in the report: own_fleet for the own fleet (an own-fleet grant stands out at the
+	// owner's sign-off), the tenant id otherwise.
+	label := func(tenant uuid.UUID) string {
+		if tenant == own {
+			return "own_fleet"
+		}
+		return tenant.String()
+	}
+	member := func(tenant uuid.UUID, role, tag string) error {
 		var got string
 		err := tx.QueryRow(ctx, `INSERT INTO memberships (user_id, tenant_id, role) VALUES ($1, $2, $3)
 			ON CONFLICT (user_id, tenant_id) DO NOTHING RETURNING role`, id, tenant, role).Scan(&got)
 		switch {
 		case err == nil:
-			line.Memberships = append(line.Memberships, label+":"+role)
+			line.Memberships = append(line.Memberships, tag+":"+role)
 		case errors.Is(err, pgx.ErrNoRows):
-			line.flag(FlagMembershipConflict, label+":"+role)
+			line.flag(FlagMembershipConflict, tag+":"+role)
 		default:
 			return fmt.Errorf("etl: auth-import: membership: %w", err)
 		}
@@ -568,16 +586,21 @@ func (e *Engine) grantClaims(ctx context.Context, tx pgx.Tx, o AuthImportOptions
 			return nil, err
 		}
 	case c.role == "partner":
+		// partner -> tenant_admin of that carrier (D2). The own-fleet row carries a subcontractors doc id too
+		// (settings/tenancy.ownFleetTenantId), but a partner claim naming it never makes an own-fleet admin.
 		var tenant uuid.UUID
-		err := tx.QueryRow(ctx, `SELECT id FROM tenants WHERE legacy_doc_id = $1 AND kind IN ('carrier', 'own_fleet')`,
-			c.partnerScopeID).Scan(&tenant)
+		var kind string
+		err := tx.QueryRow(ctx, `SELECT id, kind FROM tenants WHERE legacy_doc_id = $1 AND kind IN ('carrier', 'own_fleet')`,
+			c.partnerScopeID).Scan(&tenant, &kind)
 		switch {
 		case c.partnerScopeID == "" || errors.Is(err, pgx.ErrNoRows):
 			line.flag(FlagUnresolvedScope, "partnerScopeId")
 		case err != nil:
 			return nil, fmt.Errorf("etl: auth-import: partner tenant: %w", err)
+		case kind != "carrier":
+			line.flag(FlagPartnerOwnFleet, "partnerScopeId names the own fleet; no membership (owner decision)")
 		default:
-			if err := member(tenant, "tenant_admin", tenant.String()); err != nil {
+			if err := member(tenant, "tenant_admin", label(tenant)); err != nil {
 				return nil, err
 			}
 		}
@@ -604,7 +627,7 @@ func (e *Engine) grantClaims(ctx context.Context, tx pgx.Tx, o AuthImportOptions
 	var linked *uuid.UUID
 	switch {
 	case c.role == "driver" || (c.role == "" && c.driverID != ""):
-		d, err := e.linkImportedDriver(ctx, tx, id, u.LocalID, c.driverID, line, member)
+		d, err := e.linkImportedDriver(ctx, tx, id, u.LocalID, c.driverID, line, member, label)
 		if err != nil {
 			return nil, err
 		}
@@ -637,7 +660,7 @@ func (e *Engine) grantClaims(ctx context.Context, tx pgx.Tx, o AuthImportOptions
 // drivers.legacy_auth_uid = uid (the doc-id-then-authId order of C.1.4). An unloaded driver (drivers arrive with
 // the P1 load, T24, whose drivers mapper links by authId) is reported, as is one linked to someone else.
 func (e *Engine) linkImportedDriver(ctx context.Context, tx pgx.Tx, id uuid.UUID, uid, driverID string, line *AuthLine,
-	member func(uuid.UUID, string, string) error) (*uuid.UUID, error) {
+	member func(uuid.UUID, string, string) error, label func(uuid.UUID) string) (*uuid.UUID, error) {
 	var d, tenant uuid.UUID
 	var holder *uuid.UUID
 	err := tx.QueryRow(ctx, `SELECT id, tenant_id, user_id FROM drivers WHERE legacy_doc_id = $1 AND $1 <> ''
@@ -656,10 +679,10 @@ func (e *Engine) linkImportedDriver(ctx context.Context, tx pgx.Tx, id uuid.UUID
 		line.flag(FlagDriverQuarantined, "driver "+d.String()+" is in the quarantine tenant; linked after its re-home")
 		return nil, nil
 	}
-	if err := member(tenant, "driver", tenant.String()); err != nil {
+	if err := member(tenant, "driver", label(tenant)); err != nil {
 		return nil, err
 	}
-	if !slices.Contains(line.Memberships, tenant.String()+":driver") {
+	if !slices.Contains(line.Memberships, label(tenant)+":driver") {
 		return nil, nil // another role in that tenant: no link (the invariant needs a driver membership)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE drivers SET user_id = $1 WHERE id = $2`, id, d); err != nil {

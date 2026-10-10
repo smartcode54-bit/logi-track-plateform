@@ -416,8 +416,9 @@ type PatchTenantInput struct {
 // PatchTenant is PATCH /v1/tenants/{id} (platform:manage_tenants): code, status (appends status_history),
 // contractorTenantId (tenant_contractor_changed) and the names (T18 owner addition). The kind never changes,
 // and the own-fleet and quarantine rows keep their status (409 failed_precondition: suspending the own fleet
-// would drop the tid of every staff session). tenant_updated and outbox tenant.updated in the same
-// transaction; a request that changes nothing writes nothing.
+// would drop the tid of every staff session). Suspending or reactivating a carrier bumps the auth_version of every
+// active member (claims_changed: their tokens lose or regain the tid at once, C.4.7). tenant_updated and outbox
+// tenant.updated in the same transaction; a request that changes nothing writes nothing.
 func (a *Admin) PatchTenant(c call, id uuid.UUID, in PatchTenantInput) (*Tenant, error) {
 	var bad []httpx.FieldViolation
 	var code *string
@@ -461,7 +462,7 @@ func (a *Admin) PatchTenant(c call, id uuid.UUID, in PatchTenantInput) (*Tenant,
 		return nil, errInvalid(bad...)
 	}
 	var out *Tenant
-	err := a.tx(c.ctx, func(tx pgx.Tx, q *iamdb.Queries, _ func(*auth.PostCommit)) error {
+	err := a.tx(c.ctx, func(tx pgx.Tx, q *iamdb.Queries, keep func(*auth.PostCommit)) error {
 		cur, err := q.LockTenant(c.ctx, id)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return httpx.ErrNotFound()
@@ -540,6 +541,21 @@ func (a *Admin) PatchTenant(c call, id uuid.UUID, in PatchTenantInput) (*Tenant,
 		details := map[string]any{"fields": fields}
 		if statusChanged {
 			details["status"], details["previousStatus"] = r.Status, cur.Status
+		}
+		// A suspended tenant is never issued as tid (auth: usable memberships), so suspending or reactivating it
+		// changes every active member's claims: auth_version++ and claims_changed now (C.4.7), as removing the
+		// membership would, instead of leaving live tokens on the suspended tenant until JWT_ACCESS_TTL.
+		if statusChanged && (cur.Status == "suspended" || r.Status == "suspended") {
+			members, err := q.ActiveTenantMembers(c.ctx, id)
+			if err != nil {
+				return err
+			}
+			for _, uid := range members {
+				if err := a.claimsChanged(c, tx, uid, keep); err != nil {
+					return err
+				}
+			}
+			details["membersNotified"] = len(members)
 		}
 		if err := a.audit(c, tx, EventTenantUpdated, "tenant updated", nil, &id, details); err != nil {
 			return err

@@ -76,8 +76,10 @@ Users (T19, Appendix C §C.5; PLATFORM_ADMIN_EMAILS, FIREBASE_SCRYPT_* for the s
        [--exported-at=RFC3339] [--report=FILE] [--refresh-legacy] [--dry-run]
         firebase auth:export + users documents -> users, identities, memberships, scopes, driver links, device
         tokens; migration_users_report.csv; idempotent (existing uids are skipped); never grants platform_admin
-  auth-weak-scan (--candidates-file=FILE | --with-mobile) [--report=FILE] [--dry-run]
-        flags driver accounts whose legacy hash matches a candidate (must_change_password); never prints one
+  auth-weak-scan (--candidates-file=FILE | --with-mobile [--dump=DIR|s3:etl/dumps/{ts}]) [--report=FILE] [--dry-run]
+        flags every account whose legacy hash matches a candidate (must_change_password); run it before the P0
+        cut-over (a Go sign-in replaces the legacy hash); --dump gives --with-mobile the drivers not loaded yet;
+        never prints a candidate
 
 Exit codes: 0 ok, 1 runtime error, 2 configuration error, mismatch, refusal or an aborted load (R19).
 `

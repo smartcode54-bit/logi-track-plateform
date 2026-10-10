@@ -91,18 +91,24 @@ func cmdAuthImport(e *env, args []string) int {
 	return app.ExitOK
 }
 
-// cmdAuthWeakScan is `etl auth-weak-scan` (Appendix C §C.5.7): flags (must_change_password) driver accounts
-// whose legacy Firebase hash matches a candidate of the operator's file. Candidates and matches are never
-// printed: stdout carries counts, the report the flagged accounts per tenant.
+// cmdAuthWeakScan is `etl auth-weak-scan` (Appendix C §C.5.7): flags (must_change_password) the accounts whose
+// legacy Firebase hash matches a candidate of the operator's file or, with --with-mobile, the driver's own mobile
+// digits. Every account with a legacy hash is scanned, so the scan does not wait for the P1 drivers load; it runs
+// before the P0 cut-over, since a Go sign-in replaces the legacy hash. Candidates and matches are never printed:
+// stdout carries counts, the report the flagged accounts per tenant.
 func cmdAuthWeakScan(e *env, args []string) int {
 	fl := flag.NewFlagSet("auth-weak-scan", flag.ContinueOnError)
 	fl.SetOutput(e.stderr)
-	candidates := fl.String("candidates-file", "", "candidate passwords: 'key<TAB>password' (key = uid or email) or a bare password for every driver")
-	withMobile := fl.Bool("with-mobile", false, "also try each driver's own mobile digits")
+	candidates := fl.String("candidates-file", "", "candidate passwords: 'key<TAB>password' (key = uid or email) or a bare password for every account")
+	withMobile := fl.Bool("with-mobile", false, "also try each driver's own mobile digits (drivers rows, and the --dump drivers documents)")
+	src := fl.String("dump", "", "dump directory or s3:etl/dumps/{ts} whose drivers documents give --with-mobile the mobiles of drivers not loaded yet")
 	reportPath := fl.String("report", "", "write the per-tenant report (CSV) to this file ('-': stdout)")
 	dry := fl.Bool("dry-run", false, "write the report, flag nobody")
 	if err := fl.Parse(args); err != nil || fl.NArg() != 0 || (*candidates == "" && !*withMobile) {
 		return usageError(e.stderr, "auth-weak-scan takes --candidates-file and/or --with-mobile")
+	}
+	if *src != "" && !*withMobile {
+		return usageError(e.stderr, "auth-weak-scan --dump serves --with-mobile")
 	}
 	if err := e.cfg.RequireScrypt(); err != nil {
 		_, _ = fmt.Fprintf(e.stderr, "etl: %v\n", err)
@@ -122,12 +128,21 @@ func cmdAuthWeakScan(e *env, args []string) int {
 			return app.ExitConfigError
 		}
 	}
+	o := etl.WeakScanOptions{Candidates: cands, Params: *e.cfg.Scrypt, WithMobile: *withMobile, DryRun: *dry}
+	if *src != "" {
+		d, cleanup, code := e.openDump(*src, false)
+		defer cleanup()
+		if code != app.ExitOK {
+			return code
+		}
+		o.Dump = d
+	}
 	eng, closeDB, code := e.engine()
 	if code != app.ExitOK {
 		return code
 	}
 	defer closeDB()
-	rep, err := eng.WeakScan(e.ctx, etl.WeakScanOptions{Candidates: cands, Params: *e.cfg.Scrypt, WithMobile: *withMobile, DryRun: *dry})
+	rep, err := eng.WeakScan(e.ctx, o)
 	if err != nil {
 		return e.fail(app.ExitRuntimeError, err, "auth-weak-scan failed")
 	}
@@ -135,7 +150,13 @@ func cmdAuthWeakScan(e *env, args []string) int {
 	if *dry {
 		mode = "dry run: rolled back"
 	}
-	_, _ = fmt.Fprintf(e.stdout, "auth-weak-scan: %d driver account(s) (%s): %s\n", len(rep.Lines), mode, countList(rep.Counts()))
+	_, _ = fmt.Fprintf(e.stdout, "auth-weak-scan: %d account(s), %d of them driver accounts (%s): %s\n", len(rep.Lines),
+		rep.Drivers(), mode, countList(rep.Counts()))
+	if n := rep.WithoutTenant(); n > 0 && *withMobile && *src == "" {
+		_, _ = fmt.Fprintf(e.stdout, "auth-weak-scan: warning: %d scanned account(s) belong to no tenant yet (drivers whose rows load "+
+			"at P1 among them): their mobile digits were not tried; add --dump, or re-run --with-mobile after "+
+			"`etl load --collections=drivers` and before they sign in through Go\n", n)
+	}
 	if *candidates != "" {
 		_, _ = fmt.Fprintln(e.stdout, "delete the candidates file now (Appendix C §C.5.7)")
 	}

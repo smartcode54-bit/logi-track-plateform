@@ -12,6 +12,52 @@ import (
 	"github.com/google/uuid"
 )
 
+const bootstrapEligibility = `-- name: BootstrapEligibility :one
+SELECT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = u.id AND r.role = 'platform_admin')::boolean AS held,
+       (EXISTS (SELECT 1 FROM auth_identities i
+                WHERE i.user_id = u.id AND i.provider = 'firebase_legacy' AND i.email_at_link = u.email)
+        OR coalesce((SELECT CASE WHEN e.actor_user_id IS NULL
+                                 THEN e.event_type = 'user_created' AND e.details->>'source' = 'bootstrap'
+                                 ELSE EXISTS (SELECT 1 FROM user_platform_roles r
+                                              WHERE r.user_id = e.actor_user_id AND r.role = 'platform_admin') END
+                     FROM security_events e
+                     WHERE e.target_user_id = u.id AND e.legacy_doc_id IS NULL
+                       AND (e.event_type = 'user_created'
+                         OR (e.event_type = 'user_updated' AND e.details->>'emailChanged' = 'true'))
+                     ORDER BY e.created_at DESC, e.id DESC
+                     LIMIT 1), false))::boolean AS address_proven,
+       EXISTS (SELECT 1 FROM memberships m JOIN tenants t ON t.id = m.tenant_id
+               WHERE m.user_id = u.id AND t.kind <> 'own_fleet')::boolean AS other_tenant,
+       EXISTS (SELECT 1 FROM user_scopes s WHERE s.user_id = u.id)::boolean AS has_scope
+FROM users u
+WHERE u.id = $1
+`
+
+type BootstrapEligibilityRow struct {
+	Held          bool
+	AddressProven bool
+	OtherTenant   bool
+	HasScope      bool
+}
+
+// Whether the bootstrap may grant platform_admin to the user that holds a listed address (Appendix C §C.5.5). Anyone
+// who creates or renames users (a carrier tenant_admin included) could otherwise claim a listed address before its
+// owner has an account. The address must be proven: it is the address of the user's firebase_legacy identity (the
+// import, unchanged since), or the latest Go event that set it (user_updated with emailChanged, else user_created)
+// was written by the bootstrap itself or by a platform admin. The user must also belong to no tenant other than the
+// own fleet and hold no scope.
+func (q *Queries) BootstrapEligibility(ctx context.Context, id uuid.UUID) (BootstrapEligibilityRow, error) {
+	row := q.db.QueryRow(ctx, bootstrapEligibility, id)
+	var i BootstrapEligibilityRow
+	err := row.Scan(
+		&i.Held,
+		&i.AddressProven,
+		&i.OtherTenant,
+		&i.HasScope,
+	)
+	return i, err
+}
+
 const bootstrapUserByEmail = `-- name: BootstrapUserByEmail :one
 
 SELECT id, password_hash, status, must_change_password

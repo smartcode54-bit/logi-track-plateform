@@ -67,10 +67,10 @@ func (a *Admin) Members(c call, tenant uuid.UUID, role string, limit int, cur st
 	var out []Member
 	var next string
 	err := a.read(c.ctx, func(q *iamdb.Queries) error {
-		if _, err := q.TenantForMembership(c.ctx, tenant); errors.Is(err, pgx.ErrNoRows) {
-			return httpx.ErrNotFound()
-		} else if err != nil {
+		if found, err := q.TenantExists(c.ctx, tenant); err != nil {
 			return err
+		} else if !found {
+			return httpx.ErrNotFound()
 		}
 		rows, err := q.ListTenantMembers(c.ctx, iamdb.ListTenantMembersParams{TenantID: tenant, Role: rolePtr,
 			AfterCreated: k.T, AfterID: k.ID, RowLimit: int32(limit) + 1})
@@ -102,7 +102,8 @@ type MembershipResult struct {
 }
 
 // memberTarget checks the tenant and the user of a membership write: the tenant in the write reach (403
-// otherwise) and existing (not quarantine: it holds no memberships, C.1.8), the user visible and locked.
+// otherwise) and existing (not quarantine: it holds no memberships, C.1.8), key-share locked before the user
+// (the lock order of PatchTenant), then the user in reach, locked and outranked (target).
 func (a *Admin) memberTarget(c call, q *iamdb.Queries, tenant, user uuid.UUID) error {
 	if err := notSelf(c.p, user); err != nil {
 		return err
@@ -364,7 +365,8 @@ func sameSet(a, b []uuid.UUID) bool {
 // LinkDriver is PUT /v1/users/{id}/driver-link {driverId} (drivers:edit + users:manage): one transaction
 // moves the link (Appendix C §C.1.4): the user's previous driver row is cleared, drivers.user_id is set, the
 // driver membership in the driver's tenant is written (a user holding another role there is 409), and
-// driver_linked is recorded. A driver linked to another user is 409; the driver must be in the caller's reach.
+// driver_linked is recorded. A driver linked to another user is 409; the driver must be in the caller's reach, and
+// so must the user's current driver row (409 failed_precondition linked_in_other_tenant otherwise).
 func (a *Admin) LinkDriver(c call, user, driver uuid.UUID) error {
 	return a.tx(c.ctx, func(tx pgx.Tx, q *iamdb.Queries, keep func(*auth.PostCommit)) error {
 		if _, err := a.target(c, q, user); err != nil {
@@ -398,6 +400,11 @@ func (a *Admin) LinkDriver(c call, user, driver uuid.UUID) error {
 		case errors.Is(err, pgx.ErrNoRows):
 		case err != nil:
 			return err
+		case !writeReach(c.p).hasTenant(prev.TenantID):
+			// Never clear another tenant's driver row (outranks already refuses a user with a membership there,
+			// which the driver-link trigger guarantees; this keeps the rule local). No ids of that tenant leak.
+			return errFailedPrecondition("linked_in_other_tenant",
+				"the user is linked to a driver of a tenant outside the caller's reach")
 		default:
 			previous = &prev.ID
 			if err := q.SetDriverUser(c.ctx, iamdb.SetDriverUserParams{UserID: nil, ID: prev.ID}); err != nil {

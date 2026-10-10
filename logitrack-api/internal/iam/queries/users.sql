@@ -20,6 +20,22 @@ SELECT EXISTS (
         AND NOT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = u.id)))
 )::boolean AS in_reach;
 
+-- name: TargetPrivileges :one
+-- What the target holds beyond the caller's reach (Appendix C §C.8 "Reach": an admin route acts only on a user it
+-- outranks): a platform role, every membership tenant and the tenants it administers (any status, unfiltered by
+-- reach), and its scope kinds.
+SELECT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = sqlc.arg(id)::uuid)::boolean AS platform_role,
+       array(SELECT m.tenant_id FROM memberships m WHERE m.user_id = sqlc.arg(id)::uuid ORDER BY m.tenant_id)::uuid[] AS tenant_ids,
+       array(SELECT m.tenant_id FROM memberships m WHERE m.user_id = sqlc.arg(id)::uuid AND m.role = 'tenant_admin'
+             ORDER BY m.tenant_id)::uuid[] AS admin_tenant_ids,
+       EXISTS (SELECT 1 FROM user_scopes s WHERE s.user_id = sqlc.arg(id)::uuid AND s.kind = 'dispatcher')::boolean AS dispatcher,
+       EXISTS (SELECT 1 FROM user_scopes s WHERE s.user_id = sqlc.arg(id)::uuid AND s.kind = 'customer')::boolean AS customer;
+
+-- name: ActiveTenantMembers :many
+-- The active members of a tenant whose claims a status change alters (PATCH /v1/tenants/{id} suspend or reactivate),
+-- in user id order (the users rows are locked in that order).
+SELECT user_id FROM memberships WHERE tenant_id = sqlc.arg(tenant_id) AND status = 'active' ORDER BY user_id;
+
 -- name: GetAdminUser :one
 SELECT u.id, u.email, u.display_name, u.photo_file_id, u.status, u.must_change_password, u.last_login_at,
        u.created_at, u.legacy_auth_uid
@@ -203,4 +219,10 @@ WHERE user_id = sqlc.arg(user_id) AND revoked_at IS NULL AND absolute_expires_at
 ORDER BY last_seen_at DESC, id DESC;
 
 -- name: TenantForMembership :one
-SELECT kind, status FROM tenants WHERE id = sqlc.arg(id);
+-- FOR KEY SHARE: a membership write takes the tenant before the user (the order of PATCH /v1/tenants/{id}, which
+-- locks the tenant and then bumps its members), and the membership's foreign key needs this lock anyway.
+SELECT kind, status FROM tenants WHERE id = sqlc.arg(id) FOR KEY SHARE;
+
+-- name: TenantExists :one
+-- The read of GET /v1/tenants/{id}/members (no lock).
+SELECT EXISTS (SELECT 1 FROM tenants WHERE id = sqlc.arg(id))::boolean AS found;
