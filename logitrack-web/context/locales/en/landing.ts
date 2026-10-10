@@ -3,6 +3,7 @@ export default {
     "landing.nav.solutions": "Solutions",
     "landing.nav.pricing": "Pricing",
     "landing.nav.about": "About Us",
+    "landing.header.toggleTheme": "Switch between light and dark mode",
     "landing.hero.tagline": "Global Logistics Management",
     "landing.hero.title": "Manage Your Supply Chain Professionally",
     "landing.hero.description": "The ultimate dashboard for real-time logistics management and global shipment tracking in one platform.",
