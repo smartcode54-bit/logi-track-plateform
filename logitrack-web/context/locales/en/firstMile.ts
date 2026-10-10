@@ -183,6 +183,7 @@ export default {
     "firstMile.sources.tabHub": "Hub",
     "firstMile.sources.tabSoc": "SOC",
     "firstMile.sources.noSocsInFilter": "No SOCs match the current filter.",
+    "firstMile.sources.noHubsInFilter": "No hubs match the current filter.",
     "firstMile.sources.kmMin": "{{km}} km / {{min}} min",
     "firstMile.sources.noDistanceData": "—",
     "firstMile.sources.pagination.showing": "Showing",

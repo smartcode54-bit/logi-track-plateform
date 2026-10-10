@@ -1,7 +1,7 @@
 {
   "source": "logitrack-web/lib/billingDocument.test.ts",
   "sourceCommit": "4f552099",
-  "note": "16 Vitest cases ported to internal/billing/documents. Wants are literal (the module needs a browser bundle); lib/billingGolden.test.ts checks them against billingDocument.ts. groupToLineItems' second argument is the rows its rounds are collected from (null: no rounds argument).",
+  "note": "16 Vitest cases ported to internal/billing/documents. Wants are literal (at 4f552099 the module needed a browser bundle); lib/billingGolden.test.ts checks them against billingDocumentModel.ts (billingDocument.ts at 4f552099). groupToLineItems' second argument is the rows its rounds are collected from (null: no rounds argument).",
   "cases": [
     {
       "name": "collectBillingRounds > labels rounds by date order, oldest first",

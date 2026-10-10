@@ -1,4 +1,5 @@
 import React from "react";
+import { Clock, Languages, LayoutDashboard } from "lucide-react";
 import { useLanguage } from "@/context/language";
 
 export function Features() {
@@ -19,9 +20,7 @@ export function Features() {
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                         <div className="flex flex-1 gap-6 rounded-xl border border-slate-200 dark:border-[#3b4754] bg-white dark:bg-[#1c2127] p-8 flex-col hover:border-primary dark:hover:border-primary transition-colors group">
                             <div className="text-primary bg-primary/10 w-12 h-12 flex items-center justify-center rounded-lg group-hover:scale-110 transition-transform">
-                                <span className="material-symbols-outlined text-[32px]">
-                                    schedule
-                                </span>
+                                <Clock className="h-8 w-8" />
                             </div>
                             <div className="flex flex-col gap-2">
                                 <h3 className="text-slate-900 dark:text-white text-xl font-bold">
@@ -34,9 +33,7 @@ export function Features() {
                         </div>
                         <div className="flex flex-1 gap-6 rounded-xl border border-slate-200 dark:border-[#3b4754] bg-white dark:bg-[#1c2127] p-8 flex-col hover:border-primary dark:hover:border-primary transition-colors group">
                             <div className="text-primary bg-primary/10 w-12 h-12 flex items-center justify-center rounded-lg group-hover:scale-110 transition-transform">
-                                <span className="material-symbols-outlined text-[32px]">
-                                    dashboard_customize
-                                </span>
+                                <LayoutDashboard className="h-8 w-8" />
                             </div>
                             <div className="flex flex-col gap-2">
                                 <h3 className="text-slate-900 dark:text-white text-xl font-bold">
@@ -49,9 +46,7 @@ export function Features() {
                         </div>
                         <div className="flex flex-1 gap-6 rounded-xl border border-slate-200 dark:border-[#3b4754] bg-white dark:bg-[#1c2127] p-8 flex-col hover:border-primary dark:hover:border-primary transition-colors group">
                             <div className="text-primary bg-primary/10 w-12 h-12 flex items-center justify-center rounded-lg group-hover:scale-110 transition-transform">
-                                <span className="material-symbols-outlined text-[32px]">
-                                    translate
-                                </span>
+                                <Languages className="h-8 w-8" />
                             </div>
                             <div className="flex flex-col gap-2">
                                 <h3 className="text-slate-900 dark:text-white text-xl font-bold">

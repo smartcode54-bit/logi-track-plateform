@@ -20,8 +20,11 @@ vi.mock("@/context/auth", () => ({
   AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
-function renderWithProviders(ui: React.ReactElement) {
-  return render(<LanguageProvider>{ui}</LanguageProvider>);
+/** Renders inside LanguageProvider and waits until its dictionary is loaded (it renders children then). */
+async function renderWithProviders(ui: React.ReactElement) {
+  const view = render(<LanguageProvider>{ui}</LanguageProvider>);
+  await screen.findByText("Logi-Track");
+  return view;
 }
 
 describe("Navigation", () => {
@@ -35,20 +38,20 @@ describe("Navigation", () => {
     });
   });
 
-  it("renders brand Logi-Track", () => {
-    renderWithProviders(<Navigation />);
+  it("renders brand Logi-Track", async () => {
+    await renderWithProviders(<Navigation />);
     expect(screen.getByText("Logi-Track")).toBeInTheDocument();
   });
 
-  it("shows Sign In / login link when user is not logged in", () => {
-    renderWithProviders(<Navigation />);
+  it("shows Sign In / login link when user is not logged in", async () => {
+    await renderWithProviders(<Navigation />);
     const loginLink = screen.getByRole("link", { name: /sign in/i });
     expect(loginLink).toBeInTheDocument();
     expect(loginLink).toHaveAttribute("href", "/login");
   });
 
-  it("shows Solutions and Pricing links when not logged in", () => {
-    renderWithProviders(<Navigation />);
+  it("shows Solutions and Pricing links when not logged in", async () => {
+    await renderWithProviders(<Navigation />);
     expect(screen.getByRole("link", { name: /solutions/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /pricing/i })).toBeInTheDocument();
   });
@@ -62,7 +65,7 @@ describe("Navigation", () => {
       login: vi.fn(),
       logout: vi.fn(),
     });
-    renderWithProviders(<Navigation />);
+    await renderWithProviders(<Navigation />);
     const menuButton = screen.getByRole("button", { name: "A" });
     await user.click(menuButton);
     expect(screen.getByRole("menuitem", { name: /admin dashboard/i })).toBeInTheDocument();

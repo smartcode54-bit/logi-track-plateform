@@ -1,4 +1,9 @@
-import JSZip from "jszip";
+/**
+ * Image ZIP downloads (accounting batches, trip photos, maintenance images) and their entry
+ * builders. jszip is loaded inside `downloadImagesAsZip` with `import()`, so the pages that only
+ * build entries or render the download buttons keep it out of their initial JS
+ * (developer-spec.md §10.11, Appendix E §E.7 rows 6 and 16).
+ */
 import { format } from "date-fns";
 import { looksLikeImageUrl } from "@/features/maintenance/utils/looksLikeImageUrl";
 
@@ -83,6 +88,7 @@ export async function downloadImagesAsZip(
     entries: ZipImageEntryInput[],
     options?: { fetchConcurrency?: number }
 ): Promise<ZipImageDownloadResult> {
+    const { default: JSZip } = await import("jszip");
     const zip = new JSZip();
     const added: string[] = [];
     const failed: { url: string; reason: string }[] = [];

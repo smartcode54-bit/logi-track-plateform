@@ -14,13 +14,13 @@ describe("LanguageSwitcher", () => {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {});
   });
 
-  it("renders EN and TH options", () => {
+  it("renders EN and TH options", async () => {
     render(
       <LanguageProvider>
         <LanguageSwitcher />
       </LanguageProvider>
     );
-    expect(screen.getByRole("button", { name: /en/i })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /en/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /th/i })).toBeInTheDocument();
   });
 
@@ -32,7 +32,7 @@ describe("LanguageSwitcher", () => {
         <LanguageSwitcher />
       </LanguageProvider>
     );
-    await user.click(screen.getByRole("button", { name: /th/i }));
+    await user.click(await screen.findByRole("button", { name: /th/i }));
     expect(setItem).toHaveBeenCalledWith("language", "th");
   });
 
@@ -45,7 +45,7 @@ describe("LanguageSwitcher", () => {
         <LanguageSwitcher />
       </LanguageProvider>
     );
-    await user.click(screen.getByRole("button", { name: /en/i }));
+    await user.click(await screen.findByRole("button", { name: /en/i }));
     expect(setItem).toHaveBeenCalledWith("language", "en");
   });
 });

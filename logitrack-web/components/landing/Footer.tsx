@@ -1,4 +1,5 @@
 import React from "react";
+import { Globe, MapPin } from "lucide-react";
 import { useLanguage } from "@/context/language";
 
 export function Footer() {
@@ -64,14 +65,12 @@ export function Footer() {
                     <p>© 2025 Wanpen-Radchada Transport co.,ltd. {t("landing.footer.rights")}</p>
                     <div className="flex items-center gap-4">
                         <span className="flex items-center gap-1.5">
-                            <span className="material-symbols-outlined text-xs">
-                                location_on
-                            </span>{" "}
+                            <MapPin className="h-3 w-3" />{" "}
                             {t("landing.footer.location")}
                         </span>
                         <span className="w-1 h-1 rounded-full bg-slate-600"></span>
                         <span className="flex items-center gap-1.5">
-                            <span className="material-symbols-outlined text-xs">public</span>{" "}
+                            <Globe className="h-3 w-3" />{" "}
                             {t("landing.footer.global")}
                         </span>
                     </div>

@@ -6,7 +6,7 @@ import {
     formatFuelBand,
     groupToLineItems,
     type BillingTripRow,
-} from "./billingDocument";
+} from "./billingDocumentModel";
 
 /**
  * Regression cover for ADR 0009 §6-7. Both defects these tests pin were shipped and found by hand:

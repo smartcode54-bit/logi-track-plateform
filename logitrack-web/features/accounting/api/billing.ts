@@ -28,7 +28,7 @@ import { bangkokMidnightFromPickedDate, pickedDateToDateStr } from "@/lib/billin
 import { driverDisplayName } from "@/lib/driverName";
 import { billingHubLabelFromFirestoreData } from "@/lib/hubDisplay";
 import { SOC_DESTINATIONS, normalizeSocIdToKey } from "@/validate/taskSchema";
-import { billingAxisDate, type BillingTripRow } from "@/lib/billingDocument";
+import { billingAxisDate, type BillingTripRow } from "@/lib/billingDocumentModel";
 
 export interface CustomerRateEntryInput {
     hubId: string;

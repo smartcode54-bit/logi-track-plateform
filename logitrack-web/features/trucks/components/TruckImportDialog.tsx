@@ -3,13 +3,11 @@
 import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
-    Dialog,
     DialogContent,
     DialogDescription,
     DialogFooter,
     DialogHeader,
     DialogTitle,
-    DialogTrigger,
 } from "@/components/ui/dialog";
 import {
     Tooltip,
@@ -19,8 +17,9 @@ import {
 } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Upload, FileSpreadsheet, AlertCircle, CheckCircle, XCircle, Download } from "lucide-react";
+import { AlertCircle, CheckCircle, Download } from "lucide-react";
 import { useLanguage } from "@/context/language";
+import type { LazyDialogControl } from "@/components/lazy-dialog";
 import * as XLSX from "xlsx";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -49,9 +48,12 @@ interface ImportedTruck {
     errors: string[];
 }
 
-export function TruckImportDialog() {
+/**
+ * The dialog body (`DialogContent`). Pages render it inside `LazyDialog`, through `next/dynamic`, so
+ * this module and xlsx load on the first open, not with the page (developer-spec.md §10.11).
+ */
+export function TruckImportDialog({ setOpen }: LazyDialogControl) {
     const { t } = useLanguage();
-    const [open, setOpen] = useState(false);
     const [file, setFile] = useState<File | null>(null);
     const [importedData, setImportedData] = useState<ImportedTruck[]>([]);
     const [isImporting, setIsImporting] = useState(false);
@@ -216,117 +218,109 @@ export function TruckImportDialog() {
     };
 
     return (
-        <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-                <Button variant="outline" className="gap-2">
-                    <Upload className="h-4 w-4" />
-                    {t('trucks.import')}
-                </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[900px] max-h-[90vh] flex flex-col">
-                <DialogHeader>
-                    <DialogTitle>{t('trucks.import.title')}</DialogTitle>
-                    <DialogDescription>
-                        {t('trucks.import.desc')}
-                    </DialogDescription>
-                </DialogHeader>
+        <DialogContent className="sm:max-w-[900px] max-h-[90vh] flex flex-col">
+            <DialogHeader>
+                <DialogTitle>{t('trucks.import.title')}</DialogTitle>
+                <DialogDescription>
+                    {t('trucks.import.desc')}
+                </DialogDescription>
+            </DialogHeader>
 
-                <div className="space-y-4 py-4 flex-1 overflow-hidden flex flex-col">
-                    <div className="flex items-center gap-4 shrink-0">
-                        <div className="grid w-full max-w-sm items-center gap-1.5">
-                            <Label htmlFor="file">{t('trucks.import.selectFile')}</Label>
-                            <Input
-                                id="file"
-                                type="file"
-                                accept=".xlsx, .xls, .csv"
-                                onChange={handleFileChange}
-                                ref={fileInputRef}
-                            />
-                        </div>
-                        <Button variant="secondary" onClick={downloadTemplate} className="mt-6">
-                            <Download className="mr-2 h-4 w-4" />
-                            {t('trucks.import.downloadTemplate')}
-                        </Button>
+            <div className="space-y-4 py-4 flex-1 overflow-hidden flex flex-col">
+                <div className="flex items-center gap-4 shrink-0">
+                    <div className="grid w-full max-w-sm items-center gap-1.5">
+                        <Label htmlFor="file">{t('trucks.import.selectFile')}</Label>
+                        <Input
+                            id="file"
+                            type="file"
+                            accept=".xlsx, .xls, .csv"
+                            onChange={handleFileChange}
+                            ref={fileInputRef}
+                        />
                     </div>
-
-                    {importedData.length > 0 && (
-                        <div className="border rounded-md flex-1 overflow-hidden flex flex-col">
-                            <div className="p-2 bg-muted/50 border-b shrink-0">
-                                <h4 className="text-sm font-semibold">{t('trucks.import.preview')} ({importedData.length})</h4>
-                            </div>
-                            <ScrollArea className="flex-1">
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead className="w-[40px]"></TableHead>
-                                            <TableHead>Plate</TableHead>
-                                            <TableHead>Brand/Model</TableHead>
-                                            <TableHead className="hidden md:table-cell">Details (VIN/Eng)</TableHead>
-                                            <TableHead>Type</TableHead>
-                                            <TableHead>Status</TableHead>
-                                            <TableHead>Ownership</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {importedData.map((truck, index) => (
-                                            <TableRow key={index} className={!truck.isValid ? "bg-red-50" : ""}>
-                                                <TableCell>
-                                                    {truck.isValid ? (
-                                                        <CheckCircle className="h-4 w-4 text-green-500" />
-                                                    ) : (
-                                                        <TooltipProvider>
-                                                            <Tooltip>
-                                                                 <TooltipTrigger asChild>
-                                                                    <AlertCircle className="h-4 w-4 text-red-500" />
-                                                                </TooltipTrigger>
-                                                                <TooltipContent>
-                                                                    <p>{truck.errors.join(", ")}</p>
-                                                                </TooltipContent>
-                                                            </Tooltip>
-                                                        </TooltipProvider>
-
-                                                    )}
-                                                </TableCell>
-                                                <TableCell className="font-medium">
-                                                    {truck.licensePlate}
-                                                    <div className="text-[10px] text-muted-foreground">{truck.province}</div>
-                                                </TableCell>
-                                                <TableCell>
-                                                    {truck.brand} {truck.model}
-                                                    <div className="text-[10px] text-muted-foreground">{truck.color} {truck.year}</div>
-                                                </TableCell>
-                                                <TableCell className="hidden md:table-cell text-xs">
-                                                    <div>VIN: {truck.vin || "-"}</div>
-                                                    <div>Eng: {truck.engineNumber || "-"}</div>
-                                                </TableCell>
-                                                <TableCell>{truck.type}</TableCell>
-                                                <TableCell>
-                                                    <Badge variant="outline" className="text-[10px]">{truck.truckStatus}</Badge>
-                                                </TableCell>
-                                                <TableCell className="text-xs capitalize">{truck.ownershipType}</TableCell>
-                                            </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
-                            </ScrollArea>
-                        </div>
-                    )}
+                    <Button variant="secondary" onClick={downloadTemplate} className="mt-6">
+                        <Download className="mr-2 h-4 w-4" />
+                        {t('trucks.import.downloadTemplate')}
+                    </Button>
                 </div>
 
-                <DialogFooter className="shrink-0">
-                    <Button variant="outline" onClick={() => setOpen(false)}>
-                        {t('users.form.cancel')}
-                    </Button>
-                    <Button
-                        onClick={handleImport}
-                        disabled={importedData.length === 0 || isImporting || importedData.every(d => !d.isValid)}
-                    >
-                        {isImporting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        {t('trucks.import.confirm')}
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+                {importedData.length > 0 && (
+                    <div className="border rounded-md flex-1 overflow-hidden flex flex-col">
+                        <div className="p-2 bg-muted/50 border-b shrink-0">
+                            <h4 className="text-sm font-semibold">{t('trucks.import.preview')} ({importedData.length})</h4>
+                        </div>
+                        <ScrollArea className="flex-1">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead className="w-[40px]"></TableHead>
+                                        <TableHead>Plate</TableHead>
+                                        <TableHead>Brand/Model</TableHead>
+                                        <TableHead className="hidden md:table-cell">Details (VIN/Eng)</TableHead>
+                                        <TableHead>Type</TableHead>
+                                        <TableHead>Status</TableHead>
+                                        <TableHead>Ownership</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {importedData.map((truck, index) => (
+                                        <TableRow key={index} className={!truck.isValid ? "bg-red-50" : ""}>
+                                            <TableCell>
+                                                {truck.isValid ? (
+                                                    <CheckCircle className="h-4 w-4 text-green-500" />
+                                                ) : (
+                                                    <TooltipProvider>
+                                                        <Tooltip>
+                                                             <TooltipTrigger asChild>
+                                                                <AlertCircle className="h-4 w-4 text-red-500" />
+                                                            </TooltipTrigger>
+                                                            <TooltipContent>
+                                                                <p>{truck.errors.join(", ")}</p>
+                                                            </TooltipContent>
+                                                        </Tooltip>
+                                                    </TooltipProvider>
+
+                                                )}
+                                            </TableCell>
+                                            <TableCell className="font-medium">
+                                                {truck.licensePlate}
+                                                <div className="text-[10px] text-muted-foreground">{truck.province}</div>
+                                            </TableCell>
+                                            <TableCell>
+                                                {truck.brand} {truck.model}
+                                                <div className="text-[10px] text-muted-foreground">{truck.color} {truck.year}</div>
+                                            </TableCell>
+                                            <TableCell className="hidden md:table-cell text-xs">
+                                                <div>VIN: {truck.vin || "-"}</div>
+                                                <div>Eng: {truck.engineNumber || "-"}</div>
+                                            </TableCell>
+                                            <TableCell>{truck.type}</TableCell>
+                                            <TableCell>
+                                                <Badge variant="outline" className="text-[10px]">{truck.truckStatus}</Badge>
+                                            </TableCell>
+                                            <TableCell className="text-xs capitalize">{truck.ownershipType}</TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </ScrollArea>
+                    </div>
+                )}
+            </div>
+
+            <DialogFooter className="shrink-0">
+                <Button variant="outline" onClick={() => setOpen(false)}>
+                    {t('users.form.cancel')}
+                </Button>
+                <Button
+                    onClick={handleImport}
+                    disabled={importedData.length === 0 || isImporting || importedData.every(d => !d.isValid)}
+                >
+                    {isImporting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    {t('trucks.import.confirm')}
+                </Button>
+            </DialogFooter>
+        </DialogContent>
     );
 }
 

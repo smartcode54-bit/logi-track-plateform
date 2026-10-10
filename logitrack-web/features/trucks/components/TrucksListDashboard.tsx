@@ -2,6 +2,7 @@
 
 import { ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import {
     Plus,
@@ -16,6 +17,7 @@ import {
     ChevronDown,
     Users,
     RefreshCcw,
+    Upload,
 } from "lucide-react";
 import {
     DropdownMenu,
@@ -48,7 +50,13 @@ import { Badge } from "@/components/ui/badge";
 
 import { useTrucksList } from "../hooks/useTrucksList";
 import { TruckComplianceCards } from "./TruckComplianceCards";
-import { TruckImportDialog } from "./TruckImportDialog";
+import { LazyDialog, LazyDialogLoading } from "@/components/lazy-dialog";
+
+// The import dialog carries xlsx: loaded on the first open only (developer-spec.md §10.11).
+const TruckImportDialog = dynamic(() => import("./TruckImportDialog").then((m) => m.TruckImportDialog), {
+    ssr: false,
+    loading: LazyDialogLoading,
+});
 
 export default function TrucksListDashboard() {
     const { t } = useLanguage();
@@ -125,7 +133,16 @@ export default function TrucksListDashboard() {
                         <Download className="h-4 w-4" />
                         {t('trucks.export')}
                     </Button>
-                    <TruckImportDialog />
+                    <LazyDialog
+                        trigger={
+                            <Button variant="outline" className="gap-2">
+                                <Upload className="h-4 w-4" />
+                                {t('trucks.import')}
+                            </Button>
+                        }
+                    >
+                        {(dialog) => <TruckImportDialog {...dialog} />}
+                    </LazyDialog>
                     <Button asChild className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
                         <Link href="/app/trucks/new" prefetch={false}>
                             <Plus className="h-4 w-4" />

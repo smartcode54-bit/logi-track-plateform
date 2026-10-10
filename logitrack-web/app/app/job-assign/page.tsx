@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
+import dynamic from "next/dynamic";
 import { endOfDay, format, startOfDay } from "date-fns";
-import { Calendar as CalendarIcon, Plus, MoreHorizontal, Pencil, RefreshCw, Copy, Settings2 } from "lucide-react";
-import { JobImportDialog } from "./import-dialog";
+import { Calendar as CalendarIcon, FileSpreadsheet, Plus, MoreHorizontal, Pencil, RefreshCw, Copy, Settings2 } from "lucide-react";
+import { LazyDialog, LazyDialogLoading } from "@/components/lazy-dialog";
 import { FirstMileTaskDialog } from "@/app/app/first-mile/task-dialog";
 import { LineHaulTaskDialog } from "@/app/app/line-haul/task-dialog";
 import { useLanguage } from "@/context/language";
@@ -44,6 +45,12 @@ import {
 import { EditTripDetailsDialog } from "@/app/app/driver-monitor/EditTripDetailsDialog";
 import type { TripRecord } from "@/validate/tripRecordSchema";
 import { useDriverNamesByAuthId } from "@/hooks/useDriverNamesByAuthId";
+
+// Import dialogs carry xlsx: loaded on the first open only (developer-spec.md §10.11).
+const JobImportDialog = dynamic(() => import("./import-dialog").then((m) => m.JobImportDialog), {
+    ssr: false,
+    loading: LazyDialogLoading,
+});
 
 type TaskTypeFilter = "all" | "FIRST_MILE" | "LINE_HAUL";
 
@@ -364,7 +371,16 @@ export default function JobAssignPage() {
                         </DropdownMenu>
                         {!isCustomer && (
                             <div className="flex gap-3">
-                                <JobImportDialog onSuccess={() => {}} />
+                                <LazyDialog
+                                    trigger={
+                                        <Button variant="outline" className="gap-2">
+                                            <FileSpreadsheet className="h-4 w-4" />
+                                            {t("jobAssign.import.button", "นำเข้าจากไฟล์")}
+                                        </Button>
+                                    }
+                                >
+                                    {(dialog) => <JobImportDialog {...dialog} onSuccess={() => {}} />}
+                                </LazyDialog>
                                 {/* One button — the FM/LH choice now lives inside the form itself. */}
                                 <Button onClick={() => openCreate("FIRST_MILE")}>
                                     <Plus className="mr-2 h-4 w-4" />

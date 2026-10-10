@@ -6,12 +6,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useLanguage } from "@/context/language";
 import { getCustomers } from "@/features/customers/api/customers";
 import type { CustomerData } from "@/features/customers/api/customers";
-import { fetchShopeeExpressReportTrips, type ShopeeReportTripRow, type BillingHalf } from "@/features/accounting";
+import { fetchShopeeExpressReportTrips, type ShopeeReportTripRow, type BillingHalf } from "@/features/accounting/api/billing";
 import { getOwnerCompany } from "@/features/companies/api/companies";
-import {
-    downloadShopeeExpressReportPdf,
-} from "@/lib/shopeeExpressReport";
-import type { BillingCustomer, BillingPeriod, BillingProviderInfo } from "@/lib/billingDocument";
+import type { BillingCustomer, BillingPeriod, BillingProviderInfo } from "@/lib/billingDocumentModel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -131,6 +128,8 @@ export default function ShopeeExpressReportPage() {
         if (!loadedCtx || rows.length === 0) return;
         setGenerating(true);
         try {
+            // jspdf loads only when the report is generated (developer-spec.md §10.11).
+            const { downloadShopeeExpressReportPdf } = await import("@/lib/shopeeExpressReport");
             await downloadShopeeExpressReportPdf(
                 rows,
                 loadedCtx.customer,

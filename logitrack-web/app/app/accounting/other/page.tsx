@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
+import dynamic from "next/dynamic";
 import { useLanguage } from "@/context/language";
 import {
     getVehicleExpensesByType,
@@ -11,10 +12,10 @@ import {
     TruckOption,
     updateVehicleExpense,
 } from "../actions.client";
-import { TollExpenseImportDialog } from "@/features/accounting";
+import { LazyDialog, LazyDialogLoading } from "@/components/lazy-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Receipt, DollarSign, Hash, TrendingUp, Loader2, RefreshCw, Save, Search, Plus } from "lucide-react";
+import { Receipt, DollarSign, Hash, TrendingUp, Loader2, RefreshCw, Save, Search, Plus, Upload } from "lucide-react";
 import {
     ImageUrlPreviewView,
     type ImageUrlPreviewLabels,
@@ -39,6 +40,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { usePermission } from "@/hooks/usePermission";
 import { CAPABILITIES } from "@/lib/capabilities";
 import { AddOtherExpenseDialog } from "@/features/accounting/components/AddOtherExpenseDialog";
+
+// The toll import dialog carries xlsx: loaded on the first open only (developer-spec.md §10.11).
+const TollExpenseImportDialog = dynamic(
+    () => import("@/features/accounting/components/TollExpenseImportDialog").then((m) => m.TollExpenseImportDialog),
+    { ssr: false, loading: LazyDialogLoading },
+);
 
 const categoryKeys: Record<string, string> = {
     tire_repair: "accounting.category.tireRepair",
@@ -238,7 +245,16 @@ export default function AccountingOtherPage() {
                     <p className="text-muted-foreground mt-1">{t("accounting.other.subtitle")}</p>
                 </div>
                 {canEdit && (
-                    <TollExpenseImportDialog onSuccess={loadData} canImport={canEdit} />
+                    <LazyDialog
+                        trigger={
+                            <Button variant="outline" size="sm" type="button">
+                                <Upload className="h-4 w-4 mr-2" />
+                                {t("accounting.tollImport.button")}
+                            </Button>
+                        }
+                    >
+                        {(dialog) => <TollExpenseImportDialog {...dialog} onSuccess={loadData} canImport={canEdit} />}
+                    </LazyDialog>
                 )}
             </div>
 

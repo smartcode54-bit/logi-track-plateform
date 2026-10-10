@@ -596,6 +596,7 @@ export default {
     "accounting.billingDocument.download.selectCustomerWarning": "⚠ Please select a customer to generate documents (customer required for invoice)",
     "accounting.billingDocument.download.reviewFilterActive": "⚠ Download is disabled while a review filter (plate, vehicle type or review month) is active — these narrow the view, not the bill. Clear them to bill the full period.",
     "accounting.billingDocument.download.staleBasis": "⚠ This customer's billing date basis differs from the data loaded — click \"Load data\" again before downloading.",
+    "accounting.billingDocument.download.error": "Could not generate the billing documents. Reload the page and try again; a statement saved before the error is listed under Billing Statements.",
     "accounting.billingDocument.table.title": "Trip list ({count})",
     "accounting.billingDocument.table.tripNumber": "Trip No.",
     "accounting.billingDocument.table.planDate": "Plan date",
