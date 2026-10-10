@@ -1,8 +1,10 @@
 // Package pushtest is an in-process stand-in for the Google endpoints of FCM HTTP v1: the OAuth2 token
 // endpoint of the service-account JWT bearer grant and POST /v1/projects/{project}/messages:send. It is
 // served through an http.RoundTripper, so tests never open a socket or reach Google. Every accepted
-// message is recorded; answers can be scripted per device token (UNREGISTERED, 503, ...). Test support
-// only; production code never imports it.
+// message is recorded; answers can be scripted per device token (UNREGISTERED, 503, a refused
+// connection, an answer lost after FCM took the message, ...). Like net/http's transport it reports
+// the connection and the written request to an httptrace.ClientTrace of the request's context. Test
+// support only; production code never imports it.
 package pushtest
 
 import (
@@ -12,9 +14,11 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httptrace"
 	"strconv"
 	"strings"
 	"sync"
@@ -73,7 +77,37 @@ func KeyFile(t testing.TB, key *rsa.PrivateKey, tokenURI, projectID string) []by
 type Answer struct {
 	Status int
 	Body   string
+
+	fault fault
 }
+
+// fault is a scripted transport failure instead of an HTTP answer.
+type fault int
+
+const (
+	faultNone    fault = iota
+	faultRefused       // the connection fails before the request is written: FCM never sees it
+	faultLost          // FCM accepts the message, then the connection resets before the answer
+	faultHang          // FCM accepts the message and never answers (the client's deadline ends it)
+)
+
+// Errors of the scripted faults, as net/http would wrap them.
+var (
+	ErrRefused = errors.New("dial tcp 203.0.113.1:443: connect: connection refused")
+	ErrReset   = errors.New("read tcp 203.0.113.2:51000->203.0.113.1:443: read: connection reset by peer")
+)
+
+// Refused is a connection that fails before the request is written (dial, TLS): the message never
+// reaches FCM, so a retry cannot duplicate it.
+func Refused() Answer { return Answer{fault: faultRefused} }
+
+// LostAnswer is FCM accepting and recording the message, then the connection resetting before its
+// answer arrives: the sender cannot know whether the message was delivered.
+func LostAnswer() Answer { return Answer{fault: faultLost} }
+
+// Hang is FCM accepting and recording the message and never answering: the request ends when its
+// context does (the sender's timeout, or a cancellation).
+func Hang() Answer { return Answer{fault: faultHang} }
 
 // Unregistered is FCM's answer for a token whose app was uninstalled.
 func Unregistered() Answer {
@@ -196,7 +230,24 @@ func (s *Server) RoundTrip(r *http.Request) (*http.Response, error) {
 	case r.URL.Scheme == "https" && r.URL.Host == "oauth2.pushtest.invalid" && r.URL.Path == "/token":
 		s.token(rec, r)
 	case r.URL.Scheme == "https" && r.URL.Host == "fcm.pushtest.invalid":
-		s.send(rec, r)
+		trace := httptrace.ContextClientTrace(r.Context())
+		if trace != nil && trace.GotConn != nil {
+			trace.GotConn(httptrace.GotConnInfo{})
+		}
+		f := s.send(rec, r)
+		if f == faultRefused {
+			return nil, ErrRefused
+		}
+		if trace != nil && trace.WroteRequest != nil {
+			trace.WroteRequest(httptrace.WroteRequestInfo{})
+		}
+		switch f {
+		case faultLost:
+			return nil, ErrReset
+		case faultHang:
+			<-r.Context().Done()
+			return nil, r.Context().Err()
+		}
 	default:
 		rec.WriteHeader(http.StatusBadGateway)
 		_, _ = rec.WriteString(`{"error":"pushtest: unexpected host"}`)
@@ -231,45 +282,60 @@ func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"access_token": tok, "token_type": "Bearer", "expires_in": 3600})
 }
 
-func (s *Server) send(w http.ResponseWriter, r *http.Request) {
+// send answers messages:send, or returns the scripted fault for the RoundTripper to raise. A refused
+// request is neither counted nor recorded (it never reached FCM); a lost or hung answer follows a
+// message FCM accepted and recorded.
+func (s *Server) send(w http.ResponseWriter, r *http.Request) fault {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	if r.Method != http.MethodPost || r.URL.Path != "/v1/projects/"+ProjectID+"/messages:send" {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(`{"error":{"code":404,"message":"not found","status":"NOT_FOUND"}}`))
-		return
-	}
-	tok, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	s.mu.Lock()
-	s.calls++
-	known := s.tokens[tok]
-	s.mu.Unlock()
-	if !known {
-		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = w.Write([]byte(`{"error":{"code":401,"message":"Request had invalid authentication credentials.","status":"UNAUTHENTICATED"}}`))
-		return
+		return faultNone
 	}
 	raw, _ := io.ReadAll(r.Body)
 	var body struct {
 		Message json.RawMessage `json:"message"`
 	}
 	var m push.Message
-	if json.Unmarshal(raw, &body) != nil || json.NewDecoder(bytes.NewReader(body.Message)).Decode(&m) != nil || m.Token == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(`{"error":{"code":400,"message":"bad message","status":"INVALID_ARGUMENT"}}`))
-		return
-	}
+	decoded := json.Unmarshal(raw, &body) == nil && json.NewDecoder(bytes.NewReader(body.Message)).Decode(&m) == nil && m.Token != ""
+	tok, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	s.mu.Lock()
+	if q := s.answers[m.Token]; decoded && len(q) > 0 && q[0].fault == faultRefused {
+		s.answers[m.Token] = q[1:]
+		s.mu.Unlock()
+		return faultRefused
+	}
+	s.calls++
+	known := s.tokens[tok]
 	var a *Answer
-	if q := s.answers[m.Token]; len(q) > 0 {
-		a, s.answers[m.Token] = &q[0], q[1:]
-	} else {
-		s.sent = append(s.sent, Sent{Message: m, Raw: body.Message})
+	if known && decoded {
+		if q := s.answers[m.Token]; len(q) > 0 {
+			next := q[0]
+			a, s.answers[m.Token] = &next, q[1:]
+		}
+		if a == nil || a.fault != faultNone {
+			s.sent = append(s.sent, Sent{Message: m, Raw: body.Message})
+		}
 	}
 	s.mu.Unlock()
-	if a != nil {
-		w.WriteHeader(a.Status)
-		_, _ = w.Write([]byte(a.Body))
-		return
+	if !known {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"code":401,"message":"Request had invalid authentication credentials.","status":"UNAUTHENTICATED"}}`))
+		return faultNone
 	}
-	_, _ = w.Write([]byte(`{"name":"projects/` + ProjectID + `/messages/0:1"}`))
+	if !decoded {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"code":400,"message":"bad message","status":"INVALID_ARGUMENT"}}`))
+		return faultNone
+	}
+	switch {
+	case a == nil:
+		_, _ = w.Write([]byte(`{"name":"projects/` + ProjectID + `/messages/0:1"}`))
+		return faultNone
+	case a.fault != faultNone:
+		return a.fault
+	}
+	w.WriteHeader(a.Status)
+	_, _ = w.Write([]byte(a.Body))
+	return faultNone
 }

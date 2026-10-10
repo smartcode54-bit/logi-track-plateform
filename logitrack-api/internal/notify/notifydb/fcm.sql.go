@@ -33,13 +33,21 @@ func (q *Queries) DeleteInvalidToken(ctx context.Context, arg DeleteInvalidToken
 }
 
 const driverDevices = `-- name: DriverDevices :many
-SELECT d.id AS driver_id, coalesce(d.legacy_doc_id, d.id::text)::text AS driver_ref,
-       dt.user_id, dt.install_id, dt.token
-FROM drivers d
-JOIN device_tokens dt ON dt.user_id = d.user_id
-WHERE d.id = ANY ($1::uuid[])
-ORDER BY d.id, dt.install_id
+SELECT driver_id, driver_ref, user_id, install_id, token
+FROM (SELECT d.id AS driver_id, coalesce(d.legacy_doc_id, d.id::text)::text AS driver_ref,
+             dt.user_id, dt.install_id, dt.token,
+             row_number() OVER (PARTITION BY d.id ORDER BY dt.last_seen_at DESC, dt.install_id) AS rank
+      FROM drivers d
+      JOIN device_tokens dt ON dt.user_id = d.user_id
+      WHERE d.id = ANY ($1::uuid[])) devices
+WHERE rank <= $2::bigint
+ORDER BY driver_id, install_id
 `
+
+type DriverDevicesParams struct {
+	DriverIds []uuid.UUID
+	PerDriver int64
+}
 
 type DriverDevicesRow struct {
 	DriverID  uuid.UUID
@@ -50,10 +58,11 @@ type DriverDevicesRow struct {
 }
 
 // The devices of drivers: the device_tokens rows of each driver's linked user (drivers.user_id), so a
-// driver re-linked to another user never reaches the old user's phone. driver_ref is the id the app
-// knows (legacy_doc_id, else the uuid).
-func (q *Queries) DriverDevices(ctx context.Context, driverIds []uuid.UUID) ([]DriverDevicesRow, error) {
-	rows, err := q.db.Query(ctx, driverDevices, driverIds)
+// driver re-linked to another user never reaches the old user's phone; at most @per_driver of them per
+// driver, the most recently seen (registration keeps as many per user, auth.MaxDevicesPerUser; the cap
+// also bounds ETL rows). driver_ref is the id the app knows (legacy_doc_id, else the uuid).
+func (q *Queries) DriverDevices(ctx context.Context, arg DriverDevicesParams) ([]DriverDevicesRow, error) {
+	rows, err := q.db.Query(ctx, driverDevices, arg.DriverIds, arg.PerDriver)
 	if err != nil {
 		return nil, err
 	}

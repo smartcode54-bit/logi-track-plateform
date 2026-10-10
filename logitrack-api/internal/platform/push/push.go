@@ -17,9 +17,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -149,7 +151,7 @@ func New(cfg Config) (*Client, error) {
 }
 
 // Send posts m. nil means FCM accepted it; any other error is an *Error (classify it with
-// IsTokenInvalid and IsTransient).
+// IsTokenInvalid, MaybeDelivered and IsTransient).
 func (c *Client) Send(ctx context.Context, m Message) error {
 	if m.Token == "" {
 		return &Error{Code: "INVALID_ARGUMENT", tokenNamed: true, cause: errors.New("empty token")}
@@ -175,7 +177,21 @@ func (c *Client) Send(ctx context.Context, m Message) error {
 		// carry Google's error code and description, never the assertion or the key.
 		return &Error{transport: true, cause: fmt.Errorf("access token: %w", redactRetrieve(err))}
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
+	// wrote tells a request that never left (dial, TLS, a refused or reset connection before the write)
+	// from one FCM may have taken: it is set once the transport has written the whole request on the
+	// connection of the last attempt (the transport's own retries pick a new connection first). net/http
+	// reports the write before its last flush, so a failure in between counts as maybe delivered: that
+	// push is then lost, never sent twice.
+	var wrote atomic.Bool
+	traced := httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		GotConn: func(httptrace.GotConnInfo) { wrote.Store(false) },
+		WroteRequest: func(i httptrace.WroteRequestInfo) {
+			if i.Err == nil {
+				wrote.Store(true)
+			}
+		},
+	})
+	req, err := http.NewRequestWithContext(traced, http.MethodPost, c.endpoint, bytes.NewReader(body))
 	if err != nil {
 		return &Error{transport: true, cause: err}
 	}
@@ -183,7 +199,7 @@ func (c *Client) Send(ctx context.Context, m Message) error {
 	tok.SetAuthHeader(req)
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return &Error{transport: true, cause: errors.New("request failed: " + transportReason(ctx, err))}
+		return &Error{transport: true, maybeDelivered: wrote.Load(), cause: errors.New("request failed: " + transportReason(ctx, err))}
 	}
 	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
@@ -241,9 +257,10 @@ type Error struct {
 	Status int    // HTTP status; 0 when no answer arrived
 	Code   string // FcmError errorCode (UNREGISTERED, INVALID_ARGUMENT, ...), else the google.rpc status
 
-	tokenNamed bool // the answer names message.token as the offending field
-	transport  bool
-	cause      error
+	tokenNamed     bool // the answer names message.token as the offending field
+	transport      bool
+	maybeDelivered bool // transport: the whole request was written before the failure
+	cause          error
 }
 
 func (e *Error) Error() string {
@@ -274,11 +291,22 @@ func IsTokenInvalid(err error) bool {
 	return e.Code == "UNREGISTERED" || (e.Code == "INVALID_ARGUMENT" && e.tokenNamed)
 }
 
-// IsTransient reports whether a retry may succeed: no answer (network, timeout, token endpoint), 429
-// QUOTA_EXCEEDED, 5xx UNAVAILABLE / INTERNAL, and the answers that mean the sender is misconfigured
-// rather than the token wrong (401 without THIRD_PARTY_AUTH_ERROR, 403 without SENDER_ID_MISMATCH, 404
-// without UNREGISTERED): those retry, dead-letter after the last rung and alert, and a replay after
-// the fix delivers. Everything else (the token, the payload, APNs credentials of the app) is final for
+// MaybeDelivered reports a send whose outcome is unknown: the whole request was written to FCM and
+// then no answer arrived (the connection broke, the 10 s timeout fired, the context was cancelled).
+// FCM may have accepted the message, and FCM HTTP v1 has no idempotency key, so sending it again could
+// show the notification twice: such a send is final for this message (never transient).
+func MaybeDelivered(err error) bool {
+	var e *Error
+	return errors.As(err, &e) && e.transport && e.maybeDelivered
+}
+
+// IsTransient reports whether a retry may succeed without sending the message twice: a request that
+// never reached FCM (network failure or timeout before the request was written, the token endpoint, a
+// cancelled wait for a slot), 429 QUOTA_EXCEEDED, 5xx UNAVAILABLE / INTERNAL, and the answers that mean
+// the sender is misconfigured rather than the token wrong (401 without THIRD_PARTY_AUTH_ERROR, 403
+// without SENDER_ID_MISMATCH, 404 without UNREGISTERED): those retry, dead-letter after the last rung
+// and alert, and a replay after the fix delivers. Everything else (the token, the payload, APNs
+// credentials of the app, and no answer after the request was written: MaybeDelivered) is final for
 // this message.
 func IsTransient(err error) bool {
 	var e *Error
@@ -286,7 +314,7 @@ func IsTransient(err error) bool {
 		return err != nil
 	}
 	if e.transport {
-		return true
+		return !e.maybeDelivered
 	}
 	switch e.Code {
 	case "UNREGISTERED", "INVALID_ARGUMENT", "SENDER_ID_MISMATCH", "THIRD_PARTY_AUTH_ERROR":

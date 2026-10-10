@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -77,6 +78,11 @@ const (
 	// well above fcmHandlerTimeout, so a live attempt is never taken over.
 	InFlightStale = 5 * time.Minute
 
+	// MaxDevicesPerDriver bounds the devices one driver push reaches: the most recently seen ones (the
+	// cap registration keeps per user, auth.MaxDevicesPerUser; it also bounds ETL rows), so no user can
+	// grow the fan-out of a message without bound.
+	MaxDevicesPerDriver = 10
+
 	fcmHandlerTimeout = 2 * time.Minute
 	redisOpTimeout    = 2 * time.Second
 )
@@ -96,12 +102,16 @@ const reasonClaimsChanged = "claims_changed"
 //   - user.sessions_revoked: the silent session_revoked push to the device of each revoked session
 //     (device_tokens.install_id = sessions.install_id, R50, R83, R84); claims_changed sends none.
 //
-// Idempotency: a push is claimed in Redis (idem:fcm:{messageId}:{tokenId}, 24 h) before it is sent and
-// the claim keeps its outcome, so a redelivered or retried message never sends to a token twice; the
-// delivery rows, the deletion of UNREGISTERED tokens and the consumer_inbox claim commit together once
-// every push of the message has an outcome. A transient FCM failure releases that token's claim and
-// retries the message; the tokens already done are not sent again. Redis unreachable means nothing is
-// sent (the message retries).
+// Idempotency (at most once per token): a push is claimed in Redis (idem:fcm:{messageId}:{tokenId},
+// 24 h) before it is sent and the claim keeps its outcome, so a redelivered or retried message never
+// sends to a token twice. Only a send that certainly never reached FCM (a refused connection, 429, 5xx,
+// the sender's misconfiguration) releases its claim for the retry; a send whose answer was lost after
+// the request was written (reset, timeout, cancellation) may have been delivered and is recorded failed
+// ("outcome unknown"), never resent, like a claim whose worker died before the answer. Every settled
+// push is also kept in idem:fcm:{messageId}:log, so the pushes of an earlier attempt are logged even
+// when the retry's plan no longer holds their device. The delivery rows, the deletion of UNREGISTERED
+// tokens and the consumer_inbox claim commit together once every push of the message has an outcome.
+// Redis unreachable means nothing is sent (the message retries).
 type FCM struct {
 	Pool    db.Beginner
 	Sender  push.Sender // required when Enabled
@@ -194,26 +204,47 @@ func (f *FCM) Handle(ctx context.Context, d *mq.Delivery) error {
 		targets, err = plan(ctx, q, d)
 		return err
 	})
-	if err != nil || recorded || len(targets) == 0 {
+	if err != nil || recorded {
 		return err
 	}
-	results, err := f.deliver(ctx, d.MessageID, targets)
-	if err != nil {
+	var results []result
+	if len(targets) > 0 {
+		if results, err = f.deliver(ctx, d.MessageID, targets); err != nil {
+			return err
+		}
+	}
+	// A retry re-plans from the current rows: a push an earlier attempt sent to a device that has left
+	// the plan since (task reassigned, install signed in again) is still logged.
+	if results, err = f.withEarlierAttempts(ctx, d.MessageID, results); err != nil || len(results) == 0 {
 		return err
 	}
 	return f.record(ctx, d, results)
 }
 
-// deliver sends every target concurrently (the push client bounds the requests in flight) and returns
-// the outcomes, or the first transient error once every target has been tried.
+// maxSendsPerMessage bounds the pushes of one message in flight, so a message with many devices takes
+// turns with the other messages for the push client's slots instead of queueing all its sends first.
+const maxSendsPerMessage = push.DefaultConcurrency
+
+// deliver sends the targets concurrently, at most maxSendsPerMessage at a time (the push client also
+// bounds the requests in flight per process), and returns the outcomes, or the first transient error
+// once every target has been tried.
 func (f *FCM) deliver(ctx context.Context, messageID string, targets []target) ([]result, error) {
 	results := make([]result, len(targets))
 	errs := make([]error, len(targets))
 	dd := &dedupe{f: f, messageID: messageID, decided: map[uuid.UUID]dedupeDecision{}}
+	next := make(chan int)
 	var wg sync.WaitGroup
-	for i, t := range targets {
-		wg.Go(func() { results[i], errs[i] = f.deliverOne(ctx, messageID, t, dd) })
+	for range min(len(targets), maxSendsPerMessage) {
+		wg.Go(func() {
+			for i := range next {
+				results[i], errs[i] = f.deliverOne(ctx, messageID, targets[i], dd)
+			}
+		})
 	}
+	for i := range targets {
+		next <- i
+	}
+	close(next)
 	wg.Wait()
 	failed := 0
 	var first error
@@ -251,7 +282,7 @@ func (f *FCM) deliverOne(ctx context.Context, messageID string, t target, dd *de
 		// The attempt that claimed it died before the outcome: the push may or may not have left, and
 		// sending again could duplicate it, so it is recorded as failed and not sent.
 		res.status, res.err, res.at = StatusFailed, "interrupted: the attempt that claimed this push did not finish", f.now()
-		f.settle(ctx, key, res)
+		f.settle(ctx, messageID, key, res)
 		return res, nil
 	}
 	if t.dedupe != nil {
@@ -262,7 +293,7 @@ func (f *FCM) deliverOne(ctx context.Context, messageID string, t target, dd *de
 		}
 		if suppressed {
 			res.status, res.at = StatusDeduplicated, f.now()
-			f.settle(ctx, key, res)
+			f.settle(ctx, messageID, key, res)
 			return res, nil
 		}
 	}
@@ -273,14 +304,68 @@ func (f *FCM) deliverOne(ctx context.Context, messageID string, t target, dd *de
 		res.status = StatusSent
 	case push.IsTokenInvalid(err):
 		res.status, res.err = StatusTokenInvalid, err.Error()
+	case push.MaybeDelivered(err):
+		// The request reached FCM and its answer was lost: the push may be on the phone already, and
+		// sending it again could show it twice. It keeps its claim and is never resent.
+		res.status, res.err = StatusFailed, "outcome unknown: "+err.Error()
 	case push.IsTransient(err):
 		f.release(ctx, key, c.marker)
 		return res, err
 	default:
 		res.status, res.err = StatusFailed, err.Error()
 	}
-	f.settle(ctx, key, res)
+	f.settle(ctx, messageID, key, res)
 	return res, nil
+}
+
+// logEntry is one settled push in idem:fcm:{messageId}:log (field {tokenId}): what its
+// notification_deliveries row needs, without the token.
+type logEntry struct {
+	UserID    uuid.UUID         `json:"userId"`
+	InstallID string            `json:"installId"`
+	Kind      string            `json:"kind"`
+	Data      map[string]string `json:"data"`
+	Status    string            `json:"status"`
+	Error     string            `json:"error,omitempty"`
+	At        int64             `json:"at"` // unix ms
+}
+
+// withEarlierAttempts adds to results the pushes earlier attempts of the message settled for devices
+// the current plan no longer holds (their tokenId is not among results). Such a row has no token, so a
+// token_invalid one does not delete the device row (the next push to it does).
+func (f *FCM) withEarlierAttempts(ctx context.Context, messageID string, results []result) ([]result, error) {
+	rctx, cancel := context.WithTimeout(ctx, redisOpTimeout)
+	defer cancel()
+	logged, err := f.Redis.HGetAll(rctx, f.Keys.IdemFCMLog(messageID)).Result()
+	if err != nil {
+		return nil, fmt.Errorf("idem:fcm log: %w", err)
+	}
+	if len(logged) == 0 {
+		return results, nil
+	}
+	planned := make(map[string]bool, len(results))
+	for _, r := range results {
+		planned[TokenID(r.token)] = true
+	}
+	tokenIDs := make([]string, 0, len(logged))
+	for id := range logged {
+		if !planned[id] {
+			tokenIDs = append(tokenIDs, id)
+		}
+	}
+	slices.Sort(tokenIDs)
+	for _, id := range tokenIDs {
+		var e logEntry
+		if err := json.Unmarshal([]byte(logged[id]), &e); err != nil || e.Kind == "" || e.Status == "" {
+			f.logger(ctx).Warn().Str("token_id", id).Msg("notify.fcm: unreadable idem:fcm log entry skipped")
+			continue
+		}
+		results = append(results, result{
+			target: target{userID: e.UserID, installID: e.InstallID, push: Push{Kind: e.Kind, Data: e.Data}},
+			status: e.Status, err: e.Error, at: time.UnixMilli(e.At),
+		})
+	}
+	return results, nil
 }
 
 // record commits the outcomes: the consumer_inbox claim, one notification_deliveries row per push and
@@ -312,7 +397,7 @@ func (f *FCM) record(ctx context.Context, d *mq.Delivery, results []result) erro
 			if err := q.InsertDelivery(ctx, p); err != nil {
 				return err
 			}
-			if r.status == StatusTokenInvalid {
+			if r.status == StatusTokenInvalid && r.token != "" {
 				if _, err := q.DeleteInvalidToken(ctx, notifydb.DeleteInvalidTokenParams{
 					UserID: r.userID, InstallID: r.installID, Token: r.token,
 				}); err != nil {
@@ -340,12 +425,33 @@ func TokenID(token string) string {
 
 // taskEvent is the part of a task.* payload notify.fcm reads: the task id (id, as in the thin SSE
 // payload of Appendix B §B.4.1); on task.assigned and task.reassigned the driver this change assigned
-// (driverId) and on task.reassigned the one it replaced (previousDriverId). Everything else is re-read
-// from tasks.
+// (driverId, required: null on task.reassigned means the change left the task without a driver) and on
+// task.reassigned the one it replaced (previousDriverId, null or absent when there was none).
+// Everything else is re-read from tasks.
 type taskEvent struct {
-	ID               uuid.UUID  `json:"id"`
-	DriverID         *uuid.UUID `json:"driverId"`
-	PreviousDriverID *uuid.UUID `json:"previousDriverId"`
+	ID               uuid.UUID    `json:"id"`
+	DriverID         optionalUUID `json:"driverId"`
+	PreviousDriverID *uuid.UUID   `json:"previousDriverId"`
+}
+
+// optionalUUID tells a key that is absent (set false) from one that is null (set, id nil).
+type optionalUUID struct {
+	set bool
+	id  *uuid.UUID
+}
+
+// UnmarshalJSON implements json.Unmarshaler; it runs only for a key that is present, null included.
+func (o *optionalUUID) UnmarshalJSON(b []byte) error {
+	o.set, o.id = true, nil
+	if string(b) == "null" {
+		return nil
+	}
+	var id uuid.UUID
+	if err := json.Unmarshal(b, &id); err != nil {
+		return err
+	}
+	o.id = &id
+	return nil
 }
 
 // driverPush is a push for every device of one driver; build receives the driver's app-side id.
@@ -363,6 +469,16 @@ func planTask(ctx context.Context, q *notifydb.Queries, d *mq.Delivery) ([]targe
 	if ev.ID == uuid.Nil {
 		return nil, mq.Permanent(fmt.Errorf("notify.fcm: %s without id", d.RoutingKey))
 	}
+	// The driver this change assigned. An unassignment (task.reassigned, driverId null) must not be read
+	// as "whoever holds the task now", so the key is required on both assignment events.
+	var assigned *uuid.UUID
+	switch d.RoutingKey {
+	case RouteTaskAssigned, RouteTaskReassigned:
+		if !ev.DriverID.set || (d.RoutingKey == RouteTaskAssigned && ev.DriverID.id == nil) {
+			return nil, mq.Permanent(fmt.Errorf("notify.fcm: %s without driverId", d.RoutingKey))
+		}
+		assigned = ev.DriverID.id
+	}
 	t, err := q.GetTaskForPush(ctx, ev.ID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, mq.Permanent(fmt.Errorf("notify.fcm: task %s not found", ev.ID))
@@ -372,11 +488,8 @@ func planTask(ctx context.Context, q *notifydb.Queries, d *mq.Delivery) ([]targe
 	}
 	current := t.DriverID
 	same := func(a, b *uuid.UUID) bool { return a != nil && b != nil && *a == *b }
-	// The driver this change assigned still holds the task (the event may be read after a later change).
-	assigned := ev.DriverID
-	if assigned == nil {
-		assigned = current
-	}
+	// The driver this change assigned still holds the task: the event may be read after a later change,
+	// or re-planned by a retry after one, and then that change's own event tells the driver it holds.
 	stillAssigned := t.Status != "cancelled" && same(assigned, current)
 	var pushes []driverPush
 	switch d.RoutingKey {
@@ -387,12 +500,14 @@ func planTask(ctx context.Context, q *notifydb.Queries, d *mq.Delivery) ([]targe
 			}})
 		}
 	case RouteTaskReassigned:
-		if prev := ev.PreviousDriverID; prev != nil && !same(prev, assigned) {
+		// The previous driver hears it lost the task, unless the change was none or the task has come
+		// back to that driver since.
+		if prev := ev.PreviousDriverID; prev != nil && !same(prev, assigned) && !same(prev, current) {
 			pushes = append(pushes, driverPush{driverID: *prev, build: func(ref string) Push {
 				return TaskUnassigned(t.TaskType, t.TaskRef, ref)
 			}})
 		}
-		if stillAssigned && !same(ev.PreviousDriverID, current) {
+		if stillAssigned && !same(ev.PreviousDriverID, assigned) {
 			pushes = append(pushes, driverPush{driverID: *current, build: func(ref string) Push {
 				return TaskAssigned(t.TaskType, t.TaskRef, ref, t.SourceHubRaw, t.DestinationRaw, t.PlanDate, t.PlanTime)
 			}})
@@ -422,7 +537,7 @@ func driverTargets(ctx context.Context, q *notifydb.Queries, pushes []driverPush
 	for _, p := range pushes {
 		ids = append(ids, p.driverID)
 	}
-	rows, err := q.DriverDevices(ctx, ids)
+	rows, err := q.DriverDevices(ctx, notifydb.DriverDevicesParams{DriverIds: ids, PerDriver: MaxDevicesPerDriver})
 	if err != nil {
 		return nil, err
 	}
@@ -545,14 +660,30 @@ func parseClaim(v string) claimResult {
 	return claimResult{state: claimDone, outcome: outcome{status: StatusFailed, err: "unreadable idem:fcm value"}}
 }
 
-// settle stores the outcome on the claim (24 h from now). A failure is logged: the push is done, and
-// the delivery row still records it; only a later attempt of the same message would then find the
-// claim pending and, once stale, record it as interrupted instead of sending again.
-func (f *FCM) settle(ctx context.Context, key string, r result) {
+// settle stores the outcome on the claim (24 h from now) and in the message's log
+// (idem:fcm:{messageId}:log, field {tokenId}, 24 h from the last outcome). A failure is logged: the
+// push is done, and the delivery row still records it while the device stays in the plan; only a
+// later attempt of the same message would then find the claim pending and, once stale, record it as
+// interrupted instead of sending again.
+func (f *FCM) settle(ctx context.Context, messageID, key string, r result) {
 	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), redisOpTimeout)
 	defer cancel()
-	v := r.status + "|" + strconv.FormatInt(r.at.UnixMilli(), 10) + "|" + r.err
-	if err := f.Redis.Set(rctx, key, v, PushIdemTTL).Err(); err != nil {
+	ms := r.at.UnixMilli()
+	entry, err := json.Marshal(logEntry{UserID: r.userID, InstallID: r.installID, Kind: r.push.Kind, Data: r.push.Data,
+		Status: r.status, Error: r.err, At: ms})
+	if err != nil {
+		entry = nil
+	}
+	logKey := f.Keys.IdemFCMLog(messageID)
+	_, err = f.Redis.Pipelined(rctx, func(p redis.Pipeliner) error {
+		p.Set(rctx, key, r.status+"|"+strconv.FormatInt(ms, 10)+"|"+r.err, PushIdemTTL)
+		if entry != nil {
+			p.HSet(rctx, logKey, TokenID(r.token), entry)
+			p.Expire(rctx, logKey, PushIdemTTL)
+		}
+		return nil
+	})
+	if err != nil {
 		f.logger(ctx).Warn().Err(err).Str("status", r.status).Msg("notify.fcm: could not store a push outcome in idem:fcm")
 	}
 }

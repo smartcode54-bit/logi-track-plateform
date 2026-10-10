@@ -27,25 +27,98 @@ func (q *Queries) LockDeviceToken(ctx context.Context, token string) error {
 	return err
 }
 
-const releaseDeviceToken = `-- name: ReleaseDeviceToken :execrows
-DELETE FROM device_tokens
-WHERE token = $1 AND (user_id <> $2::uuid OR install_id <> $3::text)
+const pruneUserDevices = `-- name: PruneUserDevices :execrows
+DELETE FROM device_tokens dt
+WHERE dt.user_id = $1 AND dt.install_id <> $2::text
+  AND dt.install_id NOT IN (SELECT k.install_id FROM device_tokens k
+                         WHERE k.user_id = $1 AND k.install_id <> $2::text
+                         ORDER BY k.last_seen_at DESC, k.install_id
+                         LIMIT $3::bigint)
 `
 
-type ReleaseDeviceTokenParams struct {
-	Token     string
+type PruneUserDevicesParams struct {
 	UserID    uuid.UUID
 	InstallID string
+	Keep      int64
 }
 
-// A token held by another (user, install) moves to the caller in the same transaction (shared phone,
-// re-login as someone else, an ETL legacy row of the same device): the UNIQUE index never fails.
-func (q *Queries) ReleaseDeviceToken(ctx context.Context, arg ReleaseDeviceTokenParams) (int64, error) {
-	result, err := q.db.Exec(ctx, releaseDeviceToken, arg.Token, arg.UserID, arg.InstallID)
+// At most auth.MaxDevicesPerUser rows per user: after a registration the least recently seen rows
+// beyond @keep others go (never the install just registered), so a reinstall never fails and no user
+// can grow the fan-out of notify.fcm without bound.
+func (q *Queries) PruneUserDevices(ctx context.Context, arg PruneUserDevicesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, pruneUserDevices, arg.UserID, arg.InstallID, arg.Keep)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const releaseDeviceToken = `-- name: ReleaseDeviceToken :many
+DELETE FROM device_tokens
+WHERE token = $1
+  AND ((user_id = $2::uuid AND install_id <> $3::text)
+       OR (user_id <> $2::uuid AND install_id = $4::text))
+RETURNING user_id, install_id, legacy_source
+`
+
+type ReleaseDeviceTokenParams struct {
+	Token          string
+	UserID         uuid.UUID
+	InstallID      string
+	SessionInstall *string
+}
+
+type ReleaseDeviceTokenRow struct {
+	UserID       uuid.UUID
+	InstallID    string
+	LegacySource *string
+}
+
+// The rows a registration may take the token from, deleted in the same transaction so the UNIQUE index
+// never fails: the caller's own other rows (a reinstall, the caller's ETL legacy row of the device) and
+// another user's row of the install the caller's session is signed in on (shared phone: the previous
+// user did not log out). session_install is NULL for a session without an install (web): own rows
+// only. Any other holder keeps the token (TokenHeldElsewhere).
+func (q *Queries) ReleaseDeviceToken(ctx context.Context, arg ReleaseDeviceTokenParams) ([]ReleaseDeviceTokenRow, error) {
+	rows, err := q.db.Query(ctx, releaseDeviceToken,
+		arg.Token,
+		arg.UserID,
+		arg.InstallID,
+		arg.SessionInstall,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ReleaseDeviceTokenRow{}
+	for rows.Next() {
+		var i ReleaseDeviceTokenRow
+		if err := rows.Scan(&i.UserID, &i.InstallID, &i.LegacySource); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const tokenHeldElsewhere = `-- name: TokenHeldElsewhere :one
+SELECT EXISTS (SELECT 1 FROM device_tokens WHERE token = $1 AND user_id <> $2::uuid)::boolean AS held
+`
+
+type TokenHeldElsewhereParams struct {
+	Token  string
+	UserID uuid.UUID
+}
+
+// After ReleaseDeviceToken: another user's row still holds the token (409 already_exists).
+func (q *Queries) TokenHeldElsewhere(ctx context.Context, arg TokenHeldElsewhereParams) (bool, error) {
+	row := q.db.QueryRow(ctx, tokenHeldElsewhere, arg.Token, arg.UserID)
+	var held bool
+	err := row.Scan(&held)
+	return held, err
 }
 
 const upsertDeviceToken = `-- name: UpsertDeviceToken :exec

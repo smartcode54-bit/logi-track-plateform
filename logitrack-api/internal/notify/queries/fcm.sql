@@ -16,14 +16,18 @@ WHERE id = @id;
 
 -- name: DriverDevices :many
 -- The devices of drivers: the device_tokens rows of each driver's linked user (drivers.user_id), so a
--- driver re-linked to another user never reaches the old user's phone. driver_ref is the id the app
--- knows (legacy_doc_id, else the uuid).
-SELECT d.id AS driver_id, coalesce(d.legacy_doc_id, d.id::text)::text AS driver_ref,
-       dt.user_id, dt.install_id, dt.token
-FROM drivers d
-JOIN device_tokens dt ON dt.user_id = d.user_id
-WHERE d.id = ANY (@driver_ids::uuid[])
-ORDER BY d.id, dt.install_id;
+-- driver re-linked to another user never reaches the old user's phone; at most @per_driver of them per
+-- driver, the most recently seen (registration keeps as many per user, auth.MaxDevicesPerUser; the cap
+-- also bounds ETL rows). driver_ref is the id the app knows (legacy_doc_id, else the uuid).
+SELECT driver_id, driver_ref, user_id, install_id, token
+FROM (SELECT d.id AS driver_id, coalesce(d.legacy_doc_id, d.id::text)::text AS driver_ref,
+             dt.user_id, dt.install_id, dt.token,
+             row_number() OVER (PARTITION BY d.id ORDER BY dt.last_seen_at DESC, dt.install_id) AS rank
+      FROM drivers d
+      JOIN device_tokens dt ON dt.user_id = d.user_id
+      WHERE d.id = ANY (@driver_ids::uuid[])) devices
+WHERE rank <= @per_driver::bigint
+ORDER BY driver_id, install_id;
 
 -- name: RevokedSessionDevices :many
 -- R50, R83, R84: the device of each revoked session is the device_tokens row of the same user and

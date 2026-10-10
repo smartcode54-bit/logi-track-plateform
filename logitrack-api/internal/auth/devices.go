@@ -11,11 +11,14 @@ import (
 	"unicode/utf8"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/authdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/security"
 )
 
 // LegacyInstallPrefix starts the install id of a device_tokens row the ETL loaded from the 3.x token
@@ -36,6 +39,19 @@ const (
 	maxAppVersion     = 64
 )
 
+// MaxDevicesPerUser is the most device_tokens rows a user keeps: a registration drops the least
+// recently seen rows beyond it (notify.MaxDevicesPerDriver bounds the fan-out of a push the same way).
+const MaxDevicesPerUser = 10
+
+// Reasons of a refused registration.
+const (
+	// reasonInstallMismatch: the body's installId is not the install the caller's session signed in on.
+	reasonInstallMismatch = "install_mismatch"
+	// reasonTokenHeld (409 already_exists): another user's device holds the token and the caller's
+	// session is not signed in on that install.
+	reasonTokenHeld = "token_held_by_another_device"
+)
+
 // DeviceInput is the body of PUT /v1/me/devices (Appendix C §C.8): {installId, token, platform,
 // appFlavor?}. AppVersion comes from the X-App-Version header (Appendix B §B.1.5).
 type DeviceInput struct {
@@ -49,8 +65,14 @@ type DeviceInput struct {
 
 // RegisterDevice is PUT /v1/me/devices and its driver-app alias PUT /v1/mobile/me/devices: it upserts
 // the caller's device_tokens row (user, installId) with the FCM token, the platform, the flavor and
-// the caller's linked driver (R4). A token already held by another (user, install) moves to this row
-// in the same transaction, so pushes for the previous holder never reach the phone again.
+// the caller's linked driver (R4), and keeps the user's MaxDevicesPerUser most recently seen rows.
+//
+// A session signed in on an install (a mobile login with installId, sessions.install_id) registers
+// that install only (422 install_mismatch otherwise). The token moves to the caller in the same
+// transaction from the caller's own other rows, and from another user's row only when that row is the
+// install the caller's session is signed in on (a shared phone whose previous user did not log out),
+// with a device_token_moved security event; any other holder keeps it (409 already_exists), so knowing
+// someone's token is not enough to silence their pushes.
 func (s *Service) RegisterDevice(ctx context.Context, p *authz.Principal, in DeviceInput) error {
 	if v := validateDevice(&in); len(v) > 0 {
 		return httpx.ErrInvalidArgument(v...)
@@ -63,17 +85,53 @@ func (s *Service) RegisterDevice(ctx context.Context, p *authz.Principal, in Dev
 		version = &in.AppVersion
 	}
 	upsert := func() error {
-		return s.system(ctx, func(q *authdb.Queries) error {
+		return s.systemTx(ctx, func(tx pgx.Tx, q *authdb.Queries) error {
+			sessionInstall, err := s.sessionInstall(ctx, q, p)
+			if err != nil {
+				return err
+			}
+			if sessionInstall != nil && *sessionInstall != in.InstallID {
+				return httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "installId", Reason: reasonInstallMismatch})
+			}
 			if err := q.LockDeviceToken(ctx, in.Token); err != nil {
 				return err
 			}
-			if _, err := q.ReleaseDeviceToken(ctx, authdb.ReleaseDeviceTokenParams{Token: in.Token, UserID: p.UserID, InstallID: in.InstallID}); err != nil {
+			released, err := q.ReleaseDeviceToken(ctx, authdb.ReleaseDeviceTokenParams{
+				Token: in.Token, UserID: p.UserID, InstallID: in.InstallID, SessionInstall: sessionInstall,
+			})
+			if err != nil {
 				return err
 			}
-			return q.UpsertDeviceToken(ctx, authdb.UpsertDeviceTokenParams{
+			held, err := q.TokenHeldElsewhere(ctx, authdb.TokenHeldElsewhereParams{Token: in.Token, UserID: p.UserID})
+			if err != nil {
+				return err
+			}
+			if held {
+				return httpx.NewError(http.StatusConflict, CodeAlreadyExists, "another device holds this push token").
+					WithDetails(map[string]any{"reason": reasonTokenHeld})
+			}
+			now := s.clock()
+			for _, r := range released {
+				if r.UserID == p.UserID {
+					continue
+				}
+				if err := security.Append(ctx, tx, security.Event{
+					EventType: "device_token_moved", Severity: security.SeverityWarning,
+					Summary:     "a push token moved to another user signed in on the same install",
+					Details:     map[string]any{"installId": r.InstallID, "sessionId": p.SessionID, "legacy": r.LegacySource != nil},
+					ActorUserID: &p.UserID, TargetUserID: &r.UserID, TenantID: p.TenantID, OccurredAt: now,
+				}); err != nil {
+					return err
+				}
+			}
+			if err := q.UpsertDeviceToken(ctx, authdb.UpsertDeviceTokenParams{
 				UserID: p.UserID, InstallID: in.InstallID, Token: in.Token, Platform: in.Platform,
-				AppFlavor: flavor, AppVersion: version, At: s.clock(),
-			})
+				AppFlavor: flavor, AppVersion: version, At: now,
+			}); err != nil {
+				return err
+			}
+			_, err = q.PruneUserDevices(ctx, authdb.PruneUserDevicesParams{UserID: p.UserID, InstallID: in.InstallID, Keep: MaxDevicesPerUser - 1})
+			return err
 		})
 	}
 	// Registrations of one token are serialised by LockDeviceToken; a conflict that still slips through
@@ -85,6 +143,24 @@ func (s *Service) RegisterDevice(ctx context.Context, p *authz.Principal, in Dev
 		}
 	}
 	return err
+}
+
+// sessionInstall is the install the caller's session signed in on, nil for a session without one (web,
+// a mobile login without installId) and for a principal without a session.
+func (s *Service) sessionInstall(ctx context.Context, q *authdb.Queries, p *authz.Principal) (*string, error) {
+	if p.SessionID == uuid.Nil {
+		return nil, nil
+	}
+	sess, err := q.GetSession(ctx, p.SessionID)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return nil, httpx.ErrUnauthenticated() // the session vanished (clean-up) since the token was checked
+	case err != nil:
+		return nil, err
+	case sess.UserID != p.UserID:
+		return nil, httpx.ErrUnauthenticated()
+	}
+	return sess.InstallID, nil
 }
 
 // UnregisterDevice is DELETE /v1/me/devices/{installId}: the caller's row of that install goes (204

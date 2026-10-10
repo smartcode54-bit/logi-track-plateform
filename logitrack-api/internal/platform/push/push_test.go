@@ -11,7 +11,11 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
+	"net/http/httptest"
+	"net/http/httptrace"
 	"os"
 	"path/filepath"
 	"strings"
@@ -166,6 +170,101 @@ func TestTokenEndpointFailures(t *testing.T) {
 	if err := c.Send(context.Background(), push.Message{}); push.IsTransient(err) || !push.IsTokenInvalid(err) {
 		t.Fatalf("empty token: %v", err)
 	}
+}
+
+// A send that never reached FCM (a refused connection, a write that failed) is transient: retrying it
+// cannot show the notification twice. A send whose whole request was written and whose answer was lost
+// (connection reset, timeout, cancellation) may have been delivered: MaybeDelivered, never transient.
+// Checked with the stand-in, with bare transports, and with net/http's own transport against a server
+// that drops the connection after reading the request and against a port nobody listens on.
+func TestLostAnswerIsNotTransient(t *testing.T) {
+	ctx := context.Background()
+	m := push.Message{Token: deviceToken, Data: map[string]string{"type": "chat"}}
+	notDelivered := func(name string, err error, text string) {
+		t.Helper()
+		if !push.IsTransient(err) || push.MaybeDelivered(err) || push.IsTokenInvalid(err) || (text != "" && err.Error() != text) {
+			t.Fatalf("%s: %v (transient %v, maybe delivered %v), want transient", name, err, push.IsTransient(err), push.MaybeDelivered(err))
+		}
+	}
+	maybeDelivered := func(name string, err error, text string) {
+		t.Helper()
+		if push.IsTransient(err) || !push.MaybeDelivered(err) || push.IsTokenInvalid(err) || err.Error() != text {
+			t.Fatalf("%s: %v (transient %v, maybe delivered %v), want maybe delivered %q", name, err, push.IsTransient(err), push.MaybeDelivered(err), text)
+		}
+	}
+
+	fcm := pushtest.New(t)
+	c := fcm.Client(0)
+	fcm.Respond(deviceToken, pushtest.Refused(), pushtest.LostAnswer(), pushtest.Hang(), pushtest.Hang())
+	notDelivered("refused", c.Send(ctx, m), "fcm: request failed: network error")
+	if len(fcm.Sent()) != 0 {
+		t.Fatal("a refused request reached FCM")
+	}
+	maybeDelivered("reset", c.Send(ctx, m), "fcm: request failed: network error")
+	short, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	maybeDelivered("timeout", c.Send(short, m), "fcm: request failed: timeout")
+	cancel()
+	cancelled, cancel := context.WithCancel(ctx)
+	time.AfterFunc(100*time.Millisecond, cancel)
+	maybeDelivered("cancelled", c.Send(cancelled, m), "fcm: request failed: canceled")
+	if len(fcm.Sent()) != 3 {
+		t.Fatalf("FCM took %d messages, want 3", len(fcm.Sent()))
+	}
+
+	static := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "x"})
+	via := func(rt roundTripFunc) *push.Client {
+		t.Helper()
+		c, err := push.New(push.Config{ProjectID: pushtest.ProjectID, Tokens: static, HTTPClient: &http.Client{Transport: rt}, BaseURL: pushtest.BaseURL})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	wrote := func(r *http.Request, err error) {
+		if tr := httptrace.ContextClientTrace(r.Context()); tr != nil && tr.WroteRequest != nil {
+			tr.WroteRequest(httptrace.WroteRequestInfo{Err: err})
+		}
+	}
+	maybeDelivered("written, then reset", via(func(r *http.Request) (*http.Response, error) {
+		wrote(r, nil)
+		return nil, errors.New("read: connection reset by peer")
+	}).Send(ctx, m), "fcm: request failed: network error")
+	notDelivered("write failed", via(func(r *http.Request) (*http.Response, error) {
+		wrote(r, errors.New("write: broken pipe"))
+		return nil, errors.New("write: broken pipe")
+	}).Send(ctx, m), "")
+	notDelivered("retried by the transport on a new connection that failed before the write", via(func(r *http.Request) (*http.Response, error) {
+		wrote(r, nil)
+		if tr := httptrace.ContextClientTrace(r.Context()); tr != nil && tr.GotConn != nil {
+			tr.GotConn(httptrace.GotConnInfo{})
+		}
+		return nil, errors.New("dial tcp: connection refused")
+	}).Send(ctx, m), "")
+
+	// net/http's transport.
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+			_ = conn.Close()
+		}
+	}))
+	defer srv.Close()
+	direct := func(base string) *push.Client {
+		t.Helper()
+		c, err := push.New(push.Config{ProjectID: pushtest.ProjectID, Tokens: static, HTTPClient: srv.Client(), BaseURL: base})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	maybeDelivered("server dropped the connection", direct(srv.URL).Send(ctx, m), "fcm: request failed: network error")
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed := l.Addr().String()
+	_ = l.Close()
+	notDelivered("nobody listens", direct("https://"+closed).Send(ctx, m), "fcm: request failed: network error")
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

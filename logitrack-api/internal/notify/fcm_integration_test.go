@@ -313,7 +313,7 @@ func TestFCMUnregisteredDeletesToken(t *testing.T) {
 	e.fcm.Respond("tok-payload", pushtest.InvalidPayload())
 	task := e.task(&a, nil, "")
 
-	e.handle(e.delivery(notify.RouteTaskAssigned, map[string]any{"id": task}))
+	e.handle(e.delivery(notify.RouteTaskAssigned, map[string]any{"id": task, "driverId": a}))
 	left := []string{}
 	rs, err := e.etl.Query(e.ctx, `SELECT token FROM device_tokens WHERE user_id = $1 ORDER BY token`, ua)
 	if err != nil {
@@ -357,7 +357,7 @@ func TestFCMSameMessageNeverSentTwice(t *testing.T) {
 	e.device(ua, "inst-2", "tok-2", "android")
 	e.fcm.Respond("tok-2", pushtest.Unavailable())
 	task := e.task(&a, nil, "")
-	d := e.delivery(notify.RouteTaskAssigned, map[string]any{"id": task})
+	d := e.delivery(notify.RouteTaskAssigned, map[string]any{"id": task, "driverId": a})
 
 	err := e.consumer.Handle(e.ctx, d)
 	if err == nil || mq.IsPermanent(err) {
@@ -389,7 +389,7 @@ func TestFCMSameMessageNeverSentTwice(t *testing.T) {
 
 	// Another attempt holds the claim of a third device: wait (retry) while it is fresh ...
 	e.device(ua, "inst-3", "tok-3", "android")
-	d2 := e.delivery(notify.RouteTaskAssigned, map[string]any{"id": task})
+	d2 := e.delivery(notify.RouteTaskAssigned, map[string]any{"id": task, "driverId": a})
 	k3 := e.ks.IdemFCM(d2.MessageID, notify.TokenID("tok-3"))
 	e.rdb.Set(e.ctx, k3, "pending|"+strconv.FormatInt(time.Now().UnixMilli(), 10)+"|other", time.Hour)
 	if err := e.consumer.Handle(e.ctx, d2); err == nil || mq.IsPermanent(err) {
@@ -543,5 +543,237 @@ func TestFCMSessionRevokedEndToEnd(t *testing.T) {
 	// The claims_changed message was consumed and recorded nothing; the revoked message is in the inbox.
 	if n := scan[int64](e, `SELECT count(*) FROM consumer_inbox WHERE consumer = 'notify.fcm'`); n != 1 {
 		t.Fatalf("%d inbox rows, want 1", n)
+	}
+}
+
+// AC: the same message id is never sent twice to a token, also when FCM's answer is lost. A send whose
+// request reached FCM and then lost its answer (connection reset, timeout, cancellation) may already be
+// on the phone: it is recorded failed "outcome unknown" and never sent again. A send that never left (a
+// refused connection) is retried.
+func TestFCMLostAnswerIsNeverResent(t *testing.T) {
+	e := newFCMEnv(t)
+	a, ua := e.driver("a@logitrack.test", "")
+	e.device(ua, "inst-reset", "tok-reset", "android")
+	e.device(ua, "inst-timeout", "tok-timeout", "android")
+	e.device(ua, "inst-refused", "tok-refused", "android")
+	e.fcm.Respond("tok-reset", pushtest.LostAnswer())
+	e.fcm.Respond("tok-timeout", pushtest.Hang())
+	e.fcm.Respond("tok-refused", pushtest.Refused())
+	task := e.task(&a, nil, "")
+	d := e.delivery(notify.RouteTaskAssigned, map[string]any{"id": task, "driverId": a})
+
+	// The attempt's deadline ends the hung send, as push.Client's 10 s request timeout would.
+	ctx, cancel := context.WithTimeout(e.ctx, 2*time.Second)
+	err := e.consumer.Handle(ctx, d)
+	cancel()
+	if err == nil || mq.IsPermanent(err) {
+		t.Fatalf("the refused send must retry the message: %v", err)
+	}
+	for tok, want := range map[string]int{"tok-reset": 1, "tok-timeout": 1, "tok-refused": 0} {
+		if n := len(e.fcm.SentTo(tok)); n != want {
+			t.Fatalf("first attempt: FCM took %d messages for %s, want %d", n, tok, want)
+		}
+	}
+	e.handle(d) // the retry
+	e.handle(d) // a redelivery
+	for _, tok := range []string{"tok-reset", "tok-timeout", "tok-refused"} {
+		if n := len(e.fcm.SentTo(tok)); n != 1 {
+			t.Fatalf("FCM took %d messages for %s, want 1", n, tok)
+		}
+	}
+	byInstall := map[string]deliveryRow{}
+	for _, r := range e.rows() {
+		byInstall[r.Install] = r
+	}
+	for install, msg := range map[string]string{
+		"inst-reset":   "outcome unknown: fcm: request failed: network error",
+		"inst-timeout": "outcome unknown: fcm: request failed: timeout",
+	} {
+		if r := byInstall[install]; r.Status != notify.StatusFailed || r.Error == nil || *r.Error != msg || r.Sent {
+			t.Fatalf("%s: %+v, want failed %q", install, r, msg)
+		}
+	}
+	if r := byInstall["inst-refused"]; len(byInstall) != 3 || r.Status != notify.StatusSent {
+		t.Fatalf("rows %+v", byInstall)
+	}
+
+	// A send cancelled after FCM took it (the worker stopping) is not resent either.
+	b, ub := e.driver("b@logitrack.test", "")
+	e.device(ub, "inst-cancel", "tok-cancel", "android")
+	e.fcm.Respond("tok-cancel", pushtest.Hang())
+	task2 := e.task(&b, nil, "")
+	d2 := e.delivery(notify.RouteTaskAssigned, map[string]any{"id": task2, "driverId": b})
+	cctx, stop := context.WithCancel(e.ctx)
+	done := make(chan error, 1)
+	go func() { done <- e.consumer.Handle(cctx, d2) }()
+	asynctest.Eventually(t, 10*time.Second, "FCM took the message", func() bool { return len(e.fcm.SentTo("tok-cancel")) == 1 })
+	stop()
+	if err := <-done; err == nil || mq.IsPermanent(err) {
+		t.Fatalf("a cancelled attempt must retry: %v", err)
+	}
+	e.handle(d2)
+	var cancelled []deliveryRow
+	for _, r := range e.rows() {
+		if r.Install == "inst-cancel" {
+			cancelled = append(cancelled, r)
+		}
+	}
+	if len(e.fcm.SentTo("tok-cancel")) != 1 || len(cancelled) != 1 || cancelled[0].Status != notify.StatusFailed ||
+		*cancelled[0].Error != "outcome unknown: fcm: request failed: canceled" {
+		t.Fatalf("cancelled send: FCM took %d, rows %+v", len(e.fcm.SentTo("tok-cancel")), cancelled)
+	}
+}
+
+// task.assigned and task.reassigned name the driver they assigned (driverId; null on task.reassigned
+// = left without a driver). Read late, after a later change, or re-planned by a retry after one, they
+// never tell the task's new driver twice that it was assigned, nor tell a driver it lost a task it
+// holds again. An assignment event without driverId is refused (permanent) and sends nothing.
+func TestFCMAssignmentEventsReadLate(t *testing.T) {
+	e := newFCMEnv(t)
+	a, ua := e.driver("a@logitrack.test", "")
+	b, ub := e.driver("b@logitrack.test", "")
+	c, uc := e.driver("c@logitrack.test", "")
+	e.device(ua, "inst-a", "tok-a", "android")
+	e.device(ub, "inst-b", "tok-b", "android")
+	e.device(uc, "inst-c", "tok-c", "android")
+	types := func(tok string) []string {
+		var out []string
+		for _, s := range e.fcm.SentTo(tok) {
+			out = append(out, s.Message.Data["type"])
+		}
+		return out
+	}
+	const assigned, unassigned = "first_mile_task_assigned", "first_mile_task_unassigned"
+
+	// A unassigned, then C assigned; both committed before notify.fcm reads the unassignment.
+	task := e.task(&a, nil, "")
+	unassign := e.delivery(notify.RouteTaskReassigned, map[string]any{"id": task, "driverId": nil, "previousDriverId": a})
+	toC := e.delivery(notify.RouteTaskReassigned, map[string]any{"id": task, "driverId": c, "previousDriverId": nil})
+	e.exec(`UPDATE tasks SET driver_id = $2 WHERE id = $1`, task, c)
+	e.handle(unassign)
+	e.handle(toC)
+	if !slices.Equal(types("tok-a"), []string{unassigned}) || !slices.Equal(types("tok-c"), []string{assigned}) {
+		t.Fatalf("stale unassignment: a %v c %v", types("tok-a"), types("tok-c"))
+	}
+
+	// The retry of an unassignment re-planned after a new assignment: A's push answered 503 while the
+	// task had no driver; C was assigned before the retry.
+	task2 := e.task(nil, nil, "")
+	e.fcm.Respond("tok-a", pushtest.Unavailable())
+	unassign2 := e.delivery(notify.RouteTaskReassigned, map[string]any{"id": task2, "driverId": nil, "previousDriverId": a})
+	if err := e.consumer.Handle(e.ctx, unassign2); err == nil || mq.IsPermanent(err) {
+		t.Fatalf("a 503 must retry: %v", err)
+	}
+	e.exec(`UPDATE tasks SET driver_id = $2 WHERE id = $1`, task2, c)
+	e.handle(unassign2)
+	e.handle(e.delivery(notify.RouteTaskAssigned, map[string]any{"id": task2, "driverId": c}))
+	if !slices.Equal(types("tok-a"), []string{unassigned, unassigned}) || !slices.Equal(types("tok-c"), []string{assigned, assigned}) {
+		t.Fatalf("retried unassignment: a %v c %v", types("tok-a"), types("tok-c"))
+	}
+
+	// A -> B and back to A, the A -> B event read after both: A holds the task and is not told it lost
+	// it; the B -> A event tells A it is assigned and B that it is not.
+	task3 := e.task(&a, nil, "")
+	e.handle(e.delivery(notify.RouteTaskReassigned, map[string]any{"id": task3, "driverId": b, "previousDriverId": a}))
+	e.handle(e.delivery(notify.RouteTaskReassigned, map[string]any{"id": task3, "driverId": a, "previousDriverId": b}))
+	if !slices.Equal(types("tok-a"), []string{unassigned, unassigned, assigned}) || !slices.Equal(types("tok-b"), []string{unassigned}) {
+		t.Fatalf("back to A: a %v b %v", types("tok-a"), types("tok-b"))
+	}
+
+	calls := e.fcm.Calls()
+	for _, body := range []struct {
+		key     string
+		payload map[string]any
+	}{
+		{notify.RouteTaskAssigned, map[string]any{"id": task3}},
+		{notify.RouteTaskAssigned, map[string]any{"id": task3, "driverId": nil}},
+		{notify.RouteTaskReassigned, map[string]any{"id": task3, "previousDriverId": b}},
+	} {
+		if err := e.consumer.Handle(e.ctx, e.delivery(body.key, body.payload)); !mq.IsPermanent(err) {
+			t.Fatalf("%s %v: %v, want a permanent error", body.key, body.payload, err)
+		}
+	}
+	if e.fcm.Calls() != calls {
+		t.Fatal("an assignment event without driverId was sent")
+	}
+}
+
+// A retry re-plans from the current rows; the pushes an earlier attempt sent to devices that have left
+// the plan since are still logged: one notification_deliveries row per push sent.
+func TestFCMRetryLogsPushesOfEarlierAttempts(t *testing.T) {
+	e := newFCMEnv(t)
+	a, ua := e.driver("a@logitrack.test", "")
+	b, ub := e.driver("b@logitrack.test", "")
+	e.device(ua, "inst-1", "tok-1", "android")
+	e.device(ua, "inst-2", "tok-2", "android")
+	e.device(ub, "inst-b", "tok-b", "android")
+	e.fcm.Respond("tok-2", pushtest.Unavailable())
+	task := e.task(&a, nil, "")
+	d := e.delivery(notify.RouteTaskAssigned, map[string]any{"id": task, "driverId": a})
+	if err := e.consumer.Handle(e.ctx, d); err == nil || mq.IsPermanent(err) {
+		t.Fatalf("a 503 must retry: %v", err)
+	}
+	e.exec(`UPDATE tasks SET driver_id = $2 WHERE id = $1`, task, b) // reassigned before the retry
+	e.handle(d)                                                      // the retry plans nothing: A no longer holds the task
+	if len(e.fcm.SentTo("tok-1")) != 1 || len(e.fcm.SentTo("tok-2")) != 0 || len(e.fcm.SentTo("tok-b")) != 0 {
+		t.Fatalf("sent %+v", e.fcm.Sent())
+	}
+	rows := e.rows()
+	if len(rows) != 1 || rows[0].Install != "inst-1" || rows[0].User != ua.String() || rows[0].Kind != notify.KindTaskAssigned ||
+		rows[0].Status != notify.StatusSent || !rows[0].Sent || rows[0].Data["type"] != "first_mile_task_assigned" {
+		t.Fatalf("rows %+v, want the push sent to tok-1", rows)
+	}
+	if n := scan[int64](e, `SELECT count(*) FROM consumer_inbox WHERE consumer = 'notify.fcm'`); n != 1 {
+		t.Fatalf("%d inbox rows", n)
+	}
+
+	// session_revoked to a phone and a tablet: the tablet answers 503 once and the phone signs in again
+	// before the retry, which then plans the tablet only.
+	u := e.user("u@logitrack.test")
+	session := func(install string, revoked bool) uuid.UUID {
+		reason, at := any(nil), any(nil)
+		if revoked {
+			reason, at = "password_reset", time.Now()
+		}
+		return scan[uuid.UUID](e, `INSERT INTO sessions (user_id, platform, amr, install_id, absolute_expires_at, revoked_at, revoked_reason)
+			VALUES ($1, 'android', 'pwd', $2, now() + interval '90 days', $3, $4) RETURNING id`, u, install, at, reason)
+	}
+	phone, tablet := session("inst-phone", true), session("inst-tablet", true)
+	e.device(u, "inst-phone", "tok-phone", "android")
+	e.device(u, "inst-tablet", "tok-tablet", "android")
+	e.fcm.Respond("tok-tablet", pushtest.Unavailable())
+	r := e.delivery(notify.RouteSessionsRevoked, map[string]any{"userId": u, "sessionIds": []uuid.UUID{phone, tablet}, "reason": "password_reset"})
+	if err := e.consumer.Handle(e.ctx, r); err == nil || mq.IsPermanent(err) {
+		t.Fatalf("a 503 must retry: %v", err)
+	}
+	session("inst-phone", false)
+	e.handle(r)
+	if len(e.fcm.SentTo("tok-phone")) != 1 || len(e.fcm.SentTo("tok-tablet")) != 1 {
+		t.Fatalf("phone %d tablet %d", len(e.fcm.SentTo("tok-phone")), len(e.fcm.SentTo("tok-tablet")))
+	}
+	var revoked []string
+	for _, row := range e.rows() {
+		if row.Kind == notify.KindSessionRevoked && row.Status == notify.StatusSent && row.User == u.String() {
+			revoked = append(revoked, row.Install)
+		}
+	}
+	if !slices.Equal(revoked, []string{"inst-phone", "inst-tablet"}) {
+		t.Fatalf("session_revoked rows %v, want one per push sent", revoked)
+	}
+}
+
+// A driver push reaches at most notify.MaxDevicesPerDriver devices, the most recently seen ones.
+func TestFCMDriverFanOutIsCapped(t *testing.T) {
+	e := newFCMEnv(t)
+	a, ua := e.driver("a@logitrack.test", "")
+	for i := range notify.MaxDevicesPerDriver + 2 {
+		e.exec(`INSERT INTO device_tokens (user_id, install_id, token, platform, last_seen_at)
+			VALUES ($1, $2, $3, 'android', now() - make_interval(mins => $4::int))`, ua, "inst-"+strconv.Itoa(i), "tok-"+strconv.Itoa(i), i)
+	}
+	task := e.task(&a, nil, "")
+	e.handle(e.delivery(notify.RouteTaskAssigned, map[string]any{"id": task, "driverId": a}))
+	sent := e.fcm.Sent()
+	if len(sent) != notify.MaxDevicesPerDriver || len(e.fcm.SentTo("tok-10")) != 0 || len(e.fcm.SentTo("tok-11")) != 0 {
+		t.Fatalf("%d pushes, want the %d most recently seen devices", len(sent), notify.MaxDevicesPerDriver)
 	}
 }
