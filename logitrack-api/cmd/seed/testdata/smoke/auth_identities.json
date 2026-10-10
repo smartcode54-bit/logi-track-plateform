@@ -1,0 +1,7 @@
+[
+{"id": "@AI_NWR_FB", "user_id": "@U_NWR_ADMIN", "provider": "firebase_legacy", "provider_subject": "SEEDUID0000000000000000000N1", "email_at_link": "nwr.admin@logitrack.test", "linked_at": "2026-01-05T09:00:00+07:00"},
+{"id": "@AI_D1_FB", "user_id": "@U_D1", "provider": "firebase_legacy", "provider_subject": "SEEDUID0000000000000000000D1", "email_at_link": "d1.somchai@logitrack.test", "linked_at": "2026-01-05T09:00:00+07:00"},
+{"id": "@AI_D2_FB", "user_id": "@U_D2", "provider": "firebase_legacy", "provider_subject": "SEEDUID0000000000000000000D2", "email_at_link": "d2.wichai@logitrack.test", "linked_at": "2026-01-05T09:00:00+07:00"},
+{"id": "@AI_D2_G", "user_id": "@U_D2", "provider": "google", "provider_subject": "100000000000000000002", "email_at_link": "d2.wichai@logitrack.test", "linked_at": "2026-01-05T09:00:00+07:00", "last_used_at": "2026-09-29T06:50:00+07:00"},
+{"id": "@AI_D6_FB", "user_id": "@U_D6", "provider": "firebase_legacy", "provider_subject": "SEEDUID0000000000000000000D6", "email_at_link": "d6.amnat@logitrack.test", "linked_at": "2026-01-05T09:00:00+07:00"}
+]

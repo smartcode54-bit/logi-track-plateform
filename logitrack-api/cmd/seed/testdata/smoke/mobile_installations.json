@@ -1,0 +1,6 @@
+[
+{"driver_id": "@D1", "install_id": "fSEEDinstall0000000D01", "tenant_id": "@TN_OWN", "platform": "android", "app_version": "3.5.0", "build_number": "1", "flavor": "prod", "first_seen_at": "2026-09-11T06:00:00+07:00", "last_seen_at": "2026-09-30T06:14:00+07:00", "_status": "current"},
+{"driver_id": "@D2", "install_id": "fSEEDinstall0000000D02", "tenant_id": "@TN_OWN", "platform": "android", "app_version": "3.4.1", "build_number": "1", "flavor": "prod", "first_seen_at": "2026-08-20T06:00:00+07:00", "last_seen_at": "2026-09-29T19:02:00+07:00", "_status": "outdated"},
+{"driver_id": "@D7", "install_id": "fSEEDinstall0000000D07", "tenant_id": "@TN_TTP", "platform": "android", "app_version": "3.3.2", "build_number": "2", "flavor": "prod", "first_seen_at": "2026-07-01T06:00:00+07:00", "last_seen_at": "2026-09-30T09:05:00+07:00", "_status": "blocked"},
+{"driver_id": "@D6", "install_id": "fSEEDinstall0000000D06", "tenant_id": "@TN_TTP", "platform": "android", "app_version": "3.6.0", "build_number": "1", "flavor": "dev", "first_seen_at": "2026-09-20T18:00:00+07:00", "last_seen_at": "2026-09-20T18:00:00+07:00", "_status": "ahead (dev flavor badge)"}
+]

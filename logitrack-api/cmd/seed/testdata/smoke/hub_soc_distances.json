@@ -1,0 +1,4 @@
+[
+{"id": "@HD_ALANGA_SOCE", "hub_id": "@H_ALANGA", "soc_key": "SOCE", "direction": "hub_to_soc", "network": "SPX", "distance_m": 29405, "distance_km": "29.40", "duration_s": 3024, "duration_min": "50.40", "hub_lat": 13.7766, "hub_lng": 100.6087, "soc_lat": 13.6157, "soc_lng": 100.7368, "created_by": "@U_WRT_OPS", "created_at": "2026-07-01T03:00:00+07:00"},
+{"id": "@HD_SOCE_ALANGA", "hub_id": "@H_ALANGA", "soc_key": "SOCE", "direction": "soc_to_hub", "network": "SPX", "distance_m": 29405, "distance_km": "29.40", "duration_s": 3024, "duration_min": "50.40", "hub_lat": 13.7766, "hub_lng": 100.6087, "soc_lat": 13.6157, "soc_lng": 100.7368, "created_by": "@U_WRT_OPS", "created_at": "2026-07-01T03:00:00+07:00"}
+]

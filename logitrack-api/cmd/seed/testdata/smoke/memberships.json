@@ -1,0 +1,13 @@
+[
+{"user_id": "@U_WRT_ADMIN", "tenant_id": "@TN_OWN", "role": "tenant_admin", "status": "active", "created_at": "2026-01-05T09:00:00+07:00"},
+{"user_id": "@U_WRT_MGR", "tenant_id": "@TN_OWN", "role": "manager", "status": "active", "created_at": "2026-01-05T09:00:00+07:00"},
+{"user_id": "@U_WRT_OPS", "tenant_id": "@TN_OWN", "role": "operation_staff", "status": "active", "created_at": "2026-01-05T09:00:00+07:00"},
+{"user_id": "@U_NWR_ADMIN", "tenant_id": "@TN_NWR", "role": "tenant_admin", "status": "active", "created_at": "2026-01-05T09:00:00+07:00"},
+{"user_id": "@U_TTP_DISP", "tenant_id": "@TN_TTP", "role": "operation_staff", "status": "active", "created_at": "2026-01-05T09:00:00+07:00"},
+{"user_id": "@U_D1", "tenant_id": "@TN_OWN", "role": "driver", "status": "active", "created_at": "2026-01-05T09:00:00+07:00"},
+{"user_id": "@U_D2", "tenant_id": "@TN_OWN", "role": "driver", "status": "active", "created_at": "2026-01-05T09:00:00+07:00"},
+{"user_id": "@U_D3", "tenant_id": "@TN_OWN", "role": "driver", "status": "active", "created_at": "2026-01-05T09:00:00+07:00"},
+{"user_id": "@U_D6", "tenant_id": "@TN_NWR", "role": "driver", "status": "suspended", "created_at": "2026-06-01T09:00:00+07:00", "updated_at": "2026-09-01T09:00:00+07:00"},
+{"user_id": "@U_D6", "tenant_id": "@TN_TTP", "role": "driver", "status": "active", "created_at": "2026-09-01T09:00:00+07:00"},
+{"user_id": "@U_D7", "tenant_id": "@TN_TTP", "role": "driver", "status": "active", "created_at": "2026-01-05T09:00:00+07:00"}
+]

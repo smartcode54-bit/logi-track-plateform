@@ -1,0 +1,4 @@
+[
+{"id": "@CH01", "tenant_id": "@TN_OWN", "tenant_source": "driver", "driver_id": "@D2", "status": "open", "priority": "urgent", "last_message_preview": "[รูปภาพ]", "last_message_at": "2026-09-29T10:09:00+07:00", "last_message_by_user_id": "@U_D2", "last_message_type": "normal", "created_at": "2026-09-29T10:08:00+07:00"},
+{"id": "@CH02", "tenant_id": "@TN_OWN", "tenant_source": "driver", "driver_id": "@D1", "status": "closed", "assigned_admin_user_id": "@U_WRT_OPS", "assigned_at": "2026-09-18T08:10:00+07:00", "closed_at": "2026-09-18T09:00:00+07:00", "priority": "normal", "last_message_preview": "รับทราบ เปลี่ยนเส้นทางได้ครับ", "last_message_at": "2026-09-18T08:20:00+07:00", "last_message_by_user_id": "@U_WRT_OPS", "last_message_type": "normal", "created_at": "2026-09-18T08:00:00+07:00"}
+]

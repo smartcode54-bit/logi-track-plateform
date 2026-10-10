@@ -1,0 +1,6 @@
+[
+{"id": "@CU_CJSF", "code": "CJSF", "name": "ลูกค้าทดสอบ CJSF", "address": "เลขที่ 1 ถนนทดสอบ เขตบางนา กรุงเทพมหานคร 10260", "tax_id": "0999900000040", "branch_type": "hq", "payment_terms_days": 30, "billing_email": "billing.cjsf@logitrack.test", "line_group_id": "C32dc1e8ee8be0f9c208c831822762f4b", "created_at": "2026-01-05T09:00:00+07:00"},
+{"id": "@CU_TTP", "code": "TTP", "name": "ลูกค้าทดสอบ TTP", "tax_id": "0999900000031", "branch_type": "hq", "payment_terms_days": 30, "line_group_id": "Cbe2afe030e16ef426cb06d0becb7051f", "created_at": "2026-01-05T09:00:00+07:00"},
+{"id": "@CU_SPX", "code": "SPX", "name": "ลูกค้าทดสอบ SPX", "tax_id": "0999900000058", "branch_type": "hq", "payment_terms_days": 15, "line_group_id": "Ccbcc507873126e32c572820ea77977ee", "created_at": "2026-01-05T09:00:00+07:00"},
+{"id": "@CU_SPK", "code": "SPK", "name": "ลูกค้าทดสอบ SPK (เครือข่าย J&T)", "tax_id": "0999900000066", "branch_type": "branch", "branch_number": "00001", "payment_terms_days": 30, "line_group_id": "C6a597d94b94dc7c587ea38748c6833ce", "created_at": "2026-01-05T09:00:00+07:00"}
+]

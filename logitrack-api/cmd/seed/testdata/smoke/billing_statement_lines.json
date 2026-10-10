@@ -1,0 +1,11 @@
+[
+{"id": "@SL1_1", "statement_id": "@ST1", "row_type": "trip", "trip_id": "@TR01", "amount_thb": "1130.00"},
+{"id": "@SL1_2", "statement_id": "@ST1", "row_type": "standby", "standby_id": "@SB01", "amount_thb": "800.00"},
+{"id": "@SL3_1", "statement_id": "@ST3", "row_type": "trip", "trip_id": "@TR04", "amount_thb": "1150.00"},
+{"id": "@SL3_2", "statement_id": "@ST3", "row_type": "multidrop_stop", "trip_id": "@TR05", "stop_index": 1, "amount_thb": "1150.00"},
+{"id": "@SL3_3", "statement_id": "@ST3", "row_type": "multidrop_stop", "trip_id": "@TR05", "stop_index": 2, "amount_thb": "1100.00"},
+{"id": "@SL3_4", "statement_id": "@ST3", "row_type": "trip", "trip_id": "@TR06", "amount_thb": "1150.00"},
+{"id": "@SL3_5", "statement_id": "@ST3", "row_type": "trip", "trip_id": "@TR21", "amount_thb": "1800.00"},
+{"id": "@SL4_1", "statement_id": "@ST4", "row_type": "trip", "trip_id": "@TR08", "amount_thb": "2100.00"},
+{"id": "@SL4_2", "statement_id": "@ST4", "row_type": "standby", "standby_id": "@SB03", "amount_thb": "500.00"}
+]
