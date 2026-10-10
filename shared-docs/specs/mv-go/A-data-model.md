@@ -145,7 +145,7 @@ PostgreSQL is the source of truth. Redis (prefix `lt:{APP_ENV}:`, R26; canonical
 | `refresh_tokens` | `auth:rt:{sha256(token)}` | rotation, logout, revoke |
 | `sessions` (revoked) | `auth:sess:revoked:{sid}` | revoke |
 | `users.auth_version` | `auth:user:ver:{userId}` | role, scope, platform role, driver link, disable, password |
-| `users.legacy_auth_uid` | `auth:fbuid:{firebaseUid}` | revocation post-commit hook |
+| `users.legacy_auth_uid` | `auth:fbuid:{firebaseUid}` | none: 5 min TTL hint, checked against the row on every use and dropped when stale (Appendix C §C.6.2) |
 | `idempotency_keys` (0009) | `idem:http:{userId}:{key}` | Redis TTL 24 h; the PostgreSQL row is durable until `IDEMPOTENCY_TTL` (default 168h, R53) |
 
 ### A.1.10 PostgreSQL 18 specifics

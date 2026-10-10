@@ -24,6 +24,19 @@ UPDATE users SET legacy_auth_uid = id::text
 WHERE id = sqlc.arg(id) AND legacy_auth_uid IS NULL
 RETURNING legacy_auth_uid::text;
 
+-- name: FirebaseUIDHeld :one
+-- Whether anyone PostgreSQL knows owns the Firebase account of uid: a user, deleted ones included, whose
+-- id (the uid of an account created in Go) or Firebase uid it is, or a driver whose legacy auth uid it is.
+-- An account under a uuid nobody holds is the orphan of a creation that Firebase kept and PostgreSQL rolled
+-- back (C.6.4). id is uid parsed as a uuid.
+SELECT (EXISTS (SELECT 1 FROM users WHERE id = sqlc.arg(id)::uuid OR legacy_auth_uid = sqlc.arg(uid)::text)
+     OR EXISTS (SELECT 1 FROM drivers WHERE legacy_auth_uid = sqlc.arg(uid)::text))::boolean AS held;
+
+-- name: AdoptLegacyAuthUID :exec
+-- A user created in Go takes over the orphan Firebase account of a rolled-back attempt to create it (C.6.4):
+-- its Firebase uid becomes that account's (users_legacy_uid keeps it unique).
+UPDATE users SET legacy_auth_uid = sqlc.arg(legacy_auth_uid)::text WHERE id = sqlc.arg(id);
+
 -- name: GetTenantLegacy :one
 -- Kind and subcontractors doc id of a tenant: a carrier tenant's legacy_doc_id is the legacy
 -- partnerScopeId value.

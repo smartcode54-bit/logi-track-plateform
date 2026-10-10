@@ -78,7 +78,7 @@ type Account struct {
 
 // Call is one Identity Toolkit request as the fake received it (the body includes any password: test data).
 type Call struct {
-	Method string // "lookup", "update", "create"
+	Method string // "lookup", "update", "create", "delete"
 	Body   map[string]any
 }
 
@@ -356,7 +356,8 @@ func (b *Backend) serveToolkit(w http.ResponseWriter, r *http.Request, body []by
 		toolkitError(w, http.StatusBadRequest, "INVALID_JSON")
 		return
 	}
-	method := map[string]string{"/accounts:lookup": "lookup", "/accounts:update": "update", "/accounts": "create"}[strings.TrimPrefix(r.URL.Path, prefix)]
+	method := map[string]string{"/accounts:lookup": "lookup", "/accounts:update": "update", "/accounts": "create",
+		"/accounts:delete": "delete"}[strings.TrimPrefix(r.URL.Path, prefix)]
 	if method == "" {
 		toolkitError(w, http.StatusNotFound, "NOT_FOUND")
 		return
@@ -368,21 +369,35 @@ func (b *Backend) serveToolkit(w http.ResponseWriter, r *http.Request, body []by
 	}
 	switch method {
 	case "lookup":
+		// By localId or by email, as Google answers both (emails compare case-insensitively).
+		var found []*Account
 		ids, _ := req["localId"].([]any)
-		var users []map[string]any
 		for _, id := range ids {
 			s, _ := id.(string)
 			if a, ok := b.accounts[s]; ok {
-				u := map[string]any{"localId": a.UID, "email": a.Email, "disabled": a.Disabled,
-					"passwordHash": "UkVEQUNURUQ=", "salt": "c2FsdA=="}
-				if a.CustomAttributes != "" {
-					u["customAttributes"] = a.CustomAttributes
-				}
-				if a.ValidSince != 0 {
-					u["validSince"] = strconv.FormatInt(a.ValidSince, 10)
-				}
-				users = append(users, u)
+				found = append(found, a)
 			}
+		}
+		emails, _ := req["email"].([]any)
+		for _, e := range emails {
+			s, _ := e.(string)
+			for _, a := range b.accounts {
+				if s != "" && strings.EqualFold(a.Email, s) {
+					found = append(found, a)
+				}
+			}
+		}
+		var users []map[string]any
+		for _, a := range found {
+			u := map[string]any{"localId": a.UID, "email": a.Email, "disabled": a.Disabled,
+				"passwordHash": "UkVEQUNURUQ=", "salt": "c2FsdA=="}
+			if a.CustomAttributes != "" {
+				u["customAttributes"] = a.CustomAttributes
+			}
+			if a.ValidSince != 0 {
+				u["validSince"] = strconv.FormatInt(a.ValidSince, 10)
+			}
+			users = append(users, u)
 		}
 		out := map[string]any{"kind": "identitytoolkit#GetAccountInfoResponse"}
 		if len(users) > 0 {
@@ -441,6 +456,14 @@ func (b *Backend) serveToolkit(w http.ResponseWriter, r *http.Request, body []by
 		a.Disabled, _ = req["disabled"].(bool)
 		b.accounts[uid] = a
 		writeJSON(w, http.StatusOK, map[string]any{"kind": "identitytoolkit#SignupNewUserResponse", "localId": uid})
+	case "delete":
+		uid, _ := req["localId"].(string)
+		if _, ok := b.accounts[uid]; !ok {
+			toolkitError(w, http.StatusBadRequest, "USER_NOT_FOUND")
+			return
+		}
+		delete(b.accounts, uid)
+		writeJSON(w, http.StatusOK, map[string]any{"kind": "identitytoolkit#DeleteAccountResponse"})
 	}
 }
 

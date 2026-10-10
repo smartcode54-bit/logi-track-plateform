@@ -73,8 +73,10 @@ type FirebaseSigner interface {
 // FirebaseAccounts writes Firebase Auth accounts (firebase.Accounts).
 type FirebaseAccounts interface {
 	Lookup(ctx context.Context, uid string) (*firebase.Account, error)
+	LookupEmail(ctx context.Context, email string) (*firebase.Account, error)
 	Update(ctx context.Context, uid string, u firebase.Update) error
 	Create(ctx context.Context, n firebase.NewAccount) error
+	Delete(ctx context.Context, uid string) error
 }
 
 // Firebase are the bridge's collaborators. The zero value is mode off without a verifier.
@@ -111,9 +113,25 @@ func (f *Firebase) validate() error {
 // committed (Appendix B §B.1.5).
 const CodeBridgeUnavailable = "bridge_unavailable"
 
+// CodeAlreadyExists is the 409 of a resource that exists (Appendix B §B.1.5); the bridge answers it when
+// another Firebase account holds the email of a user being created (details.reason
+// firebase_account_exists).
+const CodeAlreadyExists = "already_exists"
+
+// The message does not claim that Firebase is untouched: a failure can follow a write that succeeded (an
+// account created before its claims failed). PostgreSQL is what was not committed.
 func errBridgeUnavailable() *httpx.Error {
 	return httpx.NewError(http.StatusServiceUnavailable, CodeBridgeUnavailable,
-		"the Firebase account could not be updated; nothing was changed")
+		"the Firebase account could not be updated; the change was not committed")
+}
+
+// errFirebaseEmailTaken: another Firebase account holds the email of a user being created and is not an
+// orphan the creation may adopt (C.6.4). A retry cannot succeed, so it is not bridge_unavailable; the
+// holder's uid is never named.
+func errFirebaseEmailTaken() *httpx.Error {
+	return httpx.NewError(http.StatusConflict, CodeAlreadyExists,
+		"a Firebase account already holds this email; the user was not created").
+		WithDetails(map[string]any{"field": "email", "reason": "firebase_account_exists"})
 }
 
 // --- legacy claims (Appendix C §C.6.3) ----------------------------------------------------------------

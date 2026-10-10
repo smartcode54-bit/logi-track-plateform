@@ -1234,7 +1234,7 @@ Auth streams (`auth_session_listener.dart:32`, `auth_repository.dart:192`, `chat
 
 ### 8.6 Session revocation (`session.revoked`, R50)
 
-Triggers: Appendix C §C.4.7. One tx updates the rows, bumps `users.auth_version` (all triggers except admin revoke), revokes `sessions` / `refresh_tokens` only for session-ending reasons, writes the in-tx `security_events` row and appends `user.sessions_revoked {userId, sessionIds, reason}` on `user:{uid}`. Post-commit: `SET auth:user:ver:{uid}`, `SET auth:sess:revoked:{sid}` (TTL `JWT_ACCESS_TTL` + 30 s), `DEL` their `auth:rt:*` and `auth:fbuid:{legacy_auth_uid}`. Every replica pushes `event: session.revoked` and closes the user's streams.
+Triggers: Appendix C §C.4.7. One tx updates the rows, bumps `users.auth_version` (all triggers except admin revoke), revokes `sessions` / `refresh_tokens` only for session-ending reasons, writes the in-tx `security_events` row and appends `user.sessions_revoked {userId, sessionIds, reason}` on `user:{uid}`. Post-commit: `SET auth:user:ver:{uid}`, `SET auth:sess:revoked:{sid}` (TTL `JWT_ACCESS_TTL` + 30 s), `DEL` their `auth:rt:*` (`auth:fbuid:{uid}` is a 5-minute hint checked against the row on every use and needs no `DEL`, Appendix C §C.6.2). Every replica pushes `event: session.revoked` and closes the user's streams.
 
 | Reason | Triggers | Effect |
 |---|---|---|
@@ -2460,7 +2460,7 @@ Legend:
 | **Tenancy, coexistence, ETL** | | | | | |
 | `OWN_FLEET_TENANT_ID` | no | seed, etl | P0 / — | MISSING | uuid of the single `own_fleet` tenant; never read by `api` (R7, R56) |
 | `PG_OWNED_DOMAINS` | no | api, worker | P1 / P8 | MISSING | PG-written domains; others run in Firestore write-back mode; `all` at P7b |
-| `GOOGLE_APPLICATION_CREDENTIALS` | path | api, worker, etl | today / P8 | KEEP | today `web:scripts/publish-mobile-release.mjs:179`; target: bridge, write-back, projection, mirror, dump, media copy; read + token-creator rights only |
+| `GOOGLE_APPLICATION_CREDENTIALS` | path | api, worker, etl | today / P8 | KEEP | today `web:scripts/publish-mobile-release.mjs:179`; target: bridge, write-back, projection, mirror, dump, media copy. Rights per process (a key file of its own for each is recommended: each compose anchor can point this name at a different file): api: Firebase Authentication Admin (`roles/firebaseauth.admin`) on `FIREBASE_PROJECT_ID` for the account mirror (Appendix C §C.6.4: accounts create, lookup, update, delete; a missing grant is `503 bridge_unavailable` on every mirrored change); worker: Firestore read and write (Cloud Datastore User) for write-back and projection; etl: Firestore viewer and Storage object viewer for dump and media copy (worker and etl rights are confirmed by the tasks that build those paths). No token-creator role: custom tokens and the OAuth2 assertion are signed locally with the key |
 | `ETL_FIRESTORE_PROJECT_ID` | no | etl, worker | P0 / P8 | MISSING | project this environment dumps, mirrors and projects to |
 | `FIRESTORE_DATABASE_ID` | no | etl, worker | P0 / P8 | MISSING | `(default)` |
 | `ETL_GCS_BUCKET` | no | etl | P0 / P8 | MISSING | GCS source of `etl media-copy` |

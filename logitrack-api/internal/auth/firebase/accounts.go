@@ -33,7 +33,7 @@ var (
 // Google's error code (the part of error.message before ':'), never the message detail, which may echo
 // request data.
 type APIError struct {
-	Method string // "lookup", "update", "create"
+	Method string // "lookup", "update", "create", "delete"
 	Status int
 	Code   string // USER_NOT_FOUND, INVALID_PASSWORD, ...; "" when the body had none
 }
@@ -118,6 +118,22 @@ func (a *Accounts) Lookup(ctx context.Context, uid string) (*Account, error) {
 	if !validUID(uid) {
 		return nil, ErrUserNotFound
 	}
+	return a.lookup(ctx, map[string]any{"localId": []string{uid}}, func(acc *Account) bool { return acc.UID == uid })
+}
+
+// LookupEmail reads the account that holds email (accounts:lookup by email, as the Admin SDK's
+// GetUserByEmail). Firebase keeps emails lower-cased and unique per project; no holder is
+// ErrUserNotFound.
+func (a *Accounts) LookupEmail(ctx context.Context, email string) (*Account, error) {
+	if email == "" {
+		return nil, ErrUserNotFound
+	}
+	return a.lookup(ctx, map[string]any{"email": []string{email}}, func(acc *Account) bool {
+		return strings.EqualFold(acc.Email, email)
+	})
+}
+
+func (a *Accounts) lookup(ctx context.Context, body map[string]any, match func(*Account) bool) (*Account, error) {
 	var out struct {
 		Users []struct {
 			LocalID          string `json:"localId"`
@@ -127,14 +143,14 @@ func (a *Accounts) Lookup(ctx context.Context, uid string) (*Account, error) {
 			ValidSince       string `json:"validSince"`
 		} `json:"users"`
 	}
-	if err := a.post(ctx, "lookup", "/accounts:lookup", map[string]any{"localId": []string{uid}}, &out); err != nil {
+	if err := a.post(ctx, "lookup", "/accounts:lookup", body, &out); err != nil {
 		return nil, err
 	}
 	for _, u := range out.Users {
-		if u.LocalID != uid {
+		acc := &Account{UID: u.LocalID, Email: u.Email, Disabled: u.Disabled, CustomAttributes: u.CustomAttributes}
+		if !match(acc) {
 			continue
 		}
-		acc := &Account{UID: u.LocalID, Email: u.Email, Disabled: u.Disabled, CustomAttributes: u.CustomAttributes}
 		if s, err := strconv.ParseInt(u.ValidSince, 10, 64); err == nil && s > 0 {
 			acc.ValidSince = time.Unix(s, 0).UTC()
 		}
@@ -211,6 +227,14 @@ func (a *Accounts) Create(ctx context.Context, n NewAccount) error {
 		body["disabled"] = true
 	}
 	return a.post(ctx, "create", "/accounts", body, nil)
+}
+
+// Delete deletes the account of uid (accounts:delete). An unknown uid is ErrUserNotFound.
+func (a *Accounts) Delete(ctx context.Context, uid string) error {
+	if !validUID(uid) {
+		return ErrUserNotFound
+	}
+	return a.post(ctx, "delete", "/accounts:delete", map[string]any{"localId": uid}, nil)
 }
 
 func checkAttributes(s string) error {

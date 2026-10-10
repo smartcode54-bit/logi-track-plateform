@@ -355,6 +355,31 @@ func TestAccounts(t *testing.T) {
 	if err := a.Create(ctx, firebase.NewAccount{UID: "fb-3", Email: "TWO@example.test"}); !errors.Is(err, firebase.ErrEmailExists) {
 		t.Fatalf("duplicate email: %v", err)
 	}
+
+	// The holder of an email (GetUserByEmail's wire format), case-insensitively.
+	held, err := a.LookupEmail(ctx, "Two@Example.test")
+	if err != nil || held.UID != "fb-2" || !held.Disabled {
+		t.Fatalf("lookup by email = %+v, %v", held, err)
+	}
+	if last := b.Calls()[len(b.Calls())-1]; last.Method != "lookup" || len(last.Body) != 1 || last.Body["email"] == nil {
+		t.Fatalf("lookup-by-email body = %v", last.Body)
+	}
+	if _, err := a.LookupEmail(ctx, "nobody@example.test"); !errors.Is(err, firebase.ErrUserNotFound) {
+		t.Fatalf("unheld email: %v", err)
+	}
+
+	if err := a.Delete(ctx, "fb-2"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := b.Get("fb-2"); ok {
+		t.Fatal("not deleted")
+	}
+	if last := b.Calls()[len(b.Calls())-1]; last.Method != "delete" || last.Body["localId"] != "fb-2" || len(last.Body) != 1 {
+		t.Fatalf("delete body = %v", last.Body)
+	}
+	if err := a.Delete(ctx, "fb-2"); !errors.Is(err, firebase.ErrUserNotFound) {
+		t.Fatalf("delete of an unknown uid: %v", err)
+	}
 	if b.TokenRequests() != 1 {
 		t.Fatalf("token requests = %d: the access token is reused", b.TokenRequests())
 	}

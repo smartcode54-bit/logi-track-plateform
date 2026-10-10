@@ -12,6 +12,22 @@ import (
 	"github.com/google/uuid"
 )
 
+const adoptLegacyAuthUID = `-- name: AdoptLegacyAuthUID :exec
+UPDATE users SET legacy_auth_uid = $1::text WHERE id = $2
+`
+
+type AdoptLegacyAuthUIDParams struct {
+	LegacyAuthUid string
+	ID            uuid.UUID
+}
+
+// A user created in Go takes over the orphan Firebase account of a rolled-back attempt to create it (C.6.4):
+// its Firebase uid becomes that account's (users_legacy_uid keeps it unique).
+func (q *Queries) AdoptLegacyAuthUID(ctx context.Context, arg AdoptLegacyAuthUIDParams) error {
+	_, err := q.db.Exec(ctx, adoptLegacyAuthUID, arg.LegacyAuthUid, arg.ID)
+	return err
+}
+
 const assignLegacyAuthUID = `-- name: AssignLegacyAuthUID :one
 UPDATE users SET legacy_auth_uid = id::text
 WHERE id = $1 AND legacy_auth_uid IS NULL
@@ -25,6 +41,27 @@ func (q *Queries) AssignLegacyAuthUID(ctx context.Context, id uuid.UUID) (string
 	var legacy_auth_uid string
 	err := row.Scan(&legacy_auth_uid)
 	return legacy_auth_uid, err
+}
+
+const firebaseUIDHeld = `-- name: FirebaseUIDHeld :one
+SELECT (EXISTS (SELECT 1 FROM users WHERE id = $1::uuid OR legacy_auth_uid = $2::text)
+     OR EXISTS (SELECT 1 FROM drivers WHERE legacy_auth_uid = $2::text))::boolean AS held
+`
+
+type FirebaseUIDHeldParams struct {
+	ID  uuid.UUID
+	Uid string
+}
+
+// Whether anyone PostgreSQL knows owns the Firebase account of uid: a user, deleted ones included, whose
+// id (the uid of an account created in Go) or Firebase uid it is, or a driver whose legacy auth uid it is.
+// An account under a uuid nobody holds is the orphan of a creation that Firebase kept and PostgreSQL rolled
+// back (C.6.4). id is uid parsed as a uuid.
+func (q *Queries) FirebaseUIDHeld(ctx context.Context, arg FirebaseUIDHeldParams) (bool, error) {
+	row := q.db.QueryRow(ctx, firebaseUIDHeld, arg.ID, arg.Uid)
+	var held bool
+	err := row.Scan(&held)
+	return held, err
 }
 
 const getBridgeUser = `-- name: GetBridgeUser :one

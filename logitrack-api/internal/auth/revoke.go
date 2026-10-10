@@ -285,15 +285,18 @@ type Revocation struct {
 // then auth_version++, sessions.revoked_*, their refresh tokens, and outbox user.sessions_revoked on
 // user:{uid} (SSE session.revoked; notify.fcm pushes session_revoked to the revoked installs). While the
 // Firebase bridge mirrors (Appendix C §C.6.4) it also writes the user's Firebase account before COMMIT:
-// claims_changed merges the recomputed legacy claim object into its custom attributes, and an
-// admin_revoke or disabled revocation of every session (SessionIDs nil) sets validSince = now, which ends
-// the Firebase sessions of installed APKs (one Go session cannot name a Firebase one, so revoking only
-// some sessions leaves Firebase alone). A mirror failure is 503 bridge_unavailable: the caller's
-// transaction rolls back. The caller appends its security_events row with security.Append in the same
-// transaction and calls Apply after COMMIT. internal/iam (T19) uses it for role, scope, driver-link,
-// platform-role changes and admin revocation (disable: SetStatusInTx); such a caller writes its rows
-// first, so the claims read here are the new ones, and locks or updates the users row before it touches
-// any sessions or refresh_tokens row (lock order users -> sessions -> refresh_tokens).
+// claims_changed merges the recomputed legacy claim object into its custom attributes; an admin_revoke of
+// every session (SessionIDs nil) sets validSince = now, which ends the Firebase sessions of installed
+// APKs; and a disabled revocation of every session (the C.4.7 row "user disabled (or soft-deleted)")
+// also disables the Firebase account, so a soft-deleted user cannot sign in to Firebase again with its
+// unchanged password. One Go session cannot name a Firebase one, so revoking only some sessions leaves
+// Firebase alone. A mirror failure is 503 bridge_unavailable: the caller's transaction rolls back. The
+// caller appends its security_events row with security.Append in the same transaction and calls Apply
+// after COMMIT. internal/iam (T19) uses it for role, scope, driver-link, platform-role changes, admin
+// revocation and soft delete (status deleted, then reason disabled; a disable or enable of a user that
+// stays is SetStatusInTx); such a caller writes its rows first, so the claims read here are the new ones,
+// and locks or updates the users row before it touches any sessions or refresh_tokens row (lock order
+// users -> sessions -> refresh_tokens).
 func (s *Service) RevokeInTx(ctx context.Context, tx pgx.Tx, r Revocation) (*PostCommit, []uuid.UUID, error) {
 	pc := newPostCommit()
 	q := authdb.New(tx)
@@ -304,7 +307,10 @@ func (s *Service) RevokeInTx(ctx context.Context, tx pgx.Tx, r Revocation) (*Pos
 	switch {
 	case r.Reason == RevokeClaimsChanged:
 		err = s.mirror(ctx, q, r.UserID, accountChange{op: "claims", claims: true})
-	case (r.Reason == RevokeAdmin || r.Reason == RevokeDisabled) && r.SessionIDs == nil:
+	case r.Reason == RevokeDisabled && r.SessionIDs == nil:
+		disabled := true
+		err = s.mirror(ctx, q, r.UserID, accountChange{op: "status", disabled: &disabled, revoke: true})
+	case r.Reason == RevokeAdmin && r.SessionIDs == nil:
 		err = s.mirror(ctx, q, r.UserID, accountChange{op: "revoke", revoke: true})
 	}
 	if err != nil {
