@@ -1,3 +1,4 @@
+import bundleAnalyzer from "@next/bundle-analyzer";
 import type { NextConfig } from "next";
 import path from "path";
 
@@ -42,5 +43,15 @@ const nextConfig: NextConfig = {
     return config;
   },
 };
+// Bundle analysis (TW9, developer-spec.md §10.11): `pnpm analyze` sets ANALYZE=true and writes
+// .next/analyze/{client,nodejs,edge}.html for people plus the same data as .json, which
+// scripts/bundle-report.mjs turns into the per-route report and the bundle gate. It swaps in a
+// wrapped `webpack` so the exported config object stays the same; the shallow copy keeps the
+// wrapper chain pointing at the original function.
+if (process.env.ANALYZE === "true") {
+  const html = bundleAnalyzer({ enabled: true, openAnalyzer: false, logLevel: "warn" });
+  const json = bundleAnalyzer({ enabled: true, openAnalyzer: false, logLevel: "warn", analyzerMode: "json" });
+  nextConfig.webpack = html(json({ ...nextConfig })).webpack;
+}
 
 export default nextConfig;

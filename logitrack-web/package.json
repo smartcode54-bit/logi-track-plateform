@@ -19,6 +19,8 @@
     "test": "vitest run",
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
+    "analyze": "ANALYZE=true next build --webpack",
+    "bundle:report": "node scripts/bundle-report.mjs",
     "backfill:trip-partner-jwt:dry-run": "node scripts/backfill-trip-partner-code-jwt.mjs --dry-run",
     "backfill:trip-partner-jwt:apply": "node scripts/backfill-trip-partner-code-jwt.mjs",
     "backfill:task-hub-customers:dry-run": "node scripts/backfill-task-hub-linked-customers.mjs --dry-run",
@@ -81,6 +83,7 @@
     "zod": "^4.3.5"
   },
   "devDependencies": {
+    "@next/bundle-analyzer": "16.1.1",
     "@playwright/test": "^1.58.1",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",
