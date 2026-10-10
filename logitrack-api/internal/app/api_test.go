@@ -23,6 +23,13 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/telemetry"
 )
 
+// client never keeps a connection for reuse. With keep-alive, net/http may dial a spare connection
+// while the previous one is still being returned to its pool and then park the spare unused;
+// fasthttp, like net/http, counts a connection that has sent no request as idle only after 5 s,
+// so a drain within the 5 s SHUTDOWN_TIMEOUT of these tests waited for it and failed with
+// "context deadline exceeded" on a loaded machine (seen in go-ci, T14).
+var client = &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+
 // syncBuffer collects log lines written concurrently by both listeners.
 type syncBuffer struct {
 	mu  sync.Mutex
@@ -137,7 +144,7 @@ func waitReady(t *testing.T, addr string) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		if resp, err := http.Get("http://" + addr + "/healthz"); err == nil {
+		if resp, err := client.Get("http://" + addr + "/healthz"); err == nil {
 			_ = resp.Body.Close()
 			return
 		}
@@ -152,7 +159,7 @@ func get(t *testing.T, addr, path string, hdr map[string]string) (int, map[strin
 	for k, v := range hdr {
 		req.Header.Set(k, v)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -367,7 +374,7 @@ func TestMetricsServedOnSeparateAddressWithRouteTemplates(t *testing.T) {
 	if st, _, _ := get(t, h.public, "/metrics", nil); st != 404 {
 		t.Fatalf("/metrics must not be on the public listener, got %d", st)
 	}
-	resp, err := http.Get("http://" + h.metrics + "/metrics")
+	resp, err := client.Get("http://" + h.metrics + "/metrics")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -407,7 +414,7 @@ func TestShutdownTurnsReadinessUnavailableThenDrains(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("shutdown did not complete")
 	}
-	if _, err := http.Get("http://" + h.internal + "/healthz"); err == nil {
+	if _, err := client.Get("http://" + h.internal + "/healthz"); err == nil {
 		t.Fatal("internal listener still accepting after shutdown")
 	}
 }
@@ -491,7 +498,7 @@ func TestBodyTooLargeRecordedWithRealStatus(t *testing.T) {
 
 func scrapeMetrics(t *testing.T, h *harness) string {
 	t.Helper()
-	resp, err := http.Get("http://" + h.metrics + "/metrics")
+	resp, err := client.Get("http://" + h.metrics + "/metrics")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -510,7 +517,7 @@ func TestShutdownStopsBothListenersTogetherAndDrains(t *testing.T) {
 	inflight := func(addr, ms string) chan result {
 		ch := make(chan result, 1)
 		go func() {
-			resp, err := http.Get("http://" + addr + "/v1/staff-probe/slow?ms=" + ms)
+			resp, err := client.Get("http://" + addr + "/v1/staff-probe/slow?ms=" + ms)
 			if err != nil {
 				ch <- result{err: err}
 				return
@@ -522,7 +529,7 @@ func TestShutdownStopsBothListenersTogetherAndDrains(t *testing.T) {
 	}
 	publicLong := make(chan result, 1)
 	go func() {
-		resp, err := http.Get("http://" + h.public + "/v1/mobile/slow?ms=1500")
+		resp, err := client.Get("http://" + h.public + "/v1/mobile/slow?ms=1500")
 		if err != nil {
 			publicLong <- result{err: err}
 			return
@@ -561,7 +568,7 @@ func TestXForwardedForAcrossSeveralFieldLines(t *testing.T) {
 	h := start(t, "127.0.0.1/32")
 	req, _ := http.NewRequest("GET", "http://"+h.public+"/v1/mobile/whoami", nil)
 	req.Header["X-Forwarded-For"] = []string{"198.51.100.66", "203.0.113.7"}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
