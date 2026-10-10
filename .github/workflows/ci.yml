@@ -115,3 +115,60 @@ jobs:
 
       - name: Unit tests
         run: pnpm run test
+
+  # developer-spec.md §17.3 item 3 (TW2): the web ships as a Next.js standalone server. Builds with
+  # dummy public values and sentinel server-only values, then scripts/check-standalone.mjs asserts
+  # server.js, no traced .env file, no server-only value in the browser-facing output (.next/static
+  # and the prerendered .next/server/app and .next/server/pages pages) and only allow-listed
+  # NEXT_PUBLIC_ names. No secrets are used.
+  build-standalone:
+    name: Standalone build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: logitrack-web
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID: ci-dummy-oidc-client
+      NEXT_PUBLIC_FIREBASE_API_KEY: ci-dummy-api-key
+      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ci-dummy.invalid
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: ci-dummy-project
+      NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ci-dummy-bucket
+      NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: '0'
+      NEXT_PUBLIC_FIREBASE_APP_ID: ci-dummy-app-id
+      GO_API_INTERNAL_URL: http://ci-sentinel-go-internal.invalid:8080
+      GO_API_INTERNAL_TIMEOUT_MS: ci-sentinel-timeout
+      SESSION_COOKIE_DOMAIN: ci-sentinel-cookie.invalid
+      SESSION_COOKIE_SECURE: ci-sentinel-secure
+      WEB_PUBLIC_ORIGIN: http://ci-sentinel-origin.invalid
+      JWT_ISSUER: ci-sentinel-issuer
+      JWT_AUDIENCE: ci-sentinel-audience
+      JWT_ACCESS_TTL: ci-sentinel-access-ttl
+      REFRESH_TOKEN_TTL_WEB: ci-sentinel-refresh-ttl
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: .
+
+      - name: Build (output standalone)
+        run: pnpm run build
+
+      - name: Check the standalone output
+        run: pnpm run check:standalone

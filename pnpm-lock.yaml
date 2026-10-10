@@ -105,9 +105,6 @@ importers:
       firebase:
         specifier: ^12.7.0
         version: 12.10.0
-      firebase-admin:
-        specifier: ^13.6.0
-        version: 13.7.0
       fullcalendar:
         specifier: ^6.1.20
         version: 6.1.20
@@ -208,6 +205,9 @@ importers:
       eslint-config-next:
         specifier: 16.1.1
         version: 16.1.1(@typescript-eslint/parser@8.57.0(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3)
+      firebase-admin:
+        specifier: ^13.6.0
+        version: 13.7.0
       husky:
         specifier: ^9.1.7
         version: 9.1.7

@@ -1,5 +1,7 @@
 # Environment and production deploy (Firebase)
 
+> **Branch `mv-go` (TW2):** the web is a Next.js `output: "standalone"` server in the compose `web` container behind Caddy (`logitrack-web/Dockerfile`, `logitrack-api/README.md` "Edge"); the `deploy:*` scripts are gone there and Firebase Hosting only redirects to `WEB_DOMAIN` (developer-spec.md §10.12). This document describes the static export that `main` still deploys.
+
 How to prepare and use `.env.prod` (production env) across the full Firebase stack: **Hosting** (Next.js static app) and **Cloud Functions**.
 
 ## 1. Template: `.env.prod.example`

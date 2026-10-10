@@ -7,8 +7,6 @@
     "dev": "node -e \"var fs=require('fs'); if(fs.existsSync('envs/.env.dev.web')) fs.copyFileSync('envs/.env.dev.web','logitrack-web/.env.local');\" && pnpm --filter logi-track run dev",
     "web": "pnpm --filter logi-track run dev",
     "web:install": "pnpm install --filter logi-track",
-    "deploy:dev": "node -e \"require('fs').copyFileSync('envs/.env.dev.web','logitrack-web/.env.production')\" && pnpm --filter logi-track run deploy:dev",
-    "deploy:prod": "node -e \"require('fs').copyFileSync('envs/.env.prod.web','logitrack-web/.env.production')\" && pnpm --filter logi-track run deploy:prod",
     "prepare": "husky",
     "mobile:dev": "node -e \"var fs=require('fs'); if(fs.existsSync('envs/.env.dev.mobile')) fs.copyFileSync('envs/.env.dev.mobile','logitrack-mobile/.env.dev');\"",
     "build:mobile:dev": "node -e \"require('fs').copyFileSync('envs/.env.dev.mobile','logitrack-mobile/.env.dev')\" && cd logitrack-mobile && flutter build apk --release --flavor dev --dart-define=FLAVOR=dev",

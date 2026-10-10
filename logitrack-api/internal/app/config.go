@@ -88,6 +88,12 @@ func (c *APIConfig) Validate() error {
 	if c.InternalAddr == c.PublicAddr || c.InternalAddr == c.MetricsAddr || c.PublicAddr == c.MetricsAddr {
 		errs = append(errs, "API_INTERNAL_ADDR, API_PUBLIC_ADDR, METRICS_ADDR: must be three different addresses")
 	}
+	if behindEdgeProxy(c.AppEnv) && hasHost(c.PublicAddr) {
+		// Caddy dials "api" + API_PUBLIC_ADDR (deploy/Caddyfile), so "0.0.0.0:8081" would become the
+		// upstream "api0.0.0.0:8081" and every API_PUBLIC_DOMAIN route a 502 (developer-spec.md §16.1).
+		errs = append(errs, config.Invalidf("API_PUBLIC_ADDR",
+			"must be :port when APP_ENV is dev or prod (the edge proxy dials api + this value)"))
+	}
 	groups := map[string]bool{}
 	for _, g := range c.PublicRouteGroups {
 		g = strings.TrimSpace(g)
@@ -174,6 +180,20 @@ func checkAddr(addr string) error {
 		return fmt.Errorf("port must be a number between 0 and 65535")
 	}
 	return nil
+}
+
+// behindEdgeProxy reports whether the public listener always runs behind Caddy: dev and prod are
+// the compose deployments of §2.7. APP_ENV=local also covers `go run` on the host (README), where
+// any listen address is fine.
+func behindEdgeProxy(appEnv string) bool {
+	return appEnv == "dev" || appEnv == "prod"
+}
+
+// hasHost reports whether a valid listen address names a host ("0.0.0.0:8081", "[::]:8081",
+// "api:8081") rather than only a port (":8081"). Invalid addresses are reported by checkAddr.
+func hasHost(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	return err == nil && host != ""
 }
 
 // parsePrefix accepts a CIDR prefix or a single address (as /32 or /128).

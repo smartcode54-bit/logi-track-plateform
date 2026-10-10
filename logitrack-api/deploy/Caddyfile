@@ -1,0 +1,86 @@
+# Edge proxy of the compose stack (developer-spec.md §2.6, §10.2, §10.12, §15.2; issue TW2).
+# Sites and upstream come from env, consumer `caddy` in §16.1:
+#   WEB_DOMAIN        -> web (Next.js standalone, BFF); the browser never calls Go directly
+#   API_PUBLIC_DOMAIN -> the Go public listener only; the upstream is "api" + API_PUBLIC_ADDR, so
+#                        API_PUBLIC_ADDR must be ":port": "0.0.0.0:8081" would adapt to the dial
+#                        address "api0.0.0.0:8081" (502 on every route) and "[::]:8081" stops Caddy
+#                        from starting. The api refuses any host part when APP_ENV is dev or prod,
+#                        and envcheck holds .env.example to ":port".
+#   MEDIA_DOMAIN      -> MinIO, for presigned and public object URLs (R74)
+# Caddy never routes to the Go internal listener (API_INTERNAL_ADDR). Locally the three sites
+# are http:// addresses (no TLS); bare host names in prod get ACME certificates for ACME_EMAIL.
+{
+	# A runtime placeholder (not parse-time substitution): an empty value is fine for the local
+	# http:// sites (no ACME), while a prod site with TLS refuses to start until ACME_EMAIL is set.
+	email {env.ACME_EMAIL}
+}
+
+# Same envelope and code as the Go listener's own 404 (R48, Appendix B §B.1.5).
+(not_found) {
+	header Content-Type "application/json; charset=utf-8"
+	header X-Request-Id {http.request.uuid}
+	respond `\{"error":\{"code":"not_found","message":"resource not found","details":\{\},"requestId":"{http.request.uuid}"\}\}` 404
+}
+
+{$WEB_DOMAIN} {
+	# SSE through the BFF: no compression and no buffering here (Appendix E §E.8.5); Next's own
+	# compression is off as well (compress: false in next.config.ts).
+	@events path /api/go/v1/events
+	handle @events {
+		reverse_proxy web:3000 {
+			flush_interval -1
+		}
+	}
+	# Cache-Control comes from next.config.ts headers() (Hosting rules carried over, verified on
+	# the standalone build); Caddy does not override it.
+	handle {
+		encode zstd gzip
+		reverse_proxy web:3000
+	}
+}
+
+{$API_PUBLIC_DOMAIN} {
+	# Mobile SSE (ticket form, R42) streams unbuffered.
+	@mobile_events path /v1/mobile/events
+	handle @mobile_events {
+		reverse_proxy api{$API_PUBLIC_ADDR} {
+			flush_interval -1
+		}
+	}
+	# Only the public route groups (internal/platform/ingress.PublicPrefixes); the listener itself
+	# also answers 404 to anything outside PUBLIC_ROUTE_GROUPS, so this is a second fence.
+	@public path /v1/mobile /v1/mobile/* /v1/auth /v1/auth/* /public/v1 /public/v1/* /evidence /evidence/* /healthz
+	handle @public {
+		encode zstd gzip
+		reverse_proxy api{$API_PUBLIC_ADDR}
+	}
+	handle {
+		import not_found
+	}
+}
+
+{$MEDIA_DOMAIN} {
+	# MinIO's admin, health and metrics APIs stay on the private network.
+	@minio_internal path /minio /minio/*
+	handle @minio_internal {
+		import not_found
+	}
+	# The Host header passes through unchanged (Caddy's default), so a URL signed for
+	# S3_PRESIGN_ENDPOINT = https://{MEDIA_DOMAIN} verifies at MinIO. No encode: objects are
+	# served as stored and Range requests keep working.
+	handle {
+		reverse_proxy minio:9000
+	}
+}
+
+# Target of the Cloudflare tunnel (profile tunnel, TUNNEL_TOKEN): only signed third-party
+# postbacks under /public/v1/* are exposed (R44). Not published on the host. The explicit
+# http:// keeps this host-less site out of TLS automation (it would otherwise need ACME_EMAIL).
+http://:8090 {
+	handle /public/v1/* {
+		reverse_proxy api{$API_PUBLIC_ADDR}
+	}
+	handle {
+		import not_found
+	}
+}
