@@ -11,6 +11,7 @@ import {
     Layers,
     Smartphone,
     Rocket,
+    Building2,
 } from "lucide-react"
 
 import {
@@ -35,9 +36,12 @@ import { routeAllowed } from "@/lib/routeCapabilities"
 import type { MeDTO } from "@/features/auth/api/me"
 import { useMe } from "@/features/auth/api/useMe"
 
+// Each item is shown when the edge gate would let the principal open it (lib/routeCapabilities.ts over
+// the Go capabilities of `['me']`, TW4, T18), so the menu and proxy.ts can never disagree.
 const securityItems = [
     { titleKey: "securityCenter.overviewSoon", url: "/app/security-center", icon: LayoutDashboard },
     { titleKey: "securityCenter.userManagement", url: "/app/security-center/users", icon: Users },
+    { titleKey: "securityCenter.tenants", url: "/app/security-center/tenants", icon: Building2 },
     { titleKey: "securityCenter.rolePermissionMatrix", url: "/app/security-center/roles", icon: Layers },
     { titleKey: "securityCenter.securityAudit", url: "/app/security-center/audit", icon: Shield },
     { titleKey: "securityCenter.apiKeys", url: "/app/security-center/api-keys", icon: Key },
@@ -121,7 +125,7 @@ export function SecurityCenterSidebar() {
                             className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50"
                             onClick={async () => {
                                 await logout?.()
-                                window.location.href = "/"
+                                window.location.href = "/login"
                             }}
                         >
                             <LogOut />

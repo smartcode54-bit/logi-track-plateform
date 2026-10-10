@@ -1,6 +1,8 @@
 "use client";
 
-import { ForgotPasswordForm } from "@/features/auth";
+// Straight from the component: the features/auth barrel would also bring the sign-in panel (GIS,
+// change password) of LoginForm into this page's initial JS.
+import ForgotPasswordForm from "@/features/auth/components/ForgotPasswordForm";
 
 export default function ForgotPasswordPage() {
   return <ForgotPasswordForm />;

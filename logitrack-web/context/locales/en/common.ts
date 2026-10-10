@@ -388,6 +388,10 @@ export default {
     "unauthorized.goHome": "Go to My Home Page",
     "unauthorized.roleHint": "Logged in as: {role}",
 
+    // Tenant switcher (T18)
+    "nav.switchTenant": "Switch organisation",
+    "nav.tenantSwitched": "Now working in {name}",
+
     // App shell (TW4): the session from GET /v1/me and the route group's translation chunk.
     "shell.sessionLoadFailed": "Could not load your account. Check your connection and try again.",
     "shell.retry": "Try again",

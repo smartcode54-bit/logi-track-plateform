@@ -10,7 +10,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { goFetch } from "../../goFetch";
-import { configureSessionEnd } from "../../sessionEnd";
+import { configureSessionEnd, resetSessionEndForTests } from "../../sessionEnd";
 import { LAST_FORCED_REFRESH_KEY, LAST_REFRESH_KEY } from "../../sharedRefresh";
 import { resetJwksForTests } from "../accessToken";
 import { logout, refreshPost, resetRotationsForTests } from "../authRoutes";
@@ -111,6 +111,8 @@ afterAll(async () => {
 beforeEach(() => {
     resetJwksForTests();
     resetRotationsForTests();
+    // A session ended on the protected page of an earlier test must not turn endSession into a no-op.
+    resetSessionEndForTests();
     storage.delete(LAST_REFRESH_KEY);
     storage.delete(LAST_FORCED_REFRESH_KEY);
     go.on("POST", "/v1/auth/refresh", (r) => {

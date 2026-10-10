@@ -59,7 +59,7 @@ export default function RootLayout({
             `,
           }}
         />
-        {/* TanStack Query, language, auth over ['me'], toasts (developer-spec.md §10.6). */}
+        {/* TanStack Query, language, auth over ['me'] with the Firebase bridge, the session stream, toasts (developer-spec.md §10.6). */}
         <Providers>{children}</Providers>
       </body>
     </html>

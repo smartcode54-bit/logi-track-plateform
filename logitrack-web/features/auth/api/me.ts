@@ -1,21 +1,29 @@
 /**
- * `['me']`: the signed-in principal from `GET /v1/me` (developer-spec.md §10.6, §10.7; Appendix C
- * §C.8; Appendix E §E.4 last row, §E.6). Go resolves the role, scopes and the effective capability
+ * `['me']`: the signed-in principal from `GET /v1/me` (developer-spec.md §10.4, §10.6, §10.7; Appendix
+ * C §C.8; Appendix E §E.4 last row, §E.6). Go resolves the role, scopes and the effective capability
  * set (catalog defaults, then `role_capability_overrides`), so the web never reads
- * `permissions_config` and never derives permissions from Firebase claims again (R5, R27).
+ * `permissions_config` and never derives permissions from Firebase claims again (R5, R27). It replaced
+ * the Firebase auth listener, the per-load `setAdminClaims` call and the `users/{uid}` `forceLogoutAt`
+ * listener (T18, R50).
  *
  * - Signed out: on a public page Go answers 401 `unauthenticated` and the refresh is refused;
  *   `goFetch` throws that 401 without ending anything and the query resolves to `null`. On a
  *   protected page `goFetch` has already ended the session (lib/sessionEnd.ts) by then.
- * - Freshness: 5 min stale / 30 min gc; invalidated after a sign-in (context/auth.tsx `login`) and
- *   by a forced refresh after `claims_changed` (lib/queryClient.ts `bindQueryClientToSession`), set to
- *   `null` by a logout or a session end. Planned, not wired yet: the tenant switch (T18), the
- *   role-matrix save (`useSaveRoleMatrix`, T51/P6) and the realtime `roles.changed` event (TW5). The
- *   Role Matrix page still saves to Firestore `permissions_config`, which Go does not read in P0.
+ * - Freshness: 5 min stale / 30 min gc. A sign-in and a tenant switch set it from a fresh
+ *   `GET /v1/me` (context/auth.tsx `completeSignIn`, `switchTenant`); a forced refresh after
+ *   `claims_changed` invalidates it (lib/queryClient.ts `bindQueryClientToSession`) and the
+ *   AuthProvider awaits that refetch (`refetchMe`) before it mints the bridge token again; a
+ *   `session.revoked` for another session of the user checks it (`refetchMe`, context/realtime.tsx).
+ *   A logout or a session end sets it to `null`. Planned, not wired yet: the role-matrix save
+ *   (`useSaveRoleMatrix`, T51/P6) and the realtime `roles.changed` event (TW5). The Role Matrix page
+ *   still saves to Firestore `permissions_config`, which Go does not read in P0.
+ * - `['me','tenants']` (`GET /v1/me/tenants`, the tenant switcher) sits under the `['me']` prefix.
  *
- * The selectors below are pure, so components select only what they render (`useMe(select)`).
+ * Every read of `GET /v1/me` goes through `parseMe`, so a body without an id or a capability list is a
+ * `bad_response` wherever it is read. The selectors below are pure, so components select only what
+ * they render (`useMe(select)`, `useCan`, `useMyTenants` in ./useMe.ts).
  */
-import { queryOptions, type QueryFunctionContext } from "@tanstack/react-query";
+import { queryOptions, type QueryClient, type QueryFunctionContext } from "@tanstack/react-query";
 import { ApiError, isApiError } from "@/lib/apiError";
 import { goFetch } from "@/lib/goFetch";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
@@ -24,8 +32,19 @@ import { toCatalogKey } from "@/lib/capabilityAliases";
 import type { RoleId } from "@/lib/roles";
 
 export const ME_PATH = "/v1/me";
+export const MY_TENANTS_PATH = "/v1/me/tenants";
 
-/** A membership's tenant as `GET /v1/me` reports it (Go `auth.Tenant`). */
+/** Tenant roles (`memberships.role`, Appendix A `0002_identity`). */
+export const TENANT_ROLES = ["tenant_admin", "manager", "operation_staff", "operator", "user", "driver"] as const;
+export type TenantRole = (typeof TENANT_ROLES)[number];
+
+/** Platform roles (`user_platform_roles.role`). */
+export const PLATFORM_ROLES = ["platform_admin", "support"] as const;
+export type PlatformRole = (typeof PLATFORM_ROLES)[number];
+
+export type TenantKind = "own_fleet" | "carrier" | "quarantine";
+
+/** A membership's tenant as `GET /v1/me` reports it (Go `auth.Tenant`), and a row of `GET /v1/me/tenants`. */
 export interface MeTenant {
     id: string;
     nameTh: string;
@@ -34,6 +53,8 @@ export interface MeTenant {
     kind: string;
     /** `tenant_admin`, `manager`, `operation_staff`, `operator`, `user` or `driver`. */
     role: string;
+    /** Tenant status (`active`, `pending`, `suspended`); `GET /v1/me/tenants` only. */
+    status?: string;
 }
 
 export interface MeCustomerScope {
@@ -74,12 +95,14 @@ const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is
 
 function parseTenant(v: unknown): MeTenant | null {
     if (!isRecord(v) || typeof v.id !== "string") return null;
+    const status = str(v.status);
     return {
         id: v.id,
         nameTh: str(v.nameTh) ?? "",
         nameEn: str(v.nameEn),
         kind: str(v.kind) ?? "",
         role: str(v.role) ?? "",
+        ...(status ? { status } : {}),
     };
 }
 
@@ -115,10 +138,15 @@ export function parseMe(data: unknown): MeDTO {
     };
 }
 
+/** `GET /v1/me` read through `parseMe`; throws whatever `goFetch` throws (a sign-in or switch needs a principal). */
+export async function readMe(signal?: AbortSignal): Promise<MeDTO> {
+    return parseMe(await goFetch<unknown>(ME_PATH, { signal }));
+}
+
 /** `GET /v1/me`, or `null` for a signed-out visitor (a 401 that `goFetch` did not turn into a session end). */
 export async function fetchMe({ signal }: Pick<QueryFunctionContext, "signal">): Promise<MeDTO | null> {
     try {
-        return parseMe(await goFetch<unknown>(ME_PATH, { signal }));
+        return await readMe(signal);
     } catch (error) {
         if (isApiError(error) && error.status === 401) return null;
         throw error;
@@ -132,22 +160,66 @@ export const meQueryOptions = queryOptions({
     refetchOnWindowFocus: true,
 });
 
+/**
+ * Fetches `['me']` again now, whatever its age, and resolves with the result. A fetch already in flight
+ * (the `claims_changed` invalidation of lib/queryClient.ts) is joined, not repeated.
+ */
+export function refetchMe(client: QueryClient): Promise<MeDTO | null> {
+    return client.fetchQuery({ ...meQueryOptions, staleTime: 0 });
+}
+
+/** The rows of `GET /v1/me/tenants` (every active membership, with the tenant status). */
+export function parseMyTenants(data: unknown): MeTenant[] {
+    if (!Array.isArray(data)) throw new ApiError({ status: 200, code: "bad_response", message: "GET /v1/me/tenants without a list" });
+    return data.map(parseTenant).filter((t): t is MeTenant => t !== null);
+}
+
+/**
+ * `['me','tenants']`: every active membership with the tenant status (`GET /v1/me/tenants`), for the
+ * tenant switcher. Under the `['me']` prefix and reset with every other query when the principal
+ * changes (a sign-in as someone else, a tenant switch; lib/queryClient.ts `watchPrincipal`).
+ */
+export function myTenantsQueryOptions(enabled: boolean) {
+    return queryOptions({
+        queryKey: queryKeys.myTenants(),
+        queryFn: async ({ signal }) => parseMyTenants(await goFetch<unknown>(MY_TENANTS_PATH, { signal })),
+        ...QUERY_POLICY.me,
+        enabled,
+    });
+}
+
 // ---------------------------------------------------------------------------------------------
 // Selectors
 // ---------------------------------------------------------------------------------------------
 
 /** Whether the principal holds `capability` (a catalog key or a legacy id); false when signed out. */
-export function hasCapability(me: MeDTO | null | undefined, capability: CapabilityId | string): boolean {
+export function hasCapability(me: Pick<MeDTO, "capabilities"> | null | undefined, capability: CapabilityId | string): boolean {
     return !!me && me.capabilities.includes(toCatalogKey(capability));
 }
 
-export function isPlatformAdmin(me: MeDTO | null | undefined): boolean {
+export function isPlatformAdmin(me: Pick<MeDTO, "platformRoles"> | null | undefined): boolean {
     return !!me && me.platformRoles.includes("platform_admin");
+}
+
+/** Whether `me` holds any platform role (`platform_admin` or `support`): its reads may span tenants. */
+export function isPlatformPrincipal(me: Pick<MeDTO, "platformRoles"> | null | undefined): boolean {
+    return (me?.platformRoles?.length ?? 0) > 0;
 }
 
 /** A customer-scope principal without a membership: the legacy `customer` role (Appendix C §C.1.6). */
 export function isCustomerPrincipal(me: MeDTO | null | undefined): boolean {
     return !!me && !me.tenant && me.customerScopes.length > 0;
+}
+
+/** The display name of the principal: name, else email, else "". */
+export function meDisplayName(me: Pick<MeDTO, "displayName" | "email"> | null | undefined): string {
+    return me?.displayName?.trim() || me?.email || "";
+}
+
+/** The display name of a tenant in the active language. */
+export function tenantName(t: Pick<MeTenant, "nameTh" | "nameEn">, language: string): string {
+    if (language === "en" && t.nameEn) return t.nameEn;
+    return t.nameTh || t.nameEn || "";
 }
 
 /**

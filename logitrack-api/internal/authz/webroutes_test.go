@@ -237,6 +237,7 @@ func TestEveryRoleEveryRoute(t *testing.T) {
 		status    = "TAo PA PAt PAall SU SUall"                    // security:view_status (global; SU by its platform set)
 		release   = "TAo PA PAt PAall"                             // security:manage_mobile_release (global)
 		waitlist  = "TAo MGo PA PAt PAall"                         // waitlist:view (global)
+		platform  = "PA PAt PAall"                                 // platform:manage_tenants (platform_admin only)
 		none      = ""
 	)
 	want := map[string]string{
@@ -300,6 +301,8 @@ func TestEveryRoleEveryRoute(t *testing.T) {
 		"/app/drivers/edit":                  taMg,
 		"/app/drivers/view":                  staffAll,
 		"/app/chat/with-driver":              taMgOsOp,
+		// added by T18 (owner addition): the tenants page of the Security Center
+		"/app/security-center/tenants": platform,
 	}
 	legacy := legacyRoutes(t)
 	for path := range legacy {

@@ -55,6 +55,7 @@ var webRoutes = map[string][]Cap{
 	"/app/security-center/status":         {SecurityViewStatus},
 	"/app/security-center/mobile-clients": {SecurityViewMobileClients},
 	"/app/security-center/mobile-release": {SecurityManageMobileRel},
+	"/app/security-center/tenants":        {PlatformManageTenants}, // T18: platform admins onboard carrier tenants
 
 	// Utilities run backfills with billing impact: accounting:recompute_force (was security:view_overview);
 	// /app/utilities itself has no page and is no longer mapped.

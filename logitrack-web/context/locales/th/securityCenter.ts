@@ -356,4 +356,6 @@ export default {
     "securityCenter.mobileRelease.confirmAction": "บังคับอัปเดต",
     "securityCenter.mobileRelease.forced": "ตั้งเวอร์ชันขั้นต่ำเป็น {version} แล้ว",
     "securityCenter.mobileRelease.forceFailed": "ตั้งเวอร์ชันขั้นต่ำไม่สำเร็จ",
+    // Tenants page (T18)
+    "securityCenter.tenants": "ผู้ให้บริการขนส่ง (tenant)",
 };

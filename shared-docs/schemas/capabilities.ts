@@ -246,6 +246,7 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, readonly CapabilityKey[
   "/app/security-center/mobile-release": ["security:manage_mobile_release"],
   "/app/security-center/roles": ["security:manage_roles"],
   "/app/security-center/status": ["security:view_status"],
+  "/app/security-center/tenants": ["platform:manage_tenants"],
   "/app/security-center/users": ["users:view"],
   "/app/settings/company-profile": ["company:manage"],
   "/app/sources": ["operations:manage_sources"],

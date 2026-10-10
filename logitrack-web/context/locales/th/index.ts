@@ -22,6 +22,7 @@ import holidays from "./holidays";
 import about from "./about";
 import company from "./company";
 import driverCompensation from "./driverCompensation";
+import tenants from "./tenants";
 import apiErrors from "./apiErrors";
 import imagePreview from "./imagePreview";
 
@@ -45,6 +46,7 @@ const dictionary: Dictionary = {
     ...about,
     ...company,
     ...driverCompensation,
+    ...tenants,
     ...apiErrors,
     ...imagePreview,
 };

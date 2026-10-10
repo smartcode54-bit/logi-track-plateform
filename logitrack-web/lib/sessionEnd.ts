@@ -49,6 +49,16 @@ export function configureSessionEnd(options: { navigate?: (url: string) => void 
 }
 
 /**
+ * Tests only: forgets a navigation under way and a pending quiet end. Module state outlives a test,
+ * so without this every test after one that ended a session on a protected page would run with
+ * `endSession` as a silent no-op, and a "never signs out" assertion could not fail.
+ */
+export function resetSessionEndForTests(): void {
+    leaving = false;
+    quietEnd = undefined;
+}
+
+/**
  * The login URL that brings the user back here: `/login?next=<path+query>`, plus `reason=revoked`
  * when the session was revoked (admin revoke, disable, password change, refresh reuse). `next` is
  * always a same-origin path; on the login page itself it is left out.

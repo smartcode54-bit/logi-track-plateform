@@ -95,6 +95,28 @@ describe("goInfiniteQueryFn", () => {
         expect(calls.map((c) => c.url)).toContain("/api/go/v1/users?q=som&cursor=c2");
         expect(goNextPageParam(result.pages[1])).toBeUndefined();
     });
+
+    it("sends the headers derived from the key on every page (X-Act-On-Tenant of a platform read)", async () => {
+        handler = (c) =>
+            new URL(c.url, "http://web").searchParams.get("cursor") === null ? json(200, { data: [1], nextCursor: "c2" }) : json(200, { data: [2] });
+        const client = newClient();
+        type Key = readonly ["users", { reach: "all" | "tenant" }];
+        const options = {
+            queryKey: ["users", { reach: "all" }] as Key,
+            queryFn: goInfiniteQueryFn<number, Key>("/v1/users", {
+                headers: ([, p]) => (p.reach === "all" ? { "X-Act-On-Tenant": "*" } : undefined),
+            }),
+            initialPageParam: undefined as string | undefined,
+            getNextPageParam: goNextPageParam,
+        };
+        await client.fetchInfiniteQuery({ ...options, pages: 2 });
+        expect(calls).toHaveLength(2);
+        expect(calls.map((c) => c.headers.get("X-Act-On-Tenant"))).toEqual(["*", "*"]);
+
+        calls.length = 0;
+        await client.fetchInfiniteQuery({ ...options, queryKey: ["users", { reach: "tenant" }] as Key });
+        expect(calls[0].headers.has("X-Act-On-Tenant")).toBe(false);
+    });
 });
 
 describe("goMutationFn", () => {

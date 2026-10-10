@@ -131,8 +131,9 @@ export function resetSessionCache(client: QueryClient): void {
 }
 
 /**
- * Drops everything but `['me']` before a sign-in, so the next principal starts from an empty cache
- * whatever the tab held (`['me']` itself is refetched by the caller).
+ * Drops everything but `['me']` before a sign-in into a tab with no principal (context/auth.tsx
+ * `completeSignIn`; `watchPrincipal` resets the cache when `['me']` changes from one principal to
+ * another), so the next principal starts from an empty cache (`['me']` itself is set by the caller).
  */
 export function clearCacheExceptMe(client: QueryClient): void {
     void client.cancelQueries({ predicate: notMe });

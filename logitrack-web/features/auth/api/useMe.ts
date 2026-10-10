@@ -3,7 +3,7 @@
 import { useCallback } from "react";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import type { CapabilityId } from "@/lib/capabilities";
-import { hasCapability, meQueryOptions, type MeDTO } from "./me";
+import { hasCapability, meQueryOptions, myTenantsQueryOptions, type MeDTO } from "./me";
 
 /**
  * `['me']` (`GET /v1/me`): the signed-in principal, `null` when signed out. Pass a `select` to
@@ -24,4 +24,9 @@ export function useCan(capability: CapabilityId | string): { allowed: boolean; l
     const select = useCallback((me: MeDTO | null) => hasCapability(me, capability), [capability]);
     const { data, isPending } = useMe(select);
     return { allowed: data === true, loading: isPending };
+}
+
+/** `['me','tenants']` (`GET /v1/me/tenants`, the tenant switcher); disabled until a principal is signed in. */
+export function useMyTenants(enabled: boolean) {
+    return useQuery(myTenantsQueryOptions(enabled));
 }

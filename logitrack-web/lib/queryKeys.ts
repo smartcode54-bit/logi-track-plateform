@@ -53,6 +53,8 @@ function listKey<D extends string, P extends Params>(domain: D, params?: P) {
 
 export const queryKeys = {
     me: () => ["me"] as const,
+    /** `GET /v1/me/tenants` (the tenant switcher, T18): under the `['me']` prefix, same policy row. */
+    myTenants: () => ["me", "tenants"] as const,
     webFlags: () => ["webFlags"] as const,
     /** Sidebar and dashboard counters (`GET /v1/badges`; P0: one count query, Appendix E §E.5 row 19). */
     badges: () => ["badges"] as const,
@@ -178,6 +180,12 @@ export const queryKeys = {
         all: () => ["users"] as const,
         list: <P extends Params>(params: P) => ["users", params] as const,
         sessions: (id: string) => ["users", "sessions", id] as const,
+    },
+    /** The tenants page and pickers of T18 (`GET /v1/tenants`, `/v1/tenants/{id}/members`). */
+    tenants: {
+        all: () => ["tenants"] as const,
+        list: <P extends Params>(params: P) => ["tenants", params] as const,
+        members: <P extends Params>(tenantId: string, params: P) => ["tenants", tenantId, "members", params] as const,
     },
     apiKeys: () => ["apiKeys"] as const,
     installations: {

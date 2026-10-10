@@ -2,11 +2,11 @@
 
 import { useAuth } from "@/context/auth";
 import { usePathname } from "next/navigation";
-import { getRole } from "@/lib/permissions";
 import { useEffect, useState } from "react";
-import { useMe } from "@/features/auth/api/useMe";
+import { TenantSwitcher } from "@/components/tenant-switcher";
+import { meDisplayName } from "@/features/auth/api/me";
+import { principalRoleLabel } from "@/features/auth/utils/principalLabel";
 import { RouteNamespaces } from "@/context/locales/RouteNamespaces";
-import Navigation from "@/components/navigation";
 import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SecurityCenterSidebar } from "@/components/security-center-sidebar";
@@ -93,16 +93,14 @@ export default function AdminLayout({
     children: React.ReactNode;
 }) {
     const authContext = useAuth();
-    const currentUser = authContext?.currentUser;
     const pathname = usePathname();
     const { language, setLanguage, t } = useLanguage();
     // `['me']` decides who is signed in: proxy.ts let this route through on a valid `lt_at`, and a
     // session that ends later is handled by goFetch (lib/sessionEnd.ts), which leaves for /login.
-    const meQuery = useMe();
     const me = authContext?.me ?? null;
-    const userName = me?.displayName || me?.email || currentUser?.displayName || currentUser?.email || "User";
-    const userEmail = me?.email || currentUser?.email || "";
-    const userPhoto = me?.photoUrl || currentUser?.photoURL || "";
+    const userName = meDisplayName(me) || "User";
+    const userEmail = me?.email || "";
+    const userPhoto = me?.photoUrl || "";
 
     const isDashboard = pathname === "/app/dashboard";
     const isSecurityCenter = pathname?.startsWith("/app/security-center");
@@ -137,6 +135,19 @@ export default function AdminLayout({
         window.dispatchEvent(new Event('themechange'));
     };
 
+    // A session that ends meanwhile is taken to /login by lib/sessionEnd.ts; an api that cannot be
+    // reached shows a retry instead of a sign-out (T18).
+    if (authContext?.error && !me) {
+        return (
+            <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4 p-6 text-center" role="alert">
+                <p className="text-muted-foreground">{t("shell.sessionLoadFailed")}</p>
+                <button type="button" className="rounded-md border px-4 py-2 text-sm hover:bg-accent" onClick={authContext.retry}>
+                    {t("shell.retry")}
+                </button>
+            </div>
+        );
+    }
+
     if (!authContext || authContext.loading) {
         return (
             <div className="min-h-screen bg-background flex flex-col items-center justify-center">
@@ -149,20 +160,6 @@ export default function AdminLayout({
     }
 
     if (!me) {
-        if (meQuery.isError) {
-            return (
-                <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4 p-6 text-center" role="alert">
-                    <p className="text-muted-foreground">{t("shell.sessionLoadFailed")}</p>
-                    <button
-                        type="button"
-                        className="rounded-md border px-4 py-2 text-sm hover:bg-accent"
-                        onClick={() => void meQuery.refetch()}
-                    >
-                        {t("shell.retry")}
-                    </button>
-                </div>
-            );
-        }
         return null; // The session ended: goFetch is already on its way to /login.
     }
 
@@ -229,6 +226,8 @@ export default function AdminLayout({
                         </div>
 
                         <div className="flex items-center gap-4 px-4">
+                            <TenantSwitcher />
+
                             {isDashboard && (
                                 <div className="flex items-center gap-2">
                                     <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider hidden md:inline-block">Real-Time Operations</span>
@@ -294,7 +293,7 @@ export default function AdminLayout({
                                         <div className="text-right hidden sm:block">
                                             <p className="text-sm font-medium leading-none">{userName}</p>
                                             <p className="text-xs text-muted-foreground mt-1 capitalize">
-                                                {(getRole(authContext.customClaims ?? null) || "user").replace(/_/g, " ")}
+                                                {principalRoleLabel(authContext.me, t, language)}
                                             </p>
                                         </div>
                                         <Avatar className="h-9 w-9 border border-border">
@@ -313,9 +312,9 @@ export default function AdminLayout({
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem className="text-red-500 focus:text-red-500" onClick={async () => {
                                         await authContext.logout();
-                                        window.location.href = "/";
+                                        window.location.href = "/login";
                                     }}>
-                                        Log out
+                                        {t("nav.logout")}
                                     </DropdownMenuItem>
                                 </DropdownMenuContent>
                             </DropdownMenu>
