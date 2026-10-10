@@ -28,6 +28,7 @@ export default {
     "auth.waitlist.successToast": "Successfully joined the waitlist!",
     "auth.waitlist.errorToast": "Failed to join waitlist. Please try again.",
     "auth.continueWithGoogle": "Continue with Google",
+    "auth.sso": "Enterprise sign-in (SSO)",
     "auth.termsPrefix": "By signing in, you agree to our",
     "auth.terms": "Terms of Service",
     "auth.and": "and",
