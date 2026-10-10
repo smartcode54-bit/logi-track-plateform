@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
+import dynamic from "next/dynamic";
 import { collection, query, orderBy, onSnapshot, doc, Timestamp } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "@/firebase/client";
@@ -64,11 +65,14 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-import FullCalendar from "@fullcalendar/react";
-import dayGridPlugin from "@fullcalendar/daygrid";
-import multiMonthPlugin from "@fullcalendar/multimonth";
-import interactionPlugin from "@fullcalendar/interaction";
-import listPlugin from "@fullcalendar/list";
+import type FullCalendar from "@fullcalendar/react";
+import { Skeleton } from "@/components/ui/skeleton";
+
+// FullCalendar loads after the page, in its own chunk (developer-spec.md §10.11).
+const HolidayCalendar = dynamic(() => import("@/features/holidays/components/HolidayCalendar"), {
+    ssr: false,
+    loading: () => <Skeleton className="h-[640px] w-full rounded-lg" />,
+});
 
 export default function HolidaysPage() {
     const { t, language } = useLanguage();
@@ -546,9 +550,8 @@ export default function HolidaysPage() {
                     ) : (
                         <Card className="p-4 bg-card border-border shadow-md rounded-xl">
                             <div className="calendar-container">
-                                <FullCalendar
-                                    ref={calendarRef}
-                                    plugins={[dayGridPlugin, multiMonthPlugin, interactionPlugin, listPlugin]}
+                                <HolidayCalendar
+                                    calendarRef={calendarRef}
                                     initialView={view === "year" ? "multiMonthYear" : "dayGridMonth"}
                                     headerToolbar={{
                                         left: "prev,next today",
