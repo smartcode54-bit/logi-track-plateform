@@ -2,8 +2,9 @@
 // and users (main spec §2.3). From T07 it holds the per-request authorization of every authenticated
 // request (RBAC): the capability resolution of Appendix C §C.2 with role overrides cached under the
 // matrix version rbac:ver, the steward flag and contractor reach of §C.3.4 (R60), and cross-tenant
-// acting through X-Act-On-Tenant with its audit row (§C.3.9). The users administration API joins
-// with T19, the role matrix API with T51.
+// acting through X-Act-On-Tenant with its audit row (§C.3.9). T19 adds the users and tenants administration
+// (Admin, AdminGroups: /v1/users*, /v1/tenants*, Appendix C §C.8) and the platform bootstrap of cmd/seed
+// (BootstrapPlatformAdmins, ApplyBootstrapAdmin); the role matrix API joins with T51.
 //
 // iam reads the platform-only identity tables, so it is one of the packages allowed to call
 // db.WithSystem (tools/analyzers/withsystem).

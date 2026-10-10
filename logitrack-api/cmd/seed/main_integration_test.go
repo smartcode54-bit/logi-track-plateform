@@ -178,9 +178,10 @@ func TestSmokeLoadVerifyTwice(t *testing.T) {
 	if !strings.Contains(first.stdout, "286") && !strings.Contains(first.stdout, "285 rows") {
 		t.Errorf("load summary does not report the 285 seeded rows:\n%s", first.stdout)
 	}
-	if !strings.Contains(first.stdout, "temporary password of d7.kitti@logitrack.test") {
-		t.Errorf("the temporary password of the must-change-password user is not shown once:\n%s", first.stdout)
+	if !strings.Contains(first.stdout, "d7.kitti@logitrack.test was created with a temporary password") {
+		t.Errorf("the load does not say that the must-change-password user got a temporary password:\n%s", first.stdout)
 	}
+	s.temporaryPasswordNotPrinted(t, first)
 	v1 := s.mustSeed(t, "--verify")
 	if n := len(passLine.FindAllString(v1.stdout, -1)); n != 12 {
 		t.Fatalf("%d of 12 invariants pass:\n%s", n, v1.stdout)
@@ -439,20 +440,21 @@ func TestLoadProfile(t *testing.T) {
 	}
 }
 
-// Upsert on an already seeded database inserts nothing and keeps the fingerprint; it prints no temporary
-// password, since the stored one is that of the load that inserted the user.
+// Upsert on an already seeded database inserts nothing and keeps the fingerprint; no load prints the temporary
+// password (owner addition to T19: stdout reaches CI logs).
 func TestUpsertIsIdempotent(t *testing.T) {
 	s := newStack(t, "local")
 	first := s.mustSeed(t)
-	if !strings.Contains(first.stdout, "temporary password of d7.kitti@logitrack.test") {
-		t.Errorf("the load that inserts d7.kitti does not show its temporary password:\n%s", first.stdout)
+	if !strings.Contains(first.stdout, "d7.kitti@logitrack.test was created with a temporary password") {
+		t.Errorf("the load that inserts d7.kitti does not say so:\n%s", first.stdout)
 	}
+	s.temporaryPasswordNotPrinted(t, first)
 	before := fingerprintBlock(t, s.mustSeed(t, "--verify").stdout)
 	r := s.mustSeed(t, "--mode", "upsert")
 	if !strings.Contains(r.stdout, ": 0 rows") {
 		t.Errorf("upsert on a seeded database wrote rows:\n%s", r.stdout)
 	}
-	if strings.Contains(r.stdout, "temporary password of") || !strings.Contains(r.stdout, "d7.kitti@logitrack.test already exists: its password is unchanged") {
+	if strings.Contains(r.stdout, "created with a temporary password") || !strings.Contains(r.stdout, "d7.kitti@logitrack.test already exists: its password is unchanged") {
 		t.Errorf("an upsert that inserts no user printed a temporary password, or said nothing:\n%s", r.stdout)
 	}
 	if after := fingerprintBlock(t, s.mustSeed(t, "--verify").stdout); after != before {

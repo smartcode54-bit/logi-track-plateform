@@ -114,8 +114,8 @@ type Plan struct {
 	Objects  []*Object
 	// TemporaryPassword is the temporary password of the must-change-password fixture user, drawn from
 	// crypto/rand for every materialized plan like the real POST /v1/users/{id}/password/temporary (never from
-	// SEED_RANDOM_SEED or the namespace, which are public) and shown once by the load that inserts the user;
-	// empty when not materialized. TemporaryUserID and TemporaryEmail name that user.
+	// SEED_RANDOM_SEED or the namespace, which are public); never printed (T19 owner addition), written only to
+	// --temporary-password-file by the load that inserts the user; empty when not materialized. TemporaryUserID and TemporaryEmail name that user.
 	TemporaryPassword string
 	TemporaryUserID   string
 	TemporaryEmail    string
@@ -254,7 +254,7 @@ type creds struct {
 }
 
 // temporaryHashExpr is the computed password_hash of the must-change-password fixture user (U_D7).
-const temporaryHashExpr = "argon2id(temporary password, shown once)"
+const temporaryHashExpr = "argon2id(temporary password, never printed)"
 
 // credentials hashes SEED_DEFAULT_PASSWORD and the fixture's temporary password once (every password user
 // shares the hash of its password, which keeps the load fast; a user's salt is not secret), and computes the

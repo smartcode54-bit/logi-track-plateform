@@ -1,5 +1,6 @@
 // Command etl moves Firestore and Cloud Storage into PostgreSQL 18 and MinIO (developer-spec.md §13, Appendix A
-// §A.3): dump, load, reconcile, export-back, media-copy, rewrite-urls, quarantine list|resolve and status. It runs
+// §A.3): dump, load, reconcile, export-back, media-copy, rewrite-urls, quarantine list|resolve and status; and the
+// users ETL of T19 (Appendix C §C.5): auth-import and auth-weak-scan. It runs
 // as logitrack_etl through ETL_DATABASE_URL (BYPASSRLS, R66) inside db.WithSystem with app.etl_load on, and refuses
 // to start without OWN_FLEET_TENANT_ID (R56).
 package main
@@ -70,6 +71,16 @@ Database (ETL_DATABASE_URL, logged in as logitrack_etl):
   status
         watermarks, lag, outcome counts and open findings per collection
 
+Users (T19, Appendix C §C.5; PLATFORM_ADMIN_EMAILS, FIREBASE_SCRYPT_* for the scan):
+  auth-import --export=FILE [--dump=DIR|s3:etl/dumps/{ts} | --fixtures] [--default-member-domain=DOMAIN]
+       [--exported-at=RFC3339] [--report=FILE] [--refresh-legacy] [--dry-run]
+        firebase auth:export + users documents -> users, identities, memberships, scopes, driver links, device
+        tokens; migration_users_report.csv; idempotent (existing uids are skipped); never grants platform_admin
+  auth-weak-scan (--candidates-file=FILE | --with-mobile [--dump=DIR|s3:etl/dumps/{ts}]) [--report=FILE] [--dry-run]
+        flags every account whose legacy hash matches a candidate (must_change_password); run it before the P0
+        cut-over (a Go sign-in replaces the legacy hash); --dump gives --with-mobile the drivers not loaded yet;
+        never prints a candidate
+
 Exit codes: 0 ok, 1 runtime error, 2 configuration error, mismatch, refusal or an aborted load (R19).
 `
 
@@ -114,7 +125,7 @@ func run(ctx context.Context, args, environ []string, stdout, stderr io.Writer, 
 	commands := map[string]func(*env, []string) int{
 		"dump": cmdDump, "load": cmdLoad, "reconcile": cmdReconcile, "export-back": cmdExportBack, "media-copy": cmdMediaCopy,
 		"rewrite-urls": cmdRewriteURLs, "quarantine list": cmdQuarantineList, "quarantine resolve": cmdQuarantineResolve,
-		"status": cmdStatus,
+		"status": cmdStatus, "auth-import": cmdAuthImport, "auth-weak-scan": cmdAuthWeakScan,
 	}
 	fn, ok := commands[cmd]
 	if !ok {

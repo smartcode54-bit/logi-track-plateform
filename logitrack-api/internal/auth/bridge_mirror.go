@@ -170,6 +170,40 @@ func (s *Service) SetStatusInTx(ctx context.Context, tx pgx.Tx, c StatusChange) 
 	return pc, nil
 }
 
+// MirrorEmailInTx writes the user's current email to its Firebase account (PATCH /v1/users/{id}, T19)
+// inside the caller's WithSystem transaction, after the users row was updated, so an installed APK and
+// the legacy pages sign in with the new address. A user without a Firebase uid, or whose uid Firebase
+// does not know, has nothing to update. Another Firebase account holding the address is 409
+// already_exists (details.reason firebase_account_exists, never its uid); any other failure is 503
+// bridge_unavailable. Either rolls the caller's transaction back. A no-op while the mode is off.
+func (s *Service) MirrorEmailInTx(ctx context.Context, tx pgx.Tx, uid uuid.UUID) error {
+	if !s.fb.Mode.Mirror() {
+		return nil
+	}
+	u, err := authdb.New(tx).GetBridgeUser(ctx, uid)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return httpx.ErrNotFound()
+	}
+	if err != nil {
+		return err
+	}
+	if u.LegacyAuthUid == nil || u.Email == nil {
+		return nil
+	}
+	mctx, cancel := context.WithTimeout(ctx, mirrorTimeout)
+	defer cancel()
+	err = s.fb.Accounts.Update(mctx, *u.LegacyAuthUid, firebase.Update{Email: u.Email})
+	switch {
+	case err == nil, errors.Is(err, firebase.ErrUserNotFound):
+		return nil
+	case errors.Is(err, firebase.ErrEmailExists):
+		s.log.Warn().Str("user_id", uid.String()).Msg("auth: another Firebase account holds the new email of a user")
+		return errFirebaseEmailTaken()
+	default:
+		return s.mirrorFailed("email", err)
+	}
+}
+
 // TemporaryPassword is an admin-issued temporary password: POST /v1/users/{id}/password/temporary
 // (T19, R29). Password and Hash come from NewTemporaryPassword.
 type TemporaryPassword struct {

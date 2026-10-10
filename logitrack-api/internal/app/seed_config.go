@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/firebasescrypt"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/clock"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
@@ -17,7 +18,8 @@ import (
 // has one job (R87): ETL_DATABASE_URL (logitrack_etl) for every write and the --verify reads,
 // MIGRATE_DATABASE_URL (logitrack_migrator) for --reset's TRUNCATE and the schema-version check,
 // DATABASE_URL (logitrack_app) for the --verify isolation role-play. Which ones a command needs is checked
-// by cmd/seed, so --dry-run runs without any. SEED_DEFAULT_PASSWORD is a secret: hashed, never printed.
+// by cmd/seed, so --dry-run runs without any. SEED_DEFAULT_PASSWORD and BOOTSTRAP_ADMIN_PASSWORD are secrets:
+// hashed, never printed.
 type SeedConfig struct {
 	Common
 	Storage
@@ -43,13 +45,21 @@ type SeedConfig struct {
 	SeedAnchorDate          string `env:"SEED_ANCHOR_DATE"`
 	SeedNamespace           string `env:"SEED_NAMESPACE"`
 	SeedDefaultPassword     string `env:"SEED_DEFAULT_PASSWORD"`
+	// PlatformAdminEmails is read by `seed bootstrap-platform-admins` and `seed --bootstrap-admin` (T19).
+	PlatformAdminEmails string `env:"PLATFORM_ADMIN_EMAILS"`
+	// BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD (secret: hashed, never printed) are the super admin of a
+	// fresh deployment (`seed --bootstrap-admin`, T19 owner addition); PASSWORD_MIN_LENGTH bounds the password.
+	BootstrapAdminEmail    string `env:"BOOTSTRAP_ADMIN_EMAIL"`
+	BootstrapAdminPassword string `env:"BOOTSTRAP_ADMIN_PASSWORD"`
+	PasswordMinLength      int    `env:"PASSWORD_MIN_LENGTH" envDefault:"10"`
 
 	// Parsed by Validate.
-	Scrypt     *firebasescrypt.Params `env:"-"`
-	OwnFleet   *uuid.UUID             `env:"-"`
-	Namespace  uuid.UUID              `env:"-"` // uuid.Nil = the default namespace
-	RandomSeed uint64                 `env:"-"` // 0 = the default seed
-	Anchor     time.Time              `env:"-"` // zero = the default anchor
+	Scrypt      *firebasescrypt.Params `env:"-"`
+	OwnFleet    *uuid.UUID             `env:"-"`
+	Namespace   uuid.UUID              `env:"-"` // uuid.Nil = the default namespace
+	RandomSeed  uint64                 `env:"-"` // 0 = the default seed
+	Anchor      time.Time              `env:"-"` // zero = the default anchor
+	AdminEmails []string               `env:"-"` // PLATFORM_ADMIN_EMAILS, lower-cased
 }
 
 // Validate implements config.Validator. Messages name variables, never values.
@@ -107,6 +117,14 @@ func (c *SeedConfig) Validate() error {
 			errs = append(errs, config.Invalidf("SEED_ANCHOR_DATE", "must be a date YYYY-MM-DD"))
 		}
 		c.Anchor = d
+	}
+	emails, bad := iam.ParseEmails(c.PlatformAdminEmails)
+	if len(bad) > 0 {
+		errs = append(errs, config.Invalidf("PLATFORM_ADMIN_EMAILS", "must be a comma list of email addresses"))
+	}
+	c.AdminEmails = emails
+	if c.PasswordMinLength < 8 || c.PasswordMinLength > 128 {
+		errs = append(errs, config.Invalidf("PASSWORD_MIN_LENGTH", "must be between 8 and 128"))
 	}
 	if c.SeedNamespace != "" {
 		ns, err := uuid.Parse(c.SeedNamespace)

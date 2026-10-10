@@ -1,6 +1,6 @@
 //go:build integration
 
-// Integration tests of T07 (Appendix C §C.9.1, §C.9.2): PostgreSQL 18 with the full goose chain
+// Integration tests of T07 (Appendix C §C.9.1, §C.9.2) and T19 (the users and tenants administration): PostgreSQL 18 with the full goose chain
 // (pgtest, requests as logitrack_app), Redis 7 (cachetest), the real auth service issuing tokens, and the
 // RBAC authorizer completing every request. Test routes under /v1/rbactest run their SQL in
 // db.WithPrincipal, so RLS decides with the GUCs a real request sets.
@@ -79,6 +79,12 @@ type world struct {
 
 func newWorld(t *testing.T) *world {
 	t.Helper()
+	return newWorldWith(t, auth.Firebase{})
+}
+
+// newWorldWith is newWorld whose auth service runs the Firebase bridge fb (T19 mirror tests).
+func newWorldWith(t *testing.T, fb auth.Firebase) *world {
+	t.Helper()
 	ctx := context.Background()
 	d := pgtest.NewDatabase(t)
 	if _, err := migratetest.Runner(t, d, migrations.FS).Up(ctx); err != nil {
@@ -121,13 +127,19 @@ func newWorld(t *testing.T) *world {
 	}, auth.Deps{
 		Pool: w.pool, Store: auth.NewStore(w.rdb, ks.Prefix()), Limiter: ratelimit.New(w.rdb, ks, zerolog.Nop()),
 		Keys: token.New(priv, "http://localhost:8080", "logitrack-test", 15*time.Minute), Hasher: hasher,
-		Policy: policy, Log: zerolog.Nop(), Capabilities: w.rbac, Authorizer: w.rbac,
+		Policy: policy, Log: zerolog.Nop(), Capabilities: w.rbac, Authorizer: w.rbac, Firebase: fb,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(svc.Close)
+	// The users and tenants administration of T19 (/v1/users*, /v1/tenants*).
+	admin, err := iam.NewAdmin(iam.AdminDeps{Pool: w.pool, Auth: svc, Log: zerolog.Nop()})
+	if err != nil {
+		t.Fatal(err)
+	}
 	groups := append(svc.Groups(), iam.RoleGroups(svc.RequireAuth())...)
+	groups = append(groups, iam.AdminGroups(admin, svc.RequireAuth())...)
 	groups = append(groups, ingress.Group{Prefix: "/v1/rbactest", Mount: w.testRoutes(svc.RequireAuth())})
 	cfg := &app.APIConfig{
 		Common:       app.Common{AppEnv: "local", LogLevel: "error", LogFormat: "json", OTelSamplerArg: 1},

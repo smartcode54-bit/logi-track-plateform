@@ -205,7 +205,8 @@ sql:
               type: Time
               pointer: true
   # T07: inputs of the per-request authorization (role overrides, own fleet, contractor reach), read by the
-  # RBAC service under db.WithSystem (Appendix C §C.2.5, §C.3.4).
+  # RBAC service under db.WithSystem (Appendix C §C.2.5, §C.3.4). T19: users and tenants administration and the
+  # platform bootstrap (Appendix C §C.8, §C.5.5).
   - name: iam
     engine: postgresql
     schema: migrations
@@ -226,6 +227,14 @@ sql:
             go_type:
               import: github.com/google/uuid
               type: UUID
+              pointer: true
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              import: time
+              type: Time
               pointer: true
   # T12: the audience of a chat for an explicit chat:{id} SSE topic, read under db.WithPrincipal (RLS decides).
   - name: sse
