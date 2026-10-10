@@ -91,7 +91,8 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
         let current = true;
         loadDictionary(language).then(
             (dictionary) => {
-                if (current) setState({ language, dictionary });
+                // Re-choosing the current language keeps the same value, so `t` stays the same too.
+                if (current) setState((prev) => (prev?.dictionary === dictionary ? prev : { language, dictionary }));
             },
             (error) => {
                 if (!current) return;

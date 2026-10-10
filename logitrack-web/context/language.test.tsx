@@ -114,6 +114,20 @@ describe("LanguageProvider", () => {
         expect(screen.getByTestId("text")).toHaveTextContent("Hello Ann");
     });
 
+    it("keeps t() when the current language is chosen again", async () => {
+        const user = userEvent.setup();
+        const seen = new Set<unknown>();
+        function TrackT() {
+            seen.add(useLanguage().t);
+            return null;
+        }
+        render(<LanguageProvider><Probe /><TrackT /></LanguageProvider>);
+        await settle("en");
+        await user.click(screen.getByRole("button", { name: "to en" }));
+        await settle("en");
+        expect(seen.size).toBe(1);
+    });
+
     it("falls back to English, then shows a reload screen, when dictionaries cannot load", async () => {
         stored = "th";
         vi.spyOn(console, "error").mockImplementation(() => undefined);
