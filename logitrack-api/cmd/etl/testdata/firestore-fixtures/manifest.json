@@ -1,0 +1,73 @@
+{
+  "format": "logitrack-etl-dump/1",
+  "exportedAt": "2026-10-01T00:00:00Z",
+  "projectId": "logitrack-fixtures",
+  "databaseId": "(default)",
+  "collections": [
+    {
+      "name": "settings",
+      "file": "settings.ndjson",
+      "count": 1
+    },
+    {
+      "name": "subcontractors",
+      "file": "subcontractors.ndjson",
+      "count": 2
+    },
+    {
+      "name": "customers",
+      "file": "customers.ndjson",
+      "count": 3
+    },
+    {
+      "name": "trucks",
+      "file": "trucks.ndjson",
+      "count": 4
+    },
+    {
+      "name": "drivers",
+      "file": "drivers.ndjson",
+      "count": 4
+    },
+    {
+      "name": "tasks",
+      "file": "tasks.ndjson",
+      "count": 7
+    },
+    {
+      "name": "trip_records",
+      "file": "trip_records.ndjson",
+      "count": 7
+    },
+    {
+      "name": "standby_records",
+      "file": "standby_records.ndjson",
+      "count": 2
+    },
+    {
+      "name": "incidentReport",
+      "file": "incidentReport.ndjson",
+      "count": 2
+    },
+    {
+      "name": "vehicle_expenses",
+      "file": "vehicle_expenses.ndjson",
+      "count": 4
+    },
+    {
+      "name": "maintenance",
+      "file": "maintenance.ndjson",
+      "count": 2
+    },
+    {
+      "name": "checkin",
+      "file": "checkin.ndjson",
+      "count": 1
+    },
+    {
+      "name": "legacy_tmp",
+      "file": "legacy_tmp.ndjson",
+      "count": 1
+    }
+  ]
+}

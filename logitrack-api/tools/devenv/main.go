@@ -12,6 +12,8 @@ import (
 	"os"
 	"sort"
 
+	"github.com/google/uuid"
+
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/tools/internal/dotenv"
 )
 
@@ -79,11 +81,23 @@ func main() {
 		"FIREBASE_SCRYPT_ROUNDS":         "8",
 		"FIREBASE_SCRYPT_MEM_COST":       "14",
 	}
+	// The local own-fleet tenant (R56): cmd/etl and cmd/seed refuse to start without it. A fresh uuid per new
+	// .env; FORCE=1 keeps the old one, because the database volume already holds that own-fleet row.
+	ownFleet, err := uuid.NewV7()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "devenv:", err)
+		os.Exit(1)
+	}
+	set["OWN_FLEET_TENANT_ID"] = ownFleet.String()
 	// Keep the key id of an existing .env so FORCE=1 does not orphan the
 	// signing key written by `make dev-keys`.
 	if old, err := dotenv.Read(*dst); err == nil {
-		if kid := dotenv.Map(old)["JWT_ACTIVE_KID"]; kid != "" {
+		m := dotenv.Map(old)
+		if kid := m["JWT_ACTIVE_KID"]; kid != "" {
 			set["JWT_ACTIVE_KID"] = kid
+		}
+		if id := m["OWN_FLEET_TENANT_ID"]; id != "" {
+			set["OWN_FLEET_TENANT_ID"] = id
 		}
 	}
 	for k := range set {
