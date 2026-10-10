@@ -38,6 +38,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
 )
 
 // Fixed rules of Appendix C (code constants; changing one is a code change reviewed with the security
@@ -56,33 +57,21 @@ const (
 	LockoutWindow    = 15 * time.Minute
 )
 
-// Limit is a fixed-window request budget.
-type Limit struct {
-	Count  int
-	Window time.Duration
-}
-
-// Request buckets of Appendix B §B.6.3 used by the auth routes. login_ip comes from RATE_LIMIT_LOGIN;
-// the others are code constants.
-var (
-	limitRefreshSession = Limit{60, time.Minute}
-	limitForgotEmail    = Limit{3, time.Hour}
-	limitForgotIP       = Limit{20, time.Hour}
-	limitResetIP        = Limit{10, time.Hour}
-	limitSSETicket      = Limit{30, time.Minute}
-	limitGoogleIP       = Limit{30, time.Minute}
-	limitGoogleNonceIP  = Limit{60, time.Minute}
-)
-
 // Config is the auth part of the api configuration (JWT_*, REFRESH_TOKEN_TTL_*, PASSWORD_*, ARGON2_*,
-// FIREBASE_SCRYPT_*, RATE_LIMIT_*; main spec §16.1).
+// FIREBASE_SCRYPT_*; main spec §16.1). RATE_LIMIT_ENABLED and RATE_LIMIT_LOGIN are parsed once, by
+// ratelimit.Config in the process configuration, which hands their values over.
 type Config struct {
 	RefreshTTLWeb    time.Duration          // REFRESH_TOKEN_TTL_WEB: sliding, capped by WebAbsoluteTTL
 	RefreshTTLMobile time.Duration          // REFRESH_TOKEN_TTL_MOBILE: absolute, no sliding
 	PasswordResetTTL time.Duration          // PASSWORD_RESET_TTL
 	Scrypt           *firebasescrypt.Params // nil: legacy hashes cannot be verified
-	RateLimitEnabled bool                   // RATE_LIMIT_ENABLED: the request buckets (the lockout always applies)
-	LoginIP          Limit                  // RATE_LIMIT_LOGIN
+	// RateLimitEnabled is RATE_LIMIT_ENABLED: it switches the request buckets of the auth routes; the
+	// login_fail lockout applies whatever it says (C.4.12).
+	RateLimitEnabled bool
+	// LoginIP is the login_ip limit, ratelimit.Config.Limit(ratelimit.LoginIP) (RATE_LIMIT_LOGIN); the
+	// zero value means the bucket's design default. The other auth buckets are code constants
+	// (ratelimit.Bucket.Default).
+	LoginIP ratelimit.Limit
 }
 
 // CapabilityResolver returns the effective capability keys of a principal for GET /v1/me. The catalog,
@@ -100,8 +89,12 @@ type GoogleVerifier interface {
 
 // Deps are the collaborators of the service.
 type Deps struct {
-	Pool         db.Beginner
-	Store        *Store
+	Pool  db.Beginner
+	Store *Store
+	// Limiter is the process's shared GCRA limiter (internal/platform/httpx/ratelimit): the request
+	// buckets of the auth routes run through it, so every api replica and every route that limits the
+	// same bucket and subject spends one budget (Appendix C §C.4.12).
+	Limiter      *ratelimit.Limiter
 	Keys         *token.KeySet
 	Hasher       *password.Hasher
 	Policy       password.Policy
@@ -116,6 +109,7 @@ type Service struct {
 	cfg      Config
 	pool     db.Beginner
 	store    *Store
+	limiter  *ratelimit.Limiter
 	keys     *token.KeySet
 	hasher   *password.Hasher
 	policy   password.Policy
@@ -134,8 +128,8 @@ type Service struct {
 
 // New builds the service.
 func New(cfg Config, d Deps) (*Service, error) {
-	if d.Pool == nil || d.Store == nil || d.Keys == nil || d.Hasher == nil {
-		return nil, errors.New("auth: pool, store, keys and hasher are required")
+	if d.Pool == nil || d.Store == nil || d.Limiter == nil || d.Keys == nil || d.Hasher == nil {
+		return nil, errors.New("auth: pool, store, limiter, keys and hasher are required")
 	}
 	if d.Policy.MinLength < 8 {
 		return nil, errors.New("auth: a password policy (password.NewPolicy) is required")
@@ -143,11 +137,15 @@ func New(cfg Config, d Deps) (*Service, error) {
 	if cfg.RefreshTTLWeb <= 0 || cfg.RefreshTTLMobile <= 0 || cfg.PasswordResetTTL <= 0 {
 		return nil, errors.New("auth: token lifetimes must be positive")
 	}
-	if cfg.RateLimitEnabled && (cfg.LoginIP.Count < 1 || cfg.LoginIP.Window <= 0) {
-		return nil, errors.New("auth: RATE_LIMIT_LOGIN must be count/window")
+	if cfg.LoginIP == (ratelimit.Limit{}) {
+		cfg.LoginIP = ratelimit.LoginIP.Default
+	}
+	// Checked here, so the limiter never answers ErrInvalidLimit at request time.
+	if !cfg.LoginIP.Valid() {
+		return nil, errors.New("auth: RATE_LIMIT_LOGIN must be count/window with window/count of at least 1µs")
 	}
 	s := &Service{
-		cfg: cfg, pool: d.Pool, store: d.Store, keys: d.Keys, hasher: d.Hasher, policy: d.Policy,
+		cfg: cfg, pool: d.Pool, store: d.Store, limiter: d.Limiter, keys: d.Keys, hasher: d.Hasher, policy: d.Policy,
 		log: d.Log, caps: d.Capabilities, google: d.Google, now: d.Now,
 		fallback: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "auth_revocation_fallback_total",
@@ -221,8 +219,9 @@ func secretHash(v string) (sum []byte, hexSum string, ok bool) {
 	return h[:], hex.EncodeToString(h[:]), true
 }
 
-// emailSubject keys the per-email buckets by sha256 of the lower-cased address, so Redis never holds
-// the email itself.
+// emailSubject keys the login_fail lockout (rl:login_fail:{sha256hex}) by the full sha256 of the
+// normalised address, so Redis never holds the email itself. The forgot_email bucket passes the
+// normalised address to the limiter instead, which keys it by a sha256 prefix (ratelimit.SubjectKey).
 func emailSubject(email string) string {
 	h := sha256.Sum256([]byte(normalizeEmail(email)))
 	return hex.EncodeToString(h[:])

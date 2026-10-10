@@ -24,6 +24,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/firebasescrypt"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
 )
 
 // flaky is a go-redis hook that fails every command while down is set: a Redis that cannot take the
@@ -61,7 +62,9 @@ func (f *flaky) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.Proces
 func (h *harness) replica(cfg auth.Config) (*auth.Service, *flaky, *prometheus.Registry) {
 	h.t.Helper()
 	f := &flaky{}
-	rdb := redis.NewClient(&redis.Options{Addr: sharedRedis(h.t), MaxRetries: -1})
+	o := h.redisOptions()
+	o.MaxRetries = -1
+	rdb := redis.NewClient(o)
 	rdb.AddHook(f)
 	h.t.Cleanup(func() { _ = rdb.Close() }) // registered before the service, so it runs after svc.Close
 	svc, _ := h.service(cfg, rdb)
@@ -75,7 +78,7 @@ func (h *harness) replica(cfg auth.Config) (*auth.Service, *flaky, *prometheus.R
 func (h *harness) cfg() auth.Config {
 	return auth.Config{
 		RefreshTTLWeb: 168 * time.Hour, RefreshTTLMobile: 2160 * time.Hour, PasswordResetTTL: 30 * time.Minute,
-		Scrypt: &h.scrypt, RateLimitEnabled: true, LoginIP: auth.Limit{Count: 1000, Window: time.Minute},
+		Scrypt: &h.scrypt, RateLimitEnabled: true, LoginIP: ratelimit.Limit{Count: 1000, Window: time.Minute},
 	}
 }
 
@@ -351,7 +354,7 @@ func TestLoginRacingResetLoses(t *testing.T) {
 	for _, rc := range racers {
 		h.member(rc.id, own, "operator")
 		p := &pause{reached: make(chan struct{}), release: make(chan struct{})}
-		rdb := redis.NewClient(&redis.Options{Addr: sharedRedis(t)})
+		rdb := redis.NewClient(h.redisOptions())
 		rdb.AddHook(p)
 		t.Cleanup(func() { _ = rdb.Close() })
 		racer, _ := h.service(h.cfg(), rdb)

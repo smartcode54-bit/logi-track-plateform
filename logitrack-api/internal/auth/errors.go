@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
 )
 
 // Stable error codes of the auth surface (Appendix B §B.1.5, R48, R78). Clients branch on the code
@@ -74,9 +75,10 @@ func errLocked(retryAfter time.Duration) *httpx.Error {
 		WithDetails(map[string]any{"retryAfterSeconds": retrySeconds(retryAfter)})
 }
 
-func errRateLimited(retryAfter time.Duration) *httpx.Error {
+// errRateLimited is the 429 of a denied bucket, shaped like ratelimit.Middleware's (Appendix B §B.6.3).
+func errRateLimited(bucket string, d ratelimit.Decision) *httpx.Error {
 	return httpx.NewError(http.StatusTooManyRequests, httpx.CodeResourceExhaust, "too many requests").
-		WithDetails(map[string]any{"retryAfterSeconds": retrySeconds(retryAfter)})
+		WithDetails(map[string]any{"bucket": bucket, "retryAfterSeconds": d.RetryAfterSeconds()})
 }
 
 func retrySeconds(d time.Duration) int {

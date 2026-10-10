@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,10 +15,14 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/redis/go-redis/v9"
+	"github.com/rs/zerolog"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/firebasescrypt"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache/cachetest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
 )
 
 // AC1: the access token carries exactly sub, sid, ver, tid, rol, plt, dsp, drv, cs, amr, jti (+ iss, aud,
@@ -546,9 +551,10 @@ func TestPolicyAndLoginOutcomes(t *testing.T) {
 	expectError(t, h.refresh("not-a-token"), http.StatusUnauthorized, auth.CodeInvalidToken)
 }
 
-// The request buckets: login_ip from RATE_LIMIT_LOGIN answers 429 with Retry-After.
+// The request buckets: login_ip from RATE_LIMIT_LOGIN answers 429 with Retry-After and details.bucket,
+// like the rate-limit middleware (Appendix B §B.6.3).
 func TestLoginIPRateLimit(t *testing.T) {
-	h := newHarness(t, func(c *auth.Config) { c.LoginIP = auth.Limit{Count: 2, Window: time.Minute} })
+	h := newHarness(t, func(c *auth.Config) { c.LoginIP = ratelimit.Limit{Count: 2, Window: time.Minute} })
 	own := h.tenant("own_fleet", "Own")
 	u := h.user("rate@logitrack.test")
 	h.member(u, own, "operator")
@@ -556,9 +562,129 @@ func TestLoginIPRateLimit(t *testing.T) {
 	h.mustLogin("rate@logitrack.test", "web", "")
 	r := h.login("rate@logitrack.test", pw, "web", "")
 	expectError(t, r, http.StatusTooManyRequests, "resource_exhausted")
-	if r.header.Get("Retry-After") == "" {
-		t.Fatal("Retry-After missing")
+	if ra := r.header.Get("Retry-After"); ra == "" || ra == "0" {
+		t.Fatalf("Retry-After = %q", ra)
 	}
+	if d := r.details(); d["bucket"] != ratelimit.LoginIP.Name || d["retryAfterSeconds"] == nil {
+		t.Fatalf("details = %v", d)
+	}
+}
+
+// login_ip runs through the process's shared GCRA limiter (Appendix C §C.4.12), not a counter of its
+// own: a parallel burst from one client is cut at the bucket's count, its state is one GCRA key under
+// the hashed subject, budget another holder of the limiter spent (a replica, a middleware rule of the
+// same bucket) counts against the login, IPv6 clients share their /64, and a replica that cannot
+// reach Redis lets the login through.
+func TestLoginIPBurstGoesThroughTheSharedLimiter(t *testing.T) {
+	lim := ratelimit.Limit{Count: 3, Window: time.Minute}
+	h := newHarness(t, func(c *auth.Config) { c.LoginIP = lim })
+	own := h.tenant("own_fleet", "Own")
+	const email = "burst-ip@logitrack.test"
+	h.member(h.user(email), own, "operator")
+	ctx := context.Background()
+
+	const n = 12
+	out := make([]resp, n)
+	errs := make([]error, n)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Go(func() {
+			<-start
+			out[i], errs[i] = h.do(h.internal, http.MethodPost, "/v1/auth/login", "", map[string]any{
+				"email": email, "password": pw, "platform": "web"})
+		})
+	}
+	close(start)
+	wg.Wait()
+	count := map[int]int{}
+	for i, r := range out {
+		if errs[i] != nil {
+			t.Fatal(errs[i])
+		}
+		count[r.status]++
+		if r.status == http.StatusTooManyRequests {
+			checkEnvelope(t, r)
+			if r.code() != "resource_exhausted" || r.details()["bucket"] != ratelimit.LoginIP.Name || r.header.Get("Retry-After") == "" {
+				t.Fatalf("429: %s (Retry-After %q)", r.raw, r.header.Get("Retry-After"))
+			}
+		}
+	}
+	if count[http.StatusOK] != lim.Count || count[http.StatusTooManyRequests] != n-lim.Count {
+		t.Fatalf("answers %v: want %d x 200 and %d x 429", count, lim.Count, n-lim.Count)
+	}
+	if v := labeledCounter(t, h.limits, "ratelimit_decisions_total", "login_ip", "denied"); v != float64(n-lim.Count) {
+		t.Fatalf("limiter denials = %v, want %d", v, n-lim.Count)
+	}
+	if v := labeledCounter(t, h.limits, "ratelimit_decisions_total", "login_ip", "allowed"); v != float64(lim.Count) {
+		t.Fatalf("limiter admissions = %v, want %d", v, lim.Count)
+	}
+
+	// One GCRA key (a theoretical arrival time in µs of the Redis clock, not an INCR counter) under a
+	// 16-byte sha256-hex subject; no key names the client address.
+	keys := h.rdb.Keys(ctx, h.ks.Pattern(cache.NSRateLimit, ratelimit.LoginIP.Name)).Val()
+	if len(keys) != 1 {
+		t.Fatalf("login_ip keys %v, want one", keys)
+	}
+	subject := strings.TrimPrefix(keys[0], h.ks.Key(cache.NSRateLimit, ratelimit.LoginIP.Name)+":")
+	if len(subject) != 32 || strings.Trim(subject, "0123456789abcdef") != "" {
+		t.Fatalf("subject %q is not a 16-byte sha256 hex", subject)
+	}
+	if tat, err := h.rdb.Get(ctx, keys[0]).Int64(); err != nil || tat < time.Now().Add(-time.Hour).UnixMicro() {
+		t.Fatalf("login_ip state %d (%v) is not a GCRA arrival time", tat, err)
+	}
+	for _, k := range cachetest.Keys(t, h.rdb) {
+		if strings.Contains(k, "127.0.0.1") || strings.Contains(k, "::1") {
+			t.Fatalf("a key names the client address: %s", k)
+		}
+	}
+
+	// Budget spent through another holder of the limiter counts: the service keeps no budget of its own.
+	other := ratelimit.New(h.rdb, h.ks, zerolog.Nop())
+	if d, err := other.AllowN(ctx, ratelimit.LoginIP.Name, ratelimit.IPSubject("2001:db8:7::5"), lim, lim.Count); err != nil || !d.Allowed {
+		t.Fatalf("spend: %+v %v", d, err)
+	}
+	login := func(svc *auth.Service, ip string) error {
+		_, err := svc.Login(ctx, auth.LoginInput{Email: email, Password: pw, Platform: "web", IP: ip})
+		return err
+	}
+	if err := login(h.svc, "2001:db8:7::9"); httpCode(err) != "resource_exhausted" { // same /64
+		t.Fatalf("same /64 after the budget was spent elsewhere: %v", err)
+	}
+	if err := login(h.svc, "2001:db8:8::9"); err != nil { // another /64
+		t.Fatalf("another /64: %v", err)
+	}
+
+	// Fail open: a replica whose Redis fails lets the login through although the budget is spent.
+	lost, f, _ := h.replica(h.cfg())
+	f.down.Store(true)
+	if err := login(lost, "2001:db8:7::9"); err != nil {
+		t.Fatalf("the limiter must fail open on a Redis error: %v", err)
+	}
+}
+
+// labeledCounter is the value of the counter name with labels bucket and outcome.
+func labeledCounter(t *testing.T, reg *prometheus.Registry, name, bucket, outcome string) float64 {
+	t.Helper()
+	mf, err := reg.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range mf {
+		if f.GetName() != name {
+			continue
+		}
+		for _, m := range f.GetMetric() {
+			labels := map[string]string{}
+			for _, l := range m.GetLabel() {
+				labels[l.GetName()] = l.GetValue()
+			}
+			if labels["bucket"] == bucket && labels["outcome"] == outcome {
+				return m.GetCounter().GetValue()
+			}
+		}
+	}
+	return 0
 }
 
 // With Redis unreachable the per-request check runs in PostgreSQL and never fails open (C.4.3).

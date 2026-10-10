@@ -13,6 +13,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/authdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/google"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/security"
 )
 
@@ -94,7 +95,7 @@ func (s *Service) GoogleNonce(ctx context.Context, ip string) (*NonceResult, err
 	if s.google == nil {
 		return nil, httpx.ErrNotFound()
 	}
-	if err := s.limit(ctx, "google_nonce_ip", ipSubject(ip), limitGoogleNonceIP); err != nil {
+	if err := s.limit(ctx, ratelimit.GoogleNonceIP, ipSubject(ip)); err != nil {
 		return nil, err
 	}
 	n, err := newSecret()
@@ -130,7 +131,7 @@ func (s *Service) GoogleSignIn(ctx context.Context, in GoogleInput) (*LoginResul
 	if v := validateGoogle(&in); len(v) > 0 {
 		return nil, httpx.ErrInvalidArgument(v...)
 	}
-	if err := s.limit(ctx, "google_ip", ipSubject(in.IP), limitGoogleIP); err != nil {
+	if err := s.limit(ctx, ratelimit.GoogleIP, ipSubject(in.IP)); err != nil {
 		return nil, err
 	}
 	id, err := s.google.Verify(ctx, in.IDToken)

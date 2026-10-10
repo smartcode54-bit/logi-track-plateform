@@ -17,6 +17,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/firebasescrypt"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/password"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/security"
 )
 
@@ -127,28 +128,41 @@ func validateGeo(field string, g *Geo) []httpx.FieldViolation {
 	return v
 }
 
-// limit counts one request in rl:{bucket}:{subject}. Over budget is 429 resource_exhausted. Redis
-// errors fail open (logged): the request buckets protect capacity, not credentials.
-func (s *Service) limit(ctx context.Context, bucket, subject string, l Limit) error {
+// limit counts one request of subject against bucket b in the shared GCRA limiter (Appendix B
+// §B.6.3, Appendix C §C.4.12): login_ip at RATE_LIMIT_LOGIN, every other auth bucket at its design
+// default. Over budget is 429 resource_exhausted with Retry-After and details.bucket, as from
+// ratelimit.Middleware. Redis errors fail open (logged and counted by the limiter): the request
+// buckets protect capacity, not credentials. An invalid limit is a bug and is returned as one (New
+// checks RATE_LIMIT_LOGIN, the defaults are valid by construction).
+func (s *Service) limit(ctx context.Context, b ratelimit.Bucket, subject string) error {
 	if !s.cfg.RateLimitEnabled {
 		return nil
 	}
-	n, ttl, err := s.store.hit(ctx, bucket, subject, l.Window)
+	l := b.Default
+	if b.Name == ratelimit.LoginIP.Name {
+		l = s.cfg.LoginIP
+	}
+	d, err := s.limiter.Allow(ctx, b.Name, subject, l)
+	if errors.Is(err, ratelimit.ErrInvalidLimit) {
+		return err
+	}
 	if err != nil {
-		s.log.Warn().Err(err).Str("bucket", bucket).Msg("auth: rate limit unavailable")
+		s.log.Warn().Err(err).Str("bucket", b.Name).Msg("auth: rate limit unavailable, request allowed")
 		return nil
 	}
-	if n > int64(l.Count) {
-		return errRateLimited(ttl)
+	if !d.Allowed {
+		return errRateLimited(b.Name, d)
 	}
 	return nil
 }
 
+// ipSubject is the rate-limit subject of a client address (ratelimit.IPSubject: IPv6 by its /64). A
+// request without one still counts, against a shared "unknown" subject, so it never skips the limit.
 func ipSubject(ip string) string {
-	if ip == "" {
-		return "unknown"
+	if s := ratelimit.IPSubject(ip); s != "" {
+		return s
 	}
-	return ip
+	return "unknown"
 }
 
 // Login is POST /v1/auth/login (Appendix C §C.5.4, R79, R83).
@@ -162,7 +176,7 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (*LoginResult, error
 	if v := validateLogin(&in); len(v) > 0 {
 		return nil, httpx.ErrInvalidArgument(v...)
 	}
-	if err := s.limit(ctx, "login_ip", ipSubject(in.IP), s.cfg.LoginIP); err != nil {
+	if err := s.limit(ctx, ratelimit.LoginIP, ipSubject(in.IP)); err != nil {
 		return nil, err
 	}
 	subject := emailSubject(in.Email)
