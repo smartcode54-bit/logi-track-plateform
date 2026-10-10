@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AlertCircle, CheckCircle, XCircle, Download } from "lucide-react";
+import { AlertCircle, CheckCircle, Download } from "lucide-react";
 import { useLanguage } from "@/context/language";
 import type { LazyDialogControl } from "@/components/lazy-dialog";
 import * as XLSX from "xlsx";
@@ -52,7 +52,7 @@ interface ImportedTruck {
  * The dialog body (`DialogContent`). Pages render it inside `LazyDialog`, through `next/dynamic`, so
  * this module and xlsx load on the first open, not with the page (developer-spec.md §10.11).
  */
-export function TruckImportDialog({ open, setOpen }: LazyDialogControl) {
+export function TruckImportDialog({ setOpen }: LazyDialogControl) {
     const { t } = useLanguage();
     const [file, setFile] = useState<File | null>(null);
     const [importedData, setImportedData] = useState<ImportedTruck[]>([]);

@@ -438,21 +438,21 @@ xlsx (SheetJS) itself stays: imports are parsed in the browser for preview and s
 
 ### E.7.1 TW9 results
 
-Measured on 2026-10-10 with `next build --webpack` and `@next/bundle-analyzer` 16.1.1, with dummy `NEXT_PUBLIC_FIREBASE_*` values (the client compilation is the same for the static export still on `mv-go` before TW2 and for the standalone output). Next 16 no longer prints First Load JS, so `logitrack-web/scripts/bundle-report.mjs` reads `.next/analyze/client.json`: a route's initial JS is every chunk webpack marks initial (`isInitialByEntrypoint`) for `main-app`, a layout above the page or the page itself, summed as per-chunk gzip and parsed sizes; the report also lists the forbidden libraries and the locale dictionaries found in those chunks. `logitrack-web/bundle-before-tw9.json` is the report of the tree before rows 1–11, `logitrack-web/bundle-budget.json` the report after them and the committed budget; `pnpm bundle:check` (CI job `bundle-budget`, main spec §17.3 item 5) fails on a forbidden library or a dictionary in any route's initial JS, or on more than 5% growth over the budget.
+Measured on 2026-10-10 with `next build --webpack` and `@next/bundle-analyzer` 16.1.1 and dummy public values: "before" on the tree before TW9 (still the static export, before TW2), "after" on the standalone build of TW9 merged with TW2, using the CI job's values. The client compilation does not depend on the output mode: the TW9 tree measured as a static export and as a standalone build differs by at most 0.1% per route. Next 16 no longer prints First Load JS, so `logitrack-web/scripts/bundle-report.mjs` reads `.next/analyze/client.json`: a route's initial JS is every chunk webpack marks initial (`isInitialByEntrypoint`) for `main-app`, a layout above the page or the page itself, summed as per-chunk gzip and parsed sizes; the report also lists the forbidden libraries and the locale dictionaries found in those chunks. `logitrack-web/bundle-before-tw9.json` is the report of the tree before rows 1–11, `logitrack-web/bundle-budget.json` the report after them and the committed budget; `pnpm bundle:check` (CI job `bundle-budget`, main spec §17.3 item 5) fails on a forbidden library or a dictionary in any route's initial JS, or on more than 5% growth over the budget.
 
 | Route | Initial JS before (KB gzip) | After | Change | Parsed KB before -> after | Forbidden libraries before (none after) |
 |---|---:|---:|---:|---|---|
 | `/app/accounting/income` | 1,129 | 425 | -62% | 3,654 -> 1,396 | xlsx, xlsx-js-style, jspdf, jspdf-autotable, bahttext |
 | `/app/accounting/billing-document` | 1,123 | 401 | -64% | 3,631 -> 1,316 | xlsx, xlsx-js-style, jspdf, jspdf-autotable, bahttext |
-| `/app/accounting/rate-card` | 1,133 | 427 | -62% | 3,680 -> 1,418 | xlsx, xlsx-js-style, jspdf, jspdf-autotable, bahttext |
-| `/app/first-mile` | 991 | 432 | -56% | 3,225 -> 1,426 | xlsx, xlsx-js-style |
+| `/app/accounting/rate-card` | 1,133 | 427 | -62% | 3,680 -> 1,417 | xlsx, xlsx-js-style, jspdf, jspdf-autotable, bahttext |
+| `/app/first-mile` | 991 | 432 | -56% | 3,225 -> 1,425 | xlsx, xlsx-js-style |
 | `/app/driver-monitor` | 709 | 439 | -38% | 2,472 -> 1,450 | xlsx, jszip |
-| `/app/trucks` | 596 | 345 | -42% | 2,075 -> 1,120 | xlsx |
-| `/app/holidays` | 555 | 392 | -29% | 1,991 -> 1,282 | `@fullcalendar/*` (6 packages) |
+| `/app/trucks` | 596 | 345 | -42% | 2,075 -> 1,119 | xlsx |
+| `/app/holidays` | 555 | 392 | -29% | 1,991 -> 1,281 | `@fullcalendar/*` (6 packages) |
 | `/app/dashboard` | 473 | 338 | -28% | 1,708 -> 1,092 | leaflet |
 | `/app/security-center` | 483 | 349 | -28% | 1,746 -> 1,131 | leaflet, react-leaflet |
-| `/login` | 417 | 326 | -22% | 1,506 -> 1,042 | none |
-| `/` | 398 | 308 | -23% | 1,456 -> 992 | none |
+| `/login` | 417 | 326 | -22% | 1,506 -> 1,041 | none |
+| `/` | 398 | 308 | -23% | 1,456 -> 991 | none |
 
 All 73 routes: -18% to -65%, mean 541 -> 357 KB gzip. Before TW9 every route also carried both dictionaries (en 37.5 + th 56.4 KB gzip); after it no route has a forbidden library or a dictionary in its initial JS. Per row of the table above:
 
