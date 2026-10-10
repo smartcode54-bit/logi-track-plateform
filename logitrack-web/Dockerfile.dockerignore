@@ -1,0 +1,32 @@
+# Build context of logitrack-web/Dockerfile is the repository root; BuildKit reads this file
+# because it sits next to the Dockerfile. Allow-list: only the workspace manifests, the web app
+# and shared-docs enter the context.
+*
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!shared-docs
+!logitrack-web
+logitrack-web/functions
+!logitrack-web/functions/package.json
+
+# Never send env files, secrets, build output or dependencies (§16.5).
+**/.env*
+**/*.pem
+**/service-account*.json
+**/node_modules
+**/.next
+**/out
+**/.firebase
+**/.turbo
+**/*.tsbuildinfo
+**/next-env.d.ts
+
+# Not needed to build or run the server.
+logitrack-web/tests
+logitrack-web/playwright-report
+logitrack-web/test-results
+logitrack-web/shopee data
+logitrack-web/hosting-placeholder
+logitrack-web/docs
+logitrack-web/Dockerfile*

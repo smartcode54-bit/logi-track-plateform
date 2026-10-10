@@ -46,7 +46,7 @@ dev-db: .env ## set the LOGIN passwords of the R66 roles from the .env URLs (nev
 	@echo "missing .env: run 'make env' first" >&2; exit 1
 
 ## --- stack -----------------------------------------------------------------------------
-up: .env ## start the stack (EDGE=1 adds web + caddy from TW2); waits until every service is healthy
+up: .env ## start the stack (EDGE=1 adds web + caddy, TW2); waits until every service is healthy
 	$(COMPOSE) up -d --wait postgres
 	$(MAKE) --no-print-directory dev-db
 	$(COMPOSE) $(PROFILES) up -d --build --wait
@@ -76,7 +76,7 @@ amqp-ui: ## RabbitMQ management UI
 minio-console: ## MinIO console
 	@echo "http://localhost:9001 (user MINIO_ROOT_USER from .env)"
 
-tunnel: ## expose only /public/v1/* through Cloudflare (TUNNEL_TOKEN; Caddy site :8090 arrives with TW2)
+tunnel: ## expose only /public/v1/* through Cloudflare (TUNNEL_TOKEN; via the Caddy site :8090)
 	$(COMPOSE) --profile tunnel up -d tunnel
 
 ## --- database and data -------------------------------------------------------------------
@@ -158,7 +158,7 @@ web: ## run the Next.js dev server against the local api (internal listener)
 ## --- checks ---------------------------------------------------------------------------------
 env-check: ## .env.example and compose environments match developer-spec.md §16
 	docker compose -f deploy/docker-compose.yml --env-file .env.example --profile '*' config --format json \
-	  | go run ./tools/envcheck -spec ../developer-spec.md -env .env.example -compose -
+	  | go run ./tools/envcheck -spec ../developer-spec.md -env .env.example -compose - -compose-file deploy/docker-compose.yml
 
 secrets-scan: ## gitleaks over the files git would commit here (.env and dev-secrets are ignored)
 	@tmp=$$(mktemp -d); \
@@ -167,5 +167,6 @@ secrets-scan: ## gitleaks over the files git would commit here (.env and dev-sec
 	docker run --rm -v "$$tmp:/scan:ro" $(GITLEAKS_IMG) dir /scan --no-banner --redact; rc=$$?; \
 	rm -rf "$$tmp"; exit $$rc
 
-smoke: .env ## verify the T02 acceptance checks against the running stack
+smoke: .env ## verify the T02 and T03 acceptance checks against the running stack (EDGE=1 adds the TW2 edge checks)
 	./deploy/smoke.sh
+	$(if $(EDGE),./deploy/edge-smoke.sh)
