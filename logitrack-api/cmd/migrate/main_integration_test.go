@@ -76,10 +76,11 @@ func TestEmbeddedChainUp(t *testing.T) {
 	d := pgtest.NewDatabase(t)
 	url := d.URL(db.RoleMigrator)
 	code, _, stderr := cli(t, url, migrations.FS, "up")
-	if code != 0 || !strings.Contains(stderr, `"file":"0001_preamble.sql"`) {
+	if code != 0 || !strings.Contains(stderr, `"file":"0001_preamble.sql"`) ||
+		!strings.Contains(stderr, `"file":"0010_d5_unique_constraints.sql"`) {
 		t.Fatalf("up: exit %d\n%s", code, stderr)
 	}
-	expectVersion(t, url, migrations.FS, "1")
+	expectVersion(t, url, migrations.FS, "10")
 }
 
 func TestRefusesOtherLogins(t *testing.T) {
