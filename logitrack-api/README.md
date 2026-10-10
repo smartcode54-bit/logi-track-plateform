@@ -2,7 +2,7 @@
 
 Go backend for the LogiTrack migration off Firebase (`mv-go`). Design: [`developer-spec.md`](../developer-spec.md) §2, routes in [Appendix B](../shared-docs/specs/mv-go/B-api-catalog.md). Branch policy: work lands by PR into `mv-go`, never `main` (R90).
 
-Status: **T01 scaffold + T02 local stack + T03 migrations + T04 core schema + T05 own auth + T06 Google sign-in + T08 Firebase bridge + T36 billing engine + TW2 edge (web container + Caddy) + T14 CI + T17 web flags**. One module, seven binaries, shared `internal/`; the first routes are `/v1/auth/*` and `/v1/me*` (T05) and `GET /v1/config/web-flags` (T17).
+Status: **T01 scaffold + T02 local stack + T03 migrations + T04 core schema + T05 own auth + T06 Google sign-in + T07 RBAC + T08 Firebase bridge + T36 billing engine + TW2 edge (web container + Caddy) + T14 CI + T17 web flags**. One module, seven binaries, shared `internal/`; the first routes are `/v1/auth/*` and `/v1/me*` (T05), `/v1/roles` (T07) and `GET /v1/config/web-flags` (T17).
 
 ## Layout
 
@@ -21,7 +21,10 @@ internal/auth/password       Argon2id PHC hashing, re-hash on weaker parameters,
 internal/auth/firebasescrypt verify-then-rehash of imported Firebase scrypt hashes
 internal/auth/google         Google ID-token verifier (go-oidc, lazy discovery, aud allow list; googletest = in-process fake Google)
 internal/auth/firebase       Firebase bridge protocol, no Admin SDK (T08): ID-token verifier, RS256 custom tokens, Identity Toolkit accounts; firebasetest = in-process fake Google
-internal/authz               request principal (T05 identity half; catalog and RequireCap with T07)
+internal/authz               request principal; 81-key catalog, role defaults, resolution, web route map, RequireCap/RequireTenant (T07)
+internal/authz/tsgen         writes the catalog to ../shared-docs/schemas/capabilities.ts (go generate)
+internal/iam                 per-request authorization (RBAC: overrides under rbac:ver, steward, contractor reach, X-Act-On-Tenant) + GET /v1/roles (T07)
+internal/scope               dispatcher / customer-scope reads: scope_* views only (repo/scope_*.sql -> scopedb, sqlc vet rule scope-views-only)
 internal/security            the only writer of security_events: security.Append in the caller's transaction (T05)
 internal/webcfg              runtime web domain flags: GET /v1/config/web-flags from PG_OWNED_DOMAINS + WEB_FLAG_OVERRIDES (T17)
 internal/platform/config     env loading: all missing/invalid names in one error, never values
@@ -30,7 +33,7 @@ internal/platform/httpx      envelopes, error codes, request id, client IP, acce
 internal/platform/ingress    route groups and the public allow-list
 internal/platform/health     /healthz, /readyz, /startupz, drain state
 internal/platform/telemetry  OpenTelemetry (OTLP/HTTP) and Prometheus
-internal/platform/db         pgx pools per role (R66), WithSystem; dbq = sqlc output; pgtest = postgres:18-alpine for tests
+internal/platform/db         pgx pools per role (R66), WithPrincipal (T07) and WithSystem; dbq = sqlc output; pgtest = postgres:18-alpine for tests
 internal/platform/migrate    migration rules (R31), goose runner with a session lock; migratetest = round trip
 internal/platform/clock      Bangkok (+07:00) calendar: dates, days, months, Bangkok midnight; never the wall clock
 internal/platform/jsmath     JavaScript number semantics money code needs: Math.round, Round2, toFixed
@@ -50,6 +53,7 @@ internal/notify              notify.email: reset and invite links in th + en (T1
 internal/billing/compute     the billing engine (T36): pure port of lib/billingCompute.ts + the pure pricing rules
 internal/billing/documents   pure invoice layout rules: axis date, price rounds, line items (renderers: T39)
 internal/golden              test-only runner for testdata/golden vectors
+tools/analyzers/withsystem   fails make lint when db.WithSystem, inbox.Run, a jobs.Submit InTx hook, db.RLS, an authz.Principal literal or raw GUC SQL is used outside its allow-list (T07)
 migrations/                  NNNN_name.sql, embedded into cmd/migrate: the Appendix A baseline 0001-0010 (T03, T04)
 api/routes.txt               generated route table (method, path, listeners) checked by go-ci gen-check (T14)
 sqlc.yaml                    sqlc v1.31.1: schema = migrations/, one block per query package
@@ -180,6 +184,16 @@ Go returns tokens in JSON bodies and never sets cookies (the BFF does, TW3). Rou
 - **Passwords**: Argon2id (parameters read back; weaker stored hashes re-hash on login), Firebase scrypt verify-then-rehash, `must_change_password` -> `403 password_change_required` with a single-use `passwordChangeTicket` redeemed at `/v1/auth/password/change`, forgot always `202` (outbox `auth.password_reset_requested`; the worker's `notify.email` consumer (T10) creates the token with `auth.IssueResetToken`, which stores only the hash), 5 failures / 15 min lock an email (`423 locked`; each attempt is counted before its check). Every failed check costs one Argon2id plus, while `FIREBASE_SCRYPT_*` is set, one scrypt (no timing enumeration); at most `GOMAXPROCS / ARGON2_PARALLELISM` hashes run at once (`503` after 3 s); a login opens its session only while the row still holds the credential it verified, so a racing reset wins.
 - **Google sign-in** (T06, Appendix C §C.4.10): `GET /v1/auth/google/nonce` (web, through the BFF; single use, 10 min) and `POST /v1/auth/google {idToken, nonce?, platform, installId?, appVersion?}` with a GIS or `google_sign_in` ID token; no authorization-code flow (R23). `internal/auth/google` verifies with go-oidc (discovery on the first sign-in, so the api starts without Google; RS256; every `aud` in `GOOGLE_OIDC_ALLOWED_CLIENT_IDS`; `email_verified`). The account is the `auth_identities` Google `sub`, else the user with the verified email when Google is authoritative for it (a Gmail address or a Workspace account with `hd`), linked in the same transaction as `google_identity_linked`; otherwise `403 no_account` (no self-signup). A body nonce must be the token's and unused; a driver-app token (`azp` != `aud`) sent without one may carry the SDK's own nonce (iOS), which is ignored. Bad token or nonce `401 invalid_token`, Google unreachable `503`, variable unset `404`. Locally the variable is empty, so Google sign-in is off; tests use `googletest` (no network).
 - Every statement runs in `db.WithSystem` (`app.bypass_tenant=on`); queries are sqlc (`internal/auth/queries` -> `internal/auth/authdb`). Tests: `go test ./internal/auth/... ./internal/security/...` (unit: JWT, the firebase/scrypt public vectors, Argon2id and the hashing gate, policy, equal work per failed check) and `make test-integration` (PostgreSQL 18 + Redis 7 containers, both listeners; `hardening_integration_test.go` covers the races and lost Redis writes).
+
+## RBAC and tenant isolation (T07, main spec §4.5-§4.7, Appendix C §C.2-§C.3)
+
+- **Catalog** (`internal/authz/catalog.go`): 81 colon keys (77 + 4 platform, R73) with module, class (`tenant`, `global`, `self`, `scope`, `platform`) and en/th titles; role, scope and platform default sets of §C.2.4 (`roles.go`). Tests read §C.2.3 / §C.2.4 from the specification and fail on any drift. `go generate ./internal/authz` writes `../shared-docs/schemas/capabilities.ts` (keys, catalog, defaults, steward keys, `ROUTE_CAPABILITIES` of the edge gate), checked by `make gen-check`; GET `/v1/roles` (internal) serves the same catalog.
+- **Per request** (`iam.RBAC`, wired as `auth.Deps.Authorizer`, so `auth.RequireAuth` runs it for every authenticated request): `X-Act-On-Tenant` (platform only; `<uuid>` acts as that tenant's tenant_admin, `*` is a read-only bypass for GET/HEAD; one `platform_cross_tenant_access` row per request of a platform principal committed before the handler, refused, malformed and unknown-tenant attempts included (`details.outcome`), `503` when it cannot be written), then the tenant kind, the steward flag (own-fleet staff or platform_admin, R60), contractor reach (`cache:tenant:subtenants:{tid}`, staff only) and the effective set: role default -> platform-wide override -> tenant override (`rbac:caps:{tid}:{role}:{rbac:ver}:{fp}`, 10 min, `fp` = `authz.RoleSetFingerprint` of the compiled-in defaults so no release reads another's sets; tenant_admin is not overridable; platform, scope and tenant-row `users:assign_role` overrides are ignored), global keys only for stewards, ∪ scope sets (the customer-scope set only without a membership) ∪ platform sets. `RBAC.BumpVersion` (`INCR rbac:ver`) after a matrix change makes it effective on the next request. Redis failures fall back to PostgreSQL.
+- **Guards** (`internal/authz/http.go`): `RequireCap(any-of...)` -> `403 permission_denied` with `details.missingCapability`; `RequireTenant` -> `403 tenant_required`; `RequirePlatform`, `RequireSteward`. An unresolved principal holds nothing.
+- **Transactions**: `db.WithPrincipal(ctx, pool, p, fn)` sets the nine GUCs of §C.3.2 from `authz.Principal.RLS()` in one round trip (READ ONLY for `*`; a writable bypass and a nil principal, typed nil pointer included, are refused before `BEGIN`). `db.WithSystem` is for work without a request principal; `go run ./tools/analyzers/withsystem` (part of `make lint`) fails when another package calls it, or one of the two helpers that hand their caller a `WithSystem` transaction (`inbox.Run`, and `jobs.Service.Submit` given an `InTx` hook: an `InTx` key in a `jobs.SubmitInput` literal or a write of `.InTx`), or names `db.RLS`, builds an `authz.Principal`, writes `ActOnAll`/`ActOnTenant` or carries raw GUC / `set_config` SQL outside its allow-lists.
+- **Scope principals** (dispatcher, customer scope) read only through `internal/scope/repo/scope_*.sql` on the `scope_*` views; sqlc vet rule `scope-views-only` fails on any base table or write, and `make gen-check` proves it against `internal/scope/testdata/vetcheck`.
+
+Tests: `go test ./internal/authz/ ./internal/scope/ ./tools/analyzers/...` (catalog vs Appendix C, role x route over the 53 legacy routes (frozen in `internal/authz/testdata`) and every `app/app/**/page.tsx`, resolution, guards, GUC mapping, DTOs vs views, the vet rule) and `make test-integration` (`internal/iam`: real logins against PostgreSQL 18 + Redis 7; carrier staff read 0 own-fleet rows even with a crafted predicate, own-fleet staff reach their carriers, the steward rule at the capability and RLS layers, dispatcher and customer reads through the views only, `X-Act-On-Tenant` audit rows (refused attempts too), override effective on the next request, role sets cached per defaults fingerprint; `internal/platform/db`: the GUCs of `WithPrincipal`).
 
 ## Firebase bridge (T08, main spec §4.9, Appendix C §C.6)
 

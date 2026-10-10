@@ -1,0 +1,17 @@
+# Negative fixture of the scope-views-only rule (make gen-check): sqlc vet over queries/ must fail on every
+# query. The rules section is a copy of the one in logitrack-api/sqlc.yaml (internal/scope/vet_test.go keeps
+# the two equal). No code is generated from this file.
+version: "2"
+sql:
+  - name: scope-vetcheck
+    engine: postgresql
+    schema: ../../../../migrations
+    queries: queries
+    rules:
+      - scope-views-only
+rules:
+  - name: scope-views-only
+    message: "a scope_* query reads only the scope_* views (Appendix C §C.3.7): no base table, no write"
+    rule: |
+      query.sql.matches(r'(?i)\b(?:api_keys|auth_identities|billing_counters|billing_parties|billing_statement_lines|billing_statements|broadcast_reads|broadcast_recipients|broadcasts|chat_messages|chat_read_state|chats|companies|consumer_inbox|customer_driver_id_types|customer_fuel_rate_adjustments|customer_rate_entries|customer_service_fees|customers|device_tokens|driver_advances|driver_compensation_configs|driver_customer_codes|driver_penalties|drivers|file_objects|fuel_daily_snapshots|fuel_monthly_snapshots|holidays|hub_name_aliases|hub_soc_distances|hubs|idempotency_keys|incident_reports|jobs|leave_request_attachments|leave_requests|maintenance_files|maintenance_records|memberships|mobile_app_releases|mobile_installations|notification_deliveries|outbox_events|partner_interest|password_reset_tokens|payroll_line_items|payroll_penalty_applications|payroll_runs|penalty_types|quarantine|reconciliation_runs|refresh_tokens|role_capability_overrides|security_events|sessions|settings|source_docs|standby_photos|standby_rate_entries|standby_records|statement_documents|status_history|task_delivery_stops|task_number_counters|tasks|tenant_files|tenants|transactions|trip_billing_snapshots|trip_billing_stop_breakdown|trip_delivery_stops|trip_no_history|trip_photos|trip_records|truck_assignments|truck_files|trucks|user_platform_roles|user_scopes|users|vehicle_expenses|vehicle_locations|waitlist|watermarks)\b') ||
+      query.sql.matches(r'(?i)\b(?:insert|update|delete|merge|truncate)\b')

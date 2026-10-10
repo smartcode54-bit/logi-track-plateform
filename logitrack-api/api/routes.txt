@@ -34,3 +34,4 @@ DELETE /v1/me/devices/:installId internal
 GET /v1/me/sessions internal
 DELETE /v1/me/sessions/:sid internal
 GET /v1/me/tenants internal
+GET /v1/roles internal

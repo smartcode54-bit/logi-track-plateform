@@ -23,6 +23,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/app"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/webcfg"
@@ -38,11 +39,13 @@ func main() {
 // newAPI is the single place where the route registry meets the listeners: serving and
 // `api routes` both build the API here, so the checked table is the served one. Domain route
 // groups are added to this call: the auth groups (T05) and the jobs groups (T10) come from deps,
-// which app.BuildAPI wires, and the web flags (T17) from the configuration; extra exists for tests.
-// `api routes` passes zero deps: Groups only registers handlers and never reads a service, so the
-// table needs no database, Redis or signing key.
+// which app.BuildAPI wires, GET /v1/roles (T07) sits behind deps.Auth.RequireAuth, and the web
+// flags (T17) come from the configuration; extra exists for tests. `api routes` passes zero deps:
+// Groups and RequireAuth only register handlers and never read a service, so the table needs no
+// database, Redis or signing key.
 func newAPI(cfg *app.APIConfig, log zerolog.Logger, deps app.APIDeps, extra ...ingress.Group) (*app.API, error) {
 	groups := append(deps.Auth.Groups(), app.JobGroups(deps)...)
+	groups = append(groups, iam.RoleGroups(deps.Auth.RequireAuth())...)
 	groups = append(groups, webcfg.Group(cfg.WebFlags))
 	return app.NewAPI(cfg, log, append(groups, extra...)...)
 }

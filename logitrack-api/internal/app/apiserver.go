@@ -14,6 +14,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/password"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/token"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
@@ -98,8 +99,18 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 	// The process's one rate limiter (Appendix B §B.6.3): the auth buckets run through it, and so will
 	// the middleware rules of later route groups, so a bucket and subject spend one budget everywhere.
 	limiter := ratelimit.New(rdb, ks, log)
+	// The cache: layer (T09) and the per-request authorization (T07): every authenticated request is
+	// completed by iam.RBAC (X-Act-On-Tenant, steward flag, contractor reach, capabilities from the
+	// catalog and rbac:caps), which GET /v1/me also reads.
+	caches := cache.New(rdb, ks, cache.WithLogger(log))
+	rbac, err := iam.NewRBAC(iam.Deps{Pool: pool, Cache: caches, Redis: rdb, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
 
-	deps := auth.Deps{Pool: pool, Store: store, Limiter: limiter, Keys: keys, Hasher: hasher, Policy: policy, Log: log}
+	deps := auth.Deps{Pool: pool, Store: store, Limiter: limiter, Keys: keys, Hasher: hasher, Policy: policy, Log: log,
+		Capabilities: rbac, Authorizer: rbac}
 	if len(cfg.GoogleClientIDs) > 0 {
 		// No I/O here: discovery and keys are fetched on the first Google sign-in, so the api starts
 		// while Google is unreachable (Appendix C §C.4.10).
@@ -142,6 +153,10 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 	if err := limiter.Register(a.metrics.Registry); err != nil {
 		closeAll()
 		return nil, nil, fmt.Errorf("register rate-limit metrics: %w", err)
+	}
+	if err := caches.Register(a.metrics.Registry); err != nil {
+		closeAll()
+		return nil, nil, fmt.Errorf("register cache metrics: %w", err)
 	}
 	a.Health.Register(
 		checker{"postgres", pool.Ping},
