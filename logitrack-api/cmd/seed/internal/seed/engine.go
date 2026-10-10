@@ -189,8 +189,9 @@ type tripSnapshot struct {
 }
 
 // CheckEngine recomputes the selected trip snapshots and standby records in q and returns every difference.
-// ids nil selects every engine-written row (--verify); otherwise only the given trips and standby records
-// (the seeded ones, during a load).
+// ids nil selects every engine-written row (--verify); otherwise only those of the given trips and standby
+// records (the rows a load inserted). Either way a snapshot whose stored writer is etl or manual_edit is never
+// recomputed: a legacy or manually edited price is not the engine's to reproduce.
 func CheckEngine(ctx context.Context, q pgx.Tx, tripIDs, standbyIDs []uuid.UUID) ([]Mismatch, error) {
 	in, err := loadEngineInputs(ctx, q)
 	if err != nil {
@@ -226,7 +227,7 @@ func loadSnapshots(ctx context.Context, q pgx.Tx, ids []uuid.UUID) ([]*tripSnaps
 	where := engineFilter
 	args := []any{}
 	if ids != nil {
-		where, args = `t.id = ANY($1::uuid[])`, []any{ids}
+		where, args = `t.id = ANY($1::uuid[]) AND `+engineFilter, []any{ids}
 	}
 	rows, err := q.Query(ctx, `SELECT t.id::text, t.trip_no, t.delivered_at, t.created_at, t.is_multi_delivery,
 		coalesce(k.billing_party_id::text, ''), coalesce(k.source_linked_party_id::text, ''), coalesce(k.destination_linked_party_id::text, ''),
@@ -333,7 +334,7 @@ func checkStandby(ctx context.Context, q pgx.Tx, in *engineInputs, ids []uuid.UU
 	where := `s.status = 'completed' AND (s.billing_estimate_thb IS NOT NULL OR s.billing_unpriced_reason IS NOT NULL)`
 	args := []any{}
 	if ids != nil {
-		where, args = `s.id = ANY($1::uuid[])`, []any{ids}
+		where, args = `s.id = ANY($1::uuid[]) AND `+where, []any{ids}
 	}
 	rows, err := q.Query(ctx, `SELECT s.id::text, coalesce(s.customer_party_id::text, ''),
 		coalesce(k.source_linked_party_id::text, ''), coalesce(k.destination_linked_party_id::text, ''),

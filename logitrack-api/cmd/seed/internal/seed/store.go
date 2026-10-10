@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
 )
 
@@ -21,7 +22,7 @@ const putParallelism = 8
 // PutObjects writes every drawn object through the storage backends the API uses (internal/storage):
 // committed and pending objects alike; missing_at_source rows get none (Appendix D §D.1.6). Objects go to
 // their row's bucket: S3_BUCKET, or S3_PUBLIC_BUCKET for app_releases/ only (R23, R74). A re-run writes the
-// same bytes under the same keys.
+// same bytes under the same keys; an upsert first drops the objects ObjectsToPut keeps.
 func PutObjects(ctx context.Context, objs []*Object, be Backends) (int, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -59,6 +60,51 @@ func PutObjects(ctx context.Context, objs []*Object, be Backends) (int, error) {
 	}
 	wg.Wait()
 	return n, firstErr
+}
+
+// ObjectsToPut picks the drawn objects an upsert writes, so it never leaves a file_objects row it does not
+// update describing other bytes than the store holds. An object without a row is put (its row is about to be
+// inserted); one whose row records the drawn sha256 is put again (identical bytes; this restores an object
+// that went missing from the store); one whose row records another sha256 is kept as stored and listed in
+// kept: JPEG and PNG bytes are stable for one Go toolchain and renderer only (Appendix D §D.1.6), and the
+// placeholder statement PDFs change when documents.render lands (T39). Insert mode puts every object.
+func ObjectsToPut(ctx context.Context, etl db.Beginner, objs []*Object, mode Mode) (put []*Object, kept []string, err error) {
+	if mode != ModeUpsert {
+		return objs, nil, nil
+	}
+	keys := make([]string, 0, len(objs))
+	for _, o := range objs {
+		keys = append(keys, o.Key)
+	}
+	recorded := map[[2]string]string{} // (bucket, key) -> recorded sha256 ("" when NULL)
+	err = db.WithSystem(ctx, etl, nil, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SET TRANSACTION READ ONLY`); err != nil {
+			return err
+		}
+		rows, err := tx.Query(ctx, `SELECT bucket, object_key, coalesce(sha256, '') FROM file_objects WHERE object_key = ANY($1::text[])`, keys)
+		if err != nil {
+			return err
+		}
+		return scanAll(rows, func(r pgx.Rows) error {
+			var bucket, key, sum string
+			if err := r.Scan(&bucket, &key, &sum); err != nil {
+				return err
+			}
+			recorded[[2]string{bucket, key}] = sum
+			return nil
+		})
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("seed: read file_objects: %w", err)
+	}
+	for _, o := range objs {
+		if sum, ok := recorded[[2]string{o.Bucket, o.Key}]; ok && o.Status != "missing_at_source" && sum != o.SHA256 {
+			kept = append(kept, o.Key)
+			continue
+		}
+		put = append(put, o)
+	}
+	return put, kept, nil
 }
 
 // RemoveObjects deletes the objects of a plan (a load that failed after --reset); a missing object is fine.

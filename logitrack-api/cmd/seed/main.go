@@ -370,7 +370,22 @@ func load(ctx context.Context, cfg *app.SeedConfig, fx seed.FixtureFS, profile s
 		log.Info().Int("objects", rr.Objects).Int("tables", rr.Tables).Int("tenants", rr.Tenants).
 			Int("redis_keys", rr.RedisKeys).Msg("reset done")
 	}
-	put, err := seed.PutObjects(ctx, plan.Objects, c.backends)
+	if !reset {
+		if err := seed.CheckNamespace(ctx, c.etl, plan); err != nil {
+			log.Error().Err(err).Msg("load refused")
+			return app.ExitRuntimeError
+		}
+	}
+	toPut, kept, err := seed.ObjectsToPut(ctx, c.etl, plan.Objects, mode)
+	if err != nil {
+		log.Error().Err(err).Msg("objects failed")
+		return app.ExitRuntimeError
+	}
+	for _, k := range kept {
+		log.Warn().Str("object_key", k).Msg("the existing file_objects row records other bytes than this load draws " +
+			"(a toolchain or renderer change): the stored object and its row are kept as they are")
+	}
+	put, err := seed.PutObjects(ctx, toPut, c.backends)
 	if err != nil {
 		log.Error().Err(err).Msg("objects failed")
 		return app.ExitRuntimeError
@@ -392,15 +407,25 @@ func load(ctx context.Context, cfg *app.SeedConfig, fx seed.FixtureFS, profile s
 		rows += n
 	}
 	log.Info().Str("profile", string(profile)).Str("mode", string(mode)).Bool("reset", reset).Int("rows", rows).
-		Int("objects", put).Int("task_number_counters", res.Counters).Dur("load", res.Duration).
-		Dur("total", time.Since(start)).Msg("seed loaded")
-	_, _ = fmt.Fprintf(stdout, "seed: profile %s loaded in %s (%s mode%s): %d rows in %d tables, %d objects, %d task counters\n",
-		profile, time.Since(start).Round(time.Millisecond), mode, resetNote(reset), rows, len(res.Inserted), put, res.Counters)
-	if plan.TemporaryPassword != "" {
-		// The must-change-password fixture user's temporary password is shown once, like the real
-		// POST /v1/users/{id}/password/temporary; SEED_DEFAULT_PASSWORD is never printed.
+		Int("objects", put).Int("objects_kept", len(kept)).Int("task_number_counters", res.Counters).
+		Dur("load", res.Duration).Dur("total", time.Since(start)).Msg("seed loaded")
+	keptNote := ""
+	if len(kept) > 0 {
+		keptNote = fmt.Sprintf(" (%d existing kept: their rows record other bytes)", len(kept))
+	}
+	_, _ = fmt.Fprintf(stdout, "seed: profile %s loaded in %s (%s mode%s): %d rows in %d tables, %d objects%s, %d task counters\n",
+		profile, time.Since(start).Round(time.Millisecond), mode, resetNote(reset), rows, len(res.Inserted), put, keptNote, res.Counters)
+	switch {
+	case plan.TemporaryPassword == "":
+	case res.TemporaryUserInserted:
+		// The must-change-password fixture user's temporary password (crypto/rand) is shown once, by the load
+		// that stores it, like the real POST /v1/users/{id}/password/temporary; SEED_DEFAULT_PASSWORD is never
+		// printed.
 		_, _ = fmt.Fprintf(stdout, "seed: temporary password of %s (must change at the first sign-in): %s\n",
-			"d7.kitti@logitrack.test", plan.TemporaryPassword)
+			plan.TemporaryEmail, plan.TemporaryPassword)
+	default:
+		_, _ = fmt.Fprintf(stdout, "seed: %s already exists: its password is unchanged (the temporary one was shown by the load that inserted it)\n",
+			plan.TemporaryEmail)
 	}
 	return app.ExitOK
 }

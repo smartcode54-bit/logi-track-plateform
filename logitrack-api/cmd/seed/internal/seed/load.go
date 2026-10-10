@@ -30,7 +30,10 @@ const (
 type LoadResult struct {
 	Inserted map[string]int // rows written per table (upsert skips existing ones)
 	Counters int            // task_number_counters rows written
-	Duration time.Duration
+	// TemporaryUserInserted reports that this load inserted the must-change-password fixture user, so the
+	// temporary password of the plan is the one stored (an upsert that finds the user keeps its password).
+	TemporaryUserInserted bool
+	Duration              time.Duration
 }
 
 // column is what the loader needs to know about one column.
@@ -217,11 +220,17 @@ func prepare(table string, r Row, cols map[string]column) (Row, Row, error) {
 
 // Load writes the plan through the ETL login (logitrack_etl, R87) in one db.WithSystem transaction: the
 // tables in load order, then the back-filled forward references, the derived task_number_counters and the
-// engine check, so a price the engine does not reproduce rolls everything back (Appendix D §D.1.4, §D.1.5).
+// engine check over the priced rows this load inserted (every seeded one in insert mode), so a price the
+// engine does not reproduce rolls everything back (Appendix D §D.1.4, §D.1.5). An upsert leaves rows that
+// already exist alone, prices included: they are not this load's output, and the application never
+// re-prices a frozen or manually edited snapshot either.
 func Load(ctx context.Context, etl db.Beginner, p *Plan, mode Mode) (LoadResult, error) {
 	start := time.Now()
 	res := LoadResult{Inserted: map[string]int{}}
 	err := db.WithSystem(ctx, etl, nil, func(tx pgx.Tx) error {
+		if err := sameNamespace(ctx, tx, p); err != nil {
+			return err
+		}
 		cols, err := introspect(ctx, tx, append(slices.Clone(LoadOrder), DerivedTable))
 		if err != nil {
 			return err
@@ -232,7 +241,7 @@ func Load(ctx context.Context, etl db.Beginner, p *Plan, mode Mode) (LoadResult,
 			set   Row
 		}
 		var later []backfill
-		inserted := map[string]map[string]bool{} // table -> ids written by this load
+		inserted := map[string]map[string]bool{} // table -> keys (rowKey) written by this load
 		for _, table := range LoadOrder {
 			rows := p.Tables[table]
 			if mode == ModeUpsert {
@@ -264,10 +273,12 @@ func Load(ctx context.Context, etl db.Beginner, p *Plan, mode Mode) (LoadResult,
 				}
 				if tag.RowsAffected() == 1 {
 					res.Inserted[table]++
-					if inserted[table] == nil {
-						inserted[table] = map[string]bool{}
+					if k := rowKey(table, rows[i]); k != "" {
+						if inserted[table] == nil {
+							inserted[table] = map[string]bool{}
+						}
+						inserted[table][k] = true
 					}
-					inserted[table][rows[i].Str("id")] = true
 					if pending[i].set != nil {
 						later = append(later, pending[i]) // upsert back-fills only the rows it inserted
 					}
@@ -285,7 +296,18 @@ func Load(ctx context.Context, etl db.Beginner, p *Plan, mode Mode) (LoadResult,
 		if res.Counters, err = deriveCounters(ctx, tx, ids(p.Tables["tasks"])); err != nil {
 			return err
 		}
-		mism, err := CheckEngine(ctx, tx, engineTrips(p), engineStandby(p))
+		res.TemporaryUserInserted = p.TemporaryUserID != "" && inserted["users"][p.TemporaryUserID]
+		var trips, standby map[string]bool // nil: every seeded row (insert mode)
+		if mode == ModeUpsert {
+			trips, standby = inserted["trip_billing_snapshots"], inserted["standby_records"]
+			if trips == nil {
+				trips = map[string]bool{}
+			}
+			if standby == nil {
+				standby = map[string]bool{}
+			}
+		}
+		mism, err := CheckEngine(ctx, tx, engineTrips(p, trips), engineStandby(p, standby))
 		if err != nil {
 			return err
 		}
@@ -321,6 +343,60 @@ func keepWritable(table string, rows []Row, inserted map[string]map[string]bool)
 		}
 	}
 	return out
+}
+
+// rowKey is the key a load records an inserted row under: its id, or the trip of a billing snapshot (keyed by
+// trip_id); "" for the other composite keys, which nothing looks up.
+func rowKey(table string, r Row) string {
+	if id := r.Str("id"); id != "" {
+		return id
+	}
+	if table == "trip_billing_snapshots" {
+		return r.Str("trip_id")
+	}
+	return ""
+}
+
+// CheckNamespace runs sameNamespace in a read-only transaction: cmd/seed calls it before it writes any object
+// into a database it does not reset (Load repeats it inside the load transaction).
+func CheckNamespace(ctx context.Context, etl db.Beginner, p *Plan) error {
+	return db.WithSystem(ctx, etl, nil, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SET TRANSACTION READ ONLY`); err != nil {
+			return err
+		}
+		return sameNamespace(ctx, tx, p)
+	})
+}
+
+// sameNamespace refuses a load into a database seeded with another SEED_NAMESPACE (or OWN_FLEET_TENANT_ID):
+// the natural keys (tenant code, e-mail, hub source_id, invoice and trip numbers) and the singletons
+// (tenants_one_own_fleet, companies_owner_one) are the same in every namespace, so two seeded datasets never
+// share a database and an upsert would skip the parents and fail on their children's foreign keys.
+func sameNamespace(ctx context.Context, tx pgx.Tx, p *Plan) error {
+	rows, err := tx.Query(ctx, `SELECT id FROM tenants WHERE kind = 'own_fleet'`)
+	if err != nil {
+		return err
+	}
+	var found []uuid.UUID
+	if err := scanAll(rows, func(r pgx.Rows) error {
+		var id uuid.UUID
+		if err := r.Scan(&id); err != nil {
+			return err
+		}
+		found = append(found, id)
+		return nil
+	}); err != nil {
+		return err
+	}
+	want := p.Symbols.MustID(ownFleetSymbol)
+	for _, id := range found {
+		if id != want {
+			return fmt.Errorf("seed: this database holds the own-fleet tenant %s, the plan's is %s: it was seeded in another "+
+				"SEED_NAMESPACE (or with another OWN_FLEET_TENANT_ID); load with the same namespace, or --reset a local database "+
+				"(Appendix D §D.1.3)", id, want)
+		}
+	}
+	return nil
 }
 
 // describe names a row in an error without its values (no credential reaches a log line).
@@ -385,11 +461,16 @@ func ids(rows []Row) []uuid.UUID {
 }
 
 // engineTrips are the seeded snapshots the engine must reproduce (computed_by other than etl and
-// manual_edit, which stand for legacy writers and are inserted verbatim).
-func engineTrips(p *Plan) []uuid.UUID {
+// manual_edit, which stand for legacy writers and are inserted verbatim), limited to the trips in only when
+// it is not nil (an upsert checks the snapshots it inserted). Never nil: a nil slice selects every row of
+// the database in CheckEngine.
+func engineTrips(p *Plan, only map[string]bool) []uuid.UUID {
 	out := []uuid.UUID{}
 	for _, r := range p.Tables["trip_billing_snapshots"] {
 		if by := r.Str("computed_by"); by == "etl" || by == "manual_edit" {
+			continue
+		}
+		if only != nil && !only[r.Str("trip_id")] {
 			continue
 		}
 		if id, err := uuid.Parse(r.Str("trip_id")); err == nil {
@@ -399,11 +480,15 @@ func engineTrips(p *Plan) []uuid.UUID {
 	return out
 }
 
-// engineStandby are the seeded completed standby records with a price or a stored reason.
-func engineStandby(p *Plan) []uuid.UUID {
+// engineStandby are the seeded completed standby records with a price or a stored reason, limited to the
+// records in only when it is not nil. Never nil, like engineTrips.
+func engineStandby(p *Plan, only map[string]bool) []uuid.UUID {
 	out := []uuid.UUID{}
 	for _, r := range p.Tables["standby_records"] {
 		if r.Str("status") != "completed" || (r["billing_estimate_thb"] == nil && r["billing_unpriced_reason"] == nil) {
+			continue
+		}
+		if only != nil && !only[r.Str("id")] {
 			continue
 		}
 		if id, err := uuid.Parse(r.Str("id")); err == nil {

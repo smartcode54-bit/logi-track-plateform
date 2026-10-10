@@ -2,7 +2,6 @@ package seed
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -15,6 +14,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
@@ -469,7 +469,7 @@ func (v *Verifier) isolation(ctx context.Context) ([]string, string, error) {
 		{"U_NWR_ADMIN", "10c carrier tenant_admin nwr.admin", &nwr},
 		{"U_CJSF_CUST", "10c customer cjsf.viewer", nil},
 	} {
-		vs, err := v.rolePlay(ctx, rbac, s.MustID(pc.user), pc.tenant, func(tx pgx.Tx) ([]string, error) {
+		vs, err := v.rolePlay(ctx, rbac, s.MustID(pc.user), pc.tenant, func(tx pgx.Tx, _ *authz.Principal) ([]string, error) {
 			return violations(ctx, tx, sql10c, pc.tenant)
 		})
 		if err != nil {
@@ -478,7 +478,7 @@ func (v *Verifier) isolation(ctx context.Context) ([]string, string, error) {
 		add(pc.label, vs)
 	}
 	// The 10c dispatcher still sees the own-fleet task billed to TTP through scope_tasks.
-	vs, err := v.rolePlay(ctx, rbac, s.MustID("U_TTP_DISP"), &ttp, func(tx pgx.Tx) ([]string, error) {
+	vs, err := v.rolePlay(ctx, rbac, s.MustID("U_TTP_DISP"), &ttp, func(tx pgx.Tx, _ *authz.Principal) ([]string, error) {
 		return violations(ctx, tx, `SELECT 'scope_tasks must show FM-12082026-001 to the dispatcher'
 			WHERE NOT EXISTS (SELECT 1 FROM scope_tasks WHERE id = $1)`, s.MustID("TK08"))
 	})
@@ -487,41 +487,58 @@ func (v *Verifier) isolation(ctx context.Context) ([]string, string, error) {
 	}
 	add("10c dispatcher ttp.dispatch", vs)
 	// 10d: own-fleet staff reach the contractor NWR (R60) and nothing of TTP.
-	vs, err = v.rolePlay(ctx, rbac, s.MustID("U_WRT_OPS"), &own, func(tx pgx.Tx) ([]string, error) {
+	vs, err = v.rolePlay(ctx, rbac, s.MustID("U_WRT_OPS"), &own, func(tx pgx.Tx, _ *authz.Principal) ([]string, error) {
 		return violations(ctx, tx, sql10d, ttp)
 	})
 	if err != nil {
 		return nil, "", fmt.Errorf("10d own-fleet staff: %w", err)
 	}
 	add("10d own-fleet wrt.ops", vs)
-	// Every carrier principal sees only its own tenant (owner addition to issue #36).
+	// 10e: every carrier principal, staff and drivers, sees only its own tenant (owner addition to issue #36).
+	tables, err := v.rlsTables(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	plan := classify(tables)
+	add("10e", plan.problems)
 	carriers, err := v.carrierPrincipals(ctx)
 	if err != nil {
 		return nil, "", err
 	}
-	tables, err := v.tenantTables(ctx)
-	if err != nil {
-		return nil, "", err
-	}
+	drivers := 0
+	var history []string
 	for _, cp := range carriers {
+		if cp.driver {
+			drivers++
+		}
 		tid := cp.tenant
-		vs, err := v.rolePlay(ctx, rbac, cp.user, &tid, func(tx pgx.Tx) ([]string, error) {
-			return carrierLeaks(ctx, tx, tables, tid)
+		var res carrierResult
+		_, err := v.rolePlay(ctx, rbac, cp.user, &tid, func(tx pgx.Tx, p *authz.Principal) ([]string, error) {
+			var err error
+			res, err = carrierLeaks(ctx, tx, plan, p, tid)
+			return nil, err
 		})
 		if err != nil {
 			return nil, "", fmt.Errorf("carrier %s: %w", cp.label, err)
 		}
-		add("carrier "+cp.label, vs)
+		add("carrier "+cp.label, res.leaks)
+		if len(res.own) > 0 {
+			history = append(history, cp.label+": "+strings.Join(res.own, ", "))
+		}
 	}
-	detail := fmt.Sprintf("SQL 10a, 10b; role-play on DATABASE_URL: 10c x3, 10d, %d carrier principal(s) over %d tenant tables",
-		len(carriers), len(tables))
+	detail := fmt.Sprintf("SQL 10a, 10b; role-play on DATABASE_URL: 10c x3, 10d, %d carrier principal(s) (%d staff, %d driver(s)) "+
+		"over %d RLS tables (%d by tenant_id, %d by owner; %d shared master tables skipped)",
+		len(carriers), len(carriers)-drivers, drivers, len(plan.checks), plan.stamped, plan.owned, len(plan.shared))
+	if len(history) > 0 {
+		detail += "; R24 own history in other tenants: " + strings.Join(history, "; ")
+	}
 	return out, detail, nil
 }
 
 // rolePlay opens a read-only request transaction for user acting in tenant, with the principal the API
-// would build (auth.RolePlayPrincipal, iam.RBAC.Resolve, db.WithPrincipal).
+// would build (auth.RolePlayPrincipal, iam.RBAC.Resolve, db.WithPrincipal); fn also gets that principal.
 func (v *Verifier) rolePlay(ctx context.Context, rbac *iam.RBAC, user uuid.UUID, tenant *uuid.UUID,
-	fn func(tx pgx.Tx) ([]string, error)) ([]string, error) {
+	fn func(tx pgx.Tx, p *authz.Principal) ([]string, error)) ([]string, error) {
 	p, err := auth.RolePlayPrincipal(ctx, v.App, user, tenant)
 	if err != nil {
 		return nil, err
@@ -535,108 +552,10 @@ func (v *Verifier) rolePlay(ctx context.Context, rbac *iam.RBAC, user uuid.UUID,
 			return err
 		}
 		var err error
-		out, err = fn(tx)
+		out, err = fn(tx, p)
 		return err
 	})
 	return out, err
-}
-
-type carrierPrincipal struct {
-	user, tenant uuid.UUID
-	label        string
-}
-
-// carrierPrincipals are the staff members of carrier tenants without a dispatcher grant (a dispatcher reads
-// across tenants by design, C.1.7), one per (tenant, role).
-func (v *Verifier) carrierPrincipals(ctx context.Context) ([]carrierPrincipal, error) {
-	var out []carrierPrincipal
-	err := db.WithSystem(ctx, v.ETL, nil, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `SELECT DISTINCT ON (m.tenant_id, m.role) m.user_id, m.tenant_id,
-			coalesce(u.email::text, m.user_id::text) || ' (' || coalesce(t.code::text, t.name_th) || ', ' || m.role || ')'
-			FROM memberships m JOIN tenants t ON t.id = m.tenant_id JOIN users u ON u.id = m.user_id
-			WHERE t.kind = 'carrier' AND m.status = 'active' AND m.role <> 'driver' AND u.status = 'active'
-			  AND NOT EXISTS (SELECT 1 FROM user_scopes s WHERE s.user_id = m.user_id AND s.kind = 'dispatcher')
-			ORDER BY m.tenant_id, m.role, u.email`)
-		if err != nil {
-			return err
-		}
-		return scanAll(rows, func(r pgx.Rows) error {
-			var c carrierPrincipal
-			if err := r.Scan(&c.user, &c.tenant, &c.label); err != nil {
-				return err
-			}
-			out = append(out, c)
-			return nil
-		})
-	})
-	if err == nil && len(out) == 0 {
-		err = errors.New("no carrier principal to role-play")
-	}
-	return out, err
-}
-
-// tenantTables are the row-level-security tables with a tenant_id stamp that logitrack_app may read at all.
-// Left out: billing_parties (its tenant_id is a reference to the party's tenant, not a stamp, C.3.0), the
-// tables granted to no app login (billing_counters: SECURITY DEFINER allocators only) and the
-// exempt-service-layer tables without RLS (outbox_events, jobs, ...), whose service decides access (C.3.0).
-func (v *Verifier) tenantTables(ctx context.Context) ([]string, error) {
-	var out []string
-	err := db.WithSystem(ctx, v.ETL, nil, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `SELECT c.relname::text FROM pg_class c
-			JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
-			JOIN pg_attribute a ON a.attrelid = c.oid AND a.attname = 'tenant_id' AND NOT a.attisdropped
-			WHERE c.relkind = 'r' AND c.relrowsecurity AND c.relname <> 'billing_parties'
-			  AND has_table_privilege('logitrack_app', c.oid, 'SELECT')
-			ORDER BY 1`)
-		if err != nil {
-			return err
-		}
-		return scanAll(rows, func(r pgx.Rows) error {
-			var t string
-			if err := r.Scan(&t); err != nil {
-				return err
-			}
-			out = append(out, t)
-			return nil
-		})
-	})
-	return out, err
-}
-
-// carrierLeaks counts, as the carrier principal, the rows of other tenants it can read (platform rows
-// with a NULL tenant are shared on purpose), and checks that it reads its own tenant row at all, so an
-// empty context cannot pass vacuously.
-func carrierLeaks(ctx context.Context, tx pgx.Tx, tables []string, tenant uuid.UUID) ([]string, error) {
-	parts := []string{`SELECT 'tenants' AS t, count(*) AS n FROM tenants WHERE id <> $1`}
-	for _, t := range tables {
-		parts = append(parts, fmt.Sprintf(`SELECT %s, count(*) FROM %s WHERE tenant_id IS NOT NULL AND tenant_id <> $1`,
-			quoteLiteral(t), pgx.Identifier{t}.Sanitize()))
-	}
-	rows, err := tx.Query(ctx, `SELECT t, n FROM (`+strings.Join(parts, " UNION ALL ")+`) x WHERE n > 0 ORDER BY t`, tenant)
-	if err != nil {
-		return nil, err
-	}
-	var out []string
-	err = scanAll(rows, func(r pgx.Rows) error {
-		var t string
-		var n int64
-		if err := r.Scan(&t, &n); err != nil {
-			return err
-		}
-		out = append(out, fmt.Sprintf("reads %d row(s) of other tenants in %s", n, t))
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	var own int
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM tenants WHERE id = $1`, tenant).Scan(&own); err != nil {
-		return nil, err
-	}
-	if own != 1 {
-		out = append(out, "cannot read its own tenant row (the role-play context is empty)")
-	}
-	return out, nil
 }
 
 // quoteLiteral quotes a catalog name as an SQL string literal.

@@ -21,7 +21,7 @@ The seed has three jobs: (1) give every developer and CI run the same database, 
 | `seed --profile load` | Demo plus a twelve-month dataset at roughly ten times today's volume, for query-plan, keyset-pagination and billing-period performance work. Never run in CI. |
 | `seed --verify [--profile p]` | Read-only. Runs the twelve checks of §D.3 against PostgreSQL, MinIO and Redis and compares table counts with the profile manifest. Exit `0` pass, `1` invariant violation, `2` dependency unreachable. |
 | `seed --reset` | Default when `APP_ENV=local` (developer machines and CI; §16 defines `local`, `dev`, `prod`). Purges seeded state before loading (§D.1.7). |
-| `seed --mode upsert` | Inserts only missing rows (`ON CONFLICT DO NOTHING`), never updates; for topping up a shared dev database. |
+| `seed --mode upsert` | Inserts only missing rows (`ON CONFLICT DO NOTHING`), never updates; for topping up a shared dev database in the `SEED_NAMESPACE` it was seeded with (§D.1.3; a database seeded in another namespace is refused before anything is written). The engine check covers the priced rows it inserts, and objects whose existing row records other bytes are kept (§D.1.7). |
 | `seed --emit-events` | Leaves the seeded `outbox_events` rows unpublished so the `scheduler` relay publishes them and a running `worker` consumes them (end-to-end smoke of `billing.compute`, `notify.fcm`, `documents.render`). Without it, outbox rows are written as already-published history and no side effect fires. |
 | `seed --dry-run` | Builds the plan, prints per-table counts, writes nothing. |
 | `seed bootstrap-platform-admins` | Grants `user_platform_roles(platform_admin, granted_by NULL)` to every existing user listed in `PLATFORM_ADMIN_EMAILS` and appends a `platform_role_granted` security event (`{source:'bootstrap'}`); idempotent (Appendix C §C.5.5). The only subcommand allowed with `APP_ENV=prod`. Lands with T19 together with the bootstrap super admin of a fresh deployment (owner addition to issue #39); until then it exits 3. The profiles never create the deployment's super admin: they carry the fixture's `U_PLAT` only. |
@@ -34,7 +34,7 @@ The seed has three jobs: (1) give every developer and CI run the same database, 
 | `SEED_RANDOM_SEED` | PCG seed for every generator (§D.1.4). |
 | `SEED_ANCHOR_DATE` | Last day of generated data (Bangkok date); ignored by `smoke`, whose dates are literal. |
 | `SEED_NAMESPACE` | uuid v5 namespace (§D.1.3); empty means the fixed default. |
-| `SEED_DEFAULT_PASSWORD` | Secret, local/CI only. Hashed with Argon2id once per load (every seeded password user shares that PHC string, which keeps the 1,200-user load fast); never printed or logged. The must-change-password fixture `U_D7` gets a temporary password drawn from `SEED_RANDOM_SEED` instead, printed once on stdout like the real `POST /v1/users/{id}/password/temporary`. |
+| `SEED_DEFAULT_PASSWORD` | Secret, local/CI only. Hashed with Argon2id once per load (every seeded password user shares that PHC string, which keeps the 1,200-user load fast); never printed or logged. The must-change-password fixture `U_D7` gets a crypto/rand temporary password instead (`internal/auth/password.Temporary`, as `POST /v1/users/{id}/password/temporary` issues one), printed once on stdout only by the load that inserts the row; an upsert that finds `U_D7` leaves its password alone and says so. It is never derived from `SEED_RANDOM_SEED` or `SEED_NAMESPACE`: both are public, so a derived value could be recomputed and the account taken over on a shared dev database (R29, R79). |
 | `OWN_FLEET_TENANT_ID` | Optional; when set, the own-fleet tenant row uses this uuid instead of the derived one (R7, R56: read only by `cmd/seed` and `cmd/etl`). The quarantine tenant is never seeded: migration 0002 inserts it with its fixed id. |
 | `APP_ENV` | Safety guard and Redis key prefix `lt:{APP_ENV}:` (R26). |
 | `ETL_DATABASE_URL` | Writes and the read-only `--verify` checks (`logitrack_etl`, R87). |
@@ -102,7 +102,7 @@ The seed has three jobs: (1) give every developer and CI run the same database, 
 | jobs | 2 | 4 | 10 | |
 | security_events | 1 | 12 | 2,000 | |
 
-Time budgets: `smoke` load < 5 s (delivery-plan acceptance for T16; measured in T16 at about 0.5 s for the whole command against the testcontainers stack: role and schema checks, Argon2id at the `.env.example` cost, `--reset`, the 15 stored objects, the load and the engine check), `demo` < 2 min including ~3,600 objects once T35 adds them, `load` < 30 min using `COPY` once the volume generators exist (T16's identity-only load profile runs in about 0.5 s).
+Time budgets: `smoke` load < 5 s (delivery-plan acceptance for T16; measured in T16 at about 0.5 s for the whole command against the testcontainers stack: role and schema checks, Argon2id at the `.env.example` cost, `--reset`, the 15 stored objects, the load and the engine check; asserted by `make seed-budget` in the go-ci `test` job, a run of the smoke test without the race detector, which slows hashing and encoding), `demo` < 2 min including ~3,600 objects once T35 adds them, `load` < 30 min using `COPY` once the volume generators exist (T16's identity-only load profile runs in about 0.5 s).
 
 **Demo personas (T16, owner addition to issue #36).** `demo` makes multi-tenancy visible at once. On top of the smoke identities (`wrt.admin`, `wrt.manager`, `wrt.ops`, `nwr.admin`, `ttp.dispatch`, `cjsf.viewer`, the platform admin, and the broker driver `D6` whose NWR membership is suspended and TTP membership active, R24) the generator adds, with ids uuid v5 of `users:<email>` and `user_scopes:<email>:<kind>:<party code>` and the password `SEED_DEFAULT_PASSWORD`:
 
@@ -112,13 +112,13 @@ Time budgets: `smoke` load < 5 s (delivery-plan acceptance for T16; measured in 
 | carrier `NWR` (contractor → own fleet) | `nwr.admin` (smoke) | `nwr.manager`, `nwr.ops`, `nwr.operator` | `nwr.dispatch` (operation_staff, over `BP_SPK`) |
 | carrier `TTP` (no contractor link) | `ttp.admin` | `ttp.ops` | `ttp.dispatch` (smoke, over `BP_TTP`) |
 
-Customer-scope users (no membership): `cjsf.viewer` (smoke), `spx.viewer`, `spk.viewer`. Platform: `platform.admin` (smoke), `platform.support` (`support`). `--verify` role-plays every carrier staff principal without a dispatcher grant (§D.3 #10).
+Customer-scope users (no membership): `cjsf.viewer` (smoke), `spx.viewer`, `spk.viewer`. Platform: `platform.admin` (smoke), `platform.support` (`support`). `--verify` role-plays carrier principals, staff and drivers (§D.3 #10e): one per carrier tenant and role without a dispatcher grant (smoke: `nwr.admin`, `d7.kitti`; demo adds `nwr.manager`, `nwr.ops`, `nwr.operator`, `ttp.admin`, `ttp.ops`) plus every broker driver (`d6.amnat`, R24), whose own history in NWR is the one cross-tenant read the check allows.
 
 ### D.1.3 Deterministic identifiers: uuid v5 in the seed, `uuidv7()` at runtime
 
 Every seeded `uuid` primary key is **uuid v5** of the string `"<table>:<natural key>"` in a fixed namespace:
 
-- Default namespace `dd659aa7-e92b-55af-b6f0-51075452cf69` = uuid v5(`NAMESPACE_URL`, `"https://logitrack.test/seed/v1"`). `SEED_NAMESPACE` overrides it (one namespace per developer avoids collisions in a shared dev database).
+- Default namespace `dd659aa7-e92b-55af-b6f0-51075452cf69` = uuid v5(`NAMESPACE_URL`, `"https://logitrack.test/seed/v1"`). `SEED_NAMESPACE` overrides it. A namespace separates databases (for example to check that nothing depends on the default ids); it does not let two seeded datasets share one database: the natural keys (tenant code, e-mail, hub `source_id`, invoice and trip numbers) and the singletons (`tenants_one_own_fleet`, `companies_owner_one`) are the same in every namespace. A load without `--reset` into a database whose own-fleet tenant is not the plan's (another namespace, or another `OWN_FLEET_TENANT_ID`) is refused with that reason before any object is written; top up a shared dev database in the namespace it was seeded with.
 - Natural keys are business keys when one exists (tenant code, customer code, email, hub `source_id`, national ID, tenant + plate, `task_no`, `trip_no`, `invoice_number`, party code + rate `import_id` + route, bucket + object key) and owner + Bangkok timestamp otherwise. Keys that contain another entity's id (object keys) are hashed after that id is resolved. The registry in §D.4.2 lists all 227 keys.
 - Worked example: uuid v5(namespace, `"tenants:own_fleet"`) = `661f033c-8980-5e51-b822-eb925ad2086a` (`TN_OWN`); `OWN_FLEET_TENANT_ID`, when set, replaces exactly this one id. The quarantine tenant `TN_QUAR` is the one row with a fixed, non-v5 id (`00000000-0000-7000-8000-00000000000f`, migration 0002, R56).
 
@@ -179,11 +179,11 @@ Two deliberate non-happy states: `status='missing_at_source'` (row exists, no ob
 3. Delete Redis keys under `lt:{APP_ENV}:` with `SCAN` + `UNLINK` — never `FLUSHDB`, because Redis may be shared with other services or environments.
 4. Load the profile. RabbitMQ is untouched: the seed publishes nothing; outbox rows are inserted with `published_at` set unless `--emit-events`.
 
-Two consecutive runs therefore produce identical ids, row counts, object keys and object hashes (invariant 12). `--mode upsert` inserts missing rows only and re-PUTs objects with identical bytes; it never issues an `UPDATE` of an existing row (the back-fill of §D.1.5 touches only rows it inserted, and `task_number_counters` only rises), which the append-only and void-only tables would reject anyway.
+Two consecutive runs therefore produce identical ids, row counts, object keys and object hashes (invariant 12). `--mode upsert` inserts missing rows only; it never issues an `UPDATE` of an existing row (the back-fill of §D.1.5 touches only rows it inserted, and `task_number_counters` only rises), which the append-only and void-only tables would reject anyway. It writes an object only when its `file_objects` row is missing (the row is inserted next) or records the drawn sha256 (identical bytes; this also restores an object missing from the store); an object whose existing row records other bytes (another Go toolchain or renderer, §D.1.6; the statement PDFs once T39 renders them) is kept with its row and reported (a warning per key and `N existing kept` in the summary), so the store never drifts from rows the upsert does not update. Its engine check (§D.1.8) covers the snapshots and standby records it inserted: existing rows are not its output, and a shared database legitimately holds prices edited by hand or later rate rounds that the app never re-prices either.
 
 ### D.1.8 `seed --verify`
 
-`--verify` runs the twelve checks of §D.3. Each SQL check returns violating rows (any row = failure). Go-side parts: (a) every `trip_billing_snapshots` row whose `computed_by` is not `etl` or `manual_edit`, and every completed standby row with a price or a stored reason, is recomputed by the engine (`compute.PriceTrip`, `compute.PriceStandby` over the tables read in the same transaction) and must match exactly: estimate, base and stop charge, rate entry, fuel adjustment, lookup codes, round and band, category, `manual_override`, or the unpriced reason (R20: the 0.005 THB tolerance applies only to legacy multi-drop totals and `net_amount`; smoke has none); the load runs the same check over the seeded rows and rolls back on a difference; (b) every row of `file_objects` is stat-ed on its own backend: a committed or pending object must exist with the recorded size and its bytes must hash to the recorded sha256 (read through `storage.Reader`; S3 keeps no sha256 of its own), a `missing_at_source` row must have none; (c) the Redis hub maps are warmed through the API's read-through cache and checked (#8); (d) the isolation role-play runs on `DATABASE_URL` (#10c, #10d and every carrier staff principal), every other check on `ETL_DATABASE_URL` in a read-only transaction (R87). Output is one line per invariant (PASS/FAIL with up to 20 violating rows), the per-table count diff against the profile manifest (the plan's rows plus the quarantine tenant and the derived `task_number_counters`), and the fingerprint block last. Exit 0 pass, 1 violation or count difference, 2 when a dependency is unreachable or a check cannot run. CI (main spec §17, go-ci `stack` job) runs `seed --profile smoke` then `seed --verify` twice against the compose stack and diffs the two fingerprint blocks; `make test-integration` covers smoke, demo and load on testcontainers (`postgres:18-alpine`, `redis:7-alpine`, MinIO).
+`--verify` runs the twelve checks of §D.3. Each SQL check returns violating rows (any row = failure). Go-side parts: (a) every `trip_billing_snapshots` row whose `computed_by` is not `etl` or `manual_edit`, and every completed standby row with a price or a stored reason, is recomputed by the engine (`compute.PriceTrip`, `compute.PriceStandby` over the tables read in the same transaction) and must match exactly: estimate, base and stop charge, rate entry, fuel adjustment, lookup codes, round and band, category, `manual_override`, or the unpriced reason (R20: the 0.005 THB tolerance applies only to legacy multi-drop totals and `net_amount`; smoke has none); the load runs the same check over the priced rows it inserted (every seeded one after `--reset`; an upsert skips rows that already existed) and rolls back on a difference, and a row whose stored `computed_by` is `etl` or `manual_edit` is never recomputed, by the load or by `--verify`; (b) every row of `file_objects` is stat-ed on its own backend: a committed or pending object must exist with the recorded size and its bytes must hash to the recorded sha256 (read through `storage.Reader`; S3 keeps no sha256 of its own), a `missing_at_source` row must have none; (c) the Redis hub maps are warmed through the API's read-through cache and checked (#8); (d) the isolation role-play runs on `DATABASE_URL` (#10c, #10d and the carrier principals of #10e, staff and drivers), every other check on `ETL_DATABASE_URL` in a read-only transaction (R87). Output is one line per invariant (PASS/FAIL with up to 20 violating rows), the per-table count diff against the profile manifest (the plan's rows plus the quarantine tenant and the derived `task_number_counters`), and the fingerprint block last. Exit 0 pass, 1 violation or count difference, 2 when a dependency is unreachable or a check cannot run. CI (main spec §17, go-ci `stack` job) stops the scheduler and worker, then runs `seed --profile smoke` then `seed --verify` twice against the compose stack and diffs the two fingerprint blocks: `--verify` checks a freshly seeded, quiescent database, and on a running stack the scheduler's crons write uuidv7 `jobs` rows (`auth.token-cleanup` every 10 minutes) and `storage.gc` deletes the expired pending fixture object (`FO_TR17_PEND`), which #12 and the count diff report by design (stop both before `make seed-verify` on a stack that ran for a while, or seed again). `make test-integration` covers smoke, demo and load on testcontainers (`postgres:18-alpine`, `redis:7-alpine`, MinIO), and `make seed-budget` (go-ci `test`) the smoke time budget.
 
 ### D.1.9 Synthetic data rules
 
@@ -448,17 +448,37 @@ SELECT 'NWR trip TR02 must be in reach' AS problem
 WHERE NOT EXISTS (SELECT 1 FROM trip_records WHERE trip_no = 'ZXZB26072200102')
 UNION ALL
 SELECT 'TTP tasks must be out of reach' FROM tasks WHERE tenant_id = :'TN_TTP' HAVING count(*) > 0;
--- 10e (owner addition to issue #36): DATABASE_URL, as every carrier staff principal without a dispatcher grant (one
--- per tenant and role: smoke nwr.admin; demo adds nwr.manager, nwr.ops, nwr.operator, ttp.admin, ttp.ops; load the
--- L01-L08 tenant_admins, managers and operators); one row per RLS table with a tenant_id stamp it may SELECT
--- (catalog: relrowsecurity, has_table_privilege('logitrack_app', ...); billing_parties excluded, its tenant_id is a
--- reference), $1 = the carrier
-SELECT 'tenants', count(*) FROM tenants WHERE id <> $1 HAVING count(*) > 0
-UNION ALL SELECT '<table>', count(*) FROM <table> WHERE tenant_id IS NOT NULL AND tenant_id <> $1 HAVING count(*) > 0
--- ... for every such table; and the principal must read its own tenants row (an empty context cannot pass)
+-- 10e (owner addition to issue #36): DATABASE_URL, as carrier principals, staff and drivers: one active member per
+-- carrier tenant and role without a dispatcher grant (smoke nwr.admin and the TTP driver d7.kitti; demo adds
+-- nwr.manager, nwr.ops, nwr.operator, ttp.admin, ttp.ops; load the L01-L08 tenant_admins, managers and operators;
+-- every policy branch keys on tenant and role) plus every broker driver (memberships in more than one tenant: d6.amnat,
+-- R24). Every RLS table logitrack_app may SELECT (catalog: relrowsecurity, has_table_privilege('logitrack_app', ...))
+-- is classified, deny by default (cmd/seed/internal/seed/isolation.go):
+--   tenant_id stamp (33 tables): owned when tenant_id = :tenant or NULL (platform rows);
+--   owner rule (29 tables): tenants (id); users (a membership in :tenant); the parent-scoped children of
+--     app_rls_child_table and the comms tables (the parent row, looked up under the principal's RLS, is a :tenant or
+--     NULL-tenant row: payroll_line_items -> payroll_runs, billing_statement_lines -> billing_statements,
+--     trip_photos -> trip_records, chat_messages -> chats, broadcast_recipients -> broadcasts, ...); the user-keyed
+--     tables (auth_identities, user_platform_roles, user_scopes, sessions, device_tokens, password_reset_tokens:
+--     the user is a member of :tenant; refresh_tokens through sessions); status_history through its entity;
+--   shared master data (6, skipped): customers, customer_driver_id_types, hubs, hub_name_aliases, hub_soc_distances
+--     (app_rls_global_table) and billing_parties (its tenant_id references the party's tenant, C.3.0);
+--   anything else, or a rule for a table that is no longer a readable RLS table: a violation.
+-- A visible row that is neither owned nor the principal's own is a leak; the principal's own rows in another tenant
+-- (driver_id or helper_driver_id = :driver, a driver's own drivers row, the user's own memberships, uploads and
+-- user-keyed rows) are R24 history: driver self-scope is by driver_id, not by tenant (Appendix C §C.1 "Broker carrier
+-- moves", §C.3.5 p_driver_read, memberships p_self_read), so they are reported in the detail line, never failed.
+-- One statement per principal, the context as uuid literals, jit off (compiling the ~60-table statement cost seconds):
+SELECT t, leak, own FROM (
+  SELECT '<table>' AS t,
+         count(*) FILTER (WHERE NOT coalesce(<owned>, false) AND NOT coalesce(<own>, false)) AS leak,
+         count(*) FILTER (WHERE NOT coalesce(<owned>, false) AND coalesce(<own>, false)) AS own
+  FROM <table> r
+  UNION ALL ...) x WHERE leak > 0 OR own > 0;
+-- and the principal must read its own tenants row (an empty context cannot pass)
 ```
 
-The exempt-service-layer tables (RLS off: `outbox_events`, `jobs`, `notification_deliveries`, `settings`, `mobile_app_releases`, ...) are out of #10e on purpose: `logitrack_app` reads them unfiltered and the owning service decides access (Appendix C §C.3.0). A permissive policy that opens a tenant table to `logitrack_app` makes #10e fail with exit 1 (integration test).
+The exempt-service-layer tables (RLS off: `outbox_events`, `jobs`, `notification_deliveries`, `settings`, `mobile_app_releases`, ...) are out of #10e on purpose: `logitrack_app` reads them unfiltered and the owning service decides access (Appendix C §C.3.0). A platform-wide broadcast (`tenant_id` NULL) is read by every tenant's staff by design, so its recipient and read rows count as platform rows. #10e fails with exit 1 (integration tests) when a permissive policy opens a stamped table (`tasks`), a parent-scoped child (`payroll_line_items`) or `users` to `logitrack_app`, when a driver policy loses its `driver_id` predicate (`tasks USING (app_role() = 'driver')`), and when a new readable RLS table has no rule. Detail line on smoke: `3 carrier principal(s) (1 staff, 2 driver(s)) over 62 RLS tables (33 by tenant_id, 29 by owner; 6 shared master tables skipped); R24 own history in other tenants: d6.amnat@logitrack.test (TTP, driver): memberships 1, tasks 1, trip_records 1, truck_assignments 1` (`U_D6`'s suspended NWR membership, `TK02`, `TR02`, `TA3`).
 
 Smoke: every part returns 0 rows (`TK02`/`TR02` pass 10a through `U_D6`'s suspended NWR membership); the 10c dispatcher still sees `TK08` through `scope_tasks`. The drift itself is reported by `tenancy.orphan-scan` (`JB2`).
 
@@ -494,7 +514,7 @@ UNION ALL SELECT 'non-v5 id', 'trip_records', id FROM trip_records WHERE uuid_ex
 -- (generated for every table with a uuid primary key)
 ```
 
-Rows created by the running application after the seed (uuidv7) fail #12 and the count diff by design: `--verify` checks a freshly seeded database.
+Rows created by the running application after the seed (uuidv7) fail #12 and the count diff by design: `--verify` checks a freshly seeded, quiescent database (the CI `stack` job stops the scheduler and worker first, §D.1.8). The housekeeping crons also remove seeded rows on a long-lived stack: `storage.gc` the expired pending `FO_TR17_PEND` (hourly), `outbox.prune` the published seeded outbox rows (daily, older than 7 days), `jobs.prune` `JB1`/`JB2` (older than 30 days); seed again before verifying such a stack.
 
 ---
 
@@ -508,7 +528,7 @@ These rows are the `smoke` profile: 286 rows in 58 tables (285 seeded, plus the 
 - Keys starting with `_` are annotations, never inserted: expected values of generated `STORED` columns (`_plan_date`, `_billing_axis_date`, `_expense_date`, `_effective_from_date`) and expected outcomes (`_billing`, `_status`, `_effect`) that `--verify` checks.
 - Strings starting with `$seed:` are computed at load time (§D.1.9).
 - `file_objects.bucket` shows the local `S3_BUCKET` / `S3_PUBLIC_BUCKET` values (R74); the seed writes the configured ones, while natural keys keep these literals.
-- `client_op_id` / `client_message_id` on native driver-created rows are uuid v5 of `client_op:<symbol>` in the seed namespace (R63); staff-created and legacy rows leave them NULL. The fixture holds the values of the default namespace (a test recomputes them); another `SEED_NAMESPACE` keeps them, which only matters for their uniqueness per driver.
+- `client_op_id` / `client_message_id` on native driver-created rows are uuid v5 of `client_op:<symbol>` in the seed namespace (R63); staff-created and legacy rows leave them NULL. The fixture holds the values of the default namespace (a test recomputes them); another `SEED_NAMESPACE` keeps them, which only matters for their uniqueness per driver (a database holds one namespace's dataset, §D.1.3).
 - The `TN_QUAR` row is shown for completeness (`_source`): migration 0002 inserts it and the seed never does (R56).
 - An omitted column takes its Appendix A default or NULL, except that, for determinism, an omitted timestamp whose default is `now()` (`updated_at`, `computed_at`, `last_seen_at`, …) and the `committed_at` of a committed object are set to the row's `created_at`, or `2026-01-05T09:00:00+07:00` when the row has none.
 - Money is a JSON string with two decimals (`NUMERIC(14,2)`, R20); multipliers six decimals; litres and price per litre three; reference fuel prices two.

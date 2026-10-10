@@ -9,6 +9,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"regexp"
 	"strings"
@@ -186,6 +188,12 @@ func TestSmokeLoadVerifyTwice(t *testing.T) {
 	if !strings.Contains(v1.stdout, "counts: 59 tables match the smoke manifest") {
 		t.Errorf("count diff missing or failing:\n%s", v1.stdout)
 	}
+	// nwr.admin, and the TTP drivers: the broker D6 (its NWR history is the one cross-tenant read allowed, R24)
+	// and D7.
+	if !strings.Contains(v1.stdout, "3 carrier principal(s) (1 staff, 2 driver(s))") || !strings.Contains(v1.stdout,
+		"R24 own history in other tenants: d6.amnat@logitrack.test (TTP, driver): memberships 1, tasks 1, trip_records 1, truck_assignments 1") {
+		t.Errorf("the carrier drivers are not role-played or D6's R24 history is not reported:\n%s", v1.stdout)
+	}
 	s.mustSeed(t, "--profile", "smoke")
 	v2 := s.mustSeed(t, "--verify")
 	if a, b := fingerprintBlock(t, v1.stdout), fingerprintBlock(t, v2.stdout); a != b {
@@ -203,9 +211,10 @@ func TestDemoLoadVerify(t *testing.T) {
 	if n := len(passLine.FindAllString(v.stdout, -1)); n != 12 {
 		t.Fatalf("%d of 12 invariants pass:\n%s", n, v.stdout)
 	}
-	// NWR: tenant_admin, manager, operation_staff, operator; TTP: tenant_admin, operation_staff.
-	if !strings.Contains(v.stdout, "6 carrier principal(s)") {
-		t.Errorf("the demo carriers are not all role-played:\n%s", v.stdout)
+	// Staff, one per tenant and role: NWR tenant_admin, manager, operation_staff, operator; TTP tenant_admin,
+	// operation_staff. Drivers: the TTP driver D7 and the broker D6. Every readable RLS table is classified.
+	if !strings.Contains(v.stdout, "8 carrier principal(s) (6 staff, 2 driver(s)) over 62 RLS tables (33 by tenant_id, 29 by owner; 6 shared master tables skipped)") {
+		t.Errorf("the demo carriers are not all role-played over every RLS table:\n%s", v.stdout)
 	}
 	ctx := context.Background()
 	conn, err := pgx.Connect(ctx, s.d.SuperURL())
@@ -255,6 +264,69 @@ func TestVerifyFailsOnCarrierLeak(t *testing.T) {
 	}
 	if !strings.Contains(r.stdout, "10 FAIL") || !regexp.MustCompile(`carrier nwr\.admin@logitrack\.test .*other tenants in tasks`).MatchString(r.stdout) {
 		t.Fatalf("the leak is not reported as an invariant 10 carrier violation:\n%s", r.stdout)
+	}
+}
+
+// leakVerify seeds smoke, applies setup as the superuser and returns --verify, which must exit 1 with an
+// invariant 10 failure.
+func leakVerify(t *testing.T, setup ...string) result {
+	t.Helper()
+	s := newStack(t, "local")
+	s.mustSeed(t)
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, s.d.SuperURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(ctx) }()
+	for _, q := range setup {
+		if _, err := conn.Exec(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	r := s.seed(t, "--verify")
+	if r.code != exitViolation || !strings.Contains(r.stdout, "10 FAIL") {
+		t.Fatalf("exit %d, want %d with 10 FAIL:\n%s\n%s", r.code, exitViolation, r.stdout, r.stderr)
+	}
+	return r
+}
+
+// A leak through a table without its own tenant_id fails --verify too: a child whose owner is its parent
+// (payroll lines of the own fleet's runs) and users, whose tenant is a membership (other tenants' e-mails).
+func TestVerifyFailsOnChildLeak(t *testing.T) {
+	r := leakVerify(t,
+		`CREATE POLICY seed_test_leak ON payroll_line_items FOR SELECT TO logitrack_app USING (true)`,
+		`CREATE POLICY seed_test_leak ON users FOR SELECT TO logitrack_app USING (true)`)
+	for _, want := range []string{
+		`carrier nwr\.admin@logitrack\.test \(NWR, tenant_admin\): reads 6 row\(s\) of other tenants in payroll_line_items \(owner through payroll_runs\)`,
+		`carrier nwr\.admin@logitrack\.test \(NWR, tenant_admin\): reads 10 row\(s\) of other tenants in users \(owner through memberships\)`,
+	} {
+		if !regexp.MustCompile(want).MatchString(r.stdout) {
+			t.Errorf("no %q in\n%s", want, r.stdout)
+		}
+	}
+}
+
+// A driver policy that loses its driver_id predicate fails --verify: every carrier driver is role-played, and
+// only its own rows count as its history (R24).
+func TestVerifyFailsOnDriverLeak(t *testing.T) {
+	r := leakVerify(t, `CREATE POLICY seed_test_leak ON tasks FOR SELECT TO logitrack_app USING (app_role() = 'driver')`)
+	if !regexp.MustCompile(`carrier d7\.kitti@logitrack\.test \(TTP, driver\): reads \d+ row\(s\) of other tenants in tasks`).MatchString(r.stdout) {
+		t.Errorf("the driver leak is not reported for d7:\n%s", r.stdout)
+	}
+	if strings.Contains(r.stdout, "nwr.admin@logitrack.test (NWR, tenant_admin): reads") {
+		t.Errorf("a driver-only policy is reported for a staff principal:\n%s", r.stdout)
+	}
+}
+
+// A readable RLS table that no rule classifies fails --verify instead of passing unchecked.
+func TestVerifyFailsOnUnclassifiedTable(t *testing.T) {
+	r := leakVerify(t,
+		`CREATE TABLE seed_test_unclassified (id uuid PRIMARY KEY)`,
+		`ALTER TABLE seed_test_unclassified ENABLE ROW LEVEL SECURITY`,
+		`GRANT SELECT ON seed_test_unclassified TO logitrack_app`)
+	if !strings.Contains(r.stdout, "10e: RLS table seed_test_unclassified is readable by logitrack_app but has no isolation rule") {
+		t.Errorf("the unclassified table is not reported:\n%s", r.stdout)
 	}
 }
 
@@ -367,17 +439,126 @@ func TestLoadProfile(t *testing.T) {
 	}
 }
 
-// Upsert on an already seeded database inserts nothing and keeps the fingerprint.
+// Upsert on an already seeded database inserts nothing and keeps the fingerprint; it prints no temporary
+// password, since the stored one is that of the load that inserted the user.
 func TestUpsertIsIdempotent(t *testing.T) {
 	s := newStack(t, "local")
-	s.mustSeed(t)
+	first := s.mustSeed(t)
+	if !strings.Contains(first.stdout, "temporary password of d7.kitti@logitrack.test") {
+		t.Errorf("the load that inserts d7.kitti does not show its temporary password:\n%s", first.stdout)
+	}
 	before := fingerprintBlock(t, s.mustSeed(t, "--verify").stdout)
 	r := s.mustSeed(t, "--mode", "upsert")
 	if !strings.Contains(r.stdout, ": 0 rows") {
 		t.Errorf("upsert on a seeded database wrote rows:\n%s", r.stdout)
 	}
+	if strings.Contains(r.stdout, "temporary password of") || !strings.Contains(r.stdout, "d7.kitti@logitrack.test already exists: its password is unchanged") {
+		t.Errorf("an upsert that inserts no user printed a temporary password, or said nothing:\n%s", r.stdout)
+	}
 	if after := fingerprintBlock(t, s.mustSeed(t, "--verify").stdout); after != before {
 		t.Fatalf("upsert changed the fingerprint:\n%s\nvs\n%s", before, after)
+	}
+}
+
+// An upsert recomputes only the prices it writes: a shared database where someone edited a seeded price by
+// hand, or imported a later rate round, still takes a top-up (the app never re-prices those rows either).
+func TestUpsertLeavesExistingPricesAlone(t *testing.T) {
+	s := newStack(t, "local")
+	s.mustSeed(t)
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, s.d.SuperURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(ctx) }()
+	plan, err := seed.Build(ctx, seed.FixtureFS{FS: fixtures, Registry: "testdata/registry.json", Smoke: "testdata/smoke"},
+		seed.Options{Profile: seed.ProfileSmoke, Bucket: "logitrack", PublicBucket: "logitrack-public", Backend: "local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sym := plan.Symbols.MustID
+	// PUT /v1/trips/{id}/billing/manual on the unlocked September trip TR14 (Appendix B).
+	if _, err := conn.Exec(ctx, `UPDATE trip_billing_snapshots SET estimate_thb = 1999.00, manual_override = true,
+		computed_by = 'manual_edit' WHERE trip_id = $1`, sym("TR14")); err != nil {
+		t.Fatal(err)
+	}
+	s.mustSeed(t, "--verify")
+	if r := s.mustSeed(t, "--mode", "upsert"); !strings.Contains(r.stdout, ": 0 rows") {
+		t.Errorf("upsert after a manual price edit wrote rows:\n%s", r.stdout)
+	}
+	// A later rate round for RE01's route (a rate import): the seeded snapshots would now price differently.
+	if _, err := conn.Exec(ctx, `INSERT INTO customer_rate_entries (tenant_id, tenant_source, billing_party_id, import_id,
+		hub_code, raw_hub_name, destination_code, vehicle_class, rate_thb, job_category, effective_from_date, effective_from_at,
+		imported_at, created_by, created_at, voided)
+		SELECT tenant_id, tenant_source, billing_party_id, 'rc_1783213200000', hub_code, raw_hub_name, destination_code,
+		       vehicle_class, 1300.00, job_category, '2026-07-05', '2026-07-05T00:00:00+07:00', '2026-07-04T09:00:00+07:00',
+		       created_by, '2026-07-04T09:00:00+07:00', false
+		FROM customer_rate_entries WHERE id = $1`, sym("RE01")); err != nil {
+		t.Fatal(err)
+	}
+	if r := s.mustSeed(t, "--mode", "upsert"); !strings.Contains(r.stdout, ": 0 rows") {
+		t.Errorf("upsert after a rate import wrote rows:\n%s", r.stdout)
+	}
+}
+
+// A database seeded in another SEED_NAMESPACE is refused with a clear message: the natural keys and the
+// own-fleet singleton are the same in every namespace, so two datasets never share a database.
+func TestOtherNamespaceIsRefused(t *testing.T) {
+	s := newStack(t, "local")
+	s.mustSeed(t)
+	other := *s
+	other.env = append(append([]string(nil), s.env...), "SEED_NAMESPACE=6ba7b811-9dad-11d1-80b4-00c04fd430c8")
+	r := other.seed(t, "--mode", "upsert")
+	if r.code != 1 || !strings.Contains(r.stderr, "seeded in another SEED_NAMESPACE") {
+		t.Fatalf("exit %d, want 1 with the namespace message:\n%s\n%s", r.code, r.stdout, r.stderr)
+	}
+	s.mustSeed(t, "--verify")
+}
+
+// An upsert never leaves a file_objects row describing other bytes than the store holds: when the drawn
+// bytes differ from what an existing row records (another toolchain or renderer), the stored object stays.
+func TestUpsertKeepsObjectsWithOtherBytes(t *testing.T) {
+	s := newStack(t, "local")
+	s.mustSeed(t)
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, s.d.SuperURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(ctx) }()
+	var key string
+	if err := conn.QueryRow(ctx, `SELECT object_key FROM file_objects WHERE content_type = 'image/jpeg' AND status = 'committed'
+		AND bucket = 'logitrack' ORDER BY object_key LIMIT 1`).Scan(&key); err != nil {
+		t.Fatal(err)
+	}
+	var dir string
+	for _, e := range s.env {
+		if v, ok := strings.CutPrefix(e, "LOCAL_MEDIA_DIR="); ok {
+			dir = v
+		}
+	}
+	local, err := storage.NewLocal(storage.LocalConfig{Dir: dir, PublicBaseURL: "http://localhost:8081/media",
+		APIUploadPath: storage.LocalUploadPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = local.Close() }()
+	old := []byte("bytes an older toolchain drew")
+	if err := local.Put(ctx, storage.Object{Bucket: "logitrack", Key: key}, bytes.NewReader(old), int64(len(old)), "image/jpeg"); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(old)
+	if _, err := conn.Exec(ctx, `UPDATE file_objects SET size_bytes = $1, sha256 = $2 WHERE object_key = $3`,
+		len(old), hex.EncodeToString(sum[:]), key); err != nil {
+		t.Fatal(err)
+	}
+	s.mustSeed(t, "--verify")
+	r := s.mustSeed(t, "--mode", "upsert")
+	if !strings.Contains(r.stdout, "(1 existing kept: their rows record other bytes)") {
+		t.Errorf("upsert does not report the kept object:\n%s", r.stdout)
+	}
+	if v := s.mustSeed(t, "--verify"); !strings.Contains(v.stdout, " 9 PASS") {
+		t.Fatalf("the upsert broke invariant 9:\n%s", v.stdout)
 	}
 }
 

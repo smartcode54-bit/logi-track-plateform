@@ -387,15 +387,45 @@ func TestLoadPlan(t *testing.T) {
 	}
 }
 
-// The temporary password has the alphabet of internal/auth/password and follows SEED_RANDOM_SEED.
+// stubHasher stands in for Argon2id in unit tests.
+type stubHasher struct{}
+
+func (stubHasher) Hash(_ context.Context, pw string) (string, error) { return "stub$" + pw, nil }
+
+// temporaryRx is the shape of internal/auth/password.Temporary: 12 symbols without 0/O, 1/I.
+var temporaryRx = regexp.MustCompile(`^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{12}$`)
+
+// The temporary password of the must-change-password user comes from crypto/rand: two loads with the same
+// public inputs (SEED_RANDOM_SEED, SEED_NAMESPACE) and the same secret never get the same one, so nobody can
+// recompute it from the repository; the stored hash is that of the printed value. The legacy scrypt salt stays
+// deterministic.
 func TestTemporaryPassword(t *testing.T) {
-	o := Options{Namespace: DefaultNamespace, RandomSeed: 7}
-	a, b := temporaryPassword(rng(o, "credentials")), temporaryPassword(rng(o, "credentials"))
-	if a != b || len(a) != 12 || strings.Trim(a, temporaryAlphabet) != "" {
-		t.Fatalf("temporary password %q / %q", a, b)
+	ctx := context.Background()
+	o := Options{Namespace: DefaultNamespace, RandomSeed: 20261009, Materialize: true, Hasher: stubHasher{},
+		DefaultPassword: "unit-test-only", Scrypt: nil}
+	seen := map[string]bool{}
+	for range 3 {
+		p := &Plan{}
+		c, err := credentials(ctx, o, p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !temporaryRx.MatchString(p.TemporaryPassword) {
+			t.Fatalf("temporary password %q is not 12 symbols of the password.Temporary alphabet", p.TemporaryPassword)
+		}
+		if c.temporaryHash != "stub$"+p.TemporaryPassword {
+			t.Fatalf("the stored hash is not that of the printed temporary password")
+		}
+		seen[p.TemporaryPassword] = true
 	}
-	if c := temporaryPassword(rng(Options{Namespace: DefaultNamespace, RandomSeed: 8}, "credentials")); c == a {
-		t.Fatal("another seed gives the same temporary password")
+	if len(seen) != 3 {
+		t.Fatalf("three loads with the same SEED_RANDOM_SEED and namespace drew %d distinct temporary passwords, want 3", len(seen))
+	}
+	pl := plan(t, ProfileSmoke)
+	if pl.TemporaryPassword != "" || pl.TemporaryEmail != "d7.kitti@logitrack.test" ||
+		pl.TemporaryUserID != pl.Symbols.MustID("U_D7").String() {
+		t.Fatalf("unmaterialized plan: temporary password %q, user %s %s; want none, U_D7 d7.kitti@logitrack.test",
+			pl.TemporaryPassword, pl.TemporaryUserID, pl.TemporaryEmail)
 	}
 }
 

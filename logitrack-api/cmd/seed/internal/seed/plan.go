@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/firebasescrypt"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/password"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/clock"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
 )
@@ -99,6 +100,7 @@ type Object struct {
 	Status      string // committed | pending | missing_at_source
 	Backend     string
 	Body        []byte // nil for missing_at_source, and when the plan is not materialized
+	SHA256      string // hex digest of Body
 }
 
 // Plan is everything a profile writes, in load order.
@@ -110,9 +112,12 @@ type Plan struct {
 	// quarantine tenant of migration 0002 and the derived task_number_counters.
 	Expected map[string]int
 	Objects  []*Object
-	// TemporaryPassword is the seeded temporary password of the must-change-password fixture user (shown
-	// once, like the real POST /v1/users/{id}/password/temporary); empty when not materialized.
+	// TemporaryPassword is the temporary password of the must-change-password fixture user, drawn from
+	// crypto/rand for every materialized plan like the real POST /v1/users/{id}/password/temporary (never from
+	// SEED_RANDOM_SEED or the namespace, which are public) and shown once by the load that inserts the user;
+	// empty when not materialized. TemporaryUserID and TemporaryEmail name that user.
 	TemporaryPassword string
+	TemporaryUserID   string
 	TemporaryEmail    string
 	// Warnings are worth a log line (an unset optional input).
 	Warnings []string
@@ -183,6 +188,9 @@ func Build(ctx context.Context, fx FixtureFS, o Options) (*Plan, error) {
 			if !keep {
 				continue
 			}
+			if expr, ok := computed(row["password_hash"]); ok && table == "users" && expr == temporaryHashExpr {
+				p.TemporaryUserID, p.TemporaryEmail = row.Str("id"), row.Str("email")
+			}
 			if err := computeRow(table, row, creds); err != nil {
 				return nil, fmt.Errorf("seed: fixture %s row %d: %w", table, i+1, err)
 			}
@@ -245,9 +253,15 @@ type creds struct {
 	materialized               bool
 }
 
+// temporaryHashExpr is the computed password_hash of the must-change-password fixture user (U_D7).
+const temporaryHashExpr = "argon2id(temporary password, shown once)"
+
 // credentials hashes SEED_DEFAULT_PASSWORD and the fixture's temporary password once (every password user
 // shares the hash of its password, which keeps the load fast; a user's salt is not secret), and computes the
-// legacy Firebase-scrypt fixture with the public test parameters.
+// legacy Firebase-scrypt fixture with the public test parameters. The temporary password comes from
+// crypto/rand (password.Temporary): SEED_RANDOM_SEED and SEED_NAMESPACE are public, so a password drawn
+// from them could be recomputed by anyone and taken over on a shared dev database (R29, R79). The scrypt
+// salt stays on the seed's PCG stream: it is not secret and two loads keep the same one.
 func credentials(ctx context.Context, o Options, p *Plan) (creds, error) {
 	if !o.Materialize {
 		return creds{}, nil
@@ -257,11 +271,13 @@ func credentials(ctx context.Context, o Options, p *Plan) (creds, error) {
 	if c.defaultHash, err = o.Hasher.Hash(ctx, o.DefaultPassword); err != nil {
 		return c, fmt.Errorf("seed: hash SEED_DEFAULT_PASSWORD: %w", err)
 	}
-	r := rng(o, "credentials")
-	p.TemporaryPassword = temporaryPassword(r)
+	if p.TemporaryPassword, err = password.Temporary(); err != nil {
+		return c, fmt.Errorf("seed: temporary password: %w", err)
+	}
 	if c.temporaryHash, err = o.Hasher.Hash(ctx, p.TemporaryPassword); err != nil {
 		return c, fmt.Errorf("seed: hash the temporary password: %w", err)
 	}
+	r := rng(o, "credentials")
 	salt := make([]byte, 16)
 	for i := range salt {
 		salt[i] = byte(r.Uint32())
@@ -278,18 +294,6 @@ func credentials(ctx context.Context, o Options, p *Plan) (creds, error) {
 	return c, nil
 }
 
-// temporaryAlphabet is the alphabet of internal/auth/password.Temporary (no 0/O, 1/I look-alikes).
-const temporaryAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-
-// temporaryPassword is a 12-symbol temporary password drawn from the seed's PCG stream.
-func temporaryPassword(r *rand.Rand) string {
-	b := make([]byte, 12)
-	for i := range b {
-		b[i] = temporaryAlphabet[r.IntN(len(temporaryAlphabet))]
-	}
-	return string(b)
-}
-
 // computeRow replaces the credential placeholders of a row ($seed: values that depend on secrets).
 func computeRow(table string, r Row, c creds) error {
 	for col, v := range r {
@@ -301,7 +305,7 @@ func computeRow(table string, r Row, c creds) error {
 		switch expr {
 		case "argon2id(SEED_DEFAULT_PASSWORD)":
 			val = c.defaultHash
-		case "argon2id(temporary password, shown once)":
+		case temporaryHashExpr:
 			val = c.temporaryHash
 		case "firebase_scrypt(SEED_DEFAULT_PASSWORD, FIREBASE_SCRYPT_* test params)":
 			val = nilIfEmpty(c.scryptHash)
@@ -387,7 +391,7 @@ func objects(p *Plan, o Options) error {
 			}
 		}
 		r["size_bytes"], r["sha256"] = size, digest
-		obj.Body = body
+		obj.Body, obj.SHA256 = body, digest
 	}
 	return nil
 }
