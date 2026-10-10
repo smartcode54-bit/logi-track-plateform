@@ -23,7 +23,6 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/app"
-	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
@@ -38,12 +37,13 @@ func main() {
 
 // newAPI is the single place where the route registry meets the listeners: serving and
 // `api routes` both build the API here, so the checked table is the served one. Domain route
-// groups are added to this call: the auth groups (T05) come from svc, which app.BuildAPI wires,
-// GET /v1/roles (T07) sits behind svc.RequireAuth; extra exists for tests. `api routes` passes a
-// nil svc: Service.Groups and RequireAuth only register handlers and never read the service, so the
-// table needs no database, Redis or signing key.
-func newAPI(cfg *app.APIConfig, log zerolog.Logger, svc *auth.Service, extra ...ingress.Group) (*app.API, error) {
-	groups := append(svc.Groups(), iam.RoleGroups(svc.RequireAuth())...)
+// groups are added to this call: the auth groups (T05) and the jobs groups (T10) come from deps,
+// which app.BuildAPI wires, and GET /v1/roles (T07) sits behind deps.Auth.RequireAuth; extra exists
+// for tests. `api routes` passes zero deps: Groups and RequireAuth only register handlers and never
+// read a service, so the table needs no database, Redis or signing key.
+func newAPI(cfg *app.APIConfig, log zerolog.Logger, deps app.APIDeps, extra ...ingress.Group) (*app.API, error) {
+	groups := append(deps.Auth.Groups(), app.JobGroups(deps)...)
+	groups = append(groups, iam.RoleGroups(deps.Auth.RequireAuth())...)
 	return app.NewAPI(cfg, log, append(groups, extra...)...)
 }
 
@@ -85,8 +85,8 @@ func serve(ctx context.Context, stdout, stderr io.Writer) int {
 		}
 	}()
 
-	api, closeDeps, err := app.BuildAPI(ctx, cfg, log, func(svc *auth.Service) (*app.API, error) {
-		return newAPI(cfg, log, svc)
+	api, closeDeps, err := app.BuildAPI(ctx, cfg, log, func(deps app.APIDeps) (*app.API, error) {
+		return newAPI(cfg, log, deps)
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("api build failed")
@@ -124,7 +124,7 @@ func routes(args []string, stdout, stderr io.Writer, extra ...ingress.Group) int
 		return app.ExitConfigError
 	}
 	cfg := &app.APIConfig{PublicRouteGroups: ingress.PublicPrefixes}
-	a, err := newAPI(cfg, zerolog.Nop(), nil, extra...)
+	a, err := newAPI(cfg, zerolog.Nop(), app.APIDeps{}, extra...)
 	if err == nil {
 		err = a.CheckRoutes()
 	}

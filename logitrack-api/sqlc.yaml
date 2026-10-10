@@ -4,6 +4,126 @@
 # omit_unused_structs: a package gets the models of the tables its queries use, not all 85 (T04).
 version: "2"
 sql:
+  # T10: outbox_events (append, relay, prune) and consumer_inbox; uuid and timestamptz as google/uuid and time.
+  - name: outbox
+    engine: postgresql
+    schema: migrations
+    queries: internal/platform/outbox/queries
+    gen:
+      go:
+        package: outboxdb
+        out: internal/platform/outbox/outboxdb
+        sql_package: pgx/v5
+        emit_empty_slices: true
+        emit_pointers_for_null_types: true
+        omit_unused_structs: true
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: uuid
+            nullable: true
+            go_type:
+              import: github.com/google/uuid
+              type: UUID
+              pointer: true
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true
+  # T10: jobs (R14, R64) and jobs.prune.
+  - name: jobs
+    engine: postgresql
+    schema: migrations
+    queries: internal/jobs/queries
+    gen:
+      go:
+        package: jobsdb
+        out: internal/jobs/jobsdb
+        sql_package: pgx/v5
+        emit_empty_slices: true
+        emit_pointers_for_null_types: true
+        omit_unused_structs: true
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: uuid
+            nullable: true
+            go_type:
+              import: github.com/google/uuid
+              type: UUID
+              pointer: true
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true
+  # T10: the scheduler's SQL housekeeping (auth.token-cleanup, idempotency.prune).
+  - name: scheduler
+    engine: postgresql
+    schema: migrations
+    queries: internal/scheduler/queries
+    gen:
+      go:
+        package: schedulerdb
+        out: internal/scheduler/schedulerdb
+        sql_package: pgx/v5
+        emit_empty_slices: true
+        emit_pointers_for_null_types: true
+        omit_unused_structs: true
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: uuid
+            nullable: true
+            go_type:
+              import: github.com/google/uuid
+              type: UUID
+              pointer: true
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true
+  # T10: the notify.email consumer's recipient lookup (tokens come from auth.IssueResetToken).
+  - name: notify
+    engine: postgresql
+    schema: migrations
+    queries: internal/notify/queries
+    gen:
+      go:
+        package: notifydb
+        out: internal/notify/notifydb
+        sql_package: pgx/v5
+        emit_empty_slices: true
+        emit_pointers_for_null_types: true
+        omit_unused_structs: true
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: uuid
+            nullable: true
+            go_type:
+              import: github.com/google/uuid
+              type: UUID
+              pointer: true
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true
   - name: platform-db
     engine: postgresql
     schema: migrations

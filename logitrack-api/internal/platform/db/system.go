@@ -29,7 +29,11 @@ const setContextSQL = `SELECT set_config('app.user_id', $1, true), set_config('a
 // The tenant-move and ETL GUCs are never set here. fn's error rolls the transaction back; a panic too.
 //
 // Request transactions use WithPrincipal instead. tools/analyzers/withsystem (make lint) fails the build
-// when a package outside its allow-list calls WithSystem (Appendix C §C.3.2).
+// when a package outside the allow-list of Appendix C §C.3.2 calls WithSystem: internal/auth,
+// internal/iam, internal/security, internal/storage, internal/public,
+// internal/platform/{outbox,inbox,tenancy}, internal/notify, internal/scheduler, internal/jobs and
+// cmd/{worker,scheduler,etl,seed}/...; calls to inbox.Run and to jobs.Service.Submit with an InTx hook
+// count as WithSystem.
 func WithSystem(ctx context.Context, b Beginner, tenantID *uuid.UUID, fn func(pgx.Tx) error) error {
 	return pgx.BeginFunc(ctx, b, func(tx pgx.Tx) error {
 		tid := ""

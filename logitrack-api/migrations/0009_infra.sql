@@ -186,9 +186,9 @@ END
 $$;
 -- +goose StatementEnd
 -- Exempt tables: exactly the privileges listed in Appendix C §C.3.2, nothing else.
-GRANT SELECT, INSERT, UPDATE, DELETE ON outbox_events, idempotency_keys             TO logitrack_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON outbox_events, idempotency_keys, jobs       TO logitrack_app;   -- jobs: jobs.prune (T10)
 GRANT SELECT, INSERT, DELETE         ON consumer_inbox, waitlist                    TO logitrack_app;
-GRANT SELECT, INSERT, UPDATE         ON jobs, notification_deliveries, settings,
+GRANT SELECT, INSERT, UPDATE         ON notification_deliveries, settings,
                                         fuel_monthly_snapshots                      TO logitrack_app;
 GRANT SELECT, INSERT                 ON mobile_app_releases, partner_interest,
                                         fuel_daily_snapshots                        TO logitrack_app;
