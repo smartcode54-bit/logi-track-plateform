@@ -1,6 +1,7 @@
 package firebase
 
 import (
+	"context"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/json"
@@ -8,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/mail"
 	"net/url"
 	"os"
@@ -15,6 +17,8 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/oauth2"
+	oauthjwt "golang.org/x/oauth2/jwt"
 )
 
 // maxKeyFileBytes bounds the service-account file (a real one is about 2.3 KB).
@@ -122,6 +126,17 @@ func (sa *ServiceAccount) ClientEmail() string { return sa.clientEmail }
 
 // PublicKey is the public half of the signing key (tests verify custom tokens with it).
 func (sa *ServiceAccount) PublicKey() *rsa.PublicKey { return &sa.key.PublicKey }
+
+// TokenSource fetches OAuth2 access tokens for scopes with the service-account JWT bearer grant (the
+// assertion is signed locally, no token-creator role), through client (nil: a client with a 10 s timeout).
+// cmd/etl uses it for the Firestore and Cloud Storage REST APIs (main spec §13.1, §16.1).
+func (sa *ServiceAccount) TokenSource(client *http.Client, scopes ...string) oauth2.TokenSource {
+	if client == nil {
+		client = &http.Client{Timeout: httpTimeout}
+	}
+	jc := &oauthjwt.Config{Email: sa.clientEmail, PrivateKey: sa.keyPEM, PrivateKeyID: sa.privateKeyID, Scopes: scopes, TokenURL: sa.tokenURL}
+	return oauth2.ReuseTokenSource(nil, jc.TokenSource(context.WithValue(context.Background(), oauth2.HTTPClient, client)))
+}
 
 // String never prints the key.
 func (sa *ServiceAccount) String() string { return "firebase.ServiceAccount{redacted}" }

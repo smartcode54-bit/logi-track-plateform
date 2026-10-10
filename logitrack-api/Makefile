@@ -120,7 +120,7 @@ seed: ## seed a profile (SEED_PROFILE=smoke|demo|load; cmd/seed lands in T16)
 seed-verify: ## seed --verify invariants (T16)
 	$(COMPOSE) --profile tools run --rm seed --verify
 
-etl-fixtures: ## dry-run ETL over the fixtures against logitrack_test (T15)
+etl-fixtures: ## dry-run the embedded fixture dump against the local database (rolled back; needs OWN_FLEET_TENANT_ID in .env) (T15)
 	$(COMPOSE) --profile tools run --rm etl load --dry-run --fixtures
 
 etl-fixtures-check: ## go-ci etl-fixtures: integration tests of cmd/etl over cmd/etl/testdata/firestore-fixtures (T15)

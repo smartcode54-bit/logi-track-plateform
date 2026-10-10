@@ -1,0 +1,2 @@
+{"_id": "mnt1", "_path": "maintenance/mnt1", "_createTime": "2026-09-01T00:00:00Z", "_updateTime": "2026-09-02T00:00:00Z", "fields": {"truckId": "trk_own1", "type": "PM", "serviceType": "Oil change", "startDate": "2026-09-01", "status": "PM Booking", "costLabor": 500, "appointmentTime": "09:30"}}
+{"_id": "mnt2", "_path": "maintenance/mnt2", "_createTime": "2026-09-01T00:00:00Z", "_updateTime": "2026-09-02T00:00:00Z", "fields": {"truckId": "trk_none", "type": "CM", "serviceType": "Brake", "startDate": {"$ts": "2026-09-02T00:00:00Z"}, "status": "in_progress"}}

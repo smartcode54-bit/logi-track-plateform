@@ -1165,7 +1165,7 @@ RLS is the safety net, not the only filter:
 
 ### C.3.10 Write-time tenant resolution, orphans and quarantine
 
-`internal/platform/tenancy` is the pure Go port of `tenantResolve.ts` with its 223-line test file ported (`tenantResolve.test.ts`, issue T28). `tenant_source` is an inline `text NOT NULL CHECK (tenant_source IN ('task','trip','driver','truck','self','form','quarantine'))` on every tenant-stamped table (R11, R58; no DOMAIN, no ENUM). Main spec §13.5 owns the per-collection resolution table; the summary below is what the RLS and service checks rely on.
+`internal/platform/tenancy` is the pure Go port of `tenantResolve.ts` with its 223-line test file ported (`tenantResolve.test.ts`): `tenancy.Resolve` and `tenancy.Rehome` landed with the ETL (T15), which needs them for the P1 initial load (R71); T28 stamps the Go write paths with them and mounts the re-home endpoint. Two cases of the TypeScript test change on purpose: `isTenantCollection('vehicle_expenses')` is true (R75 gives it a chain), and a driver or partner truck whose `subcontractorId` names no carrier is an orphan rather than the dangling id. `tenant_source` is an inline `text NOT NULL CHECK (tenant_source IN ('task','trip','driver','truck','self','form','quarantine'))` on every tenant-stamped table (R11, R58; no DOMAIN, no ENUM). Main spec §13.5 owns the per-collection resolution table; the summary below is what the RLS and service checks rely on.
 
 | Table | Resolution order (first non-empty wins) | Notes |
 |---|---|---|
