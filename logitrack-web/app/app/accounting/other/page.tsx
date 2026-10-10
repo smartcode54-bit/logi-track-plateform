@@ -12,7 +12,7 @@ import {
     TruckOption,
     updateVehicleExpense,
 } from "../actions.client";
-import { LazyDialog } from "@/components/lazy-dialog";
+import { LazyDialog, LazyDialogLoading } from "@/components/lazy-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Receipt, DollarSign, Hash, TrendingUp, Loader2, RefreshCw, Save, Search, Plus, Upload } from "lucide-react";
@@ -44,7 +44,7 @@ import { AddOtherExpenseDialog } from "@/features/accounting/components/AddOther
 // The toll import dialog carries xlsx: loaded on the first open only (developer-spec.md §10.11).
 const TollExpenseImportDialog = dynamic(
     () => import("@/features/accounting/components/TollExpenseImportDialog").then((m) => m.TollExpenseImportDialog),
-    { ssr: false },
+    { ssr: false, loading: LazyDialogLoading },
 );
 
 const categoryKeys: Record<string, string> = {

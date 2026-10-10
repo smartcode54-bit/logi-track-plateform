@@ -656,6 +656,15 @@ export function generateDetailExcelBuffer(
   return XLSX.write(wb, { type: "array", bookType: "xlsx" }) as Uint8Array;
 }
 
+/**
+ * Fetches what {@link downloadBillingZip} would otherwise fetch half-way through: the jszip chunk
+ * and the Sarabun font. Billing Document awaits it (through `loadBillingRender`) before it saves
+ * the statement, so a stale chunk or a network drop fails before an invoice number is used.
+ */
+export async function preloadBillingRender(): Promise<void> {
+  await Promise.all([import("jszip"), loadThaiFont()]);
+}
+
 export async function downloadBillingZip(
   trips: BillingTripRow[],
   customer: BillingCustomer,

@@ -32,6 +32,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
+import { LazyDialogBoundary, LazyDialogLoading } from "@/components/lazy-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { DateOnlyRangePicker } from "@/components/ui/date-range-picker";
@@ -95,7 +96,7 @@ import {
 // The import dialog carries xlsx: loaded on the first open only (developer-spec.md §10.11).
 const RateCardImportDialog = dynamic(
     () => import("@/features/accounting/components/RateCardImportDialog").then((m) => m.RateCardImportDialog),
-    { ssr: false },
+    { ssr: false, loading: LazyDialogLoading },
 );
 
 interface HubOption {
@@ -3075,14 +3076,20 @@ export default function AccountingRateCardPage() {
             </Card>
 
             {importMounted && (
-                <RateCardImportDialog
-                    open={importOpen}
-                    onOpenChange={setImportOpen}
-                    customers={customers}
-                    initialCustomerId={filterCustomerId !== "all" ? filterCustomerId : undefined}
-                    knownHubIds={hubs.map((h) => h.id)}
-                    onImported={() => void loadData()}
-                />
+                // This root holds the loading shell and the load-error dialog (components/lazy-dialog.tsx);
+                // the import dialog renders its own root once its chunk is in.
+                <Dialog open={importOpen} onOpenChange={setImportOpen}>
+                    <LazyDialogBoundary>
+                        <RateCardImportDialog
+                            open={importOpen}
+                            onOpenChange={setImportOpen}
+                            customers={customers}
+                            initialCustomerId={filterCustomerId !== "all" ? filterCustomerId : undefined}
+                            knownHubIds={hubs.map((h) => h.id)}
+                            onImported={() => void loadData()}
+                        />
+                    </LazyDialogBoundary>
+                </Dialog>
             )}
 
             {/* Void announcement dialog — ADR 0009 §1: rows are immutable, so retiring one is

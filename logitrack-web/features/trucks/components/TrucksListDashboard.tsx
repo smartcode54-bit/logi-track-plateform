@@ -50,10 +50,13 @@ import { Badge } from "@/components/ui/badge";
 
 import { useTrucksList } from "../hooks/useTrucksList";
 import { TruckComplianceCards } from "./TruckComplianceCards";
-import { LazyDialog } from "@/components/lazy-dialog";
+import { LazyDialog, LazyDialogLoading } from "@/components/lazy-dialog";
 
 // The import dialog carries xlsx: loaded on the first open only (developer-spec.md §10.11).
-const TruckImportDialog = dynamic(() => import("./TruckImportDialog").then((m) => m.TruckImportDialog), { ssr: false });
+const TruckImportDialog = dynamic(() => import("./TruckImportDialog").then((m) => m.TruckImportDialog), {
+    ssr: false,
+    loading: LazyDialogLoading,
+});
 
 export default function TrucksListDashboard() {
     const { t } = useLanguage();

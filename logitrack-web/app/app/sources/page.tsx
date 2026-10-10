@@ -23,7 +23,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HubDialog } from "../first-mile/hub-dialog";
-import { LazyDialog } from "@/components/lazy-dialog";
+import { LazyDialog, LazyDialogLoading } from "@/components/lazy-dialog";
 import { collection, getDocs, doc, getDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "@/firebase/client";
@@ -53,7 +53,7 @@ const SourcesMap = dynamic(() => import("@/components/map/SourcesMap"), {
 // The import dialog carries xlsx: loaded on the first open only (developer-spec.md §10.11).
 const PickupLocationImportDialog = dynamic(
     () => import("./pickup-import-dialog").then((m) => m.PickupLocationImportDialog),
-    { ssr: false },
+    { ssr: false, loading: LazyDialogLoading },
 );
 
 /** Display row: supports both new schema and legacy Firestore fields */

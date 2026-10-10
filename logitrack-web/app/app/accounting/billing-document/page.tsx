@@ -12,6 +12,7 @@ import type {
     BillingProviderInfo,
 } from "@/lib/billingDocumentModel";
 import { saveBillingStatement } from "@/lib/billingStatement";
+import { loadBillingRender, loadThenSaveThenRender } from "@/lib/billingDocumentLoad";
 import { getOwnerCompany } from "@/features/companies/api/companies";
 import {
     getCustomerServiceFees,
@@ -444,36 +445,47 @@ export default function BillingDocumentPage() {
             // the statement to its own totals keeps a wrong invoice impossible even if that changes.
             const invoice = computeBillingTotals(filteredTrips);
 
-            // Save billing statement (registry) before download
             const customerForStatement = customers.find((c) => c.id === selectedCustomer.id);
-            let invoiceNumber: string | undefined;
-            try {
-                toast.loading(t("accounting.billingDocument.save.saving"));
-                invoiceNumber = await saveBillingStatement({
-                    customerId: selectedCustomer.id,
-                    customerName: selectedCustomer.name,
-                    customerCode: customerForStatement?.code ?? selectedCustomer.id,
-                    period,
-                    totalAmount: invoice.grandTotal,
-                    withholdingTax: invoice.withholdingTax,
-                    netAmount: invoice.totalNet,
-                    tripCount: filteredTrips.length,
-                    ...invoice.breakdown,
-                    paymentTermsDays: selectedCustomer.paymentTermsDays,
-                    generatedBy: auth?.currentUser?.uid,
-                });
-                toast.dismiss();
-                toast.success(t("accounting.billingDocument.save.saved", { invoiceNumber }));
-            } catch (saveErr) {
-                toast.dismiss();
-                console.error("[billing] Failed to save statement:", saveErr);
-                toast.error(t("accounting.billingDocument.save.error"));
-                // Still proceed with download even if statement save fails
-            }
 
-            // jspdf / xlsx-js-style load only when a document is generated (developer-spec.md §10.11).
-            const { downloadBillingZip } = await import("@/lib/billingDocumentRender");
-            await downloadBillingZip(filteredTrips, selectedCustomer, period, invoiceNumber, ownerProvider, showActualPickup);
+            // The renderer (jspdf / xlsx-js-style, developer-spec.md §10.11), jszip and the Sarabun
+            // font load BEFORE the statement is saved: saving uses up an invoice number, so a stale
+            // chunk or a network drop must fail before it, not between it and the ZIP.
+            await loadThenSaveThenRender({
+                load: loadBillingRender,
+                // Save billing statement (registry) before download
+                save: async () => {
+                    try {
+                        toast.loading(t("accounting.billingDocument.save.saving"));
+                        const invoiceNumber = await saveBillingStatement({
+                            customerId: selectedCustomer.id,
+                            customerName: selectedCustomer.name,
+                            customerCode: customerForStatement?.code ?? selectedCustomer.id,
+                            period,
+                            totalAmount: invoice.grandTotal,
+                            withholdingTax: invoice.withholdingTax,
+                            netAmount: invoice.totalNet,
+                            tripCount: filteredTrips.length,
+                            ...invoice.breakdown,
+                            paymentTermsDays: selectedCustomer.paymentTermsDays,
+                            generatedBy: auth?.currentUser?.uid,
+                        });
+                        toast.dismiss();
+                        toast.success(t("accounting.billingDocument.save.saved", { invoiceNumber }));
+                        return invoiceNumber;
+                    } catch (saveErr) {
+                        toast.dismiss();
+                        console.error("[billing] Failed to save statement:", saveErr);
+                        toast.error(t("accounting.billingDocument.save.error"));
+                        // Still proceed with download even if statement save fails
+                        return undefined;
+                    }
+                },
+                render: (render, invoiceNumber) =>
+                    render.downloadBillingZip(filteredTrips, selectedCustomer, period, invoiceNumber, ownerProvider, showActualPickup),
+            });
+        } catch (err) {
+            console.error("[billing] Document generation failed:", err);
+            toast.error(t("accounting.billingDocument.download.error"));
         } finally {
             setGenerating(false);
         }

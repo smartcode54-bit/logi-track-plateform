@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import dynamic from "next/dynamic";
 import { endOfDay, format, startOfDay } from "date-fns";
 import { Calendar as CalendarIcon, FileSpreadsheet, Plus, MoreHorizontal, Pencil, RefreshCw, Copy, Settings2 } from "lucide-react";
-import { LazyDialog } from "@/components/lazy-dialog";
+import { LazyDialog, LazyDialogLoading } from "@/components/lazy-dialog";
 import { FirstMileTaskDialog } from "@/app/app/first-mile/task-dialog";
 import { LineHaulTaskDialog } from "@/app/app/line-haul/task-dialog";
 import { useLanguage } from "@/context/language";
@@ -47,7 +47,10 @@ import type { TripRecord } from "@/validate/tripRecordSchema";
 import { useDriverNamesByAuthId } from "@/hooks/useDriverNamesByAuthId";
 
 // Import dialogs carry xlsx: loaded on the first open only (developer-spec.md §10.11).
-const JobImportDialog = dynamic(() => import("./import-dialog").then((m) => m.JobImportDialog), { ssr: false });
+const JobImportDialog = dynamic(() => import("./import-dialog").then((m) => m.JobImportDialog), {
+    ssr: false,
+    loading: LazyDialogLoading,
+});
 
 type TaskTypeFilter = "all" | "FIRST_MILE" | "LINE_HAUL";
 

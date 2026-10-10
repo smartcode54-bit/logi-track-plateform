@@ -738,13 +738,14 @@ function exportBillingPeriodLock() {
 }
 
 // ─── lib/billingDocument.test.ts ─────────────────────────────────────────────
-// billingDocument.ts imports jspdf and friends, so Node cannot load it here:
-// these wants are literal and the Vitest verifier checks them against the module.
+// At 4f552099 billingDocument.ts imported jspdf and friends, so Node could not load it here:
+// these wants are literal and the Vitest verifier checks them against the module, since the
+// TW9 split the pure lib/billingDocumentModel.ts (kept literal so the vectors do not change).
 
 function exportBillingDocument() {
   const v = vectorFile(
     "logitrack-web/lib/billingDocument.test.ts",
-    "16 Vitest cases ported to internal/billing/documents. Wants are literal (the module needs a browser bundle); lib/billingGolden.test.ts checks them against billingDocument.ts. groupToLineItems' second argument is the rows its rounds are collected from (null: no rounds argument)."
+    "16 Vitest cases ported to internal/billing/documents. Wants are literal (at 4f552099 the module needed a browser bundle); lib/billingGolden.test.ts checks them against billingDocumentModel.ts (billingDocument.ts at 4f552099). groupToLineItems' second argument is the rows its rounds are collected from (null: no rounds argument)."
   );
   const D = (s) => new Date(s);
   const trip = (over = {}) => ({

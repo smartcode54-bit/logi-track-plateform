@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { endOfDay, format, startOfDay } from "date-fns";
 import { Calendar as CalendarIcon, FileSpreadsheet, Plus } from "lucide-react";
-import { LazyDialog } from "@/components/lazy-dialog";
+import { LazyDialog, LazyDialogLoading } from "@/components/lazy-dialog";
 import { LineHaulTaskDialog } from "./task-dialog";
 import { useLanguage } from "@/context/language";
 import { useCustomerScope } from "@/hooks/useCustomerScope";
@@ -65,7 +65,10 @@ import type { TripRecord } from "@/validate/tripRecordSchema";
 import { useDriverNamesByAuthId } from "@/hooks/useDriverNamesByAuthId";
 
 // Import dialogs carry xlsx: loaded on the first open only (developer-spec.md §10.11).
-const LineHaulImportDialog = dynamic(() => import("./import-dialog").then((m) => m.LineHaulImportDialog), { ssr: false });
+const LineHaulImportDialog = dynamic(() => import("./import-dialog").then((m) => m.LineHaulImportDialog), {
+    ssr: false,
+    loading: LazyDialogLoading,
+});
 
 function toDate(val: unknown): Date | null {
     if (!val) return null;

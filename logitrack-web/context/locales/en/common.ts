@@ -97,6 +97,9 @@ export default {
 
     // Common
     "common.loading": "Loading...",
+    "common.lazyDialog.loadErrorTitle": "This dialog could not be opened",
+    "common.lazyDialog.loadErrorBody": "Part of the page failed to load, for example because the app was updated or the connection dropped. Reload the page and try again.",
+    "common.lazyDialog.reload": "Reload page",
     "common.delete": "Delete",
     "common.refresh": "Refresh",
     "common.actions": "Actions",

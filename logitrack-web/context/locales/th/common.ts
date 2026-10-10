@@ -97,6 +97,9 @@ export default {
 
     // Common
     "common.loading": "กำลังโหลด...",
+    "common.lazyDialog.loadErrorTitle": "เปิดหน้าต่างนี้ไม่สำเร็จ",
+    "common.lazyDialog.loadErrorBody": "โหลดบางส่วนของหน้าไม่สำเร็จ อาจเป็นเพราะระบบเพิ่งอัปเดตหรือการเชื่อมต่อขาดหาย กรุณาโหลดหน้าใหม่แล้วลองอีกครั้ง",
+    "common.lazyDialog.reload": "โหลดหน้าใหม่",
     "common.delete": "ลบ",
     "common.refresh": "รีเฟรช",
     "common.actions": "การกระทำ",

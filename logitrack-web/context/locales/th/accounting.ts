@@ -595,6 +595,7 @@ export default {
     "accounting.billingDocument.download.selectCustomerWarning": "⚠ กรุณาเลือกลูกค้าเพื่อ generate เอกสาร (ต้องระบุลูกค้าสำหรับ invoice)",
     "accounting.billingDocument.download.reviewFilterActive": "⚠ ปิดการดาวน์โหลดขณะใช้ตัวกรองสำหรับตรวจสอบ (ทะเบียนรถ ประเภทรถ หรือเดือนตรวจสอบ) — ตัวกรองเหล่านี้ย่อมุมมอง ไม่ใช่ยอดบิล ล้างตัวกรองเพื่อวางบิลทั้งงวด",
     "accounting.billingDocument.download.staleBasis": "⚠ เกณฑ์วันที่วางบิลของลูกค้านี้ต่างจากข้อมูลที่โหลดไว้ — กด \"โหลดข้อมูล\" ใหม่ก่อนดาวน์โหลด",
+    "accounting.billingDocument.download.error": "สร้างเอกสารวางบิลไม่สำเร็จ กรุณาโหลดหน้าใหม่แล้วลองอีกครั้ง หากบันทึกรายการวางบิลไปก่อนเกิดข้อผิดพลาด จะอยู่ในหน้าทะเบียนใบวางบิล",
     "accounting.billingDocument.table.title": "รายการเที่ยว ({count})",
     "accounting.billingDocument.table.tripNumber": "เลขใบงาน",
     "accounting.billingDocument.table.planDate": "วันแผนงาน",
