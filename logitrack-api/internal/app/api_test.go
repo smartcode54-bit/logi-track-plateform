@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/netip"
@@ -286,6 +287,23 @@ func TestRoutesPerListener(t *testing.T) {
 		"GET /healthz, GET /readyz, GET /startupz, POST /v1/mobile/echo, GET /v1/mobile/panic, GET /v1/mobile/slow, "+
 			"GET /v1/mobile/whoami, GET /v1/staff-probe, GET /v1/staff-probe/slow"; got != want {
 		t.Fatalf("internal routes:\n got %s\nwant %s", got, want)
+	}
+}
+
+// The listener-wide middleware (Use at "/") is not a route, so CheckRoutes cannot judge it, and a
+// path-dispatching middleware there (pprof, expvar) would serve paths outside the allow-list on the
+// public listener. Its size is pinned: raise a count only after reviewing the handler it adds.
+func TestRootMiddlewareIsPinned(t *testing.T) {
+	log, _ := logx.New(logx.Options{Level: "info", Format: "json", Out: io.Discard})
+	a, err := app.NewAPI(&app.APIConfig{PublicRouteGroups: ingress.PublicPrefixes}, log, testGroups()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// request id, listener, client ip, access log, tracing, metrics, recover; public adds the
+	// X-Act-On-Tenant refusal.
+	want := map[string]int{ingress.Internal: 7, ingress.Public: 8}
+	if got := a.RootMiddleware(); !maps.Equal(got, want) {
+		t.Fatalf("listener-wide middleware per listener = %v, want %v", got, want)
 	}
 }
 

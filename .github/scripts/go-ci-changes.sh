@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # go-ci "changes" job: decide whether the Go jobs have work. They run when the commits of this
-# push or pull request touch logitrack-api/ or a document its checks read (the env inventory of
-# developer-spec.md §16.1, Appendix A and C, shared-docs/schemas), or go-ci itself. A range that
-# cannot be compared (new branch, force push, tag) runs everything.
+# push or pull request touch logitrack-api/ or a file its checks read: the env inventory of
+# developer-spec.md §16.1, Appendix A and C, shared-docs/schemas, every GitHub workflow and action
+# (pgtest.TestEveryPostgresImageIsTheSame reads them all), or go-ci's own scripts. A push to mv-go
+# runs everything, so every mv-go commit gets its image (§17.2, §17.4) whatever it touched; so
+# does a range that cannot be compared (new branch, force push, tag).
 #
 # The workflow triggers on every push and pull request of mv-go and mv-go-** (no `paths:` filter),
 # so the aggregate `go-ci` check always reports and can be a required check on mv-go: a workflow
@@ -12,7 +14,13 @@
 # HEAD_SHA (pull_request) or BEFORE (push).
 set -euo pipefail
 
-pattern='^(logitrack-api/|shared-docs/schemas/|shared-docs/specs/mv-go/|developer-spec\.md$|\.github/workflows/go-ci\.yml$|\.github/actions/setup-go/|\.github/scripts/go-ci-)'
+pattern='^(logitrack-api/|shared-docs/schemas/|shared-docs/specs/mv-go/|developer-spec\.md$|\.github/workflows/|\.github/actions/|\.github/scripts/go-ci-)'
+
+if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF" = refs/heads/mv-go ]; then
+  echo "go=true" >> "$GITHUB_OUTPUT"
+  echo "push to mv-go: every job runs and the image is pushed as :$GITHUB_SHA"
+  exit 0
+fi
 
 range=""
 case "$GITHUB_EVENT_NAME" in

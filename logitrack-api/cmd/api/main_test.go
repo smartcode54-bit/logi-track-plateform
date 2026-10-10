@@ -124,6 +124,24 @@ func TestRoutesRefusesAPublicGroupOutsideTheAllowList(t *testing.T) {
 	}
 }
 
+// Middleware registered with Use is listed as USE with its listeners: a public group's auth
+// middleware passes, and Use matches by prefix, so the table shows what answers below PATH.
+func TestRoutesListsUseRegistrations(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := routes(nil, &stdout, &stderr, ingress.Group{Prefix: "/v1/mobile", Public: true, Mount: func(r fiber.Router) {
+		r.Use(func(c fiber.Ctx) error { return c.Next() })
+		r.Get("/tasks", nop)
+	}})
+	if code != app.ExitOK {
+		t.Fatalf("exit %d, stderr %q", code, stderr.String())
+	}
+	for _, want := range []string{"USE /v1/mobile internal,public\n", "GET /v1/mobile/tasks internal,public\n"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("table lacks %q:\n%s", want, stdout.String())
+		}
+	}
+}
+
 func TestUnknownArgumentIsAUsageError(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := run(context.Background(), []string{"serve-now"}, &stdout, &stderr); code != app.ExitConfigError ||

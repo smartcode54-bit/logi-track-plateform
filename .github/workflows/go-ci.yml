@@ -5,8 +5,9 @@
 # image only for commits on mv-go (and api-v* tags cut from mv-go).
 #
 # No `paths:` filter: a workflow skipped by one would leave a required check pending forever.
-# The `changes` job skips the Go jobs when nothing they check changed, and the `go-ci` job sums
-# up every job, so branch protection on mv-go needs only `go-ci` and `secret-scan`.
+# The `changes` job skips the Go jobs of a pull request or feature-branch push when nothing they
+# check changed (never on mv-go), and the `go-ci` job sums up every job, so branch protection on
+# mv-go needs only `go-ci` and `secret-scan`.
 name: go-ci
 
 on:
@@ -19,9 +20,12 @@ on:
 permissions:
   contents: read
 
+# One group per commit on mv-go: a group keeps at most one pending run and cancels an older pending
+# one, so a shared mv-go group would drop the run (and the image) of a commit merged between two
+# others. With a group per SHA no mv-go run waits behind or replaces another, every mv-go push runs
+# every job (go-ci-changes.sh) and each one pushes :{sha}. Elsewhere a newer push supersedes.
 concurrency:
-  group: go-ci-${{ github.event_name }}-${{ github.ref }}
-  # Every commit that lands on mv-go keeps its run, so each one gets its image.
+  group: go-ci-${{ github.event_name }}-${{ github.ref == 'refs/heads/mv-go' && github.sha || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/mv-go' }}
 
 env:

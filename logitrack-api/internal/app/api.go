@@ -89,6 +89,15 @@ func (a *API) CheckRoutes() error {
 	return ingress.CheckPublicRoutes(ingress.Routes(a.public))
 }
 
+// RootMiddleware returns, per listener, the number of handlers registered with Use at "/"
+// (ingress.RootMiddleware): the chain newFiber installs, which no route check can see into.
+func (a *API) RootMiddleware() map[string]int {
+	return map[string]int{
+		ingress.Internal: ingress.RootMiddleware(a.internal),
+		ingress.Public:   ingress.RootMiddleware(a.public),
+	}
+}
+
 func (a *API) newFiber(listener string) *fiber.App {
 	app := fiber.New(fiber.Config{
 		AppName:      "logitrack-api-" + listener,
@@ -101,6 +110,9 @@ func (a *API) newFiber(listener string) *fiber.App {
 		// spans (exported after the request) never alias reused buffers.
 		Immutable: true,
 	})
+	// Listener-wide middleware runs for every path, so the route check cannot see what it serves:
+	// never add one that answers paths of its own (pprof, expvar, static files, a proxy). A test
+	// pins the number of these handlers (TestRootMiddlewareIsPinned).
 	app.Use(
 		httpx.RequestID(),
 		httpx.Listener(listener),

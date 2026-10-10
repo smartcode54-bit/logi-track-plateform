@@ -21,12 +21,13 @@ MIGRATE      := $(COMPOSE) run --rm --build migrate
 SQLC_OUT      = $(shell awk '$$1 == "out:" {print $$2}' sqlc.yaml)
 # Every generated file or directory that is committed; gen-check fails when one is stale or new.
 GEN_OUT       = deploy/rabbitmq-definitions.json api/routes.txt $(SQLC_OUT)
+# The secret-scan workflow (.github/scripts/secret-scan.sh) reads it through `make print-gitleaks-img`.
 GITLEAKS_IMG := zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
 
 .PHONY: help env dev-keys dev-db up down reset ps logs psql redis-cli amqp-ui minio-console tunnel \
         migrate migrate-up-to migrate-new migrate-status migrate-down migrate-check migrate-roundtrip \
         seed seed-verify etl-fixtures etl-fixtures-check \
-        test test-integration lint sqlc gen gen-check openapi web env-check secrets-scan smoke
+        test test-integration lint sqlc gen gen-check openapi web env-check secrets-scan print-gitleaks-img smoke
 
 help: ## list targets
 	@grep -hE '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -160,12 +161,18 @@ env-check: ## .env.example and compose environments match developer-spec.md §16
 	docker compose -f deploy/docker-compose.yml --env-file .env.example --profile '*' config --format json \
 	  | go run ./tools/envcheck -spec ../developer-spec.md -env .env.example -compose - -compose-file deploy/docker-compose.yml
 
-secrets-scan: ## gitleaks over the files git would commit here (.env and dev-secrets are ignored)
+secrets-scan: ## gitleaks over the files git would commit here (.env and dev-secrets are ignored); no allow-list (§16.5 rule 6)
+	@lists=$$(git ls-files --cached --others --exclude-standard . | grep -E '(^|/)\.gitleaks(ignore|\.toml)$$' || true); \
+	if [ -n "$$lists" ]; then echo "secrets-scan: remove the gitleaks allow-list, rotate instead (§16.5 rule 6): $$lists" >&2; exit 1; fi
 	@tmp=$$(mktemp -d); \
 	git ls-files --cached --others --exclude-standard -z . | while IFS= read -r -d '' f; do \
 	  mkdir -p "$$tmp/$$(dirname "$$f")" && cp "$$f" "$$tmp/$$f"; done; \
-	docker run --rm -v "$$tmp:/scan:ro" $(GITLEAKS_IMG) dir /scan --no-banner --redact; rc=$$?; \
+	docker run --rm -v "$$tmp:/scan:ro" -e GITLEAKS_CONFIG_TOML=$$'[extend]\nuseDefault = true\n' $(GITLEAKS_IMG) \
+	  dir /scan --ignore-gitleaks-allow --no-banner --redact && rc=0 || rc=$$?; \
 	rm -rf "$$tmp"; exit $$rc
+
+print-gitleaks-img: ## the pinned gitleaks image (also read by .github/scripts/secret-scan.sh)
+	@echo '$(GITLEAKS_IMG)'
 
 smoke: .env ## verify the T02 and T03 acceptance checks against the running stack (EDGE=1 adds the TW2 edge checks)
 	./deploy/smoke.sh

@@ -73,12 +73,33 @@ type Route struct {
 	Path   string
 }
 
-// Routes lists the routes registered on app, without middleware and without the HEAD routes
-// Fiber derives from GET at startup, sorted by path and method.
+// MethodUse is the Method of a Routes entry for a middleware or a mounted sub-app registered
+// with Use: it runs for every method and every path at or below Path.
+const MethodUse = "USE"
+
+// Routes lists the routes registered on app, sorted by path and method: one entry per method
+// and path of a handler, and one MethodUse entry per path where a middleware or a sub-app was
+// registered with Use (a sub-app's own routes join only at startup; its mount point stands for
+// them). It leaves out the HEAD routes Fiber derives from GET at startup and the middleware
+// registered with Use at "/", the listener-wide chain of the api's builder (see RootMiddleware);
+// a sub-app mounted at "/" is listed.
 func Routes(app *fiber.App) []Route {
-	var out []Route
+	// GetRoutes(true) is GetRoutes(false) without the Use registrations, which Fiber copies onto
+	// every method; the entries beyond it, per method and path, are those registrations.
+	handlers := map[Route]int{}
 	for _, r := range app.GetRoutes(true) {
-		out = append(out, Route{Method: r.Method, Path: r.Path})
+		handlers[Route{r.Method, r.Path}]++
+	}
+	var out []Route
+	for _, r := range app.GetRoutes(false) {
+		k := Route{r.Method, r.Path}
+		switch {
+		case handlers[k] > 0:
+			handlers[k]--
+			out = append(out, k)
+		case r.Path != "/" || len(r.Handlers) == 0: // a Use without handlers is a mounted sub-app
+			out = append(out, Route{MethodUse, r.Path})
+		}
 	}
 	slices.SortFunc(out, func(a, b Route) int {
 		if c := strings.Compare(a.Path, b.Path); c != 0 {
@@ -87,6 +108,25 @@ func Routes(app *fiber.App) []Route {
 		return strings.Compare(a.Method, b.Method)
 	})
 	return slices.Compact(out)
+}
+
+// RootMiddleware returns the number of handlers registered with Use at "/", the middleware that
+// runs for every request of the listener. A route check cannot see what such a handler serves
+// (a path-dispatching middleware such as pprof or expvar answers paths no route lists), so the
+// public listener's count is pinned by a test of its builder.
+func RootMiddleware(app *fiber.App) int {
+	n := 0
+	for _, r := range app.GetRoutes(false) {
+		if r.Method == fiber.MethodGet && r.Path == "/" {
+			n += len(r.Handlers)
+		}
+	}
+	for _, r := range app.GetRoutes(true) {
+		if r.Method == fiber.MethodGet && r.Path == "/" {
+			n -= len(r.Handlers)
+		}
+	}
+	return n
 }
 
 // PublicPathAllowed reports whether the public listener may serve path (main spec §2.6):
@@ -101,13 +141,27 @@ func PublicPathAllowed(path string) bool {
 	return false
 }
 
+// PublicUseAllowed reports whether the public listener may hold a Use registration (middleware
+// or mounted sub-app) at path. Use matches every path at or below its own, so it is allowed
+// only where all of them are: at or below /v1/mobile, /v1/auth, /public/v1 and /evidence. At
+// /healthz it would answer /healthz/anything, so it is refused there.
+func PublicUseAllowed(path string) bool {
+	return path != "/healthz" && PublicPathAllowed(path)
+}
+
 // CheckPublicRoutes fails for every route of the public listener outside the allow-list. It
-// backs Validate at route level: a group check alone cannot see a child path of /healthz or a
-// route registered on the public app outside a group (go-ci gen-check, main spec §17.2).
+// backs Validate at route level: a group check alone cannot see a child path of /healthz, a
+// Use registration (middleware or sub-app) at or below /healthz, or a route registered on the
+// public app outside a group (go-ci gen-check, main spec §17.2). The Use chain at "/" is not a
+// route; RootMiddleware covers it.
 func CheckPublicRoutes(routes []Route) error {
 	var bad []string
 	for _, r := range routes {
-		if !PublicPathAllowed(r.Path) {
+		ok := PublicPathAllowed(r.Path)
+		if r.Method == MethodUse {
+			ok = PublicUseAllowed(r.Path)
+		}
+		if !ok {
 			bad = append(bad, r.Method+" "+r.Path)
 		}
 	}
