@@ -303,7 +303,8 @@ $$;
 CREATE TRIGGER t_tenant_admin_columns BEFORE UPDATE ON tenants FOR EACH ROW EXECUTE FUNCTION trg_tenant_admin_columns();
 
 -- Appendix C block (same file): §C.3.5 "0002_identity" (generator DO block, policies of the 13 tables above,
--- app_status_entity_visible(text, uuid, boolean) + p_entity), then §C.3.6 trg_users_self_columns() + t_users_self_columns.
+-- app_status_entity_visible(text, uuid, boolean) + p_entity), then §C.3.6 trg_users_self_columns() + t_users_self_columns
+-- and trg_file_objects_commit_columns() + t_file_objects_commit_columns.
 
 -- +goose StatementBegin
 DO $$ BEGIN
@@ -367,9 +368,10 @@ CREATE POLICY p_read ON file_objects FOR SELECT USING (
 CREATE POLICY p_upload ON file_objects FOR INSERT WITH CHECK (
   uploaded_by = app_user_id() AND status = 'pending'
   AND (tenant_id = app_tenant_id() OR (tenant_id IS NULL AND app_is_steward())));
-CREATE POLICY p_commit ON file_objects FOR UPDATE
+CREATE POLICY p_commit ON file_objects FOR UPDATE                 -- commit only (trigger t_file_objects_commit_columns)
   USING (uploaded_by = app_user_id() OR (app_is_staff() AND app_tenant_in_reach(tenant_id)))
-  WITH CHECK (uploaded_by = app_user_id() OR (app_is_staff() AND app_tenant_in_reach(tenant_id)));
+  WITH CHECK ((uploaded_by = app_user_id() AND (tenant_id = app_tenant_id() OR (tenant_id IS NULL AND app_is_steward())))
+           OR (app_is_staff() AND app_tenant_in_reach(tenant_id)));
 
 -- Appendix C §C.3.6: self-service profile columns only (PATCH /v1/me); role, status, password and auth_version
 -- change only through iam/auth under WithSystem.
@@ -385,6 +387,26 @@ BEGIN
 END $$;
 -- +goose StatementEnd
 CREATE TRIGGER t_users_self_columns BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION trg_users_self_columns();
+
+-- Appendix C §C.3.6: outside WithSystem (and cmd/etl) a principal may only commit an upload through p_commit: the
+-- identity, tenant and exposure columns are fixed at upload, and status moves only pending -> committed
+-- (missing_at_source, re-home C.3.10 and storage.gc run under WithSystem).
+-- +goose StatementBegin
+CREATE FUNCTION trg_file_objects_commit_columns() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NOT app_bypass() AND NOT app_etl_load() AND (
+       (NEW.bucket, NEW.object_key, NEW.tenant_id, NEW.purpose, NEW.visibility, NEW.uploaded_by, NEW.legacy_url, NEW.created_at)
+         IS DISTINCT FROM (OLD.bucket, OLD.object_key, OLD.tenant_id, OLD.purpose, OLD.visibility, OLD.uploaded_by,
+                           OLD.legacy_url, OLD.created_at)
+    OR (NEW.status IS DISTINCT FROM OLD.status AND NOT (OLD.status = 'pending' AND NEW.status = 'committed'))) THEN
+    RAISE EXCEPTION 'file_objects: identity, tenant and exposure columns are fixed at upload; status moves only pending -> committed'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  RETURN NEW;
+END $$;
+-- +goose StatementEnd
+CREATE TRIGGER t_file_objects_commit_columns BEFORE UPDATE ON file_objects
+  FOR EACH ROW EXECUTE FUNCTION trg_file_objects_commit_columns();
 
 -- +goose Down
 -- Appendix C objects (IF EXISTS: runnable with or without them).
@@ -406,3 +428,4 @@ DROP TABLE tenants;                                        -- removes the quaran
 DROP FUNCTION trg_tenant_admin_columns();
 DROP FUNCTION IF EXISTS app_status_entity_visible(text, uuid, boolean);
 DROP FUNCTION IF EXISTS trg_users_self_columns();
+DROP FUNCTION IF EXISTS trg_file_objects_commit_columns();

@@ -359,17 +359,22 @@ CREATE POLICY p_driver_update_pending ON vehicle_expenses FOR UPDATE
   WITH CHECK (app_role() = 'driver' AND driver_id = app_driver_id() AND status = 'pending');
 
 -- maintenance gate (replaces firestore.rules:381-418 and the activeTruck denormalisation): the truck the driver is
--- responsible for now, or the home truck of an active assignment. Invoker rights: the lookups run under the
--- driver's own RLS branches on drivers and truck_assignments.
+-- responsible for now, or the home truck of an active assignment, in the driver's active tenant only. Invoker rights:
+-- the lookups run under the driver's own RLS branches on drivers, truck_assignments and trucks (own tenant). Neither
+-- drivers.active_truck_id nor truck_assignments.truck_id is tenant-checked by its FK, and an assignment left in a
+-- former tenant stays visible to the driver (self-scope by driver_id), so the helper and both policies bind the
+-- gate to app_tenant_id().
 CREATE FUNCTION app_driver_truck_ids() RETURNS uuid[] LANGUAGE sql STABLE PARALLEL SAFE
-  RETURN ARRAY(SELECT d.active_truck_id FROM drivers d WHERE d.id = app_driver_id() AND d.active_truck_id IS NOT NULL
+  RETURN ARRAY(SELECT t.id FROM drivers d JOIN trucks t ON t.id = d.active_truck_id AND t.tenant_id = app_tenant_id()
+                WHERE d.id = app_driver_id()
                UNION
-               SELECT a.truck_id FROM truck_assignments a WHERE a.driver_id = app_driver_id() AND a.status = 'active');
+               SELECT t.id FROM truck_assignments a JOIN trucks t ON t.id = a.truck_id AND t.tenant_id = app_tenant_id()
+                WHERE a.driver_id = app_driver_id() AND a.status = 'active' AND a.tenant_id = app_tenant_id());
 CREATE POLICY p_driver_read ON maintenance_records FOR SELECT
-  USING (app_role() = 'driver' AND truck_id = ANY (app_driver_truck_ids()));
+  USING (app_role() = 'driver' AND tenant_id = app_tenant_id() AND truck_id = ANY (app_driver_truck_ids()));
 CREATE POLICY p_driver_update ON maintenance_records FOR UPDATE
-  USING      (app_role() = 'driver' AND truck_id = ANY (app_driver_truck_ids()))
-  WITH CHECK (app_role() = 'driver' AND truck_id = ANY (app_driver_truck_ids()));
+  USING      (app_role() = 'driver' AND tenant_id = app_tenant_id() AND truck_id = ANY (app_driver_truck_ids()))
+  WITH CHECK (app_role() = 'driver' AND tenant_id = app_tenant_id() AND truck_id = ANY (app_driver_truck_ids()));
 
 -- +goose Down
 DROP TABLE driver_advances;

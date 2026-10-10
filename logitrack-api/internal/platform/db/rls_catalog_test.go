@@ -146,6 +146,9 @@ func parseExemptGrants(t *testing.T, doc string) map[string][]string {
 	return out
 }
 
+// tablePrivileges are the table privileges of PostgreSQL 18, as a SQL array literal for has_table_privilege.
+const tablePrivileges = `ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER', 'MAINTAIN']`
+
 func rows(t *testing.T, c *pgx.Conn, sql string, args ...any) []string {
 	t.Helper()
 	r, err := c.Query(context.Background(), sql, args...)
@@ -250,15 +253,25 @@ func TestRLSCatalogMatchesAppendixC(t *testing.T) {
 
 	// logitrack_app: DML on the RLS tables minus the append-only / void-only REVOKEs of Appendix A
 	// §A.1.8, nothing on the counters, exactly §C.3.2 on the exempt tables, nothing in schema etl.
+	// Effective privileges (has_table_privilege: direct, through PUBLIC or inherited from a role the
+	// login is a member of), keyed like want, so a grant to PUBLIC or on an etl table cannot hide.
 	appendOnly := []string{"status_history", "trip_no_history", "billing_statement_lines", "transactions", "security_events"}
 	noDelete := []string{"customer_rate_entries", "customer_fuel_rate_adjustments", "standby_rate_entries"}
 	privs := map[string][]string{}
-	for _, row := range rows(t, c, `SELECT table_name || ' ' || string_agg(privilege_type, ' ' ORDER BY privilege_type)
-		FROM information_schema.role_table_grants
-		WHERE grantee = 'logitrack_app' AND table_schema IN ('public', 'etl') AND table_name NOT LIKE 'scope\_%'
-		GROUP BY table_schema, table_name`) {
+	for _, row := range rows(t, c, `SELECT CASE n.nspname WHEN 'public' THEN '' ELSE n.nspname || '.' END || c.relname || ' ' ||
+			coalesce(string_agg(p.priv, ' ' ORDER BY p.priv) FILTER (WHERE has_table_privilege('logitrack_app', c.oid, p.priv)), '')
+		FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+		CROSS JOIN unnest(`+tablePrivileges+`) AS p(priv)
+		WHERE n.nspname IN ('public', 'etl') AND c.relkind = 'r' AND c.relname <> 'goose_db_version'
+		GROUP BY n.nspname, c.relname`) {
 		name, list, _ := strings.Cut(row, " ")
 		privs[name] = strings.Fields(list)
+	}
+	// Nothing in public or etl is granted to PUBLIC (aclexplode grantee 0): every login's access is explicit.
+	if public := rows(t, c, `SELECT DISTINCT n.nspname || '.' || c.relname FROM pg_class c
+		JOIN pg_namespace n ON n.oid = c.relnamespace CROSS JOIN LATERAL aclexplode(c.relacl) a
+		WHERE n.nspname IN ('public', 'etl') AND a.grantee = 0 ORDER BY 1`); len(public) > 0 {
+		t.Errorf("relations granted to PUBLIC: %v", public)
 	}
 	for name, w := range want {
 		var expect []string
@@ -286,8 +299,8 @@ func TestRLSCatalogMatchesAppendixC(t *testing.T) {
 	}
 	// Projections for dispatcher and customer-scope principals (§C.3.7): security_invoker views, SELECT only.
 	views := rows(t, c, `SELECT format('%s invoker=%s app=%s', c.relname, coalesce('security_invoker=true' = ANY (c.reloptions), false),
-			(SELECT string_agg(privilege_type, ',' ORDER BY privilege_type) FROM information_schema.role_table_grants g
-			  WHERE g.grantee = 'logitrack_app' AND g.table_schema = 'public' AND g.table_name = c.relname))
+			(SELECT string_agg(p.priv, ',' ORDER BY p.priv) FROM unnest(`+tablePrivileges+`) AS p(priv)
+			  WHERE has_table_privilege('logitrack_app', c.oid, p.priv)))
 		FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 		WHERE n.nspname = 'public' AND c.relkind = 'v' ORDER BY c.relname`)
 	wantViews := []string{}

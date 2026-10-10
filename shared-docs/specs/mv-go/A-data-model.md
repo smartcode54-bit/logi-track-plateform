@@ -5,7 +5,7 @@ Part of the mv-go migration documentation. The summary of this appendix (princip
 ## How to read this appendix
 
 - **A.1** restates the design principles. **A.2** gives one `sql` block per goose file (`logitrack-api/migrations/NNNN_name.sql`, Up and Down) plus **Notes** (business rules, legacy Firestore source, index → live query): A.2.0–A.2.4 = files 0001–0005; A.2.5–A.2.8 (0006–0009), the ETL mapping (§A.3) and decisions D1–D8 (§A.4) follow. **A.2.R** / **A.2.S** list every rename or move against the earlier drafts.
-- Each block is the complete file except the policy layer of [Appendix C §C.3](./C-auth-rbac.md). Appendix C §C.3.0 is the coverage table (R67): this appendix runs `ENABLE` + `FORCE ROW LEVEL SECURITY` on exactly the 70 tables it marks "yes" (all 47 tables of 0002–0005 among them) and on none of the 11 exempt tables or schema `etl`. **Each table's `CREATE POLICY` statements and generator calls (Appendix C §C.3.5) ship in the same migration file as the table, after its `CREATE TABLE`**, so no migration leaves an RLS table deny-all. Appendix C also adds, to the file it names, its generators and `trg_freeze_tenant_id()` (0001), `app_status_entity_visible()` and `t_users_self_columns` (0002), the four scope helpers, `t_driver_self_columns`, `t_driver_link_membership` and three `scope_*` views (0003), four `scope_*` views (0004) and `app_driver_truck_ids()` (0006); each Up section below ends with a comment naming that block at its position, and the Down sections drop those objects (`IF EXISTS`; views and cross-table policies before the tables they read, functions after the tables that use them).
+- Each block is the complete file except the policy layer of [Appendix C §C.3](./C-auth-rbac.md). Appendix C §C.3.0 is the coverage table (R67): this appendix runs `ENABLE` + `FORCE ROW LEVEL SECURITY` on exactly the 70 tables it marks "yes" (all 47 tables of 0002–0005 among them) and on none of the 11 exempt tables or schema `etl`. **Each table's `CREATE POLICY` statements and generator calls (Appendix C §C.3.5) ship in the same migration file as the table, after its `CREATE TABLE`**, so no migration leaves an RLS table deny-all. Appendix C also adds, to the file it names, its generators and `trg_freeze_tenant_id()` (0001), `app_status_entity_visible()`, `t_users_self_columns` and `t_file_objects_commit_columns` (0002), the four scope helpers, `t_driver_self_columns`, `t_driver_link_membership` and three `scope_*` views (0003), four `scope_*` views (0004) and `app_driver_truck_ids()` (0006); each Up section below ends with a comment naming that block at its position, and the Down sections drop those objects (`IF EXISTS`; views and cross-table policies before the tables they read, functions after the tables that use them).
 - Printed here, one copy per migration file: the GUC readers (incl. `app_subtenant_ids()` … `app_quarantine_tenant_id()`, A.2.0) and the allocators `next_task_seq()` / `next_invoice_seq()` (A.2.3, A.2.4), which Appendix C §C.3.3 reprints to explain them, and the two objects Appendix C §C.3.6 / §C.3.7 describe without a body, `trg_tenant_admin_columns()` (A.2.1) and `driver_directory()` (A.2.2). 0009 hands the allocators, the scope helpers, `driver_directory()` and `trg_driver_link_membership()` to `logitrack_rls_definer` (R66); Downs drop them through `app_drop_definer_function()` (0001).
 - Function bodies and `DO` blocks are wrapped in `-- +goose StatementBegin` / `StatementEnd` (goose otherwise splits on `;`). sqlc reads only the Up sections.
 - Citations are repo-relative `path:line` from the fact-base reports or files read in the repo; "UNVERIFIED:" marks an unconfirmed claim with the reason; owner decisions point to main spec §19.2 ("question N"). Files 0001–0005 plus the Appendix C additions were run on `postgres:18-alpine` (18.4): Up, Down, Up, and Down again after the A.2.8 hand-over.
@@ -730,7 +730,8 @@ $$;
 CREATE TRIGGER t_tenant_admin_columns BEFORE UPDATE ON tenants FOR EACH ROW EXECUTE FUNCTION trg_tenant_admin_columns();
 
 -- Appendix C block (same file): §C.3.5 "0002_identity" (generator DO block, policies of the 13 tables above,
--- app_status_entity_visible(text, uuid, boolean) + p_entity), then §C.3.6 trg_users_self_columns() + t_users_self_columns.
+-- app_status_entity_visible(text, uuid, boolean) + p_entity), then §C.3.6 trg_users_self_columns() + t_users_self_columns
+-- and trg_file_objects_commit_columns() + t_file_objects_commit_columns.
 
 -- +goose Down
 -- Appendix C objects (IF EXISTS: runnable with or without them).
@@ -752,6 +753,7 @@ DROP TABLE tenants;                                        -- removes the quaran
 DROP FUNCTION trg_tenant_admin_columns();
 DROP FUNCTION IF EXISTS app_status_entity_visible(text, uuid, boolean);
 DROP FUNCTION IF EXISTS trg_users_self_columns();
+DROP FUNCTION IF EXISTS trg_file_objects_commit_columns();
 ```
 
 **Notes (0002)**

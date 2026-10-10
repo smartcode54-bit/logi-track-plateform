@@ -399,7 +399,7 @@ On tenant tables the uniform `p_driver_read` / `p_driver_insert` / `p_driver_upd
 | `tenants` (0002) | yes | tenant (keyed on `id`) | G-base, `p_read`, `p_update_own` | quarantine row readable only under bypass; `kind`, `status`, `code`, `contractor_tenant_id` platform-only (iam, `WithSystem`); trigger `t_tenant_admin_columns` |
 | `tenant_files` (0002) | yes | tenant | G-tenant, `p_steward` | carrier documents; stewards (`fleet:manage_subcontractors`) reach every carrier |
 | `users` (0002) | yes | platform-only | G-base, `p_self_read`, `p_self_update`, `p_staff_read` | iam writes under `WithSystem`; `PATCH /v1/me` limited by trigger `t_users_self_columns` |
-| `file_objects` (0002) | yes | nullable-tenant | G-base, `p_read`, `p_upload`, `p_commit` | NULL tenant = platform object (APK, unattributed legacy object); cross-tenant readers go through the storage service |
+| `file_objects` (0002) | yes | nullable-tenant | G-base, `p_read`, `p_upload`, `p_commit` | NULL tenant = platform object (APK, unattributed legacy object); cross-tenant readers go through the storage service; outside `WithSystem` an update may only commit (`t_file_objects_commit_columns`, C.3.6) |
 | `auth_identities`, `user_platform_roles` (0002) | yes | platform-only | G-base, `p_self_read` | auth / iam services write |
 | `sessions` (0002) | yes | platform-only | G-base, `p_self_read` | auth service; staff views through iam |
 | `refresh_tokens`, `password_reset_tokens` (0002) | yes | platform-only | G-base | auth service; reset tokens also the `notify.email` consumer |
@@ -778,9 +778,10 @@ CREATE POLICY p_read ON file_objects FOR SELECT USING (
 CREATE POLICY p_upload ON file_objects FOR INSERT WITH CHECK (
   uploaded_by = app_user_id() AND status = 'pending'
   AND (tenant_id = app_tenant_id() OR (tenant_id IS NULL AND app_is_steward())));
-CREATE POLICY p_commit ON file_objects FOR UPDATE
+CREATE POLICY p_commit ON file_objects FOR UPDATE                 -- commit only (trigger t_file_objects_commit_columns)
   USING (uploaded_by = app_user_id() OR (app_is_staff() AND app_tenant_in_reach(tenant_id)))
-  WITH CHECK (uploaded_by = app_user_id() OR (app_is_staff() AND app_tenant_in_reach(tenant_id)));
+  WITH CHECK ((uploaded_by = app_user_id() AND (tenant_id = app_tenant_id() OR (tenant_id IS NULL AND app_is_steward())))
+           OR (app_is_staff() AND app_tenant_in_reach(tenant_id)));
 ```
 
 **0003_master** (after the scope helpers of C.3.3).
@@ -897,21 +898,26 @@ CREATE POLICY p_driver_update_pending ON vehicle_expenses FOR UPDATE
   WITH CHECK (app_role() = 'driver' AND driver_id = app_driver_id() AND status = 'pending');
 
 -- maintenance gate (replaces firestore.rules:381-418 and the activeTruck denormalisation): the truck the driver is
--- responsible for now, or the home truck of an active assignment. Invoker rights: the lookups run under the
--- driver's own RLS branches on drivers and truck_assignments.
+-- responsible for now, or the home truck of an active assignment, in the driver's active tenant only. Invoker rights:
+-- the lookups run under the driver's own RLS branches on drivers, truck_assignments and trucks (own tenant). Neither
+-- drivers.active_truck_id nor truck_assignments.truck_id is tenant-checked by its FK, and an assignment left in a
+-- former tenant stays visible to the driver (self-scope by driver_id), so the helper and both policies bind the
+-- gate to app_tenant_id().
 CREATE FUNCTION app_driver_truck_ids() RETURNS uuid[] LANGUAGE sql STABLE PARALLEL SAFE
-  RETURN ARRAY(SELECT d.active_truck_id FROM drivers d WHERE d.id = app_driver_id() AND d.active_truck_id IS NOT NULL
+  RETURN ARRAY(SELECT t.id FROM drivers d JOIN trucks t ON t.id = d.active_truck_id AND t.tenant_id = app_tenant_id()
+                WHERE d.id = app_driver_id()
                UNION
-               SELECT a.truck_id FROM truck_assignments a WHERE a.driver_id = app_driver_id() AND a.status = 'active');
+               SELECT t.id FROM truck_assignments a JOIN trucks t ON t.id = a.truck_id AND t.tenant_id = app_tenant_id()
+                WHERE a.driver_id = app_driver_id() AND a.status = 'active' AND a.tenant_id = app_tenant_id());
 CREATE POLICY p_driver_read ON maintenance_records FOR SELECT
-  USING (app_role() = 'driver' AND truck_id = ANY (app_driver_truck_ids()));
+  USING (app_role() = 'driver' AND tenant_id = app_tenant_id() AND truck_id = ANY (app_driver_truck_ids()));
 CREATE POLICY p_driver_update ON maintenance_records FOR UPDATE
-  USING      (app_role() = 'driver' AND truck_id = ANY (app_driver_truck_ids()))
-  WITH CHECK (app_role() = 'driver' AND truck_id = ANY (app_driver_truck_ids()));
+  USING      (app_role() = 'driver' AND tenant_id = app_tenant_id() AND truck_id = ANY (app_driver_truck_ids()))
+  WITH CHECK (app_role() = 'driver' AND tenant_id = app_tenant_id() AND truck_id = ANY (app_driver_truck_ids()));
 
 ```
 
-The driver maintenance policies read `drivers` and `truck_assignments` under their own RLS (driver self branches), so no `FieldValue.delete()` workaround (`.vibe-rules.md`, Confirmed Patterns "Vehicle identity", as of commit 4f552099) is needed. Drivers cannot create maintenance rows (today `create` is admin-only, `firestore.rules:412`); `driver_penalties` stay staff-only (admin-only read today, `firestore.rules:469-472`).
+The driver maintenance policies read `drivers`, `truck_assignments` and `trucks` under their own RLS (driver self branches; `trucks` only in the driver's tenant), so no `FieldValue.delete()` workaround (`.vibe-rules.md`, Confirmed Patterns "Vehicle identity", as of commit 4f552099) is needed. The gate is bound to the driver's active tenant (`app_tenant_id()`) in the helper and in both policies: the foreign keys `drivers.active_truck_id` and `truck_assignments.truck_id` are checked without RLS and so accept a truck of any tenant (a driver writes `active_truck_id` itself, staff insert assignments), and an active assignment left in a former tenant after a driver move (C.1.4) stays visible to the driver through the self-scope by `driver_id`; without the tenant term any of these would open another tenant's maintenance rows and, through `p_parent_read`, their `maintenance_files`. Drivers cannot create maintenance rows (today `create` is admin-only, `firestore.rules:412`); `driver_penalties` stay staff-only (admin-only read today, `firestore.rules:469-472`).
 
 **0007_comms.** `notification_deliveries` is exempt (no call).
 
@@ -1022,6 +1028,24 @@ BEGIN
 END $$;
 CREATE TRIGGER t_users_self_columns BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION trg_users_self_columns();
 
+-- 0002_identity.sql: outside WithSystem (and cmd/etl) a principal may only commit an upload through p_commit: the
+-- identity, tenant and exposure columns are fixed at upload, and status moves only pending -> committed
+-- (missing_at_source, re-home C.3.10 and storage.gc run under WithSystem)
+CREATE FUNCTION trg_file_objects_commit_columns() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NOT app_bypass() AND NOT app_etl_load() AND (
+       (NEW.bucket, NEW.object_key, NEW.tenant_id, NEW.purpose, NEW.visibility, NEW.uploaded_by, NEW.legacy_url, NEW.created_at)
+         IS DISTINCT FROM (OLD.bucket, OLD.object_key, OLD.tenant_id, OLD.purpose, OLD.visibility, OLD.uploaded_by,
+                           OLD.legacy_url, OLD.created_at)
+    OR (NEW.status IS DISTINCT FROM OLD.status AND NOT (OLD.status = 'pending' AND NEW.status = 'committed'))) THEN
+    RAISE EXCEPTION 'file_objects: identity, tenant and exposure columns are fixed at upload; status moves only pending -> committed'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER t_file_objects_commit_columns BEFORE UPDATE ON file_objects
+  FOR EACH ROW EXECUTE FUNCTION trg_file_objects_commit_columns();
+
 -- 0002_identity.sql: without bypass (p_update_own) only profile columns of a tenant change; the structural columns
 -- are platform-only (platform:manage_tenants, WithSystem)
 CREATE FUNCTION trg_tenant_admin_columns() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -1114,7 +1138,7 @@ RLS is the safety net, not the only filter:
 
 - Every sqlc list query on a tenant table names the reach explicitly (`WHERE tenant_id = ANY(sqlc.arg(tenant_ids)::uuid[])`, the scope predicate, or `driver_id = sqlc.arg(driver_id)`) so the planner uses the `(tenant_id, ...)` / `(driver_id, ...)` indexes; RLS then re-checks every row.
 - A `sqlc vet` rule (CEL over the parsed query) fails CI when a `SELECT` on a table that has a `tenant_id` column lacks a `tenant_id`, `driver_id` or `id = ` predicate, unless the query carries `-- authz: system` (allowed only in `WithSystem` packages) or `-- authz: scope` (scope views).
-- A catalog test (`internal/platform/db/rls_catalog_test.go`, T04; it reads the C.3.0 table and the exempt-table privileges of C.3.2 from this document at run time) queries `pg_class`, `pg_policy` and `information_schema.role_table_grants` after `goose up` (goose's own `goose_db_version` table is excluded by name) and fails when the set of tables with `relrowsecurity AND relforcerowsecurity` differs from the C.3.0 "yes" rows, when a table outside that list is not one of the listed exempt tables, when a family-`tenant` table lacks `p_tenant_staff`, `p_not_quarantine` and `t_freeze_tenant_id`, when an exempt table holds a `logitrack_app` privilege beyond those of C.3.2, when either counter is granted to `logitrack_app`, when a table's policy names differ from its C.3.0 row (generators expanded), or when a policy references a function not in the helper list (C.3.3, C.3.5).
+- A catalog test (`internal/platform/db/rls_catalog_test.go`, T04; it reads the C.3.0 table and the exempt-table privileges of C.3.2 from this document at run time) queries `pg_class` and `pg_policy` after `goose up` (goose's own `goose_db_version` table is excluded by name), computes the effective table privileges of `logitrack_app` on schemas `public` and `etl` with `has_table_privilege` (so grants to `PUBLIC` and privileges inherited through a role membership count, not only the direct rows of `information_schema.role_table_grants`), and fails when the set of tables with `relrowsecurity AND relforcerowsecurity` differs from the C.3.0 "yes" rows, when a table outside that list is not one of the listed exempt tables, when a family-`tenant` table lacks `p_tenant_staff`, `p_not_quarantine` and `t_freeze_tenant_id`, when an RLS table's `logitrack_app` privileges differ from `SELECT`/`INSERT`/`UPDATE`/`DELETE` minus the append-only and void-only REVOKEs of Appendix A §A.1.8, when an exempt table holds a `logitrack_app` privilege other than those of C.3.2, when either counter or a table of schema `etl` is reachable by `logitrack_app`, when any relation of `public` or `etl` is granted to `PUBLIC`, when a `scope_*` view grants `logitrack_app` more than `SELECT`, when a table's policy names differ from its C.3.0 row (generators expanded), or when a policy references a function not in the helper list (C.3.3, C.3.5).
 
 ### C.3.9 Cross-tenant access: `X-Act-On-Tenant`
 
@@ -1671,9 +1695,9 @@ Fixture: own fleet **O**; carriers **A** and **B** with `contractor_tenant_id = 
 | 3 | staff O | read rows of A and B | visible (contractor reach); rows of C: 0 |
 | 4 | any principal without bypass | read rows of Q | 0 rows; PA with `*` sees them |
 | 5 | driver A1 | read `tasks`, `trip_records`, `standby_records`, `incident_reports`, `vehicle_expenses`, `leave_requests`, `payroll_runs`, `chats` | only own rows (tasks also where helper) |
-| 6 | driver A1 | read `drivers`; read `trucks`; read `maintenance_records` | own row only; tenant A trucks only; only the active or home-assigned truck's records |
+| 6 | driver A1 | read `drivers`; read `trucks`; read `maintenance_records` | own row only; tenant A trucks only; only the active or home-assigned truck's records, and only in tenant A (pointing `active_truck_id` or an assignment at a truck of B opens nothing) |
 | 7 | driver A1 | update another driver's task; change `driver_id` on own task; update own `drivers.status` | 0 rows; `WITH CHECK` violation; trigger `insufficient_privilege` |
-| 8 | driver A2 after the move to B | read old trips; insert a trip with `tenant_id = A` | old trips visible (driver self-scope); insert rejected |
+| 8 | driver A2 after the move to B | read old trips; insert a trip with `tenant_id = A`; read `maintenance_records` of A's truck through an assignment still active in A | old trips visible (driver self-scope); insert rejected; 0 rows (the maintenance gate is bound to the active tenant) |
 | 9 | customer X | read tasks / trips / standby / incidents | rows whose billing party, source or destination link, or any delivery-stop link is X; none of Y; incidents only of visible trips; customer with no trips -> empty |
 | 10 | customer X, dispatcher D | read `trip_billing_snapshots`, rate tables, `billing_statements`, `payroll_runs`, `driver_penalties`, `driver_compensation_configs`, `vehicle_expenses`, `maintenance_records`, `transactions` | **0 rows** (dispatcher cannot read cost / HR data) |
 | 11 | dispatcher D | read through `scope_*` views; inspect view columns and the sqlc DTOs | rows of A, B, C in scope X; no `billing_*`, party ids, `evidence_token`, ID card, licence, birth date, insurance or tax columns present (column-set assertion) |
@@ -1685,7 +1709,7 @@ Fixture: own fleet **O**; carriers **A** and **B** with `contractor_tenant_id = 
 | 17 | PA with `X-Act-On-Tenant: A` without `platform:cross_tenant_write` | write | `403`; audit row still present |
 | 18 | bare transaction without `WithPrincipal` / `WithSystem` | read every tenant table | 0 rows (fails closed) |
 | 19 | staff A | `UPDATE … SET tenant_id` without `app.tenant_move`; with it | trigger error; succeeds and link triggers re-check |
-| 20 | staff B | read `file_objects` of A; customer X requesting a trip photo | 0 rows; served only through the storage service after the trip row was read under the principal |
+| 20 | staff B; driver A1 | read `file_objects` of A; customer X requesting a trip photo; A1 moves its own upload to B, to a NULL tenant or to `visibility='public'`, or sets a committed row back to pending | 0 rows; served only through the storage service after the trip row was read under the principal; `insufficient_privilege` (C.3.6), while committing its own pending upload succeeds |
 | 21 | catalog test | `pg_class` / `pg_policy` / grants | RLS enabled and forced on exactly the C.3.0 "yes" rows; every family-`tenant` table has `p_tenant_staff`, `p_not_quarantine` and `t_freeze_tenant_id`; exempt tables hold only the C.3.2 grants; no counter is granted to `logitrack_app` |
 | 22 | `logitrack_app` without `WithSystem` | `INSERT INTO task_number_counters`; `SELECT` on `billing_counters`; `next_task_seq()` x 50 concurrently | permission denied; permission denied; 50 distinct numbers |
 
