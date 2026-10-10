@@ -1,0 +1,12 @@
+{{define "subject"}}You are invited to LogiTrack{{end}}
+{{define "text"}}Hello {{.Name}},
+
+An administrator has created a LogiTrack account for you.
+Open the link below to set your password and sign in. The link works once and expires in {{.ValidFor}}.
+
+{{.Link}}
+
+If you were not expecting this invitation, you can ignore this email.
+
+LogiTrack
+{{end}}

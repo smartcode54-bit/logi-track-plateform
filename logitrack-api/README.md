@@ -2,14 +2,14 @@
 
 Go backend for the LogiTrack migration off Firebase (`mv-go`). Design: [`developer-spec.md`](../developer-spec.md) §2, routes in [Appendix B](../shared-docs/specs/mv-go/B-api-catalog.md). Branch policy: work lands by PR into `mv-go`, never `main` (R90).
 
-Status: **T01 scaffold + T02 local stack + T03 migrations + T04 core schema + T05 own auth + T06 Google sign-in + T36 billing engine + TW2 edge (web container + Caddy) + T14 CI + T17 web flags**. One module, seven binaries, shared `internal/`; the first routes are `/v1/auth/*` and `/v1/me*` (T05) and `GET /v1/config/web-flags` (T17).
+Status: **T01 scaffold + T02 local stack + T03 migrations + T04 core schema + T05 own auth + T06 Google sign-in + T08 Firebase bridge + T36 billing engine + TW2 edge (web container + Caddy) + T14 CI + T17 web flags**. One module, seven binaries, shared `internal/`; the first routes are `/v1/auth/*` and `/v1/me*` (T05) and `GET /v1/config/web-flags` (T17).
 
 ## Layout
 
 ```
 cmd/api          two HTTP listeners (internal + public) and /metrics
-cmd/worker       background consumers (T10); today: /metrics + wait for SIGTERM
-cmd/scheduler    cron + outbox relay (T10); today: /metrics + wait for SIGTERM
+cmd/worker       RabbitMQ consumers of WORKER_CONSUMERS: retries 5 -> {queue}.dead, consumer_inbox (T10)
+cmd/scheduler    leader-only: outbox relay, Bangkok cron, dead-letter replays (T10)
 cmd/migrate      goose chain embedded from migrations/, run as logitrack_migrator (T03)
 cmd/seed         seed profiles (T16)           — exits 3 until implemented
 cmd/etl          Firestore/GCS → PG/MinIO (T15) — exits 3 until implemented
@@ -20,6 +20,7 @@ internal/auth/token          Ed25519 access JWT: sign, verify (active + previous
 internal/auth/password       Argon2id PHC hashing, re-hash on weaker parameters, password policy
 internal/auth/firebasescrypt verify-then-rehash of imported Firebase scrypt hashes
 internal/auth/google         Google ID-token verifier (go-oidc, lazy discovery, aud allow list; googletest = in-process fake Google)
+internal/auth/firebase       Firebase bridge protocol, no Admin SDK (T08): ID-token verifier, RS256 custom tokens, Identity Toolkit accounts; firebasetest = in-process fake Google
 internal/authz               request principal (T05 identity half; catalog and RequireCap with T07)
 internal/security            the only writer of security_events: security.Append in the caller's transaction (T05)
 internal/webcfg              runtime web domain flags: GET /v1/config/web-flags from PG_OWNED_DOMAINS + WEB_FLAG_OVERRIDES (T17)
@@ -36,6 +37,15 @@ internal/platform/jsmath     JavaScript number semantics money code needs: Math.
 internal/platform/cache      Redis layer (T09): client, lt:{APP_ENV}: keyspace, read-through caches, invalidation, money-path guard; cachetest = redis:7-alpine for tests
 internal/platform/httpx/idempotency  Idempotency-Key middleware: Redis hot copy + idempotency_keys durable claim (R53)
 internal/platform/httpx/ratelimit    GCRA buckets of Appendix B §B.6.3 + Fiber middleware (429 resource_exhausted, Retry-After)
+internal/platform/mq         RabbitMQ topology (Appendix B §B.5), Declare, confirm Publisher, Consume with the retry ladder (T10)
+internal/platform/outbox     outbox.Append (the only way to emit) and the relay: LISTEN + tick, SKIP LOCKED, confirms (T10)
+internal/platform/inbox      consumer_inbox claim in the side-effect transaction (T10)
+internal/platform/realtime   SSE topics and the Redis writer: INCR rtlog:seq, XADD {seq}-0, PUBLISH rt:{topic} (T10)
+internal/platform/email      SMTP sender (multipart, UTF-8) for notify.email (T10)
+internal/platform/asynctest  test-only RabbitMQ, Redis and Mailpit containers with the compose images (T10)
+internal/jobs                jobs table, lock:job / lock:cron, GET /v1/jobs*, queue replay (T10)
+internal/scheduler           advisory-lock leader, Bangkok cron table, housekeeping jobs (T10)
+internal/notify              notify.email: reset and invite links in th + en (T10)
 internal/billing/compute     the billing engine (T36): pure port of lib/billingCompute.ts + the pure pricing rules
 internal/billing/documents   pure invoice layout rules: axis date, price rounds, line items (renderers: T39)
 internal/golden              test-only runner for testdata/golden vectors
@@ -68,17 +78,23 @@ Errors are always `{"error":{"code","message","details","requestId"}}` and `requ
 | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `OTEL_TRACES_SAMPLER_ARG` | all | no | export off, `logitrack-<process>`, `1` |
 | `METRICS_ADDR` | api, worker, scheduler | yes | — |
 | `SHUTDOWN_TIMEOUT` | api, worker, scheduler | no | `30s` |
+| `RABBITMQ_URL` | worker, scheduler | yes | — (`api` never connects; the broker connection is retried with backoff) |
+| `OUTBOX_RELAY_INTERVAL`, `OUTBOX_BATCH_SIZE`, `RTLOG_MAXLEN`, `RTLOG_TTL` | scheduler | no | `200ms`, `500`, `1000`, `24h` |
+| `WORKER_CONSUMERS`, `RABBITMQ_PREFETCH` | worker | no | `all` (or a comma list of billing, notify, documents, integrations, hr, platform, sync); per-queue prefetch of Appendix B |
+| `EMAIL_ENABLED`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_FROM_NAME`, `SMTP_STARTTLS`, `PUBLIC_WEB_BASE_URL`, `PASSWORD_RESET_TTL` | worker (`PASSWORD_RESET_TTL` also api) | host, from and base URL when email is on | off, -, `587`, -, -, -, `LogiTrack`, `true`, -, `30m` |
 | `API_INTERNAL_ADDR`, `API_PUBLIC_ADDR` | api | yes | — |
 | `PUBLIC_ROUTE_GROUPS` | api | no | all five public groups |
 | `TRUSTED_PROXY_CIDRS` | api | no | none (no `X-Forwarded-For` trusted) |
-| `DATABASE_URL` (+ `DATABASE_MAX_CONNS`, `DATABASE_MIN_CONNS`) | api | yes | — (`logitrack_app`; the pool connects lazily, `/readyz` checks it) |
-| `REDIS_URL`, `REDIS_KEY_PREFIX`, `REDIS_TLS` | api | URL yes | prefix `lt:{APP_ENV}:` (any other value is refused), TLS off |
+| `DATABASE_URL` (+ `DATABASE_MAX_CONNS`, `DATABASE_MIN_CONNS`) | api, worker, scheduler | yes | — (`logitrack_app`; the pool connects lazily, `/readyz` checks it in the api) |
+| `REDIS_URL`, `REDIS_KEY_PREFIX`, `REDIS_TLS` | api, scheduler | URL yes | prefix `lt:{APP_ENV}:` (any other value is refused), TLS off |
 | `JWT_SIGNING_KEY_FILE`, `JWT_ACTIVE_KID`, `JWT_ISSUER`, `JWT_AUDIENCE` | api | yes | — (`make dev-keys` writes the local key and kid; a kid that is not the key's thumbprint stops the api, exit 2) |
 | `JWT_PREVIOUS_KEY_FILE`, `JWT_ACCESS_TTL` | api | no | none, `15m` |
 | `REFRESH_TOKEN_TTL_WEB`, `REFRESH_TOKEN_TTL_MOBILE`, `PASSWORD_RESET_TTL`, `PASSWORD_MIN_LENGTH` | api | no | `168h` (30 d absolute cap), `2160h`, `30m`, `10` |
 | `ARGON2_MEMORY_KB`, `ARGON2_ITERATIONS`, `ARGON2_PARALLELISM` | api | no | `65536`, `3`, `2` |
 | `FIREBASE_SCRYPT_SIGNER_KEY`, `_SALT_SEPARATOR`, `_ROUNDS`, `_MEM_COST` | api | all four or none | none: legacy hashes cannot sign in (`make env` sets the public firebase/scrypt test set locally) |
 | `RATE_LIMIT_ENABLED`, `RATE_LIMIT_LOGIN`, `RATE_LIMIT_PUBLIC_FORMS`, `RATE_LIMIT_EVIDENCE` | api | no | `true`, `10/1m` (login per IP; the 5-failure lockout always applies), `5/1h`, `60/1m`; parsed once by `ratelimit.Config` |
+| `AUTH_FIREBASE_BRIDGE_MODE` | api | no | `off` (`off`, `mobile`, `web`, `both`; any mode but `off` needs the next two) |
+| `FIREBASE_PROJECT_ID`, `GOOGLE_APPLICATION_CREDENTIALS` | api | with the bridge | none: no Firebase ID-token verification, no custom tokens, no mirror (the key file is read at start-up; unreadable or malformed = exit 2, naming the variable only). The service account needs Firebase Authentication Admin (`roles/firebaseauth.admin`) on the project, and no token-creator role; without the grant every mirrored change is `503 bridge_unavailable` (main spec §16.1) |
 | `PG_OWNED_DOMAINS`, `WEB_FLAG_OVERRIDES` | api | no | none (every web domain on Firestore); `.env.example` sets `PG_OWNED_DOMAINS=all` locally. See "Web flags" |
 
 A missing or invalid variable stops the process with exit code 2 and a message naming every offending variable (never its value). Startup logs list each variable as `set`/`unset`.
@@ -141,7 +157,9 @@ goose v3.28 runs the files of `migrations/` (embedded into the binary, so the `m
 | `make migrate-check` | the R31 rules, no database |
 | `make migrate-roundtrip` | up → down-to floor → up on `postgres:18-alpine`, comparing `pg_dump --schema-only` |
 
-Rules (`migrate check`, also part of `make gen-check`): files `NNNN_name.sql` numbered 1..N without gaps; every file has `-- +goose Up` and `-- +goose Down`; an empty Down only in a data migration whose header (before `-- +goose Up`) says `-- irreversible` (the round trip then rolls back only to the highest such version); `-- +goose NO TRANSACTION` exactly when the Up or Down builds or drops an index `CONCURRENTLY`; no empty `StatementBegin` block (goose would silently drop the next statement); ids default to `uuidv7()`, never `gen_random_uuid()`; no goose `ENVSUB`. Comments, strings and quoted identifiers are ignored when matching. Once a migration is applied to a database that is kept (from the P0 deploy on), it is never edited: follow-ups take the next number.
+Rules (`migrate check`, also part of `make gen-check`): files `NNNN_name.sql` numbered 1..N without gaps; every file has `-- +goose Up` and `-- +goose Down`; an empty Down only in a data migration whose header (before `-- +goose Up`) says `-- irreversible` (the round trip then rolls back only to the highest such version); `-- +goose NO TRANSACTION` exactly when the Up or Down builds or drops an index `CONCURRENTLY`; no empty `StatementBegin` block (goose would silently drop the next statement); ids default to `uuidv7()`, never `gen_random_uuid()`; no goose `ENVSUB`. Comments, strings and quoted identifiers are ignored when matching. Once a migration is applied to a database that is kept (from the P0 deploy on), it is never edited: follow-ups take the next number. Before P0 the baseline may still be corrected in place; goose records versions only (no checksum), so `make migrate` does not re-run an edited file on a database that already applied it, and such a local or dev database is reset (`make reset`).
+
+**Upgrading an existing dev database (T10):** `0009_infra` now also grants `DELETE` on `jobs` to `logitrack_app` (the nightly `jobs.prune`). A database migrated from `mv-go` between T04 and T10 lacks it and every 04:00 `jobs.prune` fails with `permission denied for table jobs` (42501). Run `make reset`, or once as `logitrack_migrator`: `GRANT DELETE ON jobs TO logitrack_app;`.
 
 Baseline (T04): `0001`-`0009` are Appendix A §A.2.0-§A.2.8 with each file's Appendix C policy block (RLS on exactly the 70 tables of Appendix C §C.3.0, generators from 0001), `0009_infra` is the only file of the baseline that grants or revokes (R66) and hands the eight SECURITY DEFINER functions to `logitrack_rls_definer`; `0010_d5_unique_constraints` (`NO TRANSACTION`) builds the three D5 unique indexes `CONCURRENTLY` and stops with an INVALID-index error while a legacy duplicate survives (R88). Local, CI and seeded databases run `up`; production runs `up-to 9` until the T24 runbook. Schema acceptance tests: `migrations/schema_integration_test.go` (tables equal the `CREATE TABLE`s of Appendix A, uuidv7 ids, STORED generated columns, inline `tenant_source`, vocabularies, append-only and void-only rules as `logitrack_app`, the draft-statement cascade, allocators, the D5 guard), `migrations/rls_integration_test.go` (policy behaviour as principals: the tenant-bound driver maintenance gate, the `file_objects` commit guard) and `internal/platform/db/rls_catalog_test.go` (RLS flags, policy names, freeze triggers, and the effective `logitrack_app` table privileges from `has_table_privilege`, so `PUBLIC` and inherited grants count, on `public` and `etl` against Appendix C §C.3.0 and §C.3.2, read from the document; nothing granted to `PUBLIC`).
 
@@ -157,9 +175,26 @@ Go returns tokens in JSON bodies and never sets cookies (the BFF does, TW3). Rou
 - **Per request** (`auth.Service.RequireAuth`): signature, iss, aud, exp (30 s leeway), then one Redis pipeline (`auth:sess:revoked:{sid}`, `auth:user:ver:{sub}`, bounded to 300 ms); a version miss or a token newer than the cached version reads `users.auth_version` and `sessions.revoked_at` and rebuilds both keys; with Redis down the same check runs in PostgreSQL (`auth_revocation_fallback_total`). Revoked session -> `401 session_revoked`; stale `ver` -> `401 token_expired` `details.reason=claims_changed`; expired -> `reason=expired`.
 - **Sessions and refresh families**: one session per login (`active_tenant_id`, `install_id`; a re-login on the same install revokes the older one), refresh tokens rotate in a family; a rotated token presented within 30 s while its successor is unused yields a sibling, any other reuse revokes the family and session, bumps `auth_version` and writes `refresh_token_reuse` in the same transaction.
 - **Revocation** (`auth.Service.RevokeInTx` + `Apply`): claims changes bump `auth_version` only; disable, password events, admin revoke, logout and reuse end sessions; every one queues outbox `user.sessions_revoked` on `user:{uid}` and, after COMMIT, raises `auth:user:ver:*` (only upward) and marks `auth:sess:revoked:*`; a failed write is retried in the background until the access tokens it judges expire (`auth_postcommit_failures_total{op}`; `Service.Close` stops the retries). `internal/iam` (T19) calls it for user administration and appends its row with `security.Append`. Lock order: every auth transaction that writes sessions or refresh tokens locks the `users` row first, then `sessions`, then `refresh_tokens`; `RevokeInTx` callers keep it.
-- **Passwords**: Argon2id (parameters read back; weaker stored hashes re-hash on login), Firebase scrypt verify-then-rehash, `must_change_password` -> `403 password_change_required` with a single-use `passwordChangeTicket` redeemed at `/v1/auth/password/change`, forgot always `202` (outbox `auth.password_reset_requested`; the `notify.email` consumer of T10 calls `IssuePasswordResetToken`, which stores only the hash), 5 failures / 15 min lock an email (`423 locked`; each attempt is counted before its check). Every failed check costs one Argon2id plus, while `FIREBASE_SCRYPT_*` is set, one scrypt (no timing enumeration); at most `GOMAXPROCS / ARGON2_PARALLELISM` hashes run at once (`503` after 3 s); a login opens its session only while the row still holds the credential it verified, so a racing reset wins.
+- **Passwords**: Argon2id (parameters read back; weaker stored hashes re-hash on login), Firebase scrypt verify-then-rehash, `must_change_password` -> `403 password_change_required` with a single-use `passwordChangeTicket` redeemed at `/v1/auth/password/change`, forgot always `202` (outbox `auth.password_reset_requested`; the worker's `notify.email` consumer (T10) creates the token with `auth.IssueResetToken`, which stores only the hash), 5 failures / 15 min lock an email (`423 locked`; each attempt is counted before its check). Every failed check costs one Argon2id plus, while `FIREBASE_SCRYPT_*` is set, one scrypt (no timing enumeration); at most `GOMAXPROCS / ARGON2_PARALLELISM` hashes run at once (`503` after 3 s); a login opens its session only while the row still holds the credential it verified, so a racing reset wins.
 - **Google sign-in** (T06, Appendix C §C.4.10): `GET /v1/auth/google/nonce` (web, through the BFF; single use, 10 min) and `POST /v1/auth/google {idToken, nonce?, platform, installId?, appVersion?}` with a GIS or `google_sign_in` ID token; no authorization-code flow (R23). `internal/auth/google` verifies with go-oidc (discovery on the first sign-in, so the api starts without Google; RS256; every `aud` in `GOOGLE_OIDC_ALLOWED_CLIENT_IDS`; `email_verified`). The account is the `auth_identities` Google `sub`, else the user with the verified email when Google is authoritative for it (a Gmail address or a Workspace account with `hd`), linked in the same transaction as `google_identity_linked`; otherwise `403 no_account` (no self-signup). A body nonce must be the token's and unused; a driver-app token (`azp` != `aud`) sent without one may carry the SDK's own nonce (iOS), which is ignored. Bad token or nonce `401 invalid_token`, Google unreachable `503`, variable unset `404`. Locally the variable is empty, so Google sign-in is off; tests use `googletest` (no network).
 - Every statement runs in `db.WithSystem` (`app.bypass_tenant=on`); queries are sqlc (`internal/auth/queries` -> `internal/auth/authdb`). Tests: `go test ./internal/auth/... ./internal/security/...` (unit: JWT, the firebase/scrypt public vectors, Argon2id and the hashing gate, policy, equal work per failed check) and `make test-integration` (PostgreSQL 18 + Redis 7 containers, both listeners; `hardening_integration_test.go` covers the races and lost Redis writes).
+
+## Firebase bridge (T08, main spec §4.9, Appendix C §C.6)
+
+`AUTH_FIREBASE_BRIDGE_MODE` decides what the web and the APK may do with Firebase credentials while the strangler runs; no Firebase Admin SDK is linked (`internal/auth/firebase`). Nothing reaches Google at start-up: keys and OAuth2 tokens are fetched on first use.
+
+| Mode | Custom tokens for the web | APK Firebase ID tokens | Account mirror | Phases |
+|---|---|---|---|---|
+| `off` | no (`/v1/bridge/*` 404) | no (404) | no | local default; after P8 |
+| `web` | yes | no | yes | P0-P6, until TW7 |
+| `mobile` | no | yes | yes | P7a-P8 |
+| `both` | yes | yes | yes | only while P7a overlaps an unfinished TW7 |
+
+- **Web** (`POST /v1/bridge/firebase-token`, internal listener only, bearer): an RS256 custom token signed with the `GOOGLE_APPLICATION_CREDENTIALS` service account for the caller's Firebase uid (`users.legacy_auth_uid`; an own-fleet user created in Go gets `users.id` at the first mint) with the legacy claims of its active context (`admin`, `role`, `driverId`, `customerScopeId`, `partnerScopeId`, Appendix C §C.6.3). Only own-fleet staff, `platform_admin` and users imported from a legacy partner or customer claim (an `auth_identities` `firebase_legacy` row) get one; everyone else `403 permission_denied`. `GET /v1/me` adds `legacyAuthUid` in this mode.
+- **Firebase ID tokens** (`auth.Service.VerifyFirebaseIDToken`): go-oidc against `https://securetoken.google.com/{FIREBASE_PROJECT_ID}` with the securetoken JWKS; the principal (`amr` `firebase`, no session) comes from PostgreSQL, never from the token's claims. `FirebaseAPK` (the exchange of T55) needs a mode with `mobile`; `FirebaseShim` (T32) works in every mode. A Firebase token is never a bearer: `401 invalid_token` on every route.
+- **Account mirror** (every mode but `off`): password sets (change, reset, ticket change, temporary password), disable / enable, a soft delete (every session revoked with reason `disabled`: the account is disabled), an admin revocation of every session and claims changes are written to Firebase Auth through Identity Toolkit inside the request's transaction, before COMMIT; a failure is `503 bridge_unavailable` and commits nothing in PostgreSQL. A creation that fails after Firebase created the account deletes it again, and a retry adopts an orphan that survived (a uuid uid nobody in PostgreSQL holds); an email held by any other Firebase account is `409 already_exists` (`details.reason` `firebase_account_exists`). The service account needs Firebase Authentication Admin on `FIREBASE_PROJECT_ID`; a 401 / 403 from Identity Toolkit is logged at error level as that misconfiguration. Entry points for T19: `RevokeInTx`, `SetStatusInTx`, `NewTemporaryPassword` + `SetTemporaryPasswordInTx`, `MirrorNewUserInTx`. Metrics `auth_firebase_mirror_failures_total{op}`, `auth_firebase_custom_tokens_total`.
+
+Tests use `internal/auth/firebase/firebasetest` (securetoken keys, OAuth2 token endpoint and Identity Toolkit in-process); nothing reaches Google. Signing a minted token in to the dev project is an owner step (Appendix C §C.9.5).
 
 ## Web flags (T17, main spec §10.6, §12.1)
 
@@ -170,6 +205,17 @@ Go returns tokens in JSON bodies and never sets cookies (the BFF does, TW3). Rou
 `internal/billing/compute` prices trips and standby events with no I/O and no clock: the caller loads rate cards, fuel rounds, fees, hub names and period locks in its pricing transaction and passes them in. Money stays float64 and matches V8 bit for bit: `jsmath.Round` rounds ties toward +Inf (and keeps `-0`), every product is wrapped in `float64(...)` so arm64 and amd64 `GOAMD64=v3` cannot fuse it into a multiply-add, and sums stay unrounded in input order. Deliberate differences from the TypeScript: a blank vehicle class is `no_vehicle_class` (R15), equal effective instants are ordered by legacy doc id, `created_at`, `id` whatever the load order (R16), a trip with no plan, delivery or creation instant is `no_billing_date` instead of `Date.now()` (R19), voided standby rates never price (R20). `IsFrozen` / `CarriesFuel` exist once in the module.
 
 Golden vectors: `testdata/golden/billing` (see its README). `go test ./internal/billing/... ./internal/platform/...` checks them against Go; `pnpm test` in `logitrack-web` checks the same files against the TypeScript. Regenerate after a TypeScript change with `node testdata/golden/billing/export.mjs`.
+
+## Async processing (T10, main spec §7, Appendix B §B.5)
+
+- **Emit**: `outbox.Append(ctx, tx, outbox.Event{...})` in the service transaction is the only way to publish (auth's events included; it validates the routing key and topics and carries `requestId` and `traceparent`); `api` never connects to RabbitMQ. Admin jobs: `jobs.Service.Submit` (lock + row + `lt.jobs` command in one system tx after Go authorization, `202 {jobId}`).
+- **Relay** (scheduler leader, `pg_try_advisory_lock(hashtext('lt-scheduler'))`): `LISTEN outbox_new` + `OUTBOX_RELAY_INTERVAL`, `OUTBOX_BATCH_SIZE` rows `FOR UPDATE SKIP LOCKED`; per row its hook, then `Cache.OnEvent` (drops the `cache:` keys the event makes stale and announces them on `rt:cache`; nothing for events outside `cache.InvalidatingEvents`), publisher confirms, then one Lua script per realtime event (`INCR rtlog:seq`, `XADD rtlog:{topic} {seq}-0`, `PUBLISH rt:{topic}`), then `published_at`. A failed hook, cache invalidation, publish or realtime step stops the batch at that row (`attempts`, `last_error`); a row whose publish was confirmed before a later step failed is not published again; rounds back off from the interval to 30 s while the head row keeps failing. The scheduler's Redis client and keyspace come from `cache.Open`, like the api's: every key (`rtlog:*`, `rt:*`, `lock:job:*`, `lock:cron:*`) is built by `cache.Keyspace`. Hook: `user.sessions_revoked` re-applies auth's revoked markers and cached version (`auth.RevocationHook`, `JWT_ACCESS_TTL`). Metrics `outbox_pending`, `outbox_lag_seconds`.
+- **Consume** (worker): the topology is asserted at every connect; each queue of the `WORKER_CONSUMERS` groups that has a consumer runs with its Appendix B prefetch. A handler returns `nil` (ack), `mq.Permanent(err)` (ack, outcome recorded) or any other error: retry through `lt.retry` (`10s`, `1m`, `5m`, `30m`, `2h`), back to that queue only via `lt.requeue`, and the sixth failure goes to `{queue}.dead`. DB side effects run through `inbox.Run` (claim in `consumer_inbox` first, `db.WithSystem` with the event's tenant). Metrics `mq_messages_total{queue,outcome}`, `mq_dead_letter_depth{queue}`.
+- **Consumers today**: `notify.email` (reset and invite links, Mailpit locally; `user.created` mails an invite only with `sendInvite: true`). The other queues fill with their issues; the worker logs which queues have no consumer yet.
+- **Readiness** (`/readyz` on `METRICS_ADDR`): worker = PostgreSQL + its RabbitMQ session; scheduler = PostgreSQL + Redis, plus the broker connection while it is the leader. A failure is `503 unavailable` with `details.checks`.
+- **Cron** (Bangkok, leader only, `lock:cron:{job}:{scheduledFor}`): `auth.token-cleanup` every 10 min, and at 04:00 `outbox.prune`, `inbox.prune`, `jobs.prune`, `idempotency.prune`, `rtlog.trim`; the command crons of §7.4 join with their consumers (`scheduler.Pending`).
+- **Jobs API**: `GET /v1/jobs`, `GET /v1/jobs/{id}` (owner, or a platform role) and `POST /v1/admin/queues/{queue}/replay` (platform_admin) are mounted by `cmd/api` behind `auth.RequireAuth` (`app.JobGroups`). A replay creates a `queue.replay` job; the leader moves `{queue}.dead` back to `{queue}` with a fresh retry budget.
+- **Tests**: `make test-integration` runs `internal/platform/{mq,outbox,inbox}`, `internal/jobs`, `internal/scheduler` and `internal/notify` against postgres:18-alpine, rabbitmq:4-management-alpine, redis:7-alpine and axllent/mailpit (images read from the compose file).
 
 ## Edge: web + Caddy (TW2, main spec §10.12, §15)
 

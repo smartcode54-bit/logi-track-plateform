@@ -1,0 +1,9 @@
+{{define "html"}}<!doctype html>
+<html lang="en"><body style="font-family:Arial,Helvetica,sans-serif;color:#1f2937;line-height:1.6">
+<p>Hello {{.Name}},</p>
+<p>An administrator has created a LogiTrack account for you. Open the link below to set your password and sign in. The link works once and expires in {{.ValidFor}}.</p>
+<p><a href="{{.Link}}" style="display:inline-block;padding:10px 18px;background:#1d4ed8;color:#ffffff;text-decoration:none;border-radius:6px">Set password</a></p>
+<p style="font-size:13px;color:#6b7280">If the button does not work, copy this link into your browser: {{.Link}}</p>
+<p>If you were not expecting this invitation, you can ignore this email.</p>
+<p>LogiTrack</p>
+</body></html>{{end}}

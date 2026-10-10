@@ -18,8 +18,10 @@ import (
 )
 
 // Me is the body of GET /v1/me (Appendix C §C.8). photoUrl stays null until the storage service (T11)
-// can presign the profile photo; legacyAuthUid is added by the Firebase bridge (T08); capabilities come
-// from the CapabilityResolver (T07).
+// can presign the profile photo; legacyAuthUid (the user's Firebase uid) is present only while the
+// Firebase bridge mints custom tokens for the web and the user has one (T08): the web compares it with
+// the signed-in Firebase uid and asks for a new custom token when they differ; capabilities come from
+// the CapabilityResolver (T07).
 type Me struct {
 	ID                 uuid.UUID       `json:"id"`
 	Email              *string         `json:"email"`
@@ -34,6 +36,7 @@ type Me struct {
 	CustomerScopes     []CustomerScope `json:"customerScopes"`
 	Capabilities       []string        `json:"capabilities"`
 	MustChangePassword bool            `json:"mustChangePassword"`
+	LegacyAuthUID      *string         `json:"legacyAuthUid,omitempty"`
 }
 
 // DriverRef is the linked driver of a driver principal.
@@ -76,6 +79,13 @@ func (s *Service) Me(ctx context.Context, p *authz.Principal) (*Me, error) {
 		// Steward (R60): staff of the own-fleet tenant, or platform_admin. T07 sets the GUC from it.
 		m.Steward = p.HasPlatform(authz.PlatformAdmin) ||
 			(m.Tenant != nil && m.Tenant.Kind == "own_fleet" && p.TenantRole != authz.Driver)
+		if s.fb.Mode.Web() {
+			b, err := q.GetBridgeUser(ctx, p.UserID)
+			if err != nil {
+				return err
+			}
+			m.LegacyAuthUID = b.LegacyAuthUid
+		}
 		if p.DriverID != nil {
 			m.Driver = &DriverRef{ID: *p.DriverID}
 		}
@@ -235,7 +245,7 @@ type LogoutInput struct {
 // token the BFF holds. Without any valid credential it is 401 unauthenticated.
 func (s *Service) Logout(ctx context.Context, p *authz.Principal, in LogoutInput) error {
 	pc := newPostCommit()
-	err := s.system(ctx, func(q *authdb.Queries) error {
+	err := s.systemTx(ctx, func(tx pgx.Tx, q *authdb.Queries) error {
 		var uid uuid.UUID
 		var sids []uuid.UUID
 		install := in.InstallID
@@ -292,7 +302,7 @@ func (s *Service) Logout(ctx context.Context, p *authz.Principal, in LogoutInput
 				install = *sess.InstallID
 			}
 		}
-		if _, err := s.revokeTx(ctx, q, Revocation{UserID: uid, Reason: RevokeLogout, SessionIDs: sids, RequestID: in.RequestID}, s.clock(), pc); err != nil {
+		if _, err := s.revokeTx(ctx, tx, Revocation{UserID: uid, Reason: RevokeLogout, SessionIDs: sids, RequestID: in.RequestID}, s.clock(), pc); err != nil {
 			return err
 		}
 		if install != "" {

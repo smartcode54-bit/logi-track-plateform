@@ -2,11 +2,11 @@ package auth
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
-	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/authdb"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/outbox"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/security"
 )
 
@@ -43,33 +43,25 @@ type outboxEvent struct {
 	Topics        []string
 }
 
-func insertOutbox(ctx context.Context, q *authdb.Queries, e outboxEvent) error {
-	payload, err := json.Marshal(e.Payload)
-	if err != nil {
-		return err
-	}
-	headers := map[string]string{}
+// insertOutbox emits e in tx through outbox.Append, the single emit path (main spec §7.1): it validates
+// the routing key and the realtime topics and carries requestId and the caller's traceparent in the
+// message headers (Appendix B §B.5.2).
+func insertOutbox(ctx context.Context, tx pgx.Tx, e outboxEvent) error {
+	var headers map[string]string
 	if e.RequestID != "" {
-		headers["requestId"] = e.RequestID
+		headers = map[string]string{"requestId": e.RequestID}
 	}
-	h, err := json.Marshal(headers)
-	if err != nil {
-		return err
-	}
-	topics := e.Topics
-	if topics == nil {
-		topics = []string{}
-	}
-	return q.InsertOutboxEvent(ctx, authdb.InsertOutboxEventParams{
+	_, err := outbox.Append(ctx, tx, outbox.Event{
 		RoutingKey: e.RoutingKey, AggregateType: e.AggregateType, AggregateID: e.AggregateID,
-		EventType: e.RoutingKey, TenantID: e.TenantID, Payload: payload, Headers: h, RealtimeTopics: topics,
+		TenantID: e.TenantID, Payload: e.Payload, Topics: e.Topics, Headers: headers,
 	})
+	return err
 }
 
 // emitSecurityEvent queues a consumer-written security event (outbox security.event, C.4.13): the
 // security.audit consumer appends it with security.Append. In-transaction events call security.Append
 // directly.
-func emitSecurityEvent(ctx context.Context, q *authdb.Queries, e security.Event) error {
+func emitSecurityEvent(ctx context.Context, tx pgx.Tx, e security.Event) error {
 	if err := e.Validate(); err != nil {
 		return err
 	}
@@ -77,7 +69,7 @@ func emitSecurityEvent(ctx context.Context, q *authdb.Queries, e security.Event)
 	if e.TargetUserID != nil {
 		agg = e.TargetUserID.String()
 	}
-	return insertOutbox(ctx, q, outboxEvent{
+	return insertOutbox(ctx, tx, outboxEvent{
 		RoutingKey: RouteSecurityEvent, AggregateType: "user", AggregateID: agg, TenantID: e.TenantID,
 		Payload: e, RequestID: e.RequestID,
 	})
@@ -91,11 +83,11 @@ type sessionsRevokedPayload struct {
 	Reason     string      `json:"reason"`
 }
 
-func emitSessionsRevoked(ctx context.Context, q *authdb.Queries, uid uuid.UUID, sids []uuid.UUID, reason, requestID string) error {
+func emitSessionsRevoked(ctx context.Context, tx pgx.Tx, uid uuid.UUID, sids []uuid.UUID, reason, requestID string) error {
 	if sids == nil {
 		sids = []uuid.UUID{}
 	}
-	return insertOutbox(ctx, q, outboxEvent{
+	return insertOutbox(ctx, tx, outboxEvent{
 		RoutingKey: RouteSessionsRevoked, AggregateType: "user", AggregateID: uid.String(),
 		Payload:   sessionsRevokedPayload{UserID: uid, SessionIDs: sids, Reason: reason},
 		RequestID: requestID, Topics: []string{"user:" + uid.String()},

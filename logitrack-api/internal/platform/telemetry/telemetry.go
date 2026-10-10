@@ -7,6 +7,7 @@ package telemetry
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -203,9 +204,11 @@ type MetricsServer struct {
 }
 
 // ListenMetrics binds addr and serves the registry until Shutdown. When ready
-// is not nil the server also answers GET /healthz (200) and GET /readyz (200
-// or 503), which compose uses for the worker and scheduler (main spec §15.1).
-func ListenMetrics(addr string, reg *prometheus.Registry, log zerolog.Logger, ready func() bool) (*MetricsServer, error) {
+// is not nil the server also answers GET /healthz (200) and GET /readyz, which
+// compose uses for the worker and scheduler (main spec §15.1): 200 when ready
+// returns nil, else 503 with the R48 envelope of the returned *httpx.Error
+// (health.State.Ready).
+func ListenMetrics(addr string, reg *prometheus.Registry, log zerolog.Logger, ready func(ctx context.Context) error) (*MetricsServer, error) {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, err
@@ -217,11 +220,11 @@ func ListenMetrics(addr string, reg *prometheus.Registry, log zerolog.Logger, re
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"data":{"status":"ok"}}`))
 		})
-		mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
+		mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
-			if !ready() {
+			if err := ready(r.Context()); err != nil {
 				w.WriteHeader(http.StatusServiceUnavailable)
-				_, _ = w.Write([]byte(`{"error":{"code":"unavailable","message":"not ready","details":{},"requestId":""}}`))
+				_, _ = w.Write(notReadyBody(err))
 				return
 			}
 			_, _ = w.Write([]byte(`{"data":{"status":"ready"}}`))
@@ -237,6 +240,29 @@ func ListenMetrics(addr string, reg *prometheus.Registry, log zerolog.Logger, re
 		}
 	}()
 	return s, nil
+}
+
+// notReadyBody renders the 503 of /readyz in the R48 envelope: the code, message and details of an
+// *httpx.Error, a generic text otherwise (never a driver error, which may name hosts).
+func notReadyBody(err error) []byte {
+	type body struct {
+		Code      string         `json:"code"`
+		Message   string         `json:"message"`
+		Details   map[string]any `json:"details"`
+		RequestID string         `json:"requestId"`
+	}
+	b := body{Code: "unavailable", Message: "not ready", Details: map[string]any{}}
+	if he, ok := errors.AsType[*httpx.Error](err); ok {
+		b.Message = he.Message
+		if he.Details != nil {
+			b.Details = he.Details
+		}
+	}
+	out, mErr := json.Marshal(map[string]body{"error": b})
+	if mErr != nil {
+		return []byte(`{"error":{"code":"unavailable","message":"not ready","details":{},"requestId":""}}`)
+	}
+	return out
 }
 
 // Addr is the bound address (useful with ":0" in tests).

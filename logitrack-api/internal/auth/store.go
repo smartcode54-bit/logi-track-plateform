@@ -20,6 +20,8 @@ import (
 //	auth:user:ver:{userId}     string users.auth_version, TTL 1 h, only ever raised
 //	auth:pwchg:{ticket}        string {"userId","authVersion"}, 10 min, single use (GETDEL)
 //	auth:sse:{ticket}          string {"userId","sessionId"}, 60 s, single use (GETDEL)
+//	auth:fbuid:{firebaseUid}   string users.id of the user with that legacy_auth_uid, 5 min (Firebase
+//	                           bridge: a hint only, checked against the row on every use, C.6.2)
 //	rl:login_fail:{sha256hex}  integer sign-in attempts of one email (full sha256 hex of the normalised
 //	                           address), window LockoutWindow (Appendix C §C.4.8, §C.4.12)
 //
@@ -289,3 +291,31 @@ func (s *Store) clearFailures(ctx context.Context, subject string) error {
 
 // Ping checks the connection (readiness).
 func (s *Store) Ping(ctx context.Context) error { return s.rdb.Ping(ctx).Err() }
+
+func (s *Store) fbuidKey(fbuid string) string { return s.key("auth", "fbuid", fbuid) }
+
+// getFirebaseUID reads auth:fbuid:{uid}; a miss, an unreadable value or a Redis failure is ok == false
+// (the caller looks the uid up in PostgreSQL).
+func (s *Store) getFirebaseUID(ctx context.Context, fbuid string) (uuid.UUID, bool) {
+	ctx, cancel := bound(ctx)
+	defer cancel()
+	v, err := s.rdb.Get(ctx, s.fbuidKey(fbuid)).Result()
+	if err != nil {
+		return uuid.Nil, false
+	}
+	id, err := uuid.Parse(v)
+	return id, err == nil
+}
+
+func (s *Store) putFirebaseUID(ctx context.Context, fbuid string, id uuid.UUID, ttl time.Duration) error {
+	ctx, cancel := bound(ctx)
+	defer cancel()
+	return s.rdb.Set(ctx, s.fbuidKey(fbuid), id.String(), ttl).Err()
+}
+
+// dropFirebaseUID deletes a stale hint; a failure only costs the next request a PostgreSQL lookup.
+func (s *Store) dropFirebaseUID(ctx context.Context, fbuid string) {
+	ctx, cancel := bound(ctx)
+	defer cancel()
+	_ = s.rdb.Del(ctx, s.fbuidKey(fbuid)).Err()
+}

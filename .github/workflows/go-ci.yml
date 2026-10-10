@@ -30,6 +30,10 @@ concurrency:
 
 env:
   IMAGE: ghcr.io/smartcode54-bit/logitrack-api
+  # The Ryuk reaper is shared by every test binary of one `go test` run; when one package finishes,
+  # the next can wait 60 s on a reaper that is shutting down and fail. Runners are ephemeral and
+  # pgtest.Main terminates its containers, so CI runs without Ryuk (local runs keep it).
+  TESTCONTAINERS_RYUK_DISABLED: "true"
 
 jobs:
   changes:
