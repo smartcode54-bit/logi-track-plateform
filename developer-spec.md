@@ -306,7 +306,7 @@ logitrack-web/            app/api/go/[...path], app/api/auth/{login,google,googl
                           features/<domain>/api/use*.ts, features/hubs/api
 ```
 
-Rules: `handler` never imports `repo`; `service` owns the transaction and the outbox append; `billing/compute`, `hr/compute` are pure ports of `lib/billingCompute.ts`, `lib/compensationCompute.ts` (no `platform` imports); `tenancy` ports `fn:core/tenantResolve.ts`; `clock` holds the +07:00 helpers and `jsRound`. **Migrations (R59):** baseline `0001_preamble` … `0009_infra` all apply in P0; `0010_d5_unique_constraints` (NO TRANSACTION, CONCURRENTLY; written in T04, applied in the P1 runbook T24, R88) follows ETL and the owner's quarantine sign-off: `goose up-to 9` → ETL → sign-off → `goose up`.
+Rules: `handler` never imports `repo`; `service` owns the transaction and the outbox append; `billing/compute`, `hr/compute` are pure ports of `lib/billingCompute.ts`, `lib/compensationCompute.ts` (no I/O, no clock; outside the standard library they import only the pure leaves `platform/clock` and `platform/jsmath`. `TestImportsArePure` (T36) enforces this for `billing/compute`, `billing/documents`, `platform/jsmath` and `platform/clock`: standard-library imports come from a pure allow-list (`errors`, `fmt`, `math`, `math/big`, `regexp`, `slices`, `sort`, `strconv`, `strings`, `time`, `unicode`, `unicode/utf8`; so no `os`, `io`, `net`, `syscall`, `os/exec` or `database/*`), and `time.Now`/`Since`/`Until`, timers, `time.LoadLocation`/`time.Local` and `fmt` printing are rejected; `hr/compute` joins the test in T44); `tenancy` ports `fn:core/tenantResolve.ts`; `clock` holds the +07:00 helpers; `jsmath` holds `jsRound` (`Round`, `Round2`, `ToFixed`). **Migrations (R59):** baseline `0001_preamble` … `0009_infra` all apply in P0; `0010_d5_unique_constraints` (NO TRANSACTION, CONCURRENTLY; written in T04, applied in the P1 runbook T24, R88) follows ETL and the owner's quarantine sign-off: `goose up-to 9` → ETL → sign-off → `goose up`.
 
 ### 2.4 Libraries and versions
 
@@ -762,10 +762,16 @@ This section is the port contract for money: `internal/billing/compute` and `int
 Legacy money is IEEE-754 float64 with `Math.round`, no decimal library. `compute` keeps float64 and reproduces: (1) **`Math.round` ties toward +Inf** (`Math.round(-2.5) = -2`, Go `math.Round` gives -3; negatives are real: fuel discounts -40/-50/-70, signed surcharges); (2) **no FMA fusion** (Go may fuse `x*y + z` on arm64, ppc64le, s390x, riscv64; amd64 `GOAMD64=v3` UNVERIFIED, treated as possible) — an explicit `float64(...)` on the product forces rounding; (3) **unrounded float sums stay unrounded** inside compute (multi-drop `stopChargeThb` / `totalBillingThb`, invoice `grandTotal`, line totals, payroll `totalEarnings` / `totalDeductions`, accumulated in array order).
 
 ```go
-// package jsmath — the only rounding helpers money code may call.
+// package jsmath (internal/platform/jsmath) — the only rounding helpers money code may call.
 func Round(x float64) float64 { // ECMAScript Math.round: half toward +Inf (0.49999999999999994 -> 0)
-	if math.IsNaN(x) || math.IsInf(x, 0) {
+	if math.IsNaN(x) || math.IsInf(x, 0) || x == 0 {
 		return x
+	}
+	if x < 0 && x >= -0.5 { // JavaScript keeps the sign: Math.round(-0.4) is -0, and (-0).toFixed(2) is "0.00"
+		return math.Copysign(0, -1)
+	}
+	if x > 0 && x < 0.5 {
+		return 0
 	}
 	f := math.Floor(x)
 	if float64(x-f) >= 0.5 {
@@ -791,10 +797,10 @@ func RoundTHB(x float64) float64 { return jsmath.Round(x) }                     
 
 | Rule | Contract |
 |---|---|
-| CI | Goldens run on linux/amd64 (`GOAMD64=v3`) and linux/arm64; a vet-style test fails on `math.Round(` inside `compute` packages. |
+| CI | Goldens run on linux/amd64 (`GOAMD64=v3`) and linux/arm64. `TestNoFusedMultiplyAdd` (T36) parses `billing/compute`, `billing/documents` and `platform/jsmath` and fails on `math.Round`, `math.FMA`, `*=` and any product that is not the operand of a `float64(...)` conversion; `TestImportsArePure` allows only a pure standard-library set plus `platform/clock` and `platform/jsmath`, and rejects `time.Now`/`Since`/`Until`, timers, the host zone and `fmt` printing in `billing/compute`, `billing/documents`, `platform/jsmath` and `platform/clock` (§2.3). Evidence (T36, darwin/arm64): without the barrier in `FinalRateTHB` the characterisation vectors fail (`(9654, 0.95, 0.005)` gives 9171.31, V8 9171.3); with it, `go build -gcflags=-S` shows no `FMADDD`/`VFMADD*` in those packages for arm64 and amd64 `GOAMD64=v3`. |
 | Storage | `NUMERIC(14,2)` THB (R20), multipliers `NUMERIC(10,6)`, fuel prices `NUMERIC(8,2)`, WHT rate `NUMERIC(5,4)` fraction. The repo binds `jsmath.Round2(result)`; summands are already 2-dp, so no half-satang tie is crossed. SQL statement/period/payroll totals are exact `NUMERIC` sums. |
 | Tolerance | Exact everywhere except 0.005 THB for legacy multi-drop `billingEstimateThb` and statement `netAmount` (R20), against the raw Firestore value. |
-| Display | `toFixed(2)` = `strconv.FormatFloat(v,'f',2,64)` (golden `'37.01–38.00'`); `Intl th-TH` → `i18n.FormatTHB` (ICU rounding UNVERIFIED, pinned by goldens); `bahttext` port tested against npm `bahttext@^2.4.0` outputs (satang behaviour UNVERIFIED: source not in repo). |
+| Display | `toFixed(2)` = `jsmath.ToFixed(v, 2)`: the exact decimal value rounded half up on the magnitude, `-0` without a sign (`strconv.FormatFloat` rounds half to even: `0.125` → `0.12`, V8 `0.13`; golden `'37.01–38.00'`); `Intl th-TH` → `i18n.FormatTHB` (ICU rounding UNVERIFIED, pinned by goldens); `bahttext` port tested against npm `bahttext@^2.4.0` outputs (satang behaviour UNVERIFIED: source not in repo). |
 | Zero/NaN | `Number(x) \|\| undefined` drops 0 multipliers/adds (`billing.ts:983-984,1020-1021`): the DTO returns real numbers. Rows with `billingEstimateThb` 0/absent leave the invoice set (`billing.ts:942,966,1043`): kept as `estimate_thb <> 0`. |
 
 ### 6.3 Calendar and billing-date rules
@@ -818,14 +824,14 @@ func RoundTHB(x float64) float64 { return jsmath.Round(x) }                     
 | Source hub | `ExtractHubID` | trim, split on `" - "`, part 0, trim, upper (`:113-118`): `"HUBA - Name"` → `HUBA`, `"SPK-GW"` stays |
 | Destination | `NormalizeDestinationCode` | trim+upper; empty → `""`; prefix `SOCE`/`SOCN`/`SOCW` → that key; else FIRST `-` at index > 0 → text before it, trimmed; else unchanged (`:120-132`). `SPK-GW` collapses to `SPK` (§6.18 #1); rate entries use the same function on write and load |
 | Hub maps | `HubMaps{NameToCode, CodeToName}` | from `hubs` + `hub_name_aliases`; `NameToCode`: `name_th`, `name_en`, legacy `hubName` → `source_id`, skipped when blank or equal to the code, first writer wins (`fn:tripBillingOnDelivered.ts:124-141`); `CodeToName`: code → `name_th`. **Never merged** (merging produced "No rate: SPK-GW → ห้วยขวาง10", `:108-118`). Exact match on the trimmed string (compare `alias::text`: the citext column must not widen matches); a miss returns the raw input (`:144-147`). Pricing reads both from PG in the pricing tx; Redis `cache:hubs:n2c` / `cache:hubs:c2n` are UI only (R53) |
-| Rate class | `FoldVehicleClass` | upper; `PICKUP→4W, 4WH→4W, 4 WHEELS→4WJ, 4 WHEELS JUMBO→4WJ, 6 WHEELS→6WH, 6W→6WH, 10 WHEELS→10WH, 10W→10WH, 18 WHEELS→18WH, 18W→18WH, 2 WHEELS→2W`, else upper (`:146-163`); task enum `4W, 4WJ, 6WH, 10WH, 18WH, VAN` (`web:validate/taskSchema.ts:36`) |
+| Rate class | `FoldVehicleClass` → `(string, bool)` | blank (after the JavaScript `trim`, which also strips U+FEFF) → `("", false)` (R15); else upper; `PICKUP→4W, 4WH→4W, 4 WHEELS→4WJ, 4 WHEELS JUMBO→4WJ, 6 WHEELS→6WH, 6W→6WH, 10 WHEELS→10WH, 10W→10WH, 18 WHEELS→18WH, 18W→18WH, 2 WHEELS→2W`, else upper (`:146-163`); task enum `4W, 4WJ, 6WH, 10WH, 18WH, VAN` (`web:validate/taskSchema.ts:36`) |
 | Trip class (R15) | `TripVehicleClass(task) (string, bool)` | `tasks.truck_type` NULL/blank → `no_vehicle_class`; legacy `v \|\| "4WJ"` dropped at trip level, multi-drop too (`fn:tripBillingOnDelivered.ts:395-414`). Blank legacy rate rows fold to `4WJ` once in `cmd/etl`; legacy priced trips are never repriced by this rule |
 | Truck → task class | `TaskClassFromTruckType` | `web:lib/truckType.ts:13-21`: `Pickup→4W, 4 Wheels→4WJ, 4 Wheels Jumbo→4WJ, 6 Wheels→6WH, 10 Wheels→10WH, 18 Wheels→18WH, Van→VAN`; else upper if in the enum; else `false` (never guess) |
 | Filter buckets | `VehicleClassKey` | blank → `__none__`, never `4WJ` (`web:lib/vehicleClass.ts:40-44`) |
 
 ### 6.5 Rate-entry selection and the R16 tie-break
 
-`SelectRateEntry(party, hub, dest, class, bill, entries, cat)` (`web:lib/billingCompute.ts:274-304`): (1) candidates `!voided && party && hub_code == hub && destination_code == dest && FoldVehicleClass(vehicle_class) == class && coalesce(job_category,'PRIMARY') == cat`, none → `no_rate`; (2) effective set `bkk_date(effective_from_at) <= bkk_date(bill)` (`:191-193`), stable sort descending by instant, first wins (same day: later instant wins); (3) bill date before every candidate → stable ascending, the OLDEST card (fuel adjustments have no such fallback); (4) **input order (R16)**: JS sort is stable, so equal instants keep input order (legacy Firestore order, doc id ascending, UNVERIFIED). The repository loads `ORDER BY legacy_doc_id ASC NULLS LAST, created_at ASC, id ASC` and the selector uses `sort.SliceStable` (`id` = `uuidv7()`, time-ordered; Go never generates ids). Two live new rows for one key and day → the FIRST created wins; corrections void the original (ADR 0009 §1). Fuel adjustments and standby rates use the same order.
+`SelectRateEntry(party, hub, dest, class, bill, entries, cat)` (`web:lib/billingCompute.ts:274-304`): (1) candidates `!voided && party && hub_code == hub && destination_code == dest && FoldVehicleClass(vehicle_class) == class && coalesce(job_category,'PRIMARY') == cat`, none → `no_rate`; (2) effective set `bkk_date(effective_from_at) <= bkk_date(bill)` (`:191-193`), stable sort descending by instant, first wins (same day: later instant wins); (3) bill date before every candidate → stable ascending, the OLDEST card (fuel adjustments have no such fallback); (4) **input order (R16)**: JS sort is stable, so equal instants keep input order (legacy Firestore order, doc id ascending, UNVERIFIED). The selector applies this order itself (T36): a stable sort on (instant in whole milliseconds, then `legacy_doc_id` ascending by bytes with NULLs last, `created_at`, `id`), so the result never depends on the order rows were loaded in, nor on a database collation (Firestore orders document ids by bytes; a non-C collation does not). The repository may keep `ORDER BY legacy_doc_id ASC NULLS LAST, created_at ASC, id ASC` for deterministic reads (`id` = `uuidv7()`, time-ordered; Go never generates ids). Two live new rows for one key and day → the FIRST created wins; corrections void the original (ADR 0009 §1). Fuel adjustments and standby rates use the same order.
 
 Goldens (`web:lib/billingCompute.test.ts`): L154 voided newest → previous round; L178-192 00:21 ICT switch-day trip, UTC- and Bangkok-midnight rows → both in round, day before out; L198-222 CJSF Aug 2026 overnight → fuel Aug (-50) not Jul (-70), rate and standby rate Aug; new (R16): equal-instant legacy rows → lower `legacy_doc_id`, new rows → earlier `created_at`, mixed → legacy.
 
@@ -860,15 +866,17 @@ Server rule (`fn:tripBillingOnDelivered.ts:357-360,436-463,515-553`): `SUPPLEMEN
 
 ### 6.9 Standby pricing
 
-Port of `fn:standbyBilling.ts:134-209` / `web:lib/billingCompute.ts:553-588`. Only `status='completed'`; priced and not forced → skipped. Party: `customer_party_id` ?? `task.source_linked_party_id` ?? `task.destination_linked_party_id` (`:77-106`), **never `task.billing_party_id`** (R19, §6.18 #9). Date per §6.3. Lock only when already priced and forced, key (`billing_party_id` or resolved party, pricing date); blocked → `{ok:true, skipped:true, blocked:true, invoiceNumber}` (`:165-179`). Rate: `SelectStandbyRate` over `voided_at IS NULL` rows (R20), Bangkok-day effective ≤ bill newest, else OLDEST, R16 order; fixed per event, duration ignored; writes `billing_estimate_thb`, `billing_party_id`, `billing_rate_source='standby_rate'`, `billing_rate_entry_id`, `billing_effective_from_date`, `billing_computed_at`. Fallback: `customer_service_fees` `fee_type='standby'` (legacy "last doc wins", `:49-59`) → `billing_rate_source='service_fee'`, entry id and date NULL. Unpriced (R62): `billing_unpriced_reason ∈ {no_customer, no_rate, no_ended_at}`. Job category is a label only. `GET /v1/billing/standby-diagnostics` adds diagnostic-only `not_computed` (`billing.ts:1455`).
+Port of `fn:standbyBilling.ts:134-209` / `web:lib/billingCompute.ts:553-588`. Only `status='completed'`; priced and not forced → skipped. Party: `customer_party_id` ?? `task.source_linked_party_id` ?? `task.destination_linked_party_id` (`:77-106`), **never `task.billing_party_id`** (R19, §6.18 #9). Date per §6.3. Lock only when already priced and forced, key (`billing_party_id` or resolved party, pricing date); blocked → `{ok:true, skipped:true, blocked:true, invoiceNumber}` (`:165-179`). Rate: `SelectStandbyRate` over `voided_at IS NULL` rows (R20), Bangkok-day effective ≤ bill newest, else OLDEST, R16 order; fixed per event, duration ignored; writes `billing_estimate_thb`, `billing_party_id`, `billing_rate_source='standby_rate'`, `billing_rate_entry_id`, `billing_effective_from_date`, `billing_computed_at`. Fallback: `customer_service_fees` `fee_type='standby'` (legacy "last doc wins", `:49-59`) → `billing_rate_source='service_fee'`, entry id and date NULL. Unpriced (R62): `billing_unpriced_reason ∈ {no_customer, no_rate, no_ended_at}`, checked in that order of party, `ended_at`, rate (`compute.PriceStandby`, T36): the price is looked up on `ended_at` itself, since a record without it is never invoiced. Job category is a label only. `GET /v1/billing/standby-diagnostics` adds diagnostic-only `not_computed` (`billing.ts:1455`).
 
 ### 6.10 Snapshot model, the frozen rule and write paths
 
 `trip_billing_snapshots` (0005, Appendix A §A.2.4; billing-carrier tenant, never in a dispatcher projection) + `trip_billing_stop_breakdown`; axis columns `billing_party_id`, `billing_date`, `job_category` stay on `trip_records`. `last_event_id bigint` = outbox id of the last applied event (R17, R57, no FK). `unpriced_reason ∈ {no_customer, no_rate, no_vehicle_class, no_billing_date}` iff `estimate_thb IS NULL` (R62). Provenance columns are NULLABLE (server writes explicit nulls, `tripBillingOnDelivered.ts:494,501-505,586-593`); legacy field mapping is Appendix A §A.3.9.
 
 ```go
-func CarriesFuel(s Snapshot) bool { // web:lib/billingCompute.ts:339-344
-	return s.FuelAdjustmentID != nil || s.RateMultiplier != 1 || s.AddTHBPerTrip != 0
+// Snapshot fields are pointers: nil multiplier reads as 1, nil add as 0; a blank id and non-finite
+// numbers carry no fuel (web:lib/billingCompute.ts:339-344).
+func CarriesFuel(s Snapshot) bool {
+	return nonBlank(s.FuelAdjustmentID) || finiteNot(s.RateMultiplier, 1) || finiteNot(s.AddTHBPerTrip, 0)
 }
 // :356-361; ADR 0008 amendment 2026-10-01: SUPPLEMENTARY with fuel and no override is NOT frozen.
 func IsFrozen(s Snapshot, tripJobCategory JobCategory) bool {
@@ -876,7 +884,7 @@ func IsFrozen(s Snapshot, tripJobCategory JobCategory) bool {
 }
 ```
 
-One definition each; queries fetch candidates and filter in Go. `PriceTrip(ctx, tx, tripID, mode)` is the only trip price writer (`tryWriteBillingSnapshotFromTripData`, `fn:tripBillingOnDelivered.ts:273-604`); modes `auto` (event, shim, plain compute), `force` (`accounting:recompute_force`), `job_category`, `manual`.
+One definition each, in `internal/billing/compute/frozen.go` (`TestFrozenRuleHasOneDefinition` scans the module); queries fetch candidates and filter in Go. `PriceTrip(ctx, tx, tripID, mode)` is the only trip price writer (`tryWriteBillingSnapshotFromTripData`, `fn:tripBillingOnDelivered.ts:273-604`); modes `auto` (event, shim, plain compute), `force` (`accounting:recompute_force`), `job_category`, `manual`.
 
 | # | State | Result |
 |---|---|---|
@@ -957,16 +965,18 @@ Today: a best-effort mobile callable after delivery (`mob:features/delivery_phas
 
 20 Vitest files (17 `web:lib/`, 3 `fn:core/`; 295 `it` blocks on 2026-10-09) are exported to JSON vectors and ported before endpoints ship (T36, T44, T49).
 
+**Vector format (T36).** `logitrack-api/testdata/golden/<domain>/*.json`, one case per Vitest `it` (`name`, `line`) holding `checks: [{fn, args, want}]`; a case with `added` is new for the Go contract (R15, R16, R19, R20, characterisation) and is not counted as ported. Where Go deliberately differs a check also carries `legacy` (the TypeScript result) and `divergence`, plus `wantReason` for an unpriced reason. Numbers JSON cannot carry are `{"$num": "NaN"|"Infinity"|"-Infinity"|"-0"}`, dates `{"$date": ISO}`, a picked local date `{"$local": "…"}`, and a legacy `Date.now()` is `{"$now": true}`. `billing/export.mjs` (Node ≥ 22.18 strips the TypeScript types itself) writes them: ported cases re-run their Vitest assertions on the TypeScript output before storing it, so a vector can only hold what the legacy test accepts (`billingDocument` and `jobCategory` wants are literal: the first module needs the browser bundle, the second imports the `@/` path alias; the Vitest verifier checks them against the modules). Two verifiers read the same files: Go (`internal/golden` runner, which also asserts the ported counts below) and `logitrack-web/lib/billingGolden.test.ts`, which checks every `want` (or `legacy`) against the TypeScript modules on each `pnpm test` until P3 deletes them, and that `web:lib/billingCompute.ts` and `fn:core/billingCompute.ts` still differ only in line 3.
+
 Ported verbatim unless noted (file, `it` count → Go target):
 
 | File (`it`) → target | Locks; port note |
 |---|---|
 | `lib/billingCompute.test.ts` (49) → `billing/compute` | folding, final rate, band, surcharge, Bangkok date, voided, switch-day, round provenance, หลัก/เสริม, precedence, frozen rule; L50 `''/null → 4WJ` becomes `("", false)` + a trip-level `no_vehicle_class` case (R15), plus `no_billing_date` (R19) |
-| `lib/billingRates.test.ts` (5) → `billing` (`PriceTrip` dry-run) | SUPPLEMENTARY 950 no fuel; PRIMARY no fallback; 1200 − 40 = 1160; legacy PRIMARY→SUPPLEMENTARY; explicit customer → 700 |
-| `lib/billingDate.test.ts` (8) → `platform/clock` | Bangkok midnight / date string; the picker helper stays a web test |
-| `lib/billingDocument.test.ts` (16) → `billing/documents` | rounds, axis date, basis, band label, `groupToLineItems` (qty × unit = total, rounds never merge, stop → "ค่าโยก") |
-| `fn:core/billingPeriodLock.test.ts` (12) → lock | key, Bangkok month, sent/paid, blank/zero |
-| `fn:core/jobCategoryWrite.test.ts` (7) → `tasks`; `lib/jobCategory.test.ts` (9) → compute + import | PATCH semantics; import cells, display precedence |
+| `lib/billingRates.test.ts` (5) → `billing/compute.PriceTrip` (the pure core of the `PriceTrip` dry-run; T38 wraps it in the transaction) | SUPPLEMENTARY 950 no fuel; PRIMARY no fallback; 1200 − 40 = 1160; legacy PRIMARY→SUPPLEMENTARY; explicit customer → 700 |
+| `lib/billingDate.test.ts` (8) → `platform/clock` | Bangkok midnight / date string (V8 parsing: a day past the month end rolls over); the picker cases replay the picked wall time in five zones (`MidnightOfCalendarDay`, `CalendarDayString`) |
+| `lib/billingDocument.test.ts` (16) → `billing/documents` | rounds, axis date, basis, band label (`jsmath.ToFixed`), `groupToLineItems` (qty × unit = total, rounds never merge, stop → "ค่าโยก"); the renderers come with T39 |
+| `fn:core/billingPeriodLock.test.ts` (12) → `billing/compute` (`PeriodKey`, `PeriodOf`, `PeriodLocks`; the in-transaction SQL read is T37) | key, Bangkok month, sent/paid, blank/zero; added: latest `generated_at` wins, draft/cancelled never lock |
+| `fn:core/jobCategoryWrite.test.ts` (7) → `tasks` (T31 `PATCH /v1/tasks/{id}`); `lib/jobCategory.test.ts` (9) → `billing/compute` (`JobCategoryFromCell`, `ResolveDisplayJobCategory`; done in T36, `billing/jobCategory.json`), consumed by the task import (T31 `POST /v1/tasks/import`), the rate-card write (T37, §6.12) and the rows APIs | PATCH semantics; import cells (JS trim, blank → PRIMARY, หลัก/งานหลัก/primary, เสริม/งานเสริม/supplementary/supplement in any case, anything else rejects the row), display precedence (exact enum, trip over task, else none → "ตรวจสอบ") |
 | `fn:core/tripDocId.test.ts` (6) → `trips` + `trip_no` CHECK | charset/length |
 | `lib/compensationCompute.test.ts` (29) → `hr/compute` | rounding, rounds, holidays, base pay, tiers, SSO, helper days, deductions |
 | `lib/lineMessage.test.ts` (15) → `notify/line` | Flex strings byte-equal (T49) |
@@ -977,7 +987,7 @@ Ported verbatim unless noted (file, `it` count → Go target):
 | `lib/permissions.test.ts` (26) → RBAC tests (T07) | rewritten for the 81-key catalog (77 + 4 platform, §4) |
 | `lib/utils.test.ts` (9), `lib/formInvalidHandler.test.ts` (6) | stay web (UI) |
 
-Characterisation vectors from the TS code, before deletion (untested today): `computeMultiDeliveryBilling` (both modes, base fallback, unmatched stops), `extractHubId`, `normalizeDestinationCode` (`SPK-GW → SPK`), `computeStandbyBilling` + fee fallback, `timestampLikeToMillis`, Excel detail sheet, PDF text layout, invoice counter, §6.10–§6.11 orchestration states, `hubDisplay`, `ageYearsAt`, multi-penalty order.
+Characterisation vectors from the TS code, before deletion (untested today): `computeMultiDeliveryBilling` (both modes, base fallback, unmatched stops), `extractHubId`, `normalizeDestinationCode` (`SPK-GW → SPK`), `computeStandbyBilling` + fee fallback, `timestampLikeToMillis`, Excel detail sheet, PDF text layout, invoice counter, §6.10–§6.11 orchestration states, `hubDisplay`, `ageYearsAt`, multi-penalty order. **Done in T36** (`billing/characterisation.json`, 5234 checks from seeded random and curated inputs): JavaScript `Math.round`, `Round2`, `toFixed`, `WithholdingTHB`, `computeFinalRateThb` (900 random, the FMA canary), fuel band and surcharge, Bangkok dates, `extractHubId` / `normalizeDestinationCode` / `resolveTaskCustomerId` on spreadsheet-shaped text (NBSP, BOM, Thai, `ß`), rate / fuel / standby selection, round provenance, `computeTripBillingFromParts`, `computeMultiDeliveryBilling` (both modes) and `computeStandbyBilling` (driven through `compute.PriceStandby`, so the vectors pin its rate provenance; the service-fee fallback and the party chain are `TestPriceStandby`). `timestampLikeToMillis` has no Go counterpart (instants are `time.Time`; ETL converts); the orchestration states (`hubMaps` direction, display-name retry, category fallback, multi-drop gate) are Go table tests over `compute.PriceTrip`, since their TypeScript lives in the Firebase-bound callables; the rest stays with T39 / T44.
 
 ### 6.17 P3 parity gate and allow-list (owner, R72)
 
