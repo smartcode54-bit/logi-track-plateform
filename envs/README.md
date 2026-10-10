@@ -30,6 +30,8 @@ cp envs/.env.dev.mobile.example envs/.env.prod.mobile
 
 ### 2. Deploy — Web (Next.js): Dev vs Prod
 
+> **branch `mv-go` (TW2):** เว็บเป็น Next.js `output: "standalone"` รันใน container `web` หลัง Caddy (`logitrack-web/Dockerfile`, `logitrack-api/deploy/docker-compose.yml` profile `edge`) — สคริปต์ `deploy:dev` / `deploy:prod` ด้านล่างถูกลบออกจาก `mv-go` แล้ว และ Firebase Hosting เหลือแค่ redirect ไป `WEB_DOMAIN` (developer-spec.md §10.12) ขั้นตอนด้านล่างใช้กับ `main` (production ปัจจุบัน) เท่านั้น
+
 คำสั่ง **`pnpm run deploy:dev` / `deploy:prod` ที่ root ดูแลเฉพาะเว็บ** (Next.js static export + Firebase Hosting + ชุด env `*.web`) — **ไม่รวม** build/deploy แอป Flutter
 
 | สิ่งที่ทำ | คำสั่ง (จาก root) |

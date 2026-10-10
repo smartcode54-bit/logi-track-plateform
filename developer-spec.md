@@ -252,7 +252,7 @@ One Go module (`logitrack-api/`) builds one image with seven binaries; the web i
 | `scheduler` | 1 active (advisory lock) | Bangkok cron; outbox relay (publisher confirms) + Redis realtime publish |
 | `migrate`, `seed`, `etl`, `release` | one-shot (`etl` long-running in transition) | goose; seed profiles + `PLATFORM_ADMIN_EMAILS` (§14); Firestore/GCS → PG/MinIO (§13); APK publish CLI on the private network → internal `/v1/app-releases*` with `RELEASE_API_KEY` (`release_publisher`, R43, R82) |
 | `web` | standalone · N · `:3000` | Pages, BFF, `proxy.ts`; upstream only `GO_API_INTERNAL_URL` |
-| `caddy` | `caddy:2-alpine` (UNVERIFIED: patch tag unresolved; pinned in TW2) · host 80/443 | ACME (`ACME_EMAIL`); `WEB_DOMAIN` → web, `API_PUBLIC_DOMAIN` → api public, `MEDIA_DOMAIN` → MinIO; no SSE buffering |
+| `caddy` | `caddy:2.11.7-alpine` pinned by digest (TW2) · host 80/443 | ACME (`ACME_EMAIL`); `WEB_DOMAIN` → web, `API_PUBLIC_DOMAIN` → api public, `MEDIA_DOMAIN` → MinIO; no SSE buffering |
 | `postgres` | `postgres:18-alpine` (18.4) | PGDATA `/var/lib/postgresql/18/docker`, volume `/var/lib/postgresql`; roles via `deploy/postgres-init/00-roles.sql` |
 | `redis` | `redis:7-alpine` | Prefix `lt:{APP_ENV}:`; `cache:`, `auth:`, `rbac:`, `idem:`, `rl:`, `rt:`, `rtlog:`, `lock:` (R26); AOF, `noeviction` |
 | `rabbitmq` | `rabbitmq:4-management-alpine` | `lt.events`, `lt.jobs`, `lt.retry`, `lt.requeue`, `lt.dlx`; quorum queues; 5 retries then DLQ (R22, R54) |
@@ -1601,15 +1601,16 @@ Payroll keeps a bounded server list (`period_end DESC`) with a cursor.
 
 ### 10.12 Hosting migration (W1, TW2, P0)
 
-Full `next.config.ts`, `package.json`, Hosting and Dockerfile diffs are in Appendix E §E.9; the compose file and Caddyfile are §15.
+Full `next.config.ts`, `package.json`, Hosting and Dockerfile diffs are in Appendix E §E.9; the compose file and Caddyfile are §15. Implemented in TW2; the items marked "verified" were measured on the standalone build of Next 16.1.1 and the pinned Caddy, both behind the compose layout.
 
-- `output: 'standalone'` always (the conditional `'export'` at `next.config.ts:10` goes); `outputFileTracingRoot` at the repo root so `shared-docs` is traced; `compress: false`.
-- `headers()` reproduces `firebase.json:34-61` (`Cross-Origin-Embedder-Policy: unsafe-none`) plus `nosniff`, `strict-origin-when-cross-origin` and `Cache-Control: private, no-cache` on `/app/*`; whether Next 16.1.1 overrides page `Cache-Control` is UNVERIFIED (TW2), so Caddy sets it too.
-- `redirects()`: `/app/users`, `/app/operations/roles` to their security-center pages; `/app` goes to the role's home in `proxy.ts` (§10.5, R89), its server `redirect()` kept as fallback. A `turbopack.root` mismatch warning is UNVERIFIED (TW2).
-- Removed: the flatten build step (`package.json:10`, `scripts/flatten-next-flight-paths.mjs`); the Hosting placeholder rewrites (`firebase.json:63-80`, `firebase.prod.json:59-76`); the four `generateStaticParams` placeholders under `customers/[id]` and `subcontractors/[id]` (real dynamic segments; `customerRouteId.ts` reads `useParams()`); Hosting `deploy*` scripts. Server values become runtime env; `firebase-admin` moves to `devDependencies`.
-- Firebase Hosting until P8 serves a placeholder plus `hosting.redirects` `/:path*` -> `https://<WEB_DOMAIN>/:path*` (301). Old LINE links on `cloudfunctions.net/tripEvidence` are owner question 10 (§19).
-- Docker (repo-root context, `node:22-alpine` by digest): runs `node logitrack-web/server.js`; build args are only `NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID` (+ `NEXT_PUBLIC_FIREBASE_*` until P6); `.dockerignore` excludes `**/.env*`.
-- Caddy: `/api/go/v1/events` gets `flush_interval -1` and no `encode`; the API site forwards `/v1/mobile/* /v1/auth/* /public/v1/* /evidence/* /healthz` and answers anything else `respond 404`.
+- `output: 'standalone'` always (the conditional `'export'` at `next.config.ts:10` goes); `outputFileTracingRoot` at the repo root, so the server is `.next/standalone/logitrack-web/server.js` (verified); `compress: false`. `turbopack.root` is set to the same root: Next warns and ignores a different value (verified; both `dev` and `build` use `--webpack`, where the `shared-docs` alias applies, so the standalone server needs no `shared-docs` files at runtime).
+- `headers()` carries the Hosting rules over (`firebase.json:34-61`): `Cross-Origin-Embedder-Policy: unsafe-none` on every path plus `X-Content-Type-Options: nosniff` and `Referrer-Policy: strict-origin-when-cross-origin`; documents outside `/app` `Cache-Control: public, max-age=0, must-revalidate` (the Hosting `**/*.html` rule); `/app` and `/app/*` `private, no-cache`; `/_next/static/*` keeps Next's own `public, max-age=31536000, immutable`. Verified: Next 16.1.1 keeps these `headers()` values on prerendered and dynamic pages and on RSC payloads, so Caddy does not set `Cache-Control`. `/api/healthz` (the liveness route of the `web` container) answers `no-store`.
+- `redirects()`: `/app/users`, `/app/operations/roles` to their security-center pages (308); the two pages stay as fallback. `/app` goes to the role's home in `proxy.ts` (§10.5, R89), its server `redirect()` kept as fallback.
+- Removed: the flatten build step (`package.json:10`, `scripts/flatten-next-flight-paths.mjs`); the Hosting placeholder rewrites (`firebase.json:63-80`, `firebase.prod.json:59-76`); the four `generateStaticParams` placeholders under `customers/[id]` and `subcontractors/[id]` (real dynamic segments, rendered on demand; the customer pages read `useParams()` and `features/customers/utils/customerRouteId.ts` is deleted); the web and root Hosting `deploy*` scripts. Server values become runtime env; `firebase-admin` moves to `devDependencies`.
+- Firebase Hosting until P8 serves `hosting-placeholder/index.html` plus one `hosting.redirects` entry `/:path*` -> `https://WEB_DOMAIN/:path` (301) in `firebase.json` and `firebase.prod.json`; the owner writes the decided dev and prod host names over `WEB_DOMAIN` in the commit used for the targeted Hosting deploy (§19 questions 8 and 18). Old LINE links on `cloudfunctions.net/tripEvidence` are owner question 10 (§19).
+- Docker (`logitrack-web/Dockerfile`, repo-root context, `node:22.23.3-alpine` by digest, pnpm through corepack): `pnpm install --frozen-lockfile --filter logi-track...`, `next build`, then `scripts/check-standalone.mjs`; the runtime stage runs `node logitrack-web/server.js` as `USER node` with `PORT=3000`, `HOSTNAME=0.0.0.0`, `NODE_ENV=production`. Build args are only the §16.1 `web-public` names (`NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID`, and `NEXT_PUBLIC_FIREBASE_*`, `NEXT_PUBLIC_APP_CHECK_*` until P6; `firebase/client.ts` fails the build while the required Firebase ones are empty). `logitrack-web/Dockerfile.dockerignore` allow-lists the workspace manifests, `logitrack-web` and `shared-docs` and excludes `**/.env*`.
+- Caddy (`logitrack-api/deploy/Caddyfile`): on `WEB_DOMAIN`, `/api/go/v1/events` gets `flush_interval -1` and no `encode`, everything else `encode zstd gzip` (verified with a stub upstream: events arrive one per second through Caddy, not batched); the `API_PUBLIC_DOMAIN` site forwards `/v1/mobile[/*] /v1/auth[/*] /public/v1[/*] /evidence[/*] /healthz` to the public listener (`api` + `API_PUBLIC_ADDR`) and answers anything else 404 `not_found` in the Go envelope (R48), a Go test keeps that list equal to `ingress.PublicPrefixes`; `MEDIA_DOMAIN` proxies MinIO with the Host header unchanged and answers `/minio/*` 404; the tunnel site `http://:8090` serves `/public/v1/*` only. `email {env.ACME_EMAIL}` is a runtime placeholder: the local `http://` sites need no ACME account, a TLS site refuses to start until it is set.
+- CI (§17.3 item 3): job `build-standalone` in `ci.yml` builds with dummy public values and sentinel server-only values and runs `pnpm check:standalone`.
 
 ### 10.13 Route-group migration summary (63 pages)
 
@@ -2165,7 +2166,7 @@ Exit 0 pass, 1 violation, 2 dependency unreachable; SQL in Appendix D §D.3.
 
 The local stack is the target topology on one machine: the compose file of the single-VM deployment for P0-P6 (R30) plus a prod override. Locally `PG_OWNED_DOMAINS` lists every domain; coexistence is tested against the dev Firebase project or the Firestore emulator (§15.6).
 
-**Files** (new, under `logitrack-api/`): `deploy/docker-compose.yml`, `deploy/docker-compose.prod.yml` (no published DB/broker/internal ports, GHCR tags, real domains), `deploy/Caddyfile`, `deploy/rabbitmq-definitions.json` (Appendix B §B.5; the worker asserts it at start), `deploy/postgres-init/00-roles.sql` + `01-test-db.sql`, `deploy/minio/minio-init.sh`, `deploy/dev-secrets/` (gitignored JWT key, optional service-account file), `Makefile`, `.env.example`; plus `logitrack-web/Dockerfile` (TW2).
+**Files** (new, under `logitrack-api/`): `deploy/docker-compose.yml`, `deploy/docker-compose.prod.yml` (no published DB/broker/internal ports, GHCR tags, real domains), `deploy/Caddyfile`, `deploy/rabbitmq-definitions.json` (Appendix B §B.5; the worker asserts it at start), `deploy/postgres-init/00-roles.sql` + `01-test-db.sql`, `deploy/minio/minio-init.sh`, `deploy/dev-secrets/` (gitignored JWT key, optional service-account file), `Makefile`, `.env.example`; plus `logitrack-web/Dockerfile` and `logitrack-web/Dockerfile.dockerignore` (TW2). TW2 also adds `deploy/edge-smoke.sh` (`make smoke EDGE=1`) and `tools/presign` (a SigV4 presigned GET for that smoke).
 
 ### 15.1 Services
 
@@ -2182,7 +2183,7 @@ Images and ports are in §15.2. Host ports bind `127.0.0.1` except Caddy's 80/44
 | `api` | `wget /readyz` on 8080 | one image with all binaries; internal 8080 (dev only), public 8081 via Caddy, metrics 9090 |
 | `worker`, `scheduler` | `/readyz` on `METRICS_ADDR` | `WORKER_CONSUMERS`; one scheduler (advisory-lock leader, outbox relay, cron Asia/Bangkok) |
 | `seed`, `etl` | exit code | profile `tools`; `etl` and `seed` write via `ETL_DATABASE_URL` (seed also `MIGRATE_DATABASE_URL`, `DATABASE_URL`, §14.1); service-account file read-only |
-| `web`, `caddy` | `wget /api/healthz` (TW2); Caddy admin `:2019` | profile `edge`; web 3001 for debugging |
+| `web`, `caddy` | web `wget /api/healthz`; caddy `wget` of the admin API `127.0.0.1:2019/config/` (container loopback only) | profile `edge` (caddy also `tunnel`); web 3001 for debugging; caddy `caddy:2.11.7-alpine` by digest, volumes `caddydata`, `caddyconfig` |
 | `tunnel` | — | profile `tunnel`, `cloudflare/cloudflared`, `TUNNEL_TOKEN`; targets `http://caddy:8090` so only `/public/v1/*` is exposed |
 | `jaeger`, `mocks` | — | profiles `obs`, `mocks` (WireMock for `CARTRACK_API_BASE_URL`, `BANGCHAK_API_BASE_URL`, `LINE_API_BASE_URL`) |
 
@@ -2243,43 +2244,50 @@ services:
   scheduler: { <<: *go, command: ["/app/bin/scheduler"] }
   seed: { <<: *go, profiles: [tools], restart: "no", command: ["/app/bin/seed", "--profile", "${SEED_PROFILE}"] }
   etl: { <<: *go, profiles: [tools], restart: "no", entrypoint: ["/app/bin/etl"] }
-  web:
+  web:   # TW2; x-env-web = exactly the §16.1 web-server names (PORT, HOSTNAME, NODE_ENV fixed, not interpolated)
+    image: logitrack-web:${WEB_IMAGE_TAG:-local}
     profiles: [edge]
-    build: { context: ../../logitrack-web, args: { NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID: "${NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID}" } }
-    environment: { GO_API_INTERNAL_URL: "http://api:8080", GO_API_INTERNAL_TIMEOUT_MS: "${GO_API_INTERNAL_TIMEOUT_MS}", WEB_PUBLIC_ORIGIN: "${WEB_PUBLIC_ORIGIN}", SESSION_COOKIE_DOMAIN: "${SESSION_COOKIE_DOMAIN}", SESSION_COOKIE_SECURE: "${SESSION_COOKIE_SECURE}", JWT_ISSUER: "${JWT_ISSUER}", JWT_AUDIENCE: "${JWT_AUDIENCE}", JWT_ACCESS_TTL: "${JWT_ACCESS_TTL}", REFRESH_TOKEN_TTL_WEB: "${REFRESH_TOKEN_TTL_WEB}" }
+    build: { context: ../.., dockerfile: logitrack-web/Dockerfile, args: *web-build-args }   # §16.1 web-public names only
+    environment: *env-web
     ports: ["127.0.0.1:3001:3000"]
     depends_on: { api: { condition: service_healthy } }
     networks: [backend, edge]
-  caddy:
-    image: caddy:2-alpine
-    profiles: [edge]
-    environment: { WEB_DOMAIN: "${WEB_DOMAIN}", API_PUBLIC_DOMAIN: "${API_PUBLIC_DOMAIN}", MEDIA_DOMAIN: "${MEDIA_DOMAIN}", ACME_EMAIL: "${ACME_EMAIL}" }
-    volumes: ["./Caddyfile:/etc/caddy/Caddyfile:ro", "caddydata:/data"]
+    healthcheck: { test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/healthz"] }
+  caddy:   # TW2; x-env-caddy = WEB_DOMAIN, API_PUBLIC_DOMAIN, MEDIA_DOMAIN, ACME_EMAIL, API_PUBLIC_ADDR
+    image: caddy:2.11.7-alpine@sha256:<pinned>
+    profiles: [edge, tunnel]
+    environment: *env-caddy
+    volumes: ["./Caddyfile:/etc/caddy/Caddyfile:ro", "caddydata:/data", "caddyconfig:/config"]
     ports: ["80:80", "443:443"]
     networks: [edge]
 networks: { backend: {}, edge: {} }
-volumes: { pgdata: {}, miniodata: {}, caddydata: {} }
+volumes: { pgdata: {}, miniodata: {}, caddydata: {}, caddyconfig: {} }
 ```
 
 ```caddyfile
-# logitrack-api/deploy/Caddyfile (skeleton)
+# logitrack-api/deploy/Caddyfile (abridged; the file is the reference)
 {
-  email {$ACME_EMAIL}
+  email {env.ACME_EMAIL}                 # runtime placeholder: empty is fine for the local http:// sites
 }
 {$WEB_DOMAIN} {
-  reverse_proxy /api/go/v1/events web:3000 { flush_interval -1 }
-  reverse_proxy web:3000
+  @events path /api/go/v1/events
+  handle @events { reverse_proxy web:3000 { flush_interval -1 } }   # no encode
+  handle { encode zstd gzip; reverse_proxy web:3000 }
 }
 {$API_PUBLIC_DOMAIN} {
-  reverse_proxy /v1/mobile/events api:8081 { flush_interval -1 }
-  reverse_proxy api:8081
+  @mobile_events path /v1/mobile/events
+  handle @mobile_events { reverse_proxy api{$API_PUBLIC_ADDR} { flush_interval -1 } }
+  @public path /v1/mobile /v1/mobile/* /v1/auth /v1/auth/* /public/v1 /public/v1/* /evidence /evidence/* /healthz
+  handle @public { encode zstd gzip; reverse_proxy api{$API_PUBLIC_ADDR} }
+  handle { import not_found }             # 404 {"error":{"code":"not_found",...}} as the Go listener
 }
 {$MEDIA_DOMAIN} {
-  reverse_proxy minio:9000
+  handle /minio/* { import not_found }   # MinIO admin, health, metrics stay private
+  handle { reverse_proxy minio:9000 }    # Host unchanged, so presigned signatures verify
 }
-:8090 {
-  handle /public/v1/* { reverse_proxy api:8081 }
-  handle { respond 404 }
+http://:8090 {                           # tunnel target; http:// keeps it out of TLS automation
+  handle /public/v1/* { reverse_proxy api{$API_PUBLIC_ADDR} }
+  handle { import not_found }
 }
 ```
 
@@ -2316,14 +2324,14 @@ The script holds no password: `make dev-db` sets them from the local `.env` URLs
 
 ### 15.5 `.env.example`
 
-§16 is canonical. `logitrack-api/.env.example` lists the §16.1 names of Go binaries, `infra` and `caddy` with non-secret local defaults such as `S3_ENDPOINT=http://minio:9000`, `S3_PRESIGN_ENDPOINT=http://localhost:9000`, `MEDIA_DOMAIN=http://media.localhost`, `S3_BUCKET=logitrack`, `S3_PUBLIC_BUCKET=logitrack-public`, `IDEMPOTENCY_TTL=168h`, `PASSWORD_MIN_LENGTH=10`, `MOBILE_ATTESTATION_MODE=off` (R74); `DATABASE_URL`, `MIGRATE_DATABASE_URL`, `ETL_DATABASE_URL` are left for the developer. `logitrack-web/.env.example` holds the `web-server` names (compose `web` block, `PORT`, `HOSTNAME`), `NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID`, the Firebase web vars until TW7 and the Playwright user. No build-time API URL or domain-flag variable exists (R41). `LOGITRACK_API_BASE_URL` and `LOGITRACK_API_KEY` live in `FUNCTIONS_ENV_*`; mobile uses dart-defines `API_BASE_URL`, `SSE_BASE_URL`, `GOOGLE_OIDC_CLIENT_ID`, `FLAVOR`.
+§16 is canonical. `logitrack-api/.env.example` lists the §16.1 names of Go binaries, `infra` and `caddy`, and (TW2) the `web-server` names and `web-public` build arguments that compose interpolates for the `web` service, including the Firebase public config until TW7, with non-secret local defaults such as `S3_ENDPOINT=http://minio:9000`, `S3_PRESIGN_ENDPOINT=http://localhost:9000`, `MEDIA_DOMAIN=http://media.localhost`, `S3_BUCKET=logitrack`, `S3_PUBLIC_BUCKET=logitrack-public`, `IDEMPOTENCY_TTL=168h`, `PASSWORD_MIN_LENGTH=10`, `MOBILE_ATTESTATION_MODE=off` (R74); `DATABASE_URL`, `MIGRATE_DATABASE_URL`, `ETL_DATABASE_URL` are left for the developer. `logitrack-web/.env.example` (host `next dev`, TW3) holds the `web-server` names, `NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID`, the Firebase web vars until TW7 and the Playwright user; the compose `web` service takes its values from `logitrack-api/.env` like every other service, with `PORT`, `HOSTNAME` and `NODE_ENV` fixed in the compose file. `make env-check` (TW2) also fails when compose interpolates a name missing from `.env.example`, when `web` or `caddy` receive other than their §16.1 names, or when a `web` build argument is not a `web-public` name. No build-time API URL or domain-flag variable exists (R41). `LOGITRACK_API_BASE_URL` and `LOGITRACK_API_KEY` live in `FUNCTIONS_ENV_*`; mobile uses dart-defines `API_BASE_URL`, `SSE_BASE_URL`, `GOOGLE_OIDC_CLIENT_ID`, `FLAVOR`.
 
 ### 15.6 How the web reaches Go locally
 
 The browser never calls Go.
 
 1. **Host dev (default):** `make web` runs `next dev` on `localhost:3000`; the BFF and `proxy.ts` read `GO_API_INTERNAL_URL=http://localhost:8080` from `logitrack-web/.env.local` and fetch `{GO_API_INTERNAL_URL}/.well-known/jwks.json`; cookies are set on `localhost` with `SESSION_COOKIE_SECURE=false`. The root `pnpm dev` copies `envs/.env.dev.web` over `.env.local` (root `package.json`, `scripts.dev`), so use `make web` against local Go.
-2. **Edge parity:** `make up EDGE=1` serves the `web` container behind Caddy at `http://localhost`; mobile and webhook traffic use `http://api.localhost`, media `http://media.localhost`; `/api/go/v1/events` streams unbuffered.
+2. **Edge parity:** `make up EDGE=1` serves the `web` container behind Caddy at `http://localhost`; mobile and webhook traffic use `http://api.localhost`, media `http://media.localhost`; `/api/go/v1/events` streams unbuffered. `make smoke EDGE=1` checks the edge (TW2).
 
 Coexistence tests use the Firestore emulator via `FIRESTORE_EMULATOR_HOST`. UNVERIFIED: emulator image and tag, chosen at T29.
 
@@ -2363,9 +2371,9 @@ Legend:
 | `PPROF_ENABLED` | no | api | P0 / — | MISSING | `false` outside `local` |
 | **Go ingress (two listeners)** | | | | | |
 | `API_INTERNAL_ADDR` | no | api | P0 / — | MISSING | private listener: every `/v1/*` group incl. `/v1/events`, `/v1/bridge/*`, release admin (R43), JWKS, `/healthz`; the only listener the BFF and `cmd/release` call |
-| `API_PUBLIC_ADDR` | no | api, caddy | P0 / — | MISSING | behind Caddy: only `/v1/mobile/*`, `/v1/auth/*`, `/public/v1/*` (empty, signed postbacks only, R44), `/evidence/*`, `/healthz`; anything else 404 |
+| `API_PUBLIC_ADDR` | no | api, caddy | P0 / — | MISSING | behind Caddy: only `/v1/mobile/*`, `/v1/auth/*`, `/public/v1/*` (empty, signed postbacks only, R44), `/evidence/*`, `/healthz`; anything else 404. Caddy dials `api` + this value, so it is written `:port` (TW2) |
 | `PUBLIC_ROUTE_GROUPS` | no | api | P0 / — | MISSING | public allow-list (the five groups); widening needs an ADR |
-| `TRUSTED_PROXY_CIDRS` | no | api | P0 / — | MISSING | Caddy and `web` CIDRs whose `X-Forwarded-For` is honoured |
+| `TRUSTED_PROXY_CIDRS` | no | api | P0 / — | MISSING | Caddy and `web` CIDRs whose `X-Forwarded-For` is honoured; locally `172.16.0.0/12,192.168.0.0/16` (Docker and OrbStack networks, TW2); prod the edge network's subnet |
 | `PUBLIC_API_BASE_URL` | no | api, worker | P0 / — | MISSING | `https://{API_PUBLIC_DOMAIN}` |
 | `PUBLIC_WEB_BASE_URL` | no | api, worker | P0 / — | MISSING | `https://{WEB_DOMAIN}`; reset and invite links |
 | `WEB_FLAG_OVERRIDES` | no | api | P0 / P8 | MISSING | served by `GET /v1/config/web-flags`, TanStack `['webFlags']` 60 s; per-domain rollback without rebuild (R35, R41) |
@@ -2487,8 +2495,8 @@ Legend:
 | `NODE_ENV` | no | web-server | today / — | KEEP | `production` in the image; no longer selects `output` (always `standalone`, W1) |
 | **Web public (build time)** | | | | | |
 | `NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID` | no | web-public | P0 / — | MISSING | the only `NEXT_PUBLIC_` var added; value in `GOOGLE_OIDC_ALLOWED_CLIENT_IDS`. No build-time API URL or domain-flag variable exists; domain flags come from `GET /v1/config/web-flags` (R41) |
-| `NEXT_PUBLIC_FIREBASE_API_KEY`, `_AUTH_DOMAIN`, `_PROJECT_ID`, `_STORAGE_BUCKET`, `_MESSAGING_SENDER_ID`, `_APP_ID`, `_MEASUREMENT_ID` | no | web-public | today / P6 | DROP | `web:firebase/client.ts:13-20,54`; bridge `web` mode until TW7 |
-| `NEXT_PUBLIC_APP_CHECK_RECAPTCHA_SITE_KEY`, `_USE_ENTERPRISE`, `_DEBUG_TOKEN` | no | web-public | today / P6 | DROP | `web:firebase/client.ts:71-80`; debug token never set for prod |
+| `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID`, `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID` | no | web-public | today / P6 | DROP | `web:firebase/client.ts:13-20,54`; bridge `web` mode until TW7 |
+| `NEXT_PUBLIC_APP_CHECK_RECAPTCHA_SITE_KEY`, `NEXT_PUBLIC_APP_CHECK_USE_ENTERPRISE`, `NEXT_PUBLIC_APP_CHECK_DEBUG_TOKEN` | no | web-public | today / P6 | DROP | `web:firebase/client.ts:71-80`; debug token never set for prod |
 | **Mobile** | | | | | |
 | `API_BASE_URL`, `SSE_BASE_URL` | no | mobile | P7a / — | MISSING | dart-define, `https://{API_PUBLIC_DOMAIN}` |
 | `GOOGLE_OIDC_CLIENT_ID` | no | mobile | P7a / — | KEEP | new name, value of `FIREBASE_WEB_CLIENT_ID` (`mob:auth_repository.dart:117`), so the APK `aud` is unchanged |
@@ -2599,7 +2607,7 @@ New `secret-scan.yml` runs gitleaks on push and pull request for `mv-go` and `mv
 
 1. Add `mv-go` and `mv-go-**` to the push branches and pull-request bases (T14), keeping the `main` entries unchanged (R90). `Deploy` still never fires for these runs: its `workflow_run` filter is `branches: [main]` (`deploy.yml:4-7`).
 2. Node 22 for every web job (deploy already uses 22, `deploy.yml:84-87`; CLAUDE.md pending item 7).
-3. Job `build-standalone` (TW2): `next build` with `output: 'standalone'`, no flatten, dummy `NEXT_PUBLIC_*`; asserts `.next/standalone/server.js`; fails on a `NEXT_PUBLIC_` name outside the allow-list (`NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID`; Firebase and App Check until TW7) or a server-only name such as `GO_API_INTERNAL_URL` under `.next/static`.
+3. Job `build-standalone` (TW2, in `ci.yml`; it runs once item 1 adds the `mv-go` triggers): `next build` with `output: 'standalone'`, no flatten, dummy `NEXT_PUBLIC_*` and sentinel server-only values; `pnpm check:standalone` asserts `.next/standalone/logitrack-web/server.js` and no traced `.env*` file, and fails on a `NEXT_PUBLIC_` name in app code outside the allow-list (`NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID`; Firebase and App Check until TW7) or on the value of a server-only name (the sentinels, e.g. `GO_API_INTERNAL_URL`) under `.next/static`. The web image build runs the same check.
 4. Job `image`: standalone server into `ghcr.io/smartcode54-bit/logitrack-web:{sha}-dev` and `:{sha}-prod` (public values are inlined at build, from `ENV_DEV_WEB` / `ENV_PROD_WEB`); server-only variables come from compose at runtime.
 5. Job `bundle-budget` (TW9): per-route First Load JS against `logitrack-web/bundle-budget.json`, committed from the first `@next/bundle-analyzer` baseline (today's sizes UNVERIFIED, §19.3); each W10 item lowers its budget.
 6. `flutter analyze` / `flutter test` join at P7 (T55).
@@ -2815,7 +2823,7 @@ Numbers are stable because other documents cite them. Q1-Q12 come from the appro
 |---|---|---|---|
 | Collection sizes, read volumes, bucket sizes | audit figures are code-path ceilings | count-only `etl dump --dry-run`; Firestore metrics | before P0 (question 7) |
 | Bundle composition (barrels pulling leaflet/xlsx into chunks) | never measured | `@next/bundle-analyzer` (TW9) | P0 |
-| react-leaflet 4.2.1 under React 19.2.3 | expects React 18 | smoke test of every map page | P0 (TW2) |
+| react-leaflet 4.2.1 under React 19.2.3 | expects React 18; `pnpm install` still warns about the peer range (TW2) | smoke test of every map page in a signed-in browser session (not possible in TW2: the pages need a real Firebase sign-in until T18) | P0 (TW3/T18) |
 | 500 ms redirect delay (`web:app/app/layout.tsx:115-132`) still needed | "login loop" not reproduced | removed under `proxy.ts`; login tested | P0 (TW3) |
 | `optimizePackageImports` defaults for `lucide-react` / `date-fns` in Next 16.1.1 | not checked | bundle analyzer | P0 (TW9) |
 | Batching of `setCustomClaims` / `setLoading` (`web:context/auth.tsx:47-49`) | not checked | moot once `['me']` replaces it | P0 (TW4) |

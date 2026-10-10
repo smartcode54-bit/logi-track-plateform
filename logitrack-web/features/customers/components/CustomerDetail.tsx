@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, usePathname } from "next/navigation";
+import { useParams } from "next/navigation";
 import { getCustomerById, CustomerData } from "@/features/customers/api/customers";
-import { getCustomerIdFromPathname } from "@/features/customers/utils/customerRouteId";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, Building2, Loader2, Edit, Mail, Phone, User, MapPin, CreditCard, Clock, FileText } from "lucide-react";
@@ -21,11 +20,9 @@ function InfoRow({ label, value }: { label: string; value?: string | number | nu
 }
 
 export default function CustomerDetail() {
-    const params = useParams();
-    const pathname = usePathname();
+    // A real dynamic segment since TW2 (standalone server; no Hosting placeholder rewrite).
+    const { id = "" } = useParams<{ id: string }>();
     const { t } = useLanguage();
-    const id =
-        getCustomerIdFromPathname(pathname) ?? (params?.id as string | undefined) ?? "";
     const [customer, setCustomer] = useState<CustomerData | null>(null);
     const [loading, setLoading] = useState(true);
 

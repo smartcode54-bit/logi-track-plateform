@@ -1,8 +1,10 @@
-# logitrack-api local stack (developer-spec.md §15, issue T02). Run through the Makefile:
+# logitrack-api local stack (developer-spec.md §15, issues T02 and TW2). Run through the Makefile:
 #   make env dev-keys up        # first run
+#   make up EDGE=1              # adds web (Next.js standalone) and caddy (deploy/Caddyfile)
 # Every value is interpolated from logitrack-api/.env (`--env-file .env`); nothing here is a secret.
 # Each Go service receives exactly the §16.1 names whose consumer column lists it (checked by
-# `make env-check`), so api/worker/scheduler see only DATABASE_URL and seed sees all three DB URLs (R66, R87).
+# `make env-check`), so api/worker/scheduler see only DATABASE_URL and seed sees all three DB URLs (R66, R87);
+# web receives exactly the web-server names and is built with web-public names only; caddy the caddy names.
 name: logitrack
 
 x-env-api: &env-api
@@ -245,6 +247,43 @@ x-env-etl: &env-etl
   FIRESTORE_DATABASE_ID: ${FIRESTORE_DATABASE_ID:-}
   ETL_GCS_BUCKET: ${ETL_GCS_BUCKET:-}
   ETL_MIRROR_COLLECTIONS: ${ETL_MIRROR_COLLECTIONS:-}
+# web (TW2): exactly the §16.1 web-server names. PORT, HOSTNAME and NODE_ENV are fixed here, not
+# interpolated, so a value exported in the developer's shell never reaches the container.
+x-env-web: &env-web
+  GO_API_INTERNAL_URL: ${GO_API_INTERNAL_URL:-}
+  GO_API_INTERNAL_TIMEOUT_MS: ${GO_API_INTERNAL_TIMEOUT_MS:-}
+  SESSION_COOKIE_DOMAIN: ${SESSION_COOKIE_DOMAIN:-}
+  SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-}
+  WEB_PUBLIC_ORIGIN: ${WEB_PUBLIC_ORIGIN:-}
+  JWT_ISSUER: ${JWT_ISSUER:-}
+  JWT_AUDIENCE: ${JWT_AUDIENCE:-}
+  JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-}
+  REFRESH_TOKEN_TTL_WEB: ${REFRESH_TOKEN_TTL_WEB:-}
+  PORT: "3000"
+  HOSTNAME: 0.0.0.0
+  NODE_ENV: production
+# Build arguments of the web image: §16.1 web-public names only, inlined into the browser bundle.
+# The Firebase and App Check values stay until TW7 (P6); `next build` fails while the required
+# Firebase ones are empty (firebase/client.ts).
+x-web-build-args: &web-build-args
+  NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID:-}
+  NEXT_PUBLIC_FIREBASE_API_KEY: ${NEXT_PUBLIC_FIREBASE_API_KEY:-}
+  NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN:-}
+  NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${NEXT_PUBLIC_FIREBASE_PROJECT_ID:-}
+  NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET:-}
+  NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID:-}
+  NEXT_PUBLIC_FIREBASE_APP_ID: ${NEXT_PUBLIC_FIREBASE_APP_ID:-}
+  NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: ${NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID:-}
+  NEXT_PUBLIC_APP_CHECK_RECAPTCHA_SITE_KEY: ${NEXT_PUBLIC_APP_CHECK_RECAPTCHA_SITE_KEY:-}
+  NEXT_PUBLIC_APP_CHECK_USE_ENTERPRISE: ${NEXT_PUBLIC_APP_CHECK_USE_ENTERPRISE:-}
+  NEXT_PUBLIC_APP_CHECK_DEBUG_TOKEN: ${NEXT_PUBLIC_APP_CHECK_DEBUG_TOKEN:-}
+# caddy (TW2): exactly the §16.1 caddy names (API_PUBLIC_ADDR is the public listener's port).
+x-env-caddy: &env-caddy
+  WEB_DOMAIN: ${WEB_DOMAIN:-}
+  API_PUBLIC_DOMAIN: ${API_PUBLIC_DOMAIN:-}
+  MEDIA_DOMAIN: ${MEDIA_DOMAIN:-}
+  ACME_EMAIL: ${ACME_EMAIL:-}
+  API_PUBLIC_ADDR: ${API_PUBLIC_ADDR:-}
 
 x-go: &go
   image: logitrack-api:${API_IMAGE_TAG:-local}
@@ -369,7 +408,7 @@ services:
     command: ["/app/bin/api"]
     environment: *env-api
     # Internal (8080) and public (8081) listeners are published on loopback for local work only;
-    # Caddy fronts the public listener from TW2 and the prod override publishes neither.
+    # Caddy (profile edge) fronts the public listener and the prod override publishes neither.
     ports: ["127.0.0.1:8080:8080", "127.0.0.1:8081:8081"]
     networks: [backend, edge]
     healthcheck:
@@ -437,12 +476,56 @@ services:
     ports: ["127.0.0.1:16686:16686", "127.0.0.1:4318:4318"]
     networks: [backend]
 
+  # Next.js standalone server (logitrack-web/Dockerfile, repo-root context). The browser reaches it
+  # only through Caddy at WEB_DOMAIN; 127.0.0.1:3001 is for debugging.
+  web:
+    image: logitrack-web:${WEB_IMAGE_TAG:-local}
+    profiles: [edge]
+    build:
+      context: ../..
+      dockerfile: logitrack-web/Dockerfile
+      args: *web-build-args
+    environment: *env-web
+    restart: unless-stopped
+    ports: ["127.0.0.1:3001:3000"]
+    depends_on:
+      api: { condition: service_healthy }
+    networks: [backend, edge]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/healthz"]
+      interval: 5s
+      retries: 12
+      start_period: 10s
+
+  # Edge proxy (deploy/Caddyfile): WEB_DOMAIN -> web, API_PUBLIC_DOMAIN -> the api public listener
+  # only, MEDIA_DOMAIN -> MinIO, :8090 -> /public/v1/* for the tunnel. Never the internal listener.
+  caddy:
+    image: caddy:2.11.7-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
+    profiles: [edge, tunnel]
+    environment: *env-caddy
+    restart: unless-stopped
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+    ports: ["80:80", "443:443"]
+    depends_on:
+      api: { condition: service_started }
+      minio: { condition: service_started }
+    networks: [edge]
+    # The admin API listens on the container's loopback only.
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 5s
+      retries: 12
+
   tunnel:
     image: cloudflare/cloudflared:2026.10.0
     profiles: [tunnel]
     command: ["tunnel", "--no-autoupdate", "run"]
     environment:
       TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    depends_on: [caddy]
     networks: [edge]
 
 networks:
@@ -454,3 +537,5 @@ volumes:
   redisdata: {}
   rabbitdata: {}
   miniodata: {}
+  caddydata: {}
+  caddyconfig: {}

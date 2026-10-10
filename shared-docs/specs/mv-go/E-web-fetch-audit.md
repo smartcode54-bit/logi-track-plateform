@@ -557,7 +557,7 @@ The canonical table with every process is main spec §16.
 
 ## E.9 next.config and hosting diff
 
-Plan W1, done in P0 (TW2) because the BFF and `proxy.ts` need a Node server. The current files are quoted from the working tree (verified here).
+Plan W1, done in P0 (TW2) because the BFF and `proxy.ts` need a Node server. The "before" side is quoted from the pre-TW2 tree; the diffs show what TW2 landed (the files in the tree are the reference).
 
 ### E.9.1 `next.config.ts`
 
@@ -565,17 +565,21 @@ Plan W1, done in P0 (TW2) because the BFF and `proxy.ts` need a Node server. The
  import type { NextConfig } from "next";
  import path from "path";
 
++export const SECURITY_HEADERS = [ /* COEP unsafe-none (firebase.json "**"), nosniff, strict-origin-when-cross-origin */ ];
++export const PAGE_CACHE_CONTROL = "public, max-age=0, must-revalidate";   // firebase.json "**/*.html"
++export const APP_CACHE_CONTROL = "private, no-cache";                    // /app/* is per-user from TW3
++export const PAGE_SOURCE = "/:path((?!_next/|api/|app/|app$).*)";         // every path but /_next, /api, /app
++const monorepoRoot = path.join(__dirname, "..");
++
  const nextConfig: NextConfig = {
-+  // W1: always a Node server (container `web` behind Caddy); no conditional static export
-+  output: "standalone",
-+  // trace the shared-docs workspace package into the standalone bundle (main spec §10.12)
-+  outputFileTracingRoot: path.join(__dirname, ".."),
-+  // Caddy compresses; disabling Next compression keeps /api/go/v1/events (SSE) unbuffered
-+  compress: false,
++  output: "standalone",                // W1: always a Node server (container `web` behind Caddy)
++  outputFileTracingRoot: monorepoRoot, // server.js lands at .next/standalone/logitrack-web/server.js
++  compress: false,                     // Caddy compresses; keeps /api/go/v1/events (SSE) unbuffered
    transpilePackages: ["shared-docs"],
    turbopack: {
-     // Must stay logitrack-web so shared-docs (and other workspace deps) resolve from logitrack-web/node_modules
-     root: path.resolve(__dirname),
+-    // Must stay logitrack-web so shared-docs (and other workspace deps) resolve from logitrack-web/node_modules
+-    root: path.resolve(__dirname),
++    root: monorepoRoot,                // must equal outputFileTracingRoot; turbopack is unused (--webpack)
    },
 -  output: process.env.NODE_ENV === "production" ? "export" : undefined,
    images: {
@@ -583,13 +587,10 @@ Plan W1, done in P0 (TW2) because the BFF and `proxy.ts` need a Node server. The
      remotePatterns: [ /* unchanged: lh3, firebasestorage, flagcdn, unsplash */ ],
    },
 +  async headers() {
-+    // Parity with firebase.json:53-61 plus two hardening headers; /_next/static immutable caching is Next's own
 +    return [
-+      { source: "/:path*", headers: [
-+        { key: "Cross-Origin-Embedder-Policy", value: "unsafe-none" },
-+        { key: "X-Content-Type-Options", value: "nosniff" },
-+        { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" } ] },
-+      { source: "/app/:path*", headers: [{ key: "Cache-Control", value: "private, no-cache" }] },
++      { source: "/:path*", headers: SECURITY_HEADERS },
++      { source: PAGE_SOURCE, headers: [{ key: "Cache-Control", value: PAGE_CACHE_CONTROL }] },
++      { source: "/app/:path*", headers: [{ key: "Cache-Control", value: APP_CACHE_CONTROL }] }, // also matches /app
 +    ];
 +  },
 +  async redirects() {
@@ -605,8 +606,8 @@ Plan W1, done in P0 (TW2) because the BFF and `proxy.ts` need a Node server. The
 Notes:
 
 - `output: 'standalone'` applies to dev and prod alike, so the "dev is a server, prod is an export" split (`next.config.ts:10`) disappears.
-- With `outputFileTracingRoot` at the monorepo root, `server.js` lands at `.next/standalone/logitrack-web/server.js`. Whether the trace really includes `shared-docs`, and whether Next warns about the mismatch with `turbopack.root` (both builds pass `--webpack`), is confirmed in the TW2 smoke test (E.11 item 11).
-- `firebase.json:44-52` (`**/*.html` → `max-age=0, must-revalidate`) maps to the `/app/:path*` `Cache-Control` above; Next may override `Cache-Control` on pages in production, so Caddy also sets it on non-`/_next/static` responses. `firebase.json:35-43` (`/_next/static/**` immutable for one year) is what the standalone server already sends for hashed assets.
+- Verified in TW2 (E.11 item 11): `server.js` lands at `.next/standalone/logitrack-web/server.js`; `shared-docs` is bundled through the webpack alias, so the server needs no `shared-docs` files at runtime; a `turbopack.root` different from `outputFileTracingRoot` makes Next warn and use the latter, so both are the repo root.
+- Cache rules: `firebase.json:44-52` (`**/*.html` → `public, max-age=0, must-revalidate`) becomes `PAGE_CACHE_CONTROL` on every document outside `/app`, and `/app`, `/app/*` get the stricter `private, no-cache`; `firebase.json:35-43` (`/_next/static/**` immutable for one year) is what the standalone server already sends for hashed assets. Verified in TW2: Next 16.1.1 keeps these `headers()` values on prerendered and dynamic pages and on RSC payloads, so Caddy does not set `Cache-Control` (the earlier plan to repeat it in Caddy is dropped). Unknown paths keep Next's `private, no-cache, no-store` 404.
 - `images.remotePatterns` keeps the `firebasestorage.googleapis.com` entry until P8; it has no effect while `unoptimized` is true (E.7 row 12).
 
 ### E.9.2 `package.json`
@@ -617,32 +618,32 @@ Notes:
 -    "build": "next build --webpack && node scripts/flatten-next-flight-paths.mjs",
 -    "start": "next start",
 +    "build": "next build --webpack",
++    "check:standalone": "node scripts/check-standalone.mjs",
 +    "start": "node .next/standalone/logitrack-web/server.js",
-+    "analyze": "ANALYZE=true next build --webpack",
 -    "deploy": "pnpm run build && firebase deploy",
 -    "deploy:dev": "… copies ../envs/.env.dev.web, builds the export, firebase deploy --project … ",
 -    "deploy:prod": "… copies ../envs/.env.prod.web, builds the export, firebase deploy --config firebase.prod.json …",
 -    "deploy:clean": "pnpm run clean && pnpm run build && firebase deploy",
 ```
 
-- `scripts/flatten-next-flight-paths.mjs` is deleted (it only exists to make the export servable by Hosting, `package.json:10`).
-- Deployment becomes a container image built in CI (main spec §17); the `deploy:*` scripts (`package.json:14-17`) go away together with their env-file copying.
+- `scripts/flatten-next-flight-paths.mjs` is deleted (it only exists to make the export servable by Hosting, `package.json:10`). `scripts/check-standalone.mjs` (TW2) is the post-build gate of main spec §17.3 item 3; the `analyze` script arrives with `@next/bundle-analyzer` in TW9.
+- Deployment becomes a container image built in CI (main spec §17); the `deploy:*` scripts (`package.json:14-17`) and the root `deploy:dev` / `deploy:prod` that called them go away together with their env-file copying.
 - Dependencies added in P0: `@tanstack/react-query` (v5), `@tanstack/react-query-devtools` (dev), `jose`, `@next/bundle-analyzer` (dev); with the first W9 list: `@tanstack/react-table` **v8** (pinned; v9 is evaluated later, R75) and `@tanstack/react-virtual`. Exact versions are pinned by the lockfile in TW4 / TW9.
 - `firebase-admin` moves to `devDependencies` (E.7 row 14); `firebase` is removed in P6 (E.7 row 17).
 
 ### E.9.3 Firebase Hosting
 
-- `firebase.json` keeps its `functions`, `firestore` and `storage` blocks (they deploy Cloud Functions and rules until P8). The `hosting` block (`firebase.json:25-81`) loses `public: "out"`, the cache `headers` (`:34-61`) and the four placeholder `rewrites` (`:63-80`), and becomes a single redirect of `**` to `https://` + `WEB_DOMAIN` with status 301, so old bookmarks keep working until P8. Same change in `firebase.prod.json` (rewrites at `:59-76`).
-- The four `[id]` pages lose their `generateStaticParams` placeholders (`app/app/customers/[id]/page.tsx:3-5`, `app/app/subcontractors/[id]/page.tsx:3-5`, and the two `[id]/edit` pages) and read `params.id` as real dynamic routes; `features/customers/utils/customerRouteId.ts` (ID parsed from the URL path because the export served one placeholder HTML for every ID) is deleted.
+- `firebase.json` keeps its `functions`, `firestore` and `storage` blocks (they deploy Cloud Functions and rules until P8). The `hosting` block (`firebase.json:25-81`) loses `public: "out"`, the cache `headers` (`:34-61`) and the four placeholder `rewrites` (`:63-80`), and becomes `public: "hosting-placeholder"` (one `index.html`, never served because redirects win over static files) plus a single redirect `/:path*` → `https://WEB_DOMAIN/:path` with status 301, so old bookmarks keep working until P8. Same change in `firebase.prod.json` (rewrites at `:59-76`). `WEB_DOMAIN` is a literal placeholder: the owner writes the decided dev and prod hosts over it in the commit used for the targeted Hosting deploy (main spec §19 questions 8, 18). Whether Hosting keeps the query string on this redirect is checked on that deploy.
+- The four `[id]` pages lose their `generateStaticParams` placeholders (`app/app/customers/[id]/page.tsx:3-5`, `app/app/subcontractors/[id]/page.tsx:3-5`, and the two `[id]/edit` pages) and become real dynamic routes rendered on demand (the client components read `useParams()`); `features/customers/utils/customerRouteId.ts` (ID parsed from the URL path because the export served one placeholder HTML for every ID) is deleted.
 
 ### E.9.4 Container and Caddy (web only; the full Dockerfile is main spec §10.12, compose and Caddyfile §15)
 
-The image is a multi-stage `node:22-alpine` build with the repo root as context: install with `pnpm install --frozen-lockfile --filter logi-track...` after copying every workspace member's `package.json` (`logitrack-web`, `logitrack-web/functions`, `shared-docs`) so the frozen lockfile validates, `pnpm --filter logi-track build`, then copy `.next/standalone`, `.next/static` and `public` into a runtime stage that runs `node logitrack-web/server.js` as `USER node`. Server-only env (`GO_API_INTERNAL_URL`, `GO_API_INTERNAL_TIMEOUT_MS`, `SESSION_COOKIE_*`, `WEB_PUBLIC_ORIGIN`, `JWT_ISSUER`, `JWT_AUDIENCE`, `JWT_ACCESS_TTL`, `REFRESH_TOKEN_TTL_WEB`) is injected at runtime by compose; only `NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID` (and the Firebase public config until P6) is needed at build time. The nested `server.js` path and the copy targets are confirmed in the TW2 smoke test (E.11 item 11).
+The image (`logitrack-web/Dockerfile`, TW2) is a multi-stage `node:22.23.3-alpine` build pinned by digest, with the repo root as context and `logitrack-web/Dockerfile.dockerignore` as an allow-list (workspace manifests, `logitrack-web`, `shared-docs`; never `**/.env*`): corepack provides the pnpm of the root `packageManager`, `pnpm install --frozen-lockfile --filter logi-track...` runs after copying every workspace member's `package.json` (`logitrack-web`, `logitrack-web/functions`, `shared-docs`) so the frozen lockfile validates, then `pnpm --filter logi-track build` and `check:standalone`; the runtime stage copies `.next/standalone`, `.next/static` and `public` and runs `node logitrack-web/server.js` as `USER node` (`PORT=3000`, `HOSTNAME=0.0.0.0`, `NODE_ENV=production`). Server-only env (`GO_API_INTERNAL_URL`, `GO_API_INTERNAL_TIMEOUT_MS`, `SESSION_COOKIE_*`, `WEB_PUBLIC_ORIGIN`, `JWT_ISSUER`, `JWT_AUDIENCE`, `JWT_ACCESS_TTL`, `REFRESH_TOKEN_TTL_WEB`) is injected at runtime by compose; only `NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID` (and the Firebase public config until P6) is needed at build time. The liveness route is `GET /api/healthz`. Paths and copy targets were confirmed by building and running the image (E.11 item 11).
 
 ```caddyfile
 {$WEB_DOMAIN} {
-	@sse path /api/go/v1/events
-	handle @sse {
+	@events path /api/go/v1/events
+	handle @events {
 		reverse_proxy web:3000 {
 			flush_interval -1
 		}
@@ -654,7 +655,7 @@ The image is a multi-stage `node:22-alpine` build with the repo root as context:
 }
 ```
 
-TLS certificates are obtained automatically for `WEB_DOMAIN` (ACME account `ACME_EMAIL`). The `API_PUBLIC_DOMAIN` site block, which reaches only the Go public listener and answers 404 for every other path, and the `MEDIA_DOMAIN` site that fronts MinIO for presigned and public object URLs (R74) are in main spec §15.
+TLS certificates are obtained automatically for `WEB_DOMAIN` (ACME account `ACME_EMAIL`, read at runtime as `{env.ACME_EMAIL}` so the local `http://` sites need none). The `API_PUBLIC_DOMAIN` site block, which reaches only the Go public listener and answers 404 for every other path, and the `MEDIA_DOMAIN` site that fronts MinIO for presigned and public object URLs (R74) are in main spec §15.
 
 ---
 
@@ -704,8 +705,8 @@ Items 1–9 are the audit's §4 list; items 10–15 were found while writing thi
 | 8 | Whether the incident page's "show everything when the customer has 0 trips" path (`incident-reports/page.tsx:185`) is reachable in production | Depends on real data; the rules allow it | Count customer-scoped users whose customer has 0 trips (ETL counts or a one-off Firestore query by the owner). If any exist, the exposure is live until P2 and goes to the risk register (main spec §19). | Before P2 |
 | 9 | `lib/billingStatement.ts` statement query lines (~221-236) | Came from a grep window | **Resolved (verified here):** `getBillingStatements` spans `lib/billingStatement.ts:217-252`; the server read (`getDocsFromServer`) is at `:236` | — |
 | 10 | Which font the body actually renders: `app/layout.tsx:57` applies both `poppins.className` and the `font-display` utility, which `app/globals.css:55` maps to Inter + Sarabun | CSS precedence depends on generated stylesheet order | Browser devtools computed `font-family` on `body`, headings and table cells before the E.7 row 10 change; keep before / after screenshots | P0 (TW9) |
-| 11 | Whether the standalone trace includes `shared-docs` (aliased in webpack, `transpilePackages`) and where `server.js` lands under the pnpm workspace | No standalone build has been run | Build the container (E.9.4), run `node server.js`, load pages that import `shared-docs` schemas; adjust `outputFileTracingRoot` and the Dockerfile copy paths only if this fails | P0 (TW2) |
-| 12 | That SSE through the Next route handler is not buffered once `compress: false` is set | Not exercised | `curl -N` through Caddy to `/api/go/v1/events` with a valid cookie: the `: ping` lines (every `SSE_PING_INTERVAL`) must arrive on time; repeat with a 10-minute idle | P0 (TW3) |
+| 11 | Whether the standalone trace includes `shared-docs` (aliased in webpack, `transpilePackages`) and where `server.js` lands under the pnpm workspace | No standalone build has been run | **Resolved (TW2):** `server.js` is at `.next/standalone/logitrack-web/server.js`; `shared-docs` is bundled by the webpack alias, so nothing of it is needed at runtime; the image was built and every route class served (E.9.1, E.9.4) | — |
+| 12 | That SSE through the Next route handler is not buffered once `compress: false` is set | Not exercised. The Caddy half is verified (TW2): through the `WEB_DOMAIN` site a stub upstream's events arrive one per second, unbatched; the Next route handler half needs the BFF | `curl -N` through Caddy to `/api/go/v1/events` with a valid cookie: the `: ping` lines (every `SSE_PING_INTERVAL`) must arrive on time; repeat with a 10-minute idle | P0 (TW3) |
 | 13 | That `proxy.ts` in Next 16.1.1 runs in the Node.js runtime so the in-process JWKS and `/v1/me` caches persist between requests | Next 16 runtime behaviour not tested in this repo | Log cache hits in a dev and a standalone build; if the proxy does not keep module state, hold the caches on `globalThis` | P0 (TW3) |
 | 14 | That several tabs refreshing at once never trip refresh-token reuse detection | The design is settled (shared refresh under `navigator.locks`, the 120 s no-op, Go's 30 s reuse grace in Appendix C §C.4.4; R37) but not exercised | E2E: three tabs idle past `JWT_ACCESS_TTL`, then focus all; assert exactly one rotation and no `refresh_token_reuse` event; repeat with a `GET /api/auth/refresh?next=` navigation racing a tab's refresh | P0 (TW3) |
 | 15 | That Go answers a stale `ver` on a live session (claims change, R50) with 401 `token_expired` and `details.reason = "claims_changed"`, so `goFetch` sends `force: true` | The contract is decided (R78 and Appendix C §C.4.3: code `token_expired`, `details.reason` `expired` \| `claims_changed`), but no Go code exists to exercise it | Contract test against the P0 Go skeleton: change a user's role, call any route with the old access token, assert the code and reason; E2E: the tab stays signed in and `['me']` shows the new role within 5 s | P0 (TW3 / T18) |
