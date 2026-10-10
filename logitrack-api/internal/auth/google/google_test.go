@@ -55,7 +55,8 @@ func TestVerify(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if id.Subject != "110000000000000000001" || id.Email != "somchai@example.com" || id.ClientID != webClient || id.Nonce != "" {
+	if id.Subject != "110000000000000000001" || id.Email != "somchai@example.com" || id.ClientID != webClient || id.Nonce != "" ||
+		id.AuthorizedParty != webClient || id.HostedDomain != "" || id.NativeApp() {
 		t.Fatalf("identity = %+v", id)
 	}
 
@@ -68,8 +69,24 @@ func TestVerify(t *testing.T) {
 	// The driver app's token: aud = the serverClientId, azp = the Android client.
 	apk := googletest.Claims(apkClient, "110000000000000000002", "driver@example.com", now)
 	apk["azp"] = "100000000009-android.apps.googleusercontent.com"
-	if _, err := v.Verify(ctx, p.Sign(apk)); err != nil {
+	if id, err := v.Verify(ctx, p.Sign(apk)); err != nil {
 		t.Fatalf("apk token: %v", err)
+	} else if !id.NativeApp() || id.AuthorizedParty != "100000000009-android.apps.googleusercontent.com" {
+		t.Fatalf("apk identity = %+v", id)
+	}
+
+	// A Workspace account: hd is read and lower-cased.
+	workspace := valid()
+	workspace["hd"] = "Carrier.CO.TH"
+	if id, err := v.Verify(ctx, p.Sign(workspace)); err != nil || id.HostedDomain != "carrier.co.th" || !id.EmailAuthoritative() {
+		t.Fatalf("hd claim: %+v %v", id, err)
+	}
+
+	// Only ASCII letters are lower-cased: U+212A KELVIN SIGN must not become "k".
+	kelvin := valid()
+	kelvin["email"] = "\u212Aelvin@Gmail.com"
+	if id, err := v.Verify(ctx, p.Sign(kelvin)); err != nil || id.Email != "\u212Aelvin@gmail.com" || id.EmailAuthoritative() {
+		t.Fatalf("non-ASCII email: %+v %v", id, err)
 	}
 
 	// Google sometimes spells iss without the scheme; go-oidc accepts it for Google only.
@@ -127,6 +144,58 @@ func TestVerify(t *testing.T) {
 	c.Advance(2 * time.Hour)
 	if got := reason(t, func() error { _, err := v.Verify(ctx, tok); return err }()); got != google.ReasonExpired {
 		t.Fatalf("after the clock moved: %s", got)
+	}
+}
+
+// Google is authoritative for an email only for Gmail addresses and Workspace accounts (hd); for any
+// other address email_verified says nothing about who holds the mailbox now.
+func TestEmailAuthoritative(t *testing.T) {
+	cases := map[string]struct {
+		email, hd string
+		want      bool
+	}{
+		"gmail":                         {"somchai@gmail.com", "", true},
+		"googlemail":                    {"somchai@googlemail.com", "", true},
+		"workspace":                     {"dispatch@carrier.co.th", "carrier.co.th", true},
+		"workspace secondary domain":    {"dispatch@carrier-logistics.com", "carrier.co.th", true},
+		"consumer account, other email": {"dispatch@carrier.co.th", "", false},
+		"gmail look-alike subdomain":    {"x@mail.gmail.com", "", false},
+		"gmail as a local part":         {"gmail.com@carrier.co.th", "", false},
+		"non-ASCII local part":          {"\u212Aelvin@gmail.com", "", false},
+		"non-ASCII with hd":             {"\u212Aelvin@carrier.co.th", "carrier.co.th", false},
+		"no domain":                     {"somchai@", "", false},
+		"no local part":                 {"@gmail.com", "", false},
+		"empty":                         {"", "", false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			id := &google.Identity{Email: tc.email, HostedDomain: tc.hd}
+			if got := id.EmailAuthoritative(); got != tc.want {
+				t.Fatalf("EmailAuthoritative(%q, hd %q) = %v", tc.email, tc.hd, got)
+			}
+		})
+	}
+}
+
+// NativeApp: a token requested by a client other than its audience (the driver app's google_sign_in);
+// a GIS token has azp == aud, and a token without azp is not native.
+func TestNativeApp(t *testing.T) {
+	const ios = "100000000010-ios.apps.googleusercontent.com"
+	cases := map[string]struct {
+		id   google.Identity
+		want bool
+	}{
+		"ios":              {google.Identity{ClientID: apkClient, Audience: []string{apkClient}, AuthorizedParty: ios}, true},
+		"gis":              {google.Identity{ClientID: webClient, Audience: []string{webClient}, AuthorizedParty: webClient}, false},
+		"no azp":           {google.Identity{ClientID: webClient, Audience: []string{webClient}}, false},
+		"azp is a 2nd aud": {google.Identity{ClientID: webClient, Audience: []string{webClient, apkClient}, AuthorizedParty: apkClient}, false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := tc.id.NativeApp(); got != tc.want {
+				t.Fatalf("NativeApp(%+v) = %v", tc.id, got)
+			}
+		})
 	}
 }
 

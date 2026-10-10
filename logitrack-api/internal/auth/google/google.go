@@ -7,7 +7,9 @@
 // also accepts Google's "accounts.google.com" spelling of iss): an RS256 signature by a key of the JWKS
 // named in the discovery document, iss, exp and nbf. go-oidc's client-id check takes a single id, so it
 // is skipped and every aud value must instead be one of GOOGLE_OIDC_ALLOWED_CLIENT_IDS; email_verified
-// must be true and sub and email present. The nonce is the caller's (it lives in Redis, single use).
+// must be true and sub and email present. The nonce is the caller's (it lives in Redis, single use), and
+// so is the decision whether Google's word on the email is enough to link an account by it
+// (Identity.EmailAuthoritative).
 //
 // Discovery and key fetches are lazy: the api starts while Google is unreachable, and a token whose key
 // cannot be fetched is ErrUnavailable (503), never an InvalidError that blames the token. A failed
@@ -20,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -70,11 +73,45 @@ func invalid(reason string, err error) error { return &InvalidError{Reason: reas
 
 // Identity is what a verified token says about the Google account.
 type Identity struct {
-	Subject  string // sub: the stable Google account id (auth_identities.provider_subject)
-	Email    string // lower-cased; Google verified it (email_verified == true)
-	Nonce    string // the nonce claim, empty when the sign-in carried none
-	ClientID string // the aud the token was issued for
-	Name     string
+	Subject  string   // sub: the stable Google account id (auth_identities.provider_subject)
+	Email    string   // ASCII letters lower-cased (no Unicode case folding); Google verified it (email_verified == true)
+	Nonce    string   // the nonce claim, empty when the sign-in carried none
+	ClientID string   // the aud the token was issued for (the first one)
+	Audience []string // every aud value, all in GOOGLE_OIDC_ALLOWED_CLIENT_IDS
+	// AuthorizedParty is azp, the OAuth client that requested the token; empty when the token has none.
+	AuthorizedParty string
+	// HostedDomain is hd, lower-cased: the Google Workspace (or Cloud Identity) domain of the account;
+	// empty for a consumer Google account.
+	HostedDomain string
+	Name         string
+}
+
+// NativeApp reports whether the token was requested by a client other than its audience: the driver
+// app's google_sign_in asks for a token whose aud is the server client (serverClientId) while azp is
+// the Android or iOS client (Android Credential Manager; GoogleSignIn-iOS sends audience=serverClientID).
+// A Google Identity Services (web button) token has azp == aud. Google mints a token for another
+// client's aud only inside one Cloud project (cross-client identity), and aud is already in the allow
+// list, so azp needs no list of its own.
+func (i *Identity) NativeApp() bool {
+	return i.AuthorizedParty != "" && !slices.Contains(i.Audience, i.AuthorizedParty)
+}
+
+// gmailDomains are the consumer domains Google itself hosts (Gmail).
+var gmailDomains = map[string]bool{"gmail.com": true, "googlemail.com": true}
+
+// EmailAuthoritative reports whether Google is authoritative for Email, so that email_verified proves
+// the account holder controls that mailbox now: a Gmail address, or an account of a Google Workspace
+// (hd set; its admin verified the domain). For any other address email_verified only says the address
+// was verified when the Google account was created, and the mailbox may have changed hands since
+// (Google, "Authenticate with a backend server": email, email_verified and hd). An address with a
+// non-ASCII character is never authoritative here: Google issues none for Gmail or Workspace users, and
+// a case-insensitive match could fold such a character onto an ASCII one (U+212A KELVIN SIGN -> k).
+func (i *Identity) EmailAuthoritative() bool {
+	at := strings.LastIndexByte(i.Email, '@')
+	if at < 1 || at == len(i.Email)-1 || !isASCII(i.Email) {
+		return false
+	}
+	return i.HostedDomain != "" || gmailDomains[i.Email[at+1:]]
 }
 
 // Config configures a Verifier.
@@ -150,9 +187,11 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (*Identity, error) {
 		}
 	}
 	var c struct {
-		Email         string   `json:"email"`
-		EmailVerified flexBool `json:"email_verified"`
-		Name          string   `json:"name"`
+		Email           string   `json:"email"`
+		EmailVerified   flexBool `json:"email_verified"`
+		Name            string   `json:"name"`
+		AuthorizedParty string   `json:"azp"`
+		HostedDomain    string   `json:"hd"`
 	}
 	if err := t.Claims(&c); err != nil {
 		return nil, invalid(ReasonClaims, err)
@@ -160,14 +199,40 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (*Identity, error) {
 	if !c.EmailVerified {
 		return nil, invalid(ReasonEmailUnverified, nil)
 	}
-	email := strings.ToLower(strings.TrimSpace(c.Email))
+	// Only ASCII letters are lower-cased: strings.ToLower would fold U+212A KELVIN SIGN onto "k" and let
+	// a look-alike address match an ASCII one.
+	email := asciiLower(strings.TrimSpace(c.Email))
 	switch {
 	case t.Subject == "" || len(t.Subject) > maxSubject:
 		return nil, invalid(ReasonClaims, errors.New("sub missing or too long"))
 	case email == "" || len(email) > maxEmail || !strings.Contains(email, "@"):
 		return nil, invalid(ReasonClaims, errors.New("email missing or malformed"))
 	}
-	return &Identity{Subject: t.Subject, Email: email, Nonce: t.Nonce, ClientID: t.Audience[0], Name: c.Name}, nil
+	return &Identity{
+		Subject: t.Subject, Email: email, Nonce: t.Nonce, ClientID: t.Audience[0],
+		Audience: slices.Clone(t.Audience), AuthorizedParty: strings.TrimSpace(c.AuthorizedParty),
+		HostedDomain: asciiLower(strings.TrimSpace(c.HostedDomain)), Name: c.Name,
+	}, nil
+}
+
+// asciiLower lower-cases the ASCII letters of s and leaves every other byte as it is.
+func asciiLower(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if 'A' <= c && c <= 'Z' {
+			b[i] = c + ('a' - 'A')
+		}
+	}
+	return string(b)
+}
+
+func isASCII(s string) bool {
+	for i := range len(s) {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
 }
 
 // idTokenVerifier returns the go-oidc verifier, running discovery on first use. The keys come from the

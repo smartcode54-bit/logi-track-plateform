@@ -4,6 +4,8 @@ package auth_test
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"slices"
@@ -20,6 +22,10 @@ import (
 const (
 	webClient = "100000000001-webtest.apps.googleusercontent.com"
 	apkClient = "100000000002-apktest.apps.googleusercontent.com"
+	// The driver app's own OAuth clients: its tokens carry aud = apkClient (serverClientId) and azp = one
+	// of these. They need not be in the allow list.
+	androidClient = "100000000009-android.apps.googleusercontent.com"
+	iosClient     = "100000000010-ios.apps.googleusercontent.com"
 )
 
 // googleHarness is a harness whose Google verifier talks to an in-process provider: the ID tokens are
@@ -62,6 +68,31 @@ func (h *harness) linkGoogle(user, sub string) {
 
 func withNonce(n string) func(map[string]any) { return func(m map[string]any) { m["nonce"] = n } }
 
+// withHD marks the token as a Google Workspace account of domain d (claim hd).
+func withHD(d string) func(map[string]any) { return func(m map[string]any) { m["hd"] = d } }
+
+// fromApp makes the token the driver app's: aud stays the server client, azp is the app's own client.
+func fromApp(client string) func(map[string]any) { return func(m map[string]any) { m["azp"] = client } }
+
+func all(edits ...func(map[string]any)) func(map[string]any) {
+	return func(m map[string]any) {
+		for _, e := range edits {
+			e(m)
+		}
+	}
+}
+
+// sdkNonce is a nonce in the shape GoogleSignIn-iOS (AppAuth generateState) puts into every ID token
+// when the app gives none: 32 random bytes, base64url, never issued by the api.
+func sdkNonce(t *testing.T) string {
+	t.Helper()
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		t.Fatal(err)
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
 // The driver app signs in on the public listener with the id_token of google_sign_in (aud = the APK's
 // serverClientId) and no nonce; the account is found by the Google sub. The session is a normal one with
 // amr "google": refresh keeps it, last_login_* and the identity's last_used_at are written.
@@ -73,9 +104,7 @@ func TestGoogleSignInBySubjectOnMobile(t *testing.T) {
 	drv := h.driver(u, own, "0811110000")
 	h.linkGoogle(u, "g-sub-driver")
 
-	tok := h.googleToken(p, apkClient, "g-sub-driver", "driver.g@logitrack.test", func(m map[string]any) {
-		m["azp"] = "100000000009-android.apps.googleusercontent.com" // the Android client; aud is the server client
-	})
+	tok := h.googleToken(p, apkClient, "g-sub-driver", "driver.g@logitrack.test", fromApp(androidClient))
 	r := h.signInGoogle(h.public, map[string]any{"idToken": tok, "platform": "android", "installId": "inst-g1", "appVersion": "4.0.0"})
 	if r.status != http.StatusOK {
 		t.Fatalf("google sign-in: %d %s", r.status, r.raw)
@@ -159,11 +188,14 @@ func TestGoogleWebNonce(t *testing.T) {
 		t.Fatalf("web sessions = %d", web)
 	}
 
-	// Used: a second token for the same nonce fails, also when replayed as a driver-app sign-in.
+	// Used: a second token for the same nonce fails. A GIS token (azp == aud) replayed as a driver-app
+	// sign-in without its nonce fails too, on android and ios, and consumes nothing.
 	expectError(t, h.signInGoogle(h.internal, map[string]any{"idToken": tok(withNonce(n)), "nonce": n, "platform": "web"}),
 		http.StatusUnauthorized, auth.CodeInvalidToken)
-	expectError(t, h.signInGoogle(h.public, map[string]any{"idToken": tok(withNonce(other)), "platform": "android", "installId": "i"}),
-		http.StatusUnauthorized, auth.CodeInvalidToken)
+	for _, platform := range []string{"android", "ios"} {
+		expectError(t, h.signInGoogle(h.public, map[string]any{"idToken": tok(withNonce(other)), "platform": platform, "installId": "i"}),
+			http.StatusUnauthorized, auth.CodeInvalidToken)
+	}
 	// A well-formed nonce that was never issued.
 	never := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	expectError(t, h.signInGoogle(h.internal, map[string]any{"idToken": tok(withNonce(never)), "nonce": never, "platform": "web"}),
@@ -171,6 +203,60 @@ func TestGoogleWebNonce(t *testing.T) {
 	// The other nonce was never consumed by the failures above.
 	if r := h.signInGoogle(h.internal, map[string]any{"idToken": tok(withNonce(other)), "nonce": other, "platform": "web"}); r.status != http.StatusOK {
 		t.Fatalf("sign-in with the unconsumed nonce: %d %s", r.status, r.raw)
+	}
+	if n := scalar[int64](h, `SELECT count(*) FROM sessions WHERE user_id = $1`, u); n != 2 {
+		t.Fatalf("sessions = %d, want 2", n)
+	}
+}
+
+// The driver app sends no nonce (Appendix C §C.4.10), but on iOS its token carries one anyway:
+// GoogleSignIn-iOS (AppAuth) sends a random nonce when the app gives none and Google copies it into the
+// ID token. Such a token (azp = the app's client, not its aud) signs in without a body nonce on android
+// and ios. A token shaped like a GIS one (azp == aud, or no azp) with a nonce claim still needs its
+// nonce, and the SDK's nonce is never one of ours, so sending it is 401.
+func TestGoogleDriverAppSDKNonce(t *testing.T) {
+	h, p := googleHarness(t)
+	own := h.tenant("own_fleet", "Own")
+	u := h.user("ios.g@logitrack.test")
+	h.member(u, own, "driver")
+	h.driver(u, own, "0811110001")
+	h.linkGoogle(u, "g-sub-ios")
+	tok := func(edits ...func(map[string]any)) string {
+		return h.googleToken(p, apkClient, "g-sub-ios", "ios.g@logitrack.test", all(edits...))
+	}
+
+	for platform, client := range map[string]string{"ios": iosClient, "android": androidClient} {
+		r := h.signInGoogle(h.public, map[string]any{
+			"idToken": tok(fromApp(client), withNonce(sdkNonce(t))), "platform": platform, "installId": "inst-" + platform,
+		})
+		if r.status != http.StatusOK {
+			t.Fatalf("%s sign-in with the SDK's nonce: %d %s", platform, r.status, r.raw)
+		}
+		c := payload(t, r.str("accessToken"))
+		if c["sub"] != u || c["amr"] != "google" || scalar[string](h, `SELECT platform FROM sessions WHERE id = $1`, c["sid"]) != platform {
+			t.Fatalf("%s claims = %v", platform, c)
+		}
+	}
+
+	sdk := sdkNonce(t)
+	for name, body := range map[string]map[string]any{
+		// azp == aud: a GIS-shaped token, so its nonce is bound.
+		"azp == aud": {"idToken": tok(fromApp(apkClient), withNonce(sdk)), "platform": "ios", "installId": "i"},
+		// No azp: not known to be the app's.
+		"no azp": {"idToken": tok(func(m map[string]any) { delete(m, "azp") }, withNonce(sdk)), "platform": "ios", "installId": "i"},
+		// The SDK's nonce passes validation (same shape as ours) but was never issued.
+		"SDK nonce in the body": {"idToken": tok(fromApp(iosClient), withNonce(sdk)), "nonce": sdk, "platform": "ios", "installId": "i"},
+		// The web always binds, whatever azp says.
+		"app token on the web": {"idToken": tok(fromApp(iosClient), withNonce(sdk)), "nonce": h.nonce(), "platform": "web"},
+	} {
+		base := h.public
+		if body["platform"] == "web" {
+			base = h.internal
+		}
+		r := h.signInGoogle(base, body)
+		if r.status != http.StatusUnauthorized || r.code() != auth.CodeInvalidToken {
+			t.Fatalf("%s: want 401 invalid_token, got %d %s", name, r.status, r.raw)
+		}
 	}
 	if n := scalar[int64](h, `SELECT count(*) FROM sessions WHERE user_id = $1`, u); n != 2 {
 		t.Fatalf("sessions = %d, want 2", n)
@@ -188,7 +274,8 @@ func TestGoogleLinksVerifiedEmail(t *testing.T) {
 
 	n := h.nonce()
 	r := h.signInGoogle(h.internal, map[string]any{
-		"idToken": h.googleToken(p, webClient, "g-sub-new", "link.me@logitrack.test", withNonce(n)), "nonce": n, "platform": "web",
+		"idToken": h.googleToken(p, webClient, "g-sub-new", "link.me@logitrack.test", all(withNonce(n), withHD("logitrack.test"))),
+		"nonce":   n, "platform": "web",
 	})
 	if r.status != http.StatusOK {
 		t.Fatalf("link sign-in: %d %s", r.status, r.raw)
@@ -207,9 +294,12 @@ func TestGoogleLinksVerifiedEmail(t *testing.T) {
 		t.Fatalf("google_identity_linked = %s", ev)
 	}
 
-	// The next sign-in uses the link (sub), on the driver app as well; no second event.
+	// The next sign-in uses the link (sub), on the driver app as well (an iOS token carrying the SDK's own
+	// nonce); no second event.
 	r = h.signInGoogle(h.public, map[string]any{
-		"idToken": h.googleToken(p, apkClient, "g-sub-new", "link.me@logitrack.test", nil), "platform": "ios", "installId": "inst-ios",
+		"idToken": h.googleToken(p, apkClient, "g-sub-new", "link.me@logitrack.test",
+			all(fromApp(iosClient), withNonce(sdkNonce(t)), withHD("logitrack.test"))),
+		"platform": "ios", "installId": "inst-ios",
 	})
 	if r.status != http.StatusOK {
 		t.Fatalf("second sign-in: %d %s", r.status, r.raw)
@@ -219,7 +309,7 @@ func TestGoogleLinksVerifiedEmail(t *testing.T) {
 	}
 	// Another Google account with the same verified email is not linked over the first one.
 	r = h.signInGoogle(h.public, map[string]any{
-		"idToken": h.googleToken(p, apkClient, "g-sub-other", "link.me@logitrack.test", nil), "platform": "android",
+		"idToken": h.googleToken(p, apkClient, "g-sub-other", "link.me@logitrack.test", withHD("logitrack.test")), "platform": "android",
 	})
 	expectError(t, r, http.StatusForbidden, auth.CodeNoAccount)
 	if n := scalar[int64](h, `SELECT count(*) FROM auth_identities`); n != 1 {
@@ -241,6 +331,73 @@ func TestGoogleLinksVerifiedEmail(t *testing.T) {
 	}
 	if !slices.Equal(names, []string{"auth_identities_provider_provider_subject_key", "auth_identities_user_id_provider_key"}) {
 		t.Fatalf("auth_identities unique constraints = %v", names)
+	}
+}
+
+// Linking by email needs Google to be authoritative for the address (Appendix C §C.4.10): a Gmail
+// address or a Workspace account (hd). For a consumer Google account under any other domain,
+// email_verified only says the address was verified when the account was created; whoever held the
+// mailbox then could own it. Such a token links nothing and is 403 no_account, like an unknown account,
+// with no row, no event and no session; a link by sub is unaffected.
+func TestGoogleEmailAuthority(t *testing.T) {
+	h, p := googleHarness(t)
+	own := h.tenant("own_fleet", "Own")
+	dispatch := h.user("dispatch@carrier.test")
+	h.member(dispatch, own, "tenant_admin")
+	mobile := func(tok string) map[string]any {
+		return map[string]any{"idToken": tok, "platform": "android", "installId": "inst-a"}
+	}
+
+	// A former mailbox holder's personal Google account: verified, no hd.
+	expectError(t, h.signInGoogle(h.public, mobile(h.googleToken(p, apkClient, "g-former", "dispatch@carrier.test", nil))),
+		http.StatusForbidden, auth.CodeNoAccount)
+	n := h.nonce()
+	expectError(t, h.signInGoogle(h.internal, map[string]any{
+		"idToken": h.googleToken(p, webClient, "g-former", "Dispatch@Carrier.test", withNonce(n)), "nonce": n, "platform": "web",
+	}), http.StatusForbidden, auth.CodeNoAccount)
+	if rows, ev, sess := scalar[int64](h, `SELECT count(*) FROM auth_identities`),
+		scalar[int64](h, `SELECT count(*) FROM security_events WHERE event_type = 'google_identity_linked'`),
+		scalar[int64](h, `SELECT count(*) FROM sessions`); rows != 0 || ev != 0 || sess != 0 {
+		t.Fatalf("a non-authoritative email linked: identities=%d events=%d sessions=%d", rows, ev, sess)
+	}
+	// A disabled user behind a non-authoritative address is not revealed either.
+	off := h.user("off@carrier.test")
+	h.exec(`UPDATE users SET status = 'disabled', disabled_at = now() WHERE id = $1`, off)
+	expectError(t, h.signInGoogle(h.public, mobile(h.googleToken(p, apkClient, "g-off", "off@carrier.test", nil))),
+		http.StatusForbidden, auth.CodeNoAccount)
+
+	// The same address as a Workspace account links.
+	r := h.signInGoogle(h.public, mobile(h.googleToken(p, apkClient, "g-workspace", "dispatch@carrier.test", withHD("carrier.test"))))
+	if r.status != http.StatusOK {
+		t.Fatalf("Workspace link: %d %s", r.status, r.raw)
+	}
+	if c := payload(t, r.str("accessToken")); c["sub"] != dispatch || c["rol"] != "tenant_admin" {
+		t.Fatalf("claims = %v", c)
+	}
+	// Once linked by sub, the hd claim no longer matters.
+	if r := h.signInGoogle(h.public, mobile(h.googleToken(p, apkClient, "g-workspace", "dispatch@carrier.test", nil))); r.status != http.StatusOK {
+		t.Fatalf("sign-in by sub: %d %s", r.status, r.raw)
+	}
+
+	// A Gmail address links without hd.
+	gmail := h.user("somchai.g@gmail.com")
+	h.member(gmail, own, "manager")
+	if r := h.signInGoogle(h.public, mobile(h.googleToken(p, apkClient, "g-gmail", "Somchai.G@gmail.com", nil))); r.status != http.StatusOK {
+		t.Fatalf("Gmail link: %d %s", r.status, r.raw)
+	}
+
+	// A look-alike address is never folded onto an ASCII one: U+212A KELVIN SIGN is not "k".
+	kelvin := h.user("kelvin.g@gmail.com")
+	h.member(kelvin, own, "manager")
+	expectError(t, h.signInGoogle(h.public, mobile(h.googleToken(p, apkClient, "g-kelvin", "\u212Aelvin.g@gmail.com", nil))),
+		http.StatusForbidden, auth.CodeNoAccount)
+
+	got := scalar[string](h, `SELECT string_agg(provider_subject || '=' || user_id::text, ' ' ORDER BY provider_subject) FROM auth_identities`)
+	if want := "g-gmail=" + gmail + " g-workspace=" + dispatch; got != want {
+		t.Fatalf("auth_identities = %s, want %s", got, want)
+	}
+	if ev := scalar[int64](h, `SELECT count(*) FROM security_events WHERE event_type = 'google_identity_linked'`); ev != 2 {
+		t.Fatalf("google_identity_linked rows = %d, want 2", ev)
 	}
 }
 
@@ -299,7 +456,7 @@ func TestGoogleRejections(t *testing.T) {
 	h.exec(`UPDATE users SET status = 'disabled', disabled_at = now() WHERE id = ANY($1::uuid[])`, []string{disabledLinked, disabledEmail})
 	expectError(t, h.signInGoogle(h.public, mobile(h.googleToken(p, apkClient, "g-disabled", "disabled.linked@logitrack.test", nil))),
 		http.StatusForbidden, auth.CodeAccountDisabled)
-	expectError(t, h.signInGoogle(h.public, mobile(h.googleToken(p, apkClient, "g-disabled-2", "disabled.email@logitrack.test", nil))),
+	expectError(t, h.signInGoogle(h.public, mobile(h.googleToken(p, apkClient, "g-disabled-2", "disabled.email@logitrack.test", withHD("logitrack.test")))),
 		http.StatusForbidden, auth.CodeAccountDisabled)
 	if n := scalar[int64](h, `SELECT count(*) FROM auth_identities WHERE user_id = $1`, disabledEmail); n != 0 {
 		t.Fatal("a disabled user was linked")
@@ -310,7 +467,7 @@ func TestGoogleRejections(t *testing.T) {
 	tail := h.user("tail.g@logitrack.test")
 	h.exec(`UPDATE users SET status = 'reset_required', password_hash = NULL WHERE id = $1`, tail)
 	for _, email := range []string{"deleted.g@logitrack.test", "tail.g@logitrack.test"} {
-		expectError(t, h.signInGoogle(h.public, mobile(h.googleToken(p, apkClient, "g-"+email, email, nil))),
+		expectError(t, h.signInGoogle(h.public, mobile(h.googleToken(p, apkClient, "g-"+email, email, withHD("logitrack.test")))),
 			http.StatusForbidden, auth.CodeNoAccount)
 	}
 
@@ -381,7 +538,7 @@ func TestGoogleConcurrentFirstSignIns(t *testing.T) {
 	own := h.tenant("own_fleet", "Own")
 	u := h.user("race.g@logitrack.test")
 	h.member(u, own, "manager")
-	tok := h.googleToken(p, apkClient, "g-race", "race.g@logitrack.test", nil)
+	tok := h.googleToken(p, apkClient, "g-race", "race.g@logitrack.test", withHD("logitrack.test"))
 
 	const n = 8
 	statuses := make(chan string, n)

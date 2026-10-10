@@ -27,7 +27,9 @@ const maxIDTokenBytes = 8 << 10
 
 // GoogleInput is the body of POST /v1/auth/google (R48, R83) plus the request facts the handler adds.
 // The web sends {idToken, nonce, platform:'web'} through the BFF; the driver app sends {idToken,
-// platform, installId, appVersion?} without a nonce (Appendix C §C.4.10).
+// platform, installId, appVersion?} without a nonce (Appendix C §C.4.10). Its token may still carry a
+// nonce claim the SDK made up (GoogleSignIn-iOS always sends one through AppAuth), which the app cannot
+// read and which is not ours.
 type GoogleInput struct {
 	IDToken    string `json:"idToken"`
 	Nonce      string `json:"nonce"`
@@ -111,14 +113,16 @@ func (s *Service) GoogleNonce(ctx context.Context, ip string) (*NonceResult, err
 //   - 401 invalid_token: the ID token failed verification (signature, issuer, expiry, an aud outside
 //     GOOGLE_OIDC_ALLOWED_CLIENT_IDS, email_verified not true) or its nonce did not match an unused one;
 //   - 403 no_account: no active user is linked to the Google sub and none can be linked by the verified
-//     email (no self-signup);
+//     email (no self-signup; an email Google is not authoritative for links nothing);
 //   - 403 account_disabled before any link, ticket or token; 403 password_change_required with a ticket
 //     (R79) for a must_change_password user;
 //   - 503 unavailable when Google's keys cannot be fetched; 404 while Google sign-in is off.
 //
-// The nonce: platform web must send one, and whenever the token carries a nonce claim the body must
-// carry the same nonce, which is consumed (GETDEL) only then. A token minted for a nonce therefore signs
-// in once, whichever platform it is presented with.
+// The nonce (consumeNonce): platform web must send one. When the body carries a nonce, or a token that
+// is not the driver app's (azp == aud, or no azp: GIS) has a nonce claim, the token's nonce must equal
+// the body's and be an unused one of ours, consumed (GETDEL) only then; so a GIS token signs in once,
+// whichever platform it is presented with. A driver-app token (android or ios, azp != aud) sent without
+// a body nonce may carry the SDK's own nonce, which is ignored.
 func (s *Service) GoogleSignIn(ctx context.Context, in GoogleInput) (*LoginResult, error) {
 	if s.google == nil {
 		return nil, httpx.ErrNotFound()
@@ -167,11 +171,24 @@ func (s *Service) GoogleSignIn(ctx context.Context, in GoogleInput) (*LoginResul
 	return res, err
 }
 
-// consumeNonce enforces the nonce rule of GoogleSignIn: required on the web, bound whenever the token
-// carries one, single use.
+// consumeNonce enforces the nonce rule of GoogleSignIn: required on the web (validateGoogle), single
+// use, and bound to the token whenever the body carries a nonce or a GIS token carries one.
+//
+// The one exception is a driver-app token without a body nonce: on iOS, google_sign_in runs
+// GoogleSignIn-iOS, whose AppAuth request always sends a random nonce when the app gives none, and Google
+// copies it into the ID token; the app cannot read it and it was never issued here. google_sign_in 7
+// accepts a nonce only in initialize(), once per process, so a single-use server nonce cannot serve the
+// next sign-in either. Such a token is told from a GIS token by azp (Identity.NativeApp): the driver
+// app's token has aud = the server client and azp = its Android or iOS client, a GIS token has
+// azp == aud. A GIS token replayed through the driver-app path without its nonce therefore still fails.
 func (s *Service) consumeNonce(ctx context.Context, id *google.Identity, in GoogleInput) error {
-	if in.Nonce == "" && id.Nonce == "" {
-		return nil // driver app (validation already required a nonce on the web)
+	if in.Nonce == "" {
+		switch {
+		case id.Nonce == "":
+			return nil // driver app (validation already required a nonce on the web)
+		case in.Platform != PlatformWeb && id.NativeApp():
+			return nil // the SDK's own nonce (GoogleSignIn-iOS / AppAuth), not one of ours
+		}
 	}
 	if subtle.ConstantTimeCompare([]byte(in.Nonce), []byte(id.Nonce)) != 1 {
 		s.log.Info().Str("reason", "nonce_mismatch").Str("platform", in.Platform).Str("request_id", in.RequestID).
@@ -195,9 +212,14 @@ func (s *Service) consumeNonce(ctx context.Context, id *google.Identity, in Goog
 // under the user's row lock (C.4.10):
 //
 //  1. auth_identities(google, sub) -> that user;
-//  2. else the user whose email equals the token's verified email and who has no Google identity yet:
-//     insert auth_identities and append google_identity_linked in the same transaction (C.4.13);
+//  2. else, when Google is authoritative for the token's email (a Gmail address or a Workspace account,
+//     google.Identity.EmailAuthoritative), the user whose email equals it and who has no Google identity
+//     yet: insert auth_identities and append google_identity_linked in the same transaction (C.4.13);
 //  3. else 403 no_account.
+//
+// For any other address email_verified only says the address was verified when the Google account was
+// created: whoever once held the mailbox (a former employee of a carrier on Microsoft 365, a recycled
+// shared mailbox) could own that Google account, and a link would outlive every later password reset.
 //
 // A disabled user is 403 account_disabled and is never linked. Deleted and reset_required users (no
 // usable credential, C.5.8: they recover through forgot-password or a temporary password) and a user
@@ -221,6 +243,12 @@ func (s *Service) resolveGoogle(ctx context.Context, id *google.Identity, in Goo
 			return err
 		}
 
+		if !id.EmailAuthoritative() {
+			// Checked before the email lookup, so the answer says nothing about whether the address has a user.
+			s.log.Info().Str("reason", "email_not_authoritative").Str("platform", in.Platform).
+				Str("request_id", in.RequestID).Msg("auth: google sign-in not linked by email")
+			return errNoAccount()
+		}
 		cand, err := q.GetUserForLogin(ctx, id.Email)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return errNoAccount()
