@@ -56,7 +56,15 @@ func loadExpense(c *docCtx) error {
 	if err != nil {
 		return err
 	}
-	tenant := c.stamp(tenancy.VehicleExpenses, map[string]any{"driverId": drv.raw, "truckId": c.str("truckId")})
+	tenant, err := c.stamp(tenancy.VehicleExpenses, map[string]any{"driverId": drv.raw, "truckId": c.str("truckId")})
+	if err != nil {
+		return err
+	}
+	if c.tenantSource != tenancy.SourceQuarantine && !drv.ok() && !tr.ok() {
+		// Only a re-applied row whose tenant is frozen (main spec §13.5) gets here; outside the quarantine tenant the
+		// CHECK needs a driver or a truck, so the row stays as it was loaded before.
+		return c.reject("driverId", ReasonDriverUnresolved, "the row keeps its tenant and needs a driver or truck there; fix at source and retry", c.get("driverId"))
+	}
 	odo := c.integer("odometer")
 	if odo != nil && *odo < 0 {
 		c.find("odometer", ReasonBadNumber, "negative odometer", c.get("odometer"))
@@ -143,7 +151,15 @@ func loadMaintenance(c *docCtx) error {
 	if err != nil {
 		return err
 	}
-	tenant := c.stamp(tenancy.Maintenance, map[string]any{"truckId": c.str("truckId")})
+	tenant, err := c.stamp(tenancy.Maintenance, map[string]any{"truckId": c.str("truckId")})
+	if err != nil {
+		return err
+	}
+	if c.tenantSource != tenancy.SourceQuarantine && !tr.ok() {
+		// A re-applied row whose tenant is frozen (main spec §13.5): outside the quarantine tenant the CHECK needs a
+		// truck, so the row stays as it was loaded before.
+		return c.reject("truckId", ReasonTruckUnresolved, "the row keeps its tenant and needs a truck there; fix at source and retry", c.get("truckId"))
+	}
 	var appt *string
 	if s := c.str("appointmentTime"); s != "" {
 		if hhmm.MatchString(s) {

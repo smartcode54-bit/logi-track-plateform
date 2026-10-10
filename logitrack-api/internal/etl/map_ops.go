@@ -123,7 +123,10 @@ func loadTask(c *docCtx) error {
 	}
 	l := c.lookups()
 	l.TenantOfDriver = func(string) string { return c.stamped(drv.ref) }
-	tenant := c.stampWith(tenancy.Tasks, map[string]any{"driverId": "matched"}, l)
+	tenant, err := c.stampWith(tenancy.Tasks, map[string]any{"driverId": "matched"}, l)
+	if err != nil {
+		return err
+	}
 
 	helper, err := c.taskHelper(drv, tenant)
 	if err != nil {
@@ -302,7 +305,13 @@ func loadTrip(c *docCtx) error {
 	if err != nil {
 		return err
 	}
-	tenant := c.stamp(tenancy.TripRecords, map[string]any{"taskId": taskRaw, "driverId": drv.raw}, task)
+	tenant, err := c.stamp(tenancy.TripRecords, map[string]any{"taskId": taskRaw, "driverId": drv.raw}, task)
+	if err != nil {
+		return err
+	}
+	if task = c.keepLink("taskId", task, tenant); !task.ok() {
+		taskMatch = "none"
+	}
 
 	tripNo, err := c.tripNo()
 	if err != nil {
@@ -614,7 +623,14 @@ func loadStandby(c *docCtx) error {
 	if tripRaw != "" && !trip.ok() {
 		c.find("tripId", ReasonTripUnresolved, "matches no trip, rename history included", tripRaw)
 	}
-	tenant := c.stamp(tenancy.StandbyRecords, map[string]any{"taskId": taskRaw, "tripId": tripRaw, "driverId": drv.raw}, task, trip)
+	tenant, err := c.stamp(tenancy.StandbyRecords, map[string]any{"taskId": taskRaw, "tripId": tripRaw, "driverId": drv.raw}, task, trip)
+	if err != nil {
+		return err
+	}
+	// The trigger checks the task link, else the trip link (0004 trg_standby_tenant_check).
+	if task = c.keepLink("taskId", task, tenant); !task.ok() {
+		trip = c.keepLink("tripId", trip, tenant)
+	}
 	customer, err := c.party("customerId")
 	if err != nil {
 		return err
@@ -715,7 +731,13 @@ func loadIncident(c *docCtx) error {
 		c.find("tripId", ReasonTripUnresolved, "matches no trip, rename history included", tripRaw)
 		legacyTrip = &tripRaw
 	}
-	tenant := c.stamp(tenancy.IncidentReport, map[string]any{"tripId": tripRaw, "driverId": drv.raw}, trip)
+	tenant, err := c.stamp(tenancy.IncidentReport, map[string]any{"tripId": tripRaw, "driverId": drv.raw}, trip)
+	if err != nil {
+		return err
+	}
+	if trip = c.keepLink("tripId", trip, tenant); !trip.ok() && tripRaw != "" {
+		legacyTrip = &tripRaw
+	}
 	tr, err := c.truck("truckId")
 	if err != nil {
 		return err

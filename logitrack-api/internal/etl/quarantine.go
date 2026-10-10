@@ -11,12 +11,16 @@ import (
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/dump"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/tenancy"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/security"
 )
 
 // `etl quarantine list|resolve` (main spec §13.2): findings are listed with filters and resolved per document:
-// retry re-applies the document from etl.source_docs.raw (after a fix in a dependency, or a mapping change), skip
-// accepts the findings as they are, and rehome moves a quarantined row and its children to a tenant through
-// tenancy.Rehome, the service of POST /v1/tenants/quarantine/rows/{table}/{id}/rehome.
+// retry re-applies the document from etl.source_docs.raw (after a fix in a dependency, or a mapping change; a row
+// already outside the quarantine tenant keeps its tenant, main spec §13.5), skip accepts the findings as they are,
+// and rehome moves a quarantined row with its children and their files to a tenant through tenancy.Rehome, the
+// service of POST /v1/tenants/quarantine/rows/{table}/{id}/rehome, appends tenant_rehomed in the same transaction
+// and settles only the tenant_unresolved finding of each moved document: its field findings (driver, trip number,
+// hub, ...) stay open, since the move fixed the tenant and nothing else.
 
 // FindingRow is one etl.quarantine row.
 type FindingRow struct {
@@ -74,7 +78,26 @@ type ResolveOptions struct {
 type ResolveResult struct {
 	Resolved int
 	Outcome  Outcome         // retry: the new outcome
-	Moved    []tenancy.Moved // rehome: the rows moved
+	Moved    []tenancy.Moved // rehome: the row, its children and their files (Table tenancy.FileObjects)
+}
+
+// rehomeEvent is the tenant_rehomed audit record of a CLI re-home (Appendix C §C.4.13). The CLI has no user
+// principal: the actor stays NULL and the operator label of --by goes into details.by; the endpoint of T28 writes
+// the same details with the platform admin as actor.
+func rehomeEvent(table string, id uuid.UUID, o ResolveOptions, moved []tenancy.Moved, at time.Time) security.Event {
+	rows := make([]map[string]string, 0, len(moved))
+	for _, m := range moved {
+		rows = append(rows, map[string]string{"table": m.Table, "id": m.ID.String()})
+	}
+	to := o.Tenant
+	return security.Event{
+		EventType: "tenant_rehomed", Severity: security.SeverityInfo,
+		Summary:  fmt.Sprintf("%s %s re-homed from the quarantine tenant with %d moved row(s)", table, id, len(moved)),
+		TenantID: &to, OccurredAt: at,
+		Details: map[string]any{"table": table, "id": id.String(), "fromTenantId": tenancy.QuarantineTenantID,
+			"toTenantId": to.String(), "moved": rows, "by": o.By, "via": "etl quarantine resolve",
+			"collection": o.Collection, "docPath": o.DocPath},
+	}
 }
 
 // ErrNoDocument: the document is not in etl.source_docs.
@@ -152,21 +175,12 @@ func (e *Engine) Resolve(ctx context.Context, o ResolveOptions) (*ResolveResult,
 				return err
 			}
 			res.Moved = moved
-			for _, m := range moved {
-				var coll, path string
-				err := tx.QueryRow(ctx, `UPDATE etl.source_docs SET status = 'loaded' WHERE target_table = $1 AND target_id = $2
-					AND status = 'quarantined' RETURNING collection, doc_path`, m.Table, m.ID.String()).Scan(&coll, &path)
-				if errors.Is(err, pgx.ErrNoRows) {
-					continue
-				}
-				if err != nil {
-					return err
-				}
-				n, err := resolve("rehomed", coll, path)
-				if err != nil {
-					return err
-				}
-				res.Resolved += n
+			// No audit, no change (R22, Appendix C §C.4.13): the event commits or rolls back with the move.
+			if err := security.Append(ctx, tx, rehomeEvent(*table, id, o, moved, e.cfg.Now())); err != nil {
+				return err
+			}
+			if res.Resolved, err = settleMoved(ctx, tx, moved, o.By, "rehomed"); err != nil {
+				return err
 			}
 			_, err = tx.Exec(ctx, `SET CONSTRAINTS ALL IMMEDIATE`)
 			return err

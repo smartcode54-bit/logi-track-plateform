@@ -55,9 +55,31 @@ func (d Doc) ParentPath() string {
 type line struct {
 	ID         string          `json:"_id"`
 	Path       string          `json:"_path"`
-	CreateTime *time.Time      `json:"_createTime,omitempty"`
-	UpdateTime time.Time       `json:"_updateTime"`
+	CreateTime *docTime        `json:"_createTime,omitempty"`
+	UpdateTime docTime         `json:"_updateTime"`
 	Fields     json.RawMessage `json:"fields"`
+}
+
+// docTime is a document time: written as an RFC 3339 string, read from that string or from the field tag
+// {"$ts": "..."} (the spelling of Appendix D §D.5.1's hand-written fixtures).
+type docTime struct{ time.Time }
+
+func (t docTime) MarshalJSON() ([]byte, error) { return json.Marshal(t.Time) }
+
+func (t *docTime) UnmarshalJSON(b []byte) error {
+	var tagged struct {
+		TS *time.Time `json:"$ts"`
+	}
+	if len(b) > 0 && b[0] == '{' {
+		dec := json.NewDecoder(bytes.NewReader(b))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&tagged); err != nil || tagged.TS == nil {
+			return fmt.Errorf("dump: a document time is an RFC 3339 string or {\"$ts\": \"...\"}: %s", b)
+		}
+		t.Time = *tagged.TS
+		return nil
+	}
+	return json.Unmarshal(b, &t.Time)
 }
 
 // MarshalDoc encodes one NDJSON line (without the newline).
@@ -69,10 +91,9 @@ func MarshalDoc(d Doc) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("dump: %s: %w", d.Path, err)
 	}
-	l := line{ID: d.ID, Path: d.Path, UpdateTime: d.UpdateTime.UTC(), Fields: fields}
+	l := line{ID: d.ID, Path: d.Path, UpdateTime: docTime{d.UpdateTime.UTC()}, Fields: fields}
 	if !d.CreateTime.IsZero() {
-		ct := d.CreateTime.UTC()
-		l.CreateTime = &ct
+		l.CreateTime = &docTime{d.CreateTime.UTC()}
 	}
 	return json.Marshal(l)
 }

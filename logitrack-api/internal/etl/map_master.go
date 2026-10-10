@@ -302,14 +302,17 @@ func loadTruck(c *docCtx) error {
 	if status == "available" {
 		status = "active"
 	}
-	tenant := c.stamp(tenancy.Trucks, c.f)
+	tenant, err := c.stamp(tenancy.Trucks, c.f)
+	if err != nil {
+		return err
+	}
 	own := "own"
 	if c.str("ownershipType") == "subcontractor" {
 		own = "subcontractor"
 	}
 	plate := c.str("licensePlate")
 	var dup string
-	err := c.tx.QueryRow(c.ctx, `SELECT coalesce(legacy_doc_id, id::text) FROM trucks WHERE tenant_id = $1 AND license_plate = $2
+	err = c.tx.QueryRow(c.ctx, `SELECT coalesce(legacy_doc_id, id::text) FROM trucks WHERE tenant_id = $1 AND license_plate = $2
 		AND legacy_doc_id IS DISTINCT FROM $3`, tenant, plate, c.doc.ID).Scan(&dup)
 	if err == nil {
 		return c.reject("licensePlate", ReasonDuplicateNaturalKey, "the plate is already a truck of this tenant ("+dup+")", plate)
@@ -379,7 +382,10 @@ func loadDriver(c *docCtx) error {
 	if status == "" {
 		status = "active" // the driver form's default
 	}
-	tenant := c.stamp(tenancy.Drivers, c.f)
+	tenant, err := c.stamp(tenancy.Drivers, c.f)
+	if err != nil {
+		return err
+	}
 	uid := c.str("authId")
 	uidField := "authId"
 	if uid == "" {

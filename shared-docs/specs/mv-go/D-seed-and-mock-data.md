@@ -1559,38 +1559,31 @@ The seed shows data in its **post-ETL** shape; the ETL fixtures hold the same ki
 
 ### D.5.1 Layout and format
 
+As delivered by T15 (the layout below replaces the draft `collections/` + `auth/` + `storage/` + `expected/` tree; the parts not yet delivered are listed in §D.5.2 with the task that adds them):
+
 ```
 logitrack-api/cmd/etl/testdata/firestore-fixtures/
-├── manifest.json                    etl dump metadata: format version, source project placeholder, exportedAt, per-collection counts
-├── auth/
-│   ├── users.json                   synthetic `firebase auth:export --format=json` output (7 users)
-│   └── hash_config.json             public firebase/scrypt test parameters (never production values)
-├── collections/
-│   ├── <collection>.ndjson          one Firestore document per line (names as in Firestore, e.g. incidentReport, truckAssignment)
-│   ├── drivers__mobile_installations.ndjson
-│   └── chats__messages.ndjson       subcollections, dumped by collection-group query
-├── storage/
-│   ├── objects.ndjson               GCS listing: key, size, md5, contentType (one listed key has no blob)
-│   └── blobs/<object key>           tiny JPEGs for the keys that exist
-└── expected/
-    ├── counts.json                  per collection: fs_count, loaded, quarantined, rejected, dropped
-    ├── etl_quarantine.json          set of (collection, doc_path, field, reason_code)
-    ├── quarantine_tenant_rows.json  rows stamped with the quarantine tenant and tenant_source 'quarantine' (R11)
-    ├── resolution.json              per legacy reference: driver_ref_match, task_ref_match, resolved hub code
-    ├── orphan_scan.json             expected tenancy.orphan-scan result after load (R24)
-    ├── rewrites.json                legacy URL → (bucket, object_key, file_objects.status)
-    └── reconcile.md                 expected etl reconcile report (counts, money sums per party and axis month)
+├── manifest.json            format logitrack-etl-dump/1, projectId logitrack-fixtures, exportedAt; one entry per collection
+│                            file (name, file, count, group for a collection group; sha256 optional for hand-written files)
+├── <collection>.ndjson      one Firestore document per line (names as in Firestore, e.g. incidentReport); flat: dump.Open
+│                            reads only base names listed in manifest.json, the same layout `etl dump` writes (.ndjson.gz)
+└── quarantine.snapshot      the expected report: findings (collection, doc_path, field, reason_code) and every document's
+                             outcome and tenant_source; rewritten with `go test ./cmd/etl -tags=integration -run TestFixtureLoad -update`
 ```
 
-Each line uses the `etl dump` format of the delivery plan — `{_id, _path, _createTime, _updateTime, fields}` with typed values `{"$ts": …}`, `{"$geo": …}`, `{"$ref": …}` — plus a top-level `_note` that the loader ignores and that states the case covered. All ids are synthetic (`fx…` doc ids, `FXUID…` 28-character auth uids) and follow §D.1.9; no production document is ever copied into a fixture. Example:
+Each line uses the `etl dump` format of main spec §13.1: `{_id, _path, _createTime, _updateTime, fields}`. `_updateTime` is required and `_createTime` optional; `etl dump` writes both as untagged RFC 3339 strings and the reader also accepts `{"$ts": …}`, so the example below loads verbatim. Field values use the tags `{"$ts": …}`, `{"$geo": …}`, `{"$ref": …}`, `{"$bytes": …}`, `{"$double": …}` and the escape `{"$map": …}`. A top-level `_note` stating the case is ignored by the loader; the T15 files carry none yet, and a line added later should have one. Ids are synthetic and never copied from production: T15 uses readable ids (`task_1`, `cust_spx`, `drv_own`, auth uids `uid_own`, `uid_alpha`, `uid_unknown`); fixtures added by later tasks use the `fx…` doc ids and 28-character `FXUID…` auth uids of §D.1.9, and both styles may coexist. Example:
 
 ```json
 {"_id": "fxTaskLegacyUid00001", "_path": "tasks/fxTaskLegacyUid00001", "_createTime": {"$ts": "2026-07-21T08:00:00Z"}, "_updateTime": {"$ts": "2026-07-22T03:16:00Z"}, "_note": "legacy task: driverId holds an auth uid, Title-case status, PICKUP truckType, unpadded taskId", "fields": {"taskId": "FM-22072026-7", "date": {"$ts": "2026-07-21T17:00:00Z"}, "dateStr": "22072026", "status": "Completed", "taskType": "FIRST_MILE", "sourceHub": "ALANG-A", "destination": "SOCE (บัวโรย)", "driverId": "FXUID0000000000000000000DRV1", "truckType": "PICKUP", "licensePlate": "1ขค-1234", "sourceHubLinkedCustomerId": "fxCustSPX00000000001", "sourceHubCustomerLinkKind": "customer", "createdAt": {"$ts": "2026-07-21T08:00:00Z"}}}
 ```
 
+`quarantine.snapshot` stands in for `expected/counts.json`, `etl_quarantine.json` and `quarantine_tenant_rows.json` (the per-document outcome gives the counts; `tenant_source` `quarantine` gives the quarantine-tenant rows). `resolution.json` is covered by assertions in `cmd/etl/etl_integration_test.go` instead of a file.
+
 ETL rows receive runtime `uuidv7()` ids, so every expected file is keyed by Firestore doc path or `legacy_doc_id`, never by uuid. Reason codes are the canonical list of Appendix A §A.3.0 (R68), the set the `etl.quarantine.reason_code` CHECK enforces.
 
 ### D.5.2 Fixture cases
+
+**Coverage today.** T15 ships the documents of `subcontractors`, `customers`, `trucks`, `drivers`, `tasks`, `trip_records`, `standby_records`, `incidentReport`, `vehicle_expenses`, `maintenance`, `settings` (`settings/tenancy`, recorded `pending`), `checkin` and the unknown `legacy_tmp`, with a subset of the cases below for those collections (`quarantine.snapshot` lists every finding they raise). Not yet covered there: the sub-array cases T24 maps (truck and driver `statusHistory`, `customerDriverIds`, `currentAssignment`, task delivery stops, trip stop progress and multi-drop breakdown), the broker driver's July tasks (the orphan-scan bucket of §D.5.3), and cases whose check needs a table T15 does not load (a sent statement for `billing_date_locked`, rate imports). Deferred with the mapping they test: `auth/users.json`, `users.ndjson` and `permissions_config.ndjson` → T19; `hubs`, the distance tables, `companies`, `truckAssignment`, `drivers__mobile_installations`, the rate tables, fees, standby rates, statements and counters, `transactions`, `payroll`, `driver_penalties`, `chats__messages`, `broadcasts`, `leave_requests`, `holidays`, the fuel snapshots, `security_events`, `vehicle_locations`, `waitlist`, `partner-interest` and the `settings/mobile_app` split → T24; `storage/objects.ndjson` and `rewrites.json` → T24 (T15 tests `media-copy` against objects it puts into the in-process `gcptest` backend); `orphan_scan.json` → T28 with the job. The table is the target set: a case moves into the fixtures with the task that maps or checks it.
 
 | Fixture | Synthetic documents | Proves | Expected outcome | Post-ETL shape in the seed |
 |---|---|---|---|---|
@@ -1610,7 +1603,7 @@ ETL rows receive runtime `uuidv7()` ids, so every expected file is keyed by Fire
 | `customer_service_fees.ndjson` | two `extra_stop` docs and two `standby` docs for one customer | D5 winner rules (`extra_stop` first by doc id, `standby` last) | all four loaded + `duplicate_service_fee`; Go selects the legacy winners until sign-off; after the loser correction `0010` builds `customer_service_fees_one_per_type` | `SF01`–`SF03` |
 | `standby_rate_entries.ndjson` | `effectiveFrom` at browser-local midnight | Bangkok-date key (UNVERIFIED that admin browsers ran in ICT) | `effective_from_date = bkk_date(effectiveFrom)` | `SR01`–`SR03` |
 | `billing_statements.ndjson`, `billing_counters.ndjson` | statement without `invoiceNumber`; float totals like `1234.5600000001`; counter doc `{customerId}_{YYYYMM}` | invoice number fallback to doc id; JS half-up rounding of stored floats; `withholding_tax_rate = 0.0100` (D8/R18); no lines for legacy statements | totals rounded to 2 dp; counters split on the last `_` | `ST2`, counters |
-| `vehicle_expenses.ndjson` | two fuel docs with the same `(driverId, taxInvId)`; `refillLocation` as `"lat,lng"`; legacy `gasStation` | D5: report, never rewrite | both rows loaded unchanged + `duplicate_natural_key` (info); the CI loser correction (§D.5.4 step 3) fixes one through the API before `0010` builds `vehicle_expenses_fuel_taxinv` | `EX01`–`EX04` |
+| `vehicle_expenses.ndjson` | two fuel docs with the same `(driverId, taxInvId)`; `refillLocation` as `"lat,lng"`; legacy `gasStation` | D5: report, never rewrite | both rows loaded unchanged + `duplicate_natural_key` (info); the CI loser correction (§D.5.4 step 4; a direct UPDATE as `logitrack_etl` in T15, the API once it exists) fixes one before `0010` builds `vehicle_expenses_fuel_taxinv` | `EX01`–`EX04` |
 | `maintenance.ndjson` | statuses `PM Booking`, `Scheduled`, `In-Progress`, `in_progress` | canonical status vocabulary | `pm_booking`, `scheduled`, `in_progress` | `MT01`–`MT03` |
 | `transactions.ndjson`, `payroll.ndjson`, `driver_penalties.ndjson` | truck-renewal shape and payout shape; `payroll/{uid}_{YYYY-MM}_{R1\|R2}`; penalty with `remainingThb > totalThb` | two ledger shapes; doc-id parsing; CHECK safety | payout `tx_date_source='legacy_utc'`; bad penalty → row rejected + `bad_number` | `TX01`, `PR01`–`PR03`, `PN01`–`PN04` |
 | `chats.ndjson`, `chats__messages.ndjson` | two non-closed chats for one driver; `lastReadByAdmin` map | read-state rows; partial unique index created only after the report | both chats loaded + `duplicate_natural_key`; `chats_one_open_per_driver` builds after the loser correction | `CH01`, `CH02` |
@@ -1622,16 +1615,22 @@ ETL rows receive runtime `uuidv7()` ids, so every expected file is keyed by Fire
 
 ### D.5.3 Quarantine snapshot (R24) and orphan scan
 
+In T15 the first two items are both held by `quarantine.snapshot` (§D.5.1) and the invariant is also checked by `etl reconcile`; `orphan_scan.json` arrives with the job (T28).
+
 - `counts.json` enforces `fs_count = loaded + quarantined + rejected + dropped` per collection (Appendix A §A.3.0). Rows whose tenant chain runs out are loaded into the quarantine tenant (the 0002 row with the fixed id, `tenant_source='quarantine'`, R11, R56) with `etl.source_docs.status='quarantined'` and an `etl.quarantine` row `tenant_unresolved`; `rejected` contains only rows that cannot load: another NOT NULL or CHECK violation (`status_out_of_vocab`, `missing_required`, the penalty CHECK) or a duplicate loser (`duplicate_hub_source_id`, the second customer with a duplicate code). R19 forbids rejecting a billable trip for a missing `createdAt`.
 - `quarantine_tenant_rows.json` lists the driverless legacy task, its trip chain and the driver with a dangling `subcontractorId`. Re-homing them is an owner decision (D6, owner question Q9 in main spec §19.2); the snapshot pins the pre-decision state.
 - `orphan_scan.json` is the expected result of the `tenancy.orphan-scan` job after load: the quarantine-row counts above, plus the R24 drift report for `tenant_source='driver'` rows. Two buckets (job-result keys, as in smoke job `JB2`): `driverMoved` (the row's tenant differs from the driver's current tenant — the post-cutover signal) and `truckTenantMismatch` (the row was stamped from the driver's current tenant but its truck belongs to another tenant — the only drift evidence available for ETL-stamped history; the broker fixture's July tasks land here).
 
 ### D.5.4 CI procedure (go-ci job `etl-fixtures`)
 
-1. `etl load --dump=cmd/etl/testdata/firestore-fixtures --dry-run` and diff the would-be rows against `expected/` (counts, quarantine set, quarantine-tenant rows, resolution).
-2. Real load into a scratch `postgres:18-alpine` database, twice; the second run must report zero changes (upsert keyed by `legacy_doc_id`, newer `_updateTime` wins).
-3. After the loser corrections, `goose up` (from `up-to 9` + `apply 11`, the production P0 schema) applies `0010_d5_unique_constraints.sql` (R59, R88): its D5 unique indexes (service fees per party and type, fuel `(driver, tax_inv_id)`, one non-closed chat per driver) must build, proving the dedupe and quarantine worked (R31).
-4. `etl rewrite-urls` and `etl media-copy --verify` against `storage/` (MinIO service container); compare with `rewrites.json`.
-5. Run `tenancy.orphan-scan` once and compare with `orphan_scan.json`; run `etl reconcile` and compare with `reconcile.md` (counts exact, money within 0.005 THB per R20).
+`make etl-fixtures-check` runs the integration tests of `./cmd/etl/...` on testcontainers (`postgres:18-alpine`, MinIO), each on a fresh database at `up-to 9` + `apply 11` (the production P0 schema):
 
-A change to the ETL that alters any expected file must update the fixture and its `_note` in the same PR; the PR description states which legacy case changed behaviour.
+1. `etl load --dump=cmd/etl/testdata/firestore-fixtures --dry-run --report=…`: the report equals `quarantine.snapshot` and no row of schemas `public` and `etl` changes (`xmin`/`ctid` fingerprint).
+2. Real load (`--fixtures`): the database's quarantine report equals the snapshot; a second load applies 0 documents and changes no row (upsert keyed by `legacy_doc_id`, newer `_updateTime` wins).
+3. `etl reconcile --fixtures`: exit 0, then exit 2 on an injected money mismatch and on a missing row; the reason-code gate fails on a new code and on a higher count, on every rerun, until the findings are resolved or accepted.
+4. After the loser correction (`exp2`), `goose up` applies `0010_d5_unique_constraints.sql` (R59, R88): its D5 unique indexes must build, proving the dedupe and quarantine worked (R31).
+5. The other passes against in-process fakes and containers: `export-back` round trip through `gcptest` (a stale document is rewritten, one changed after the freeze is refused); `dump` → `load` through `gcptest`; `--since=watermark` with its look-back, and pending documents that never move a watermark; `quarantine resolve` (`rehome` with its `tenant_rehomed` event, files and tenant-only resolution, `retry`, `skip`); re-applies that keep the tenant and a fix at source; `media-copy` and `--verify` into MinIO, then `rewrite-urls` exit 0.
+
+Still to add with their tasks: `tenancy.orphan-scan` against `orphan_scan.json` (T28); `rewrite-urls` and `media-copy --verify` against `storage/` and `rewrites.json`, and `etl reconcile` against `reconcile.md` (T24).
+
+A change to the ETL that alters `quarantine.snapshot` (or a later expected file) must update the fixture, and its `_note` where the line has one, in the same PR; the PR description states which legacy case changed behaviour.

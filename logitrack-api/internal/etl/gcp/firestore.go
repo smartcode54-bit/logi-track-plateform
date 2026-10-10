@@ -120,10 +120,14 @@ func (f *Firestore) CollectionIDs(ctx context.Context) ([]string, error) {
 
 // Documents reads every document of a top-level collection (group false) or of every collection with that id
 // at any depth (group true, a collection-group query: chats/*/messages, drivers/*/mobile_installations),
-// ordered by document name and paged with a cursor, so a long read never repeats or skips a document.
+// ordered by document name and paged with a cursor, so a long read never repeats or skips a document. Every page
+// after the first is read at the readTime of the first response, so the collection is one consistent snapshot:
+// a write that commits during the read is in no page, and its updateTime is after every updateTime of the dump,
+// so no --since=watermark load built on this dump can filter it out. Firestore accepts a past readTime for one
+// hour (seven days with point-in-time recovery); a read that runs longer fails instead of mixing instants.
 func (f *Firestore) Documents(ctx context.Context, collection string, group bool) ([]dump.Doc, error) {
 	var docs []dump.Doc
-	last := ""
+	last, readTime := "", ""
 	for {
 		q := map[string]any{
 			"from":    []any{map[string]any{"collectionId": collection, "allDescendants": group}},
@@ -133,14 +137,25 @@ func (f *Firestore) Documents(ctx context.Context, collection string, group bool
 		if last != "" {
 			q["startAt"] = map[string]any{"values": []any{map[string]any{"referenceValue": last}}, "before": false}
 		}
+		body := map[string]any{"structuredQuery": q}
+		if readTime != "" {
+			body["readTime"] = readTime
+		}
 		var out []struct {
 			Document *restDoc `json:"document"`
+			ReadTime string   `json:"readTime"`
 		}
-		if err := do(ctx, f.client, f.tokens, "runQuery", http.MethodPost, f.base+":runQuery", map[string]any{"structuredQuery": q}, &out); err != nil {
+		if err := do(ctx, f.client, f.tokens, "runQuery", http.MethodPost, f.base+":runQuery", body, &out); err != nil {
 			return nil, err
 		}
 		n := 0
 		for _, r := range out {
+			if readTime == "" && r.ReadTime != "" {
+				if _, err := time.Parse(time.RFC3339Nano, r.ReadTime); err != nil {
+					return nil, fmt.Errorf("gcp: runQuery %s: readTime %q: %w", collection, r.ReadTime, err)
+				}
+				readTime = r.ReadTime
+			}
 			if r.Document == nil {
 				continue // the readTime-only element of an empty page
 			}
@@ -157,6 +172,9 @@ func (f *Firestore) Documents(ctx context.Context, collection string, group bool
 		}
 		if n < pageSize {
 			return docs, nil
+		}
+		if readTime == "" {
+			return nil, fmt.Errorf("gcp: runQuery %s: a full page without readTime cannot be continued as one snapshot", collection)
 		}
 	}
 }

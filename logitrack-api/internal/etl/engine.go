@@ -199,6 +199,12 @@ func loadPlan(names, selected []string) []collectionSpec {
 	return plan
 }
 
+// watermarkOverlap is the look-back of a --since=watermark load (main spec §13.7: updatedAt >= watermark - 10m). A
+// document inside it is not filtered out but meets the etl.source_docs update-time guard, so the overlap re-applies
+// nothing that is unchanged; it recovers an update that committed while an earlier dump was being read (a dump
+// pinned to one readTime per collection cannot miss it, gcp.Firestore.Documents; a hand-written or older dump can).
+const watermarkOverlap = 10 * time.Minute
+
 func (e *Engine) loadCollection(ctx context.Context, tx pgx.Tx, spec collectionSpec, docs []dump.Doc, exportedAt time.Time,
 	o LoadOptions, billable billableSet, rep *Report) (CollectionStats, error) {
 	stats := CollectionStats{Name: spec.name, Mapped: spec.mapper != nil, Total: len(docs), Outcomes: map[Outcome]int{}}
@@ -210,15 +216,30 @@ func (e *Engine) loadCollection(ctx context.Context, tx pgx.Tx, spec collectionS
 			return stats, err
 		}
 	}
+	// A pending document waits for its mapping: the first load that has one applies it, a delta load included, so
+	// --since and the watermark never filter it out.
+	var pending map[string]bool
+	if spec.mapper != nil && (!since.IsZero() || o.SinceWatermark) {
+		var err error
+		if pending, err = pendingPaths(ctx, tx, spec.name); err != nil {
+			return stats, err
+		}
+	}
 	var high watermark
 	for _, doc := range docs {
 		ut := doc.UpdateTime.Truncate(time.Microsecond)
-		if (!since.IsZero() && !ut.After(since)) || (o.SinceWatermark && !mark.before(ut, doc.Path)) {
+		beforeMark := (!since.IsZero() && !ut.After(since)) ||
+			(o.SinceWatermark && !mark.at.IsZero() && ut.Before(mark.at.Add(-watermarkOverlap)))
+		if beforeMark && !pending[doc.Path] {
 			stats.BeforeMark++
 			continue
 		}
-		if high.before(ut, doc.Path) {
-			high = watermark{at: ut, path: doc.Path}
+		// advance moves the collection's watermark over this document. A document recorded pending never does:
+		// the first --since=watermark load that maps its collection must still see it.
+		advance := func() {
+			if high.before(ut, doc.Path) {
+				high = watermark{at: ut, path: doc.Path}
+			}
 		}
 		var storedUT time.Time
 		var storedStatus string
@@ -231,6 +252,9 @@ func (e *Engine) loadCollection(ctx context.Context, tx pgx.Tx, spec collectionS
 		case !o.Force && !ut.After(storedUT) && (storedStatus != string(Pending) || spec.mapper == nil):
 			// A pending document waits for its mapping: it is applied by the first load that has one.
 			stats.Unchanged++
+			if storedStatus != string(Pending) {
+				advance()
+			}
 			continue
 		}
 		c := &docCtx{ctx: ctx, tx: tx, e: e, coll: spec.name, doc: doc, f: doc.Fields, billable: billable.has(spec.name, doc)}
@@ -240,11 +264,16 @@ func (e *Engine) loadCollection(ctx context.Context, tx pgx.Tx, spec collectionS
 		if err := e.record(c, exportedAt); err != nil {
 			return stats, err
 		}
+		if c.outcome != Pending {
+			advance()
+		}
 		stats.Outcomes[c.outcome]++
 		rep.Docs = append(rep.Docs, DocResult{Collection: spec.name, Path: doc.Path, Outcome: c.outcome, Table: c.table,
 			TargetID: c.target, TenantSource: string(c.tenantSource), Findings: c.findings})
 	}
-	// Deferred link checks (tenant consistency, driver membership) fire per collection, so a failure names it.
+	// Deferred link checks (tenant consistency, driver membership) fire per collection, so a failure names it. A row
+	// keeps its tenant on re-apply and one that leaves the quarantine tenant takes its children along (lookups.go
+	// stampWith, Engine.follow), so every collection ends consistent on its own.
 	if _, err := tx.Exec(ctx, `SET CONSTRAINTS ALL IMMEDIATE`); err != nil {
 		return stats, fmt.Errorf("etl: %s: deferred checks: %w", spec.name, err)
 	}
@@ -259,6 +288,23 @@ func (e *Engine) loadCollection(ctx context.Context, tx pgx.Tx, spec collectionS
 	return stats, nil
 }
 
+// pendingPaths are the documents of a collection recorded pending (no mapping when they were loaded).
+func pendingPaths(ctx context.Context, tx pgx.Tx, coll string) (map[string]bool, error) {
+	rows, err := tx.Query(ctx, `SELECT doc_path FROM etl.source_docs WHERE collection = $1 AND status = 'pending'`, coll)
+	if err != nil {
+		return nil, fmt.Errorf("etl: %s: pending documents: %w", coll, err)
+	}
+	paths, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("etl: %s: pending documents: %w", coll, err)
+	}
+	out := make(map[string]bool, len(paths))
+	for _, p := range paths {
+		out[p] = true
+	}
+	return out, nil
+}
+
 // apply runs the mapper of one document, or classifies a collection without one.
 func (e *Engine) apply(c *docCtx, spec collectionSpec) error {
 	switch {
@@ -270,6 +316,9 @@ func (e *Engine) apply(c *docCtx, spec collectionSpec) error {
 		if c.outcome == Quarantined && c.tenantSource != tenancy.SourceQuarantine {
 			return fmt.Errorf("etl: %s: quarantined without the quarantine tenant", c.doc.Path)
 		}
+		if c.leaving != uuid.Nil && c.outcome == Loaded && c.target != "" {
+			return e.follow(c)
+		}
 	case droppedCollections[spec.name]:
 		c.outcome = Dropped
 	case laterCollections[spec.name]:
@@ -279,6 +328,65 @@ func (e *Engine) apply(c *docCtx, spec collectionSpec) error {
 		c.find("", ReasonUnknownCollection, "collection "+spec.name+" is not in the Appendix A mapping", nil)
 	}
 	return nil
+}
+
+// follow completes a fix at source (main spec §13.5): the document's row was in the quarantine tenant and its chain
+// resolves now, so the upsert moved it to the resolved tenant; its children still in the quarantine tenant and the
+// files they own follow it (tenancy.Follow), the moved children's documents become loaded and their row-level
+// tenant_unresolved findings are resolved as fixed_at_source. Their other findings stay open.
+func (e *Engine) follow(c *docCtx) error {
+	id, err := uuid.Parse(c.target)
+	if err != nil {
+		return fmt.Errorf("etl: %s: %w", c.doc.Path, err)
+	}
+	moved, err := tenancy.Follow(c.ctx, c.tx, c.table, id, c.leaving)
+	if err != nil {
+		return fmt.Errorf("etl: %s: %w", c.doc.Path, err)
+	}
+	// The document's own finding is resolved before record replaces its open findings, so the history keeps it.
+	if _, err := resolveTenantFinding(c.ctx, c.tx, c.coll, c.doc.Path, "etl-load", "fixed_at_source"); err != nil {
+		return err
+	}
+	_, err = settleMoved(c.ctx, c.tx, moved, "etl-load", "fixed_at_source")
+	return err
+}
+
+// settleMoved marks the documents behind rows that left the quarantine tenant loaded and resolves their row-level
+// tenant_unresolved finding (only that one: a re-home or a fix at source settles the tenant, not the driver, trip
+// number or hub findings of the same document). It returns the number of findings resolved.
+func settleMoved(ctx context.Context, tx pgx.Tx, moved []tenancy.Moved, by, resolution string) (int, error) {
+	n := 0
+	for _, m := range moved {
+		if m.Table == tenancy.FileObjects {
+			continue
+		}
+		var coll, path string
+		err := tx.QueryRow(ctx, `UPDATE etl.source_docs SET status = 'loaded' WHERE target_table = $1 AND target_id = $2
+			AND status = 'quarantined' RETURNING collection, doc_path`, m.Table, m.ID.String()).Scan(&coll, &path)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return n, fmt.Errorf("etl: %s %s: %w", m.Table, m.ID, err)
+		}
+		k, err := resolveTenantFinding(ctx, tx, coll, path, by, resolution)
+		if err != nil {
+			return n, err
+		}
+		n += k
+	}
+	return n, nil
+}
+
+// resolveTenantFinding resolves the open row-level tenant_unresolved finding of one document.
+func resolveTenantFinding(ctx context.Context, tx pgx.Tx, coll, path, by, resolution string) (int, error) {
+	tag, err := tx.Exec(ctx, `UPDATE etl.quarantine SET resolved_at = now(), resolved_by = $3, resolution = $4
+		WHERE collection = $1 AND doc_path = $2 AND resolved_at IS NULL AND field IS NULL AND reason_code = $5`,
+		coll, path, by, resolution, string(ReasonTenantUnresolved))
+	if err != nil {
+		return 0, fmt.Errorf("etl: %s: resolve the tenant finding: %w", path, err)
+	}
+	return int(tag.RowsAffected()), nil
 }
 
 // record writes etl.source_docs (the id map) and replaces the document's open findings.

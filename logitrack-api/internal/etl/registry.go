@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/dump"
@@ -86,6 +87,9 @@ type docCtx struct {
 	target       string
 	tenantSource tenancy.Source
 	billable     bool
+	// leaving is the resolved tenant of a row that exists in the quarantine tenant and whose chain resolves now
+	// (a fix at source): after the upsert its children and files follow it (Engine.follow).
+	leaving uuid.UUID
 }
 
 // find records a finding.
@@ -101,7 +105,7 @@ func (c *docCtx) reject(field string, r Reason, detail string, raw any) error {
 			Detail: fmt.Sprintf("%s (field %q) on a document with billing evidence; fix it at the source and dump again (R19)", detail, field)}
 	}
 	c.outcome = Rejected
-	c.table, c.target, c.tenantSource = "", "", ""
+	c.table, c.target, c.tenantSource, c.leaving = "", "", "", uuid.Nil
 	c.findings = append(c.findings, Finding{Field: field, Reason: r, Detail: detail, Raw: raw})
 	return nil
 }

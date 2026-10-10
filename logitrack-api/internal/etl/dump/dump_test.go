@@ -156,3 +156,30 @@ func TestReaderChecksCountsAndPaths(t *testing.T) {
 		t.Error("a repeated path must fail")
 	}
 }
+
+// The example line of Appendix D §D.5.1 loads verbatim: document times tagged {"$ts": ...} and a top-level _note
+// (ignored) are accepted next to the plain RFC 3339 strings `etl dump` writes; anything else is refused.
+func TestUnmarshalDocAppendixDExample(t *testing.T) {
+	const example = `{"_id": "fxTaskLegacyUid00001", "_path": "tasks/fxTaskLegacyUid00001", "_createTime": {"$ts": "2026-07-21T08:00:00Z"}, "_updateTime": {"$ts": "2026-07-22T03:16:00Z"}, "_note": "legacy task: driverId holds an auth uid, Title-case status, PICKUP truckType, unpadded taskId", "fields": {"taskId": "FM-22072026-7", "date": {"$ts": "2026-07-21T17:00:00Z"}, "dateStr": "22072026", "status": "Completed", "taskType": "FIRST_MILE", "sourceHub": "ALANG-A", "destination": "SOCE (บัวโรย)", "driverId": "FXUID0000000000000000000DRV1", "truckType": "PICKUP", "licensePlate": "1ขค-1234", "sourceHubLinkedCustomerId": "fxCustSPX00000000001", "sourceHubCustomerLinkKind": "customer", "createdAt": {"$ts": "2026-07-21T08:00:00Z"}}}`
+	d, err := dump.UnmarshalDoc([]byte(example))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !d.CreateTime.Equal(time.Date(2026, 7, 21, 8, 0, 0, 0, time.UTC)) || !d.UpdateTime.Equal(time.Date(2026, 7, 22, 3, 16, 0, 0, time.UTC)) ||
+		d.Fields["status"] != "Completed" {
+		t.Fatalf("decoded %#v", d)
+	}
+	plain, err := dump.MarshalDoc(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(plain), `"_updateTime":"2026-07-22T03:16:00Z"`) {
+		t.Fatalf("written times stay untagged: %s", plain)
+	}
+	for _, bad := range []string{`{"$ts": 5}`, `{"$geo": {"lat": 1, "lng": 2}}`, `{"$ts": "2026-07-22T03:16:00Z", "x": 1}`, `{}`} {
+		line := `{"_id": "a", "_path": "c/a", "_updateTime": ` + bad + `, "fields": {}}`
+		if _, err := dump.UnmarshalDoc([]byte(line)); err == nil {
+			t.Errorf("_updateTime %s must be refused", bad)
+		}
+	}
+}

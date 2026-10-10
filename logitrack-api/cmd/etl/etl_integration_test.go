@@ -13,9 +13,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"maps"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -434,16 +437,32 @@ func TestExportBackRoundTrip(t *testing.T) {
 	changed := byID["cust_spx"]
 	changed.UpdateTime = freeze.Add(time.Hour) // edited in Firestore after the freeze
 	fake.Put(changed)
+	// Unchanged since the freeze but holding stale content, plus a field the encoder does not own: the rollback
+	// must replace the owned fields from PostgreSQL and keep the other one (update mask).
+	stale := byID["cust_cjsf"]
+	stale.Fields = map[string]any{"code": "STALE", "name": "stale before rollback", "legacyExtra": "kept"}
+	fake.Put(stale)
 
 	code, out, errb := h.run("export-back", "--collection", "customers", "--frozen-at", freeze.Format(time.RFC3339))
 	if code != 2 || !strings.Contains(out, "REFUSED\tcustomers/cust_spx") {
 		t.Fatalf("a document changed after the freeze must be refused: exit %d\n%s\n%s", code, out, errb)
 	}
-	got, _ := fake.Doc("customers/cust_cjsf")
-	if !reflect.DeepEqual(got.Fields, byID["cust_cjsf"].Fields) {
-		t.Fatalf("round trip of customers/cust_cjsf:\n got %#v\nwant %#v", got.Fields, byID["cust_cjsf"].Fields)
+	if !strings.Contains(out, "export-back: 1 written, 1 refused") {
+		t.Fatalf("summary line: %s", out)
 	}
-	if _, ok := fake.Doc("customers/cust_zdup"); !ok {
+	if w := fake.Writes(); len(w) != 1 || w[0].Path != "customers/cust_cjsf" {
+		t.Fatalf("writes: %#v", w)
+	}
+	got, _ := fake.Doc("customers/cust_cjsf")
+	if !got.UpdateTime.After(freeze) {
+		t.Fatalf("customers/cust_cjsf was not written: updateTime %v", got.UpdateTime)
+	}
+	want := maps.Clone(byID["cust_cjsf"].Fields)
+	want["legacyExtra"] = "kept"
+	if !reflect.DeepEqual(got.Fields, want) {
+		t.Fatalf("round trip of customers/cust_cjsf:\n got %#v\nwant %#v", got.Fields, want)
+	}
+	if zdup, ok := fake.Doc("customers/cust_zdup"); !ok || !reflect.DeepEqual(zdup.Fields, byID["cust_zdup"].Fields) {
 		t.Fatal("the fixture's rejected duplicate stays in Firestore untouched")
 	}
 	h.mustRun("export-back", "--collection", "customers", "--frozen-at", freeze.Format(time.RFC3339), "--overwrite-after-freeze")
@@ -543,10 +562,42 @@ func TestWatermarksAndQuarantineResolve(t *testing.T) {
 	if v := h.scalar(`SELECT status FROM etl.source_docs WHERE doc_path = 'tasks/task_4'`); v != "loaded" {
 		t.Errorf("source doc status: %v", v)
 	}
-	// TRIP004 cannot be re-homed into the quarantine tenant itself.
+	// The re-home settles the tenant only: the hub finding of task_4 stays open.
+	if v := h.scalar(`SELECT resolution IS NULL FROM etl.quarantine WHERE doc_path = 'tasks/task_4' AND field = 'sourceHub'
+		AND reason_code = 'hub_unresolved'`); v != true {
+		t.Error("a re-home must leave the hub_unresolved finding open")
+	}
+	// No audit, no change: one tenant_rehomed event, committed with the move (R22, Appendix C §C.4.13).
+	rehomed := func() int64 {
+		return h.scalar(`SELECT count(*) FROM security_events WHERE event_type = 'tenant_rehomed'`).(int64)
+	}
+	if v := h.scalar(`SELECT count(*) FROM security_events WHERE event_type = 'tenant_rehomed' AND tenant_id = $1
+		AND actor_user_id IS NULL AND details->>'table' = 'tasks' AND details->>'by' = 'owner'
+		AND details->>'fromTenantId' = $2 AND details->>'docPath' = 'tasks/task_4' AND jsonb_array_length(details->'moved') = 1`,
+		ownFleet, tenancy.QuarantineTenantID); v != int64(1) || rehomed() != 1 {
+		t.Errorf("tenant_rehomed events: %v of %d", v, rehomed())
+	}
+	// TRIP004 cannot be re-homed into the quarantine tenant itself, and the refused move writes no event.
 	if code, _, _ := h.run("quarantine", "resolve", "--collection", "trip_records", "--doc", "trip_records/TRIP004", "--action", "rehome",
 		"--tenant", tenancy.QuarantineTenantID); code == 0 {
 		t.Error("re-homing into the quarantine tenant must fail")
+	}
+	if rehomed() != 1 {
+		t.Errorf("a refused re-home wrote an event: %d", rehomed())
+	}
+	// Re-homed to the own fleet, TRIP004 keeps its driver and trip-number findings open.
+	out = h.mustRun("quarantine", "resolve", "--collection", "trip_records", "--doc", "trip_records/TRIP004", "--action", "rehome",
+		"--tenant", ownFleet)
+	if !strings.Contains(out, "1 finding(s) resolved, 1 row(s) and 0 file(s) re-homed") {
+		t.Errorf("rehome TRIP004: %s", out)
+	}
+	if v := h.scalar(`SELECT string_agg(coalesce(field, '-') || ' ' || reason_code || ' ' || coalesce(resolution, 'open'), ', '
+		ORDER BY field NULLS FIRST) FROM etl.quarantine WHERE doc_path = 'trip_records/TRIP004'`); v !=
+		"- tenant_unresolved rehomed, driverId driver_unresolved open, spxTripId trip_no_mismatch open" {
+		t.Errorf("TRIP004 findings: %v", v)
+	}
+	if rehomed() != 2 {
+		t.Errorf("tenant_rehomed events after TRIP004: %d", rehomed())
 	}
 	// skip accepts the findings of a document; retry re-applies it from etl.source_docs.raw.
 	h.mustRun("quarantine", "resolve", "--collection", "trip_records", "--doc", "trip_records/TRIP001", "--action", "skip")
@@ -669,5 +720,254 @@ func TestDumpToS3(t *testing.T) {
 	}
 	if code, _, _ := h.run("load", "--dump", "s3:documents/x/"); code != 2 {
 		t.Error("an s3 dump outside etl/dumps/ must be refused")
+	}
+}
+
+// collection is one collection of a hand-made dump.
+type collection struct {
+	name string
+	docs []dump.Doc
+}
+
+// writeDump writes a dump of the collections and returns its directory.
+func writeDump(t *testing.T, exportedAt time.Time, colls ...collection) string {
+	t.Helper()
+	dir := t.TempDir()
+	w, err := dump.NewWriter(dir, exportedAt, "p", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range colls {
+		if err := w.WriteCollection(c.name, false, c.docs); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func doc(path string, ut time.Time, fields map[string]any) dump.Doc {
+	return dump.Doc{ID: path[strings.LastIndexByte(path, '/')+1:], Path: path, CreateTime: ut.Add(-time.Hour), UpdateTime: ut, Fields: fields}
+}
+
+// --since=watermark looks back 10 minutes (main spec §13.7): an update that committed while an earlier dump was
+// being read, older than that dump's newest document, is applied by the next delta load (review T15).
+func TestWatermarkOverlap(t *testing.T) {
+	h := newHarness(t)
+	t0 := time.Date(2026, 9, 20, 10, 0, 0, 0, time.UTC)
+	d1 := writeDump(t, t0.Add(time.Hour), collection{"customers", []dump.Doc{
+		doc("customers/ca", t0, map[string]any{"code": "CA", "name": "A old"}),
+		doc("customers/cb", t0.Add(5*time.Minute), map[string]any{"code": "CB", "name": "B"}),
+	}})
+	h.mustRun("load", "--dump", d1)
+	d2 := writeDump(t, t0.Add(2*time.Hour), collection{"customers", []dump.Doc{
+		doc("customers/ca", t0.Add(3*time.Minute), map[string]any{"code": "CA", "name": "A updated"}), // missed by d1
+		doc("customers/cb", t0.Add(5*time.Minute), map[string]any{"code": "CB", "name": "B"}),
+		doc("customers/cc", t0.Add(-11*time.Minute), map[string]any{"code": "CC", "name": "C"}), // before the look-back
+	}})
+	out := h.mustRun("load", "--dump", d2, "--since", "watermark")
+	if !strings.Contains(out, "1 document(s) applied") {
+		t.Fatalf("delta load: %s", out)
+	}
+	if !regexp.MustCompile(`customers\s+3\s+1\s+1\s+1\s`).MatchString(out) {
+		t.Errorf("want 3 docs: 1 unchanged inside the look-back, 1 before the mark, 1 loaded:\n%s", out)
+	}
+	if v := h.scalar(`SELECT name FROM customers WHERE legacy_doc_id = 'ca'`); v != "A updated" {
+		t.Errorf("the update inside the look-back was lost: %v", v)
+	}
+}
+
+// Pending documents (a collection a later task maps) never move the watermark, so the first --since=watermark load
+// that maps the collection still applies them (review T15; the mapping side is covered in internal/etl).
+func TestPendingDocumentsLeaveNoWatermark(t *testing.T) {
+	h := newHarness(t)
+	h.mustRun("load", "--fixtures")
+	if v := h.scalar(`SELECT status FROM etl.source_docs WHERE doc_path = 'settings/tenancy'`); v != "pending" {
+		t.Fatalf("settings/tenancy: %v", v)
+	}
+	if v := h.scalar(`SELECT count(*) FROM etl.watermarks WHERE collection IN ('settings', 'checkin', 'legacy_tmp')`); v != int64(2) {
+		t.Errorf("only the dropped and unknown collections may have a watermark, not the pending one: %v", v)
+	}
+	if v := h.scalar(`SELECT count(*) FROM etl.watermarks WHERE collection = 'settings'`); v != int64(0) {
+		t.Errorf("a pending collection moved the watermark: %v", v)
+	}
+}
+
+// A re-applied row keeps its tenant (main spec §13.5): a platform admin's re-home is never undone by a delta load,
+// --force or retry, broker drift is reported and not moved, a re-linked child keeps its tenant and drops the link,
+// and a quarantined parent whose chain now resolves (a fix at source) takes its children and files along
+// (review T15).
+func TestReapplyKeepsTheTenant(t *testing.T) {
+	h := newHarness(t)
+	h.mustRun("load", "--fixtures")
+	t1 := time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC)
+	storageURL := func(key string) string {
+		return "https://firebasestorage.googleapis.com/v0/b/logitrack-legacy.appspot.com/o/" + url.PathEscape(key) + "?alt=media&token=t"
+	}
+	task := func(id string, ut time.Time, extra map[string]any) dump.Doc {
+		f := map[string]any{"taskId": "FM-" + id, "taskType": "FIRST_MILE", "status": "Pending",
+			"date": dump.Timestamp{Time: time.Date(2026, 9, 9, 2, 0, 0, 0, time.UTC)}, "sourceHub": "SOCE", "destination": "SOCN",
+			"checkInPhotoUrl": storageURL("tasks/" + id + "/checkin.jpg")}
+		maps.Copy(f, extra)
+		return doc("tasks/"+id, ut, f)
+	}
+	trip := func(id, taskID string, ut time.Time) dump.Doc {
+		return doc("trip_records/"+id, ut, map[string]any{"status": "in_transit", "jobType": "first_mile", "taskId": taskID,
+			"driverId": "uid_own", "createdAt": dump.Timestamp{Time: t1},
+			"photos": []any{map[string]any{"type": "seal", "url": storageURL("trip_records/" + id + "/seal.jpg")}}})
+	}
+	d1 := writeDump(t, t1.Add(time.Hour),
+		collection{"tasks", []dump.Doc{task("task_sec", t1, nil), task("task_fix", t1, nil), task("task_lone", t1, nil)}},
+		collection{"trip_records", []dump.Doc{trip("TRIPSEC", "task_sec", t1), trip("TRIPFIX", "task_fix", t1)}})
+	h.mustRun("load", "--dump", d1)
+	tenantOf := func(table, legacyID string) string {
+		return h.scalar(`SELECT tenant_id::text || ' ' || tenant_source FROM `+table+` WHERE legacy_doc_id = $1`, legacyID).(string)
+	}
+	fileTenant := func(key string) string {
+		return h.scalar(`SELECT tenant_id::text FROM file_objects WHERE object_key = $1`, key).(string)
+	}
+	quarantine := tenancy.QuarantineTenantID + " quarantine"
+	for _, x := range [][2]string{{"tasks", "task_sec"}, {"tasks", "task_fix"}, {"tasks", "task_lone"}, {"trip_records", "TRIPSEC"}, {"trip_records", "TRIPFIX"}} {
+		if v := tenantOf(x[0], x[1]); v != quarantine {
+			t.Fatalf("%s %s: %s", x[0], x[1], v)
+		}
+	}
+
+	// The platform admin re-homes task_sec (its trip and both files follow) and the childless task_lone.
+	out := h.mustRun("quarantine", "resolve", "--collection", "tasks", "--doc", "tasks/task_sec", "--action", "rehome", "--tenant", ownFleet)
+	if !strings.Contains(out, "2 row(s) and 2 file(s) re-homed") {
+		t.Fatalf("rehome task_sec: %s", out)
+	}
+	h.mustRun("quarantine", "resolve", "--collection", "tasks", "--doc", "tasks/task_lone", "--action", "rehome", "--tenant", ownFleet)
+	if v := tenantOf("trip_records", "TRIPSEC"); v != ownFleet+" task" {
+		t.Errorf("TRIPSEC follows its task: %s", v)
+	}
+	for _, k := range []string{"tasks/task_sec/checkin.jpg", "trip_records/TRIPSEC/seal.jpg"} {
+		if v := fileTenant(k); v != ownFleet {
+			t.Errorf("file %s stayed on %s", k, v)
+		}
+	}
+	if v := h.scalar(`SELECT jsonb_array_length(details->'moved')::bigint FROM security_events WHERE details->>'docPath' = 'tasks/task_sec'`); v != int64(4) {
+		t.Errorf("tenant_rehomed moved list: %v", v)
+	}
+
+	// Firestore then changes task_sec and task_lone (status), fixes task_fix at source (a driver), moves task_1 to
+	// another carrier's driver (broker drift) and re-links TRIPSEC to a task of that carrier.
+	t2 := t1.Add(24 * time.Hour)
+	d2 := writeDump(t, t2.Add(time.Hour),
+		collection{"tasks", []dump.Doc{
+			task("task_sec", t2, map[string]any{"status": "Assigned"}),
+			task("task_lone", t2, map[string]any{"status": "Assigned"}),
+			task("task_fix", t2, map[string]any{"driverId": "drv_own"}),
+			doc("tasks/task_1", t2, map[string]any{"taskId": "FM-01092026-001", "taskType": "FIRST_MILE", "status": "Completed",
+				"date": dump.Timestamp{Time: time.Date(2026, 9, 1, 2, 0, 0, 0, time.UTC)}, "driverId": "drv_alpha", "sourceHub": "SOCE",
+				"destination": "SOCE"}),
+		}},
+		collection{"trip_records", []dump.Doc{trip("TRIPSEC", "task_2", t2)}})
+	for _, args := range [][]string{
+		{"load", "--dump", d2, "--collections", "tasks"},
+		{"load", "--dump", d2, "--collections", "tasks", "--force"},
+		{"load", "--dump", d2},
+		{"load", "--dump", d2, "--since", "watermark", "--force"},
+		{"quarantine", "resolve", "--collection", "tasks", "--doc", "tasks/task_sec", "--action", "retry"},
+		{"quarantine", "resolve", "--collection", "tasks", "--doc", "tasks/task_lone", "--action", "retry"},
+	} {
+		h.mustRun(args...)
+		for _, x := range [][3]string{
+			{"tasks", "task_sec", ownFleet + " form"}, {"tasks", "task_lone", ownFleet + " form"},
+			{"tasks", "task_fix", ownFleet + " driver"}, {"trip_records", "TRIPFIX", ownFleet + " task"},
+			{"tasks", "task_1", ownFleet + " driver"}, {"trip_records", "TRIP001", ownFleet + " task"},
+		} {
+			if v := tenantOf(x[0], x[1]); v != x[2] {
+				t.Errorf("after %v: %s %s is %s, want %s", args, x[0], x[1], v, x[2])
+			}
+		}
+	}
+	if v := h.scalar(`SELECT status FROM tasks WHERE legacy_doc_id = 'task_sec'`); v != "assigned" {
+		t.Errorf("task_sec content is re-applied: %v", v)
+	}
+	if v := h.scalar(`SELECT count(*) FROM etl.quarantine WHERE reason_code = 'tenant_unresolved' AND resolved_at IS NULL
+		AND doc_path IN ('tasks/task_sec', 'tasks/task_lone', 'tasks/task_fix', 'trip_records/TRIPSEC', 'trip_records/TRIPFIX')`); v != int64(0) {
+		t.Errorf("open tenant_unresolved findings reopened: %v", v)
+	}
+	// Fix at source: task_fix and its trip left the quarantine tenant together, with the trip's photo.
+	if v := h.scalar(`SELECT string_agg(doc_path || ' ' || resolution, ', ' ORDER BY doc_path) FROM etl.quarantine
+		WHERE reason_code = 'tenant_unresolved' AND doc_path IN ('tasks/task_fix', 'trip_records/TRIPFIX')`); v !=
+		"tasks/task_fix fixed_at_source, trip_records/TRIPFIX fixed_at_source" {
+		t.Errorf("fix at source findings: %v", v)
+	}
+	if v := h.scalar(`SELECT status FROM etl.source_docs WHERE doc_path = 'trip_records/TRIPFIX'`); v != "loaded" {
+		t.Errorf("TRIPFIX source doc: %v", v)
+	}
+	for _, k := range []string{"tasks/task_fix/checkin.jpg", "trip_records/TRIPFIX/seal.jpg"} {
+		if v := fileTenant(k); v != ownFleet {
+			t.Errorf("file %s stayed on %s", k, v)
+		}
+	}
+	// Broker drift: reported on the chain's field, never moved.
+	if v := h.scalar(`SELECT count(*) FROM etl.quarantine WHERE doc_path = 'tasks/task_1' AND field = 'driverId'
+		AND reason_code = 'tenant_mismatch' AND resolved_at IS NULL`); v != int64(1) {
+		t.Errorf("broker drift finding: %v", v)
+	}
+	// Re-link to another tenant's task: TRIPSEC keeps its tenant, the link is dropped and reported.
+	if v := h.scalar(`SELECT coalesce(task_id::text, 'null') || ' ' || legacy_task_ref || ' ' || task_ref_match || ' ' || tenant_id::text
+		FROM trip_records WHERE legacy_doc_id = 'TRIPSEC'`); v != "null task_2 none "+ownFleet {
+		t.Errorf("re-linked TRIPSEC: %v", v)
+	}
+	if v := h.scalar(`SELECT count(*) FROM etl.quarantine WHERE doc_path = 'trip_records/TRIPSEC' AND field = 'taskId'
+		AND reason_code = 'tenant_mismatch' AND resolved_at IS NULL`); v != int64(1) {
+		t.Errorf("re-link finding: %v", v)
+	}
+}
+
+// The reason-code gate of reconcile (main spec §13.9, Appendix A §A.3.11): the baseline is the last matching run,
+// so a new code or a higher count keeps failing on a plain rerun until the findings are resolved or the owner
+// accepts them (review T15).
+func TestReconcileFindingsGate(t *testing.T) {
+	h := newHarness(t)
+	h.mustRun("load", "--fixtures")
+	reconcile := func(args ...string) (int, string) {
+		code, out, errb := h.run(append([]string{"reconcile", "--fixtures"}, args...)...)
+		if code != 0 && code != 2 {
+			t.Fatalf("reconcile: exit %d\n%s\n%s", code, out, errb)
+		}
+		return code, out
+	}
+	if code, out := reconcile(); code != 0 {
+		t.Fatalf("first run: %s", out)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO etl.quarantine (collection, doc_path, field, reason_code, detail)
+		VALUES ('customers', 'customers/cust_spx', 'taxId', 'bad_number', 'injected')`); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if code, out := reconcile(); code != 2 || !strings.Contains(out, "findings\tbad_number") || !strings.Contains(out, "did not have") {
+			t.Fatalf("a new code must keep failing on a rerun: exit %d\n%s", code, out)
+		}
+	}
+	h.mustRun("quarantine", "resolve", "--collection", "customers", "--doc", "customers/cust_spx", "--action", "skip")
+	if code, out := reconcile(); code != 0 {
+		t.Fatalf("resolved: %s", out)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO etl.quarantine (collection, doc_path, field, reason_code)
+		VALUES ('tasks', 'tasks/task_3', 'destination', 'hub_unresolved')`); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if code, out := reconcile(); code != 2 || !strings.Contains(out, "(+1)") {
+			t.Fatalf("a higher count of a known code must fail: exit %d\n%s", code, out)
+		}
+	}
+	dir := t.TempDir()
+	if code, out := reconcile("--accept-findings", "owner", "--out", dir); code != 0 || !strings.Contains(out, "reconcile: match") {
+		t.Fatalf("accepted: exit %d\n%s", code, out)
+	}
+	if v := h.scalar(`SELECT report->>'acceptedBy' FROM etl.reconciliation_runs ORDER BY started_at DESC, id DESC LIMIT 1`); v != "owner" {
+		t.Errorf("acceptedBy: %v", v)
+	}
+	if code, out := reconcile(); code != 0 {
+		t.Fatalf("the accepted run is the new baseline: %s", out)
 	}
 }

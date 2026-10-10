@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -47,21 +49,33 @@ func RehomeTables() []string {
 	return out
 }
 
-// Moved is one row a re-home moved.
+// Moved is one row a re-home moved: a tenant-stamped row or, with Table FileObjects, a file it owns.
 type Moved struct {
 	Table string
 	ID    uuid.UUID
 }
 
-// Rehome moves one quarantined row to tenant `to` with its children, inside the caller's transaction
-// (Appendix C §C.3.10, the service of POST /v1/tenants/quarantine/rows/{table}/{id}/rehome and of
+// FileObjects is the Moved.Table of a file that followed its owner.
+const FileObjects = "file_objects"
+
+// fileOwnerKinds are the file_objects.owner_kind values of the rows Rehome moves (storage.Owner*, the CHECK of
+// 0002_identity); truck_assignments and payroll_runs own no file.
+var fileOwnerKinds = map[string]string{
+	"tasks": "task", "trip_records": "trip", "standby_records": "standby", "incident_reports": "incident",
+	"drivers": "driver", "trucks": "truck", "companies": "company", "vehicle_expenses": "expense",
+	"maintenance_records": "maintenance", "driver_penalties": "penalty", "leave_requests": "leave", "chats": "chat",
+}
+
+// Rehome moves one quarantined row to tenant `to` with its children and their files, inside the caller's
+// transaction (Appendix C §C.3.10, the service of POST /v1/tenants/quarantine/rows/{table}/{id}/rehome and of
 // `etl quarantine resolve --action=rehome`). It turns on app.tenant_move for this transaction only, so the
 // frozen-tenant trigger lets exactly this move through; the deferred link triggers re-check parents and
 // children at COMMIT (mobile_installations and vehicle_locations have no quarantine rows: unresolved ones are
 // rejected). The row takes tenant_source 'form' (an explicit platform-admin decision, like an API
-// row taking the caller's chosen tenant); a child takes the link it follows ('task' or 'trip'). The caller
-// writes the audit record (tenant_rehomed). A table whose CHECK needs a driver or truck for a non-quarantine
-// row (chats, payroll, maintenance without a truck, ...) refuses the move with that CHECK.
+// row taking the caller's chosen tenant); a child takes the link it follows ('task' or 'trip'); Follow moves the
+// rest. The caller writes the audit record (tenant_rehomed) in the same transaction. A table whose CHECK needs a
+// driver or truck for a non-quarantine row (chats, payroll, maintenance without a truck, ...) refuses the move with
+// that CHECK. The result starts with the row itself.
 func Rehome(ctx context.Context, tx pgx.Tx, table string, id, to uuid.UUID) ([]Moved, error) {
 	if _, ok := rehomeTables[table]; !ok {
 		return nil, fmt.Errorf("tenancy: %s is not a tenant-stamped table Rehome supports", table)
@@ -86,8 +100,64 @@ func Rehome(ctx context.Context, tx pgx.Tx, table string, id, to uuid.UUID) ([]M
 	if tag.RowsAffected() == 0 {
 		return nil, ErrNotQuarantined
 	}
-	moved := []Moved{{Table: table, ID: id}}
-	return moveChildren(ctx, tx, table, id, to, q, moved)
+	rest, err := Follow(ctx, tx, table, id, to)
+	if err != nil {
+		return nil, err
+	}
+	return append([]Moved{{Table: table, ID: id}}, rest...), nil
+}
+
+// Follow moves what a row takes along when it leaves the quarantine tenant for `to`: its children still in the
+// quarantine tenant, re-stamped with the link they follow (recursively), then the file_objects that the row and
+// those children own while the files are in the quarantine tenant (a key another tenant's row registered first
+// keeps its tenant). The caller has already moved the row itself, under app.tenant_move (Rehome) or app.etl_load
+// (cmd/etl: a load or retry whose fix at source now resolves the row's chain, main spec §13.5); both GUCs open the
+// frozen-tenant trigger, and the file trigger accepts the system context or app.etl_load. The result lists the
+// moved children, then the moved files, not the row.
+func Follow(ctx context.Context, tx pgx.Tx, table string, id, to uuid.UUID) ([]Moved, error) {
+	if _, ok := rehomeTables[table]; !ok {
+		return nil, fmt.Errorf("tenancy: %s is not a tenant-stamped table Rehome supports", table)
+	}
+	q := uuid.MustParse(QuarantineTenantID)
+	children, err := moveChildren(ctx, tx, table, id, to, q, nil)
+	if err != nil {
+		return nil, err
+	}
+	files, err := moveFiles(ctx, tx, append([]Moved{{Table: table, ID: id}}, children...), to, q)
+	if err != nil {
+		return nil, err
+	}
+	return append(children, files...), nil
+}
+
+// moveFiles moves the files the owners own from the quarantine tenant to `to`.
+func moveFiles(ctx context.Context, tx pgx.Tx, owners []Moved, to, q uuid.UUID) ([]Moved, error) {
+	kinds, ids := make([]string, 0, len(owners)), make([]uuid.UUID, 0, len(owners))
+	for _, o := range owners {
+		if k, ok := fileOwnerKinds[o.Table]; ok {
+			kinds, ids = append(kinds, k), append(ids, o.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := tx.Query(ctx, `UPDATE file_objects f SET tenant_id = $1
+		FROM unnest($3::text[], $4::uuid[]) AS m(kind, id)
+		WHERE f.tenant_id = $2 AND f.owner_kind = m.kind AND f.owner_id = m.id
+		RETURNING f.id`, to, q, kinds, ids)
+	if err != nil {
+		return nil, fmt.Errorf("tenancy: move the files of %s %s: %w", owners[0].Table, owners[0].ID, err)
+	}
+	fids, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil {
+		return nil, fmt.Errorf("tenancy: move the files of %s %s: %w", owners[0].Table, owners[0].ID, err)
+	}
+	slices.SortFunc(fids, func(a, b uuid.UUID) int { return strings.Compare(a.String(), b.String()) })
+	out := make([]Moved, 0, len(fids))
+	for _, f := range fids {
+		out = append(out, Moved{Table: FileObjects, ID: f})
+	}
+	return out, nil
 }
 
 func moveChildren(ctx context.Context, tx pgx.Tx, table string, id, to, q uuid.UUID, moved []Moved) ([]Moved, error) {

@@ -63,6 +63,43 @@ func TestDocumentsPagesAndKeepsTypes(t *testing.T) {
 	}
 }
 
+// A paged read is one snapshot (review T15): writes that commit between the pages are in no page, even when the
+// written document's page comes later, so the newest updateTime of the read never passes a write the read missed.
+func TestDocumentsReadsOneSnapshot(t *testing.T) {
+	b := gcptest.New(t, "logitrack-test")
+	for i := range 301 {
+		b.Put(dump.Doc{ID: fmt.Sprintf("c%03d", i), Path: fmt.Sprintf("customers/c%03d", i), CreateTime: at(1), UpdateTime: at(2),
+			Fields: map[string]any{"name": "old"}})
+	}
+	b.OnRunQuery(func(call int) {
+		if call != 1 {
+			return
+		}
+		// After page 1 (c000-c299): c000 was already read, c300 not yet.
+		b.Put(dump.Doc{ID: "c000", Path: "customers/c000", CreateTime: at(1), UpdateTime: at(60), Fields: map[string]any{"name": "new"}})
+		b.Put(dump.Doc{ID: "c300", Path: "customers/c300", CreateTime: at(1), UpdateTime: at(120), Fields: map[string]any{"name": "new"}})
+		b.Put(dump.Doc{ID: "c301", Path: "customers/c301", CreateTime: at(120), UpdateTime: at(120), Fields: map[string]any{"name": "new"}})
+	})
+	f := b.Firestore()
+	docs, err := f.Documents(context.Background(), "customers", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(docs) != 301 || b.RunQueryCalls() != 2 {
+		t.Fatalf("got %d docs in %d calls", len(docs), b.RunQueryCalls())
+	}
+	for _, d := range docs {
+		if d.Fields["name"] != "old" || !d.UpdateTime.Equal(at(2)) {
+			t.Fatalf("%s: a write after the read started leaked into the snapshot: %#v %v", d.Path, d.Fields, d.UpdateTime)
+		}
+	}
+	b.OnRunQuery(nil)
+	docs, err = f.Documents(context.Background(), "customers", false)
+	if err != nil || len(docs) != 302 || docs[0].Fields["name"] != "new" || docs[300].Fields["name"] != "new" {
+		t.Fatalf("the next read sees the writes: %d docs, %v", len(docs), err)
+	}
+}
+
 func TestPatchPreconditionsAndMask(t *testing.T) {
 	b := gcptest.New(t, "logitrack-test")
 	b.Put(dump.Doc{ID: "c1", Path: "customers/c1", CreateTime: at(1), UpdateTime: at(2), Fields: map[string]any{"name": "A", "keep": true, "gone": "x"}})

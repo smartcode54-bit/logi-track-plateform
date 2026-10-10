@@ -3,6 +3,10 @@
 // REST methods runQuery, listCollectionIds, get and patch (with preconditions and update masks) over an
 // in-memory document table, and Cloud Storage media downloads. Everything is served through an
 // http.RoundTripper, so tests never open a socket or reach Google. Test support only.
+//
+// Time is logical: every Put and accepted patch is one tick after the backend's clock, a runQuery answers with
+// the readTime of the latest tick, and a runQuery that sends a readTime sees every document as it was at that
+// tick (the versions are kept), the way Firestore serves a consistent read at a past readTime.
 package gcptest
 
 import (
@@ -53,11 +57,19 @@ type Backend struct {
 	database string
 	mu       sync.Mutex
 	docs     map[string]dump.Doc
+	versions map[string][]version
 	objects  map[string]object
 	writes   []Write
 	clock    time.Time
 	tick     int64
 	runQuery int
+	onQuery  func(call int)
+}
+
+// version is a document as one tick left it.
+type version struct {
+	tick int64
+	doc  dump.Doc
 }
 
 type object struct {
@@ -72,8 +84,8 @@ func New(t testing.TB, project string) *Backend {
 	if keyErr != nil {
 		t.Fatal(keyErr)
 	}
-	return &Backend{t: t, project: project, database: "(default)", docs: map[string]dump.Doc{}, objects: map[string]object{},
-		clock: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)}
+	return &Backend{t: t, project: project, database: "(default)", docs: map[string]dump.Doc{}, versions: map[string][]version{},
+		objects: map[string]object{}, clock: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)}
 }
 
 // Root is projects/{p}/databases/{d}/documents.
@@ -81,11 +93,26 @@ func (b *Backend) Root() string {
 	return "projects/" + b.project + "/databases/" + b.database + "/documents"
 }
 
-// Put stores a document as is (its times included).
+// Put stores a document as is (its times included), as a new version one tick later.
 func (b *Backend) Put(d dump.Doc) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.now() // every write is one tick
+	b.store(d)
+}
+
+// store records d as the current document and as the version of the current tick.
+func (b *Backend) store(d dump.Doc) {
 	b.docs[d.Path] = d
+	b.versions[d.Path] = append(b.versions[d.Path], version{tick: b.tick, doc: d})
+}
+
+// OnRunQuery calls fn after each runQuery is answered (call counts from 1), outside the backend's lock, so a test
+// can write documents between the pages of one read.
+func (b *Backend) OnRunQuery(fn func(call int)) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.onQuery = fn
 }
 
 // Doc returns a stored document.
@@ -272,6 +299,7 @@ func (b *Backend) restDoc(d dump.Doc) map[string]any {
 
 func (b *Backend) handleRunQuery(w http.ResponseWriter, r *http.Request) {
 	var req struct {
+		ReadTime        string `json:"readTime"`
 		StructuredQuery struct {
 			From []struct {
 				CollectionID   string `json:"collectionId"`
@@ -298,8 +326,29 @@ func (b *Backend) handleRunQuery(w http.ResponseWriter, r *http.Request) {
 	}
 	b.mu.Lock()
 	b.runQuery++
+	call, hook := b.runQuery, b.onQuery
+	at := b.tick
+	if req.ReadTime != "" {
+		rt, err := time.Parse(time.RFC3339Nano, req.ReadTime)
+		if err != nil || rt.Before(b.clock) {
+			b.mu.Unlock()
+			apiError(w, http.StatusBadRequest, "INVALID_ARGUMENT")
+			return
+		}
+		at = int64(rt.Sub(b.clock) / time.Microsecond)
+	}
+	readTime := b.clock.Add(time.Duration(at) * time.Microsecond).Format(time.RFC3339Nano)
+	visible := map[string]dump.Doc{}
+	for path, vs := range b.versions {
+		for i := len(vs) - 1; i >= 0; i-- {
+			if vs[i].tick <= at {
+				visible[path] = vs[i].doc
+				break
+			}
+		}
+	}
 	var paths []string
-	for path, d := range b.docs {
+	for path, d := range visible {
 		if d.Collection() != from.CollectionID || (!from.AllDescendants && d.ParentPath() != "") {
 			continue
 		}
@@ -314,14 +363,17 @@ func (b *Backend) handleRunQuery(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []any{}
 	for _, path := range paths {
-		out = append(out, map[string]any{"document": b.restDoc(b.docs[path]), "readTime": b.clock.Format(time.RFC3339Nano)})
+		out = append(out, map[string]any{"document": b.restDoc(visible[path]), "readTime": readTime})
 	}
 	b.mu.Unlock()
 	if len(out) == 0 {
-		out = append(out, map[string]any{"readTime": b.clock.Format(time.RFC3339Nano)})
+		out = append(out, map[string]any{"readTime": readTime})
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
+	if hook != nil {
+		hook(call)
+	}
 }
 
 func (b *Backend) handleListCollections(w http.ResponseWriter) {
@@ -420,7 +472,7 @@ func (b *Backend) handlePatch(w http.ResponseWriter, r *http.Request, path strin
 		}
 	}
 	next.UpdateTime = now
-	b.docs[path] = next
+	b.store(next)
 	b.writes = append(b.writes, Write{Path: path, Fields: fields, Mask: slices.Clone(mask)})
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(b.restDoc(next))

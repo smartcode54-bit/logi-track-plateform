@@ -33,6 +33,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/objstore"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/tenancy"
 )
 
 // fixtures is the committed fixture dump (`--fixtures`, make etl-fixtures): no production data.
@@ -52,9 +53,12 @@ Database (ETL_DATABASE_URL, logged in as logitrack_etl):
   load (--dump=DIR|s3:etl/dumps/{ts} | --fixtures) [--collections=a,b] [--dry-run] [--report=FILE]
        [--since=RFC3339|watermark] [--force]
         upsert by legacy_doc_id, only documents whose _updateTime is newer; --dry-run writes the report and
-        commits nothing; --force re-applies unchanged documents (after a mapping change)
-  reconcile (--dump=... | --fixtures) [--period=YYYY-MM] [--out=DIR]
-        counts and money against the dump; exit 2 on a mismatch (etl.reconciliation_runs)
+        commits nothing; --force re-applies unchanged documents (after a mapping change); --since=watermark
+        looks back 10 minutes; --fixtures without --dry-run is refused unless APP_ENV=local
+  reconcile (--dump=... | --fixtures) [--period=YYYY-MM] [--out=DIR] [--accept-findings=NAME]
+        counts and money against the dump, open findings per reason code against the last matching run (a new
+        code or a higher count blocks); exit 2 on a mismatch (etl.reconciliation_runs); --accept-findings records
+        the owner's sign-off of the open findings, so a matching run becomes the next baseline
   export-back --collection=customers --frozen-at=RFC3339 [--overwrite-after-freeze] [--out=DIR]
         class A rollback to Firestore in the legacy shape (--out writes the documents to a dump instead)
   media-copy [--limit=N] [--verify]
@@ -428,6 +432,12 @@ func cmdLoad(e *env, args []string) int {
 	if err := fl.Parse(args); err != nil || fl.NArg() != 0 {
 		return usageError(e.stderr, "load: bad flags")
 	}
+	// The fixture dump ships in every etl binary: committing its synthetic carriers, tasks and billable trips is
+	// for a developer's own database only (no delete path would take them out of a shared one again).
+	if *useFixtures && !*dry && e.cfg.AppEnv != "local" {
+		_, _ = fmt.Fprintf(e.stderr, "etl: load --fixtures commits synthetic documents; refused when APP_ENV=%s (use --dry-run, or APP_ENV=local)\n", e.cfg.AppEnv)
+		return app.ExitConfigError
+	}
 	o := etl.LoadOptions{Collections: splitList(*colls), DryRun: *dry, Force: *force}
 	switch *since {
 	case "":
@@ -496,6 +506,7 @@ func cmdReconcile(e *env, args []string) int {
 	useFixtures := fl.Bool("fixtures", false, "reconcile against the committed fixture dump")
 	period := fl.String("period", "", "YYYY-MM (Asia/Bangkok) for the money checks")
 	out := fl.String("out", "", "directory for reconcile-{ts}.md and .csv")
+	accept := fl.String("accept-findings", "", "owner name: accept the open findings (new codes and deltas) as the next baseline")
 	if err := fl.Parse(args); err != nil || fl.NArg() != 0 {
 		return usageError(e.stderr, "reconcile: bad flags")
 	}
@@ -509,7 +520,7 @@ func cmdReconcile(e *env, args []string) int {
 		return code
 	}
 	defer closeDB()
-	rec, err := eng.Reconcile(e.ctx, d, *period)
+	rec, err := eng.Reconcile(e.ctx, d, etl.ReconcileOptions{Period: *period, AcceptFindingsBy: *accept})
 	if err != nil {
 		return e.fail(app.ExitRuntimeError, err, "reconcile failed")
 	}
@@ -745,7 +756,13 @@ func cmdQuarantineResolve(e *env, args []string) int {
 		_, _ = fmt.Fprintf(e.stdout, ", outcome %s", res.Outcome)
 	}
 	if len(res.Moved) > 0 {
-		_, _ = fmt.Fprintf(e.stdout, ", %d row(s) re-homed", len(res.Moved))
+		files := 0
+		for _, m := range res.Moved {
+			if m.Table == tenancy.FileObjects {
+				files++
+			}
+		}
+		_, _ = fmt.Fprintf(e.stdout, ", %d row(s) and %d file(s) re-homed", len(res.Moved)-files, files)
 	}
 	_, _ = fmt.Fprintln(e.stdout)
 	return app.ExitOK

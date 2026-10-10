@@ -38,7 +38,18 @@ type Reconciliation struct {
 	Period     string    `json:"period,omitempty"`
 	ExportedAt time.Time `json:"dumpExportedAt"`
 	Match      bool      `json:"match"`
-	Checks     []Check   `json:"checks"`
+	// AcceptedBy names the owner who accepted this run's open findings as the new baseline (--accept-findings).
+	AcceptedBy string  `json:"acceptedBy,omitempty"`
+	Checks     []Check `json:"checks"`
+}
+
+// ReconcileOptions select one reconciliation.
+type ReconcileOptions struct {
+	// Period (YYYY-MM, optional) limits the money checks to one Bangkok month.
+	Period string
+	// AcceptFindingsBy, when set, records the owner's sign-off of the open findings: their codes and counts pass
+	// and, if every other check matches, this run becomes the baseline of the next one.
+	AcceptFindingsBy string
 }
 
 // Mismatches lists the failed checks.
@@ -64,15 +75,15 @@ var reconcileTables = map[string]string{"subcontractors": "tenants", "customers"
 	"tasks": "tasks", "trip_records": "trip_records", "standby_records": "standby_records", "incidentReport": "incident_reports",
 	"vehicle_expenses": "vehicle_expenses", "maintenance": "maintenance_records"}
 
-// Reconcile compares the dump with the database. period (YYYY-MM, optional) limits the money checks to one
-// Bangkok month.
-func (e *Engine) Reconcile(ctx context.Context, d *dump.Dump, period string) (*Reconciliation, error) {
+// Reconcile compares the dump with the database.
+func (e *Engine) Reconcile(ctx context.Context, d *dump.Dump, o ReconcileOptions) (*Reconciliation, error) {
+	period := o.Period
 	if period != "" {
 		if _, err := time.Parse("2006-01", period); err != nil {
 			return nil, errors.New("etl: --period must be YYYY-MM")
 		}
 	}
-	rec := &Reconciliation{Period: period, ExportedAt: d.Manifest.ExportedAt, Match: true}
+	rec := &Reconciliation{Period: period, ExportedAt: d.Manifest.ExportedAt, Match: true, AcceptedBy: strings.TrimSpace(o.AcceptFindingsBy)}
 	docs := map[string][]dump.Doc{}
 	for _, n := range d.Names() {
 		ds, err := d.Read(n)
@@ -95,7 +106,7 @@ func (e *Engine) Reconcile(ctx context.Context, d *dump.Dump, period string) (*R
 		if err := reconcileExpenses(ctx, tx, docs, status, period, rec); err != nil {
 			return err
 		}
-		if err := reconcileFindings(ctx, tx, rec); err != nil {
+		if err := reconcileFindings(ctx, tx, rec, rec.AcceptedBy); err != nil {
 			return err
 		}
 		report, err := json.Marshal(rec)
@@ -300,7 +311,8 @@ func partyBases(docs map[string][]dump.Doc) map[string]string {
 }
 
 // reconcileTrips: Σ billingEstimateThb per (party, Bangkok period on the party's axis: billingDate for plan basis,
-// deliveredTimestamp otherwise) and the unpriced snapshots per party.
+// deliveredTimestamp otherwise) and the unpriced snapshots per (party, stored R62 reason; "none" when the legacy
+// document carries no valid billingUnpricedReason, as legacy trips do until the R62 derivation of T38).
 func reconcileTrips(ctx context.Context, tx pgx.Tx, docs map[string][]dump.Doc, status docStatus, period string, rec *Reconciliation) error {
 	bases := partyBases(docs)
 	src, unpricedSrc := newSums(), map[string]int{}
@@ -323,11 +335,11 @@ func reconcileTrips(ctx context.Context, tx pgx.Tx, docs map[string][]dump.Doc, 
 			multi, _ := d.Fields["billingIsMultiDelivery"].(bool)
 			src.add(party+" "+p, c, multi)
 		case hasBillingEvidence("trip_records", d.Fields) && hasStamp(d.Fields):
-			unpricedSrc[party]++
+			unpricedSrc[party+" "+tripUnpricedReason(d.Fields)]++
 		}
 	}
 	rows, err := tx.Query(ctx, `SELECT coalesce(cu.legacy_doc_id, t.legacy_doc_id, ''), coalesce(bp.billing_date_basis, 'delivered'),
-		  r.billing_date, r.delivered_at, s.estimate_thb, s.is_multi_delivery
+		  r.billing_date, r.delivered_at, s.estimate_thb, s.is_multi_delivery, coalesce(s.unpriced_reason, 'none')
 		FROM trip_billing_snapshots s JOIN trip_records r ON r.id = s.trip_id
 		LEFT JOIN billing_parties bp ON bp.id = r.billing_party_id
 		LEFT JOIN customers cu ON cu.id = bp.customer_id LEFT JOIN tenants t ON t.id = bp.tenant_id`)
@@ -336,11 +348,11 @@ func reconcileTrips(ctx context.Context, tx pgx.Tx, docs map[string][]dump.Doc, 
 	}
 	tgt, unpricedTgt := newSums(), map[string]int{}
 	for rows.Next() {
-		var party, basis string
+		var party, basis, reason string
 		var billingDate, deliveredAt *time.Time
 		var est pgtype.Numeric
 		var multi bool
-		if err := rows.Scan(&party, &basis, &billingDate, &deliveredAt, &est, &multi); err != nil {
+		if err := rows.Scan(&party, &basis, &billingDate, &deliveredAt, &est, &multi, &reason); err != nil {
 			return err
 		}
 		axis := deliveredAt
@@ -356,7 +368,7 @@ func reconcileTrips(ctx context.Context, tx pgx.Tx, docs map[string][]dump.Doc, 
 			continue
 		}
 		if !est.Valid {
-			unpricedTgt[party]++
+			unpricedTgt[party+" "+reason]++
 			continue
 		}
 		tgt.add(party+" "+p, numericCents(est), multi)
@@ -373,9 +385,19 @@ func reconcileTrips(ctx context.Context, tx pgx.Tx, docs map[string][]dump.Doc, 
 		parties[k] = true
 	}
 	for _, k := range sortedKeys(parties) {
-		rec.add("trip_unpriced", k, unpricedSrc[k], unpricedTgt[k], unpricedSrc[k] == unpricedTgt[k], "stamped snapshots without a price")
+		rec.add("trip_unpriced", k, unpricedSrc[k], unpricedTgt[k], unpricedSrc[k] == unpricedTgt[k], "stamped snapshots without a price, per reason")
 	}
 	return nil
+}
+
+// tripUnpricedReason mirrors tripSnapshot: the stored reason when it is one of R62, else "none".
+func tripUnpricedReason(f map[string]any) string {
+	u, _ := f["billingUnpricedReason"].(string)
+	switch u = strings.TrimSpace(u); u {
+	case "no_customer", "no_rate", "no_vehicle_class", "no_billing_date":
+		return u
+	}
+	return "none"
 }
 
 // hasStamp mirrors tripSnapshot: a snapshot exists for any billing* field other than the party and date stamps.
@@ -397,12 +419,17 @@ func sortedKeys(m map[string]bool) []string {
 	return out
 }
 
-// reconcileStandby: Σ billingEstimateThb per (party, Bangkok month of endedAt).
+// reconcileStandby: Σ billingEstimateThb per (party, Bangkok month of endedAt), and the completed standby records
+// without endedAt (unpriced no_ended_at, R62: never derived).
 func reconcileStandby(ctx context.Context, tx pgx.Tx, docs map[string][]dump.Doc, status docStatus, period string, rec *Reconciliation) error {
 	src := newSums()
+	noEnd := 0
 	for _, d := range docs["standby_records"] {
 		if s := status.of("standby_records", d.Path); s != string(Loaded) && s != string(Quarantined) {
 			continue
+		}
+		if docTime(d.Fields, "endedAt").IsZero() { // absent or unparseable: ended_at NULL either way
+			noEnd++
 		}
 		c, priced := docCents(d.Fields, "billingEstimateThb")
 		p := bkkPeriod(docTime(d.Fields, "endedAt"))
@@ -444,6 +471,14 @@ func reconcileStandby(ctx context.Context, tx pgx.Tx, docs map[string][]dump.Doc
 		return err
 	}
 	compareSums(rec, "standby_money", src, tgt)
+	if len(docs["standby_records"]) > 0 {
+		var have int
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM standby_records WHERE legacy_doc_id IS NOT NULL AND status = 'completed'
+			AND ended_at IS NULL`).Scan(&have); err != nil {
+			return err
+		}
+		rec.add("standby_no_ended_at", "standby_records", noEnd, have, noEnd == have, "completed standby without endedAt (unpriced no_ended_at, R62)")
+	}
 	return nil
 }
 
@@ -491,9 +526,13 @@ func reconcileExpenses(ctx context.Context, tx pgx.Tx, docs map[string][]dump.Do
 	return nil
 }
 
-// reconcileFindings: open findings per reason code, against the previous run. A code the previous run did not
-// have blocks the cut-over step (main spec §13.9); the first run only reports.
-func reconcileFindings(ctx context.Context, tx pgx.Tx, rec *Reconciliation) error {
+// reconcileFindings: open findings per reason code against the baseline, the latest run whose outcome was match
+// (main spec §13.9, Appendix A §A.3.11). A code the baseline did not have, or more open findings of a code than
+// it had, blocks the cut-over step until the findings are resolved (`etl quarantine resolve`) or the owner accepts
+// them (acceptedBy, `reconcile --accept-findings=NAME`): a failed run never becomes a baseline, so re-running
+// reconcile does not lift the gate. Fewer findings than the baseline pass. Without any match run yet, the codes are
+// reported only.
+func reconcileFindings(ctx context.Context, tx pgx.Tx, rec *Reconciliation, acceptedBy string) error {
 	rows, err := tx.Query(ctx, `SELECT reason_code, count(*) FROM etl.quarantine WHERE resolved_at IS NULL GROUP BY reason_code`)
 	if err != nil {
 		return err
@@ -511,20 +550,22 @@ func reconcileFindings(ctx context.Context, tx pgx.Tx, rec *Reconciliation) erro
 		return err
 	}
 	var prevRaw []byte
-	err = tx.QueryRow(ctx, `SELECT report FROM etl.reconciliation_runs WHERE outcome IS NOT NULL ORDER BY started_at DESC, id DESC LIMIT 1`).Scan(&prevRaw)
+	err = tx.QueryRow(ctx, `SELECT report FROM etl.reconciliation_runs WHERE outcome = 'match' ORDER BY started_at DESC, id DESC LIMIT 1`).Scan(&prevRaw)
 	var prev map[string]int
-	if err == nil {
+	switch {
+	case err == nil:
 		var p Reconciliation
-		if json.Unmarshal(prevRaw, &p) == nil {
-			prev = map[string]int{}
-			for _, c := range p.Checks {
-				if c.Name == "findings" {
-					n, _ := strconv.Atoi(c.Target)
-					prev[c.Key] = n
-				}
+		if err := json.Unmarshal(prevRaw, &p); err != nil {
+			return fmt.Errorf("etl: the baseline reconciliation report: %w", err)
+		}
+		prev = map[string]int{}
+		for _, c := range p.Checks {
+			if c.Name == "findings" {
+				n, _ := strconv.Atoi(c.Target)
+				prev[c.Key] = n
 			}
 		}
-	} else if !errors.Is(err, pgx.ErrNoRows) {
+	case !errors.Is(err, pgx.ErrNoRows):
 		return err
 	}
 	codes := map[string]bool{}
@@ -535,11 +576,17 @@ func reconcileFindings(ctx context.Context, tx pgx.Tx, rec *Reconciliation) erro
 		ok, note := true, "first reconciliation: reported only"
 		if prev != nil {
 			pn, seen := prev[k]
-			ok = seen
-			note = fmt.Sprintf("previous run: %d", pn)
-			if !seen {
-				note = "a reason code the previous run did not have"
+			switch {
+			case !seen:
+				ok, note = false, "a reason code the baseline run did not have"
+			case now[k] > pn:
+				ok, note = false, fmt.Sprintf("baseline %d, now %d (+%d)", pn, now[k], now[k]-pn)
+			default:
+				note = fmt.Sprintf("baseline %d, now %d", pn, now[k])
 			}
+		}
+		if !ok && acceptedBy != "" {
+			ok, note = true, note+"; accepted by "+acceptedBy
 		}
 		rec.add("findings", k, "-", now[k], ok, note)
 	}
@@ -557,7 +604,11 @@ func (r *Reconciliation) WriteMarkdown(w io.Writer) error {
 	if r.Period != "" {
 		fmt.Fprintf(&b, ", money for %s (Asia/Bangkok)", r.Period)
 	}
-	b.WriteString(".\n\n| check | key | source | target | ok | note |\n|---|---|---|---|---|---|\n")
+	b.WriteString(".")
+	if r.AcceptedBy != "" {
+		fmt.Fprintf(&b, " Open findings accepted by %s.", mdEscape(r.AcceptedBy))
+	}
+	b.WriteString("\n\n| check | key | source | target | ok | note |\n|---|---|---|---|---|---|\n")
 	for _, c := range r.Checks {
 		ok := "yes"
 		if !c.OK {

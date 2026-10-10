@@ -292,33 +292,124 @@ func (c *docCtx) contractorOf(t uuid.UUID) (uuid.UUID, error) {
 	return *ct, nil
 }
 
+// stampTables are the tables behind the collections a mapper stamps.
+var stampTables = map[string]string{
+	tenancy.Tasks: "tasks", tenancy.TripRecords: "trip_records", tenancy.StandbyRecords: "standby_records",
+	tenancy.IncidentReport: "incident_reports", tenancy.Drivers: "drivers", tenancy.Trucks: "trucks",
+	tenancy.VehicleExpenses: "vehicle_expenses", tenancy.Maintenance: "maintenance_records",
+}
+
 // stamp resolves the tenant of a tenant-stamped row through the pure resolver (tenancy.Resolve). When the chain
 // runs out the row goes to the quarantine tenant with a row-level tenant_unresolved finding (R11). A row linked
 // to a quarantined parent follows it there: the tenant-consistency triggers of 0004 require a child to carry its
 // parent's tenant, and a re-home moves both together (Appendix C §C.3.10).
-func (c *docCtx) stamp(collection string, fields map[string]any, parents ...ref) uuid.UUID {
+//
+// tenant_id is frozen at insert or load (main spec §13.5): a re-applied document (a newer _updateTime, --force,
+// quarantine resolve --action=retry) whose row already exists outside the quarantine tenant keeps that tenant and
+// tenant_source, whatever its chain says now. A platform admin's re-home ('form') is never undone, broker drift is
+// reported (tenant_mismatch on the chain's field) and never moved. A row that exists in the quarantine tenant and
+// whose chain now resolves is a fix at source: it takes the resolved tenant and, after the upsert, its children and
+// files follow it (Engine.follow).
+func (c *docCtx) stamp(collection string, fields map[string]any, parents ...ref) (uuid.UUID, error) {
 	return c.stampWith(collection, fields, c.lookups(), parents...)
 }
 
 // stampWith is stamp with explicit lookups (a task's driver matched by name).
-func (c *docCtx) stampWith(collection string, fields map[string]any, l tenancy.Lookups, parents ...ref) uuid.UUID {
+func (c *docCtx) stampWith(collection string, fields map[string]any, l tenancy.Lookups, parents ...ref) (uuid.UUID, error) {
+	table, ok := stampTables[collection]
+	if !ok {
+		return uuid.Nil, fmt.Errorf("etl: %s: %s is not a tenant-stamped collection of this release", c.doc.Path, collection)
+	}
+	tenant, source, why := c.resolveTenant(collection, fields, l, parents...)
+	cur, found, err := c.stampedRow(table)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	switch {
+	case found && cur.tenant != c.e.quar:
+		// Drift through a task or trip link is a re-link: keepLink reports it on the link and drops it.
+		if why == "" && tenant != cur.tenant && source != tenancy.SourceTask && source != tenancy.SourceTrip {
+			c.find(chainField(source), ReasonTenantMismatch, fmt.Sprintf("the document now resolves to tenant %s (%s); the row keeps its frozen tenant %s (main spec §13.5)",
+				tenant, source, cur.tenant), tenant.String())
+		}
+		c.tenantSource = cur.source
+		return cur.tenant, nil
+	case why != "":
+		c.find("", ReasonTenantUnresolved, why, nil)
+		return c.toQuarantine(), nil
+	case found:
+		c.leaving = tenant
+	}
+	c.tenantSource = source
+	return tenant, nil
+}
+
+// resolveTenant runs the chain; why is the tenant_unresolved detail when the row belongs in the quarantine tenant.
+func (c *docCtx) resolveTenant(collection string, fields map[string]any, l tenancy.Lookups, parents ...ref) (uuid.UUID, tenancy.Source, string) {
 	res, ok := tenancy.Resolve(collection, fields, l)
 	tenant, _ := uuid.Parse(res.TenantID)
-	if ok && tenant != uuid.Nil {
-		for _, p := range parents {
-			if p.ok() {
-				if c.quarantined(p) && tenant != c.e.quar {
-					c.find("", ReasonTenantUnresolved, "its "+linkName(collection)+" is in the quarantine tenant; the row follows it", nil)
-					return c.toQuarantine()
-				}
-				break // the trigger checks only the first linked parent
-			}
-		}
-		c.tenantSource = res.Source
-		return tenant
+	if !ok || tenant == uuid.Nil {
+		return uuid.Nil, "", "the tenant chain of " + collection + " ran out"
 	}
-	c.find("", ReasonTenantUnresolved, "the tenant chain of "+collection+" ran out", nil)
-	return c.toQuarantine()
+	for _, p := range parents {
+		if p.ok() {
+			if c.quarantined(p) && tenant != c.e.quar {
+				return uuid.Nil, "", "its " + linkName(collection) + " is in the quarantine tenant; the row follows it"
+			}
+			break // the trigger checks only the first linked parent
+		}
+	}
+	return tenant, res.Source, ""
+}
+
+// stampedRow is the tenant the row behind this document already carries.
+type stampedRow struct {
+	tenant uuid.UUID
+	source tenancy.Source
+}
+
+func (c *docCtx) stampedRow(table string) (stampedRow, bool, error) {
+	var r stampedRow
+	var src string
+	err := c.tx.QueryRow(c.ctx, `SELECT tenant_id, tenant_source FROM `+pgx.Identifier{table}.Sanitize()+` WHERE legacy_doc_id = $1`,
+		c.doc.ID).Scan(&r.tenant, &src)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return r, false, nil
+	}
+	if err != nil {
+		return r, false, fmt.Errorf("etl: %s: read the row's tenant: %w", c.doc.Path, err)
+	}
+	r.source = tenancy.Source(src)
+	return r, true, nil
+}
+
+// chainField is the legacy field a tenant source reads.
+func chainField(s tenancy.Source) string {
+	switch s {
+	case tenancy.SourceDriver:
+		return "driverId"
+	case tenancy.SourceTask:
+		return "taskId"
+	case tenancy.SourceTrip:
+		return "tripId"
+	case tenancy.SourceTruck:
+		return "truckId"
+	case tenancy.SourceSelf:
+		return "subcontractorId"
+	}
+	return ""
+}
+
+// keepLink drops a task or trip link whose parent is on another tenant than the row: a re-applied row keeps its
+// frozen tenant, and the 0004 consistency triggers forbid a child on another tenant than its parent. The column is
+// NULL, the raw reference stays in legacy_*_ref, and tenant_mismatch names the field. New rows never disagree with
+// their first linked parent (stampWith).
+func (c *docCtx) keepLink(field string, p ref, tenant uuid.UUID) ref {
+	if !p.ok() || p.tenant == tenant {
+		return p
+	}
+	c.find(field, ReasonTenantMismatch, fmt.Sprintf("the linked row is on tenant %s and this row keeps tenant %s; link not kept", p.tenant, tenant), c.get(field))
+	return ref{}
 }
 
 func linkName(collection string) string {
