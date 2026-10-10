@@ -31,10 +31,13 @@ import { useLanguage } from "@/context/language"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useAuth } from "@/context/auth"
+import { useMemo } from "react"
 import { routeAllowed } from "@/lib/routeCapabilities"
+import type { MeDTO } from "@/features/auth/api/me"
+import { useMe } from "@/features/auth/api/useMe"
 
 // Each item is shown when the edge gate would let the principal open it (lib/routeCapabilities.ts over
-// the Go capabilities of `['me']`, T18), so the menu and proxy.ts can never disagree.
+// the Go capabilities of `['me']`, TW4, T18), so the menu and proxy.ts can never disagree.
 const securityItems = [
     { titleKey: "securityCenter.overviewSoon", url: "/app/security-center", icon: LayoutDashboard },
     { titleKey: "securityCenter.userManagement", url: "/app/security-center/users", icon: Users },
@@ -47,13 +50,20 @@ const securityItems = [
     { titleKey: "securityCenter.mobileRelease", url: "/app/security-center/mobile-release", icon: Rocket },
 ]
 
+const NO_CAPABILITIES: readonly string[] = []
+const selectCapabilities = (me: MeDTO | null) => me?.capabilities ?? NO_CAPABILITIES
+
 export function SecurityCenterSidebar() {
     const { t } = useLanguage()
     const pathname = usePathname()
     const auth = useAuth()
     const logout = auth?.logout
-    const capabilities = auth?.me?.capabilities ?? []
-    const filteredItems = securityItems.filter((item) => routeAllowed(capabilities, item.url))
+    // The pages the proxy.ts gate lets this principal open (lib/routeCapabilities.ts over `['me']`, TW4).
+    const { data: capabilities = NO_CAPABILITIES } = useMe(selectCapabilities)
+    const filteredItems = useMemo(() => {
+        const held = new Set(capabilities)
+        return securityItems.filter((item) => routeAllowed(held, item.url))
+    }, [capabilities])
 
     return (
         <Sidebar

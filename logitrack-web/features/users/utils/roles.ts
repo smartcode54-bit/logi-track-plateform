@@ -2,7 +2,7 @@
  * Role rules the users and tenants pages show (T18). Go decides every write (`CanAssignRole`, not
  * self, steward and platform rules; Appendix C §C.2.2, §C.8); these only hide what would be refused.
  */
-import { hasCapability, PLATFORM_ROLES, TENANT_ROLES, type Me, type TenantRole } from "@/features/auth/api/me";
+import { hasCapability, PLATFORM_ROLES, TENANT_ROLES, type MeDTO, type TenantRole } from "@/features/auth/api/me";
 import type { UserDTO } from "../api/users";
 
 export { PLATFORM_ROLES, TENANT_ROLES };
@@ -32,7 +32,7 @@ export interface UserActions {
     platform: boolean;
 }
 
-export function userActions(me: Me | null | undefined): UserActions {
+export function userActions(me: MeDTO | null | undefined): UserActions {
     return {
         manage: hasCapability(me, CAP.usersManage),
         assignRole: hasCapability(me, CAP.usersAssignRole),
@@ -44,14 +44,14 @@ export function userActions(me: Me | null | undefined): UserActions {
 }
 
 /** Only a tenant_admin of the tenant, or a platform admin, may grant `tenant_admin` (Appendix B §B.2.4). */
-export function grantableRoles(me: Me | null | undefined, tenantId: string): TenantRole[] {
+export function grantableRoles(me: MeDTO | null | undefined, tenantId: string): TenantRole[] {
     const platform = (me?.platformRoles ?? []).includes("platform_admin");
     const admin = me?.tenant?.id === tenantId && me?.tenant?.role === "tenant_admin";
     return TENANT_ROLES.filter((r) => r !== "tenant_admin" || platform || admin);
 }
 
 /** Whether `user` is the signed-in principal (admin routes refuse to act on the caller, C.4.7). */
-export function isSelf(me: Me | null | undefined, user: Pick<UserDTO, "id">): boolean {
+export function isSelf(me: MeDTO | null | undefined, user: Pick<UserDTO, "id">): boolean {
     return Boolean(me && me.id === user.id);
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useEffectEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { getCustomerById, updateCustomer } from "@/features/customers/api/customers";
 import { Button } from "@/components/ui/button";
@@ -87,6 +87,10 @@ export default function EditCustomerForm() {
 
     const branchType = useWatch({ control: form.control, name: "branchType" });
 
+    // The active language when the effect's code runs: `t` is not a dependency, so a language
+    // toggle no longer refetches (TW4, developer-spec.md §10.6).
+    const translateNow = useEffectEvent((key: string) => t(key));
+
     useEffect(() => {
         const fetchData = async () => {
             if (!id) return;
@@ -116,13 +120,13 @@ export default function EditCustomerForm() {
                 }
             } catch (error) {
                 console.error("Error loading customer", error);
-                toast.error(t("customers.toast.updateError"));
+                toast.error(translateNow("customers.toast.updateError"));
             } finally {
                 setLoading(false);
             }
         };
         fetchData();
-    }, [id, form, t]);
+    }, [id, form]);
 
     const onSubmit = async (data: Customer) => {
         if (!id) return;

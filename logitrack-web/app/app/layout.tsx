@@ -4,8 +4,9 @@ import { useAuth } from "@/context/auth";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { TenantSwitcher } from "@/components/tenant-switcher";
+import { meDisplayName } from "@/features/auth/api/me";
 import { principalRoleLabel } from "@/features/auth/utils/principalLabel";
-import { apiErrorText } from "@/lib/apiError";
+import { RouteNamespaces } from "@/context/locales/RouteNamespaces";
 import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SecurityCenterSidebar } from "@/components/security-center-sidebar";
@@ -92,9 +93,14 @@ export default function AdminLayout({
     children: React.ReactNode;
 }) {
     const authContext = useAuth();
-    const currentUser = authContext?.currentUser;
     const pathname = usePathname();
     const { language, setLanguage, t } = useLanguage();
+    // `['me']` decides who is signed in: proxy.ts let this route through on a valid `lt_at`, and a
+    // session that ends later is handled by goFetch (lib/sessionEnd.ts), which leaves for /login.
+    const me = authContext?.me ?? null;
+    const userName = meDisplayName(me) || "User";
+    const userEmail = me?.email || "";
+    const userPhoto = me?.photoUrl || "";
 
     const isDashboard = pathname === "/app/dashboard";
     const isSecurityCenter = pathname?.startsWith("/app/security-center");
@@ -113,7 +119,8 @@ export default function AdminLayout({
     }, []);
 
     // Route access is decided before any page code runs, by the proxy.ts edge gate over the Go
-    // capabilities (TW3, developer-spec.md §10.5); the post-render check over Firebase claims is gone.
+    // capabilities (TW3, developer-spec.md §10.5). Who is signed in comes from `['me']` (TW4), so the
+    // 500 ms wait for Firebase persistence before redirecting to /login is gone.
 
     const toggleTheme = () => {
         const newIsDark = !isDark;
@@ -128,21 +135,20 @@ export default function AdminLayout({
         window.dispatchEvent(new Event('themechange'));
     };
 
-    // proxy.ts let this page render only for a valid session (§10.5), so there is no client-side
-    // redirect and no 500 ms wait any more (T18): a session that ends meanwhile is taken to /login by
-    // lib/sessionEnd.ts, and an api that cannot be reached shows a retry instead of a sign-out.
-    if (authContext?.error && !currentUser) {
+    // A session that ends meanwhile is taken to /login by lib/sessionEnd.ts; an api that cannot be
+    // reached shows a retry instead of a sign-out (T18).
+    if (authContext?.error && !me) {
         return (
             <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4 p-6 text-center" role="alert">
-                <p className="text-muted-foreground">{apiErrorText(authContext.error, t)}</p>
+                <p className="text-muted-foreground">{t("shell.sessionLoadFailed")}</p>
                 <button type="button" className="rounded-md border px-4 py-2 text-sm hover:bg-accent" onClick={authContext.retry}>
-                    {t("app.retry")}
+                    {t("shell.retry")}
                 </button>
             </div>
         );
     }
 
-    if (!authContext || authContext.loading || !currentUser) {
+    if (!authContext || authContext.loading) {
         return (
             <div className="min-h-screen bg-background flex flex-col items-center justify-center">
                 <div className="flex flex-col items-center gap-4">
@@ -151,6 +157,10 @@ export default function AdminLayout({
                 </div>
             </div>
         );
+    }
+
+    if (!me) {
+        return null; // The session ended: goFetch is already on its way to /login.
     }
 
     return (
@@ -281,23 +291,23 @@ export default function AdminLayout({
                                 <DropdownMenuTrigger asChild>
                                     <button className="flex items-center gap-3 hover:bg-muted/50 p-2 rounded-lg transition-colors outline-none">
                                         <div className="text-right hidden sm:block">
-                                            <p className="text-sm font-medium leading-none">{currentUser?.displayName || currentUser?.email || "User"}</p>
+                                            <p className="text-sm font-medium leading-none">{userName}</p>
                                             <p className="text-xs text-muted-foreground mt-1 capitalize">
                                                 {principalRoleLabel(authContext.me, t, language)}
                                             </p>
                                         </div>
                                         <Avatar className="h-9 w-9 border border-border">
-                                            <AvatarImage src={currentUser?.photoURL || ""} alt={currentUser?.displayName || "User"} className="object-cover" />
+                                            <AvatarImage src={userPhoto} alt={userName} className="object-cover" />
                                             <AvatarFallback className="bg-orange-200 text-orange-700 font-semibold">
-                                                {currentUser?.displayName?.[0] || currentUser?.email?.[0]?.toUpperCase() || "U"}
+                                                {userName[0]?.toUpperCase() || "U"}
                                             </AvatarFallback>
                                         </Avatar>
                                     </button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end" className="w-56">
                                     <div className="px-2 py-2">
-                                        <p className="text-sm font-medium leading-none">{currentUser?.displayName || currentUser?.email || "User"}</p>
-                                        <p className="text-xs text-muted-foreground mt-1">{currentUser?.email}</p>
+                                        <p className="text-sm font-medium leading-none">{userName}</p>
+                                        <p className="text-xs text-muted-foreground mt-1">{userEmail}</p>
                                     </div>
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem className="text-red-500 focus:text-red-500" onClick={async () => {
@@ -311,7 +321,8 @@ export default function AdminLayout({
                         </div>
                     </header>
                     <div className="flex flex-1 flex-col gap-4 p-4">
-                        {children}
+                        {/* The route group's lazily loaded translation namespaces (accounting, driverMonitor). */}
+                        <RouteNamespaces pathname={pathname}>{children}</RouteNamespaces>
                     </div>
                 </SidebarInset>
             </SidebarProvider>

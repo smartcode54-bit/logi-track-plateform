@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useEffectEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
@@ -77,6 +77,10 @@ export default function EditTruckForm() {
         defaultValues: truckDefaultValues,
     });
 
+    // The active language when the effect's code runs: `t` is not a dependency, so a language
+    // toggle no longer refetches (TW4, developer-spec.md §10.6).
+    const translateNow = useEffectEvent((key: string) => t(key));
+
     useEffect(() => {
         const fetchTruck = async () => {
              if (!truckId) return;
@@ -106,18 +110,18 @@ export default function EditTruckForm() {
 
                     form.reset(formValues);
                 } else {
-                    setError(t("trucks.detail.notFound"));
+                    setError(translateNow("trucks.detail.notFound"));
                 }
             } catch (err) {
                 console.error("Error fetching truck:", err);
-                setError(t("trucks.detail.error"));
+                setError(translateNow("trucks.detail.error"));
             } finally {
                 setIsLoading(false);
             }
         };
 
         fetchTruck();
-    }, [truckId, form, t]);
+    }, [truckId, form]);
 
     const handleFileSelect = (fieldOrFile: string | File, fileOrBlob: File | string, blobUrl?: string) => {
         if (typeof fieldOrFile === 'string' && blobUrl) {

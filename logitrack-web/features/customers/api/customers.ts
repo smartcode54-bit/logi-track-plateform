@@ -3,7 +3,10 @@
 import { db, storage } from "@/firebase/client";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { collection, doc, getDocs, getDoc, setDoc, updateDoc, query, orderBy, Timestamp } from "firebase/firestore";
+import { queryOptions } from "@tanstack/react-query";
 import { COLLECTIONS } from "@/lib/collections";
+import { getQueryClient } from "@/lib/queryClient";
+import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
 import type { Customer } from "@/validate/customerSchema";
 
 export const uploadCustomerLogo = async (file: File, path: string): Promise<string> => {
@@ -29,7 +32,8 @@ const toDate = (v: unknown): Date | undefined => {
     return undefined;
 };
 
-export async function getCustomers(): Promise<CustomerData[]> {
+/** Every customer by code, read from Firestore: the P0 source of `['customers']` (developer-spec.md §10.6). */
+export async function fetchCustomersFromFirestore(): Promise<CustomerData[]> {
     const ref = collection(db, COLLECTIONS.CUSTOMERS);
     const q = query(ref, orderBy("code", "asc"));
     const snap = await getDocs(q);
@@ -39,6 +43,32 @@ export async function getCustomers(): Promise<CustomerData[]> {
         createdAt: toDate(d.data().createdAt),
         updatedAt: toDate(d.data().updatedAt),
     })) as CustomerData[];
+}
+
+/**
+ * `['customers']` (developer-spec.md §10.7, Appendix E §E.4 row "customers"): every customer, 10 min
+ * stale, shared by every picker and page of the tab. The Go source (`GET /v1/customers`) arrives
+ * with the master-data pages (T25, P1); the key stays.
+ */
+export const customersQueryOptions = queryOptions({
+    queryKey: queryKeys.customers.all(),
+    queryFn: fetchCustomersFromFirestore,
+    ...QUERY_POLICY.masterData,
+    refetchOnWindowFocus: true,
+});
+
+/**
+ * Every customer by code, from the tab's `['customers']` cache: read once per stale time however
+ * many pages and dialogs ask (the 15 call sites read the collection on every mount before TW4). The
+ * result is shared: never mutate it in place.
+ */
+export function getCustomers(): Promise<CustomerData[]> {
+    return getQueryClient().fetchQuery(customersQueryOptions);
+}
+
+/** After a customer write: every `['customers', ...]` entry refetches where observed, the rest on next use. */
+export function invalidateCustomers(): Promise<void> {
+    return getQueryClient().invalidateQueries({ queryKey: queryKeys.customers.all() });
 }
 
 /** โหลด customers ทั้งหมดโดยไม่ orderBy — ใช้ตอน import PDP (หลีกเลี่ยงข้อกำหนด index) */
@@ -80,6 +110,7 @@ export async function createCustomer(data: Omit<Customer, "id">, logoFile?: File
         updatedAt: Timestamp.now(),
     };
     await setDoc(ref, payload);
+    await invalidateCustomers();
     return ref.id;
 }
 
@@ -96,4 +127,5 @@ export async function updateCustomer(id: string, data: Partial<Customer>, logoFi
     } as any;
     if (logoUrl) updates.logoUrl = logoUrl;
     await updateDoc(ref, updates);
+    await invalidateCustomers();
 }

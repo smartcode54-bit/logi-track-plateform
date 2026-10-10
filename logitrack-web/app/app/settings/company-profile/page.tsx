@@ -92,10 +92,10 @@ export default function CompanyProfilePage() {
 
   const branchType = watch("branchType");
 
-  // Load existing owner company
+  // Load existing owner company (fresh: this form writes it back)
   useEffect(() => {
     setLoading(true);
-    getOwnerCompany()
+    getOwnerCompany({ fresh: true })
       .then((company) => {
         if (company) {
           setCompanyId(company.id);

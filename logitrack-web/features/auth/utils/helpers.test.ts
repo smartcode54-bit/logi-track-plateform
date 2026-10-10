@@ -1,5 +1,6 @@
-// T18 helpers: legacy claims synthesised from ['me'] (Appendix C §C.6.3), the header's role line, the
-// 422 field texts (Appendix C §C.4.8), the Go user behind a legacy users/{uid} document, page walking.
+// T18 helpers: where the login page sends a signed-in visitor, the header's role line, the 422 field
+// texts (Appendix C §C.4.8), the Go user behind a legacy users/{uid} document, page walking. The legacy
+// claims synthesised from ['me'] (Appendix C §C.6.3) are tested with TW4's module (features/auth/api/me.test.ts).
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/lib/apiError";
@@ -7,7 +8,7 @@ import { fetchAllPages } from "@/lib/goPages";
 import { safeNext } from "@/lib/safeNext";
 import { findUserForLegacyAccount, usersReach } from "@/features/users/api/users";
 import { grantableRoles, userActions } from "@/features/users/utils/roles";
-import { legacyClaimsFromMe } from "../api/me";
+import { loginDestination } from "../hooks/useLogin";
 import { makeMe } from "@/test-utils/fakeWeb";
 import { fieldViolations, passwordErrorText, violationFor } from "./fieldErrors";
 import { principalRoleLabel } from "./principalLabel";
@@ -28,13 +29,16 @@ const t = (key: string, fallbackOrParams?: string | Record<string, string | numb
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe("legacyClaimsFromMe (the claims of unbridged principals, Appendix C §C.6.3)", () => {
-    it("maps platform_admin and an own-fleet tenant_admin to admin, a carrier tenant_admin to partner", () => {
-        expect(legacyClaimsFromMe(makeMe({ platformRoles: ["platform_admin"], tenant: null }))).toEqual({ admin: true, role: "admin" });
-        expect(legacyClaimsFromMe(makeMe())).toEqual({ admin: true, role: "admin" });
-        expect(legacyClaimsFromMe(makeMe({ tenant: { id: "c", nameTh: "c", nameEn: null, kind: "carrier", role: "tenant_admin" } }))).toEqual({ admin: false, role: "partner" });
-        expect(legacyClaimsFromMe(makeMe({ tenant: { id: "o", nameTh: "o", nameEn: null, kind: "own_fleet", role: "operator" } }))).toEqual({ admin: false, role: "operator" });
-        expect(legacyClaimsFromMe(makeMe({ tenant: null, customerScopes: [{ billingPartyId: "bp", name: "CJ" }] }))).toEqual({ admin: false, role: "customer" });
+describe("loginDestination (the login page's redirect of a signed-in visitor)", () => {
+    const operator = makeMe({ tenant: { id: "o", nameTh: "o", nameEn: null, kind: "own_fleet", role: "operator" }, capabilities: ["operations:view_driver_monitor"] });
+    it("goes to ?next= when the URL carries one, made safe", () => {
+        expect(loginDestination("/app/accounting/income?month=9", operator)).toBe("/app/accounting/income?month=9");
+        expect(loginDestination("https://evil.example/app", operator)).toBe("/app");
+        expect(loginDestination("", operator)).toBe("/app");
+    });
+    it("otherwise goes to the principal's home route (the proxy.ts rule, R89), not always /app", () => {
+        expect(loginDestination(null, operator)).toBe("/app/driver-monitor");
+        expect(loginDestination(null, makeMe())).toBe("/app/dashboard");
     });
 });
 

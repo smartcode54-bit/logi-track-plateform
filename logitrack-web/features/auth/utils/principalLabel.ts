@@ -3,11 +3,11 @@
  * its role in the active tenant (and the tenant's name), else its customer scope. From `['me']`, not
  * from the legacy Firebase claims.
  */
-import { tenantName, type Me } from "../api/me";
+import { tenantName, type MeDTO } from "../api/me";
 
 type Translate = (key: string, fallbackOrParams?: string | Record<string, string | number>) => string;
 
-export function principalRoleLabel(me: Me | null | undefined, t: Translate, language: string): string {
+export function principalRoleLabel(me: MeDTO | null | undefined, t: Translate, language: string): string {
     if (!me) return "";
     if (me.platformRoles.includes("platform_admin")) return t("users.platformRole.platform_admin");
     if (me.tenant) {

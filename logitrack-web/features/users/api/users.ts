@@ -23,7 +23,8 @@ import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-quer
 import { goFetch, goFetchEnvelope, goPath } from "@/lib/goFetch";
 import { fetchAllPages } from "@/lib/goPages";
 import { goInfiniteQueryFn, goNextPageParam } from "@/lib/goQuery";
-import { isPlatformPrincipal, type Me, type PlatformRole, type TenantRole } from "@/features/auth/api/me";
+import { isPlatformPrincipal, type MeDTO, type PlatformRole, type TenantRole } from "@/features/auth/api/me";
+import { queryKeys } from "@/lib/queryKeys";
 
 export type UserStatus = "active" | "disabled" | "reset_required" | "deleted";
 export type ScopeKind = "customer" | "dispatcher";
@@ -91,7 +92,7 @@ export interface UsersFilter {
     status: string;
 }
 
-export const USERS_KEY = ["users"] as const;
+export const USERS_KEY = queryKeys.users.all();
 export const USERS_PATH = "/v1/users";
 export const USERS_PAGE_SIZE = 50;
 /** The list is polled every 60 s while the tab is visible (Appendix E §E.5 row 14). */
@@ -105,7 +106,7 @@ export const ACT_ON_ALL_TENANTS = "*";
 /** Whose users a read covers: `all` (a platform principal, with `X-Act-On-Tenant: *`) or the caller's tenant reach. */
 export type UsersReach = "all" | "tenant";
 
-export function usersReach(me: Pick<Me, "platformRoles"> | null | undefined): UsersReach {
+export function usersReach(me: Pick<MeDTO, "platformRoles"> | null | undefined): UsersReach {
     return isPlatformPrincipal(me) ? "all" : "tenant";
 }
 
@@ -116,7 +117,7 @@ export function usersReachHeaders(reach: UsersReach): Record<string, string> | u
 
 /** `['users', {q, role, status, reach}]`: the reach is in the key, so a changed reach never shows another's rows. */
 export function usersQueryKey(filter: UsersFilter, reach: UsersReach = "tenant") {
-    return ["users", { q: filter.q, role: filter.role, status: filter.status, reach }] as const;
+    return queryKeys.users.list({ q: filter.q, role: filter.role, status: filter.status, reach });
 }
 
 type UsersKey = ReturnType<typeof usersQueryKey>;
@@ -257,7 +258,7 @@ export interface DriverOption {
 /** `['customers', {fields:'minimal'}]` for the customer-scope picker (10 min, §10.7). */
 export function useCustomerOptions(enabled: boolean) {
     return useQuery({
-        queryKey: ["customers", { fields: "minimal" }] as const,
+        queryKey: queryKeys.customers.list({ fields: "minimal" }),
         queryFn: ({ signal }) => fetchAllPages<CustomerOption>("/v1/customers", { fields: "minimal" }, { signal }),
         staleTime: 10 * 60_000,
         gcTime: 60 * 60_000,
@@ -269,7 +270,7 @@ export function useCustomerOptions(enabled: boolean) {
 export function useDriverOptions(q: string, enabled: boolean) {
     const term = q.trim();
     return useQuery({
-        queryKey: ["drivers", { fields: "minimal", q: term }] as const,
+        queryKey: queryKeys.drivers.list({ fields: "minimal", q: term }),
         queryFn: ({ signal }) =>
             goFetch<DriverOption[]>("/v1/drivers", { signal, query: { fields: "minimal", q: term || undefined, limit: 20 } }),
         staleTime: 5 * 60_000,

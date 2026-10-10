@@ -387,8 +387,14 @@ export default {
     "unauthorized.goBack": "ย้อนกลับ",
     "unauthorized.goHome": "ไปหน้าหลักของฉัน",
     "unauthorized.roleHint": "เข้าสู่ระบบในฐานะ: {role}",
-    // Tenant switcher and app shell (T18)
+
+    // Tenant switcher (T18)
     "nav.switchTenant": "สลับองค์กร",
     "nav.tenantSwitched": "กำลังทำงานใน {name}",
-    "app.retry": "ลองใหม่",
+
+    // App shell (TW4): the session from GET /v1/me and the route group's translation chunk.
+    "shell.sessionLoadFailed": "โหลดข้อมูลบัญชีไม่สำเร็จ ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง",
+    "shell.retry": "ลองอีกครั้ง",
+    "shell.namespaceLoadFailed": "โหลดข้อความของหน้านี้ไม่สำเร็จ",
+    "shell.reload": "โหลดใหม่",
 };

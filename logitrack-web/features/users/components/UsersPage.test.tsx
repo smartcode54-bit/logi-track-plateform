@@ -18,7 +18,7 @@ vi.mock("@/lib/loginGeo", () => ({ resolveLoginGeoForClient: async () => null })
 import { UsersPage } from "./UsersPage";
 import { USERS_PAGE_SIZE, useUsers, type UserDTO } from "../api/users";
 import { configureFirebaseBridge } from "@/lib/firebaseBridge";
-import { makeQueryClient } from "@/lib/queryClient";
+import { createQueryClient } from "@/lib/queryClient";
 import { fakeWeb, goErr, json, makeMe, type FakeCall } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
 
@@ -82,7 +82,7 @@ describe("useUsers", () => {
         const web = fakeWeb();
         const many = Array.from({ length: 1050 }, (_, i) => user(i));
         web.on("GET", "/api/go/v1/users", usersRoute(() => many));
-        const client = makeQueryClient();
+        const client = createQueryClient();
         const { result } = renderHook(() => useUsers({ q: "", role: "", status: "" }), {
             wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>,
         });
@@ -104,7 +104,7 @@ describe("useUsers", () => {
     it("sends search, role and status to Go (never filters in the browser)", async () => {
         const web = fakeWeb();
         web.on("GET", "/api/go/v1/users", () => json(200, { data: [] }));
-        const client = makeQueryClient();
+        const client = createQueryClient();
         renderHook(() => useUsers({ q: " ann ", role: "manager", status: "disabled" }), {
             wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>,
         });

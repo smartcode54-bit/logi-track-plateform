@@ -20,7 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { useLanguage } from "@/context/language";
-import { PLATFORM_ROLES, type Me, type PlatformRole } from "@/features/auth/api/me";
+import { PLATFORM_ROLES, type MeDTO, type PlatformRole } from "@/features/auth/api/me";
 import { apiErrorText } from "@/lib/apiError";
 import { removeMember, setDriverLink, setMemberRole, setPlatformRole, setUserScope, type UserDTO } from "../api/users";
 import { grantableRoles, isSelf, type UserActions } from "../utils/roles";
@@ -40,7 +40,7 @@ export function EditUserDialog({
     onSaved,
 }: {
     user: UserDTO | null;
-    me: Me | null;
+    me: MeDTO | null;
     actions: UserActions;
     onOpenChange: (open: boolean) => void;
     onSaved: () => void;

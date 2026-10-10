@@ -15,6 +15,7 @@ import { goFetch, goPath } from "@/lib/goFetch";
 import { goInfiniteQueryFn, goNextPageParam } from "@/lib/goQuery";
 import { fetchAllPages } from "@/lib/goPages";
 import { ACT_ON_TENANT_HEADER } from "@/features/users/api/users";
+import { queryKeys } from "@/lib/queryKeys";
 
 export type TenantKind = "own_fleet" | "carrier" | "quarantine";
 export type TenantStatus = "active" | "pending" | "suspended";
@@ -62,11 +63,11 @@ export interface TenantsFilter {
     status: string;
 }
 
-export const TENANTS_KEY = ["tenants"] as const;
+export const TENANTS_KEY = queryKeys.tenants.all();
 export const TENANTS_PATH = "/v1/tenants";
 
 export function tenantsQueryKey(filter: TenantsFilter) {
-    return ["tenants", { kind: filter.kind, status: filter.status }] as const;
+    return queryKeys.tenants.list({ kind: filter.kind, status: filter.status });
 }
 
 type TenantsKey = ReturnType<typeof tenantsQueryKey>;
@@ -88,7 +89,7 @@ export function useTenants(filter: TenantsFilter, enabled = true) {
 /** Every tenant (for pickers of platform admins: the tenant of a new user, a membership to add). */
 export function useAllTenants(enabled: boolean) {
     return useQuery({
-        queryKey: ["tenants", { all: true }] as const,
+        queryKey: queryKeys.tenants.list({ all: true }),
         queryFn: ({ signal }) => fetchAllPages<TenantDTO>(TENANTS_PATH, {}, { signal }),
         staleTime: 5 * 60_000,
         enabled,
@@ -96,7 +97,7 @@ export function useAllTenants(enabled: boolean) {
 }
 
 export function tenantMembersKey(tenantId: string, role: string, actOnTenant = false) {
-    return ["tenants", tenantId, "members", { role, actOnTenant }] as const;
+    return queryKeys.tenants.members(tenantId, { role, actOnTenant });
 }
 
 /**

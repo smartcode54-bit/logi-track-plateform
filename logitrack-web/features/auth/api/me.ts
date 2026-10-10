@@ -1,20 +1,38 @@
 /**
- * `['me']`: the signed-in principal from `GET /v1/me` (developer-spec.md §10.6, §10.7; Appendix B
- * §B.2.3, Appendix C §C.8). It replaces the Firebase auth listener, the per-load `setAdminClaims`
- * call and the `users/{uid}` `forceLogoutAt` listener (T18, R50): who is signed in, in which tenant,
- * with which capabilities, comes from Go.
+ * `['me']`: the signed-in principal from `GET /v1/me` (developer-spec.md §10.4, §10.6, §10.7; Appendix
+ * C §C.8; Appendix E §E.4 last row, §E.6). Go resolves the role, scopes and the effective capability
+ * set (catalog defaults, then `role_capability_overrides`), so the web never reads
+ * `permissions_config` and never derives permissions from Firebase claims again (R5, R27). It replaced
+ * the Firebase auth listener, the per-load `setAdminClaims` call and the `users/{uid}` `forceLogoutAt`
+ * listener (T18, R50).
  *
- * The query resolves `null` for a signed-out visitor: on a public page `goFetch` throws the 401 of a
- * visitor without cookies as is (its refresh is refused, nothing is ended), and the query turns it
- * into "signed out". On a protected page the same 401 has already ended the session through
- * `lib/sessionEnd.ts` (logout, then `/login?next=`). Other failures (the api down) stay errors.
+ * - Signed out: on a public page Go answers 401 `unauthenticated` and the refresh is refused;
+ *   `goFetch` throws that 401 without ending anything and the query resolves to `null`. On a
+ *   protected page `goFetch` has already ended the session (lib/sessionEnd.ts) by then.
+ * - Freshness: 5 min stale / 30 min gc. A sign-in and a tenant switch set it from a fresh
+ *   `GET /v1/me` (context/auth.tsx `completeSignIn`, `switchTenant`); a forced refresh after
+ *   `claims_changed` invalidates it (lib/queryClient.ts `bindQueryClientToSession`) and the
+ *   AuthProvider awaits that refetch (`refetchMe`) before it mints the bridge token again; a
+ *   `session.revoked` for another session of the user checks it (`refetchMe`, context/realtime.tsx).
+ *   A logout or a session end sets it to `null`. Planned, not wired yet: the role-matrix save
+ *   (`useSaveRoleMatrix`, T51/P6) and the realtime `roles.changed` event (TW5). The Role Matrix page
+ *   still saves to Firestore `permissions_config`, which Go does not read in P0.
+ * - `['me','tenants']` (`GET /v1/me/tenants`, the tenant switcher) sits under the `['me']` prefix.
  *
- * Refetched by a `claims_changed` refresh (`onClaimsRefreshed`), a tenant switch and `roles.changed`
- * (TW5); set to `null` on sign-out and on a session end.
+ * Every read of `GET /v1/me` goes through `parseMe`, so a body without an id or a capability list is a
+ * `bad_response` wherever it is read. The selectors below are pure, so components select only what
+ * they render (`useMe(select)`, `useCan`, `useMyTenants` in ./useMe.ts).
  */
-import { queryOptions, useQuery, type QueryClient } from "@tanstack/react-query";
+import { queryOptions, type QueryClient, type QueryFunctionContext } from "@tanstack/react-query";
+import { ApiError, isApiError } from "@/lib/apiError";
 import { goFetch } from "@/lib/goFetch";
-import { isApiError } from "@/lib/apiError";
+import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
+import type { CapabilityId } from "@/lib/capabilities";
+import { toCatalogKey } from "@/lib/capabilityAliases";
+import type { RoleId } from "@/lib/roles";
+
+export const ME_PATH = "/v1/me";
+export const MY_TENANTS_PATH = "/v1/me/tenants";
 
 /** Tenant roles (`memberships.role`, Appendix A `0002_identity`). */
 export const TENANT_ROLES = ["tenant_admin", "manager", "operation_staff", "operator", "user", "driver"] as const;
@@ -26,13 +44,15 @@ export type PlatformRole = (typeof PLATFORM_ROLES)[number];
 
 export type TenantKind = "own_fleet" | "carrier" | "quarantine";
 
-/** One tenant of `GET /v1/me` (`tenant`, `tenants[]`) and of `GET /v1/me/tenants` (with `status`). */
+/** A membership's tenant as `GET /v1/me` reports it (Go `auth.Tenant`), and a row of `GET /v1/me/tenants`. */
 export interface MeTenant {
     id: string;
     nameTh: string;
     nameEn: string | null;
-    kind: TenantKind | string;
-    role: TenantRole | string;
+    /** `own_fleet` or `carrier` (the quarantine tenant has no memberships). */
+    kind: string;
+    /** `tenant_admin`, `manager`, `operation_staff`, `operator`, `user` or `driver`. */
+    role: string;
     /** Tenant status (`active`, `pending`, `suspended`); `GET /v1/me/tenants` only. */
     status?: string;
 }
@@ -42,103 +62,157 @@ export interface MeCustomerScope {
     name: string;
 }
 
-/** The body of `GET /v1/me` (Appendix C §C.8; `internal/auth/me.go`). */
-export interface Me {
+/** The body of `GET /v1/me` (Go `auth.Me`, Appendix C §C.8). */
+export interface MeDTO {
     id: string;
     email: string | null;
     displayName: string | null;
+    /** Short-lived signed URL of the profile photo, or null. */
     photoUrl: string | null;
+    /** The active tenant with the caller's role in it; null for a scope-only principal. */
     tenant: MeTenant | null;
     tenants: MeTenant[];
+    /** `platform_admin`, `support`. */
     platformRoles: string[];
     dispatcher: boolean;
+    /** Own-fleet staff or platform_admin: may use the global capability class (R60). */
     steward: boolean;
     driver: { id: string } | null;
     customerScopes: MeCustomerScope[];
+    /** Effective capability keys, colon form (`shared-docs/schemas/capabilities.ts`). */
     capabilities: string[];
     mustChangePassword: boolean;
-    /** The Firebase uid, while the bridge mints web custom tokens and the user has one (T08). */
+    /** The Firebase uid, only while the bridge mints web custom tokens (T08, R80). */
     legacyAuthUid?: string;
 }
 
-export const ME_KEY = ["me"] as const;
-export const ME_PATH = "/v1/me";
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
-/** `GET /v1/me`; `null` when the caller holds no session (a 401 that ended nothing or ended the session). */
-export async function fetchMe(signal?: AbortSignal): Promise<Me | null> {
+const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
+const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+
+function parseTenant(v: unknown): MeTenant | null {
+    if (!isRecord(v) || typeof v.id !== "string") return null;
+    const status = str(v.status);
+    return {
+        id: v.id,
+        nameTh: str(v.nameTh) ?? "",
+        nameEn: str(v.nameEn),
+        kind: str(v.kind) ?? "",
+        role: str(v.role) ?? "",
+        ...(status ? { status } : {}),
+    };
+}
+
+/** Reads the `data` of `GET /v1/me`; a body without an id or a capability list is a `bad_response`. */
+export function parseMe(data: unknown): MeDTO {
+    if (!isRecord(data) || typeof data.id !== "string" || !Array.isArray(data.capabilities)) {
+        throw new ApiError({ status: 200, code: "bad_response", message: "GET /v1/me without id or capabilities" });
+    }
+    const tenants = Array.isArray(data.tenants) ? data.tenants.map(parseTenant).filter((t): t is MeTenant => t !== null) : [];
+    const scopes = Array.isArray(data.customerScopes)
+        ? data.customerScopes
+              .filter(isRecord)
+              .filter((s) => typeof s.billingPartyId === "string")
+              .map((s) => ({ billingPartyId: s.billingPartyId as string, name: str(s.name) ?? "" }))
+        : [];
+    const driver = isRecord(data.driver) && typeof data.driver.id === "string" ? { id: data.driver.id } : null;
+    const legacyAuthUid = str(data.legacyAuthUid);
+    return {
+        id: data.id,
+        email: str(data.email),
+        displayName: str(data.displayName),
+        photoUrl: str(data.photoUrl),
+        tenant: parseTenant(data.tenant),
+        tenants,
+        platformRoles: strings(data.platformRoles),
+        dispatcher: data.dispatcher === true,
+        steward: data.steward === true,
+        driver,
+        customerScopes: scopes,
+        capabilities: strings(data.capabilities),
+        mustChangePassword: data.mustChangePassword === true,
+        ...(legacyAuthUid ? { legacyAuthUid } : {}),
+    };
+}
+
+/** `GET /v1/me` read through `parseMe`; throws whatever `goFetch` throws (a sign-in or switch needs a principal). */
+export async function readMe(signal?: AbortSignal): Promise<MeDTO> {
+    return parseMe(await goFetch<unknown>(ME_PATH, { signal }));
+}
+
+/** `GET /v1/me`, or `null` for a signed-out visitor (a 401 that `goFetch` did not turn into a session end). */
+export async function fetchMe({ signal }: Pick<QueryFunctionContext, "signal">): Promise<MeDTO | null> {
     try {
-        return await goFetch<Me>(ME_PATH, { signal });
+        return await readMe(signal);
     } catch (error) {
         if (isApiError(error) && error.status === 401) return null;
         throw error;
     }
 }
 
-/** A 403 or 404 is an answer, not a failure to retry; network errors and 5xx retry twice. */
-export function retryUnavailable(count: number, error: unknown): boolean {
-    return count < 2 && (!isApiError(error) || error.status === 0 || error.status >= 500);
-}
-
-/** `['me']`, 5 min stale / 30 min gc (developer-spec.md §10.7). */
 export const meQueryOptions = queryOptions({
-    queryKey: ME_KEY,
-    queryFn: ({ signal }) => fetchMe(signal),
-    staleTime: 5 * 60_000,
-    gcTime: 30 * 60_000,
-    retry: retryUnavailable,
+    queryKey: queryKeys.me(),
+    queryFn: fetchMe,
+    ...QUERY_POLICY.me,
+    refetchOnWindowFocus: true,
 });
 
-/** The signed-in principal (`null` when signed out), pending, or an error (the api unreachable). */
-export function useMe() {
-    return useQuery(meQueryOptions);
-}
-
-/** Fetches `['me']` again now, whatever its age (a `claims_changed` refresh, a revocation check). */
-export function refetchMe(client: QueryClient): Promise<Me | null> {
+/**
+ * Fetches `['me']` again now, whatever its age, and resolves with the result. A fetch already in flight
+ * (the `claims_changed` invalidation of lib/queryClient.ts) is joined, not repeated.
+ */
+export function refetchMe(client: QueryClient): Promise<MeDTO | null> {
     return client.fetchQuery({ ...meQueryOptions, staleTime: 0 });
 }
 
-export const MY_TENANTS_KEY = ["me", "tenants"] as const;
-export const MY_TENANTS_PATH = "/v1/me/tenants";
+/** The rows of `GET /v1/me/tenants` (every active membership, with the tenant status). */
+export function parseMyTenants(data: unknown): MeTenant[] {
+    if (!Array.isArray(data)) throw new ApiError({ status: 200, code: "bad_response", message: "GET /v1/me/tenants without a list" });
+    return data.map(parseTenant).filter((t): t is MeTenant => t !== null);
+}
 
 /**
  * `['me','tenants']`: every active membership with the tenant status (`GET /v1/me/tenants`), for the
- * tenant switcher. Under the `['me']` prefix, so whatever refetches `['me']` by prefix refetches it.
+ * tenant switcher. Under the `['me']` prefix and reset with every other query when the principal
+ * changes (a sign-in as someone else, a tenant switch; lib/queryClient.ts `watchPrincipal`).
  */
 export function myTenantsQueryOptions(enabled: boolean) {
     return queryOptions({
-        queryKey: MY_TENANTS_KEY,
-        queryFn: ({ signal }) => goFetch<MeTenant[]>(MY_TENANTS_PATH, { signal }),
-        staleTime: 5 * 60_000,
-        gcTime: 30 * 60_000,
-        retry: retryUnavailable,
+        queryKey: queryKeys.myTenants(),
+        queryFn: async ({ signal }) => parseMyTenants(await goFetch<unknown>(MY_TENANTS_PATH, { signal })),
+        ...QUERY_POLICY.me,
         enabled,
     });
 }
 
-/** The caller's tenants; disabled until a principal is signed in. */
-export function useMyTenants(enabled: boolean) {
-    return useQuery(myTenantsQueryOptions(enabled));
+// ---------------------------------------------------------------------------------------------
+// Selectors
+// ---------------------------------------------------------------------------------------------
+
+/** Whether the principal holds `capability` (a catalog key or a legacy id); false when signed out. */
+export function hasCapability(me: Pick<MeDTO, "capabilities"> | null | undefined, capability: CapabilityId | string): boolean {
+    return !!me && me.capabilities.includes(toCatalogKey(capability));
 }
 
-/** Whether `me` holds capability `key` (colon form, Appendix C §C.2.3). */
-export function hasCapability(me: Pick<Me, "capabilities"> | null | undefined, key: string): boolean {
-    return Boolean(me?.capabilities?.includes(key));
+export function isPlatformAdmin(me: Pick<MeDTO, "platformRoles"> | null | undefined): boolean {
+    return !!me && me.platformRoles.includes("platform_admin");
 }
 
-/** Whether `me` holds a platform role (platform_admin or support). */
-export function isPlatformPrincipal(me: Pick<Me, "platformRoles"> | null | undefined): boolean {
+/** Whether `me` holds any platform role (`platform_admin` or `support`): its reads may span tenants. */
+export function isPlatformPrincipal(me: Pick<MeDTO, "platformRoles"> | null | undefined): boolean {
     return (me?.platformRoles?.length ?? 0) > 0;
 }
 
-/** `{allowed, loading}` for one capability over `['me']`; replaces the per-instance `usePermission` read. */
-export function useCapability(key: string): { allowed: boolean; loading: boolean } {
-    const { data, isPending } = useQuery({ ...meQueryOptions, select: (me) => hasCapability(me, key) });
-    return { allowed: data === true, loading: isPending };
+/** A customer-scope principal without a membership: the legacy `customer` role (Appendix C §C.1.6). */
+export function isCustomerPrincipal(me: MeDTO | null | undefined): boolean {
+    return !!me && !me.tenant && me.customerScopes.length > 0;
 }
 
 /** The display name of the principal: name, else email, else "". */
-export function meDisplayName(me: Pick<Me, "displayName" | "email"> | null | undefined): string {
+export function meDisplayName(me: Pick<MeDTO, "displayName" | "email"> | null | undefined): string {
     return me?.displayName?.trim() || me?.email || "";
 }
 
@@ -149,21 +223,59 @@ export function tenantName(t: Pick<MeTenant, "nameTh" | "nameEn">, language: str
 }
 
 /**
- * The legacy Firebase claim shape (`admin`, `role`, ...) that `getRole()` / `can()` and the
- * unmigrated pages still read, synthesised from `['me']` until TW7 (developer-spec.md §10.6). It
- * follows the minting table of Appendix C §C.6.3; the legacy document ids (`partnerScopeId`,
- * `customerScopeId`, `driverId`) are known only to the bridge, so a bridged session uses the claims
- * of its Firebase ID token instead (lib/firebaseBridge.ts).
+ * The legacy role label of a principal, as the bridge's custom token would carry it (Appendix C
+ * §C.6.3): own-fleet `tenant_admin` and `platform_admin` are `admin`; a carrier `tenant_admin` is
+ * `partner`; other tenant roles keep their name; a scope-only customer is `customer`. A principal
+ * with none of these (a dispatcher or `support` without a membership) is `user`, the legacy fallback.
  */
-export function legacyClaimsFromMe(me: Me): Record<string, unknown> {
-    if (me.platformRoles.includes("platform_admin")) return { admin: true, role: "admin" };
+export function legacyRoleOf(me: MeDTO): { admin: boolean; role: RoleId } {
+    if (isPlatformAdmin(me)) return { admin: true, role: "admin" };
     const t = me.tenant;
     if (t) {
-        if (t.role === "tenant_admin") {
-            return t.kind === "carrier" ? { admin: false, role: "partner" } : { admin: true, role: "admin" };
+        if (t.role === "tenant_admin") return t.kind === "carrier" ? { admin: false, role: "partner" } : { admin: true, role: "admin" };
+        if (["manager", "operation_staff", "operator", "user", "driver"].includes(t.role)) {
+            return { admin: false, role: t.role as RoleId };
         }
-        return { admin: false, role: t.role };
+        return { admin: false, role: "user" };
     }
     if (me.customerScopes.length > 0) return { admin: false, role: "customer" };
     return { admin: false, role: "user" };
+}
+
+/** The legacy id claims a Firebase bridge token carries (Appendix C §C.6.3); read from it, never from Go. */
+export interface BridgeScopeClaims {
+    customerScopeId?: string;
+    partnerScopeId?: string;
+    driverId?: string;
+}
+
+/**
+ * The `customClaims` object `useAuth()` keeps for its 41 consumers until TW7 (developer-spec.md
+ * §10.6): `admin` and `role` synthesised from `['me']` for `getRole()` / `isAdmin()`, the Go
+ * `capabilities` for `can()`, and the legacy Firestore ids (`customerScopeId`, `partnerScopeId`,
+ * `driverId`) that only the Firebase bridge token knows, because Firestore-backed pages filter by
+ * those ids until their domain moves to Go.
+ */
+export interface SynthesizedClaims extends BridgeScopeClaims {
+    admin: boolean;
+    role: RoleId;
+    capabilities: string[];
+    dispatcher: boolean;
+    [key: string]: unknown;
+}
+
+function pickString(source: Record<string, unknown> | null | undefined, key: string): string | undefined {
+    const v = source?.[key];
+    return typeof v === "string" && v.trim() !== "" ? v : undefined;
+}
+
+export function claimsFromMe(me: MeDTO | null | undefined, bridgeClaims?: Record<string, unknown> | null): SynthesizedClaims | null {
+    if (!me) return null;
+    const { admin, role } = legacyRoleOf(me);
+    const claims: SynthesizedClaims = { admin, role, capabilities: me.capabilities, dispatcher: me.dispatcher };
+    for (const key of ["customerScopeId", "partnerScopeId", "driverId"] as const) {
+        const v = pickString(bridgeClaims, key);
+        if (v) claims[key] = v;
+    }
+    return claims;
 }

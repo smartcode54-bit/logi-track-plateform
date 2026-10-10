@@ -1,21 +1,37 @@
-// T18 (developer-spec.md §10.4, §10.6; R36-R38, R40, R50, R78, R80): the AuthProvider over ['me'] and the
-// Firebase bridge, with the session stream of RealtimeProvider. The browser talks to a fake BFF (fetch),
-// the Firebase SDK and EventSource are fakes.
+// T18 over TW4 (developer-spec.md §10.4, §10.6; Appendix E §E.3.3, §E.3.8, §E.4 last row; R36-R38,
+// R40, R50, R78, R80): the AuthProvider over ['me'] and the Firebase bridge, with the session stream of
+// RealtimeProvider and the cache bound to the session as app/providers.tsx binds it
+// (bindQueryClientToSession). useAuth() is an adapter whose value is memoised and whose claims come
+// from Go; usePermission is a selector with no read of its own. The browser talks to a fake BFF
+// (fetch), the Firebase SDK and EventSource are fakes.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import React from "react";
-import { act, render, screen, waitFor } from "@testing-library/react";
-import { QueryClientProvider } from "@tanstack/react-query";
+import React, { useEffect, useState } from "react";
+import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 
 vi.mock("@/lib/loginGeo", () => ({ resolveLoginGeoForClient: async () => null }));
+// Spies on the Firestore reads a permission check used to make (permissions_config): none may happen.
+const firestore = vi.hoisted(() => ({ getDoc: vi.fn(), getDocs: vi.fn() }));
+vi.mock("firebase/firestore", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("firebase/firestore")>()),
+    getDoc: firestore.getDoc,
+    getDocs: firestore.getDocs,
+}));
 
 import { AuthProvider, useAuth } from "./auth";
 import { RealtimeProvider } from "./realtime";
-import { ME_KEY, type Me } from "@/features/auth/api/me";
+import { type MeDTO } from "@/features/auth/api/me";
+import { usePermission } from "@/hooks/usePermission";
+import { useCustomerScope } from "@/hooks/useCustomerScope";
+import { CAPABILITIES } from "@/lib/capabilities";
 import { configureFirebaseBridge, getBridgeState } from "@/lib/firebaseBridge";
-import { makeQueryClient } from "@/lib/queryClient";
+import { bindQueryClientToSession, createQueryClient } from "@/lib/queryClient";
+import { queryKeys } from "@/lib/queryKeys";
 import { configureSessionEnd, resetSessionEndForTests } from "@/lib/sessionEnd";
 import { LAST_FORCED_REFRESH_KEY, LAST_REFRESH_KEY, sharedRefresh } from "@/lib/sharedRefresh";
 import { fakeFirebase, fakeWeb, goErr, json, makeMe } from "@/test-utils/fakeWeb";
+
+const ME_KEY = queryKeys.me();
 
 class FakeEventSource {
     static all: FakeEventSource[] = [];
@@ -77,8 +93,17 @@ function StateLog({ onState }: { onState: (s: string) => void }) {
     return null;
 }
 
+// The runtime of app/providers.tsx that owns the cache's session effects (cleared on a session end and
+// on a change of principal, invalidated after claims_changed); unbound after each test.
+const unbinds: Array<() => void> = [];
+function sessionBoundClient(): QueryClient {
+    const client = createQueryClient();
+    unbinds.push(bindQueryClientToSession(client));
+    return client;
+}
+
 function renderApp(extra: React.ReactNode = null) {
-    const client = makeQueryClient();
+    const client = sessionBoundClient();
     const view = render(
         <QueryClientProvider client={client}>
             <AuthProvider>
@@ -97,6 +122,17 @@ function renderApp(extra: React.ReactNode = null) {
     return { client, view };
 }
 
+function hookWrapper(client: QueryClient) {
+    function Wrapper({ children }: { children: React.ReactNode }) {
+        return (
+            <QueryClientProvider client={client}>
+                <AuthProvider>{children}</AuthProvider>
+            </QueryClientProvider>
+        );
+    }
+    return Wrapper;
+}
+
 const state = () => screen.getByTestId("state").textContent;
 
 beforeEach(() => {
@@ -113,8 +149,11 @@ beforeEach(() => {
     vi.stubGlobal("EventSource", FakeEventSource);
 });
 afterEach(() => {
+    while (unbinds.length) unbinds.pop()!();
     vi.unstubAllGlobals();
     configureFirebaseBridge(undefined);
+    firestore.getDoc.mockClear();
+    firestore.getDocs.mockClear();
 });
 
 describe("AuthProvider", () => {
@@ -185,12 +224,16 @@ describe("AuthProvider", () => {
         await waitFor(() => expect(screen.getByTestId("role").textContent).toBe("manager"));
         const mintsBefore = web.count("POST", "/api/auth/firebase-token");
 
-        role = "tenant_admin";
+        role = "operation_staff";
         await act(async () => {
             await sharedRefresh({ force: true, since: Date.now() - 1 });
         });
-        await waitFor(() => expect(screen.getByTestId("role").textContent).toBe("tenant_admin"));
+        // The role line comes from Go (['me']); the re-minted bridge token carries the new legacy role too.
+        await waitFor(() => expect(screen.getByTestId("role").textContent).toBe("operation_staff"));
+        await waitFor(() => expect(getBridgeState().claims?.role).toBe("operation_staff"));
         expect(web.count("POST", "/api/auth/firebase-token")).toBe(mintsBefore + 1);
+        // One GET /v1/me for the claims change: the AuthProvider joins the runtime's refetch.
+        expect(web.count("GET", "/api/go/v1/me")).toBe(2);
         expect(state()).toBe("in");
         expect(navigated).toEqual([]);
         expect(web.count("POST", "/api/auth/logout")).toBe(0);
@@ -245,7 +288,8 @@ describe("AuthProvider", () => {
         await waitFor(() => expect(FakeEventSource.all.length).toBeGreaterThan(1));
     });
 
-    it("logout revokes at the BFF, signs out of Firebase and leaves no principal", async () => {
+    it("logout revokes at the BFF, signs out of Firebase and leaves no principal and no cached data", async () => {
+        window.history.replaceState(null, "", "/app/dashboard");
         const web = fakeWeb();
         web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe() }));
         web.on("POST", "/api/auth/firebase-token", () => json(200, { data: { customToken: "fb-u-1|admin", expiresIn: 3600 } }));
@@ -253,6 +297,7 @@ describe("AuthProvider", () => {
         const fb = fakeFirebase();
         const { client } = renderApp();
         await waitFor(() => expect(state()).toBe("in"));
+        client.setQueryData(["hubs"], [{ id: "h1" }]);
         await act(async () => {
             await authApi!.logout();
         });
@@ -260,8 +305,48 @@ describe("AuthProvider", () => {
         await waitFor(() => expect(state()).toBe("out"));
         expect(web.count("POST", "/api/auth/logout")).toBe(1);
         expect(fb.current).toBeNull();
-        expect(client.getQueryData<Me | null>(ME_KEY)).toBeNull();
+        expect(client.getQueryData<MeDTO | null>(ME_KEY)).toBeNull();
+        expect(client.getQueryData(["hubs"])).toBeUndefined();
+        expect(authApi?.customClaims).toBeNull();
         expect(FakeEventSource.all.every((s) => s.closed)).toBe(true);
+        // The user's own logout is not also a session end: no second logout, no navigation from here
+        // (the shell navigates to /login itself).
+        expect(navigated).toEqual([]);
+    });
+
+    it("a sign-in drops what a signed-out tab cached; signing in as someone else resets the previous principal's queries", async () => {
+        const web = fakeWeb();
+        let who: MeDTO | null = null;
+        web.on("GET", "/api/go/v1/me", () => (who ? json(200, { data: who }) : goErr(401, "unauthenticated")));
+        web.on("POST", "/api/auth/refresh", () => goErr(401, "unauthenticated"));
+        web.on("POST", "/api/auth/login", (c) => {
+            const email = (c.body as { email: string }).email;
+            who = email === "ann@own.test" ? makeMe({ id: "u-ann", legacyAuthUid: "fb-u-ann" }) : makeMe({ id: "u-bob", legacyAuthUid: "fb-u-bob" });
+            return json(200, { data: { tenants: [], defaultTenantId: "t-own", expiresIn: 900 } });
+        });
+        web.on("POST", "/api/auth/firebase-token", () => json(200, { data: { customToken: `fb-${who?.id}|admin`, expiresIn: 3600 } }));
+        web.on("PATCH", "/api/go/v1/me", () => json(200, { data: who }));
+        fakeFirebase();
+        const { client } = renderApp();
+        await waitFor(() => expect(state()).toBe("out"));
+
+        client.setQueryData(["customers"], [{ id: "cached while signed out" }]);
+        const reads = web.count("GET", "/api/go/v1/me");
+        await act(async () => {
+            await authApi!.login("ann@own.test", "pw");
+        });
+        await waitFor(() => expect(authApi?.me?.id).toBe("u-ann"));
+        expect(client.getQueryData(["customers"])).toBeUndefined();
+        // completeSignIn sets ['me'] from its own GET /v1/me; nothing reads it a second time.
+        expect(web.count("GET", "/api/go/v1/me")).toBe(reads + 1);
+
+        client.setQueryData(["customers"], [{ id: "ann's customers" }]);
+        await act(async () => {
+            await authApi!.login("bob@own.test", "pw");
+        });
+        await waitFor(() => expect(authApi?.me?.id).toBe("u-bob"));
+        // Another principal in ['me']: lib/queryClient.ts watchPrincipal reset the previous one's data.
+        expect(client.getQueryData(["customers"])).toBeUndefined();
     });
 
     it("switchTenant: POST /api/auth/tenant, then ['me'], a forced mint and every tenant query are reset", async () => {
@@ -327,11 +412,11 @@ describe("AuthProvider", () => {
         });
         await waitFor(() => expect(screen.getByTestId("role").textContent).toBe("manager"));
 
-        role = "tenant_admin";
+        role = "operation_staff";
         await act(async () => {
             await authApi!.refreshClaims();
         });
-        await waitFor(() => expect(screen.getByTestId("role").textContent).toBe("tenant_admin"));
+        await waitFor(() => expect(screen.getByTestId("role").textContent).toBe("operation_staff"));
 
         await act(async () => {
             await authApi!.switchTenant("t-two");
@@ -396,3 +481,168 @@ describe("AuthProvider", () => {
         expect(web.count("POST", "/api/auth/logout")).toBe(0);
     }, 15_000);
 });
+
+describe("useAuth() adapter over ['me'] (TW4)", () => {
+    it("synthesises customClaims from GET /v1/me and takes only the legacy ids from the bridge token", async () => {
+        const web = fakeWeb();
+        const me = makeMe({ tenant: null, tenants: [], customerScopes: [{ billingPartyId: "bp1", name: "CJ" }], capabilities: ["operations:view_first_mile"] });
+        web.on("GET", "/api/go/v1/me", () => json(200, { data: me }));
+        // The bridge token claims admin; only its customerScopeId may reach customClaims.
+        web.on("POST", "/api/auth/firebase-token", () => json(200, { data: { customToken: "fb-u-1|admin", expiresIn: 3600 } }));
+        const fb = fakeFirebase();
+        fb.extraClaims = { customerScopeId: "cust-doc-1" };
+        const client = sessionBoundClient();
+        const { result } = renderHook(() => ({ auth: useAuth(), scope: useCustomerScope() }), { wrapper: hookWrapper(client) });
+        expect(result.current.auth?.loading).toBe(true);
+        await waitFor(() => expect(result.current.auth?.loading).toBe(false));
+        expect(getBridgeState().status).toBe("ready");
+        expect(result.current.auth?.customClaims).toMatchObject({
+            role: "customer",
+            admin: false,
+            capabilities: ["operations:view_first_mile"],
+            customerScopeId: "cust-doc-1",
+        });
+        expect(result.current.auth?.me?.id).toBe("u-1");
+        expect(result.current.auth?.currentUser).toMatchObject({ uid: "fb-u-1", id: "u-1" });
+        expect(result.current.scope).toEqual({ isCustomer: true, customerScopeId: "cust-doc-1" });
+    });
+
+    it("a bridged principal's permissions come from Go, never from the bridge token's role (§10.6, R5, R27)", async () => {
+        const web = fakeWeb();
+        // Go: an own-fleet manager whose overrides removed fleet:view_trucks. The bridge token says admin.
+        const me = makeMe({ tenant: { id: "t-own", nameTh: "ก", nameEn: null, kind: "own_fleet", role: "manager" }, capabilities: ["chat:view"] });
+        web.on("GET", "/api/go/v1/me", () => json(200, { data: me }));
+        web.on("POST", "/api/auth/firebase-token", () => json(200, { data: { customToken: "fb-u-1|admin", expiresIn: 3600 } }));
+        fakeFirebase();
+        const client = sessionBoundClient();
+        const { result } = renderHook(() => useAuth(), { wrapper: hookWrapper(client) });
+        await waitFor(() => expect(result.current?.loading).toBe(false));
+        expect(getBridgeState()).toMatchObject({ status: "ready", claims: { role: "admin", admin: true } });
+        const { can, getRole, isAdmin } = await import("@/lib/permissions");
+        const claims = result.current!.customClaims;
+        expect(getRole(claims)).toBe("manager");
+        expect(isAdmin(claims)).toBe(false);
+        expect(can(claims, CAPABILITIES.chat_view)).toBe(true);
+        // The role defaults would grant a manager fleet:view_trucks, and the bridge's admin everything.
+        expect(can(claims, CAPABILITIES.fleet_view_trucks)).toBe(false);
+        expect(can(claims, CAPABILITIES.security_manage_roles)).toBe(false);
+    });
+
+    it("a signed-out visitor has no currentUser, no me and no claims", async () => {
+        const web = fakeWeb();
+        web.on("GET", "/api/go/v1/me", () => goErr(401, "unauthenticated"));
+        web.on("POST", "/api/auth/refresh", () => goErr(401, "unauthenticated"));
+        fakeFirebase();
+        const client = sessionBoundClient();
+        const { result } = renderHook(() => useAuth(), { wrapper: hookWrapper(client) });
+        await waitFor(() => expect(result.current?.loading).toBe(false));
+        expect(result.current).toMatchObject({ currentUser: null, me: null, customClaims: null, error: null });
+    });
+
+    it("keeps one context value and stable functions across provider re-renders (context/auth.tsx:171)", async () => {
+        const web = fakeWeb();
+        web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe() }));
+        web.on("POST", "/api/auth/firebase-token", () => json(200, { data: { customToken: "fb-u-1|admin", expiresIn: 3600 } }));
+        fakeFirebase();
+        const client = sessionBoundClient();
+        let renders = 0;
+        let latest: ReturnType<typeof useAuth> = null;
+        function Consumer() {
+            const auth = useAuth();
+            // Every commit of this component (an effect without dependencies runs after each one).
+            useEffect(() => {
+                latest = auth;
+                renders++;
+            });
+            return <span>consumer</span>;
+        }
+        let bump: () => void = () => undefined;
+        function Parent({ children }: { children: React.ReactNode }) {
+            const [n, setN] = useState(0);
+            useEffect(() => {
+                bump = () => setN((x) => x + 1);
+            }, []);
+            return (
+                <QueryClientProvider client={client}>
+                    <AuthProvider>
+                        {children}
+                        <span>{n}</span>
+                    </AuthProvider>
+                </QueryClientProvider>
+            );
+        }
+        render(
+            <Parent>
+                <Consumer />
+            </Parent>
+        );
+        await waitFor(() => expect(latest?.loading).toBe(false));
+        await screen.findByText("consumer");
+        const settled = renders;
+        const before = latest!;
+        await act(async () => bump());
+        await act(async () => bump());
+        expect(renders).toBe(settled);
+        expect(latest).toBe(before);
+        for (const fn of ["login", "loginWithGoogle", "logout", "refreshClaims", "switchTenant", "retry"] as const) {
+            expect(typeof before[fn]).toBe("function");
+        }
+    });
+
+    it("usePermission is a selector: any number of instances cost one GET /v1/me and no permissions_config read", async () => {
+        const web = fakeWeb();
+        web.on("GET", "/api/go/v1/me", () =>
+            json(200, { data: makeMe({ legacyAuthUid: undefined, capabilities: ["security:view_audit", "users:manage", "accounting:edit_fuel"] }) })
+        );
+        web.on("POST", "/api/auth/firebase-token", () => goErr(404, "not_found"));
+        fakeFirebase();
+        const client = sessionBoundClient();
+        const { result } = renderHook(
+            () => [
+                usePermission(CAPABILITIES.security_view_audit),
+                usePermission(CAPABILITIES.security_manage_users),
+                usePermission(CAPABILITIES.security_view_mobile_clients),
+                usePermission(CAPABILITIES.accounting_edit_fuel),
+                usePermission(CAPABILITIES.accounting_view_fuel),
+            ],
+            { wrapper: hookWrapper(client) }
+        );
+        expect(result.current.every((p) => p.loading)).toBe(true);
+        await waitFor(() => expect(result.current.every((p) => !p.loading)).toBe(true));
+        expect(result.current.map((p) => p.hasPermission)).toEqual([true, true, false, true, false]);
+        expect(web.count("GET", "/api/go/v1/me")).toBe(1);
+        expect(firestore.getDoc).not.toHaveBeenCalled();
+        expect(firestore.getDocs).not.toHaveBeenCalled();
+    });
+});
+
+describe("source guards", () => {
+    it("only the role-matrix editor touches permissions_config; every permission check reads ['me']", async () => {
+        const { readdirSync, readFileSync, statSync } = await import("fs");
+        const path = await import("path");
+        const root = path.resolve(__dirname, "..");
+        const walk = (dir: string, out: string[] = []): string[] => {
+            for (const name of readdirSync(dir)) {
+                const p = path.join(dir, name);
+                if (statSync(p).isDirectory()) {
+                    if (name !== "node_modules" && name !== "__tests__") walk(p, out);
+                } else if (/\.(ts|tsx)$/.test(name) && !/\.test\.tsx?$/.test(name)) out.push(p);
+            }
+            return out;
+        };
+        const users = ["app", "components", "context", "features", "hooks", "lib"]
+            .flatMap((d) => walk(path.join(root, d)))
+            .filter((f) => /PERMISSIONS_CONFIG|["']permissions_config["']/.test(readFileSync(f, "utf8")))
+            .map((f) => path.relative(root, f));
+        // lib/collections.ts names the collection; the matrix page edits it until T51/T54 (`/v1/roles/matrix`).
+        expect(users.sort()).toEqual(["app/app/security-center/roles/page.tsx", "lib/collections.ts"]);
+    });
+
+    it("the auth context no longer calls setAdminClaims, listens to forceLogoutAt or to the Firebase auth state (T18)", async () => {
+        const { readFileSync } = await import("fs");
+        const path = await import("path");
+        const source = readFileSync(path.resolve(__dirname, "auth.tsx"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+        expect(source).not.toMatch(/setAdminClaims|forceLogoutAt|onAuthStateChanged|firebase\/auth|firebase\/functions/);
+    });
+});
+

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useEffectEvent } from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
@@ -44,10 +44,14 @@ export default function DriverPreview() {
     const [subcontractors, setSubcontractors] = useState<any[]>([]);
     const [assignmentHistory, setAssignmentHistory] = useState<AssignmentData[]>([]);
 
+    // The active language when the effect's code runs: `t` is not a dependency, so a language
+    // toggle no longer refetches (TW4, developer-spec.md §10.6).
+    const translateNow = useEffectEvent((key: string) => t(key));
+
     useEffect(() => {
         const fetchDriver = async () => {
             if (!driverId) {
-                setError(t("drivers.toast.noId"));
+                setError(translateNow("drivers.toast.noId"));
                 setIsLoading(false);
                 return;
             }
@@ -56,7 +60,7 @@ export default function DriverPreview() {
                 setError(null);
                 const data = await getDriverByIdClient(driverId);
                 if (!data) {
-                    setError(t("drivers.detail.notFound") + ".");
+                    setError(translateNow("drivers.detail.notFound") + ".");
                     return;
                 }
                 setDriver(data);
@@ -65,7 +69,7 @@ export default function DriverPreview() {
                 getDriverAssignmentHistory(driverId).then(setAssignmentHistory);
             } catch (err) {
                 console.error("Error fetching driver:", err);
-                setError(err instanceof Error ? err.message : t("drivers.toast.loadError") + ".");
+                setError(err instanceof Error ? err.message : translateNow("drivers.toast.loadError") + ".");
             } finally {
                 setIsLoading(false);
             }
@@ -76,7 +80,7 @@ export default function DriverPreview() {
         return () => {
             setCustomLastItem(null);
         };
-    }, [driverId, setCustomLastItem, t]);
+    }, [driverId, setCustomLastItem]);
 
     useEffect(() => {
         getSubcontractors().then(setSubcontractors);

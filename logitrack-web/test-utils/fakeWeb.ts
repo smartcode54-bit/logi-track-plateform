@@ -6,7 +6,7 @@
 import { vi } from "vitest";
 import type { Auth, IdTokenResult, User, UserCredential } from "firebase/auth";
 
-import type { Me } from "@/features/auth/api/me";
+import type { MeDTO } from "@/features/auth/api/me";
 import { firebaseCustomToken } from "@/lib/authClient";
 import { configureFirebaseBridge, type BridgeDeps } from "@/lib/firebaseBridge";
 
@@ -28,7 +28,7 @@ export function goErr(status: number, code: string, details: Record<string, unkn
     return json(status, { error: { code, message: code, details, requestId: "rid" } });
 }
 
-export function makeMe(over: Partial<Me> = {}): Me {
+export function makeMe(over: Partial<MeDTO> = {}): MeDTO {
     return {
         id: "u-1",
         email: "admin@own.test",
@@ -98,7 +98,8 @@ export function fakeWeb() {
  * `POST /api/auth/firebase-token` call (answered by `fakeWeb`) unless replaced.
  */
 export function fakeFirebase(mint: () => Promise<{ customToken: string }> = firebaseCustomToken) {
-    const state = { current: null as { uid: string; role: string } | null, signIns: 0, signOuts: 0 };
+    // `extraClaims`: more claims of the ID token (the legacy ids `customerScopeId`, `partnerScopeId`, ...).
+    const state = { current: null as { uid: string; role: string } | null, signIns: 0, signOuts: 0, extraClaims: {} as Record<string, unknown> };
     const toUser = (uid: string) => ({ uid, emailVerified: true, metadata: {} }) as unknown as User;
     const deps: BridgeDeps = {
         auth: {
@@ -117,7 +118,8 @@ export function fakeFirebase(mint: () => Promise<{ customToken: string }> = fire
             state.current = null;
             state.signOuts += 1;
         },
-        getIdTokenResult: async () => ({ claims: state.current ? { role: state.current.role, admin: state.current.role === "admin" } : {} }) as unknown as IdTokenResult,
+        getIdTokenResult: async () =>
+            ({ claims: state.current ? { role: state.current.role, admin: state.current.role === "admin", ...state.extraClaims } : {} }) as unknown as IdTokenResult,
         mint,
         sleep: async () => undefined,
     };

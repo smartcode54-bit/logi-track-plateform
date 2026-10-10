@@ -341,3 +341,6 @@ export const CAPABILITY_META: Record<
  * to the colon keys of the Go catalog (generated into shared-docs/schemas/capabilities.ts) and enforced
  * by proxy.ts before any page code runs (developer-spec.md §10.5, Appendix C §C.2.7).
  */
+
+
+export { LEGACY_CAPABILITY_ALIASES, toCatalogKey } from "./capabilityAliases";

@@ -18,7 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useLanguage } from "@/context/language";
-import type { Me, TenantRole } from "@/features/auth/api/me";
+import type { MeDTO, TenantRole } from "@/features/auth/api/me";
 import { apiErrorText } from "@/lib/apiError";
 import { createUser, type CreateUserResult } from "../api/users";
 import { grantableRoles, type CreateRole, type UserActions } from "../utils/roles";
@@ -35,7 +35,7 @@ export function CreateUserDialog({
 }: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    me: Me | null;
+    me: MeDTO | null;
     actions: UserActions;
     onCreated: (result: CreateUserResult) => void;
     /** Create in this tenant (the tenants page creating a tenant's admin). */

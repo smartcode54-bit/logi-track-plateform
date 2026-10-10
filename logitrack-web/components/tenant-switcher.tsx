@@ -14,7 +14,8 @@ import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/context/auth";
 import { useLanguage } from "@/context/language";
-import { tenantName, useMyTenants } from "@/features/auth/api/me";
+import { tenantName } from "@/features/auth/api/me";
+import { useMyTenants } from "@/features/auth/api/useMe";
 import { apiErrorText } from "@/lib/apiError";
 
 export function TenantSwitcher() {

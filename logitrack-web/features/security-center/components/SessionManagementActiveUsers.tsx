@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { collection, GeoPoint, limit, onSnapshot, orderBy, query } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "@/firebase/client";
@@ -142,6 +142,9 @@ export function SessionManagementActiveUsers() {
     const [isSyncing, setIsSyncing] = useState(false);
     const [mapUser, setMapUser] = useState<RowUser | null>(null);
 
+    // Reads the active language when it runs, so a toggle does not resubscribe (TW4).
+    const onLoadError = useEffectEvent(() => toast.error(t("users.toast.loadFailed")));
+
     useEffect(() => {
         if (!currentUser || !isAdmin) {
             setRows([]);
@@ -173,11 +176,11 @@ export function SessionManagementActiveUsers() {
             (err) => {
                 console.error("[SessionManagementActiveUsers]", err);
                 setLoading(false);
-                toast.error(t("users.toast.loadFailed"));
+                onLoadError();
             },
         );
         return () => unsub();
-    }, [currentUser, isAdmin, t]);
+    }, [currentUser, isAdmin]);
 
     // Revoke through Go (T18, `DELETE /v1/users/{id}/sessions`; no `revokeUserRefreshTokens`): the row
     // is a legacy users/{uid} document until P6 (row 29) whose fields its owner can rewrite, so the Go
