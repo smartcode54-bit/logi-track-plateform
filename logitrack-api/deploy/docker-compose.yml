@@ -443,7 +443,8 @@ services:
       retries: 12
 
   # Schema gate (R59, R66): api, worker and scheduler start only after this exits 0. Locally the
-  # whole chain applies at once; production runs `migrate up-to 9` until the P1 runbook (T24, R88).
+  # whole chain applies at once; production runs `migrate up-to 9` and `migrate apply 11` (0011+ ship
+  # ahead of the held 0010) until the P1 runbook's `migrate up` (T24, R88).
   migrate:
     <<: *go
     restart: "no"

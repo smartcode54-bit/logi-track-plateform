@@ -190,25 +190,33 @@ func TestMediaIsPublicAndUploadPathsStayBelowTheirGroup(t *testing.T) {
 		t.Fatal("/media must be a public group")
 	}
 	mount := func(fiber.Router) {}
-	for _, bad := range [][]string{{"/v1/files/"}, {"/media"}, {"/media/x"}, {"/mediax/"}} {
-		if err := Validate([]Group{{Prefix: "/media", Public: true, Mount: mount, UploadPaths: bad}}); err == nil {
-			t.Errorf("upload paths %v accepted", bad)
+	limit := func(UploadHead) int64 { return 0 }
+	for _, bad := range []Upload{{"/v1/files/", limit}, {"/media", limit}, {"/media/x", limit}, {"/mediax/", limit}, {"/media/", nil}} {
+		if err := Validate([]Group{{Prefix: "/media", Public: true, Mount: mount, Uploads: []Upload{bad}}}); err == nil {
+			t.Errorf("upload %v accepted", bad.Prefix)
 		}
 	}
 	groups := []Group{
-		{Prefix: "/v1/uploads", Mount: mount, UploadPaths: []string{"/v1/uploads/local/"}},
-		{Prefix: "/media", Public: true, Mount: mount, UploadPaths: []string{"/media/"}},
+		{Prefix: "/v1/uploads", Mount: mount, Uploads: []Upload{{"/v1/uploads/local/", limit}}},
+		{Prefix: "/media", Public: true, Mount: mount, Uploads: []Upload{{"/media/", limit}}},
 	}
 	if err := Validate(groups); err != nil {
 		t.Fatal(err)
 	}
-	if got := UploadPaths(Internal, groups, nil); !slices.Equal(got, []string{"/v1/uploads/local/", "/media/"}) {
+	prefixes := func(us []Upload) []string {
+		var out []string
+		for _, u := range us {
+			out = append(out, u.Prefix)
+		}
+		return out
+	}
+	if got := prefixes(Uploads(Internal, groups, nil)); !slices.Equal(got, []string{"/v1/uploads/local/", "/media/"}) {
 		t.Fatalf("internal upload paths %v", got)
 	}
-	if got := UploadPaths(Public, groups, []string{"/media"}); !slices.Equal(got, []string{"/media/"}) {
+	if got := prefixes(Uploads(Public, groups, []string{"/media"})); !slices.Equal(got, []string{"/media/"}) {
 		t.Fatalf("public upload paths %v", got)
 	}
-	if got := UploadPaths(Public, groups, []string{"/healthz"}); len(got) != 0 {
-		t.Fatalf("a group outside PUBLIC_ROUTE_GROUPS lends its upload paths: %v", got)
+	if got := Uploads(Public, groups, []string{"/healthz"}); len(got) != 0 {
+		t.Fatalf("a group outside PUBLIC_ROUTE_GROUPS lends its upload paths: %v", prefixes(got))
 	}
 }

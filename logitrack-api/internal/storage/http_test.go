@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -157,5 +158,71 @@ func TestMediaIs404WithoutTheLocalBackend(t *testing.T) {
 	}
 	if resp, _ := call(t, app, http.MethodPut, "/v1/uploads/local/trips/t1/a.jpg"); resp.StatusCode != http.StatusNotFound {
 		t.Errorf("local upload route: %d", resp.StatusCode)
+	}
+}
+
+// The head check of the upload routes (fasthttp HeaderReceived): only a valid, unexpired signature for exactly
+// the head's path, Content-Type and Content-Length earns the large body limit; anything else keeps the API
+// defaults (0).
+func TestUploadLimitNeedsAValidSignedHead(t *testing.T) {
+	now := time.Date(2026, 10, 10, 8, 0, 0, 0, time.UTC)
+	l, _ := newTestLocal(t, func() time.Time { return now })
+	s, err := New(nil, Config{Active: BackendLocal, Bucket: "logitrack", PublicBucket: "logitrack-public", UploadMaxBytes: 1 << 20},
+		zerolog.Nop(), l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := "chats/c1/สติกเกอร์ 1.jpg"
+	const size = 300_000
+	for _, tc := range []struct {
+		prefix string
+		opts   PutOptions
+	}{{LocalUploadPath + "/", PutOptions{APIPath: true}}, {MediaPrefix + "/", PutOptions{}}} {
+		put, err := l.PresignPut(context.Background(), Object{Key: key}, "image/jpeg", size, time.Minute, tc.opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		u, err := url.Parse(put.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		limit := s.UploadLimit(tc.prefix)
+		head := ingress.UploadHead{Path: u.EscapedPath(), Query: u.RawQuery, ContentType: "image/jpeg", ContentLength: size}
+		if got := limit(head); got != size {
+			t.Fatalf("%s: signed head limit %d, want %d", tc.prefix, got, size)
+		}
+		for name, mut := range map[string]func(h *ingress.UploadHead){
+			"unsigned": func(h *ingress.UploadHead) { h.Query = "" },
+			"tampered": func(h *ingress.UploadHead) {
+				h.Query = strings.Replace(h.Query, "X-LT-Signature=", "X-LT-Signature=A", 1)
+			},
+			"other length":       func(h *ingress.UploadHead) { h.ContentLength = size + 1 },
+			"chunked":            func(h *ingress.UploadHead) { h.ContentLength = -1 },
+			"other content type": func(h *ingress.UploadHead) { h.ContentType = "text/html" },
+			"other key":          func(h *ingress.UploadHead) { h.Path = strings.Replace(h.Path, "c1", "c2", 1) },
+			"directory":          func(h *ingress.UploadHead) { h.Path += "/" },
+			"other route":        func(h *ingress.UploadHead) { h.Path = "/v1/files/" + key },
+		} {
+			h := head
+			mut(&h)
+			if got := limit(h); got != 0 {
+				t.Errorf("%s %s: limit %d, want 0", tc.prefix, name, got)
+			}
+		}
+		now = now.Add(2 * time.Minute)
+		if got := limit(head); got != 0 {
+			t.Errorf("%s expired: limit %d", tc.prefix, got)
+		}
+		now = now.Add(-2 * time.Minute)
+	}
+	// Above UPLOAD_MAX_BYTES the head check never grants, even when signed.
+	big, err := l.PresignPut(context.Background(), Object{Key: key}, "image/jpeg", 2<<20, time.Minute, PutOptions{APIPath: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, _ := url.Parse(big.URL)
+	if got := s.UploadLimit(LocalUploadPath + "/")(ingress.UploadHead{Path: u.EscapedPath(), Query: u.RawQuery, ContentType: "image/jpeg",
+		ContentLength: 2 << 20}); got != 0 {
+		t.Fatalf("over UPLOAD_MAX_BYTES: %d", got)
 	}
 }

@@ -6,12 +6,15 @@
 -- Every image or file reference of 0002-0008 is a *_file_id foreign key to file_objects (table list in
 -- Appendix A §A.2.9), so no other table needs a backend column.
 -- Depends on: 0002 (file_objects, trg_file_objects_commit_columns). No GRANT/REVOKE: no new table (R66).
--- Production holds at `up-to 9` until the P1 runbook (R59, R88); goose applies in order, so this file follows
--- 0010 there.
+-- Production order (R59, R88): P0 runs `migrate up-to 9` then `migrate apply 11`, so this file ships ahead of
+-- the held 0010_d5_unique_constraints (it touches no table of 0010); the P1 runbook's `migrate up` applies 0010
+-- after the quarantine sign-off. The ETL therefore always loads into a schema that has the column and names
+-- storage_backend = 's3' on every copied object (Appendix A §A.2.9).
 
 -- +goose Up
--- Rows that exist when this runs are ETL copies in MinIO (or none): 's3'. The default exists only for that
--- backfill and is dropped at once, so every later INSERT names its backend (NOT NULL, no default).
+-- Rows that exist when this runs (none in production, which applies it before the ETL; a dev database loaded
+-- before T11) are MinIO objects: 's3'. The default exists only for that backfill and is dropped at once, so
+-- every later INSERT names its backend (NOT NULL, no default).
 ALTER TABLE file_objects ADD COLUMN storage_backend text NOT NULL DEFAULT 's3'
   CONSTRAINT file_objects_storage_backend_check CHECK (storage_backend IN ('local','s3'));
 ALTER TABLE file_objects ALTER COLUMN storage_backend DROP DEFAULT;

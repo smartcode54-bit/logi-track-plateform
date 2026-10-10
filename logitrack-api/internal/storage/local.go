@@ -41,6 +41,33 @@ const (
 	dirMode     = 0o750
 )
 
+// NAME_MAX of the filesystems LOCAL_MEDIA_DIR lives on: a directory segment of a key becomes a directory name,
+// the last one a file name and, with ".json", the sidecar's name.
+const (
+	maxNameBytes     = 255
+	maxLastNameBytes = maxNameBytes - len(".json")
+)
+
+// validLocalKey is ValidateKey plus the local backend's filesystem limits: a directory segment of at most 255
+// bytes and a last segment of at most 250 (its sidecar adds ".json"). Every key the local backend writes comes
+// from a purpose template and is far shorter; legacy keys with longer Thai file names stay on s3 (§9.11).
+func validLocalKey(key string) error {
+	if err := ValidateKey(key); err != nil {
+		return err
+	}
+	segs := strings.Split(key, "/")
+	for i, seg := range segs {
+		limit := maxNameBytes
+		if i == len(segs)-1 {
+			limit = maxLastNameBytes
+		}
+		if len(seg) > limit {
+			return ErrInvalidKey
+		}
+	}
+	return nil
+}
+
 // MinSigningKeyBytes is the shortest LOCAL_MEDIA_SIGNING_KEY accepted (HMAC-SHA256 key).
 const MinSigningKeyBytes = 32
 
@@ -140,17 +167,18 @@ type meta struct {
 }
 
 // signature is HMAC-SHA256 over length-prefixed fields, so no two field tuples share an input.
-func (l *Local) signature(method, key string, exp int64, contentType, disposition string) string {
+func (l *Local) signature(method, key string, exp int64, contentType, contentLength, disposition string) string {
 	m := hmac.New(sha256.New, l.key)
-	for _, f := range []string{"LT-MEDIA-V1", method, key, strconv.FormatInt(exp, 10), contentType, disposition} {
+	for _, f := range []string{"LT-MEDIA-V1", method, key, strconv.FormatInt(exp, 10), contentType, contentLength, disposition} {
 		_, _ = fmt.Fprintf(m, "%d:%s\n", len(f), f)
 	}
 	return base64.RawURLEncoding.EncodeToString(m.Sum(nil))
 }
 
-// Verify checks a signed local URL: method (GET also covers HEAD), key, expiry, the request Content-Type of an
-// upload and the requested Content-Disposition of a download, as signed.
-func (l *Local) Verify(method, key, contentType, disposition, expires, sig string) error {
+// Verify checks a signed local URL: method (GET also covers HEAD), key, expiry, the request Content-Type and
+// Content-Length of an upload (the declared size: the body is bound to it, like a SigV4 PUT that signs
+// Content-Length) and the requested Content-Disposition of a download, as signed.
+func (l *Local) Verify(method, key, contentType, contentLength, disposition, expires, sig string) error {
 	if l.key == nil || sig == "" || expires == "" {
 		return ErrSignatureInvalid
 	}
@@ -158,7 +186,7 @@ func (l *Local) Verify(method, key, contentType, disposition, expires, sig strin
 	if err != nil || exp <= 0 {
 		return ErrSignatureInvalid
 	}
-	want := l.signature(method, key, exp, contentType, disposition)
+	want := l.signature(method, key, exp, contentType, contentLength, disposition)
 	if !hmac.Equal([]byte(want), []byte(sig)) {
 		return ErrSignatureInvalid
 	}
@@ -184,11 +212,11 @@ func (l *Local) mediaURL(key string) (string, error) {
 	return l.base.String() + "/" + escapeKey(key), nil
 }
 
-func (l *Local) signedQuery(method, key string, ttl time.Duration, contentType, disposition string) (url.Values, time.Time, error) {
+func (l *Local) signedQuery(method, key string, ttl time.Duration, contentType, contentLength, disposition string) (url.Values, time.Time, error) {
 	if l.key == nil {
 		return nil, time.Time{}, errors.New("storage: LOCAL_MEDIA_SIGNING_KEY is not set")
 	}
-	if err := ValidateKey(key); err != nil {
+	if err := validLocalKey(key); err != nil {
 		return nil, time.Time{}, err
 	}
 	exp := l.now().Add(ttl).Truncate(time.Second)
@@ -197,14 +225,18 @@ func (l *Local) signedQuery(method, key string, ttl time.Duration, contentType, 
 	if disposition != "" {
 		q.Set(QueryDisposition, disposition)
 	}
-	q.Set(QuerySignature, l.signature(method, key, exp.Unix(), contentType, disposition))
+	q.Set(QuerySignature, l.signature(method, key, exp.Unix(), contentType, contentLength, disposition))
 	return q, exp, nil
 }
 
 // PresignPut implements Backend: a PUT to the API path (web, through the BFF) or to the media URL (driver app),
-// valid for ttl, that must carry exactly Content-Type: contentType.
-func (l *Local) PresignPut(_ context.Context, o Object, contentType string, ttl time.Duration, opts PutOptions) (PutURL, error) {
-	q, exp, err := l.signedQuery("PUT", o.Key, ttl, contentType, "")
+// valid for ttl, that must carry exactly Content-Type: contentType and a body of exactly size bytes
+// (Content-Length is signed; a chunked body is refused).
+func (l *Local) PresignPut(_ context.Context, o Object, contentType string, size int64, ttl time.Duration, opts PutOptions) (PutURL, error) {
+	if size <= 0 {
+		return PutURL{}, errors.New("storage: an upload needs its size")
+	}
+	q, exp, err := l.signedQuery("PUT", o.Key, ttl, contentType, strconv.FormatInt(size, 10), "")
 	if err != nil {
 		return PutURL{}, err
 	}
@@ -222,7 +254,7 @@ func (l *Local) PresignPut(_ context.Context, o Object, contentType string, ttl 
 
 // PresignGet implements Backend: ${LOCAL_MEDIA_PUBLIC_BASE_URL}/<key> signed for ttl.
 func (l *Local) PresignGet(_ context.Context, o Object, ttl time.Duration, opts GetOptions) (string, time.Time, error) {
-	q, exp, err := l.signedQuery("GET", o.Key, ttl, "", opts.ContentDisposition)
+	q, exp, err := l.signedQuery("GET", o.Key, ttl, "", "", opts.ContentDisposition)
 	if err != nil {
 		return "", time.Time{}, err
 	}
@@ -235,7 +267,7 @@ func (l *Local) PresignGet(_ context.Context, o Object, ttl time.Duration, opts 
 
 // PublicURL implements Backend: unsigned, under app_releases/ only.
 func (l *Local) PublicURL(o Object) (string, error) {
-	if err := ValidateKey(o.Key); err != nil {
+	if err := validLocalKey(o.Key); err != nil {
 		return "", err
 	}
 	if !IsPublicKey(o.Key) {
@@ -246,7 +278,7 @@ func (l *Local) PublicURL(o Object) (string, error) {
 
 // Stat implements Backend.
 func (l *Local) Stat(_ context.Context, o Object) (Info, error) {
-	if err := ValidateKey(o.Key); err != nil {
+	if err := validLocalKey(o.Key); err != nil {
 		return Info{}, err
 	}
 	fi, err := l.root.Stat(dataName(o.Key))
@@ -278,89 +310,131 @@ func (l *Local) readMeta(key string) (meta, error) {
 
 // Put implements Backend: a server-side write of exactly size bytes.
 func (l *Local) Put(_ context.Context, o Object, r io.Reader, size int64, contentType string) error {
-	info, err := l.write(o.Key, r, contentType, size)
+	st, err := l.Stage(o.Key, r, contentType, size)
 	if err != nil {
 		return err
 	}
-	if info.Size != size {
-		_ = l.remove(o.Key)
-		return fmt.Errorf("storage: wrote %d bytes, want %d", info.Size, size)
+	defer st.Discard()
+	if st.Info.Size != size {
+		return fmt.Errorf("storage: wrote %d bytes, want %d", st.Info.Size, size)
 	}
-	return nil
+	return st.Publish()
 }
 
-// Write stores an upload of at most limit bytes atomically: the bytes and the sidecar go to temporary files that
-// are synced and then renamed into place (sidecar first), so a reader never sees a partial object. Files are 0640.
+// Write stores an upload of at most limit bytes atomically (Stage, then Publish): a reader never sees a partial
+// object. Files are 0640.
 func (l *Local) Write(key string, r io.Reader, contentType string, limit int64) (Info, error) {
-	return l.write(key, r, contentType, limit)
-}
-
-func (l *Local) write(key string, r io.Reader, contentType string, limit int64) (Info, error) {
-	if err := ValidateKey(key); err != nil {
-		return Info{}, err
-	}
-	data, dataTmp, err := l.tempFile()
+	st, err := l.Stage(key, r, contentType, limit)
 	if err != nil {
 		return Info{}, err
 	}
-	committed := false
+	defer st.Discard()
+	if err := st.Publish(); err != nil {
+		return Info{}, err
+	}
+	return st.Info, nil
+}
+
+// Staged is an object written and synced under .tmp/ (data and sidecar) that is not visible yet: Publish renames
+// it into place, Discard removes what was not published. The upload route publishes while it holds the pending
+// row's lock, so a commit never verifies bytes a concurrent PUT is about to replace.
+type Staged struct {
+	l                *Local
+	key              string
+	dataTmp, metaTmp string
+	// Info is the object as written: size, content type and sha256.
+	Info Info
+}
+
+// Stage writes at most limit bytes of r and the sidecar to temporary files and syncs them; ErrTooLarge above
+// limit. Nothing is visible at key until Publish.
+func (l *Local) Stage(key string, r io.Reader, contentType string, limit int64) (*Staged, error) {
+	if err := validLocalKey(key); err != nil {
+		return nil, err
+	}
+	st := &Staged{l: l, key: key}
+	ok := false
 	defer func() {
-		if !committed {
-			_ = data.Close()
-			_ = l.root.Remove(dataTmp)
+		if !ok {
+			st.Discard()
 		}
 	}()
+	data, dataTmp, err := l.tempFile()
+	if err != nil {
+		return nil, err
+	}
+	st.dataTmp = dataTmp
 	h := sha256.New()
 	n, err := io.Copy(io.MultiWriter(data, h), io.LimitReader(r, limit+1))
+	if err == nil && n > limit {
+		err = ErrTooLarge
+	}
+	if err == nil {
+		err = data.Sync()
+	}
+	if cerr := data.Close(); err == nil {
+		err = cerr
+	}
 	if err != nil {
-		return Info{}, err
-	}
-	if n > limit {
-		return Info{}, ErrTooLarge
-	}
-	if err := data.Sync(); err != nil {
-		return Info{}, err
-	}
-	if err := data.Close(); err != nil {
-		return Info{}, err
+		return nil, err
 	}
 	m := meta{ContentType: contentType, Size: n, SHA256: hex.EncodeToString(h.Sum(nil))}
 	mb, err := json.Marshal(m)
 	if err != nil {
-		return Info{}, err
+		return nil, err
 	}
 	mf, metaTmp, err := l.tempFile()
 	if err != nil {
-		return Info{}, err
+		return nil, err
 	}
-	_, werr := mf.Write(mb)
-	if werr == nil {
-		werr = mf.Sync()
+	st.metaTmp = metaTmp
+	_, err = mf.Write(mb)
+	if err == nil {
+		err = mf.Sync()
 	}
-	if cerr := mf.Close(); werr == nil {
-		werr = cerr
+	if cerr := mf.Close(); err == nil {
+		err = cerr
 	}
-	if werr != nil {
-		_ = l.root.Remove(metaTmp)
-		return Info{}, werr
+	if err != nil {
+		return nil, err
 	}
+	st.Info = Info{Size: n, ContentType: contentType, SHA256: m.SHA256}
+	ok = true
+	return st, nil
+}
+
+// Publish renames the staged sidecar, then the data, into place and syncs both directories.
+func (st *Staged) Publish() error {
+	if st.dataTmp == "" {
+		return errors.New("storage: staged object already published or discarded")
+	}
+	l, key := st.l, st.key
 	for _, d := range []string{path.Dir(metaName(key)), path.Dir(dataName(key))} {
 		if err := l.root.MkdirAll(d, dirMode); err != nil {
-			_ = l.root.Remove(metaTmp)
-			return Info{}, err
+			return err
 		}
 	}
-	if err := l.root.Rename(metaTmp, metaName(key)); err != nil {
-		_ = l.root.Remove(metaTmp)
-		return Info{}, err
+	if err := l.root.Rename(st.metaTmp, metaName(key)); err != nil {
+		return err
 	}
-	if err := l.root.Rename(dataTmp, dataName(key)); err != nil {
-		return Info{}, err
+	st.metaTmp = ""
+	if err := l.root.Rename(st.dataTmp, dataName(key)); err != nil {
+		return err
 	}
-	committed = true
+	st.dataTmp = ""
 	l.syncDir(path.Dir(dataName(key)))
 	l.syncDir(path.Dir(metaName(key)))
-	return Info{Size: n, ContentType: contentType, SHA256: m.SHA256}, nil
+	return nil
+}
+
+// Discard removes the temporary files that were not published (safe to call more than once).
+func (st *Staged) Discard() {
+	for _, name := range []*string{&st.dataTmp, &st.metaTmp} {
+		if *name != "" {
+			_ = st.l.root.Remove(*name)
+			*name = ""
+		}
+	}
 }
 
 // tempFile creates a new file under .tmp/ with mode 0640 (the umask cannot widen it; Chmod makes it exact).
@@ -392,7 +466,7 @@ func (l *Local) syncDir(dir string) {
 
 // Delete implements Backend.
 func (l *Local) Delete(_ context.Context, o Object) error {
-	if err := ValidateKey(o.Key); err != nil {
+	if err := validLocalKey(o.Key); err != nil {
 		return err
 	}
 	return l.remove(o.Key)
@@ -412,7 +486,7 @@ func (l *Local) remove(key string) error {
 // Open returns the object for streaming: a regular file only (a directory, a missing key or anything else is
 // ErrObjectNotFound) with its sidecar.
 func (l *Local) Open(key string) (*os.File, Info, error) {
-	if err := ValidateKey(key); err != nil {
+	if err := validLocalKey(key); err != nil {
 		return nil, Info{}, ErrObjectNotFound
 	}
 	f, err := l.root.Open(dataName(key))

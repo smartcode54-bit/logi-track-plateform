@@ -71,8 +71,9 @@ by up to six lines after `:60`):
    `outbox_events.id` (`bigint` identity); generated columns written `STORED` (PG 18 defaults to
    VIRTUAL); money `NUMERIC(14,2)`; `legacy_doc_id` on migrated rows; per-row `legacy_driver_ref` +
    `driver_ref_match`; one `driver_id` FK with `drivers.user_id` UNIQUE. Migrations `0001`–`0009`
-   apply in P0; production runs `goose up-to 9` → ETL → owner quarantine sign-off → `goose up`
-   (`0010`, the unique constraints legacy duplicates would break). A superuser init script creates
+   apply in P0; production runs `goose up-to 9` → `migrate apply 11` (the T11 storage column, which
+   P0 needs) → ETL → owner quarantine sign-off → `goose up` (`0010`, the unique constraints legacy
+   duplicates would break, applied out of order: the only gap the runner allows). A superuser init script creates
    `logitrack_migrator` (owner), `logitrack_app` (NOBYPASSRLS; `api`, `worker`, `scheduler`,
    `seed --verify`), `logitrack_etl` (BYPASSRLS; `etl`, `seed`), `logitrack_readonly`,
    `logitrack_rls_definer` (NOLOGIN, SECURITY DEFINER helpers); one URL per process, no `SET ROLE`.
@@ -267,6 +268,14 @@ by up to six lines after `:60`):
   This **widens Decision 10**: the route group `/media` joins the public listener
   (`PUBLIC_ROUTE_GROUPS`, `ingress.PublicPrefixes`; nginx maps `logi.showkhun.co/media/` to it),
   approved by the owner. Spec: `developer-spec.md` §2.6, §9.11, §16.1; Appendix A §A.2.9.
+- **2026-10-10, T11 review (migration order):** object storage is a P0 deliverable and every storage
+  query needs `file_objects.storage_backend`, so production applies `0011` in P0 with
+  `migrate apply 11` after `up-to 9`, ahead of the held `0010`; the P1 runbook's `goose up` then
+  applies `0010` out of order, the only gap `internal/platform/migrate` allows (`migrate.Held`).
+  This refines Decision 2's order (`developer-spec.md` §3.5, §19). Same review: the S3 presigned PUT
+  also signs `Content-Length` and `If-None-Match: *`, the local upload signs the declared size and is
+  published under the pending row's lock, `GET /v1/files` keeps driver PII behind
+  `drivers:view_pii` (5-minute URLs), and Go-minted evidence tokens carry their issue time (§9.6).
 
 ## Related
 

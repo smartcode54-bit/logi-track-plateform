@@ -9,14 +9,18 @@ package storage_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -26,13 +30,18 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/minio/minio-go/v7/pkg/lifecycle"
 	"github.com/rs/zerolog"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db/pgtest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/migrate"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/migrate/migratetest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/mq"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
@@ -59,16 +68,27 @@ type fixture struct {
 	otherStaff uuid.UUID
 	now        time.Time
 	localDir   string
+	runner     *migrate.Runner
 }
 
 func setup(t *testing.T) *fixture {
 	t.Helper()
+	return setupAt(t, func(ctx context.Context, r *migrate.Runner) error {
+		_, err := r.Up(ctx)
+		return err
+	})
+}
+
+// setupAt migrates a fresh database with schema (the whole chain, or a production stop) and seeds the tenants.
+func setupAt(t *testing.T, schema func(context.Context, *migrate.Runner) error) *fixture {
+	t.Helper()
 	d := pgtest.NewDatabase(t)
-	if _, err := migratetest.Runner(t, d, migrations.FS).Up(context.Background()); err != nil {
+	r := migratetest.Runner(t, d, migrations.FS)
+	if err := schema(context.Background(), r); err != nil {
 		t.Fatal(err)
 	}
 	f := &fixture{pool: d.Pool(t, db.RoleApp), etl: d.Pool(t, db.RoleETL), now: time.Now().UTC().Truncate(time.Millisecond),
-		localDir: t.TempDir()}
+		localDir: t.TempDir(), runner: r}
 	ctx := context.Background()
 	q := func(sql string, args ...any) uuid.UUID {
 		t.Helper()
@@ -237,7 +257,7 @@ func TestS3PresignUploadCommit(t *testing.T) {
 	pre, _ := http.NewRequest(http.MethodOptions, p.URL, nil)
 	pre.Header.Set("Origin", "http://localhost:3000")
 	pre.Header.Set("Access-Control-Request-Method", "PUT")
-	pre.Header.Set("Access-Control-Request-Headers", "content-type")
+	pre.Header.Set("Access-Control-Request-Headers", "content-type,if-none-match")
 	resp, err := http.DefaultClient.Do(pre)
 	if err != nil {
 		t.Fatal(err)
@@ -253,20 +273,38 @@ func TestS3PresignUploadCommit(t *testing.T) {
 	}
 	// A PUT with another content type than the signed one is refused by the signature.
 	wrong := *p
-	wrong.Headers = map[string]string{"Content-Type": "text/html"}
+	wrong.Headers = map[string]string{"Content-Type": "text/html", "If-None-Match": "*"}
 	if r := put(t, &wrong, "", body, ""); r.StatusCode != http.StatusForbidden {
 		t.Fatalf("PUT with an unsigned content type: %d", r.StatusCode)
 	}
+	// The PUT can only create the object: the same URL again (a retry after a lost response, or a swap) is 412.
+	if r := put(t, p, "", bytes.Repeat([]byte{0xdd}, len(body)), ""); r.StatusCode != http.StatusPreconditionFailed {
+		t.Fatalf("second PUT on the same URL: %d", r.StatusCode)
+	}
+	// The body is bound to the declared size: longer or shorter bodies fail the signature and store nothing.
+	sized, err := svc.Presign(ctx, driver, storage.PresignInput{Purpose: "trip_photo", EntityID: trip.String(), Variant: "sized",
+		ContentType: "image/jpeg", SizeBytes: 10}, storage.PutOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, b := range map[string][]byte{"oversize": bytes.Repeat([]byte{0xff}, 8<<20), "short": []byte("abc")} {
+		if r := put(t, sized, "", b, ""); r.StatusCode != http.StatusForbidden {
+			t.Errorf("%s body: %d", name, r.StatusCode)
+		}
+	}
+	if _, err := s3.Stat(ctx, storage.Object{Bucket: cfg.Bucket, Key: sized.Key}); !errors.Is(err, storage.ErrObjectNotFound) {
+		t.Fatalf("a refused body was stored: %v", err)
+	}
 
 	in := storage.CommitInput{Key: p.Key, Field: "photoKey", Purposes: []string{"trip_photo"}, OwnerID: trip, UserID: f.driver, TenantID: &f.own}
-	// Wrong size: declared 3 bytes, the object has more.
+	// Wrong size: declared 3 bytes, an object with more written out of band (the presigned PUT cannot).
 	short, err := svc.Presign(ctx, driver, storage.PresignInput{Purpose: "trip_photo", EntityID: trip.String(), Variant: "closing",
 		ContentType: "image/jpeg", SizeBytes: 3}, storage.PutOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r := put(t, short, "", body, ""); r.StatusCode != http.StatusOK {
-		t.Fatalf("PUT: %d", r.StatusCode)
+	if err := s3.Put(ctx, storage.Object{Bucket: cfg.Bucket, Key: short.Key}, bytes.NewReader(body), int64(len(body)), "image/jpeg"); err != nil {
+		t.Fatal(err)
 	}
 	_, err = f.commit(t, svc, storage.CommitInput{Key: short.Key, Field: "photoKey", Purposes: []string{"trip_photo"}, OwnerID: trip, UserID: f.driver})
 	wantField(t, err, "photoKey", "size_mismatch")
@@ -316,6 +354,13 @@ func TestS3PresignUploadCommit(t *testing.T) {
 	other.OwnerID = uuid.New()
 	_, err = f.commit(t, svc, other)
 	wantField(t, err, "photoKey", "already_committed")
+	// The upload URL is still valid after the commit, but it cannot replace the committed object.
+	if r := put(t, p, "", bytes.Repeat([]byte{0xee}, len(body)), ""); r.StatusCode != http.StatusPreconditionFailed {
+		t.Fatalf("PUT over a committed object: %d", r.StatusCode)
+	}
+	if info, err := s3.Stat(ctx, storage.Object{Bucket: cfg.Bucket, Key: p.Key}); err != nil || info.Size != int64(len(body)) {
+		t.Fatalf("committed object after a second PUT: %+v %v", info, err)
+	}
 
 	// Download: GET /v1/files resolves on S3_PRESIGN_ENDPOINT; a URL dies after its TTL.
 	u, err := svc.DownloadURL(ctx, f.caller(f.staff, f.own, true), p.Key)
@@ -325,9 +370,14 @@ func TestS3PresignUploadCommit(t *testing.T) {
 	if gu, _ := url.Parse(u); gu.Host != pu.Host {
 		t.Fatalf("download URL %s not on the presign host", u)
 	}
-	short2, err := svc.SignedURL(ctx, c.ID, 2*time.Second)
+	// MinIO checks the expiry against its own clock: a 5 s URL and a poll for the 403 tolerate a container clock
+	// a few seconds ahead of or behind the test process (Docker Desktop after sleep).
+	short2, err := svc.SignedURL(ctx, c.ID, 5*time.Second)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if mustQueryOf(t, short2).Get("X-Amz-Expires") != "5" {
+		t.Fatalf("short URL %s", short2)
 	}
 	if r, err := http.Get(short2); err != nil || r.StatusCode != http.StatusOK {
 		t.Fatalf("fresh GET: %v %v", r, err)
@@ -338,12 +388,29 @@ func TestS3PresignUploadCommit(t *testing.T) {
 			t.Fatal("downloaded bytes differ")
 		}
 	}
-	time.Sleep(3 * time.Second)
-	if r, err := http.Get(short2); err != nil || r.StatusCode != http.StatusForbidden {
-		t.Fatalf("expired presigned GET: %v %v", r, err)
-	} else {
-		_ = r.Body.Close()
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		r, err := http.Get(short2)
+		if err == nil {
+			_ = r.Body.Close()
+			if r.StatusCode == http.StatusForbidden {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("presigned GET still valid long after its TTL: %v %v", r, err)
+		}
+		time.Sleep(250 * time.Millisecond)
 	}
+}
+
+func mustQueryOf(t *testing.T, raw string) url.Values {
+	t.Helper()
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return u.Query()
 }
 
 // Presign validation, tenant rules, re-signing and the read rules of GET /v1/files.
@@ -449,15 +516,121 @@ func TestPresignRulesAndReadRules(t *testing.T) {
 	if _, err := svc.DownloadURL(ctx, f.caller(f.staff, f.own, true), sp.Key); err != nil {
 		t.Fatalf("own-fleet staff read a carrier's file: %v", err)
 	}
-	// An owner-kind authorizer widens reads ("a file is readable iff its referencing row is").
-	svc.RegisterAuthorizer(storage.OwnerChat, func(_ context.Context, c storage.Caller, _ uuid.UUID) (bool, error) {
-		return c.UserID == f.otherStaff, nil
+	// An owner-kind authorizer is authoritative ("a file is readable iff its referencing row is"): it widens reads
+	// to staff of an unrelated tenant here, and narrows them for the owner's own staff.
+	svc.RegisterAuthorizer(storage.OwnerChat, func(_ context.Context, c storage.Caller, file storage.FileRef) (bool, error) {
+		return c.UserID == f.otherStaff && file.Purpose == "chat_image" && file.Key == p.Key, nil
 	})
 	if _, err := svc.DownloadURL(ctx, f.caller(f.otherStaff, f.other, true), p.Key); err != nil {
 		t.Fatalf("authorizer: %v", err)
 	}
+	if _, err := svc.DownloadURL(ctx, f.caller(f.staff, f.own, true), p.Key); err == nil {
+		t.Fatal("a registered authorizer did not narrow the staff rule")
+	}
+	if _, err := svc.DownloadURL(ctx, driver, p.Key); err != nil {
+		t.Fatalf("the uploader is decided before the authorizer: %v", err)
+	}
 	if _, err := svc.DownloadURL(ctx, driver, "nope/missing.jpg"); err == nil {
 		t.Fatal("unknown key")
+	}
+}
+
+// Driver ID cards and licences (main spec §9.2, §9.5; Appendix C §C.2 row 15, §C.9 row 11): staff in reach need
+// drivers:view_pii, the URL lives 5 minutes; an OwnerDriver authorizer decides instead of the staff rule.
+func TestDriverPIIReads(t *testing.T) {
+	f := setup(t)
+	svc := f.service(t, storage.BackendLocal, f.local(t))
+	ctx := context.Background()
+	driverID := uuid.New()
+	pii := func(c authz.Cap) bool { return c == authz.DriversViewPII }
+	manager := storage.Caller{UserID: uuid.New(), TenantID: &f.own, Staff: true, Can: pii}
+	operator := storage.Caller{UserID: uuid.New(), TenantID: &f.own, Staff: true}
+	contractor := storage.Caller{UserID: uuid.New(), TenantID: &f.own, Staff: true}
+	expires := func(t *testing.T, u string) int64 {
+		t.Helper()
+		e, err := strconv.ParseInt(mustQueryOf(t, u).Get(storage.QueryExpires), 10, 64)
+		if err != nil {
+			t.Fatalf("URL %s: %v", u, err)
+		}
+		return e - f.now.Unix()
+	}
+	var keys []string
+	var ids []uuid.UUID
+	for _, purpose := range []string{"driver_id_card", "driver_license"} {
+		up := f.caller(f.staff, f.own, true)
+		p, err := svc.Presign(ctx, up, storage.PresignInput{Purpose: purpose, EntityID: driverID.String(), ContentType: "image/jpeg", SizeBytes: 2},
+			storage.PutOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.svcWrite(t, svc, p.Key, []byte("id"), "image/jpeg"); err != nil {
+			t.Fatal(err)
+		}
+		c, err := f.commit(t, svc, storage.CommitInput{Key: p.Key, Purposes: []string{purpose}, OwnerID: driverID, UserID: f.staff, TenantID: &f.own})
+		if err != nil {
+			t.Fatal(err)
+		}
+		keys, ids = append(keys, p.Key), append(ids, c.ID)
+	}
+	// A carrier's driver document, read by the own fleet's staff (contractor reach).
+	sp, err := svc.Presign(ctx, f.caller(f.subStaff, f.sub, true), storage.PresignInput{Purpose: "driver_id_card", EntityID: uuid.NewString(),
+		ContentType: "image/jpeg", SizeBytes: 2}, storage.PutOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svcWrite(t, svc, sp.Key, []byte("id"), "image/jpeg"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.commit(t, svc, storage.CommitInput{Key: sp.Key, Purposes: []string{"driver_id_card"}, OwnerID: uuid.New(), UserID: f.subStaff, TenantID: &f.sub}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, key := range keys {
+		for name, tc := range map[string]struct {
+			c  storage.Caller
+			ok bool
+		}{
+			"uploader":                   {f.caller(f.staff, f.own, true), true},
+			"manager (drivers:view_pii)": {manager, true},
+			"operator":                   {operator, false},
+			"read-only bypass":           {storage.Caller{UserID: uuid.New(), ReadAll: true}, true},
+		} {
+			u, err := svc.DownloadURL(ctx, tc.c, key)
+			if (err == nil) != tc.ok {
+				t.Errorf("%s reads %s: %v", name, key, err)
+			}
+			if err == nil && name != "uploader" && expires(t, u) != 300 {
+				t.Errorf("%s: URL lives %d s, want 300", name, expires(t, u))
+			}
+		}
+	}
+	if _, err := svc.DownloadURL(ctx, contractor, sp.Key); err == nil {
+		t.Fatal("contractor staff without drivers:view_pii read a carrier's ID card")
+	}
+	contractor.Can = pii
+	if _, err := svc.DownloadURL(ctx, contractor, sp.Key); err != nil {
+		t.Fatalf("contractor staff with drivers:view_pii: %v", err)
+	}
+	// Entity payloads (GET /v1/drivers/{id}/documents/{kind}) get 5 minutes too, whatever they ask for.
+	if u, err := svc.SignedURL(ctx, ids[0], 0); err != nil || expires(t, u) != 300 {
+		t.Fatalf("entity URL of an ID card: %s %v", u, err)
+	}
+
+	// The drivers domain's authorizer decides: it can refuse a capability holder and grant the driver.
+	asked := 0
+	svc.RegisterAuthorizer(storage.OwnerDriver, func(_ context.Context, c storage.Caller, file storage.FileRef) (bool, error) {
+		asked++
+		return file.OwnerID == driverID && c.UserID == operator.UserID, nil
+	})
+	if _, err := svc.DownloadURL(ctx, manager, keys[0]); err == nil {
+		t.Fatal("a denying authorizer did not narrow the read")
+	}
+	u, err := svc.DownloadURL(ctx, operator, keys[1])
+	if err != nil || expires(t, u) != 300 {
+		t.Fatalf("a granting authorizer: %s %v", u, err)
+	}
+	if asked != 2 {
+		t.Fatalf("the authorizer was asked %d times, want 2", asked)
 	}
 }
 
@@ -725,5 +898,280 @@ func TestEvidenceVerifier(t *testing.T) {
 	}
 	if _, err := ttl.ResolveEvidence(ctx, next); err != nil {
 		t.Fatalf("fresh token with a TTL: %v", err)
+	}
+}
+
+// Production P0 (R59, R88): the database stops at up-to 9 plus apply 11 while 0010 waits for the P1 sign-off. The
+// storage service works there (presign, upload, commit, download, storage.gc), and the P1 runbook's up later
+// applies 0010 underneath it.
+func TestStorageOnTheProductionP0Schema(t *testing.T) {
+	f := setupAt(t, func(ctx context.Context, r *migrate.Runner) error {
+		if _, err := r.UpTo(ctx, 9); err != nil {
+			return err
+		}
+		_, err := r.Apply(ctx, 11)
+		return err
+	})
+	ctx := context.Background()
+	st, err := f.runner.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st[9].Applied || !st[10].Applied {
+		t.Fatalf("schema: 0010 %+v, 0011 %+v", st[9], st[10])
+	}
+	svc := f.service(t, storage.BackendLocal, f.local(t))
+	upload := func() string {
+		t.Helper()
+		p, err := svc.Presign(ctx, f.caller(f.driver, f.own, false), storage.PresignInput{Purpose: "chat_image", EntityID: uuid.NewString(),
+			ContentType: "image/jpeg", SizeBytes: 3}, storage.PutOptions{})
+		if err != nil {
+			t.Fatalf("presign at up-to 9 + 11: %v", err)
+		}
+		if _, err := f.svcWrite(t, svc, p.Key, []byte("abc"), "image/jpeg"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.commit(t, svc, storage.CommitInput{Key: p.Key, Purposes: []string{"chat_image"}, OwnerID: uuid.New(), UserID: f.driver}); err != nil {
+			t.Fatalf("commit at up-to 9 + 11: %v", err)
+		}
+		if _, err := svc.DownloadURL(ctx, f.caller(f.staff, f.own, true), p.Key); err != nil {
+			t.Fatalf("GET /v1/files at up-to 9 + 11: %v", err)
+		}
+		return p.Key
+	}
+	key := upload()
+	if _, err := svc.GC(ctx); err != nil {
+		t.Fatalf("storage.gc at up-to 9 + 11: %v", err)
+	}
+	// P1 runbook: up applies the held 0010 (out of order); storage keeps working.
+	res, err := f.runner.Up(ctx)
+	if err != nil || len(res) == 0 || res[0].Name != "0010_d5_unique_constraints.sql" {
+		t.Fatalf("up after apply 11: %+v %v", res, err)
+	}
+	if _, err := svc.DownloadURL(ctx, f.caller(f.staff, f.own, true), key); err != nil {
+		t.Fatal(err)
+	}
+	upload()
+}
+
+// serveStorage runs the storage routes on a real listener (a blocked request must not hit app.Test's timeout).
+func serveStorage(t *testing.T, svc *storage.Service) string {
+	t.Helper()
+	app := fiber.New(fiber.Config{ErrorHandler: httpx.ErrorHandler(zerolog.Nop())})
+	ingress.Mount(app, ingress.Internal, svc.Groups(storage.HTTPOptions{Auth: func(c fiber.Ctx) error { return c.Next() },
+		Caller: func(fiber.Ctx) (storage.Caller, bool) { return storage.Caller{}, false }}), nil)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = app.Listener(ln, fiber.ListenConfig{DisableStartupMessage: true}) }()
+	t.Cleanup(func() { _ = app.Shutdown() })
+	return "http://" + ln.Addr().String()
+}
+
+// putResult is a PUT made from a goroutine (no t.Fatal there).
+type putResult struct {
+	status int
+	body   string
+	err    error
+}
+
+func putAsync(p *storage.Presigned, base string, body []byte) putResult {
+	req, err := http.NewRequest(p.Method, base+p.URL, bytes.NewReader(body))
+	if err != nil {
+		return putResult{err: err}
+	}
+	for k, v := range p.Headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return putResult{err: err}
+	}
+	defer func() { _ = resp.Body.Close() }()
+	b, _ := io.ReadAll(resp.Body)
+	return putResult{status: resp.StatusCode, body: string(b)}
+}
+
+// A still-valid local upload URL cannot replace bytes a commit verified: the upload is renamed into place only
+// under the pending row's lock, which the entity transaction's commit holds until it ends (review finding of PR
+// #109). The second PUT waits on the lock, then finds the row committed: 409 not_pending, the disk untouched.
+func TestLocalUploadCannotReplaceBytesDuringACommit(t *testing.T) {
+	f := setup(t)
+	svc := f.service(t, storage.BackendLocal, f.local(t))
+	base := serveStorage(t, svc)
+	ctx := context.Background()
+	sum := sha256.Sum256([]byte("abc"))
+	p, err := svc.Presign(ctx, f.caller(f.driver, f.own, false), storage.PresignInput{Purpose: "chat_image", EntityID: uuid.NewString(),
+		ContentType: "image/jpeg", SizeBytes: 3, SHA256: hex.EncodeToString(sum[:])}, storage.PutOptions{APIPath: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := putAsync(p, base, []byte("abc")); r.err != nil || r.status != http.StatusOK {
+		t.Fatalf("first PUT: %+v", r)
+	}
+	done := make(chan putResult, 1)
+	err = db.WithSystem(ctx, f.pool, nil, func(tx pgx.Tx) error {
+		if _, err := svc.Commit(ctx, tx, storage.CommitInput{Key: p.Key, Purposes: []string{"chat_image"}, OwnerID: uuid.New(), UserID: f.driver}); err != nil {
+			return err
+		}
+		// Same size (the signature binds it), other bytes, while the entity transaction is still open.
+		go func() { done <- putAsync(p, base, []byte("xyz")) }()
+		deadline := time.Now().Add(15 * time.Second)
+		for {
+			var waiting int
+			if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity
+				WHERE datname = current_database() AND wait_event_type = 'Lock'`).Scan(&waiting); err != nil {
+				return err
+			}
+			if waiting > 0 {
+				return nil // the PUT waits on the row lock: commit now
+			}
+			select {
+			case r := <-done:
+				return fmt.Errorf("the PUT finished while the commit held the row: %+v", r)
+			default:
+			}
+			if time.Now().After(deadline) {
+				return errors.New("the PUT never waited on the row lock")
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := <-done
+	if r.err != nil || r.status != http.StatusConflict || !strings.Contains(r.body, "not_pending") {
+		t.Fatalf("PUT during the commit: %+v", r)
+	}
+	got, err := os.ReadFile(f.localDir + "/private/" + p.Key)
+	if err != nil || string(got) != "abc" {
+		t.Fatalf("committed bytes on disk: %q %v", got, err)
+	}
+	if info, err := svc.Local().Stat(ctx, storage.Object{Key: p.Key}); err != nil || info.SHA256 != hex.EncodeToString(sum[:]) {
+		t.Fatalf("sidecar after the refused PUT: %+v %v", info, err)
+	}
+
+	// Without an artificial hold: PUTs racing commits never leave a committed row whose bytes are not the ones it
+	// verified (the declared sha256 of "abc").
+	for i := range 20 {
+		p, err := svc.Presign(ctx, f.caller(f.driver, f.own, false), storage.PresignInput{Purpose: "chat_image", EntityID: uuid.NewString(),
+			ContentType: "image/jpeg", SizeBytes: 3, SHA256: hex.EncodeToString(sum[:])}, storage.PutOptions{APIPath: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r := putAsync(p, base, []byte("abc")); r.status != http.StatusOK {
+			t.Fatalf("round %d first PUT: %+v", i, r)
+		}
+		results := make(chan putResult, 3)
+		for range 3 {
+			go func() { results <- putAsync(p, base, []byte("xyz")) }()
+		}
+		_, commitErr := f.commit(t, svc, storage.CommitInput{Key: p.Key, Purposes: []string{"chat_image"}, OwnerID: uuid.New(), UserID: f.driver})
+		for range 3 {
+			<-results
+		}
+		got, _ := os.ReadFile(f.localDir + "/private/" + p.Key)
+		if st, _ := f.status(t, p.Key); commitErr == nil && (st != "committed" || string(got) != "abc") {
+			t.Fatalf("round %d: committed row (%s) over bytes %q", i, st, got)
+		}
+	}
+}
+
+// The bootstrap owns only the anonymous grants and the expire-cache rule (§9.1, §9.10): an operator's deny
+// statements and extra lifecycle rules survive an api restart, an anonymous grant on the private bucket does not.
+func TestBootstrapKeepsOperatorBucketSettings(t *testing.T) {
+	s3, cfg := s3Backend(t)
+	u, err := url.Parse(cfg.Endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin, err := minio.New(u.Host, &minio.Options{Creds: credentials.NewStaticV4(cfg.AccessKeyID, cfg.SecretAccessKey, ""), Region: cfg.Region,
+		BucketLookup: minio.BucketLookupPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	hold := func(bucket string) string {
+		return `{"Sid":"LegalHold","Effect":"Deny","Principal":{"AWS":["*"]},"Action":["s3:DeleteObject"],` +
+			`"Resource":["arn:aws:s3:::` + bucket + `/legal-hold/*"]}`
+	}
+	anon := `{"Effect":"Allow","Principal":{"AWS":["*"]},"Action":["s3:GetObject"],"Resource":["arn:aws:s3:::` + cfg.Bucket + `/*"]}`
+	if err := admin.SetBucketPolicy(ctx, cfg.Bucket, `{"Version":"2012-10-17","Statement":[`+hold(cfg.Bucket)+`,`+anon+`]}`); err != nil {
+		t.Fatal(err)
+	}
+	pub, err := admin.GetBucketPolicy(ctx, cfg.PublicBucket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pd map[string]any
+	if err := json.Unmarshal([]byte(pub), &pd); err != nil {
+		t.Fatal(err)
+	}
+	var holdStmt any
+	_ = json.Unmarshal([]byte(hold(cfg.PublicBucket)), &holdStmt)
+	pd["Statement"] = append(pd["Statement"].([]any), holdStmt)
+	pubWithHold, _ := json.Marshal(pd)
+	if err := admin.SetBucketPolicy(ctx, cfg.PublicBucket, string(pubWithHold)); err != nil {
+		t.Fatal(err)
+	}
+	lc, err := admin.GetBucketLifecycle(ctx, cfg.Bucket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lc.Rules = append(lc.Rules, lifecycle.Rule{ID: "expire-etl", Status: "Enabled", RuleFilter: lifecycle.Filter{Prefix: "etl/dumps/"},
+		Expiration: lifecycle.Expiration{Days: 90}})
+	if err := admin.SetBucketLifecycle(ctx, cfg.Bucket, lc); err != nil {
+		t.Fatal(err)
+	}
+
+	for range 2 { // an api restart, then another one that has nothing to change
+		if err := s3.Bootstrap(ctx, zerolog.Nop()); err != nil {
+			t.Fatal(err)
+		}
+		priv, err := admin.GetBucketPolicy(ctx, cfg.Bucket)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(priv, "LegalHold") || strings.Contains(priv, `"Allow"`) {
+			t.Fatalf("private policy after bootstrap: %s", priv)
+		}
+		pub, err := admin.GetBucketPolicy(ctx, cfg.PublicBucket)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(pub, "LegalHold") || !strings.Contains(pub, cfg.PublicBucket+"/app_releases/*") {
+			t.Fatalf("public policy after bootstrap: %s", pub)
+		}
+		lc, err := admin.GetBucketLifecycle(ctx, cfg.Bucket)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids := map[string]bool{}
+		for _, r := range lc.Rules {
+			ids[r.ID] = true
+		}
+		if !ids["expire-cache"] || !ids["expire-etl"] || len(lc.Rules) != 2 {
+			t.Fatalf("lifecycle after bootstrap: %+v", lc.Rules)
+		}
+	}
+	// Anonymous reads: app_releases/ of the public bucket only.
+	if err := s3.Put(ctx, storage.Object{Bucket: cfg.PublicBucket, Key: "app_releases/dev/a.apk"}, strings.NewReader("apk"), 3,
+		"application/vnd.android.package-archive"); err != nil {
+		t.Fatal(err)
+	}
+	if r, err := http.Get(cfg.Endpoint + "/" + cfg.PublicBucket + "/app_releases/dev/a.apk"); err != nil || r.StatusCode != http.StatusOK {
+		t.Fatalf("anonymous APK GET: %v %v", r, err)
+	} else {
+		_ = r.Body.Close()
+	}
+	if err := s3.Put(ctx, storage.Object{Bucket: cfg.Bucket, Key: "chats/x/a.jpg"}, strings.NewReader("x"), 1, "image/jpeg"); err != nil {
+		t.Fatal(err)
+	}
+	if r, err := http.Get(cfg.Endpoint + "/" + cfg.Bucket + "/chats/x/a.jpg"); err != nil || r.StatusCode != http.StatusForbidden {
+		t.Fatalf("anonymous private GET: %v %v", r, err)
+	} else {
+		_ = r.Body.Close()
 	}
 }

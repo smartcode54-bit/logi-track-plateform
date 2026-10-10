@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/rs/zerolog"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/outbox"
@@ -59,8 +60,11 @@ type Caller struct {
 	// TenantID is the tenant the request acts in; nil for customer-scope and platform-only principals.
 	TenantID *uuid.UUID
 	// Staff holds a staff role in TenantID (tenant_admin, manager, operation_staff, operator, user): it reads the
-	// files of its tenant and of the carriers working for it (R60), like the RLS policy p_read.
+	// files of its tenant and of the carriers working for it (R60), like the RLS policy p_read, except where the
+	// file's purpose narrows that rule (Purpose.ReadCapability, NoStaffRead).
 	Staff bool
+	// Can reports a capability of the effective set (iam.RBAC); nil holds none.
+	Can func(authz.Cap) bool
 	// Steward (own-fleet staff or platform_admin, R60) may upload platform objects (tenant NULL) when it acts in no
 	// tenant, like p_upload's steward branch.
 	Steward bool
@@ -70,10 +74,22 @@ type Caller struct {
 	Machine bool
 }
 
+// FileRef is the committed file an Authorizer decides on.
+type FileRef struct {
+	ID       uuid.UUID
+	Key      string
+	Purpose  string
+	OwnerID  uuid.UUID
+	TenantID *uuid.UUID
+}
+
 // Authorizer decides whether the caller may read a file committed to an entity of its owner kind ("a file is
 // readable iff its referencing row is", Appendix C §C.3.5). Domain services register one per owner kind as they
-// land; without one only the uploader, staff in reach and public objects are readable.
-type Authorizer func(ctx context.Context, c Caller, ownerID uuid.UUID) (bool, error)
+// land. A registered Authorizer is authoritative for its owner kind: it may narrow the staff rule (a capability
+// the purpose needs) as well as widen it (the driver who owns the entity); only public objects, the caller's own
+// uploads and the audited read-only bypass are decided before it. Without one, staff in reach read the file
+// unless its purpose narrows the staff rule (Purpose.ReadCapability, NoStaffRead).
+type Authorizer func(ctx context.Context, c Caller, f FileRef) (bool, error)
 
 // Service is the storage service.
 type Service struct {
@@ -299,7 +315,7 @@ func (s *Service) Presign(ctx context.Context, c Caller, in PresignInput, opts P
 				return err
 			}
 			// Signed inside the transaction: a backend that cannot sign leaves no pending row behind.
-			put, err := b.PresignPut(ctx, object(row), ct, s.cfg.PresignPutTTL, opts)
+			put, err := b.PresignPut(ctx, object(row), ct, in.SizeBytes, s.cfg.PresignPutTTL, opts)
 			if err != nil {
 				return httpx.ErrUnavailable("storage cannot sign the upload").Wrap(err)
 			}
@@ -355,7 +371,7 @@ func (s *Service) resign(ctx context.Context, c Caller, in PresignInput, opts Pu
 		if row, err = q.ExtendPending(ctx, storagedb.ExtendPendingParams{ExpiresAt: s.now().Add(PendingTTL), ID: row.ID}); err != nil {
 			return err
 		}
-		put, err := b.PresignPut(ctx, object(row), ct, s.cfg.PresignPutTTL, opts)
+		put, err := b.PresignPut(ctx, object(row), ct, deref(row.SizeBytes), s.cfg.PresignPutTTL, opts)
 		if err != nil {
 			return httpx.ErrUnavailable("storage cannot sign the upload").Wrap(err)
 		}
@@ -485,30 +501,44 @@ func (s *Service) Commit(ctx context.Context, tx pgx.Tx, in CommitInput) (Commit
 	return done, nil
 }
 
-// mayRead mirrors the RLS policy p_read for a caller (public objects, own uploads, staff of the file's tenant or
-// of its contractor) and then asks the owner kind's Authorizer.
+// mayRead decides GET /v1/files for a caller: public objects, the caller's own uploads and the audited
+// read-only bypass first; then the owner kind's Authorizer, which is authoritative when registered; then the
+// staff rule of the RLS policy p_read (staff of the file's tenant or of its contractor), narrowed by the
+// purpose's read rule (a capability such as drivers:view_pii, or no staff rule at all).
 func (s *Service) mayRead(ctx context.Context, q *storagedb.Queries, c Caller, row storagedb.FileObject) (bool, error) {
 	if c.ReadAll || row.Visibility == "public" || (row.UploadedBy != nil && *row.UploadedBy == c.UserID) {
 		return true, nil
-	}
-	if c.Staff && c.TenantID != nil && row.TenantID != nil {
-		if *row.TenantID == *c.TenantID {
-			return true, nil
-		}
-		ok, err := q.IsDirectSubtenant(ctx, storagedb.IsDirectSubtenantParams{TenantID: *row.TenantID, ContractorID: *c.TenantID})
-		if err != nil || ok {
-			return ok, err
-		}
 	}
 	if row.OwnerKind != nil && row.OwnerID != nil {
 		s.mu.RLock()
 		a := s.authorizers[*row.OwnerKind]
 		s.mu.RUnlock()
 		if a != nil {
-			return a(ctx, c, *row.OwnerID)
+			return a(ctx, c, FileRef{ID: row.ID, Key: row.ObjectKey, Purpose: row.Purpose, OwnerID: *row.OwnerID, TenantID: row.TenantID})
 		}
 	}
-	return false, nil
+	rule := Purposes[row.Purpose].ReadRuleFor(row.ObjectKey)
+	if !c.Staff || rule.NoStaffRead || c.TenantID == nil || row.TenantID == nil {
+		return false, nil
+	}
+	if rule.Capability != "" && (c.Can == nil || !c.Can(rule.Capability)) {
+		return false, nil
+	}
+	if *row.TenantID == *c.TenantID {
+		return true, nil
+	}
+	return q.IsDirectSubtenant(ctx, storagedb.IsDirectSubtenantParams{TenantID: *row.TenantID, ContractorID: *c.TenantID})
+}
+
+// readTTL is the lifetime of a download URL of row: ttl (0 = S3_PRESIGN_GET_TTL), capped by its purpose's rule.
+func (s *Service) readTTL(row storagedb.FileObject, ttl time.Duration) time.Duration {
+	if ttl <= 0 {
+		ttl = s.cfg.PresignGetTTL
+	}
+	if m := Purposes[row.Purpose].ReadRuleFor(row.ObjectKey).MaxTTL; m > 0 {
+		ttl = min(ttl, m)
+	}
+	return ttl
 }
 
 // DownloadURL is GET /v1/files?key=: a short-lived URL of a committed object the caller may read (its own pending
@@ -540,7 +570,7 @@ func (s *Service) DownloadURL(ctx context.Context, c Caller, key string) (string
 	if err != nil {
 		return "", err
 	}
-	u, _, err := s.signGet(ctx, row, s.cfg.PresignGetTTL, GetOptions{})
+	u, _, err := s.signGet(ctx, row, s.readTTL(row, 0), GetOptions{})
 	return u, err
 }
 
@@ -564,11 +594,9 @@ func (s *Service) signGet(ctx context.Context, row storagedb.FileObject, ttl tim
 }
 
 // SignedURL is the URL an entity payload carries for a committed file (main spec §9.5: S3_PRESIGN_GET_TTL). The
-// caller has already read the referencing row under its own rights; ttl 0 means S3_PRESIGN_GET_TTL.
+// caller has already read the referencing row under its own rights; ttl 0 means S3_PRESIGN_GET_TTL, and the
+// purpose caps it (driver PII 5 min, documents 15 min).
 func (s *Service) SignedURL(ctx context.Context, fileID uuid.UUID, ttl time.Duration) (string, error) {
-	if ttl <= 0 {
-		ttl = s.cfg.PresignGetTTL
-	}
 	var row storagedb.FileObject
 	err := db.WithSystem(ctx, s.pool, nil, func(tx pgx.Tx) error {
 		var err error
@@ -581,12 +609,29 @@ func (s *Service) SignedURL(ctx context.Context, fileID uuid.UUID, ttl time.Dura
 	if err != nil {
 		return "", err
 	}
-	u, _, err := s.signGet(ctx, row, ttl, GetOptions{})
+	u, _, err := s.signGet(ctx, row, s.readTTL(row, ttl), GetOptions{})
 	return u, err
 }
 
-// PendingLocal reports whether key is a pending upload of the local backend (the upload route refuses others, so
-// a committed object cannot be overwritten through a URL that is still valid).
+// PublishLocal makes a staged local upload visible while it holds the lock of the key's pending local row, the
+// lock Commit takes: an upload that finds the row committed (or gone) is 409 failed_precondition not_pending and
+// leaves the committed bytes untouched, and a commit that starts during the rename waits and then Stats the new
+// bytes. The lock is held only for the renames, never while the body arrives.
+func (s *Service) PublishLocal(ctx context.Context, key string, st *Staged) error {
+	return db.WithSystem(ctx, s.pool, nil, func(tx pgx.Tx) error {
+		_, err := storagedb.New(tx).LockPendingLocalUpload(ctx, key)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errFailedPrecondition("not_pending")
+		}
+		if err != nil {
+			return err
+		}
+		return st.Publish()
+	})
+}
+
+// PendingLocal reports whether key is a pending upload of the local backend: the upload route's early refusal
+// before it writes to disk (PublishLocal decides under the row lock).
 func (s *Service) PendingLocal(ctx context.Context, key string) (bool, error) {
 	ok := false
 	err := db.WithSystem(ctx, s.pool, nil, func(tx pgx.Tx) error {

@@ -48,6 +48,15 @@ SELECT id, size_bytes, content_type FROM file_objects
  WHERE object_key = @object_key AND storage_backend = 'local' AND status = 'pending' AND deleted_at IS NULL
  LIMIT 1;
 
+-- name: LockPendingLocalUpload :one
+-- The local upload route renames the staged bytes into place while it holds this lock, the one Commit takes
+-- (LockFileByKey): a commit never verifies bytes a concurrent PUT is about to replace, and a committed row refuses
+-- the PUT.
+SELECT id FROM file_objects
+ WHERE object_key = @object_key AND storage_backend = 'local' AND status = 'pending' AND deleted_at IS NULL
+ LIMIT 1
+ FOR UPDATE;
+
 -- name: ListExpiredPending :many
 -- storage.gc candidates (index file_objects_gc) on the backends this process has.
 SELECT id FROM file_objects

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -11,6 +12,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 )
 
 // PublicPrefix is the only prefix of the public bucket (R23, ADR 0007): APKs. Every other key lives in the
@@ -20,13 +23,15 @@ const PublicPrefix = "app_releases/"
 // MaxKeyBytes bounds an object key (S3 allows 1024 bytes).
 const MaxKeyBytes = 1024
 
-// ErrInvalidKey is returned for a key that is empty, too long, absolute, has an empty, "." or ".." segment,
-// a backslash, a control character or invalid UTF-8. Such a key never reaches a backend: on the local backend it
-// would escape LOCAL_MEDIA_DIR, on S3 it would not round-trip through a URL path.
+// ErrInvalidKey is returned for a key that is empty, longer than MaxKeyBytes, absolute, ends in "/", has an empty,
+// "." or ".." segment, a backslash, a control character or invalid UTF-8 (and, on the local backend only, a
+// segment longer than the filesystem allows). Such a key never reaches a backend: on the local backend it would
+// escape LOCAL_MEDIA_DIR, on S3 it would not round-trip through a URL path.
 var ErrInvalidKey = errors.New("storage: invalid object key")
 
 // ValidateKey checks the key rules every backend shares (main spec §9.2). Legacy keys copied by the ETL keep their
-// Firebase spelling (spaces, Thai file names), so the check refuses only what is unsafe, not unusual characters.
+// Firebase spelling (spaces, Thai file names of any length up to the 1024-byte key), so the check refuses only
+// what is unsafe, not unusual characters. The local backend adds its filesystem limits (validLocalKey).
 func ValidateKey(key string) error {
 	if key == "" || len(key) > MaxKeyBytes || !utf8.ValidString(key) || strings.HasPrefix(key, "/") ||
 		strings.HasSuffix(key, "/") || strings.Contains(key, "\\") {
@@ -38,7 +43,7 @@ func ValidateKey(key string) error {
 		}
 	}
 	for seg := range strings.SplitSeq(key, "/") {
-		if seg == "" || seg == "." || seg == ".." || len(seg) > 255 {
+		if seg == "" || seg == "." || seg == ".." {
 			return ErrInvalidKey
 		}
 	}
@@ -108,7 +113,42 @@ type Purpose struct {
 	VariantRx *regexp.Regexp
 	// DefaultVariant fills an omitted variant ("" = required when Variants or VariantRx is set).
 	DefaultVariant string
-	key            func(in KeyInput, ext string) string
+	// ReadCapability narrows the staff rule of GET /v1/files (p_read: staff of the file's tenant or of its
+	// contractor): staff in reach also need this capability (driver ID card and licence: drivers:view_pii; HR and
+	// finance files). NoStaffRead removes the staff rule, so only the uploader, the audited read-only bypass and
+	// the owner kind's Authorizer grant (rendered reports); restrictedFolder applies NoStaffRead to the keys with
+	// that folder segment only (a tenant's ID cards among its documents).
+	ReadCapability   authz.Cap
+	NoStaffRead      bool
+	restrictedFolder string
+	// GetTTL caps every download URL of the purpose (main spec §9.5: driver PII 5 min, documents and reports
+	// 15 min); 0 = S3_PRESIGN_GET_TTL.
+	GetTTL time.Duration
+	key    func(in KeyInput, ext string) string
+}
+
+// ReadRule is how GET /v1/files treats staff for one file: the capability they need, whether the staff rule
+// applies at all, and the longest URL lifetime (0 = S3_PRESIGN_GET_TTL).
+type ReadRule struct {
+	Capability  authz.Cap
+	NoStaffRead bool
+	MaxTTL      time.Duration
+}
+
+// RestrictedTTL is the URL lifetime of PII files (main spec §9.2, §9.5: driver ID card and licence, a tenant's
+// ID cards).
+const RestrictedTTL = 5 * time.Minute
+
+// DocumentTTL is the URL lifetime of documents, reports, HR and penalty evidence (main spec §9.5).
+const DocumentTTL = 15 * time.Minute
+
+// ReadRuleFor returns the read rule of a stored file of purpose p under key.
+func (p Purpose) ReadRuleFor(key string) ReadRule {
+	r := ReadRule{Capability: p.ReadCapability, NoStaffRead: p.NoStaffRead, MaxTTL: p.GetTTL}
+	if p.restrictedFolder != "" && slices.Contains(strings.Split(key, "/"), p.restrictedFolder) {
+		r.NoStaffRead, r.MaxTTL = true, RestrictedTTL
+	}
+	return r
 }
 
 // Key builds the object key of a new upload.
@@ -219,7 +259,7 @@ var Purposes = func() map[string]Purpose {
 				return "chats/" + in.EntityID.String() + "/" + ms(in.Now) + "." + ext
 			}},
 		{Name: "leave_evidence", OwnerKind: OwnerLeave, ContentTypes: documentTypes, Presign: true,
-			VariantRx: indexRx, DefaultVariant: "0",
+			VariantRx: indexRx, DefaultVariant: "0", ReadCapability: authz.HRViewLeave, GetTTL: DocumentTTL,
 			key: func(in KeyInput, ext string) string {
 				return "leave/" + in.EntityID.String() + "/" + ms(in.Now) + "_" + in.Variant + "." + ext
 			}},
@@ -241,10 +281,12 @@ var Purposes = func() map[string]Purpose {
 				return "drivers/" + in.EntityID.String() + "/profile-" + ms(in.Now) + "." + ext
 			}},
 		{Name: "driver_id_card", OwnerKind: OwnerDriver, ContentTypes: documentTypes, Presign: true,
+			ReadCapability: authz.DriversViewPII, GetTTL: RestrictedTTL,
 			key: func(in KeyInput, ext string) string {
 				return "drivers/" + in.EntityID.String() + "/id_card-" + ms(in.Now) + "." + ext
 			}},
 		{Name: "driver_license", OwnerKind: OwnerDriver, ContentTypes: documentTypes, Presign: true,
+			ReadCapability: authz.DriversViewPII, GetTTL: RestrictedTTL,
 			key: func(in KeyInput, ext string) string {
 				return "drivers/" + in.EntityID.String() + "/license-" + ms(in.Now) + "." + ext
 			}},
@@ -253,7 +295,7 @@ var Purposes = func() map[string]Purpose {
 		truckFile("truck_receipt", "receipts", documentTypes),
 		truckFile("insurance_document", "insurance", documentTypes),
 		{Name: "tenant_document", OwnerKind: OwnerTenant, ContentTypes: documentTypes, Presign: true,
-			Variants: []string{"id_card", "company_doc", "other"},
+			Variants: []string{"id_card", "company_doc", "other"}, restrictedFolder: "id_cards",
 			key: func(in KeyInput, ext string) string {
 				folder := map[string]string{"id_card": "id_cards", "company_doc": "company_docs", "other": "other"}[in.Variant]
 				return "subcontractors/" + in.EntityID.String() + "/" + folder + "/" + ms(in.Now) + "_" + safeName(in.FileName) + "." + ext
@@ -270,12 +312,13 @@ var Purposes = func() map[string]Purpose {
 				return "users/" + in.EntityID.String() + "/photo-" + ms(in.Now) + "." + ext
 			}},
 		{Name: "penalty_evidence", OwnerKind: OwnerPenalty, ContentTypes: documentTypes, Presign: true,
+			ReadCapability: authz.HRViewPayroll, GetTTL: DocumentTTL,
 			key: func(in KeyInput, ext string) string {
 				return "penalties/" + in.EntityID.String() + "/evidence-" + ms(in.Now) + "." + ext
 			}},
 		// Server-side writers only (documents.render, reports, cmd/release): never presigned by clients.
-		{Name: "statement_document", OwnerKind: OwnerStatement},
-		{Name: "report", OwnerKind: OwnerReport},
+		{Name: "statement_document", OwnerKind: OwnerStatement, ReadCapability: authz.AccountingBillingResult, GetTTL: DocumentTTL},
+		{Name: "report", OwnerKind: OwnerReport, NoStaffRead: true, GetTTL: DocumentTTL},
 		{Name: "apk", OwnerKind: OwnerRelease},
 	}
 	out := make(map[string]Purpose, len(list))

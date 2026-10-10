@@ -1630,7 +1630,7 @@ ETL rows receive runtime `uuidv7()` ids, so every expected file is keyed by Fire
 
 1. `etl load --dump=cmd/etl/testdata/firestore-fixtures --dry-run` and diff the would-be rows against `expected/` (counts, quarantine set, quarantine-tenant rows, resolution).
 2. Real load into a scratch `postgres:18-alpine` database, twice; the second run must report zero changes (upsert keyed by `legacy_doc_id`, newer `_updateTime` wins).
-3. After the loser corrections, `goose up` (from `up-to 9`) applies `0010_d5_unique_constraints.sql` (R59, R88): its D5 unique indexes (service fees per party and type, fuel `(driver, tax_inv_id)`, one non-closed chat per driver) must build, proving the dedupe and quarantine worked (R31).
+3. After the loser corrections, `goose up` (from `up-to 9` + `apply 11`, the production P0 schema) applies `0010_d5_unique_constraints.sql` (R59, R88): its D5 unique indexes (service fees per party and type, fuel `(driver, tax_inv_id)`, one non-closed chat per driver) must build, proving the dedupe and quarantine worked (R31).
 4. `etl rewrite-urls` and `etl media-copy --verify` against `storage/` (MinIO service container); compare with `rewrites.json`.
 5. Run `tenancy.orphan-scan` once and compare with `orphan_scan.json`; run `etl reconcile` and compare with `reconcile.md` (counts exact, money within 0.005 THB per R20).
 

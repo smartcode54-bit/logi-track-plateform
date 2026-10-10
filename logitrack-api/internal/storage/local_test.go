@@ -107,13 +107,23 @@ func TestLocalRefusesKeysOutsideTheDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(outside) })
-	for _, k := range []string{"../escape.jpg", "../../etc/passwd", "a/../../b", "/abs.jpg"} {
+	for _, k := range []string{"../escape.jpg", "../../etc/passwd", "a/../../b", "/abs.jpg",
+		// Filesystem limits of the local backend only: a 256-byte directory, a 251-byte last segment (its
+		// sidecar would need 256).
+		"a/" + strings.Repeat("b", 256) + "/c.jpg", "a/" + strings.Repeat("b", 247) + ".jpg"} {
 		if _, err := l.Write(k, strings.NewReader("x"), "image/jpeg", 10); !errors.Is(err, ErrInvalidKey) {
 			t.Errorf("write %q: %v", k, err)
 		}
 		if _, _, err := l.Open(k); !errors.Is(err, ErrObjectNotFound) {
 			t.Errorf("open %q: %v", k, err)
 		}
+		if _, err := l.PresignPut(context.Background(), Object{Key: k}, "image/jpeg", 1, time.Minute, PutOptions{}); !errors.Is(err, ErrInvalidKey) {
+			t.Errorf("presign %q: %v", k, err)
+		}
+	}
+	// 250 bytes is the longest last segment: written, sidecar included.
+	if _, err := l.Write("a/"+strings.Repeat("b", 246)+".jpg", strings.NewReader("x"), "image/jpeg", 10); err != nil {
+		t.Fatalf("250-byte last segment: %v", err)
 	}
 	// A symlink planted inside the tree cannot lead out of it (os.Root).
 	if err := os.Symlink(outside, filepath.Join(dir, "private", "link")); err != nil {
@@ -141,7 +151,7 @@ func TestLocalSignedURLs(t *testing.T) {
 	ctx := context.Background()
 	key := "trips/t1/สติกเกอร์ 1.jpg"
 
-	put, err := l.PresignPut(ctx, Object{Key: key}, "image/jpeg", 15*time.Minute, PutOptions{APIPath: true})
+	put, err := l.PresignPut(ctx, Object{Key: key}, "image/jpeg", 10, 15*time.Minute, PutOptions{APIPath: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +159,7 @@ func TestLocalSignedURLs(t *testing.T) {
 		!put.Expires.Equal(now.Add(15*time.Minute)) {
 		t.Fatalf("api put %+v", put)
 	}
-	media, err := l.PresignPut(ctx, Object{Key: key}, "image/jpeg", time.Minute, PutOptions{})
+	media, err := l.PresignPut(ctx, Object{Key: key}, "image/jpeg", 10, time.Minute, PutOptions{})
 	if err != nil || !strings.HasPrefix(media.URL, "https://logi.example.test/media/trips/t1/") {
 		t.Fatalf("media put %+v %v", media, err)
 	}
@@ -161,19 +171,21 @@ func TestLocalSignedURLs(t *testing.T) {
 		t.Fatalf("escaped key round trip %q", got)
 	}
 	q := u.Query()
-	verify := func(method, k, ct, disp string) error {
-		return l.Verify(method, k, ct, disp, q.Get(QueryExpires), q.Get(QuerySignature))
+	verify := func(method, k, ct, n, disp string) error {
+		return l.Verify(method, k, ct, n, disp, q.Get(QueryExpires), q.Get(QuerySignature))
 	}
-	if err := verify("PUT", key, "image/jpeg", ""); err != nil {
+	if err := verify("PUT", key, "image/jpeg", "10", ""); err != nil {
 		t.Fatalf("valid upload signature: %v", err)
 	}
 	for name, err := range map[string]error{
-		"other method":       verify("GET", key, "image/jpeg", ""),
-		"other key":          verify("PUT", "trips/t1/other.jpg", "image/jpeg", ""),
-		"other content type": verify("PUT", key, "text/html", ""),
-		"tampered expiry":    l.Verify("PUT", key, "image/jpeg", "", "9999999999", q.Get(QuerySignature)),
-		"tampered signature": l.Verify("PUT", key, "image/jpeg", "", q.Get(QueryExpires), q.Get(QuerySignature)[1:]+"A"),
-		"no signature":       l.Verify("PUT", key, "image/jpeg", "", q.Get(QueryExpires), ""),
+		"other method":       verify("GET", key, "image/jpeg", "10", ""),
+		"other key":          verify("PUT", "trips/t1/other.jpg", "image/jpeg", "10", ""),
+		"other content type": verify("PUT", key, "text/html", "10", ""),
+		"other size":         verify("PUT", key, "image/jpeg", "11", ""),
+		"chunked body":       verify("PUT", key, "image/jpeg", "", ""),
+		"tampered expiry":    l.Verify("PUT", key, "image/jpeg", "10", "", "9999999999", q.Get(QuerySignature)),
+		"tampered signature": l.Verify("PUT", key, "image/jpeg", "10", "", q.Get(QueryExpires), q.Get(QuerySignature)[1:]+"A"),
+		"no signature":       l.Verify("PUT", key, "image/jpeg", "10", "", q.Get(QueryExpires), ""),
 	} {
 		if !errors.Is(err, ErrSignatureInvalid) {
 			t.Errorf("%s: %v", name, err)
@@ -185,15 +197,15 @@ func TestLocalSignedURLs(t *testing.T) {
 		t.Fatalf("get %s %v %v", get, exp, err)
 	}
 	gq := mustQuery(t, get)
-	if err := l.Verify("GET", key, "", gq.Get(QueryDisposition), gq.Get(QueryExpires), gq.Get(QuerySignature)); err != nil {
+	if err := l.Verify("GET", key, "", "", gq.Get(QueryDisposition), gq.Get(QueryExpires), gq.Get(QuerySignature)); err != nil {
 		t.Fatalf("valid download signature: %v", err)
 	}
-	if err := l.Verify("GET", key, "", "inline", gq.Get(QueryExpires), gq.Get(QuerySignature)); !errors.Is(err, ErrSignatureInvalid) {
+	if err := l.Verify("GET", key, "", "", "inline", gq.Get(QueryExpires), gq.Get(QuerySignature)); !errors.Is(err, ErrSignatureInvalid) {
 		t.Fatalf("changed disposition: %v", err)
 	}
 	// The URL expires after its TTL.
 	now = now.Add(time.Hour + time.Second)
-	if err := l.Verify("GET", key, "", gq.Get(QueryDisposition), gq.Get(QueryExpires), gq.Get(QuerySignature)); !errors.Is(err, ErrSignatureExpired) {
+	if err := l.Verify("GET", key, "", "", gq.Get(QueryDisposition), gq.Get(QueryExpires), gq.Get(QuerySignature)); !errors.Is(err, ErrSignatureExpired) {
 		t.Fatalf("expired download: %v", err)
 	}
 
@@ -213,7 +225,7 @@ func TestLocalSignedURLs(t *testing.T) {
 	if _, _, err := w.PresignGet(ctx, Object{Key: key}, time.Minute, GetOptions{}); err == nil {
 		t.Fatal("signed without a key")
 	}
-	if err := w.Verify("GET", key, "", "", q.Get(QueryExpires), q.Get(QuerySignature)); !errors.Is(err, ErrSignatureInvalid) {
+	if err := w.Verify("GET", key, "", "", "", q.Get(QueryExpires), q.Get(QuerySignature)); !errors.Is(err, ErrSignatureInvalid) {
 		t.Fatalf("verified without a key: %v", err)
 	}
 }

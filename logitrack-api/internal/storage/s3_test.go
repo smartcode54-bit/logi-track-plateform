@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/minio/minio-go/v7/pkg/lifecycle"
 )
 
 func testS3Config() S3Config {
@@ -26,7 +28,7 @@ func TestPresignedURLsCarryThePresignEndpoint(t *testing.T) {
 	}
 	ctx := context.Background()
 	o := Object{Bucket: "logitrack", Key: "trips/t1/seal-1.jpg"}
-	put, err := s.PresignPut(ctx, o, "image/jpeg", 15*time.Minute, PutOptions{})
+	put, err := s.PresignPut(ctx, o, "image/jpeg", 1234, 15*time.Minute, PutOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,9 +49,12 @@ func TestPresignedURLsCarryThePresignEndpoint(t *testing.T) {
 		}
 	}
 	pq := mustQuery(t, put.URL)
-	if pq.Get("X-Amz-Expires") != "900" || !strings.Contains(pq.Get("X-Amz-SignedHeaders"), "content-type") ||
-		put.Headers["Content-Type"] != "image/jpeg" || put.Method != "PUT" {
-		t.Fatalf("put %+v: Content-Type must be a signed header, TTL S3_PRESIGN_PUT_TTL", put)
+	if pq.Get("X-Amz-Expires") != "900" || pq.Get("X-Amz-SignedHeaders") != "content-length;content-type;host;if-none-match" ||
+		put.Headers["Content-Type"] != "image/jpeg" || put.Headers["If-None-Match"] != "*" || len(put.Headers) != 2 || put.Method != "PUT" {
+		t.Fatalf("put %+v: Content-Type, Content-Length and If-None-Match must be signed, TTL S3_PRESIGN_PUT_TTL", put)
+	}
+	if _, err := s.PresignPut(ctx, o, "image/jpeg", 0, time.Minute, PutOptions{}); err == nil {
+		t.Fatal("a PUT signed without its size")
 	}
 	gq := mustQuery(t, get)
 	if gq.Get("X-Amz-Expires") != "3600" || gq.Get("response-content-disposition") == "" {
@@ -96,7 +101,7 @@ func TestNewS3RefusesBadEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.PresignPut(context.Background(), Object{Bucket: "logitrack", Key: "a.jpg"}, "image/jpeg", time.Minute, PutOptions{}); err == nil {
+	if _, err := s.PresignPut(context.Background(), Object{Bucket: "logitrack", Key: "a.jpg"}, "image/jpeg", 1, time.Minute, PutOptions{}); err == nil {
 		t.Fatal("signed without S3_PRESIGN_ENDPOINT")
 	}
 }
@@ -118,7 +123,103 @@ func TestBucketPolicyAndCORS(t *testing.T) {
 	}
 	r := CORSRules([]string{"http://localhost:3000"})
 	if len(r) != 1 || strings.Join(r[0].AllowedMethod, ",") != "GET,HEAD,PUT" || r[0].MaxAgeSeconds != 3600 ||
+		!strings.Contains(strings.Join(r[0].AllowedHeader, ","), "If-None-Match") ||
 		strings.Join(r[0].AllowedOrigin, ",") != "http://localhost:3000" {
 		t.Fatalf("cors %+v", r)
+	}
+}
+
+// The bootstrap owns only the anonymous grants and the expire-cache rule: an operator's other statements and
+// lifecycle rules survive (§9.10 swap to a managed S3), and nothing is rewritten when the bucket already matches.
+func TestBootstrapMergesPoliciesAndLifecycle(t *testing.T) {
+	const deny = `{"Sid":"TLSOnly","Effect":"Deny","Principal":"*","Action":"s3:*","Resource":["arn:aws:s3:::logitrack/*"],` +
+		`"Condition":{"Bool":{"aws:SecureTransport":"false"}}}`
+	const backup = `{"Effect":"Allow","Principal":{"AWS":["arn:aws:iam::1:role/backup"]},"Action":["s3:GetObject"],"Resource":["arn:aws:s3:::logitrack/*"]}`
+	const anon = `{"Effect":"Allow","Principal":{"AWS":"*"},"Action":["s3:GetObject"],"Resource":["arn:aws:s3:::logitrack/*"]}`
+	doc := func(stmts ...string) string {
+		return `{"Version":"2012-10-17","Statement":[` + strings.Join(stmts, ",") + `]}`
+	}
+	sids := func(t *testing.T, policy string) []string {
+		t.Helper()
+		var d struct{ Statement []map[string]any }
+		if err := json.Unmarshal([]byte(policy), &d); err != nil {
+			t.Fatalf("%s: %v", policy, err)
+		}
+		var out []string
+		for _, st := range d.Statement {
+			sid, _ := st["Sid"].(string)
+			if sid == "" {
+				sid = st["Effect"].(string)
+			}
+			out = append(out, sid)
+		}
+		return out
+	}
+
+	// Private bucket: anonymous grants go, everything else stays; no policy and an already clean one are left.
+	for name, tc := range map[string]struct {
+		in, want string
+		changed  bool
+	}{
+		"none":            {"", "", false},
+		"clean":           {doc(deny, backup), doc(deny, backup), false},
+		"anonymous only":  {doc(anon), "", true},
+		"mixed":           {doc(deny, anon, backup), "TLSOnly Allow", true},
+		"principal star":  {doc(`{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::logitrack/*"}`), "", true},
+		"anonymous deny":  {doc(deny), doc(deny), false},
+		"single stmt obj": {`{"Version":"2012-10-17","Statement":` + anon + `}`, "", true},
+	} {
+		got, changed, err := privatePolicy(tc.in)
+		if err != nil || changed != tc.changed {
+			t.Errorf("%s: changed %v, err %v", name, changed, err)
+			continue
+		}
+		if name == "mixed" {
+			if s := strings.Join(sids(t, got), " "); s != tc.want {
+				t.Errorf("%s: statements %s, want %s", name, s, tc.want)
+			}
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("%s: %s, want %s", name, got, tc.want)
+		}
+	}
+
+	// Public bucket: the api's grant is ensured, foreign anonymous grants replaced, other statements kept.
+	pub := "logitrack-public"
+	if _, changed, err := mergePublicPolicy(publicPolicy(pub), pub); err != nil || changed {
+		t.Fatalf("own policy: changed %v %v", changed, err)
+	}
+	minioShape := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":["*"]},"Action":["s3:GetObject"],` +
+		`"Resource":["arn:aws:s3:::logitrack-public/app_releases/*"]}]}`
+	if _, changed, err := mergePublicPolicy(minioShape, pub); err != nil || changed {
+		t.Fatalf("the grant as MinIO returns it: changed %v %v", changed, err)
+	}
+	wide := strings.ReplaceAll(anon, "logitrack/*", "logitrack-public/*")
+	got, changed, err := mergePublicPolicy(doc(deny, wide), pub)
+	if err != nil || !changed || strings.Join(sids(t, got), " ") != "TLSOnly "+appReleasesSid {
+		t.Fatalf("public merge: %s %v %v", got, changed, err)
+	}
+	if got, _, _ := mergePublicPolicy("", pub); strings.Join(sids(t, got), " ") != appReleasesSid {
+		t.Fatalf("empty public policy: %s", got)
+	}
+
+	// Lifecycle: expire-cache upserted, other rules kept, an unchanged configuration is not rewritten.
+	other := lifecycle.Rule{ID: "abort-multipart", Status: "Enabled", AbortIncompleteMultipartUpload: lifecycle.AbortIncompleteMultipartUpload{DaysAfterInitiation: 7}}
+	cfg, changed := mergeLifecycle(&lifecycle.Configuration{Rules: []lifecycle.Rule{other}})
+	if !changed || len(cfg.Rules) != 2 || cfg.Rules[0].ID != "abort-multipart" || cfg.Rules[1].ID != lifecycleCacheRule {
+		t.Fatalf("upsert: %+v", cfg.Rules)
+	}
+	if _, changed := mergeLifecycle(cfg); changed {
+		t.Fatal("an unchanged lifecycle is rewritten")
+	}
+	stale := cacheRule()
+	stale.Expiration.Days = 7
+	cfg, changed = mergeLifecycle(&lifecycle.Configuration{Rules: []lifecycle.Rule{stale, other}})
+	if !changed || len(cfg.Rules) != 2 || cfg.Rules[0].ID != "abort-multipart" || cfg.Rules[1].Expiration.Days != 30 {
+		t.Fatalf("stale rule: %+v", cfg.Rules)
+	}
+	if cfg, changed := mergeLifecycle(nil); !changed || len(cfg.Rules) != 1 {
+		t.Fatalf("no lifecycle: %+v", cfg)
 	}
 }

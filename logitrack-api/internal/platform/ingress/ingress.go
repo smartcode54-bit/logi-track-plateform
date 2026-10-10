@@ -36,20 +36,38 @@ type Group struct {
 	Prefix string
 	Public bool
 	Mount  func(r fiber.Router)
-	// UploadPaths are absolute path prefixes below Prefix (ending in "/") whose PUT
-	// requests may carry a body up to the API's upload limit (UPLOAD_MAX_BYTES)
-	// instead of the 4 MiB default: the local storage backend's upload routes (T11).
-	UploadPaths []string
+	// Uploads are the group's upload routes: PUT requests below them may carry a
+	// body above the 4 MiB default when their head passes the route's check (the
+	// local storage backend's signed uploads, T11).
+	Uploads []Upload
 }
 
-// UploadPaths returns the upload path prefixes of the groups that listener mounts.
-func UploadPaths(listener string, groups []Group, allow []string) []string {
-	var out []string
+// UploadHead is the head of a PUT request as fasthttp read it, before any body
+// byte: the raw path and query (not unescaped), Content-Type and Content-Length
+// (-1 chunked, -2 none).
+type UploadHead struct {
+	Path, Query, ContentType string
+	ContentLength            int
+}
+
+// Upload is one upload route: an absolute path prefix below the group's Prefix,
+// ending in "/", and Limit, which decides from the request head alone the body
+// limit of the request: a positive size (the signed size of a valid upload URL,
+// read for up to the upload read timeout), or 0 to keep the API defaults (4 MiB,
+// 30 s), so an unsigned request reserves no more than any other route.
+type Upload struct {
+	Prefix string
+	Limit  func(UploadHead) int64
+}
+
+// Uploads returns the upload routes of the groups that listener mounts.
+func Uploads(listener string, groups []Group, allow []string) []Upload {
+	var out []Upload
 	for _, g := range groups {
 		if listener == Public && (!g.Public || !slices.Contains(allow, g.Prefix)) {
 			continue
 		}
-		out = append(out, g.UploadPaths...)
+		out = append(out, g.Uploads...)
 	}
 	return out
 }
@@ -71,9 +89,12 @@ func Validate(groups []Group) error {
 		if g.Mount == nil {
 			return fmt.Errorf("ingress: group %q has no Mount function", g.Prefix)
 		}
-		for _, u := range g.UploadPaths {
-			if !strings.HasPrefix(u, g.Prefix+"/") || !strings.HasSuffix(u, "/") {
-				return fmt.Errorf("ingress: upload path %q of group %q must be below the prefix and end in /", u, g.Prefix)
+		for _, u := range g.Uploads {
+			if !strings.HasPrefix(u.Prefix, g.Prefix+"/") || !strings.HasSuffix(u.Prefix, "/") {
+				return fmt.Errorf("ingress: upload path %q of group %q must be below the prefix and end in /", u.Prefix, g.Prefix)
+			}
+			if u.Limit == nil {
+				return fmt.Errorf("ingress: upload path %q of group %q has no Limit check", u.Prefix, g.Prefix)
 			}
 		}
 	}

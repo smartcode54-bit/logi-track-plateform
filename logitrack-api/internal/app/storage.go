@@ -237,8 +237,9 @@ func bootstrapS3(ctx context.Context, s3 *storage.S3, log zerolog.Logger) {
 
 // StorageCaller maps the request principal (completed by iam.RBAC, T07) onto the storage service's caller: the
 // effective tenant and role (X-Act-On-Tenant: <uuid> acts as that tenant's tenant_admin), staff read the files of
-// that tenant and of its carriers, a steward without a tenant uploads platform objects (p_upload), and the
-// audited read-only X-Act-On-Tenant: * reads every file.
+// that tenant and of its carriers (a purpose may also need a capability of the effective set, e.g.
+// drivers:view_pii for ID cards and licences), a steward without a tenant uploads platform objects (p_upload),
+// and the audited read-only X-Act-On-Tenant: * reads every file.
 func StorageCaller(c fiber.Ctx) (storage.Caller, bool) {
 	p := auth.PrincipalFrom(c)
 	if p == nil {
@@ -249,6 +250,7 @@ func StorageCaller(c fiber.Ctx) (storage.Caller, bool) {
 		UserID: p.UserID, TenantID: tid,
 		Staff:   tid != nil && role != "" && role != authz.Driver,
 		Steward: p.Steward || p.HasPlatform(authz.PlatformAdmin),
+		Can:     p.Can,
 		ReadAll: p.ActOnAll,
 		Machine: p.IsMachine(),
 	}, true

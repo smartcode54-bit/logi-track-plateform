@@ -1,10 +1,10 @@
 //go:build integration
 
 // The storage routes as cmd/api mounts them (T11) with STORAGE_BACKEND=local, end to end through both listeners:
-// presign (web, an API path through the BFF) -> PUT with the upload route's own body limit -> commit through
-// PATCH /v1/me photoKey -> GET /v1/me photoUrl and GET /v1/files 302 to a signed /media URL on the public listener;
-// tampered signatures 403, directory paths 404, a committed key cannot be overwritten, and every other route keeps
-// the 4 MiB limit.
+// presign (web, an API path through the BFF) -> PUT with the upload route's own body limit, granted from a signed
+// request head only -> commit through PATCH /v1/me photoKey -> GET /v1/me photoUrl and GET /v1/files 302 to a
+// signed /media URL on the public listener; unsigned or tampered uploads 413 from their head (large) or 403
+// (small), directory paths 404, a committed key cannot be overwritten, and every other route keeps the 4 MiB limit.
 package app_test
 
 import (
@@ -70,6 +70,12 @@ func raw(t *testing.T, method, url, contentType string, body []byte, bearer stri
 // any body byte arrives: an over-limit body is refused from its headers (fasthttp HeaderReceived), unread.
 func announce(t *testing.T, method, rawURL string, n int) int {
 	t.Helper()
+	return announceType(t, method, rawURL, "image/jpeg", n)
+}
+
+// announceType is announce with another Content-Type.
+func announceType(t *testing.T, method, rawURL, contentType string, n int) int {
+	t.Helper()
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		t.Fatal(err)
@@ -80,8 +86,8 @@ func announce(t *testing.T, method, rawURL string, n int) int {
 	}
 	defer func() { _ = c.Close() }()
 	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
-	if _, err := fmt.Fprintf(c, "%s %s HTTP/1.1\r\nHost: %s\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n",
-		method, u.RequestURI(), u.Host, n); err != nil {
+	if _, err := fmt.Fprintf(c, "%s %s HTTP/1.1\r\nHost: %s\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n",
+		method, u.RequestURI(), u.Host, contentType, n); err != nil {
 		t.Fatal(err)
 	}
 	resp, err := http.ReadResponse(bufio.NewReader(c), nil)
@@ -218,13 +224,28 @@ func TestLocalStorageEndToEnd(t *testing.T) {
 		t.Fatalf("pending row: %q %v", backend, err)
 	}
 
-	// The upload route: wrong content type and a tampered signature are 403; the public listener has no
+	// The upload route: only a head whose signature covers its path, Content-Type and Content-Length earns the
+	// upload body limit, so a 5 MiB body with another content type, a tampered signature or no signature is refused
+	// with 413 from its head (unread, the 4 MiB default); a small one is 403. The public listener has no
 	// /v1/uploads route; then the web's PUT (through the BFF) lands.
-	if s, _, _ := raw(t, http.MethodPut, internal+upURL, "text/html", photo, ""); s != http.StatusForbidden {
-		t.Fatalf("PUT with another content type: %d", s)
+	tampered := strings.Replace(upURL, "X-LT-Signature=", "X-LT-Signature=x", 1)
+	if s := announceType(t, http.MethodPut, internal+upURL, "text/html", len(photo)); s != http.StatusRequestEntityTooLarge {
+		t.Fatalf("5 MiB PUT with another content type: %d", s)
 	}
-	if s, _, _ := raw(t, http.MethodPut, internal+strings.Replace(upURL, "X-LT-Signature=", "X-LT-Signature=x", 1), "image/jpeg", photo, ""); s != http.StatusForbidden {
-		t.Fatalf("PUT with a tampered signature: %d", s)
+	if s := announce(t, http.MethodPut, internal+tampered, len(photo)); s != http.StatusRequestEntityTooLarge {
+		t.Fatalf("5 MiB PUT with a tampered signature: %d", s)
+	}
+	if s := announce(t, http.MethodPut, internal+strings.Split(upURL, "?")[0], uploadMax); s != http.StatusRequestEntityTooLarge {
+		t.Fatalf("unsigned head announcing UPLOAD_MAX_BYTES: %d", s)
+	}
+	if s := announce(t, http.MethodPut, public+"/media/"+key, uploadMax); s != http.StatusRequestEntityTooLarge {
+		t.Fatalf("unsigned /media head announcing UPLOAD_MAX_BYTES: %d", s)
+	}
+	if s, _, _ := raw(t, http.MethodPut, internal+tampered, "image/jpeg", []byte("x"), ""); s != http.StatusForbidden {
+		t.Fatalf("small PUT with a tampered signature: %d", s)
+	}
+	if s, _, _ := raw(t, http.MethodPut, internal+upURL, "image/jpeg", photo[:1<<20], ""); s != http.StatusForbidden {
+		t.Fatalf("PUT shorter than the signed size: %d", s)
 	}
 	// The public listener has no /v1/uploads route: 404, and a large body there is refused before it is read.
 	if s, _, _ := raw(t, http.MethodPut, public+upURL, "image/jpeg", []byte("x"), ""); s != http.StatusNotFound {
@@ -282,9 +303,13 @@ func TestLocalStorageEndToEnd(t *testing.T) {
 	if s, _, _ := raw(t, http.MethodGet, internal+"/v1/files?key=users/nobody/x.jpg", "", nil, at); s != http.StatusNotFound {
 		t.Fatalf("unknown key: %d", s)
 	}
-	// The committed object cannot be overwritten through its still-valid upload URL.
-	if s, _, b := raw(t, http.MethodPut, internal+upURL, "image/jpeg", []byte("evil"), ""); s != http.StatusConflict || !strings.Contains(string(b), "not_pending") {
+	// The committed object cannot be overwritten through its still-valid upload URL (same signed size, other bytes).
+	evil := bytes.Repeat([]byte{0x00}, len(photo))
+	if s, _, b := raw(t, http.MethodPut, internal+upURL, "image/jpeg", evil, ""); s != http.StatusConflict || !strings.Contains(string(b), "not_pending") {
 		t.Fatalf("PUT over a committed object: %d %s", s, b)
+	}
+	if got, err := os.ReadFile(filepath.Join(dir, "private", filepath.FromSlash(key))); err != nil || !bytes.Equal(got, photo) {
+		t.Fatalf("committed file after a refused PUT: %d bytes %v", len(got), err)
 	}
 
 	// The driver app's route: an absolute URL under LOCAL_MEDIA_PUBLIC_BASE_URL, PUT on the public listener.

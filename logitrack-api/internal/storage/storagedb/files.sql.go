@@ -346,6 +346,23 @@ func (q *Queries) LockFileByKey(ctx context.Context, objectKey string) (FileObje
 	return i, err
 }
 
+const lockPendingLocalUpload = `-- name: LockPendingLocalUpload :one
+SELECT id FROM file_objects
+ WHERE object_key = $1 AND storage_backend = 'local' AND status = 'pending' AND deleted_at IS NULL
+ LIMIT 1
+ FOR UPDATE
+`
+
+// The local upload route renames the staged bytes into place while it holds this lock, the one Commit takes
+// (LockFileByKey): a commit never verifies bytes a concurrent PUT is about to replace, and a committed row refuses
+// the PUT.
+func (q *Queries) LockPendingLocalUpload(ctx context.Context, objectKey string) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockPendingLocalUpload, objectKey)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const pendingLocalUpload = `-- name: PendingLocalUpload :one
 SELECT id, size_bytes, content_type FROM file_objects
  WHERE object_key = $1 AND storage_backend = 'local' AND status = 'pending' AND deleted_at IS NULL

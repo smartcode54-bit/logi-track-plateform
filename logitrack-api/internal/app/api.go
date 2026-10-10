@@ -75,56 +75,66 @@ func NewAPI(cfg *APIConfig, log zerolog.Logger, extra ...ingress.Group) (*API, e
 	a.public = a.newFiber(ingress.Public)
 	ingress.Mount(a.internal, ingress.Internal, groups, nil)
 	ingress.Mount(a.public, ingress.Public, groups, cfg.PublicRouteGroups)
-	a.uploadLimit(a.internal, ingress.UploadPaths(ingress.Internal, groups, nil))
-	a.uploadLimit(a.public, ingress.UploadPaths(ingress.Public, groups, cfg.PublicRouteGroups))
+	a.uploadLimit(a.internal, ingress.Uploads(ingress.Internal, groups, nil))
+	a.uploadLimit(a.public, ingress.Uploads(ingress.Public, groups, cfg.PublicRouteGroups))
 	return a, nil
 }
 
 // DefaultBodyLimit is the API's request body limit (Appendix B §B.1.5: 413 payload_too_large above it).
 const DefaultBodyLimit = 4 << 20
 
-// UploadReadTimeout replaces the 30 s read timeout on the upload routes: a 10 MB photo over a slow mobile
-// link takes longer than that.
+// UploadReadTimeout replaces the 30 s read timeout of a signed upload: a 10 MB photo over a slow mobile link
+// takes longer than that.
 const UploadReadTimeout = 5 * time.Minute
 
-// uploadLimit gives the PUT routes below paths (the local storage backend's uploads, T11) their own body limit,
-// UPLOAD_MAX_BYTES, and read timeout. fasthttp asks HeaderReceived after the request headers and before it reads
-// the body, so every other request keeps the 4 MiB limit and is refused with 413 before its body is buffered.
-func (a *API) uploadLimit(app *fiber.App, paths []string) {
-	if len(paths) == 0 || a.cfg.UploadMaxBytes <= 0 {
+// uploadLimit gives a PUT below an upload route (the local storage backend's uploads, T11) its own body limit and
+// read timeout when the route's check passes on the request head: fasthttp calls HeaderReceived after the headers
+// and before it reads (or allocates for) the body. The check verifies the upload signature, which covers the
+// declared size, so the limit is that size (at most UPLOAD_MAX_BYTES). Every other request, an unsigned or
+// tampered upload included, keeps the 4 MiB / 30 s defaults and is refused with 413 above 4 MiB before its body
+// is buffered; the handler verifies the signature again.
+func (a *API) uploadLimit(app *fiber.App, uploads []ingress.Upload) {
+	if len(uploads) == 0 || a.cfg.UploadMaxBytes <= 0 {
 		return
 	}
-	limit := int(a.cfg.UploadMaxBytes)
 	app.Server().HeaderReceived = func(h *fasthttp.RequestHeader) fasthttp.RequestConfig {
 		if !h.IsPut() {
 			return fasthttp.RequestConfig{}
 		}
-		p := requestPath(h.RequestURI())
-		for _, prefix := range paths {
-			if strings.HasPrefix(p, prefix) {
-				return fasthttp.RequestConfig{MaxRequestBodySize: limit, ReadTimeout: UploadReadTimeout}
+		p, q := requestTarget(h.RequestURI())
+		for _, u := range uploads {
+			if !strings.HasPrefix(p, u.Prefix) {
+				continue
 			}
+			n := u.Limit(ingress.UploadHead{Path: p, Query: q, ContentType: string(h.ContentType()), ContentLength: h.ContentLength()})
+			if n > 0 && n <= a.cfg.UploadMaxBytes {
+				return fasthttp.RequestConfig{MaxRequestBodySize: int(n), ReadTimeout: UploadReadTimeout}
+			}
+			return fasthttp.RequestConfig{}
 		}
 		return fasthttp.RequestConfig{}
 	}
 }
 
-// requestPath is the raw path of a request target (origin form, or absolute form "http://host/path"), the
-// spelling Fiber routes on.
-func requestPath(uri []byte) string {
+// requestTarget splits a request target (origin form, or absolute form "http://host/path?query") into the raw
+// path Fiber routes on and the raw query.
+func requestTarget(uri []byte) (path, query string) {
 	s := string(uri)
 	if i := strings.Index(s, "://"); i >= 0 && !strings.HasPrefix(s, "/") {
 		s = s[i+3:]
-		if j := strings.IndexByte(s, '/'); j >= 0 {
+		if j := strings.IndexAny(s, "/?#"); j >= 0 && s[j] == '/' {
 			s = s[j:]
+		} else if j >= 0 {
+			s = "/" + s[j:]
 		} else {
 			s = "/"
 		}
 	}
-	if i := strings.IndexAny(s, "?#"); i >= 0 {
+	if i := strings.IndexByte(s, '#'); i >= 0 {
 		s = s[:i]
 	}
-	return s
+	path, query, _ = strings.Cut(s, "?")
+	return path, query
 }
 
 // Routes returns the routes each listener serves, keyed by ingress.Internal and ingress.Public.

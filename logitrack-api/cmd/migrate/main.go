@@ -29,6 +29,9 @@ Database commands (MIGRATE_DATABASE_URL, logged in as logitrack_migrator):
   up                    apply every pending migration (dev, CI and seeded databases)
   up-to VERSION         apply pending migrations up to VERSION; production stays at 9
                         until the P1 runbook applies 0010 (R59, R88)
+  apply VERSION         apply exactly VERSION ahead of the held 0010 (production P0: up-to 9,
+                        then apply 11); every lower version must be applied or held; a no-op
+                        when VERSION is applied
   down                  roll back the latest migration (refused when APP_ENV=prod)
   down-to VERSION       roll back every migration above VERSION; 0 removes the chain
                         (refused when APP_ENV=prod)
@@ -63,7 +66,7 @@ func run(ctx context.Context, args, environ []string, chain fs.FS, stdout, stder
 		return runCheck(rest, chain, stdout, stderr)
 	case "create":
 		return runCreate(rest, stdout, stderr)
-	case "up", "up-to", "down", "down-to", "status", "version":
+	case "up", "up-to", "apply", "down", "down-to", "status", "version":
 		return runDB(ctx, cmd, rest, environ, chain, stdout, stderr)
 	default:
 		_, _ = fmt.Fprintf(stderr, "migrate: unknown command %q\n\n%s", cmd, usage)
@@ -125,13 +128,13 @@ func runDB(ctx context.Context, cmd string, args, environ []string, chain fs.FS,
 	}
 	var target int64
 	switch cmd {
-	case "up-to", "down-to":
+	case "up-to", "apply", "down-to":
 		if fl.NArg() != 1 {
 			return usageError(stderr, cmd+" takes one VERSION")
 		}
 		v, err := strconv.ParseInt(fl.Arg(0), 10, 64)
-		if err != nil || v < 0 || (cmd == "up-to" && v < 1) {
-			return usageError(stderr, cmd+": VERSION must be a whole number (at least 1 for up-to)")
+		if err != nil || v < 0 || (cmd != "down-to" && v < 1) {
+			return usageError(stderr, cmd+": VERSION must be a whole number (at least 1 for up-to and apply)")
 		}
 		target = v
 	default:
@@ -193,6 +196,8 @@ func runDB(ctx context.Context, cmd string, args, environ []string, chain fs.FS,
 		res, err = r.Up(ctx)
 	case "up-to":
 		res, err = r.UpTo(ctx, target)
+	case "apply":
+		res, err = r.Apply(ctx, target)
 	case "down":
 		res, err = r.Down(ctx)
 	case "down-to":

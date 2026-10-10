@@ -40,7 +40,8 @@ type Info struct {
 	SHA256 string
 }
 
-// PutURL is a presigned upload: the client sends Method to URL with exactly Headers before Expires.
+// PutURL is a presigned upload: the client sends Method to URL with exactly Headers and a body of the declared
+// size (a Content-Length, never chunked) before Expires.
 type PutURL struct {
 	URL     string
 	Method  string
@@ -66,8 +67,10 @@ type PutOptions struct {
 type Backend interface {
 	// Name is BackendLocal or BackendS3.
 	Name() string
-	// PresignPut signs an upload of contentType valid for ttl.
-	PresignPut(ctx context.Context, o Object, contentType string, ttl time.Duration, opts PutOptions) (PutURL, error)
+	// PresignPut signs an upload of contentType and exactly size bytes (the declared size) valid for ttl. The body
+	// is bound to that size and the object can be created once (S3: signed Content-Length and If-None-Match: *;
+	// local: signed Content-Length and the pending-row check).
+	PresignPut(ctx context.Context, o Object, contentType string, size int64, ttl time.Duration, opts PutOptions) (PutURL, error)
 	// PresignGet signs a download valid for ttl and returns the URL and its expiry.
 	PresignGet(ctx context.Context, o Object, ttl time.Duration, opts GetOptions) (string, time.Time, error)
 	// PublicURL is the unsigned URL of an object under PublicPrefix.

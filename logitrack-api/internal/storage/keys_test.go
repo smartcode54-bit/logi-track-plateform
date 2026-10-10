@@ -7,12 +7,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 )
 
 func TestValidateKeyRefusesTraversalAndOddShapes(t *testing.T) {
 	for _, k := range []string{
 		"", "/etc/passwd", "../x", "a/../b", "a/./b", "./a", "a/..", "a//b", "a/", "trips/x/", `a\b`, "a\x00b",
-		"a\nb", "a\x7fb", string([]byte{0xff, 0xfe}), strings.Repeat("a", MaxKeyBytes+1), "a/" + strings.Repeat("b", 256),
+		"a\nb", "a\x7fb", string([]byte{0xff, 0xfe}), strings.Repeat("a", MaxKeyBytes+1),
 	} {
 		if ValidateKey(k) == nil {
 			t.Errorf("key %q accepted", k)
@@ -22,9 +24,44 @@ func TestValidateKeyRefusesTraversalAndOddShapes(t *testing.T) {
 		"trips/0192b3c4-0000-7000-8000-000000000001/seal-1760000000000.jpg", "app_releases/prod/logitrack-prod-v3.5.0.apk",
 		// Legacy Firebase keys keep their spelling (copied 1:1 by the ETL, main spec §9.2).
 		"trucks/documents/maintenance/T1/1700000000_ใบเสร็จ (1).pdf", "trip_records/TR-001/stop_1_arrived.jpg", "a..b/c.d",
+		// A legacy key whose Thai file name makes one segment 266 bytes (S3 limits only the whole key).
+		"drivers/documents/1690000000000_id_card_" + strings.Repeat("ก", 74) + ".jpg",
 	} {
 		if err := ValidateKey(k); err != nil {
 			t.Errorf("key %q refused: %v", k, err)
+		}
+	}
+}
+
+// Read rules of GET /v1/files (main spec §9.2, §9.5; Appendix C §C.2 row 15, §C.9 row 11): driver ID cards and
+// licences need drivers:view_pii and live 5 minutes; HR, penalty and statement files need their capability and
+// live 15 minutes; reports and a tenant's ID cards have no staff rule; everything else keeps p_read.
+func TestPurposeReadRules(t *testing.T) {
+	for name, want := range map[string]ReadRule{
+		"driver_id_card":     {Capability: "drivers:view_pii", MaxTTL: 5 * time.Minute},
+		"driver_license":     {Capability: "drivers:view_pii", MaxTTL: 5 * time.Minute},
+		"leave_evidence":     {Capability: "hr:view_leave", MaxTTL: 15 * time.Minute},
+		"penalty_evidence":   {Capability: "hr:view_payroll", MaxTTL: 15 * time.Minute},
+		"statement_document": {Capability: "accounting:billing_result", MaxTTL: 15 * time.Minute},
+		"report":             {NoStaffRead: true, MaxTTL: 15 * time.Minute},
+		"driver_profile":     {},
+		"trip_photo":         {},
+		"tenant_document":    {},
+	} {
+		if got := Purposes[name].ReadRuleFor("x/y.jpg"); got != want {
+			t.Errorf("%s: %+v, want %+v", name, got, want)
+		}
+	}
+	id := uuid.New().String()
+	if got := Purposes["tenant_document"].ReadRuleFor("subcontractors/" + id + "/id_cards/1_card.pdf"); !got.NoStaffRead || got.MaxTTL != 5*time.Minute {
+		t.Errorf("a tenant ID card: %+v", got)
+	}
+	if got := Purposes["tenant_document"].ReadRuleFor("subcontractors/" + id + "/company_docs/1_id_cards.pdf"); got.NoStaffRead {
+		t.Errorf("a company document: %+v", got)
+	}
+	for name, p := range Purposes {
+		if p.ReadCapability != "" && !authz.Known(p.ReadCapability) {
+			t.Errorf("%s: %s is not a catalog capability", name, p.ReadCapability)
 		}
 	}
 }
