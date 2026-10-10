@@ -1,8 +1,9 @@
 // Package auth owns identity from P0 (main spec §4, Appendix C §C.4-§C.5): password login with Argon2id
 // and the verify-then-rehash path for imported Firebase scrypt hashes, Ed25519 access JWTs, sessions with
 // rotating refresh-token families and a 30 s reuse grace (R37), revocation by session and auth_version
-// (R50, R78), the must-change-password ticket (R79), forgot / reset / change password, the current
-// principal endpoints (/v1/me*) and the per-request RequireAuth middleware.
+// (R50, R78), the must-change-password ticket (R79), forgot / reset / change password, Google sign-in
+// with GIS / google_sign_in ID tokens (T06, C.4.10), the current principal endpoints (/v1/me*) and the
+// per-request RequireAuth middleware.
 //
 // Go returns tokens in JSON bodies and never sets cookies: the web BFF does (R38). Every database
 // statement runs inside db.WithSystem (R12); every security-relevant change appends its security_events
@@ -32,6 +33,7 @@ import (
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/authdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/firebasescrypt"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/google"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/password"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/token"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
@@ -88,6 +90,13 @@ type Authorizer interface {
 	Authorize(c fiber.Ctx, p *authz.Principal) error
 }
 
+// GoogleVerifier checks a Google ID token (internal/auth/google.Verifier): signature, issuer, expiry, aud
+// in GOOGLE_OIDC_ALLOWED_CLIENT_IDS and email_verified. A rejected token is a *google.InvalidError, an
+// unreachable Google wraps google.ErrUnavailable.
+type GoogleVerifier interface {
+	Verify(ctx context.Context, rawIDToken string) (*google.Identity, error)
+}
+
 // Deps are the collaborators of the service.
 type Deps struct {
 	Pool  db.Beginner
@@ -102,6 +111,7 @@ type Deps struct {
 	Log          zerolog.Logger
 	Capabilities CapabilityResolver // optional
 	Authorizer   Authorizer         // optional
+	Google       GoogleVerifier     // optional: nil (GOOGLE_OIDC_ALLOWED_CLIENT_IDS unset) turns Google sign-in off (404)
 	Now          func() time.Time   // optional, defaults to time.Now
 }
 
@@ -117,6 +127,7 @@ type Service struct {
 	log      zerolog.Logger
 	caps     CapabilityResolver
 	gate     Authorizer
+	google   GoogleVerifier
 	now      func() time.Time
 	fallback prometheus.Counter
 	// postCommitFailed counts post-commit Redis writes that failed (op: version, revoked, rt_drop,
@@ -147,7 +158,7 @@ func New(cfg Config, d Deps) (*Service, error) {
 	}
 	s := &Service{
 		cfg: cfg, pool: d.Pool, store: d.Store, limiter: d.Limiter, keys: d.Keys, hasher: d.Hasher, policy: d.Policy,
-		log: d.Log, caps: d.Capabilities, gate: d.Authorizer, now: d.Now,
+		log: d.Log, caps: d.Capabilities, gate: d.Authorizer, google: d.Google, now: d.Now,
 		fallback: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "auth_revocation_fallback_total",
 			Help: "Per-request revocation checks answered from PostgreSQL because Redis was unreachable.",

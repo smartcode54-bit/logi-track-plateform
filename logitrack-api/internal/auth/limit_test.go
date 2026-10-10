@@ -93,7 +93,7 @@ func TestAuthBucketsFailOpen(t *testing.T) {
 	}
 	ctx := context.Background()
 	for _, b := range []ratelimit.Bucket{ratelimit.LoginIP, ratelimit.ForgotIP, ratelimit.ForgotEmail, ratelimit.ResetIP,
-		ratelimit.RefreshSession, ratelimit.SSETicket} {
+		ratelimit.RefreshSession, ratelimit.SSETicket, ratelimit.GoogleIP, ratelimit.GoogleNonceIP} {
 		start := time.Now()
 		if err := s.limit(ctx, b, "203.0.113.1"); err != nil {
 			t.Fatalf("%s: %v", b.Name, err)

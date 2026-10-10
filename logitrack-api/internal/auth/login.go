@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -250,12 +251,18 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (*LoginResult, error
 	if u.MustChangePassword {
 		return nil, s.passwordChangeTicket(ctx, u.ID, u.AuthVersion)
 	}
-	res, err := s.openSession(ctx, u.ID, &cred, in)
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "sessions_user_install_live" {
-		res, err = s.openSession(ctx, u.ID, &cred, in) // a concurrent login of the same install won the insert
+	g := grant{amr: AMRPassword, cred: &cred}
+	res, err := s.openSession(ctx, u.ID, g, in)
+	if uniqueViolation(err, "sessions_user_install_live") {
+		res, err = s.openSession(ctx, u.ID, g, in) // a concurrent login of the same install won the insert
 	}
 	return res, err
+}
+
+// uniqueViolation reports a 23505 on one of the named constraints.
+func uniqueViolation(err error, constraints ...string) bool {
+	pgErr, ok := errors.AsType[*pgconn.PgError](err)
+	return ok && pgErr.Code == "23505" && slices.Contains(constraints, pgErr.ConstraintName)
 }
 
 // Memory-hard computations observed by Service.kdf (tests).
@@ -419,12 +426,22 @@ type loggedInPayload struct {
 	TenantID  *uuid.UUID `json:"tenantId"`
 }
 
+// grant is what a sign-in proved; openSession creates the session only while it still holds.
+type grant struct {
+	amr string // amr claim and sessions.amr: AMRPassword or AMRGoogle
+	// cred, for a password sign-in, is the verified credential: the row must still hold it (a password
+	// set since wins).
+	cred *credential
+	// googleSub, for a Google sign-in, is the linked Google account: the link must still exist; its
+	// last_used_at is written in the session transaction.
+	googleSub string
+}
+
 // openSession creates the session and the first token pair in one transaction: the default tenant is
 // the one the user last worked in (else own fleet first), the new session stores it as
-// active_tenant_id, last_login_* is written and user.logged_in queued. cred, when set, is the
-// credential the login verified: the row must still hold it (a password set since wins). The cached
-// auth_version is raised to the issued one after COMMIT.
-func (s *Service) openSession(ctx context.Context, uid uuid.UUID, cred *credential, in LoginInput) (*LoginResult, error) {
+// active_tenant_id, last_login_* is written and user.logged_in queued. The cached auth_version is raised
+// to the issued one after COMMIT.
+func (s *Service) openSession(ctx context.Context, uid uuid.UUID, g grant, in LoginInput) (*LoginResult, error) {
 	pc := newPostCommit()
 	var res *LoginResult
 	err := s.system(ctx, func(q *authdb.Queries) error {
@@ -434,12 +451,21 @@ func (s *Service) openSession(ctx context.Context, uid uuid.UUID, cred *credenti
 			return err
 		}
 		switch {
-		case cred != nil && !cred.heldBy(user):
+		case g.cred != nil && !g.cred.heldBy(user):
 			return errInvalidCredentials() // the password changed after it was verified
 		case user.Status == "disabled":
 			return errAccountDisabled()
 		case user.Status != "active" || user.MustChangePassword:
-			return errInvalidCredentials() // changed since the password check; the next attempt sees it
+			return errInvalidCredentials() // changed since the credential check; the next attempt sees it
+		}
+		if g.googleSub != "" {
+			n, err := q.TouchGoogleIdentity(ctx, authdb.TouchGoogleIdentityParams{At: now, Subject: g.googleSub, UserID: uid})
+			if err != nil {
+				return err
+			}
+			if n == 0 {
+				return errNoAccount() // unlinked after it was resolved
+			}
 		}
 		pc.issue(uid, user.AuthVersion)
 		a, err := loadAxes(ctx, q, uid)
@@ -456,13 +482,13 @@ func (s *Service) openSession(ctx context.Context, uid uuid.UUID, cred *credenti
 			tid = &m.TenantID
 		}
 		sid, refresh, err := s.createSession(ctx, q, newSessionInput{
-			UserID: uid, Platform: in.Platform, AMR: AMRPassword, TenantID: tid, InstallID: in.InstallID,
+			UserID: uid, Platform: in.Platform, AMR: g.amr, TenantID: tid, InstallID: in.InstallID,
 			AppVersion: in.AppVersion, IP: in.IP, UserAgent: in.UserAgent,
 		}, now, pc)
 		if err != nil {
 			return err
 		}
-		c, err := a.claims(sid, user.AuthVersion, AMRPassword, m)
+		c, err := a.claims(sid, user.AuthVersion, g.amr, m)
 		if err != nil {
 			return err
 		}
@@ -479,7 +505,7 @@ func (s *Service) openSession(ctx context.Context, uid uuid.UUID, cred *credenti
 		}
 		if err := insertOutbox(ctx, q, outboxEvent{
 			RoutingKey: RouteUserLoggedIn, AggregateType: "user", AggregateID: uid.String(), TenantID: tid,
-			Payload:   loggedInPayload{UserID: uid, SessionID: sid, Platform: in.Platform, AMR: AMRPassword, TenantID: tid},
+			Payload:   loggedInPayload{UserID: uid, SessionID: sid, Platform: in.Platform, AMR: g.amr, TenantID: tid},
 			RequestID: in.RequestID,
 		}); err != nil {
 			return err

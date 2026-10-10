@@ -19,9 +19,11 @@ func per(n int, d time.Duration) Limit { return Limit{Count: n, Window: d} }
 
 // The buckets of Appendix B §B.6.3. Two have no Default, so Allow refuses them and Middleware panics
 // on a rule that does not set Limit: webhook (each provider route sets its own limit) and login_fail.
-// The auth routes (login_ip, refresh_session, sse_ticket, forgot_email, forgot_ip, reset_ip) are
-// checked by internal/auth through Limiter.Allow, because their subject (a session id, an email from
-// the body) is known only inside the handler; every other bucket goes through Middleware.
+// The auth routes (login_ip, google_ip, google_nonce_ip, refresh_session, sse_ticket, forgot_email,
+// forgot_ip, reset_ip) are checked by internal/auth through Limiter.Allow, because their subject (a
+// session id, an email from the body) is known only inside the handler, or because the route answers
+// 404 before any budget is spent while its feature is off (Google sign-in); every other bucket goes
+// through Middleware.
 //
 // login_fail is listed for its key name only (rl:login_fail:{sha256(email)}): it is not a GCRA bucket.
 // The lockout of Appendix C §C.4.12 (5 failed sign-ins per email within 15 min -> 423 locked) counts
@@ -32,6 +34,7 @@ var (
 	LoginIP          = Bucket{Name: "login_ip", Default: per(10, time.Minute), Env: "RATE_LIMIT_LOGIN"}
 	LoginFail        = Bucket{Name: "login_fail"}
 	GoogleIP         = Bucket{Name: "google_ip", Default: per(30, time.Minute)}
+	GoogleNonceIP    = Bucket{Name: "google_nonce_ip", Default: per(60, time.Minute)}
 	RefreshSession   = Bucket{Name: "refresh_session", Default: per(60, time.Minute)}
 	ExchangeIP       = Bucket{Name: "exchange_ip", Default: per(30, time.Minute)}
 	SSETicket        = Bucket{Name: "sse_ticket", Default: per(30, time.Minute)}
@@ -52,7 +55,7 @@ var (
 
 // Buckets lists every bucket of Appendix B §B.6.3.
 var Buckets = []Bucket{
-	LoginIP, LoginFail, GoogleIP, RefreshSession, ExchangeIP, SSETicket, ForgotEmail, ForgotIP, ResetIP,
+	LoginIP, LoginFail, GoogleIP, GoogleNonceIP, RefreshSession, ExchangeIP, SSETicket, ForgotEmail, ForgotIP, ResetIP,
 	PublicFormIP, PublicFormEmail, PublicIP, EvidenceIP, HeartbeatInstall, PresignUser, OCRDriver, Webhook,
 	APIKey, User,
 }
