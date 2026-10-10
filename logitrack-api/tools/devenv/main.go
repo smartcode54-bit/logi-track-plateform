@@ -17,6 +17,10 @@ import (
 
 const alphabet = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
+// firebaseScryptPublicSigner is the signer of the public firebase/scrypt test set
+// (tests/01-known-value.sh), a published test value and never a production one.
+const firebaseScryptPublicSigner = "jxspr8Ki0RYycVU8zykbdLGjFQ3McFUH0uiiTvC8pVMXAn210wjLNmdZJzxUECKbm0QsEmYUSDzZvpjeJ9WmXA=="
+
 func random(n int) string {
 	b := make([]byte, n)
 	for i := range b {
@@ -66,6 +70,12 @@ func main() {
 		"S3_SECRET_ACCESS_KEY":  random(40),
 		"API_KEY_PEPPER":        random(48),
 		"SEED_DEFAULT_PASSWORD": random(20),
+		// The public test parameter set of the firebase/scrypt repository (Appendix D: local and CI
+		// only, never the production Console values), so the verify-then-rehash login runs locally.
+		"FIREBASE_SCRYPT_SIGNER_KEY":     firebaseScryptPublicSigner,
+		"FIREBASE_SCRYPT_SALT_SEPARATOR": "Bw==",
+		"FIREBASE_SCRYPT_ROUNDS":         "8",
+		"FIREBASE_SCRYPT_MEM_COST":       "14",
 	}
 	// Keep the key id of an existing .env so FORCE=1 does not orphan the
 	// signing key written by `make dev-keys`.
