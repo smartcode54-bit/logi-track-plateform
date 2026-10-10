@@ -71,7 +71,7 @@ type Principal struct {
 	UserID      uuid.UUID // sub; the key id for a machine principal without a user (AMRAPIKey)
 	SessionID   uuid.UUID // sid; zero for amr=firebase and amr=apikey
 	AuthVersion int32     // ver
-	AMR         string    // AMRPassword | AMRGoogle | AMRFirebase | AMRAPIKey
+	AMR         string    // AMRPassword | AMRGoogle | AMRFirebase (a Firebase ID-token principal, T08: no session) | AMRAPIKey
 	TokenID     string    // jti, log correlation only
 
 	TenantID   *uuid.UUID     // tid; nil for customer-scope and platform-only principals

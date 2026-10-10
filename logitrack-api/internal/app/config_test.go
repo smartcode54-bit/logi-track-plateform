@@ -8,8 +8,10 @@ import (
 	"time"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/app"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/webcfg"
 )
 
 func baseEnv() []string {
@@ -256,5 +258,97 @@ func TestAPIConfigParsesScryptParams(t *testing.T) {
 	}
 	if cfg.RateLimit.Limit(ratelimit.LoginIP) != (ratelimit.Limit{Count: 20, Window: 30 * time.Second}) {
 		t.Fatalf("login rate: %+v", cfg.RateLimit)
+	}
+}
+
+// PG_OWNED_DOMAINS and WEB_FLAG_OVERRIDES give the web flags of GET /v1/config/web-flags (T17,
+// R35, R41); a bad value stops the api at start-up instead of serving a wrong flag.
+func TestAPIConfigParsesWebFlags(t *testing.T) {
+	cfg, err := config.LoadFrom[app.APIConfig](baseEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range webcfg.Domains {
+		if cfg.WebFlags.Source(d) != webcfg.SourceFirebase {
+			t.Fatalf("unset variables: %s = %s, want firebase", d, cfg.WebFlags.Source(d))
+		}
+	}
+	cfg, err = config.LoadFrom[app.APIConfig](override(baseEnv(), []string{
+		"PG_OWNED_DOMAINS=all", "WEB_FLAG_OVERRIDES=billing=firebase",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.WebFlags.Source("billing") != webcfg.SourceFirebase || cfg.WebFlags.Source("auth") != webcfg.SourceGo {
+		t.Fatalf("flags = %v", cfg.WebFlags.Map())
+	}
+	for _, kv := range []string{"PG_OWNED_DOMAINS=finance", "WEB_FLAG_OVERRIDES=auth=postgres"} {
+		_, err := config.LoadFrom[app.APIConfig](override(baseEnv(), []string{kv}))
+		name, value, _ := strings.Cut(kv, "=")
+		if err == nil || !strings.Contains(err.Error(), name+": ") {
+			t.Fatalf("%s: want an error naming the variable, got %v", name, err)
+		}
+		if strings.Contains(err.Error(), value) {
+			t.Fatalf("the error echoes the value: %v", err)
+		}
+	}
+}
+
+func TestAPIConfigBridgeDefaults(t *testing.T) {
+	cfg, err := config.LoadFrom[app.APIConfig](baseEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Mode != auth.BridgeOff || cfg.Mode.Mirror() || cfg.Mode.Web() || cfg.Mode.Mobile() {
+		t.Fatalf("default bridge mode = %q", cfg.Mode)
+	}
+	// Compose passes empty values for unset names: still off.
+	cfg, err = config.LoadFrom[app.APIConfig](override(baseEnv(), []string{"AUTH_FIREBASE_BRIDGE_MODE="}))
+	if err != nil || cfg.Mode != auth.BridgeOff {
+		t.Fatalf("empty mode: %q %v", cfg.Mode, err)
+	}
+	// The shims verify ID tokens in every mode, so the project id alone is fine with mode off.
+	if _, err := config.LoadFrom[app.APIConfig](override(baseEnv(), []string{"FIREBASE_PROJECT_ID=logitrack-dev"})); err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"web", "mobile", "both"} {
+		cfg, err := config.LoadFrom[app.APIConfig](override(baseEnv(), []string{
+			"AUTH_FIREBASE_BRIDGE_MODE=" + mode, "FIREBASE_PROJECT_ID=logitrack-dev",
+			"GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/firebase-sa.json",
+		}))
+		if err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		if string(cfg.Mode) != mode {
+			t.Fatalf("mode = %q", cfg.Mode)
+		}
+	}
+}
+
+func TestAPIConfigBridgeValidation(t *testing.T) {
+	cases := map[string]struct {
+		env  []string
+		want []string
+	}{
+		"unknown mode":       {[]string{"AUTH_FIREBASE_BRIDGE_MODE=web-only"}, []string{"AUTH_FIREBASE_BRIDGE_MODE"}},
+		"mode needs both":    {[]string{"AUTH_FIREBASE_BRIDGE_MODE=web"}, []string{"FIREBASE_PROJECT_ID", "GOOGLE_APPLICATION_CREDENTIALS"}},
+		"mobile needs creds": {[]string{"AUTH_FIREBASE_BRIDGE_MODE=mobile", "FIREBASE_PROJECT_ID=logitrack-dev"}, []string{"GOOGLE_APPLICATION_CREDENTIALS"}},
+		"bad project id":     {[]string{"FIREBASE_PROJECT_ID=LogiTrack_Dev"}, []string{"FIREBASE_PROJECT_ID"}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := config.LoadFrom[app.APIConfig](override(baseEnv(), tc.env))
+			if err == nil {
+				t.Fatal("want error")
+			}
+			for _, n := range tc.want {
+				if !strings.Contains(err.Error(), n) {
+					t.Fatalf("error does not name %s: %v", n, err)
+				}
+			}
+			if strings.Contains(err.Error(), "LogiTrack_Dev") || strings.Contains(err.Error(), "web-only") {
+				t.Fatalf("error echoes a value: %v", err)
+			}
+		})
 	}
 }

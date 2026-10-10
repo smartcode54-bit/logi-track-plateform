@@ -163,7 +163,9 @@ func TestDisableAndPasswordEventsEndSessions(t *testing.T) {
 			t.Fatalf("before: %d %s", r.status, r.raw)
 		}
 	}
-	// The disable path of internal/iam (T19): one transaction updates the row and revokes through auth.
+	// A status change plus RevokeInTx(disabled) in one transaction, the soft-delete path of internal/iam
+	// (T19/T51, there with status deleted); a disable proper goes through SetStatusInTx. Either way the
+	// sessions end here, and with the Firebase bridge on the account is disabled too (C.6.4).
 	var pc *auth.PostCommit
 	err := db.WithSystem(context.Background(), h.pool, nil, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(context.Background(), `UPDATE users SET status = 'disabled', disabled_at = now() WHERE id = $1`, u); err != nil {
