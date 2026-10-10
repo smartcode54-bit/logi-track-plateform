@@ -141,7 +141,7 @@ PostgreSQL is the source of truth. Redis (prefix `lt:{APP_ENV}:`, R26; canonical
 | `vehicle_locations` | `cache:vehicle_locations:{tenantId}` | each `cartrack.sync` run |
 | `tenants` (own fleet row) | `cache:tenant:own_fleet` | `tenant.created`, `tenant.updated` |
 | `tenants.contractor_tenant_id` | sub-tenant list of a tenant (Appendix C §C.3.4) | `tenant.created`, `tenant.updated` |
-| `role_capability_overrides` + Go catalog | `rbac:caps:{tenantId\|platform}:{role}:{ver}`, versioned by `rbac:ver` | `INCR rbac:ver` on `PUT /v1/roles/matrix` |
+| `role_capability_overrides` + Go catalog | `rbac:caps:{tenantId\|platform}:{role}:{ver}:{fp}`, versioned by `rbac:ver` (overrides) and the fingerprint `fp` of the compiled-in defaults | `INCR rbac:ver` on `PUT /v1/roles/matrix`; a release that changes the defaults gets a new `fp` |
 | `refresh_tokens` | `auth:rt:{sha256(token)}` | rotation, logout, revoke |
 | `sessions` (revoked) | `auth:sess:revoked:{sid}` | revoke |
 | `users.auth_version` | `auth:user:ver:{userId}` | role, scope, platform role, driver link, disable, password |

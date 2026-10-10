@@ -20,7 +20,10 @@ MIGRATE      := $(COMPOSE) run --rm --build migrate
 # sqlc output directories (the `out:` of each sqlc.yaml block).
 SQLC_OUT      = $(shell awk '$$1 == "out:" {print $$2}' sqlc.yaml)
 # Every generated file or directory that is committed; gen-check fails when one is stale or new.
-GEN_OUT       = deploy/rabbitmq-definitions.json api/routes.txt $(SQLC_OUT)
+# ../shared-docs/schemas/capabilities.ts is the web copy of the capability catalog (T07, R27).
+GEN_OUT       = deploy/rabbitmq-definitions.json api/routes.txt ../shared-docs/schemas/capabilities.ts $(SQLC_OUT)
+# Negative fixture of the sqlc vet rule scope-views-only (Appendix C §C.3.7).
+SCOPE_VETCHECK = internal/scope/testdata/vetcheck
 # The secret-scan workflow (.github/scripts/secret-scan.sh) reads it through `make print-gitleaks-img`.
 GITLEAKS_IMG := zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
 
@@ -126,20 +129,25 @@ test: ## unit tests with the race detector
 test-integration: ## unit + integration tests (testcontainers: postgres:18-alpine with 00-roles.sql)
 	DOCKER_HOST=$(DOCKER_HOST) go test -race -tags=integration $(TESTFLAGS) ./...
 
-lint: ## gofmt, go mod tidy, go vet, golangci-lint (incl. staticcheck), govulncheck; integration-tagged files included
+lint: ## gofmt, go mod tidy, go vet, the WithSystem allow-list, golangci-lint (incl. staticcheck), govulncheck; integration-tagged files included
 	@unformatted=$$(gofmt -l .); if [ -n "$$unformatted" ]; then echo "gofmt -w needed:" >&2; echo "$$unformatted" >&2; exit 1; fi
 	go mod tidy -diff
 	go vet -tags=integration ./...
+	go run ./tools/analyzers/withsystem
 	$(GOLANGCI) run --build-tags=integration ./...
 	$(GOVULNCHECK) -tags=integration ./...
 
-gen: ## regenerate generated files (RabbitMQ definitions, api/routes.txt, sqlc; OpenAPI joins with T05)
+gen: ## regenerate generated files (RabbitMQ definitions, api/routes.txt, capabilities.ts, sqlc; OpenAPI joins with T05)
 	go generate ./...
 	$(SQLC) generate
 
-gen-check: ## fail when generated files are stale, orphaned or uncommitted, a public route leaves the allow-list, or the migration rules break (go-ci gen-check)
+gen-check: ## fail when generated files are stale, orphaned or uncommitted, a public route leaves the allow-list, the scope vet rule stops biting, or the migration rules break (go-ci gen-check)
 	$(SQLC) diff
 	$(SQLC) vet
+	@# scope-views-only must still report every query of its negative fixture (one line per query).
+	@want=$$(grep -c -- '-- name:' $(SCOPE_VETCHECK)/queries/scope_bad.sql); \
+	  got=$$($(SQLC) vet -f $(SCOPE_VETCHECK)/sqlc.yaml 2>&1 | grep -c ': scope-views-only: ' || true); \
+	  if [ "$$got" != "$$want" ]; then echo "sqlc vet: scope-views-only reported $$got of $$want fixture queries" >&2; exit 1; fi
 	go run ./cmd/migrate check -dir migrations
 	@# go generate also runs `api routes`, which exits 1 on a public route outside the allow-list.
 	go generate ./...

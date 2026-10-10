@@ -18,14 +18,12 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 )
 
-type localKey int
-
-const principalKey localKey = iota
-
-// RequireAuth accepts exactly a Go access token as `Authorization: Bearer` (Appendix C §C.4.3) and
-// stores the principal for PrincipalFrom. No credential is 401 unauthenticated; a Firebase ID token or
-// any other non-Go token is 401 invalid_token on every route. (API keys and the cf_shim Firebase path
-// join in T32; this middleware lives in auth rather than httpx because httpx cannot import auth.)
+// RequireAuth accepts exactly a Go access token as `Authorization: Bearer` (Appendix C §C.4.3), then
+// lets the Authorizer (iam.RBAC, T07) complete the principal: X-Act-On-Tenant, steward flag, contractor
+// reach and capabilities. The principal is stored for authz.PrincipalFrom. No credential is 401
+// unauthenticated; a Firebase ID token or any other non-Go token is 401 invalid_token on every route.
+// (API keys and the cf_shim Firebase path join in T32; this middleware lives in auth rather than httpx
+// because httpx cannot import auth.)
 func (s *Service) RequireAuth() fiber.Handler {
 	return func(c fiber.Ctx) error {
 		raw, present := bearer(c)
@@ -37,21 +35,23 @@ func (s *Service) RequireAuth() fiber.Handler {
 			return err
 		}
 		setPrincipal(c, p)
+		if s.gate != nil {
+			if err := s.gate.Authorize(c, p); err != nil {
+				return err
+			}
+		}
 		return c.Next()
 	}
 }
 
 func setPrincipal(c fiber.Ctx, p *authz.Principal) {
-	c.Locals(principalKey, p)
+	authz.SetPrincipal(c, p)
 	l := zerolog.Ctx(c.Context()).With().Str("user_id", p.UserID.String()).Str("session_id", p.SessionID.String()).Logger()
 	c.SetContext(l.WithContext(c.Context()))
 }
 
-// PrincipalFrom returns the principal stored by RequireAuth, or nil.
-func PrincipalFrom(c fiber.Ctx) *authz.Principal {
-	p, _ := c.Locals(principalKey).(*authz.Principal)
-	return p
-}
+// PrincipalFrom returns the principal stored by RequireAuth, or nil (the same as authz.PrincipalFrom).
+func PrincipalFrom(c fiber.Ctx) *authz.Principal { return authz.PrincipalFrom(c) }
 
 // bearer returns the token of an `Authorization: Bearer <token>` header. present is false when no
 // Authorization header (or another scheme) was sent.

@@ -44,7 +44,7 @@ func allKeys(ks Keyspace) map[string]string {
 		"AuthPasswordChange":   ks.AuthPasswordChange("x"),
 		"AuthFirebaseUID":      ks.AuthFirebaseUID("f"),
 		"RBACVersion":          ks.RBACVersion(),
-		"RBACCapabilities":     ks.RBACCapabilities("platform", "tenant_admin", 3),
+		"RBACCapabilities":     ks.RBACCapabilities("platform", "tenant_admin", 3, "1a2b3c4d"),
 		"IdemHTTP":             ks.IdemHTTP("u1", "k"),
 		"IdemLock":             ks.IdemLock("u1", "k"),
 		"IdemFCM":              ks.IdemFCM("m", "t"),
@@ -94,7 +94,7 @@ func TestSpecKeyShapes(t *testing.T) {
 		"CacheChannel":       "lt:prod:rt:cache",
 		"RealtimeSeq":        "lt:prod:rtlog:seq",
 		"GeoReverse":         "lt:prod:cache:geo:rev:13.75000:100.50000",
-		"RBACCapabilities":   "lt:prod:rbac:caps:platform:tenant_admin:3",
+		"RBACCapabilities":   "lt:prod:rbac:caps:platform:tenant_admin:3:1a2b3c4d",
 	}
 	got := allKeys(ks)
 	for name, w := range want {
