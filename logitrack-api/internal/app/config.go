@@ -12,6 +12,8 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/firebasescrypt"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
 )
@@ -58,10 +60,118 @@ func (r Runtime) validate(errs *[]string) {
 	}
 }
 
+// Database is the PostgreSQL connection of the long-running processes: logitrack_app through
+// DATABASE_URL (R66, R87).
+type Database struct {
+	DatabaseURL string `env:"DATABASE_URL,required,notEmpty"`
+	MaxConns    int32  `env:"DATABASE_MAX_CONNS"`
+	MinConns    int32  `env:"DATABASE_MIN_CONNS"`
+}
+
+func (d Database) validate(errs *[]string) {
+	if d.DatabaseURL != "" && !strings.HasPrefix(d.DatabaseURL, "postgres://") && !strings.HasPrefix(d.DatabaseURL, "postgresql://") {
+		*errs = append(*errs, config.Invalidf("DATABASE_URL", "must be a postgres:// URL"))
+	}
+	if d.MaxConns < 0 || d.MinConns < 0 || (d.MaxConns > 0 && d.MinConns > d.MaxConns) {
+		*errs = append(*errs, "DATABASE_MAX_CONNS, DATABASE_MIN_CONNS: must be >= 0 with MIN <= MAX")
+	}
+}
+
+// Redis is the Redis connection; every key carries REDIS_KEY_PREFIX = lt:{APP_ENV}: (R26).
+type Redis struct {
+	RedisURL       string `env:"REDIS_URL,required,notEmpty"`
+	RedisKeyPrefix string `env:"REDIS_KEY_PREFIX"`
+	RedisTLS       bool   `env:"REDIS_TLS"`
+}
+
+func (r *Redis) validate(appEnv string, errs *[]string) {
+	if r.RedisURL != "" && !strings.HasPrefix(r.RedisURL, "redis://") && !strings.HasPrefix(r.RedisURL, "rediss://") {
+		*errs = append(*errs, config.Invalidf("REDIS_URL", "must be a redis:// or rediss:// URL"))
+	}
+	want := "lt:" + appEnv + ":"
+	if r.RedisKeyPrefix == "" {
+		r.RedisKeyPrefix = want
+	} else if r.RedisKeyPrefix != want {
+		*errs = append(*errs, config.Invalidf("REDIS_KEY_PREFIX", "must be lt:{APP_ENV}: (R26)"))
+	}
+}
+
+// Auth is the auth configuration of the api process (Appendix C §C.4.16, main spec §16.1).
+type Auth struct {
+	JWTSigningKeyFile  string        `env:"JWT_SIGNING_KEY_FILE,required,notEmpty"`
+	JWTPreviousKeyFile string        `env:"JWT_PREVIOUS_KEY_FILE"`
+	JWTActiveKID       string        `env:"JWT_ACTIVE_KID,required,notEmpty"`
+	JWTIssuer          string        `env:"JWT_ISSUER,required,notEmpty"`
+	JWTAudience        string        `env:"JWT_AUDIENCE,required,notEmpty"`
+	JWTAccessTTL       time.Duration `env:"JWT_ACCESS_TTL" envDefault:"15m"`
+	RefreshTTLWeb      time.Duration `env:"REFRESH_TOKEN_TTL_WEB" envDefault:"168h"`
+	RefreshTTLMobile   time.Duration `env:"REFRESH_TOKEN_TTL_MOBILE" envDefault:"2160h"`
+	PasswordResetTTL   time.Duration `env:"PASSWORD_RESET_TTL" envDefault:"30m"`
+	PasswordMinLength  int           `env:"PASSWORD_MIN_LENGTH" envDefault:"10"`
+	Argon2MemoryKB     uint32        `env:"ARGON2_MEMORY_KB" envDefault:"65536"`
+	Argon2Iterations   uint32        `env:"ARGON2_ITERATIONS" envDefault:"3"`
+	Argon2Parallelism  uint8         `env:"ARGON2_PARALLELISM" envDefault:"2"`
+	ScryptSignerKey    string        `env:"FIREBASE_SCRYPT_SIGNER_KEY"`
+	ScryptSaltSep      string        `env:"FIREBASE_SCRYPT_SALT_SEPARATOR"`
+	ScryptRounds       int           `env:"FIREBASE_SCRYPT_ROUNDS"`
+	ScryptMemCost      int           `env:"FIREBASE_SCRYPT_MEM_COST"`
+	RateLimitEnabled   bool          `env:"RATE_LIMIT_ENABLED" envDefault:"true"`
+	RateLimitLogin     string        `env:"RATE_LIMIT_LOGIN" envDefault:"10/1m"`
+
+	// Parsed by Validate.
+	Scrypt    *firebasescrypt.Params `env:"-"`
+	LoginRate auth.Limit             `env:"-"`
+}
+
+func (a *Auth) validate(errs *[]string) {
+	if a.JWTAccessTTL < time.Minute || a.JWTAccessTTL > time.Hour {
+		*errs = append(*errs, config.Invalidf("JWT_ACCESS_TTL", "must be between 1m and 1h"))
+	}
+	if a.RefreshTTLWeb <= 0 || a.RefreshTTLWeb > auth.WebAbsoluteTTL {
+		*errs = append(*errs, config.Invalidf("REFRESH_TOKEN_TTL_WEB", "must be positive and at most 720h (the 30-day absolute cap)"))
+	}
+	if a.RefreshTTLMobile <= 0 {
+		*errs = append(*errs, config.Invalidf("REFRESH_TOKEN_TTL_MOBILE", "must be positive"))
+	}
+	if a.PasswordResetTTL < time.Minute || a.PasswordResetTTL > 24*time.Hour {
+		*errs = append(*errs, config.Invalidf("PASSWORD_RESET_TTL", "must be between 1m and 24h"))
+	}
+	if a.PasswordMinLength < 8 || a.PasswordMinLength > 128 {
+		*errs = append(*errs, config.Invalidf("PASSWORD_MIN_LENGTH", "must be between 8 and 128"))
+	}
+	if a.Argon2MemoryKB < 8192 || a.Argon2Iterations < 1 || a.Argon2Parallelism < 1 {
+		*errs = append(*errs, "ARGON2_MEMORY_KB, ARGON2_ITERATIONS, ARGON2_PARALLELISM: memory >= 8192, iterations and parallelism >= 1")
+	}
+	sp, err := firebasescrypt.ParseParams(a.ScryptSignerKey, a.ScryptSaltSep, a.ScryptRounds, a.ScryptMemCost)
+	if err != nil {
+		*errs = append(*errs, err.Error()+" (set all four FIREBASE_SCRYPT_* or none)")
+	}
+	a.Scrypt = sp
+	l, err := parseRate(a.RateLimitLogin)
+	if err != nil {
+		*errs = append(*errs, config.Invalidf("RATE_LIMIT_LOGIN", "must be count/window, e.g. 10/1m"))
+	}
+	a.LoginRate = l
+}
+
+// parseRate reads "count/window" (window a Go duration such as 1m or 15m).
+func parseRate(v string) (auth.Limit, error) {
+	c, w, ok := strings.Cut(strings.TrimSpace(v), "/")
+	n, err1 := strconv.Atoi(c)
+	d, err2 := time.ParseDuration(w)
+	if !ok || err1 != nil || err2 != nil || n < 1 || d <= 0 {
+		return auth.Limit{}, fmt.Errorf("invalid rate")
+	}
+	return auth.Limit{Count: n, Window: d}, nil
+}
+
 // APIConfig is the api process configuration.
 type APIConfig struct {
 	Common
 	Runtime
+	Database
+	Redis
+	Auth
 	InternalAddr      string   `env:"API_INTERNAL_ADDR,required,notEmpty"`
 	PublicAddr        string   `env:"API_PUBLIC_ADDR,required,notEmpty"`
 	PublicRouteGroups []string `env:"PUBLIC_ROUTE_GROUPS" envSeparator:"," envDefault:"/v1/mobile,/v1/auth,/public/v1,/evidence,/healthz"`
@@ -76,6 +186,9 @@ func (c *APIConfig) Validate() error {
 	var errs []string
 	c.Common.validate(&errs)
 	c.Runtime.validate(&errs)
+	c.Database.validate(&errs)
+	c.Redis.validate(c.AppEnv, &errs)
+	c.Auth.validate(&errs)
 	for _, kv := range [][2]string{{"API_INTERNAL_ADDR", c.InternalAddr}, {"API_PUBLIC_ADDR", c.PublicAddr}} {
 		if err := checkAddr(kv[1]); err != nil {
 			errs = append(errs, config.Invalidf(kv[0], "%v", err))
@@ -208,4 +321,3 @@ func parsePrefix(s string) (netip.Prefix, error) {
 	a = a.Unmap()
 	return netip.PrefixFrom(a, a.BitLen()), nil
 }
-

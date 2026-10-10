@@ -1,0 +1,42 @@
+# Public test vectors of github.com/firebase/scrypt (Copyright 2018 Google LLC, BSD-style licence),
+# never production values: tests/01-known-value.sh and the 13 lines each of
+# tests/02-more-values-passwords.good and tests/03-more-values-different-key-passwords.good
+# (same plaintexts and salts as 02, another signer). The values are copied verbatim; only the
+# layout is this file's. Every set uses salt separator Bw== with rounds 8 and mem_cost 14.
+# Read by verify_test.go (Appendix C section C.5.3).
+#
+#   set NAME SIGNER       opens a parameter set; SIGNER is its base64 signer
+#   HASH SALT PLAINTEXT   one vector; PLAINTEXT is the rest of the line and may hold spaces
+
+set 01-known-value jxspr8Ki0RYycVU8zykbdLGjFQ3McFUH0uiiTvC8pVMXAn210wjLNmdZJzxUECKbm0QsEmYUSDzZvpjeJ9WmXA==
+70k8Vg5B3/OrvJOiqusnasv0dLcBHoDAqJrJr7TRLBfMw4MitWx51YXJYFdGiyMbMeKtWtLf5HiBDcN0SUOm4A== 42xEC+ixf3L2lw== hunter2
+
+set 02-more-values NkZlKPkYEFfnbh1nYTfLsbqQnQ6jyRV4itK7iUD+hjO96tsAYhBG40BVS3AuJyiwHinqc5RR3oA+lppOXPNRmw==
+5RZZm9Jz7p/u+FGXMInlJtAYFmMBj6ioL1UOdWfsUknAFCnsPpnnKRLyXSUFwwKbM4lx7TdFclBsT16Z8uuumg== GGc/eCzFj6DM0g== two space password
+/Sd7739rZmNhLrKoVNNogrT581HxvZZ84xTFEk8Fmlc/S3VLgyOdpaYKuL5Pv3MgpEb3rJXUIAr0g9Nv88R45Q== idth64ctmPRzqA== thisisalonglonglongpasswordforlongtesting
+H+9Yy+QH4yFEh/X/t0PfYPGbwVjmZezEGynOTciJW8QrDhwvharVnVn/ZGPiIhE0xWS/gOaMpeI0eGpA2O5eug== Rx4UJViMrCVJJA== one two three four five six seven eight nine ten
+5OzyNvT0QEq8NZkbmCZtcH6io2jRa1WkfsUWLFyTveNr9Ynuy3OVPB98QWht6gHppBaj9c3btbIZG+2SUhKboA== LnAO2WiC8XtYvA== 1 2 3 4 5 6 7 8 9
+fSu3juby0PyHcO9A/nCDLiVBqHfoIK2CBXYT4S18lGd/4aVfMb590aBNw72PbkakseFb5GX7pqDSouZ9XpyBxA== 46lG9vZK/L5JRw== this is a sentence to test passwords with spaces
+D4/67JzbolWXC6BuTdt0fRa6owx4CSEinCykFl+W02E8lpbFopre+BkWwYV9iFGhqwYiET+Hm9jT7s7LWz88bA== nwdW6iryfC10oQ== testing123
+fByXO3CKtRkK8tW/iNnuQGKdXhmqikU7+ffFp1LvDJTDASrzNgx7LMaV7xoVhgmfim5a/AUzgd8BFerCr0O8JQ== mzgHjqnbxO5UcA== this is a sentence to test testwords with spaces
+mSzCCU0nuySmqxdWZfwGpM1ulSH21hvnXJmP+cUwgi3QFeoKl/25jgX3Fow/wFC08bTw88wSzrgM6ags7hKy6A== iVRgXgGTl1TFfA== testing123
+PDXbdkrrJEv/E4kkTcW5km3AnOXoLMfJKsrMjZnGaWYts4rT3aM4DeYFZqCRBnWKci/Vtj8z9fKiLkxPy5qwsg== VEJ6y1OiOwBYNQ== this is a sentence to test passwords with spaces
+0rCzKM1HOYchvH/IHuXJvYHO8BQXRz7nt5318tGoqU4A6bFAlFignJJxslj8oW1QwI+2icOAji6uCzNFar715w== E5g/OvCTUuVjeg== one space
+B8JNxsBRb0H5cHrnR18wpIbKnzp8//NV3r+3nZG4VYnM4simlThHfpOYx0cJrTBi7xVhiBS9UgkrTlrfSRf2VA== Dc+nQe0OnNrVrg== this$is%to^test&some=symbols*out@
+LeEhEBIoqfUq1b6SDLBFWQFYdGevXy8bDRh3T6a2UY9k3xpQIGHM2utb32pxV52Em2sPwMT5fyDUFaWBcWJP7w== ugHGGMrmBmldRA== one two three four five six seven eight
+gOq1gkETx7x0uSmC9IANIdMPkr0wT/o08cxCkLa+ExzR5zsdDH9Qj4kwgVNGyHJw5U4vUY0CR0zRJ8V7N6MBow== FMlxIuMeTReT9g== one two three four five six seven eight nine
+
+set 03-other-signer U01Ba7WbeBZyY/HjvbEp+N9KkB2h/oF7uSSbBSCj803usz1GV7YIhM+LlusLiU+t3qbz8hh5PLOUSekExEY04w==
+gB192J7wht579b0T7A8Hb7XCG3ADuDyrHKMu+QexJzeTTc+qCz+pTp0sgL4gbWWG8wZobLttkGPGkC3Tal7L4g== GGc/eCzFj6DM0g== two space password
+mCxfrDPoDiL0I14siFWKy9Ej/kLzigJ/0OLlni9Y7ylsEpMNtoXTwinUZSVqERQ9ZMnuLRn8wjleXKAla3EdnQ== idth64ctmPRzqA== thisisalonglonglongpasswordforlongtesting
+euR8iKiEi2DRihl7a8U9KZRBzEvkUnjHKN/uwajULrp4V/ppsAyb+tYhufjHjHYpBeumAWqkR9GepxkKQFs7wg== Rx4UJViMrCVJJA== one two three four five six seven eight nine ten
+gefWdbh3KAspOHWfRKCPORt4rnvTXMGnTTM2oDzOyJ04rG+o/tXbW5CinPNIRGb0ZJm6dEHzV4GzxJ7Yyqf+2A== LnAO2WiC8XtYvA== 1 2 3 4 5 6 7 8 9
+GCCTzapxuL0SfQPEIvZhZ0CbpWTqFzmBNoAzbU0h4RksuEMZBBgzti+THiaqwCG5cW5CZenTRJN4fZU3xinkvA== 46lG9vZK/L5JRw== this is a sentence to test passwords with spaces
+aoTer9BYyhQCBkzqkV2WNHNgrh96PrUhr9qEmj/Lph9vz3CDlzyQn5bIHB5YJja8a4k7kLOveet5Mb2Bw4pZFA== nwdW6iryfC10oQ== testing123
+GRezeDwJ3Vif/zk7VF8MCQdHUwqovdE4ygHlKzKyeeqQWMy1A6o1S0lLMoEwKG6CSuFDfYkbY+yrypmIN/bZXQ== mzgHjqnbxO5UcA== this is a sentence to test testwords with spaces
+/CfmSgGk02UzpvvSuXrk7ai0mDL04Y/kb2+vdaVt91ODTAxMolv36YopyxcabjepMTvpckA6LIumNttmdqfXkA== iVRgXgGTl1TFfA== testing123
+WT7/NQZoTApqHmWgkUNb2wgakfbqG1PKGTzsAfmbHBh+6myV6AV2amnbuzu0qBKXsqDMN7MbF8EI8T8FUy/Vyg== VEJ6y1OiOwBYNQ== this is a sentence to test passwords with spaces
+t7uXa4HEUca0sZNMwmMr9OQU/QcVcKrkhGvVfrH13DBTsFcGof7u+x2vb8PZDwpNAACvCE+obB0E1EAP8guQnw== E5g/OvCTUuVjeg== one space
+YslphYzSBwBsfZZjm9nS7eMQkil+yGdW7UmXEfHlIPefuy7goJ4JGRxGGtwsA1d/L5p4CZiVsDqBkSmV0aKTLA== Dc+nQe0OnNrVrg== this$is%to^test&some=symbols*out@
+SOoFU16rwbS/2FIW0DanEGSCeXStaLsYPu5Xw8brJPE3hvwWFceCvWSFAvFU+fqZW+QWQUjRnRN+ytbL6dcqlw== ugHGGMrmBmldRA== one two three four five six seven eight
+5eGRwQ2Qr/3htMUGKAbvaLbVn64yeG43wjpiHNbjZmKCvt1bOdke6AbuXMhjZhVtJcE20AEqpX97+LYxrxZk2w== FMlxIuMeTReT9g== one two three four five six seven eight nine
