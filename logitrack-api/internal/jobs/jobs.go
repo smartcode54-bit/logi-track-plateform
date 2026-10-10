@@ -277,14 +277,17 @@ type SubmitInput struct {
 	// transaction is a system one (db.WithSystem, app.bypass_tenant = on), so InTx may only touch
 	// RLS-exempt tables or call security.Append; a request that must read tenant rows does that read
 	// under the principal's transaction (WithPrincipal, T07) before it calls Submit (Appendix C §C.3.2).
+	// tools/analyzers/withsystem reports an InTx hook set outside the WithSystem allow-list.
 	InTx func(ctx context.Context, tx pgx.Tx, j Job) error
 }
 
 // Submit takes lock:job:{type}:{scope} (SET NX, LockTTL) and creates the job in one system
 // transaction (main spec §7.5): jobs has no RLS (R67) and the replay's security_events append needs
-// bypass, so the request path runs it under WithSystem after Go authorization (Appendix C §C.3.2). A held lock is 409 already_exists with details.jobId of the running
-// job; the lock is released if the transaction fails. A Redis failure is 503 unavailable: the lock
-// is the only guard against a second concurrent run, so the request is refused rather than risk one.
+// bypass, so the request path runs it under WithSystem after Go authorization (Appendix C §C.3.2;
+// kept by T07, since WithPrincipal refuses a writable bypass). A held lock is 409 already_exists with
+// details.jobId of the running job; the lock is released if the transaction fails. A Redis failure is
+// 503 unavailable: the lock is the only guard against a second concurrent run, so the request is
+// refused rather than risk one.
 func (s *Service) Submit(ctx context.Context, in SubmitInput) (Job, error) {
 	id, err := uuid.NewV7()
 	if err != nil {

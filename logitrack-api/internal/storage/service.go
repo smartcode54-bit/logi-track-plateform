@@ -61,8 +61,11 @@ type Caller struct {
 	// Staff holds a staff role in TenantID (tenant_admin, manager, operation_staff, operator, user): it reads the
 	// files of its tenant and of the carriers working for it (R60), like the RLS policy p_read.
 	Staff bool
-	// PlatformAdmin may upload platform objects (tenant NULL), like p_upload's steward branch.
-	PlatformAdmin bool
+	// Steward (own-fleet staff or platform_admin, R60) may upload platform objects (tenant NULL) when it acts in no
+	// tenant, like p_upload's steward branch.
+	Steward bool
+	// ReadAll is the audited read-only cross-tenant bypass (X-Act-On-Tenant: *, Appendix C §C.3.9): every file.
+	ReadAll bool
 }
 
 // Authorizer decides whether the caller may read a file committed to an entity of its owner kind ("a file is
@@ -263,7 +266,7 @@ func (s *Service) Presign(ctx context.Context, c Caller, in PresignInput, opts P
 	if p.OwnerKind == OwnerUser && entity != c.UserID {
 		return nil, errPermission("not_own_profile")
 	}
-	if c.TenantID == nil && !c.PlatformAdmin {
+	if c.TenantID == nil && !c.Steward {
 		return nil, errTenantRequired()
 	}
 	b, err := s.backend(s.cfg.Active)
@@ -480,7 +483,7 @@ func (s *Service) Commit(ctx context.Context, tx pgx.Tx, in CommitInput) (Commit
 // mayRead mirrors the RLS policy p_read for a caller (public objects, own uploads, staff of the file's tenant or
 // of its contractor) and then asks the owner kind's Authorizer.
 func (s *Service) mayRead(ctx context.Context, q *storagedb.Queries, c Caller, row storagedb.FileObject) (bool, error) {
-	if row.Visibility == "public" || (row.UploadedBy != nil && *row.UploadedBy == c.UserID) {
+	if c.ReadAll || row.Visibility == "public" || (row.UploadedBy != nil && *row.UploadedBy == c.UserID) {
 		return true, nil
 	}
 	if c.Staff && c.TenantID != nil && row.TenantID != nil {

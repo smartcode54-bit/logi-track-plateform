@@ -204,6 +204,71 @@ sql:
               import: time
               type: Time
               pointer: true
+  # T07: inputs of the per-request authorization (role overrides, own fleet, contractor reach), read by the
+  # RBAC service under db.WithSystem (Appendix C §C.2.5, §C.3.4).
+  - name: iam
+    engine: postgresql
+    schema: migrations
+    queries: internal/iam/queries
+    gen:
+      go:
+        package: iamdb
+        out: internal/iam/iamdb
+        sql_package: pgx/v5
+        emit_empty_slices: true
+        emit_pointers_for_null_types: true
+        omit_unused_structs: true
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: uuid
+            nullable: true
+            go_type:
+              import: github.com/google/uuid
+              type: UUID
+              pointer: true
+  # T07: dispatcher and customer-scope principals read only the scope_* projections (Appendix C §C.3.7, R85).
+  # Every query of this block lives in a scope_*.sql file and passes the scope-views-only rule below.
+  - name: scope
+    engine: postgresql
+    schema: migrations
+    queries: internal/scope/repo
+    rules:
+      - scope-views-only
+    gen:
+      go:
+        package: scopedb
+        out: internal/scope/scopedb
+        sql_package: pgx/v5
+        emit_json_tags: true          # camelCase (R48): the DTO keys are the view columns, nothing else
+        json_tags_case_style: camel
+        emit_empty_slices: true
+        emit_pointers_for_null_types: true
+        omit_unused_structs: true
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: uuid
+            nullable: true
+            go_type:
+              import: github.com/google/uuid
+              type: UUID
+              pointer: true
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true
+          - db_type: citext
+            go_type: string
+          - db_type: citext
+            nullable: true
+            go_type:
+              type: string
+              pointer: true
   # T11: file_objects (presign, commit, storage.gc) and the evidence tokens of trip_records / standby_records,
   # all under db.WithSystem (internal/storage is on the allow-list of Appendix C §C.3.2).
   - name: storage
@@ -235,3 +300,13 @@ sql:
               import: time
               type: Time
               pointer: true
+# sqlc vet rules (make gen-check). scope-views-only (Appendix C §C.3.7): a scope query reads the scope_* views
+# and nothing else, and never writes. It fails on any of the 85 tables of migrations/ named as a whole word
+# (schema-qualified, quoted, joined, in a subquery or a CTE alike; scope_tasks does not contain the word
+# tasks); internal/scope/vet_test.go keeps the list equal to the CREATE TABLE statements.
+rules:
+  - name: scope-views-only
+    message: "a scope_* query reads only the scope_* views (Appendix C §C.3.7): no base table, no write"
+    rule: |
+      query.sql.matches(r'(?i)\b(?:api_keys|auth_identities|billing_counters|billing_parties|billing_statement_lines|billing_statements|broadcast_reads|broadcast_recipients|broadcasts|chat_messages|chat_read_state|chats|companies|consumer_inbox|customer_driver_id_types|customer_fuel_rate_adjustments|customer_rate_entries|customer_service_fees|customers|device_tokens|driver_advances|driver_compensation_configs|driver_customer_codes|driver_penalties|drivers|file_objects|fuel_daily_snapshots|fuel_monthly_snapshots|holidays|hub_name_aliases|hub_soc_distances|hubs|idempotency_keys|incident_reports|jobs|leave_request_attachments|leave_requests|maintenance_files|maintenance_records|memberships|mobile_app_releases|mobile_installations|notification_deliveries|outbox_events|partner_interest|password_reset_tokens|payroll_line_items|payroll_penalty_applications|payroll_runs|penalty_types|quarantine|reconciliation_runs|refresh_tokens|role_capability_overrides|security_events|sessions|settings|source_docs|standby_photos|standby_rate_entries|standby_records|statement_documents|status_history|task_delivery_stops|task_number_counters|tasks|tenant_files|tenants|transactions|trip_billing_snapshots|trip_billing_stop_breakdown|trip_delivery_stops|trip_no_history|trip_photos|trip_records|truck_assignments|truck_files|trucks|user_platform_roles|user_scopes|users|vehicle_expenses|vehicle_locations|waitlist|watermarks)\b') ||
+      query.sql.matches(r'(?i)\b(?:insert|update|delete|merge|truncate)\b')

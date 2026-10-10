@@ -72,6 +72,7 @@ func startEnv(t *testing.T) {
 	clearEnv(t, "OTEL_EXPORTER_OTLP_ENDPOINT", "REDIS_KEY_PREFIX", "JWT_PREVIOUS_KEY_FILE", "FIREBASE_SCRYPT_SIGNER_KEY",
 		"FIREBASE_SCRYPT_SALT_SEPARATOR", "FIREBASE_SCRYPT_ROUNDS", "FIREBASE_SCRYPT_MEM_COST",
 		"AUTH_FIREBASE_BRIDGE_MODE", "FIREBASE_PROJECT_ID", "GOOGLE_APPLICATION_CREDENTIALS",
+		"PG_OWNED_DOMAINS", "WEB_FLAG_OVERRIDES",
 		"LOCAL_MEDIA_DIR", "LOCAL_MEDIA_PUBLIC_BASE_URL", "LOCAL_MEDIA_SIGNING_KEY", "S3_USE_SSL", "CORS_ALLOWED_ORIGINS")
 }
 
@@ -195,11 +196,11 @@ func TestRoutesTableMatchesTheCommittedFile(t *testing.T) {
 		t.Fatalf("api/routes.txt is stale; run make gen\n--- generated\n%s--- committed\n%s", stdout.String(), committed)
 	}
 	// The auth groups (T05) reach the table through newAPI: /v1/auth on both listeners, /v1/me internal only;
-	// the jobs groups (T10) are internal only.
+	// the jobs groups (T10) and the web flags (T17) are internal only.
 	for _, want := range []string{"GET /healthz internal,public\n", "GET /readyz internal\n", "GET /startupz internal\n",
 		"POST /v1/auth/login internal,public\n", "POST /v1/auth/refresh internal,public\n", "GET /v1/me internal\n",
 		"DELETE /v1/me/sessions/:sid internal\n", "GET /v1/jobs internal\n", "GET /v1/jobs/:id internal\n",
-		"POST /v1/admin/queues/:queue/replay internal\n"} {
+		"POST /v1/admin/queues/:queue/replay internal\n", "GET /v1/config/web-flags internal\n"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("table lacks %q:\n%s", want, stdout.String())
 		}

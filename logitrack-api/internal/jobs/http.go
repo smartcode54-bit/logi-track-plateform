@@ -18,7 +18,9 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/security"
 )
 
-// Caller is the authenticated principal of a jobs request, as the auth middleware resolved it.
+// Caller is the authenticated principal of a jobs request, as the auth middleware resolved it. Every
+// job type so far is a platform one; staff of a job's tenant holding its type's capability become
+// readers with the per-type POST /v1/jobs/{type} routes (T21 first; developer-spec.md §7.5).
 type Caller struct {
 	UserID uuid.UUID
 	// PlatformAdmin holds platform_admin: every job, and the queue replay (Appendix B §B.1.4 `platform`).

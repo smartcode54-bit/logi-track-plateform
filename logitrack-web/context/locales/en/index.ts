@@ -23,6 +23,7 @@ import holidays from "./holidays";
 import about from "./about";
 import company from "./company";
 import driverCompensation from "./driverCompensation";
+import apiErrors from "./apiErrors";
 
 const dictionary: Dictionary = {
     ...common,
@@ -46,6 +47,7 @@ const dictionary: Dictionary = {
     ...about,
     ...company,
     ...driverCompensation,
+    ...apiErrors,
 };
 
 export default dictionary;
