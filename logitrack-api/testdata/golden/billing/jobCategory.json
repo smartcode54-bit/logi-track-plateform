@@ -1,0 +1,323 @@
+{
+  "source": "logitrack-web/lib/jobCategory.test.ts",
+  "sourceCommit": "4f552099",
+  "note": "9 Vitest cases ported to billing/compute (JobCategoryFromCell, ResolveDisplayJobCategory), used by the task import (T31), the rate-card write (T37, §6.12) and the rows APIs. Wants are literal (the module imports a path alias); lib/billingGolden.test.ts checks them against jobCategory.ts. null is an absent cell or value (the Vitest undefined and null both encode as null).",
+  "cases": [
+    {
+      "name": "jobCategoryFromCell > reads the Thai words admins actually type",
+      "line": 5,
+      "checks": [
+        {
+          "fn": "jobCategoryFromCell",
+          "args": [
+            "หลัก"
+          ],
+          "want": "PRIMARY"
+        },
+        {
+          "fn": "jobCategoryFromCell",
+          "args": [
+            "เสริม"
+          ],
+          "want": "SUPPLEMENTARY"
+        },
+        {
+          "fn": "jobCategoryFromCell",
+          "args": [
+            "งานเสริม"
+          ],
+          "want": "SUPPLEMENTARY"
+        }
+      ]
+    },
+    {
+      "name": "jobCategoryFromCell > reads the English words and the enum itself",
+      "line": 11,
+      "checks": [
+        {
+          "fn": "jobCategoryFromCell",
+          "args": [
+            "Primary"
+          ],
+          "want": "PRIMARY"
+        },
+        {
+          "fn": "jobCategoryFromCell",
+          "args": [
+            "supplementary"
+          ],
+          "want": "SUPPLEMENTARY"
+        },
+        {
+          "fn": "jobCategoryFromCell",
+          "args": [
+            "SUPPLEMENTARY"
+          ],
+          "want": "SUPPLEMENTARY"
+        }
+      ]
+    },
+    {
+      "name": "jobCategoryFromCell > tolerates surrounding whitespace",
+      "line": 17,
+      "checks": [
+        {
+          "fn": "jobCategoryFromCell",
+          "args": [
+            "  เสริม "
+          ],
+          "want": "SUPPLEMENTARY"
+        }
+      ]
+    },
+    {
+      "name": "jobCategoryFromCell > defaults a blank cell to PRIMARY",
+      "line": 21,
+      "checks": [
+        {
+          "fn": "jobCategoryFromCell",
+          "args": [
+            ""
+          ],
+          "want": "PRIMARY"
+        },
+        {
+          "fn": "jobCategoryFromCell",
+          "args": [
+            null
+          ],
+          "want": "PRIMARY"
+        },
+        {
+          "fn": "jobCategoryFromCell",
+          "args": [
+            null
+          ],
+          "want": "PRIMARY"
+        }
+      ]
+    },
+    {
+      "name": "jobCategoryFromCell > returns undefined rather than guessing",
+      "line": 27,
+      "checks": [
+        {
+          "fn": "jobCategoryFromCell",
+          "args": [
+            "เสิรม"
+          ],
+          "want": null
+        },
+        {
+          "fn": "jobCategoryFromCell",
+          "args": [
+            "secondary"
+          ],
+          "want": null
+        }
+      ]
+    },
+    {
+      "name": "resolveDisplayJobCategory (ADR 0010 R2) > prefers the trip's own value over the task",
+      "line": 35,
+      "checks": [
+        {
+          "fn": "resolveDisplayJobCategory",
+          "args": [
+            "SUPPLEMENTARY",
+            "PRIMARY"
+          ],
+          "want": "SUPPLEMENTARY"
+        },
+        {
+          "fn": "resolveDisplayJobCategory",
+          "args": [
+            "PRIMARY",
+            "SUPPLEMENTARY"
+          ],
+          "want": "PRIMARY"
+        }
+      ]
+    },
+    {
+      "name": "resolveDisplayJobCategory (ADR 0010 R2) > falls back to the task when the trip cache was never written",
+      "line": 41,
+      "checks": [
+        {
+          "fn": "resolveDisplayJobCategory",
+          "args": [
+            null,
+            "SUPPLEMENTARY"
+          ],
+          "want": "SUPPLEMENTARY"
+        },
+        {
+          "fn": "resolveDisplayJobCategory",
+          "args": [
+            null,
+            "PRIMARY"
+          ],
+          "want": "PRIMARY"
+        }
+      ]
+    },
+    {
+      "name": "resolveDisplayJobCategory (ADR 0010 R2) > returns undefined when neither side carries a value",
+      "line": 47,
+      "checks": [
+        {
+          "fn": "resolveDisplayJobCategory",
+          "args": [
+            null,
+            null
+          ],
+          "want": null
+        },
+        {
+          "fn": "resolveDisplayJobCategory",
+          "args": [
+            null
+          ],
+          "want": null
+        }
+      ]
+    },
+    {
+      "name": "resolveDisplayJobCategory (ADR 0010 R2) > does not coerce near-miss spellings from either side",
+      "line": 53,
+      "checks": [
+        {
+          "fn": "resolveDisplayJobCategory",
+          "args": [
+            "primary"
+          ],
+          "want": null
+        },
+        {
+          "fn": "resolveDisplayJobCategory",
+          "args": [
+            "",
+            "supplementary"
+          ],
+          "want": null
+        },
+        {
+          "fn": "resolveDisplayJobCategory",
+          "args": [
+            "เสริม"
+          ],
+          "want": null
+        }
+      ]
+    },
+    {
+      "name": "jobCategoryFromCell > JavaScript trim and toLowerCase on spreadsheet text",
+      "line": 0,
+      "added": "characterisation",
+      "checks": [
+        {
+          "fn": "jobCategoryFromCell",
+          "args": [
+            "﻿เสริม "
+          ],
+          "want": "SUPPLEMENTARY"
+        },
+        {
+          "fn": "jobCategoryFromCell",
+          "args": [
+            "　งานหลัก "
+          ],
+          "want": "PRIMARY"
+        },
+        {
+          "fn": "jobCategoryFromCell",
+          "args": [
+            "\t\n "
+          ],
+          "want": "PRIMARY"
+        },
+        {
+          "fn": "jobCategoryFromCell",
+          "args": [
+            "หลัก"
+          ],
+          "want": null
+        },
+        {
+          "fn": "jobCategoryFromCell",
+          "args": [
+            "​เสริม"
+          ],
+          "want": null
+        },
+        {
+          "fn": "jobCategoryFromCell",
+          "args": [
+            "SUPPLEMENT"
+          ],
+          "want": "SUPPLEMENTARY"
+        },
+        {
+          "fn": "jobCategoryFromCell",
+          "args": [
+            "PRİMARY"
+          ],
+          "want": null
+        },
+        {
+          "fn": "jobCategoryFromCell",
+          "args": [
+            "งาน เสริม"
+          ],
+          "want": null
+        },
+        {
+          "fn": "jobCategoryFromCell",
+          "args": [
+            "2"
+          ],
+          "want": null
+        }
+      ]
+    },
+    {
+      "name": "resolveDisplayJobCategory > exact enum values only, trip first",
+      "line": 0,
+      "added": "characterisation",
+      "checks": [
+        {
+          "fn": "resolveDisplayJobCategory",
+          "args": [
+            " PRIMARY",
+            null
+          ],
+          "want": null
+        },
+        {
+          "fn": "resolveDisplayJobCategory",
+          "args": [
+            "SUPPLEMENTARY ",
+            "PRIMARY"
+          ],
+          "want": "PRIMARY"
+        },
+        {
+          "fn": "resolveDisplayJobCategory",
+          "args": [
+            "",
+            "SUPPLEMENTARY"
+          ],
+          "want": "SUPPLEMENTARY"
+        },
+        {
+          "fn": "resolveDisplayJobCategory",
+          "args": [
+            "bogus",
+            "bogus"
+          ],
+          "want": null
+        }
+      ]
+    }
+  ]
+}

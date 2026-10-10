@@ -2025,9 +2025,9 @@
             1789009200000,
             [
               {
-                "id": "0199-b",
+                "id": "0199-a",
                 "customerId": "c",
-                "importId": "imp-0199-b",
+                "importId": "imp-0199-a",
                 "hubId": "HUB",
                 "destinationCode": "DEST",
                 "vehicleClass": "4WJ",
@@ -2036,9 +2036,9 @@
                 "createdAtMs": 1788307200000
               },
               {
-                "id": "0199-a",
+                "id": "0199-b",
                 "customerId": "c",
-                "importId": "imp-0199-a",
+                "importId": "imp-0199-b",
                 "hubId": "HUB",
                 "destinationCode": "DEST",
                 "vehicleClass": "4WJ",
@@ -2049,8 +2049,8 @@
             ],
             null
           ],
-          "want": "0199-a",
-          "legacy": "0199-b",
+          "want": "0199-b",
+          "legacy": "0199-a",
           "divergence": "R16"
         },
         {
@@ -2251,6 +2251,60 @@
           ],
           "want": "Ab1",
           "legacy": "Zq9",
+          "divergence": "R16"
+        },
+        {
+          "fn": "selectFuelAdjustmentForBillingDate",
+          "args": [
+            "c",
+            1789009200000,
+            [
+              {
+                "id": "0199-a",
+                "customerId": "c",
+                "effectiveFromMs": 1786813200000,
+                "rateMultiplier": 1,
+                "addThbPerTrip": -40,
+                "createdAtMs": 1788307200000
+              },
+              {
+                "id": "0199-b",
+                "customerId": "c",
+                "effectiveFromMs": 1786813200000,
+                "rateMultiplier": 1,
+                "addThbPerTrip": -50,
+                "createdAtMs": 1788220800000
+              }
+            ]
+          ],
+          "want": "0199-b",
+          "legacy": "0199-a",
+          "divergence": "R16"
+        },
+        {
+          "fn": "selectStandbyRateEntry",
+          "args": [
+            "c",
+            1789009200000,
+            [
+              {
+                "id": "0199-a",
+                "customerId": "c",
+                "rateThb": 400,
+                "effectiveFromMs": 1786813200000,
+                "createdAtMs": 1788307200000
+              },
+              {
+                "id": "0199-b",
+                "customerId": "c",
+                "rateThb": 300,
+                "effectiveFromMs": 1786813200000,
+                "createdAtMs": 1788220800000
+              }
+            ]
+          ],
+          "want": "0199-b",
+          "legacy": "0199-a",
           "divergence": "R16"
         }
       ]

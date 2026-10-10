@@ -5,7 +5,7 @@ Language-neutral test vectors for the billing engine (main spec §6.16, T36). Th
 | Verifier | Command | Checks against |
 |---|---|---|
 | Go | `go test ./internal/billing/... ./internal/platform/clock/` | `internal/billing/compute`, `internal/billing/documents`, `internal/platform/clock`, `internal/platform/jsmath` |
-| TypeScript | `pnpm exec vitest run lib/billingGolden.test.ts` (in `logitrack-web`; part of `pnpm test`) | `lib/billingCompute.ts`, `lib/billingRates.ts`, `lib/billingDate.ts`, `lib/billingDocument.ts`, `functions/src/core/billingPeriodLock.ts` |
+| TypeScript | `pnpm exec vitest run lib/billingGolden.test.ts` (in `logitrack-web`; part of `pnpm test`) | `lib/billingCompute.ts`, `lib/billingRates.ts`, `lib/billingDate.ts`, `lib/billingDocument.ts`, `lib/jobCategory.ts`, `functions/src/core/billingPeriodLock.ts` |
 
 | File | Source | Ported `it` | Added |
 |---|---|---|---|
@@ -14,6 +14,7 @@ Language-neutral test vectors for the billing engine (main spec §6.16, T36). Th
 | `billingDate.json` | `logitrack-web/lib/billingDate.test.ts` | 8 | V8 date-parsing parity |
 | `billingPeriodLock.json` | `logitrack-web/functions/src/core/billingPeriodLock.test.ts` | 12 | |
 | `billingDocument.json` | `logitrack-web/lib/billingDocument.test.ts` | 16 | route labels, `toFixed` rounding |
+| `jobCategory.json` | `logitrack-web/lib/jobCategory.test.ts` | 9 | JavaScript `trim` / `toLowerCase` on import cells |
 | `characterisation.json` | untested TypeScript paths and JavaScript number semantics (seeded random + curated) | 0 | 14 groups, 5234 checks |
 
 The Go tests assert the ported counts, so a dropped case fails the build.
@@ -40,7 +41,7 @@ The Go tests assert the ported counts, so a dropped case fails the build.
 
 ## Regenerating
 
-The vectors are generated, never edited by hand (the `billingDocument.json` wants are literals in `export.mjs`, because `billingDocument.ts` needs the browser bundle).
+The vectors are generated, never edited by hand (the `billingDocument.json` and `jobCategory.json` wants are literals in `export.mjs`, because `billingDocument.ts` needs the browser bundle and `jobCategory.ts` imports the `@/` path alias; the Vitest verifier checks them against the modules).
 
 ```bash
 node testdata/golden/billing/export.mjs

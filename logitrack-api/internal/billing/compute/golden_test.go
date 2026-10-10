@@ -23,6 +23,7 @@ func TestGolden(t *testing.T) {
 		{"billing/billingCompute.json", 49},
 		{"billing/billingRates.json", 5},
 		{"billing/billingPeriodLock.json", 12},
+		{"billing/jobCategory.json", 9},
 		{"billing/characterisation.json", 0},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
@@ -84,17 +85,18 @@ var adapters = map[string]golden.Func{
 		r, ok := compute.SelectStandbyRate(golden.Str(a[0]), epoch(a[1]), standbyRates(a[2]))
 		return idOrNil(r.ID, ok)
 	},
+	// The legacy computeStandbyBilling(billingDateMs, customerId, rates) is
+	// the rate half of PriceStandby: the party is the record's own, the
+	// instant its ended_at, and no service fee (TestPriceStandby covers the
+	// fee fallback and the party chain).
 	"computeStandbyBilling": func(_ testing.TB, a []any) golden.Result {
-		party := golden.Str(a[1])
-		if party == "" {
-			return golden.Result{Value: nil, Reason: string(compute.NoCustomer)}
+		res := compute.PriceStandby(compute.StandbyInput{CustomerPartyID: golden.Str(a[1]), EndedAt: epoch(a[0])}, standbyRates(a[2]), nil)
+		if res.Price == nil {
+			return golden.Result{Value: nil, Reason: string(res.Reason)}
 		}
-		r, ok := compute.SelectStandbyRate(party, epoch(a[0]), standbyRates(a[2]))
-		if !ok {
-			return golden.Result{Value: nil, Reason: string(compute.NoRate)}
-		}
-		return golden.Result{Value: golden.Object("customerId", party, "rateThb", r.RateTHB, "rateEntryId", r.ID,
-			"effectiveFromDateStr", clock.DateString(r.EffectiveFrom))}
+		p := res.Price
+		return golden.Result{Value: golden.Object("customerId", p.PartyID, "rateThb", p.EstimateTHB, "rateEntryId", p.RateEntryID,
+			"effectiveFromDateStr", p.EffectiveFromDate)}
 	},
 	"resolveBillingRoundProvenance": func(_ testing.TB, a []any) golden.Result {
 		var adj *compute.FuelAdjustment
@@ -207,6 +209,24 @@ var adapters = map[string]golden.Func{
 		}
 		return golden.Result{Value: golden.Object("customerId", lock.PartyID, "year", lock.Year, "month", lock.Month,
 			"invoiceNumber", lock.InvoiceNumber, "status", lock.Status)}
+	},
+	"jobCategoryFromCell": func(_ testing.TB, a []any) golden.Result {
+		c, ok := compute.JobCategoryFromCell(golden.Str(a[0]))
+		if !ok {
+			return golden.Result{Value: nil}
+		}
+		return golden.Result{Value: string(c)}
+	},
+	"resolveDisplayJobCategory": func(_ testing.TB, a []any) golden.Result {
+		var task string
+		if len(a) > 1 {
+			task = golden.Str(a[1])
+		}
+		c, ok := compute.ResolveDisplayJobCategory(golden.Str(a[0]), task)
+		if !ok {
+			return golden.Result{Value: nil}
+		}
+		return golden.Result{Value: string(c)}
 	},
 	"Math.round": func(_ testing.TB, a []any) golden.Result {
 		return golden.Result{Value: jsmath.Round(golden.Num(a[0]))}

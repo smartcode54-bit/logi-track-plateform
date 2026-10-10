@@ -510,11 +510,13 @@ function exportBillingCompute() {
       v.diverge("selectBillingRateEntry", ["c", "HUB", "DEST", "4WJ", bill, f, null], "Zz9", "R16", { expectLegacy: eq("ab1") });
     }, "R16");
     v.it("R16 > equal-instant new rate cards: the earlier created_at wins, then the lower id", 0, () => {
+      // created_at order and id order disagree (uuidv7() is taken at insert,
+      // created_at = now() at transaction start), so created_at must decide.
       const e = [
-        rate("0199-b", 1300, { createdAtMs: Date.UTC(2026, 8, 2) }),
-        rate("0199-a", 1200, { createdAtMs: Date.UTC(2026, 8, 1) }),
+        rate("0199-a", 1300, { createdAtMs: Date.UTC(2026, 8, 2) }),
+        rate("0199-b", 1200, { createdAtMs: Date.UTC(2026, 8, 1) }),
       ];
-      v.diverge("selectBillingRateEntry", ["c", "HUB", "DEST", "4WJ", bill, e, null], "0199-a", "R16", { expectLegacy: eq("0199-b") });
+      v.diverge("selectBillingRateEntry", ["c", "HUB", "DEST", "4WJ", bill, e, null], "0199-b", "R16", { expectLegacy: eq("0199-a") });
       const same = Date.UTC(2026, 8, 1);
       const f = [rate("0199-d", 1300, { createdAtMs: same }), rate("0199-c", 1200, { createdAtMs: same })];
       v.diverge("selectBillingRateEntry", ["c", "HUB", "DEST", "4WJ", bill, f, null], "0199-c", "R16", { expectLegacy: eq("0199-d") });
@@ -538,6 +540,17 @@ function exportBillingCompute() {
         { id: "Ab1", legacyDocId: "Ab1", customerId: "c", rateThb: 300, effectiveFromMs: t },
       ];
       v.diverge("selectStandbyRateEntry", ["c", bill, sr], "Ab1", "R16", { expectLegacy: eq("Zq9") });
+      // Rows created in Go: the earlier created_at wins over the lower id.
+      const newAdj = [
+        { id: "0199-a", customerId: "c", effectiveFromMs: t, rateMultiplier: 1, addThbPerTrip: -40, createdAtMs: Date.UTC(2026, 8, 2) },
+        { id: "0199-b", customerId: "c", effectiveFromMs: t, rateMultiplier: 1, addThbPerTrip: -50, createdAtMs: Date.UTC(2026, 8, 1) },
+      ];
+      v.diverge("selectFuelAdjustmentForBillingDate", ["c", bill, newAdj], "0199-b", "R16", { expectLegacy: eq("0199-a") });
+      const newSr = [
+        { id: "0199-a", customerId: "c", rateThb: 400, effectiveFromMs: t, createdAtMs: Date.UTC(2026, 8, 2) },
+        { id: "0199-b", customerId: "c", rateThb: 300, effectiveFromMs: t, createdAtMs: Date.UTC(2026, 8, 1) },
+      ];
+      v.diverge("selectStandbyRateEntry", ["c", bill, newSr], "0199-b", "R16", { expectLegacy: eq("0199-a") });
     }, "R16");
     v.it("R20 > a voided standby rate is never selected", 0, () => {
       const sr = [
@@ -840,6 +853,82 @@ function exportBillingDocument() {
   return v.write("billingDocument.json");
 }
 
+// ─── lib/jobCategory.test.ts ─────────────────────────────────────────────────
+// jobCategory.ts imports "@/validate/taskSchema" (a path alias Node cannot
+// resolve without the web toolchain): these wants are literal, copied from the
+// Vitest assertions, and the Vitest verifier checks them against the module.
+
+function exportJobCategory() {
+  const v = vectorFile(
+    "logitrack-web/lib/jobCategory.test.ts",
+    "9 Vitest cases ported to billing/compute (JobCategoryFromCell, ResolveDisplayJobCategory), used by the task import (T31), the rate-card write (T37, §6.12) and the rows APIs. Wants are literal (the module imports a path alias); lib/billingGolden.test.ts checks them against jobCategory.ts. null is an absent cell or value (the Vitest undefined and null both encode as null)."
+  );
+  const P = "PRIMARY";
+  const S = "SUPPLEMENTARY";
+  const cell = "jobCategoryFromCell";
+  const show = "resolveDisplayJobCategory";
+
+  v.it("jobCategoryFromCell > reads the Thai words admins actually type", 5, () => {
+    v.literal(cell, ["หลัก"], P);
+    v.literal(cell, ["เสริม"], S);
+    v.literal(cell, ["งานเสริม"], S);
+  });
+  v.it("jobCategoryFromCell > reads the English words and the enum itself", 11, () => {
+    v.literal(cell, ["Primary"], P);
+    v.literal(cell, ["supplementary"], S);
+    v.literal(cell, ["SUPPLEMENTARY"], S);
+  });
+  v.it("jobCategoryFromCell > tolerates surrounding whitespace", 17, () => {
+    v.literal(cell, ["  เสริม "], S);
+  });
+  v.it("jobCategoryFromCell > defaults a blank cell to PRIMARY", 21, () => {
+    v.literal(cell, [""], P);
+    v.literal(cell, [undefined], P);
+    v.literal(cell, [null], P);
+  });
+  v.it("jobCategoryFromCell > returns undefined rather than guessing", 27, () => {
+    v.literal(cell, ["เสิรม"], null);
+    v.literal(cell, ["secondary"], null);
+  });
+  v.it("resolveDisplayJobCategory (ADR 0010 R2) > prefers the trip's own value over the task", 35, () => {
+    v.literal(show, [S, P], S);
+    v.literal(show, [P, S], P);
+  });
+  v.it("resolveDisplayJobCategory (ADR 0010 R2) > falls back to the task when the trip cache was never written", 41, () => {
+    v.literal(show, [undefined, S], S);
+    v.literal(show, [null, P], P);
+  });
+  v.it("resolveDisplayJobCategory (ADR 0010 R2) > returns undefined when neither side carries a value", 47, () => {
+    v.literal(show, [undefined, undefined], null);
+    v.literal(show, [undefined], null);
+  });
+  v.it("resolveDisplayJobCategory (ADR 0010 R2) > does not coerce near-miss spellings from either side", 53, () => {
+    v.literal(show, ["primary"], null);
+    v.literal(show, ["", "supplementary"], null);
+    v.literal(show, ["เสริม"], null);
+  });
+
+  // String.prototype.trim / toLowerCase on spreadsheet-shaped cells.
+  v.it("jobCategoryFromCell > JavaScript trim and toLowerCase on spreadsheet text", 0, () => {
+    v.literal(cell, ["\ufeffเสริม\u00a0"], S); // BOM and NBSP are JS whitespace
+    v.literal(cell, ["\u3000งานหลัก\u2003"], P);
+    v.literal(cell, ["\t\n\u00a0"], P); // blank after trim
+    v.literal(cell, ["\u0085หลัก"], null); // U+0085 is not JS whitespace
+    v.literal(cell, ["\u200bเสริม"], null); // nor is U+200B
+    v.literal(cell, ["SUPPLEMENT"], S);
+    v.literal(cell, ["PRİMARY"], null); // İ lower-cases to "i\u0307", not "i"
+    v.literal(cell, ["งาน เสริม"], null);
+    v.literal(cell, ["2"], null);
+  }, "characterisation");
+  v.it("resolveDisplayJobCategory > exact enum values only, trip first", 0, () => {
+    v.literal(show, [" PRIMARY", null], null);
+    v.literal(show, ["SUPPLEMENTARY ", P], P);
+    v.literal(show, ["", S], S);
+    v.literal(show, ["bogus", "bogus"], null);
+  }, "characterisation");
+  return v.write("jobCategory.json");
+}
+
 // ─── characterisation: seeded random inputs, want = TypeScript output ────────
 
 function mulberry32(seed) {
@@ -1072,7 +1161,7 @@ lcSrc.splice(2, 1);
 fnSrc.splice(2, 1);
 assert.deepStrictEqual(fnSrc, lcSrc, "lib/billingCompute.ts and functions/src/core/billingCompute.ts must differ only in line 3");
 
-const files = [exportBillingCompute(), exportBillingRates(), exportBillingDate(), exportBillingPeriodLock(), exportBillingDocument(), exportCharacterisation()];
+const files = [exportBillingCompute(), exportBillingRates(), exportBillingDate(), exportBillingPeriodLock(), exportBillingDocument(), exportJobCategory(), exportCharacterisation()];
 for (const f of files) {
   const ported = f.cases.filter((c) => !c.added).length;
   const checks = f.cases.reduce((n, c) => n + c.checks.length, 0);

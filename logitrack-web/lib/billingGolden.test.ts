@@ -12,6 +12,7 @@ import * as bc from "./billingCompute";
 import * as bd from "./billingDate";
 import * as doc from "./billingDocument";
 import { computeTripBilling } from "./billingRates";
+import { jobCategoryFromCell, resolveDisplayJobCategory } from "./jobCategory";
 import { BillingPeriodLocks, bangkokYearMonth, billingPeriodKey, type LockedPeriod } from "../functions/src/core/billingPeriodLock";
 import type { Task } from "@/validate/taskSchema";
 import type { TripRecord } from "@/validate/tripRecordSchema";
@@ -113,6 +114,8 @@ const CALL: Record<string, (...a: any[]) => unknown> = {
     formatFuelBand: (l, u) => doc.formatFuelBand(l ?? undefined, u ?? undefined),
     groupToLineItems: (rows, roundRows) =>
         roundRows === null ? doc.groupToLineItems(rows) : doc.groupToLineItems(rows, doc.collectBillingRounds(roundRows)),
+    jobCategoryFromCell: (cell) => jobCategoryFromCell(cell),
+    resolveDisplayJobCategory: (trip, task) => resolveDisplayJobCategory(trip, task),
     "Math.round": (x) => Math.round(x),
     round2: (x) => Math.round(x * 100) / 100,
     toFixed: (x: number, digits: number) => x.toFixed(digits),
@@ -138,6 +141,7 @@ describe("golden vectors", () => {
             "billingPeriodLock.json",
             "billingRates.json",
             "characterisation.json",
+            "jobCategory.json",
         ]);
     });
 });

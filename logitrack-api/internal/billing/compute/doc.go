@@ -7,8 +7,11 @@
 // Pure means no I/O and no clock: callers load rate tables, hub names and
 // period locks inside their own transaction and pass them in. The only
 // imports outside the standard library are the pure leaf packages
-// platform/clock (Bangkok calendar) and platform/jsmath (JavaScript rounding),
-// enforced by TestImportsArePure.
+// platform/clock (Bangkok calendar) and platform/jsmath (JavaScript rounding).
+// TestImportsArePure enforces it for compute, billing/documents, jsmath and
+// clock: standard-library imports come from a pure allow-list (no os, io,
+// net, syscall, os/exec or database packages), and time.Now, time.Since,
+// time.Until, timers, time.Local and fmt printing are rejected.
 //
 // Money stays float64 and reproduces V8 bit for bit (§6.2): jsmath.Round, no
 // fused multiply-add (every product is wrapped in float64(...), enforced by

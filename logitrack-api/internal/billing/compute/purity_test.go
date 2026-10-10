@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -18,12 +19,51 @@ const module = "github.com/smartcode54-bit/logi-track-plateform/logitrack-api"
 // moneyPackages are the packages that compute money (main spec §6.2): they
 // may not call math.Round or math.FMA, and every product must be wrapped in
 // an explicit float64(...) conversion so the compiler cannot fuse it into a
-// multiply-add (arm64 does; see TestNoFusedMultiplyAdd). allowed lists the
+// multiply-add (arm64 does; see TestNoFusedMultiplyAdd). The value lists the
 // non-standard-library imports each may use.
 var moneyPackages = map[string][]string{
 	"internal/billing/compute":   {module + "/internal/platform/clock", module + "/internal/platform/jsmath"},
 	"internal/billing/documents": {module + "/internal/platform/jsmath"},
 	"internal/platform/jsmath":   nil,
+}
+
+// purePackages are the packages that must stay pure (§2.3, §6.1): the money
+// packages plus platform/clock, the Bangkok calendar compute imports. clock
+// does no money arithmetic, so TestNoFusedMultiplyAdd skips it.
+func purePackages() map[string][]string {
+	pkgs := map[string][]string{"internal/platform/clock": nil}
+	for pkg, allowed := range moneyPackages {
+		pkgs[pkg] = allowed
+	}
+	return pkgs
+}
+
+// pureStd is the standard library a pure package may import: computation
+// only. Everything else (os, io, net, syscall, os/exec, database/sql,
+// math/rand, sync, unsafe, log, ...) fails TestImportsArePure.
+var pureStd = map[string]bool{
+	"errors": true, "fmt": true, "math": true, "math/big": true, "regexp": true, "slices": true, "sort": true,
+	"strconv": true, "strings": true, "time": true, "unicode": true, "unicode/utf8": true,
+}
+
+// impureCalls are the package-level functions and variables of allowed
+// standard-library packages that still reach outside the process: the wall
+// clock and timers (R19: the engine takes every instant as input), the host
+// zone database (§6.3: Bangkok is a fixed offset), and fmt's console and
+// io.Writer printing.
+var impureCalls = map[string]map[string]string{
+	"time": {
+		"Now": "reads the wall clock", "Since": "reads the wall clock", "Until": "reads the wall clock",
+		"Sleep": "waits on the wall clock", "After": "starts a timer", "AfterFunc": "starts a timer",
+		"Tick": "starts a timer", "NewTimer": "starts a timer", "NewTicker": "starts a timer",
+		"LoadLocation": "reads the host zone database", "Local": "uses the host zone",
+	},
+	"fmt": {
+		"Print": "writes to stdout", "Printf": "writes to stdout", "Println": "writes to stdout",
+		"Fprint": "writes to an io.Writer", "Fprintf": "writes to an io.Writer", "Fprintln": "writes to an io.Writer",
+		"Scan": "reads stdin", "Scanf": "reads stdin", "Scanln": "reads stdin",
+		"Fscan": "reads an io.Reader", "Fscanf": "reads an io.Reader", "Fscanln": "reads an io.Reader",
+	},
 }
 
 func moduleRoot(t *testing.T) string {
@@ -69,32 +109,63 @@ func parseDir(t *testing.T, dir string) (*token.FileSet, []*ast.File) {
 	return fset, files
 }
 
-// TestImportsArePure: the engine is pure (§2.3, §6.1) — no I/O, no
-// database, no platform package except the two pure leaves.
+// TestImportsArePure: the engine is pure (§2.3, §6.1): no I/O and no clock.
+// A pure package imports only the pureStd allow-list and its listed module
+// leaves, never dot-imports, and never calls impureCalls (time.Now, timers,
+// time.Local, fmt printing).
 func TestImportsArePure(t *testing.T) {
 	root := moduleRoot(t)
-	for pkg, allowed := range moneyPackages {
-		_, files := parseDir(t, filepath.Join(root, pkg))
+	for pkg, allowed := range purePackages() {
+		fset, files := parseDir(t, filepath.Join(root, pkg))
 		for _, f := range files {
+			// local package name -> import path, for the call check below
+			names := map[string]string{}
 			for _, imp := range f.Imports {
 				path, _ := strconv.Unquote(imp.Path.Value)
+				name := path[strings.LastIndex(path, "/")+1:]
+				if imp.Name != nil {
+					name = imp.Name.Name
+				}
+				if name == "." {
+					t.Errorf("%s dot-imports %s: name the package so its calls can be checked", pkg, path)
+				}
+				names[name] = path
 				first, _, _ := strings.Cut(path, "/")
 				if !strings.Contains(first, ".") {
-					if path == "os" || path == "net" || strings.HasPrefix(path, "net/") || path == "database/sql" {
-						t.Errorf("%s imports %s: the engine does no I/O", pkg, path)
+					if !pureStd[path] {
+						t.Errorf("%s imports %s: the engine does no I/O; allowed standard library: %v", pkg, path, keys(pureStd))
 					}
 					continue
 				}
-				ok := false
-				for _, a := range allowed {
-					ok = ok || path == a
-				}
-				if !ok {
+				if !slices.Contains(allowed, path) {
 					t.Errorf("%s imports %s; allowed outside the standard library: %v", pkg, path, allowed)
 				}
 			}
+			ast.Inspect(f, func(n ast.Node) bool {
+				sel, ok := n.(*ast.SelectorExpr)
+				if !ok {
+					return true
+				}
+				id, ok := sel.X.(*ast.Ident)
+				if !ok {
+					return true
+				}
+				if why, bad := impureCalls[names[id.Name]][sel.Sel.Name]; bad {
+					t.Errorf("%s: %s.%s %s; a pure package takes every instant and table as input", fset.Position(sel.Pos()), id.Name, sel.Sel.Name, why)
+				}
+				return true
+			})
 		}
 	}
+}
+
+func keys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	slices.Sort(out)
+	return out
 }
 
 // TestNoFusedMultiplyAdd enforces the §6.2 CI rule: no math.Round (ties away

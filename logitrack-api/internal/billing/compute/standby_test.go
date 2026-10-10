@@ -26,11 +26,19 @@ func TestPriceStandby(t *testing.T) {
 		t.Fatalf("switch-day standby: %+v %+v", res, res.Price)
 	}
 
+	t.Run("provenance is the selected rate's effective date, not the event's", func(t *testing.T) {
+		in := in
+		in.EndedAt = time.Date(2026, 9, 14, 10, 0, 0, 0, clock.Bangkok)
+		res := compute.PriceStandby(in, rates, nil)
+		if res.Price == nil || res.Price.RateEntryID != "aug" || res.Price.EffectiveFromDate != "2026-08-01" || res.Price.EstimateTHB != 400 {
+			t.Fatalf("%+v %+v", res, res.Price)
+		}
+	})
 	t.Run("before every rate the oldest prices", func(t *testing.T) {
 		in := in
 		in.EndedAt = time.Date(2025, 1, 1, 0, 0, 0, 0, clock.Bangkok)
-		if res := compute.PriceStandby(in, rates, nil); res.Price == nil || res.Price.RateEntryID != "jul" {
-			t.Fatalf("%+v", res)
+		if res := compute.PriceStandby(in, rates, nil); res.Price == nil || res.Price.RateEntryID != "jul" || res.Price.EffectiveFromDate != "2026-07-08" {
+			t.Fatalf("%+v %+v", res, res.Price)
 		}
 	})
 	t.Run("the service fee is the fallback", func(t *testing.T) {

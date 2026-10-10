@@ -85,6 +85,12 @@ func TestPriceTripJobCategory(t *testing.T) {
 			if p.EstimateTHB != tc.wantPrice || p.JobCategory != tc.wantCategory {
 				t.Fatalf("price %v %s, want %v %s", p.EstimateTHB, p.JobCategory, tc.wantPrice, tc.wantCategory)
 			}
+			// Provenance names the card that priced (§6.8 rate_entry_id), never
+			// its import or the PRIMARY card a SUPPLEMENTARY fallback skipped.
+			wantID := map[compute.JobCategory]string{compute.Primary: "p", compute.Supplementary: "s"}[tc.wantCategory]
+			if p.RateEntryID != wantID || p.RateImportID != "imp-"+wantID {
+				t.Fatalf("provenance entry %q import %q, want %q", p.RateEntryID, p.RateImportID, wantID)
+			}
 			if p.ManualOverride != (tc.wantCategory == compute.Supplementary) {
 				t.Fatalf("ManualOverride %v for %s", p.ManualOverride, p.JobCategory)
 			}
@@ -184,7 +190,7 @@ func TestPriceTripHubNames(t *testing.T) {
 		in.Task.SourceHub, in.Task.Destination = " J&T EXPRESS บางปู ", "Prawet 18"
 		rates := []compute.RateEntry{card("p", "SPK-GW", "SPK890146", "4WJ", 1300, jan2026, compute.Primary)}
 		res := mustPrice(t, in, compute.Tables{Rates: rates, Hubs: hubs})
-		if res.Price == nil || res.Price.LookupHubCode != "SPK-GW" || res.Price.LookupDestinationCode != "SPK890146" {
+		if res.Price == nil || res.Price.LookupHubCode != "SPK-GW" || res.Price.LookupDestinationCode != "SPK890146" || res.Price.RateEntryID != "p" {
 			t.Fatalf("%+v", res)
 		}
 	})
@@ -193,7 +199,7 @@ func TestPriceTripHubNames(t *testing.T) {
 		in.Task.Destination = "SPK890174"
 		rates := []compute.RateEntry{card("p", "SPK-GW", "SPK890174", "4WJ", 1400, jan2026, compute.Primary)}
 		res := mustPrice(t, in, compute.Tables{Rates: rates, Hubs: hubs})
-		if res.Price == nil || res.Price.EstimateTHB != 1400 || res.Price.LookupDestinationCode != "SPK890174" {
+		if res.Price == nil || res.Price.EstimateTHB != 1400 || res.Price.LookupDestinationCode != "SPK890174" || res.Price.RateEntryID != "p" {
 			t.Fatalf("%+v", res)
 		}
 	})
@@ -202,7 +208,7 @@ func TestPriceTripHubNames(t *testing.T) {
 		in.Task.Destination = "SPK890174"
 		rates := []compute.RateEntry{card("n", "SPK-GW", "ห้วยขวาง10", "4WJ", 1450, jan2026, compute.Primary)}
 		res := mustPrice(t, in, compute.Tables{Rates: rates, Hubs: hubs})
-		if res.Price == nil || res.Price.EstimateTHB != 1450 || res.Price.LookupDestinationCode != "ห้วยขวาง10" {
+		if res.Price == nil || res.Price.EstimateTHB != 1450 || res.Price.LookupDestinationCode != "ห้วยขวาง10" || res.Price.RateEntryID != "n" {
 			t.Fatalf("%+v", res)
 		}
 		// Without hub maps (the web estimate) there is no retry.
@@ -215,7 +221,7 @@ func TestPriceTripHubNames(t *testing.T) {
 		in.Task.Destination = "SPK890174"
 		rates := []compute.RateEntry{card("n", "SPK-GW", "ห้วยขวาง10", "4WJ", 900, jan2026, compute.Supplementary)}
 		res := mustPrice(t, in, compute.Tables{Rates: rates, Hubs: hubs})
-		if res.Price == nil || res.Price.JobCategory != compute.Supplementary || res.Price.EstimateTHB != 900 {
+		if res.Price == nil || res.Price.JobCategory != compute.Supplementary || res.Price.EstimateTHB != 900 || res.Price.RateEntryID != "n" {
 			t.Fatalf("%+v", res)
 		}
 	})
@@ -318,8 +324,10 @@ func TestSelectionIgnoresLoadOrder(t *testing.T) {
 	at := time.Date(2026, 8, 15, 17, 0, 0, 0, time.UTC)
 	created := func(d int) time.Time { return time.Date(2026, 9, d, 0, 0, 0, 0, time.UTC) }
 	entries := []compute.RateEntry{
-		{ID: "0199-c", CreatedAt: created(3), RateTHB: 1},
-		{ID: "0199-a", CreatedAt: created(2), RateTHB: 2},
+		// created_at order and id order disagree, so dropping or demoting the
+		// created_at step picks 0199-a and fails.
+		{ID: "0199-a", CreatedAt: created(3), RateTHB: 1}, // lowest id, latest created_at
+		{ID: "0199-c", CreatedAt: created(2), RateTHB: 2},
 		{ID: "0199-b", CreatedAt: created(2), RateTHB: 3},
 		{ID: "Leg-b", LegacyDocID: "b", CreatedAt: created(9), RateTHB: 4},
 		{ID: "Leg-B", LegacyDocID: "B", CreatedAt: created(9), RateTHB: 5},
@@ -348,8 +356,8 @@ func TestSelectionIgnoresLoadOrder(t *testing.T) {
 	for i := 0; i < 200; i++ {
 		rng.Shuffle(len(news), func(i, j int) { news[i], news[j] = news[j], news[i] })
 		got, ok := compute.SelectRateEntry("c", "H", "D", "4WJ", at, news, compute.Primary)
-		if !ok || got.ID != "0199-a" {
-			t.Fatalf("picked %q, want 0199-a", got.ID)
+		if !ok || got.ID != "0199-b" {
+			t.Fatalf("picked %q, want 0199-b (earliest created_at, then the lower id)", got.ID)
 		}
 	}
 }

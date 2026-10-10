@@ -38,6 +38,47 @@ func ExplicitJobCategory(s string) (JobCategory, bool) {
 	return "", false
 }
 
+// cellJobCategory is every spelling the "Job Category (หลัก/เสริม)" import
+// column accepts, lower-cased (CELL_TO_JOB_CATEGORY, web:lib/jobCategory.ts:10).
+var cellJobCategory = map[string]JobCategory{
+	"primary":       Primary,
+	"หลัก":          Primary,
+	"งานหลัก":       Primary,
+	"supplementary": Supplementary,
+	"supplement":    Supplementary,
+	"เสริม":         Supplementary,
+	"งานเสริม":      Supplementary,
+}
+
+// JobCategoryFromCell reads the job category of an imported spreadsheet cell
+// (jobCategoryFromCell, web:lib/jobCategory.ts:26-30; the task import and the
+// rate-card write, §6.7, §6.12). The cell is JS-trimmed; blank is PRIMARY, the
+// default every task carried before the column existed; หลัก/งานหลัก/primary
+// and เสริม/งานเสริม/supplementary/supplement match in any case. Anything else
+// is ("", false) and the caller rejects the row: the category selects the
+// rate card, so guessing PRIMARY on a misspelled เสริม would bill a
+// supplementary job at the primary price, fuel included.
+func JobCategoryFromCell(cell string) (JobCategory, bool) {
+	raw := trim(cell)
+	if raw == "" {
+		return Primary, true
+	}
+	c, ok := cellJobCategory[lower(raw)]
+	return c, ok
+}
+
+// ResolveDisplayJobCategory is the หลัก/เสริม shown for a trip
+// (resolveDisplayJobCategory, web:lib/jobCategory.ts:52-57; ADR 0010 R2): the
+// trip's own exact enum value (an admin correction lands there first), else
+// the task's. Neither is ("", false), which callers render as the loud
+// "ตรวจสอบ" marker, never as หลัก. Near-miss spellings are not coerced.
+func ResolveDisplayJobCategory(trip, task string) (JobCategory, bool) {
+	if c, ok := ExplicitJobCategory(trip); ok {
+		return c, true
+	}
+	return ExplicitJobCategory(task)
+}
+
 // UnpricedReason says why a delivered trip or a completed standby carries no
 // price (R62). Values are the stored codes and the 422 error codes of
 // Appendix B §B.1.5.
@@ -90,6 +131,34 @@ func upper(s string) string {
 			continue
 		}
 		b.WriteRune(unicode.ToUpper(r))
+	}
+	return b.String()
+}
+
+// lower is String.prototype.toLowerCase as far as a match against ASCII or
+// Thai text can tell: ASCII and Thai (no case) map exactly, other letters
+// use Unicode simple lowercase, and U+0130 (İ) takes its full mapping
+// "i\u0307" as in JavaScript, so "PRİMARY" stays unmatched instead of
+// folding to "primary".
+func lower(s string) string {
+	ascii := true
+	for i := 0; i < len(s); i++ {
+		if s[i] >= utf8.RuneSelf {
+			ascii = false
+			break
+		}
+	}
+	if ascii {
+		return strings.ToLower(s)
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if r == 'İ' {
+			b.WriteString("i\u0307")
+			continue
+		}
+		b.WriteRune(unicode.ToLower(r))
 	}
 	return b.String()
 }
