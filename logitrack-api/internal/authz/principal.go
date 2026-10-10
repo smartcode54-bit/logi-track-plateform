@@ -10,6 +10,7 @@ package authz
 
 import (
 	"slices"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -73,6 +74,10 @@ type Principal struct {
 	AuthVersion int32     // ver
 	AMR         string    // AMRPassword | AMRGoogle | AMRFirebase (a Firebase ID-token principal, T08: no session) | AMRAPIKey
 	TokenID     string    // jti, log correlation only
+	// TokenExpiresAt is the exp of the access token (zero for principals without one). An SSE stream ends
+	// with event: reconnect 30 s before it (main spec §8.1); a mobile SSE ticket's principal carries the
+	// end of the access lifetime it was redeemed under (auth.Service.SSETicketPrincipal).
+	TokenExpiresAt time.Time
 
 	TenantID   *uuid.UUID     // tid; nil for customer-scope and platform-only principals
 	TenantRole TenantRole     // rol; "" when TenantID is nil (and for an API key)

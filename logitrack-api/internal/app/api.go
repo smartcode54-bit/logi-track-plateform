@@ -43,7 +43,22 @@ type API struct {
 	internalLn net.Listener
 	publicLn   net.Listener
 	metricsSrv *telemetry.MetricsServer
+
+	// background run for the life of Serve (OnServe); drainers run after the readiness grace (OnDrain).
+	background []func(context.Context)
+	drainers   []func()
+	bgCancel   context.CancelFunc
+	bgDone     sync.WaitGroup
 }
+
+// OnServe registers fn to run while Serve runs: it starts before the listeners serve and its context is
+// cancelled once they stopped (the SSE fan-out subscription, T12). Register before Serve.
+func (a *API) OnServe(fn func(ctx context.Context)) { a.background = append(a.background, fn) }
+
+// OnDrain registers fn to run when shutdown has turned readiness to 503 and the grace has passed, just
+// before the listeners stop: long-lived responses end there (SSE streams send event: reconnect, main
+// spec §8.2), so the drain does not wait SHUTDOWN_TIMEOUT for them. Register before Serve.
+func (a *API) OnDrain(fn func()) { a.drainers = append(a.drainers, fn) }
 
 // BaseGroups are the route groups every api build has: liveness on both
 // listeners, readiness and startup on the internal one only.
@@ -284,12 +299,18 @@ func (a *API) Addrs() (internal, public, metrics string) {
 
 // Serve runs both listeners until ctx is cancelled, then shuts down
 // gracefully: readiness turns 503, a short grace lets load balancers notice,
-// and in-flight requests drain within SHUTDOWN_TIMEOUT.
+// the OnDrain hooks end the long-lived responses, and in-flight requests
+// drain within SHUTDOWN_TIMEOUT. The OnServe functions run meanwhile.
 func (a *API) Serve(ctx context.Context) error {
 	if a.internalLn == nil {
 		if err := a.Listen(); err != nil {
 			return err
 		}
+	}
+	bgCtx, bgCancel := context.WithCancel(context.Background())
+	a.bgCancel = bgCancel
+	for _, fn := range a.background {
+		a.bgDone.Go(func() { fn(bgCtx) })
 	}
 	serveErr := make(chan error, 2)
 	for _, s := range []struct {
@@ -325,6 +346,9 @@ func (a *API) Shutdown() error {
 	grace := min(DrainGrace, a.cfg.ShutdownTimeout/3)
 	a.log.Info().Dur("grace", grace).Dur("timeout", a.cfg.ShutdownTimeout).Msg("draining")
 	time.Sleep(grace)
+	for _, drain := range a.drainers {
+		drain()
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.ShutdownTimeout-grace)
 	defer cancel()
@@ -339,6 +363,10 @@ func (a *API) Shutdown() error {
 		wg.Go(func() { errs[i] = stop(ctx) })
 	}
 	wg.Wait()
+	if a.bgCancel != nil {
+		a.bgCancel()
+		a.bgDone.Wait()
+	}
 	err := errors.Join(errs...)
 	if err != nil {
 		a.log.Error().Err(err).Msg("shutdown incomplete")
