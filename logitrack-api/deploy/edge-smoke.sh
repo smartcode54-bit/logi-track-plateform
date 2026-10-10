@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# TW2 acceptance checks for the edge (web + Caddy) of the local stack: `make smoke EDGE=1` after
-# `make up EDGE=1`. Prints no secret values.
+# TW2 and TW3 acceptance checks for the edge (web + Caddy) of the local stack: `make smoke EDGE=1`
+# after `make up EDGE=1`. Prints no secret values.
 #   --env FILE    env file to read (default .env)
 #   --port N      Caddy's HTTP port on 127.0.0.1 (default 80)
 #   --no-compose  skip the steps that need the compose project (service health, probe upload, api
@@ -43,17 +43,21 @@ fi
 
 echo "web ($web): standalone server behind Caddy"
 c=$(code "$web" /api/healthz); [ "$c" = 200 ] && ok "/api/healthz 200" || bad "/api/healthz $c"
+# Since TW3 every /app/* request meets the proxy.ts gate first: without a session it is a 307 to the
+# refresh bounce, whose next= still carries the real id (the static-export placeholder rewrite is gone).
+# The served pages' Cache-Control (private, no-cache) is covered by lib/hostingMigration.test.ts.
+origin=$(val WEB_PUBLIC_ORIGIN)
 id="smoke-$RANDOM$RANDOM"
-body=$(req "$web" "http://$web/app/customers/$id")
-if grep -q "$id" <<<"$body" && ! grep -q placeholder <<<"$body"; then ok "/app/customers/$id served for the real id (no placeholder rewrite)"; else bad "/app/customers/$id"; fi
-for p in "/app/customers/$id/edit" "/app/subcontractors/$id" "/app/subcontractors/$id/edit"; do
-  c=$(code "$web" "$p"); [ "$c" = 200 ] && ok "$p 200" || bad "$p $c"
+for p in "/app/customers/$id" "/app/customers/$id/edit" "/app/subcontractors/$id" "/app/subcontractors/$id/edit"; do
+  enc=$(sed 's#/#%2F#g' <<<"$p")
+  v=$(hdr "$web" "$p" location); c=$(code "$web" "$p")
+  [ "$c" = 307 ] && [ "$v" = "$origin/api/auth/refresh?next=$enc" ] && ok "$p without a session -> 307 $v" || bad "$p -> $c ${v:-no Location}"
 done
-want_page="public, max-age=0, must-revalidate" want_app="private, no-cache" want_static="public, max-age=31536000, immutable"
+want_page="public, max-age=0, must-revalidate" want_static="public, max-age=31536000, immutable"
 for p in / /login; do
   v=$(hdr "$web" "$p" cache-control); [ "$v" = "$want_page" ] && ok "$p Cache-Control: $v" || bad "$p Cache-Control: $v (want $want_page)"
 done
-v=$(hdr "$web" /app/dashboard cache-control); [ "$v" = "$want_app" ] && ok "/app/dashboard Cache-Control: $v" || bad "/app/dashboard Cache-Control: $v (want $want_app)"
+v=$(hdr "$web" /app/dashboard cache-control); [ "$v" = "no-store" ] && ok "the gate's redirect Cache-Control: $v" || bad "/app/dashboard redirect Cache-Control: $v (want no-store)"
 asset=$(req "$web" "http://$web/login" | grep -oE '/_next/static/[^"]+\.js' | head -1 || true)
 if [ -n "$asset" ]; then
   v=$(hdr "$web" "$asset" cache-control); [ "$v" = "$want_static" ] && ok "/_next/static Cache-Control: $v" || bad "/_next/static Cache-Control: $v (want $want_static)"
@@ -64,6 +68,25 @@ else
 fi
 v=$(hdr "$web" / cross-origin-embedder-policy); [ "$v" = unsafe-none ] && ok "Cross-Origin-Embedder-Policy: $v" || bad "Cross-Origin-Embedder-Policy: ${v:-missing}"
 v=$(hdr "$web" /app/users location); [ "$v" = /app/security-center/users ] && ok "/app/users redirects to $v" || bad "/app/users location: ${v:-none}"
+
+echo "web ($web): BFF and edge gate (TW3)"
+v=$(req "$web" -o /dev/null -D - -H 'Sec-Fetch-Mode: navigate' "http://$web/api/auth/refresh?next=%2Fapp%2Fdashboard" | tr -d '\r' | grep -i '^location:' | cut -d' ' -f2-)
+[ "$v" = "/login?next=%2Fapp%2Fdashboard" ] && ok "refresh bounce without lt_rt -> 303 $v" || bad "refresh bounce Location: ${v:-none}"
+c=$(code "$web" /api/auth/refresh -H 'Sec-Fetch-Mode: cors' -G --data-urlencode next=/app); [ "$c" = 400 ] && ok "refresh bounce refuses a non-navigation (400)" || bad "non-navigation refresh bounce -> $c"
+for p in /api/go/v1/auth/login /api/go/v1/auth/refresh /api/go/v1/bridge/firebase-token; do
+  b=$(req "$web" -w ' %{http_code}' -X POST -H "Origin: $origin" -H 'Content-Type: application/json' -d '{}' "http://$web$p")
+  if [[ "$b" == *'"code":"not_found"'*' 404' ]]; then ok "$p 404 not_found through the proxy (R38)"; else bad "$p -> ${b: -3}"; fi
+done
+b=$(req "$web" -w ' %{http_code}' "http://$web/api/go/v1/config/web-flags")
+[[ "$b" == *'"domains"'*' 200' ]] && ok "/api/go/v1/config/web-flags 200 through the proxy (api internal listener)" || bad "/api/go/v1/config/web-flags -> ${b: -3}"
+b=$(req "$web" -w ' %{http_code}' "http://$web/api/go/v1/me")
+[[ "$b" == *'"code":"unauthenticated"'*' 401' ]] && ok "/api/go/v1/me without a cookie: Go's 401 unauthenticated passes through" || bad "/api/go/v1/me -> ${b: -3}"
+b=$(req "$web" -w ' %{http_code}' -X PATCH -H 'Origin: https://evil.example' -H 'Sec-Fetch-Site: cross-site' -H 'Content-Type: application/json' -d '{}' "http://$web/api/go/v1/me")
+[[ "$b" == *'"reason":"origin"'*' 403' ]] && ok "foreign-Origin mutation -> 403 permission_denied (origin)" || bad "foreign-Origin mutation -> ${b: -3}"
+# A fresh address each run: Go counts failures per email whether or not the user exists and answers
+# 423 locked after 5 in 15 min (Appendix C §C.4.12), so a fixed one would fail from the 6th run on.
+h=$(req "$web" -o /dev/null -D - -X POST -H "Origin: $origin" -H 'Content-Type: application/json' -d "{\"email\":\"$id@example.test\",\"password\":\"not the password 1\"}" "http://$web/api/auth/login" | tr -d '\r')
+if grep -q '^HTTP/[0-9.]* 401' <<<"$h" && ! grep -qi '^set-cookie:' <<<"$h"; then ok "a failed login is 401 and sets no cookie"; else bad "failed login: $(head -1 <<<"$h")"; fi
 
 echo "api ($api): only the Go public listener"
 c=$(code "$api" /healthz); [ "$c" = 200 ] && ok "/healthz 200" || bad "/healthz $c"

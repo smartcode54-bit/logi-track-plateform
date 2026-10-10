@@ -5,6 +5,7 @@
 # public = served on API_PUBLIC_ADDR when its group is in PUBLIC_ROUTE_GROUPS; only
 # /v1/mobile/*, /v1/auth/*, /public/v1/*, /evidence/*, /media/* and /healthz qualify (main spec
 # §2.6), and USE only at or below the first five.
+GET /.well-known/jwks.json internal
 GET /healthz internal,public
 GET /media/* internal,public
 PUT /media/* internal,public

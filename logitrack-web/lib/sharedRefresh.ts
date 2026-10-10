@@ -22,8 +22,10 @@
  *    served by one forced refresh notify once.
  *
  * The race the lock cannot see (a `GET /api/auth/refresh?next=` navigation in another tab) is
- * absorbed by Go's 30 s refresh-token reuse grace. Tokens never reach this code: the BFF rotates
- * the HttpOnly cookies.
+ * merged by the BFF, which makes one Go rotation per refresh token in each web process
+ * (lib/bff/authRoutes.ts); Go's 30 s refresh-token reuse grace covers what still races (a retry,
+ * requests on different web replicas). Tokens never reach this code: the BFF rotates the HttpOnly
+ * cookies.
  */
 import { ApiError, apiErrorFromResponse, networkError } from "./apiError";
 

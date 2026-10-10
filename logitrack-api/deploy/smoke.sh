@@ -80,6 +80,15 @@ echo "api"
 c=$(code http://localhost:8080/readyz); [ "$c" = "200" ] && ok "internal /readyz 200" || bad "internal /readyz $c"
 c=$(code http://localhost:8081/healthz); [ "$c" = "200" ] && ok "public /healthz 200" || bad "public /healthz $c"
 c=$(code http://localhost:8081/readyz); [ "$c" = "404" ] && ok "public /readyz 404" || bad "public /readyz $c"
+# TW3: the JWKS of the web edge gate, on the internal listener only (Appendix C §C.4.2).
+jwks=$(curl -s -D - http://localhost:8080/.well-known/jwks.json | tr -d '\r')
+kid=$(val JWT_ACTIVE_KID)
+if grep -qi '^cache-control: public, max-age=300$' <<<"$jwks" && grep -q "\"kid\":\"$kid\"" <<<"$jwks"; then
+  ok "internal /.well-known/jwks.json publishes JWT_ACTIVE_KID (max-age=300)"
+else
+  bad "internal /.well-known/jwks.json"
+fi
+c=$(code http://localhost:8081/.well-known/jwks.json); [ "$c" = "404" ] && ok "public /.well-known/jwks.json 404" || bad "public jwks $c"
 
 echo "env"
 envs() { "${compose[@]}" exec -T "$1" env | cut -d= -f1 | grep -E 'DATABASE_URL$' | sort | tr '\n' ' '; }
