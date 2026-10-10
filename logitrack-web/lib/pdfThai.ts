@@ -7,7 +7,7 @@
  * Unicode, so every Thai document must register Sarabun before drawing text.
  *
  * Remote images (Firebase Storage URLs, etc.) are fetched and returned as base64
- * for `doc.addImage`. Used by lib/billingDocument.ts and lib/shopeeExpressReport.ts.
+ * for `doc.addImage`. Used by lib/billingDocumentRender.ts and lib/shopeeExpressReport.ts.
  */
 
 import type { jsPDF } from "jspdf";

@@ -5,24 +5,24 @@ import { useEffect, useMemo, useState } from "react";
 import { useLanguage } from "@/context/language";
 import { getCustomers } from "@/features/customers/api/customers";
 import type { Customer } from "@/validate/customerSchema";
-import {
-    downloadBillingZip,
-    type BillingTripRow,
-    type BillingCustomer,
-    type BillingPeriod,
-    type BillingProviderInfo,
-} from "@/lib/billingDocument";
+import type {
+    BillingTripRow,
+    BillingCustomer,
+    BillingPeriod,
+    BillingProviderInfo,
+} from "@/lib/billingDocumentModel";
 import { saveBillingStatement } from "@/lib/billingStatement";
+import { loadBillingRender, loadThenSaveThenRender } from "@/lib/billingDocumentLoad";
 import { getOwnerCompany } from "@/features/companies/api/companies";
 import {
     getCustomerServiceFees,
     fetchBillingTripRows,
     fetchStandbyBillingDiagnostics,
     fetchTripsMissingBillingDate,
-    UnpricedStandbyPanel,
     type StandbyBillingDiagnostics,
     type TripMissingBillingDate,
-} from "@/features/accounting";
+} from "@/features/accounting/api/billing";
+import { UnpricedStandbyPanel } from "@/features/accounting";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -445,34 +445,47 @@ export default function BillingDocumentPage() {
             // the statement to its own totals keeps a wrong invoice impossible even if that changes.
             const invoice = computeBillingTotals(filteredTrips);
 
-            // Save billing statement (registry) before download
             const customerForStatement = customers.find((c) => c.id === selectedCustomer.id);
-            let invoiceNumber: string | undefined;
-            try {
-                toast.loading(t("accounting.billingDocument.save.saving"));
-                invoiceNumber = await saveBillingStatement({
-                    customerId: selectedCustomer.id,
-                    customerName: selectedCustomer.name,
-                    customerCode: customerForStatement?.code ?? selectedCustomer.id,
-                    period,
-                    totalAmount: invoice.grandTotal,
-                    withholdingTax: invoice.withholdingTax,
-                    netAmount: invoice.totalNet,
-                    tripCount: filteredTrips.length,
-                    ...invoice.breakdown,
-                    paymentTermsDays: selectedCustomer.paymentTermsDays,
-                    generatedBy: auth?.currentUser?.uid,
-                });
-                toast.dismiss();
-                toast.success(t("accounting.billingDocument.save.saved", { invoiceNumber }));
-            } catch (saveErr) {
-                toast.dismiss();
-                console.error("[billing] Failed to save statement:", saveErr);
-                toast.error(t("accounting.billingDocument.save.error"));
-                // Still proceed with download even if statement save fails
-            }
 
-            await downloadBillingZip(filteredTrips, selectedCustomer, period, invoiceNumber, ownerProvider, showActualPickup);
+            // The renderer (jspdf / xlsx-js-style, developer-spec.md §10.11), jszip and the Sarabun
+            // font load BEFORE the statement is saved: saving uses up an invoice number, so a stale
+            // chunk or a network drop must fail before it, not between it and the ZIP.
+            await loadThenSaveThenRender({
+                load: loadBillingRender,
+                // Save billing statement (registry) before download
+                save: async () => {
+                    try {
+                        toast.loading(t("accounting.billingDocument.save.saving"));
+                        const invoiceNumber = await saveBillingStatement({
+                            customerId: selectedCustomer.id,
+                            customerName: selectedCustomer.name,
+                            customerCode: customerForStatement?.code ?? selectedCustomer.id,
+                            period,
+                            totalAmount: invoice.grandTotal,
+                            withholdingTax: invoice.withholdingTax,
+                            netAmount: invoice.totalNet,
+                            tripCount: filteredTrips.length,
+                            ...invoice.breakdown,
+                            paymentTermsDays: selectedCustomer.paymentTermsDays,
+                            generatedBy: auth?.currentUser?.uid,
+                        });
+                        toast.dismiss();
+                        toast.success(t("accounting.billingDocument.save.saved", { invoiceNumber }));
+                        return invoiceNumber;
+                    } catch (saveErr) {
+                        toast.dismiss();
+                        console.error("[billing] Failed to save statement:", saveErr);
+                        toast.error(t("accounting.billingDocument.save.error"));
+                        // Still proceed with download even if statement save fails
+                        return undefined;
+                    }
+                },
+                render: (render, invoiceNumber) =>
+                    render.downloadBillingZip(filteredTrips, selectedCustomer, period, invoiceNumber, ownerProvider, showActualPickup),
+            });
+        } catch (err) {
+            console.error("[billing] Document generation failed:", err);
+            toast.error(t("accounting.billingDocument.download.error"));
         } finally {
             setGenerating(false);
         }

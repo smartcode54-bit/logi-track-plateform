@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { format, isValid, parseISO } from "date-fns";
 import { enUS, th as thDateLocale } from "date-fns/locale";
-import * as XLSX from "xlsx";
 import {
     Ban,
     Calculator,
@@ -32,6 +32,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
+import { LazyDialogBoundary, LazyDialogLoading } from "@/components/lazy-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { DateOnlyRangePicker } from "@/components/ui/date-range-picker";
@@ -73,7 +74,7 @@ import {
     type NormalizeVehicleClassResponse,
     type StandbyRateEntryRow,
 } from "../actions.client";
-import { RateCardImportDialog, type RateCardCustomerOption } from "@/features/accounting";
+import type { RateCardCustomerOption } from "@/features/accounting/components/RateCardImportDialog";
 import { db, functions } from "@/firebase/client";
 import { httpsCallable } from "firebase/functions";
 import { collection, getDocs } from "firebase/firestore";
@@ -91,6 +92,12 @@ import {
     selectFuelAdjustmentForBillingDate,
     type FuelRateAdjustment,
 } from "@/lib/billingCompute";
+
+// The import dialog carries xlsx: loaded on the first open only (developer-spec.md §10.11).
+const RateCardImportDialog = dynamic(
+    () => import("@/features/accounting/components/RateCardImportDialog").then((m) => m.RateCardImportDialog),
+    { ssr: false, loading: LazyDialogLoading },
+);
 
 interface HubOption {
     id: string;
@@ -239,7 +246,13 @@ export default function AccountingRateCardPage() {
     // Recorded as `voidedBy` so a retired announcement names who retired it.
     const currentUser = useAuth()?.currentUser ?? null;
     const [loading, setLoading] = useState(true);
-    const [importOpen, setImportOpen] = useState(false);
+    const [importOpen, setImportOpenState] = useState(false);
+    // The import dialog mounts on its first open (that loads its chunk) and then stays mounted.
+    const [importMounted, setImportMounted] = useState(false);
+    const setImportOpen = (open: boolean) => {
+        if (open) setImportMounted(true);
+        setImportOpenState(open);
+    };
     const [customers, setCustomers] = useState<RateCardCustomerOption[]>([]);
     const [hubs, setHubs] = useState<HubOption[]>([]);
     const [entries, setEntries] = useState<CustomerRateEntryRow[]>([]);
@@ -902,7 +915,9 @@ export default function AccountingRateCardPage() {
         }
     };
 
-    const handleExportTemplate = () => {
+    const handleExportTemplate = async () => {
+        // xlsx loads on click, never with the page (developer-spec.md §10.11).
+        const XLSX = await import("xlsx");
         const rows = [
             ["Hub Name", "Location", "Destination", "4WJ", "Distance"],
             ["ABBON - บางบอน", "", "SOCE", 1306, 68, "*ลบรายการตัวอย่างออกก่อน"],
@@ -1013,7 +1028,8 @@ export default function AccountingRateCardPage() {
         });
     };
 
-    const handleExportData = () => {
+    const handleExportData = async () => {
+        const XLSX = await import("xlsx");
         const exportRows = filteredEntries.map((row) => ({
             [t("accounting.rateCard.table.customer")]: customerOnlyNameById.get(row.customerId) ?? row.customerId,
             [t("accounting.rateCard.export.customerCode")]: customers.find((c) => c.id === row.customerId)?.code ?? "",
@@ -3059,14 +3075,22 @@ export default function AccountingRateCardPage() {
                 </CardContent>
             </Card>
 
-            <RateCardImportDialog
-                open={importOpen}
-                onOpenChange={setImportOpen}
-                customers={customers}
-                initialCustomerId={filterCustomerId !== "all" ? filterCustomerId : undefined}
-                knownHubIds={hubs.map((h) => h.id)}
-                onImported={() => void loadData()}
-            />
+            {importMounted && (
+                // This root holds the loading shell and the load-error dialog (components/lazy-dialog.tsx);
+                // the import dialog renders its own root once its chunk is in.
+                <Dialog open={importOpen} onOpenChange={setImportOpen}>
+                    <LazyDialogBoundary>
+                        <RateCardImportDialog
+                            open={importOpen}
+                            onOpenChange={setImportOpen}
+                            customers={customers}
+                            initialCustomerId={filterCustomerId !== "all" ? filterCustomerId : undefined}
+                            knownHubIds={hubs.map((h) => h.id)}
+                            onImported={() => void loadData()}
+                        />
+                    </LazyDialogBoundary>
+                </Dialog>
+            )}
 
             {/* Void announcement dialog — ADR 0009 §1: rows are immutable, so retiring one is
                 the only destructive action, and it must say why. */}

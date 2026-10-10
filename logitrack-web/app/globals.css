@@ -51,8 +51,8 @@
   --color-background-light: #f6f7f8;
   --color-background-dark: #101922;
 
-  /* Landing Page Fonts */
-  --font-display: var(--font-inter), var(--font-sarabun), sans-serif;
+  /* Body font (app/layout.tsx): Geist for Latin, Sarabun for Thai (developer-spec.md §10.11) */
+  --font-display: var(--font-geist-sans), var(--font-sarabun), sans-serif;
 }
 
 :root {

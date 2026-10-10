@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { Moon, Sun } from "lucide-react";
 import { useLanguage } from "@/context/language";
 import { LoginModal } from "./LoginModal";
 import Link from "next/link";
@@ -125,10 +126,9 @@ export function Header() {
                     <button
                         className="flex items-center justify-center rounded-lg h-10 w-10 bg-slate-100 dark:bg-[#283039] text-slate-700 dark:text-white border border-slate-200 dark:border-[#3b4754]"
                         onClick={toggleTheme}
+                        aria-label={t("landing.header.toggleTheme")}
                     >
-                        <span className="material-symbols-outlined text-[20px]">
-                            {isDark ? "light_mode" : "dark_mode"}
-                        </span>
+                        {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
                     </button>
 
                     <LoginModal>

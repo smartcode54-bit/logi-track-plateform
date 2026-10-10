@@ -1,15 +1,12 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Sarabun } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/context/auth";
 import { LanguageProvider } from "@/context/language";
-import { Poppins } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 
-const poppins = Poppins({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800", "900"],
-});
+// Two families (developer-spec.md §10.11): Geist (sans + mono) for Latin text, Sarabun for Thai.
+// The body uses `font-display` (app/globals.css): Geist first, Sarabun for the glyphs Geist lacks.
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -17,13 +14,6 @@ const geistSans = Geist({
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
-import { Inter, Sarabun } from "next/font/google";
-
-const inter = Inter({
-  variable: "--font-inter",
   subsets: ["latin"],
 });
 
@@ -49,12 +39,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
-      </head>
       <body
         suppressHydrationWarning
-        className={`${geistSans.variable} ${geistMono.variable} ${poppins.className} ${inter.variable} ${sarabun.variable} antialiased font-display`}
+        className={`${geistSans.variable} ${geistMono.variable} ${sarabun.variable} antialiased font-display`}
       >
         <script
           dangerouslySetInnerHTML={{

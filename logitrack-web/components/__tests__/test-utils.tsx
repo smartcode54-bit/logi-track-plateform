@@ -6,6 +6,7 @@ function AllTheProviders({ children }: { children: React.ReactNode }) {
   return <LanguageProvider>{children}</LanguageProvider>;
 }
 
+/** LanguageProvider renders children once its dictionary has loaded: query with `findBy*`. */
 function customRender(ui: React.ReactElement, options?: Omit<RenderOptions, "wrapper">) {
   return render(ui, {
     wrapper: AllTheProviders,

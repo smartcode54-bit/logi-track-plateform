@@ -23,6 +23,57 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # developer-spec.md §17.3 item 5 (TW9): builds with @next/bundle-analyzer and compares each route's
+  # initial JS with logitrack-web/bundle-budget.json (scripts/bundle-report.mjs): fails when xlsx,
+  # jspdf, jszip, @fullcalendar/* or leaflet, or a locale dictionary, reaches a route's initial JS, or
+  # when a route grows more than 5%. Dummy public values only; no secrets are used.
+  bundle-budget:
+    name: Bundle budget
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: logitrack-web
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      NEXT_PUBLIC_FIREBASE_API_KEY: ci-dummy-api-key
+      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ci-dummy.invalid
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: ci-dummy-project
+      NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ci-dummy-bucket
+      NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: '0'
+      NEXT_PUBLIC_FIREBASE_APP_ID: ci-dummy-app-id
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: .
+
+      - name: Build with the analyzer and check the budget
+        run: pnpm run bundle:check
+
+      - name: Keep the analyzer report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-analyzer
+          path: logitrack-web/.next/analyze/*.html
+          if-no-files-found: ignore
+
   check:
     name: Type Check, Lint & Test
     runs-on: ubuntu-latest

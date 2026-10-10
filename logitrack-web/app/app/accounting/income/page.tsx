@@ -7,7 +7,6 @@ import { endOfDay, format, isWithinInterval, startOfDay, subDays } from "date-fn
 import { enUS, th as thDateLocale } from "date-fns/locale";
 import { collection, doc, getDoc, getDocs, limit, orderBy, query, where, documentId, updateDoc, Timestamp } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
-import * as XLSX from "xlsx";
 import {
     AlertTriangle,
     ChevronLeft,
@@ -103,7 +102,7 @@ interface IncomeRow {
     durationMinutes?: number;
 }
 
-import type { MissingBillingRow } from "@/features/accounting";
+import type { MissingBillingRow } from "@/features/accounting/api/billing";
 export type { MissingBillingRow };
 
 function toDate(value: unknown): Date | undefined {
@@ -727,7 +726,9 @@ export default function AccountingIncomePage() {
     }, [filteredRows, customerNameById]);
 
     // Export to Excel
-    const exportToExcel = () => {
+    const exportToExcel = async () => {
+        // xlsx loads on click, never with the page (developer-spec.md §10.11).
+        const XLSX = await import("xlsx");
         const exportData = filteredRows.map((row) => ({
             [t("accounting.income.table.tripId")]: row.spxTripId || row.id,
             [t("accounting.income.table.customerName")]: row.billingCustomerId
@@ -768,7 +769,8 @@ export default function AccountingIncomePage() {
     };
 
     // Export missing billing to Excel
-    const exportMissingToExcel = () => {
+    const exportMissingToExcel = async () => {
+        const XLSX = await import("xlsx");
         const exportData = filteredMissingRows.map((row) => ({
             [t("accounting.income.table.tripId")]: row.spxTripId || row.id,
             [t("accounting.income.missing.table.customer")]: row.customerName ?? "",

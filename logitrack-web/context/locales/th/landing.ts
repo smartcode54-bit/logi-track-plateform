@@ -3,6 +3,7 @@ export default {
     "landing.nav.solutions": "โซลูชั่น",
     "landing.nav.pricing": "ราคา",
     "landing.nav.about": "เกี่ยวกับเรา",
+    "landing.header.toggleTheme": "สลับโหมดสว่าง / มืด",
     "landing.hero.tagline": "การจัดการโลจิสติกส์ระดับโลก",
     "landing.hero.title": "จัดการห่วงโซ่อุปทานของคุณอย่างมืออาชีพ",
     "landing.hero.description": "แดชบอร์ดที่ดีที่สุดสำหรับการจัดการโลจิสติกส์แบบเรียลไทม์และการติดตามการจัดส่งทั่วโลกในแพลตฟอร์มเดียว",

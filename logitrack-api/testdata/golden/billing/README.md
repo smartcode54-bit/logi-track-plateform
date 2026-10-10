@@ -5,7 +5,7 @@ Language-neutral test vectors for the billing engine (main spec §6.16, T36). Th
 | Verifier | Command | Checks against |
 |---|---|---|
 | Go | `go test ./internal/billing/... ./internal/platform/clock/` | `internal/billing/compute`, `internal/billing/documents`, `internal/platform/clock`, `internal/platform/jsmath` |
-| TypeScript | `pnpm exec vitest run lib/billingGolden.test.ts` (in `logitrack-web`; part of `pnpm test`) | `lib/billingCompute.ts`, `lib/billingRates.ts`, `lib/billingDate.ts`, `lib/billingDocument.ts`, `lib/jobCategory.ts`, `functions/src/core/billingPeriodLock.ts` |
+| TypeScript | `pnpm exec vitest run lib/billingGolden.test.ts` (in `logitrack-web`; part of `pnpm test`) | `lib/billingCompute.ts`, `lib/billingRates.ts`, `lib/billingDate.ts`, `lib/billingDocumentModel.ts` (`lib/billingDocument.ts` at `4f552099`, split in TW9), `lib/jobCategory.ts`, `functions/src/core/billingPeriodLock.ts` |
 
 | File | Source | Ported `it` | Added |
 |---|---|---|---|
@@ -41,7 +41,7 @@ The Go tests assert the ported counts, so a dropped case fails the build.
 
 ## Regenerating
 
-The vectors are generated, never edited by hand (the `billingDocument.json` and `jobCategory.json` wants are literals in `export.mjs`, because `billingDocument.ts` needs the browser bundle and `jobCategory.ts` imports the `@/` path alias; the Vitest verifier checks them against the modules).
+The vectors are generated, never edited by hand (the `billingDocument.json` and `jobCategory.json` wants are literals in `export.mjs`, because at `4f552099` `billingDocument.ts` imported jspdf and xlsx-js-style, and `jobCategory.ts` imports the `@/` path alias; the Vitest verifier checks them against the modules. `lib/billingDocumentModel.ts`, the module checked since the TW9 split (Appendix E §E.7.1), is pure, but its wants stay literal so the vectors do not change).
 
 ```bash
 node testdata/golden/billing/export.mjs

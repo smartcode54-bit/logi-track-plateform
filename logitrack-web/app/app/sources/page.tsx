@@ -2,8 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import dynamic from "next/dynamic";
-import { Plus, MapPin, Search, Pencil, ChevronLeft, ChevronRight, RefreshCw, Download, Route, MoreHorizontal, Link, AlertTriangle } from "lucide-react";
-import * as XLSX from "xlsx";
+import { Plus, MapPin, Search, Pencil, ChevronLeft, ChevronRight, RefreshCw, Download, Route, MoreHorizontal, Link, AlertTriangle, FileSpreadsheet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -24,7 +23,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HubDialog } from "../first-mile/hub-dialog";
-import { PickupLocationImportDialog } from "./pickup-import-dialog";
+import { LazyDialog, LazyDialogLoading } from "@/components/lazy-dialog";
 import { collection, getDocs, doc, getDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "@/firebase/client";
@@ -50,6 +49,12 @@ const SourcesMap = dynamic(() => import("@/components/map/SourcesMap"), {
         </div>
     ),
 });
+
+// The import dialog carries xlsx: loaded on the first open only (developer-spec.md §10.11).
+const PickupLocationImportDialog = dynamic(
+    () => import("./pickup-import-dialog").then((m) => m.PickupLocationImportDialog),
+    { ssr: false, loading: LazyDialogLoading },
+);
 
 /** Display row: supports both new schema and legacy Firestore fields */
 interface SourceRow extends Pick<Hub, "source_id" | "latitude" | "longitude" | "station_type"> {
@@ -238,7 +243,9 @@ export default function SourcesPage() {
         if (currentPage > totalPages) setCurrentPage(1);
     }, [currentPage, totalPages]);
 
-    const handleDownloadSources = () => {
+    const handleDownloadSources = async () => {
+        // xlsx loads on click, never with the page (developer-spec.md §10.11).
+        const XLSX = await import("xlsx");
         const headers = [
             t("firstMile.sources.export.firestoreDocId"),
             t("firstMile.sources.table.sourceId"),
@@ -368,7 +375,16 @@ export default function SourcesPage() {
                         <Download className="h-4 w-4" />
                         {t("firstMile.sources.download")}
                     </Button>
-                    <PickupLocationImportDialog onSuccess={fetchHubs} />
+                    <LazyDialog
+                        trigger={
+                            <Button variant="outline" className="gap-2">
+                                <FileSpreadsheet className="h-4 w-4" />
+                                {t("firstMile.sourcesImport.button")}
+                            </Button>
+                        }
+                    >
+                        {(dialog) => <PickupLocationImportDialog {...dialog} onSuccess={fetchHubs} />}
+                    </LazyDialog>
                     <HubDialog
                         trigger={
                             <Button>

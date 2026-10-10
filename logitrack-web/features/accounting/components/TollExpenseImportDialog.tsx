@@ -2,8 +2,9 @@
 
 import { useState, useRef, useEffect, useMemo } from "react";
 import * as XLSX from "xlsx";
-import { Upload, FileSpreadsheet, AlertCircle } from "lucide-react";
+import { FileSpreadsheet, AlertCircle } from "lucide-react";
 import { useLanguage } from "@/context/language";
+import type { LazyDialogControl } from "@/components/lazy-dialog";
 import {
     batchCreateTollExpenseImports,
     getDriversWithTruckAssignments,
@@ -15,13 +16,11 @@ import {
 
 import { Button } from "@/components/ui/button";
 import {
-    Dialog,
     DialogContent,
     DialogDescription,
     DialogFooter,
     DialogHeader,
     DialogTitle,
-    DialogTrigger,
 } from "@/components/ui/dialog";
 import {
     Table,
@@ -154,9 +153,12 @@ export interface TollExpenseImportDialogProps {
     canImport: boolean;
 }
 
-export function TollExpenseImportDialog({ onSuccess, canImport }: TollExpenseImportDialogProps) {
+/**
+ * The dialog body (`DialogContent`). Pages render it inside `LazyDialog`, through `next/dynamic`, so
+ * this module and xlsx load on the first open, not with the page (developer-spec.md §10.11).
+ */
+export function TollExpenseImportDialog({ onSuccess, canImport, open, setOpen }: TollExpenseImportDialogProps & LazyDialogControl) {
     const { t } = useLanguage();
-    const [open, setOpen] = useState(false);
     const [file, setFile] = useState<File | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [parsedTollRows, setParsedTollRows] = useState<TollImportRowInput[]>([]);
@@ -471,151 +473,143 @@ export function TollExpenseImportDialog({ onSuccess, canImport }: TollExpenseImp
         !uploading;
 
     return (
-        <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-                <Button variant="outline" size="sm" type="button">
-                    <Upload className="h-4 w-4 mr-2" />
-                    {t("accounting.tollImport.button")}
-                </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
-                <DialogHeader>
-                    <DialogTitle>{t("accounting.tollImport.title")}</DialogTitle>
-                    <DialogDescription>{t("accounting.tollImport.description")}</DialogDescription>
-                </DialogHeader>
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
+            <DialogHeader>
+                <DialogTitle>{t("accounting.tollImport.title")}</DialogTitle>
+                <DialogDescription>{t("accounting.tollImport.description")}</DialogDescription>
+            </DialogHeader>
 
-                <div className="space-y-4 flex-1 min-h-0 overflow-hidden flex flex-col">
-                    <div>
-                        <input
-                            ref={fileInputRef}
-                            type="file"
-                            accept=".xlsx,.xls,.csv"
-                            className="hidden"
-                            onChange={handleFileChange}
-                        />
-                        <Button type="button" variant="secondary" onClick={() => fileInputRef.current?.click()}>
-                            <FileSpreadsheet className="h-4 w-4 mr-2" />
-                            {t("accounting.tollImport.clickUpload")}
-                        </Button>
-                        <p className="text-xs text-muted-foreground mt-2">{t("accounting.tollImport.formatsSupported")}</p>
-                        {file && (
-                            <p className="text-sm mt-1">
-                                {file.name} — {parsedTollRows.length} {t("accounting.tollImport.tollRows")}
-                            </p>
-                        )}
-                    </div>
-
-                    {error && (
-                        <Alert variant="destructive">
-                            <AlertCircle className="h-4 w-4" />
-                            <AlertTitle>{t("accounting.tollImport.error")}</AlertTitle>
-                            <AlertDescription>{error}</AlertDescription>
-                        </Alert>
-                    )}
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <Label>{t("accounting.tollImport.selectTruck")}</Label>
-                            <Select value={truckId} onValueChange={setTruckId}>
-                                <SelectTrigger>
-                                    <SelectValue placeholder={t("accounting.tollImport.selectTruckPlaceholder")} />
-                                </SelectTrigger>
-                                <SelectContent className="z-1005" position="popper">
-                                    {trucks.map((tr) => (
-                                        <SelectItem key={tr.id} value={tr.id}>
-                                            {tr.licensePlate}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <div className="space-y-2">
-                            <Label>{t("accounting.tollImport.selectDriver")}</Label>
-                            <Select value={driverId} onValueChange={setDriverId} disabled={!truckId}>
-                                <SelectTrigger>
-                                    <SelectValue placeholder={t("accounting.tollImport.selectDriverPlaceholder")} />
-                                </SelectTrigger>
-                                <SelectContent className="z-1005" position="popper">
-                                    {(driversOnTruck.length > 0 ? driversOnTruck : drivers).map((dr) => (
-                                        <SelectItem key={dr.filterId} value={dr.filterId}>
-                                            {dr.name}
-                                            {driversOnTruck.length === 0 && dr.truckId
-                                                ? ` · ${trucks.find((x) => x.id === dr.truckId)?.licensePlate ?? ""}`
-                                                : ""}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                            {truckId && driversOnTruck.length === 0 && (
-                                <p className="text-xs text-amber-700 dark:text-amber-400">
-                                    {t("accounting.tollImport.noDriverOnTruck")}
-                                </p>
-                            )}
-                            {truckId && driversOnTruck.length > 1 && (
-                                <p className="text-xs text-muted-foreground">{t("accounting.tollImport.pickDriverHint")}</p>
-                            )}
-                        </div>
-                    </div>
-
-                    <p className="text-sm text-muted-foreground">
-                        {t("accounting.tollImport.stats", {
-                            toll: String(parsedTollRows.length),
-                            skipped: String(skippedNonToll),
-                            empty: String(emptyRows),
-                        })}
-                    </p>
-
-                    {parsedTollRows.length > 0 && (
-                        <ScrollArea className="h-[220px] border rounded-md">
-                            <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead className="w-12">#</TableHead>
-                                        <TableHead>{t("accounting.tollImport.preview.date")}</TableHead>
-                                        <TableHead>{t("accounting.tollImport.preview.amount")}</TableHead>
-                                        <TableHead>{t("accounting.tollImport.preview.location")}</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {parsedTollRows.slice(0, 50).map((r, i) => (
-                                        <TableRow key={i}>
-                                            <TableCell>{r.tollImportSequence ?? i + 1}</TableCell>
-                                            <TableCell className="whitespace-nowrap text-xs">
-                                                {r.date.toLocaleDateString()}
-                                            </TableCell>
-                                            <TableCell>฿{r.amount.toLocaleString()}</TableCell>
-                                            <TableCell className="max-w-[200px] truncate text-muted-foreground text-xs">
-                                                {[r.tollLocation, r.tollLane].filter(Boolean).join(" · ") || "—"}
-                                            </TableCell>
-                                        </TableRow>
-                                    ))}
-                                </TableBody>
-                            </Table>
-                            {parsedTollRows.length > 50 && (
-                                <p className="p-2 text-xs text-center text-muted-foreground">
-                                    {t("accounting.tollImport.previewTruncated", { n: String(parsedTollRows.length) })}
-                                </p>
-                            )}
-                        </ScrollArea>
-                    )}
-
-                    {uploading && (
-                        <div className="space-y-2">
-                            <Progress value={progress} />
-                            <p className="text-xs text-muted-foreground">{t("accounting.tollImport.uploading")}</p>
-                        </div>
+            <div className="space-y-4 flex-1 min-h-0 overflow-hidden flex flex-col">
+                <div>
+                    <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".xlsx,.xls,.csv"
+                        className="hidden"
+                        onChange={handleFileChange}
+                    />
+                    <Button type="button" variant="secondary" onClick={() => fileInputRef.current?.click()}>
+                        <FileSpreadsheet className="h-4 w-4 mr-2" />
+                        {t("accounting.tollImport.clickUpload")}
+                    </Button>
+                    <p className="text-xs text-muted-foreground mt-2">{t("accounting.tollImport.formatsSupported")}</p>
+                    {file && (
+                        <p className="text-sm mt-1">
+                            {file.name} — {parsedTollRows.length} {t("accounting.tollImport.tollRows")}
+                        </p>
                     )}
                 </div>
 
-                <DialogFooter>
-                    <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-                        {t("accounting.tollImport.cancel")}
-                    </Button>
-                    <Button type="button" onClick={handleImport} disabled={!ready}>
-                        {t("accounting.tollImport.upload")}
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+                {error && (
+                    <Alert variant="destructive">
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertTitle>{t("accounting.tollImport.error")}</AlertTitle>
+                        <AlertDescription>{error}</AlertDescription>
+                    </Alert>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                        <Label>{t("accounting.tollImport.selectTruck")}</Label>
+                        <Select value={truckId} onValueChange={setTruckId}>
+                            <SelectTrigger>
+                                <SelectValue placeholder={t("accounting.tollImport.selectTruckPlaceholder")} />
+                            </SelectTrigger>
+                            <SelectContent className="z-1005" position="popper">
+                                {trucks.map((tr) => (
+                                    <SelectItem key={tr.id} value={tr.id}>
+                                        {tr.licensePlate}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div className="space-y-2">
+                        <Label>{t("accounting.tollImport.selectDriver")}</Label>
+                        <Select value={driverId} onValueChange={setDriverId} disabled={!truckId}>
+                            <SelectTrigger>
+                                <SelectValue placeholder={t("accounting.tollImport.selectDriverPlaceholder")} />
+                            </SelectTrigger>
+                            <SelectContent className="z-1005" position="popper">
+                                {(driversOnTruck.length > 0 ? driversOnTruck : drivers).map((dr) => (
+                                    <SelectItem key={dr.filterId} value={dr.filterId}>
+                                        {dr.name}
+                                        {driversOnTruck.length === 0 && dr.truckId
+                                            ? ` · ${trucks.find((x) => x.id === dr.truckId)?.licensePlate ?? ""}`
+                                            : ""}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        {truckId && driversOnTruck.length === 0 && (
+                            <p className="text-xs text-amber-700 dark:text-amber-400">
+                                {t("accounting.tollImport.noDriverOnTruck")}
+                            </p>
+                        )}
+                        {truckId && driversOnTruck.length > 1 && (
+                            <p className="text-xs text-muted-foreground">{t("accounting.tollImport.pickDriverHint")}</p>
+                        )}
+                    </div>
+                </div>
+
+                <p className="text-sm text-muted-foreground">
+                    {t("accounting.tollImport.stats", {
+                        toll: String(parsedTollRows.length),
+                        skipped: String(skippedNonToll),
+                        empty: String(emptyRows),
+                    })}
+                </p>
+
+                {parsedTollRows.length > 0 && (
+                    <ScrollArea className="h-[220px] border rounded-md">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead className="w-12">#</TableHead>
+                                    <TableHead>{t("accounting.tollImport.preview.date")}</TableHead>
+                                    <TableHead>{t("accounting.tollImport.preview.amount")}</TableHead>
+                                    <TableHead>{t("accounting.tollImport.preview.location")}</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {parsedTollRows.slice(0, 50).map((r, i) => (
+                                    <TableRow key={i}>
+                                        <TableCell>{r.tollImportSequence ?? i + 1}</TableCell>
+                                        <TableCell className="whitespace-nowrap text-xs">
+                                            {r.date.toLocaleDateString()}
+                                        </TableCell>
+                                        <TableCell>฿{r.amount.toLocaleString()}</TableCell>
+                                        <TableCell className="max-w-[200px] truncate text-muted-foreground text-xs">
+                                            {[r.tollLocation, r.tollLane].filter(Boolean).join(" · ") || "—"}
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                        {parsedTollRows.length > 50 && (
+                            <p className="p-2 text-xs text-center text-muted-foreground">
+                                {t("accounting.tollImport.previewTruncated", { n: String(parsedTollRows.length) })}
+                            </p>
+                        )}
+                    </ScrollArea>
+                )}
+
+                {uploading && (
+                    <div className="space-y-2">
+                        <Progress value={progress} />
+                        <p className="text-xs text-muted-foreground">{t("accounting.tollImport.uploading")}</p>
+                    </div>
+                )}
+            </div>
+
+            <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+                    {t("accounting.tollImport.cancel")}
+                </Button>
+                <Button type="button" onClick={handleImport} disabled={!ready}>
+                    {t("accounting.tollImport.upload")}
+                </Button>
+            </DialogFooter>
+        </DialogContent>
     );
 }

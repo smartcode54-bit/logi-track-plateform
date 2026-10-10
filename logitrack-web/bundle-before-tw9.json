@@ -1,0 +1,813 @@
+{
+  "routes": {
+    "/": {
+      "chunks": 19,
+      "parsedBytes": 1491008,
+      "gzipBytes": 407650,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/_global-error": {
+      "chunks": 12,
+      "parsedBytes": 1351058,
+      "gzipBytes": 360767,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/_not-found": {
+      "chunks": 12,
+      "parsedBytes": 1353573,
+      "gzipBytes": 361616,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/about": {
+      "chunks": 22,
+      "parsedBytes": 1509346,
+      "gzipBytes": 415886,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app": {
+      "chunks": 25,
+      "parsedBytes": 1549497,
+      "gzipBytes": 426110,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/accounting/audit": {
+      "chunks": 38,
+      "parsedBytes": 3216862,
+      "gzipBytes": 986118,
+      "forbidden": {
+        "bahttext": 1096,
+        "jspdf": 104124,
+        "jspdf-autotable": 9657,
+        "jszip": 27728,
+        "xlsx-js-style": 315701
+      },
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/accounting/billing-document": {
+      "chunks": 41,
+      "parsedBytes": 3718397,
+      "gzipBytes": 1150364,
+      "forbidden": {
+        "bahttext": 1096,
+        "jspdf": 104124,
+        "jspdf-autotable": 9657,
+        "xlsx": 156021,
+        "xlsx-js-style": 315701
+      },
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/accounting/billing-result": {
+      "chunks": 41,
+      "parsedBytes": 3699442,
+      "gzipBytes": 1145047,
+      "forbidden": {
+        "bahttext": 1096,
+        "jspdf": 104124,
+        "jspdf-autotable": 9657,
+        "xlsx": 156021,
+        "xlsx-js-style": 315701
+      },
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/accounting/fuel": {
+      "chunks": 39,
+      "parsedBytes": 3324351,
+      "gzipBytes": 1013693,
+      "forbidden": {
+        "bahttext": 1096,
+        "jspdf": 104124,
+        "jspdf-autotable": 9657,
+        "jszip": 27728,
+        "xlsx-js-style": 315701
+      },
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/accounting/fuel-price-history": {
+      "chunks": 29,
+      "parsedBytes": 1618566,
+      "gzipBytes": 447759,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/accounting/income": {
+      "chunks": 42,
+      "parsedBytes": 3741716,
+      "gzipBytes": 1156549,
+      "forbidden": {
+        "bahttext": 1096,
+        "jspdf": 104124,
+        "jspdf-autotable": 9657,
+        "xlsx": 156021,
+        "xlsx-js-style": 315701
+      },
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/accounting/other": {
+      "chunks": 42,
+      "parsedBytes": 3841290,
+      "gzipBytes": 1183902,
+      "forbidden": {
+        "bahttext": 1096,
+        "jspdf": 104124,
+        "jspdf-autotable": 9657,
+        "jszip": 27728,
+        "xlsx": 156021,
+        "xlsx-js-style": 315701
+      },
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/accounting/rate-card": {
+      "chunks": 41,
+      "parsedBytes": 3768190,
+      "gzipBytes": 1160144,
+      "forbidden": {
+        "bahttext": 1096,
+        "jspdf": 104124,
+        "jspdf-autotable": 9657,
+        "xlsx": 156021,
+        "xlsx-js-style": 315701
+      },
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/accounting/shopee-express-report": {
+      "chunks": 40,
+      "parsedBytes": 3687165,
+      "gzipBytes": 1141243,
+      "forbidden": {
+        "bahttext": 1096,
+        "jspdf": 104124,
+        "jspdf-autotable": 9657,
+        "xlsx": 156021,
+        "xlsx-js-style": 315701
+      },
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/chat": {
+      "chunks": 30,
+      "parsedBytes": 1764352,
+      "gzipBytes": 488549,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/chat/room": {
+      "chunks": 30,
+      "parsedBytes": 1757122,
+      "gzipBytes": 486442,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/chat/with-driver": {
+      "chunks": 30,
+      "parsedBytes": 1741214,
+      "gzipBytes": 481343,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/companies": {
+      "chunks": 28,
+      "parsedBytes": 1597275,
+      "gzipBytes": 440516,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/customers": {
+      "chunks": 25,
+      "parsedBytes": 1571101,
+      "gzipBytes": 433499,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/customers/[id]": {
+      "chunks": 26,
+      "parsedBytes": 1571714,
+      "gzipBytes": 434155,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/customers/[id]/edit": {
+      "chunks": 30,
+      "parsedBytes": 1761655,
+      "gzipBytes": 489864,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/customers/new": {
+      "chunks": 30,
+      "parsedBytes": 1759808,
+      "gzipBytes": 489408,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/dashboard": {
+      "chunks": 27,
+      "parsedBytes": 1748635,
+      "gzipBytes": 483998,
+      "forbidden": {
+        "leaflet": 42409
+      },
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/driver-monitor": {
+      "chunks": 37,
+      "parsedBytes": 2531056,
+      "gzipBytes": 725898,
+      "forbidden": {
+        "jszip": 27728,
+        "xlsx": 156021
+      },
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/drivers": {
+      "chunks": 26,
+      "parsedBytes": 1584262,
+      "gzipBytes": 437045,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/drivers/edit": {
+      "chunks": 25,
+      "parsedBytes": 1553177,
+      "gzipBytes": 427420,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/drivers/new": {
+      "chunks": 35,
+      "parsedBytes": 1857473,
+      "gzipBytes": 519421,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/drivers/view": {
+      "chunks": 25,
+      "parsedBytes": 1553101,
+      "gzipBytes": 427396,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/first-mile": {
+      "chunks": 38,
+      "parsedBytes": 3302550,
+      "gzipBytes": 1014324,
+      "forbidden": {
+        "xlsx": 156021,
+        "xlsx-js-style": 315701
+      },
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/holidays": {
+      "chunks": 32,
+      "parsedBytes": 2039219,
+      "gzipBytes": 568232,
+      "forbidden": {
+        "@fullcalendar/core": 47403,
+        "@fullcalendar/daygrid": 7564,
+        "@fullcalendar/interaction": 7530,
+        "@fullcalendar/list": 2977,
+        "@fullcalendar/multimonth": 2438,
+        "@fullcalendar/react": 797
+      },
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/incident-reports": {
+      "chunks": 31,
+      "parsedBytes": 1833964,
+      "gzipBytes": 508951,
+      "forbidden": {
+        "leaflet": 42409
+      },
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/job-assign": {
+      "chunks": 38,
+      "parsedBytes": 3307390,
+      "gzipBytes": 1015765,
+      "forbidden": {
+        "xlsx": 156021,
+        "xlsx-js-style": 315701
+      },
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/leave-requests": {
+      "chunks": 29,
+      "parsedBytes": 1722541,
+      "gzipBytes": 472789,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/line-haul": {
+      "chunks": 38,
+      "parsedBytes": 3302397,
+      "gzipBytes": 1014282,
+      "forbidden": {
+        "xlsx": 156021,
+        "xlsx-js-style": 315701
+      },
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/maintenance": {
+      "chunks": 26,
+      "parsedBytes": 1565070,
+      "gzipBytes": 430714,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/operations/roles": {
+      "chunks": 25,
+      "parsedBytes": 1549497,
+      "gzipBytes": 426110,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/payroll": {
+      "chunks": 28,
+      "parsedBytes": 1715731,
+      "gzipBytes": 470600,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/payroll/config": {
+      "chunks": 29,
+      "parsedBytes": 1700753,
+      "gzipBytes": 468411,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/payroll/penalties": {
+      "chunks": 29,
+      "parsedBytes": 1702036,
+      "gzipBytes": 469294,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/renewals": {
+      "chunks": 27,
+      "parsedBytes": 1599712,
+      "gzipBytes": 441455,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/security-center": {
+      "chunks": 30,
+      "parsedBytes": 1787676,
+      "gzipBytes": 495087,
+      "forbidden": {
+        "leaflet": 42409,
+        "react-leaflet": 1071
+      },
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/security-center/api-keys": {
+      "chunks": 25,
+      "parsedBytes": 1553635,
+      "gzipBytes": 427785,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/security-center/audit": {
+      "chunks": 29,
+      "parsedBytes": 1622142,
+      "gzipBytes": 448204,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/security-center/mobile-clients": {
+      "chunks": 26,
+      "parsedBytes": 1573808,
+      "gzipBytes": 433070,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/security-center/mobile-release": {
+      "chunks": 28,
+      "parsedBytes": 1728747,
+      "gzipBytes": 477063,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/security-center/roles": {
+      "chunks": 26,
+      "parsedBytes": 1594754,
+      "gzipBytes": 440281,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/security-center/status": {
+      "chunks": 25,
+      "parsedBytes": 1553699,
+      "gzipBytes": 427770,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/security-center/users": {
+      "chunks": 29,
+      "parsedBytes": 1631305,
+      "gzipBytes": 450088,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/settings/company-profile": {
+      "chunks": 30,
+      "parsedBytes": 1770470,
+      "gzipBytes": 491518,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/sources": {
+      "chunks": 31,
+      "parsedBytes": 2270762,
+      "gzipBytes": 653846,
+      "forbidden": {
+        "xlsx": 156021
+      },
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/standby-records": {
+      "chunks": 33,
+      "parsedBytes": 1729968,
+      "gzipBytes": 480142,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/subcontractors": {
+      "chunks": 27,
+      "parsedBytes": 1609032,
+      "gzipBytes": 444277,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/subcontractors/[id]": {
+      "chunks": 26,
+      "parsedBytes": 1596246,
+      "gzipBytes": 439638,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/subcontractors/[id]/edit": {
+      "chunks": 29,
+      "parsedBytes": 1747997,
+      "gzipBytes": 484972,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/subcontractors/new": {
+      "chunks": 30,
+      "parsedBytes": 1763979,
+      "gzipBytes": 488995,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/truck-assignment": {
+      "chunks": 29,
+      "parsedBytes": 1727346,
+      "gzipBytes": 475081,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/trucks": {
+      "chunks": 29,
+      "parsedBytes": 2124778,
+      "gzipBytes": 609884,
+      "forbidden": {
+        "xlsx": 156021
+      },
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/trucks/edit": {
+      "chunks": 25,
+      "parsedBytes": 1554561,
+      "gzipBytes": 428088,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/trucks/maintenance": {
+      "chunks": 25,
+      "parsedBytes": 1554530,
+      "gzipBytes": 428079,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/trucks/new": {
+      "chunks": 25,
+      "parsedBytes": 1554561,
+      "gzipBytes": 428091,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/trucks/renew": {
+      "chunks": 25,
+      "parsedBytes": 1554531,
+      "gzipBytes": 428081,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/trucks/view": {
+      "chunks": 25,
+      "parsedBytes": 1554477,
+      "gzipBytes": 428057,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/unauthorized": {
+      "chunks": 25,
+      "parsedBytes": 1557014,
+      "gzipBytes": 429137,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/users": {
+      "chunks": 25,
+      "parsedBytes": 1550061,
+      "gzipBytes": 426348,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/utilities/backfill": {
+      "chunks": 29,
+      "parsedBytes": 1660493,
+      "gzipBytes": 459538,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/utilities/billing-impact": {
+      "chunks": 29,
+      "parsedBytes": 1658033,
+      "gzipBytes": 458862,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/app/waitlist": {
+      "chunks": 27,
+      "parsedBytes": 1586309,
+      "gzipBytes": 438787,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/forgot-password": {
+      "chunks": 25,
+      "parsedBytes": 1541430,
+      "gzipBytes": 426566,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/join-network": {
+      "chunks": 19,
+      "parsedBytes": 1492757,
+      "gzipBytes": 409919,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/login": {
+      "chunks": 25,
+      "parsedBytes": 1541884,
+      "gzipBytes": 426762,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/my-account": {
+      "chunks": 22,
+      "parsedBytes": 1507620,
+      "gzipBytes": 415733,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/support": {
+      "chunks": 22,
+      "parsedBytes": 1507854,
+      "gzipBytes": 416208,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    },
+    "/waitlist": {
+      "chunks": 25,
+      "parsedBytes": 1541428,
+      "gzipBytes": 426563,
+      "forbidden": {},
+      "locales": {
+        "en": 38384,
+        "th": 57704
+      }
+    }
+  }
+}

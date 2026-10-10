@@ -1308,7 +1308,7 @@ Public key `app_releases/{flavor}/logitrack-{flavor}-v{version}.apk`, `Cache-Con
 
 ### 9.9 Server-side documents (`statement_documents`, P3)
 
-Replaces jsPDF + `xlsx-js-style` + `jszip` in `web:lib/billingDocument.ts` and `web:lib/shopeeExpressReport.ts`. `documents.render` ships in **P3** with billing (T39, M3); jspdf and xlsx-js-style leave the web bundle at P3 exit (T42). Photo-ZIP downloads (trip and maintenance photos) have no server endpoint and keep a lazy jszip chunk (R69).
+Replaces jsPDF + `xlsx-js-style` + `jszip` in `web:lib/billingDocument.ts` (split in TW9 into `billingDocumentModel.ts`, which stays, and `billingDocumentRender.ts`, which goes; §10.11) and `web:lib/shopeeExpressReport.ts`. `documents.render` ships in **P3** with billing (T39, M3); jspdf and xlsx-js-style leave the web bundle at P3 exit (T42). Photo-ZIP downloads (trip and maintenance photos) have no server endpoint and keep a lazy jszip chunk (R69).
 
 | Item | Contract |
 |---|---|
@@ -1471,7 +1471,7 @@ A customer-scope principal reaches driver-monitor, first-mile, line-haul, job-as
 
 ### 10.6 TanStack Query v5 foundation (TW4, P0)
 
-`app/providers.tsx`: `QueryClientProvider` > `LanguageProvider` (memoised, per-namespace locales) > `AuthProvider` (adapter over `['me']`) > `RealtimeProvider` (§10.8) > `FirebaseBridge` (P0 until TW7, R80) > children + Toaster (+ lazy devtools in development).
+`app/providers.tsx`: `QueryClientProvider` > `LanguageProvider` (memoised; one lazily loaded chunk per language, `context/locales/load.ts`, TW9; the `accounting` and `driverMonitor` namespaces split per route group in TW4, §10.11) > `AuthProvider` (adapter over `['me']`) > `RealtimeProvider` (§10.8) > `FirebaseBridge` (P0 until TW7, R80) > children + Toaster (+ lazy devtools in development).
 
 - **Defaults:** `staleTime 30_000`, `gcTime 300_000`, `refetchOnWindowFocus`, retry <= 2 on network/5xx only; mutations no retry. A 401 that survives `goFetch` is final (clear cache, close stream, bridge sign-out, `/login?next=`); 403 shows a toast. Mutations declare `meta.invalidates`, applied by one global `onSuccess`.
 - **Client:** `lib/goFetch.ts` `goFetch<T>(path, {method, body, signal, idempotencyKey})` calls `/api/go` + path, applies §10.4, parses `data`/`nextCursor`/`meta`, throws `ApiError {status, code, message, details, requestId}` (§5); `queryFn`s pass TanStack's `signal`; idempotent mutations send `Idempotency-Key`; types from `api/openapi.yaml` (R27).
@@ -1571,7 +1571,7 @@ Internal-listener routes in [Appendix B](shared-docs/specs/mv-go/B-api-catalog.m
 | `GET /v1/trips/monitor` (join of task, driver, incidents, stored price preview; keyset 200) | `useDriverMonitor.ts` listeners and fan-out (`:663-799`); export loop `DriverMonitorDashboard.tsx:327-350` | P2 |
 | `GET /v1/billing/rows`, `/v1/billing/standby-diagnostics`, `/v1/billing/rows/missing-billing-date` | `fetchBillingTripRows` (`billing.ts:737`), `fetchStandbyBillingDiagnostics` (`:1455`), `fetchTripsMissingBillingDate` (`:1116`), billing-result refetch (`:279,296`) | P3 |
 | `GET /v1/expenses?type&status&cursor` | `expenses.ts:90-101,263-276` and filter lists (`:165,180`) | P3 |
-| `documents.render` (§7): PDF, XLSX, billing ZIP into `statement_documents`, Shopee report | `lib/billingDocument.ts`, `lib/shopeeExpressReport.ts` | **P3** (R69, T39); jspdf and xlsx-js-style leave at P3 exit (T42); photo ZIPs keep lazy jszip |
+| `documents.render` (§7): PDF, XLSX, billing ZIP into `statement_documents`, Shopee report | `lib/billingDocument.ts` (since TW9 its renderers, `lib/billingDocumentRender.ts`; the pure `billingDocumentModel.ts` stays, Appendix E §E.7 row 15), `lib/shopeeExpressReport.ts` | **P3** (R69, T39); jspdf and xlsx-js-style leave at P3 exit (T42); photo ZIPs keep lazy jszip |
 | `GET /v1/dashboard/summary`; `GET /v1/badges` | `DashboardStats.tsx:111-149,164-200`, `ActivityChart.tsx:45-81`; `app-sidebar.tsx:65`, `ExpenseAuditWidget.tsx:21`, `ChatStatusWidget.tsx:23` | P6 |
 
 ### 10.10 Pagination and virtualization (W9)
@@ -1595,18 +1595,18 @@ Payroll keeps a bounded server list (`period_end DESC`) with a cursor.
 
 ### 10.11 Bundle plan (W10)
 
-`@next/bundle-analyzer` lands in TW9; its first per-route report after the standalone build is the committed baseline (§10.14).
+Implemented in TW9 (the P0 rows). `pnpm analyze` (`@next/bundle-analyzer` 16.1.1, `ANALYZE=true next build --webpack`) writes the analyzer report. Next 16 no longer prints First Load JS, so `scripts/bundle-report.mjs` derives each route's initial JS from the analyzer's `isInitialByEntrypoint` data (`main-app` + the layouts + the page). `logitrack-web/bundle-before-tw9.json` is the report of the tree before TW9; `logitrack-web/bundle-budget.json`, the report after it, is the committed budget (§10.14 item 7, §17.3 item 5). Initial JS (gzip) fell on all 73 routes, by 18-65% (mean 541 -> 357 KB), e.g. `/app/accounting/income` 1,129 -> 425 KB, `/app/accounting/billing-document` 1,123 -> 401 KB, `/app/first-mile` 991 -> 432 KB, `/app/driver-monitor` 709 -> 439 KB, `/app/holidays` 555 -> 392 KB, `/app/dashboard` 473 -> 338 KB, `/login` 417 -> 326 KB; method, per-route table and the decisions are in Appendix E §E.7.1.
 
-| Item | Change | Phase |
+| Item | Change (TW9 result) | Phase |
 |---|---|---|
-| xlsx static in 9 files (e.g. `income:10`, `rate-card:6`; all in Appendix E §E.7) | `await import('xlsx')` in click handlers; import dialogs via `next/dynamic` | P0 |
-| jspdf, jspdf-autotable, xlsx-js-style (`lib/billingDocument.ts:12-16`, `lib/shopeeExpressReport.ts:14-15`) | dynamic import in download handlers (`billing-document:475`, `billing-result:280`), deleted with server rendering (R69) | P0 -> P3 exit |
-| jszip (`lib/download-image-urls-zip.ts:1`) | sync entry builder + lazy zipper (kept for photo ZIPs) | P0 |
-| FullCalendar x5 (`holidays/page.tsx:67-71`) | `next/dynamic(..., {ssr:false})` | P0 |
-| barrels (`features/dashboard/index.ts:7`, `features/incident-reports/index.ts:2`, `features/accounting/index.ts:1-3`) | drop map/xlsx re-exports | P0 |
-| both locales (`context/language.tsx:4`, `context/locales/index.ts:1-92`) | active language per namespace, preloaded per route; en/th parity test stays | P0 |
-| fonts + Material Symbols (`app/layout.tsx:9-34,53`) | keep Sarabun and Geist; `lucide-react` icons | P0 |
-| leaflet (`DashboardVehicleMap.tsx:5`, already `dynamic()`); `images.unoptimized` (`next.config.ts:12`) | keep; React 19 check (UNVERIFIED); decide after baseline | P0 |
+| xlsx static in 9 files (e.g. `income:10`, `rate-card:6`; all in Appendix E §E.7) | `await import("xlsx")` in the export handlers of income, rate-card, sources and driver-monitor; the seven import dialogs load through `next/dynamic` with the shared loading shell (`LazyDialogLoading`) and mount on the first open; a body that fails to load or render shows a reload dialog instead of taking the page down (`components/lazy-dialog.tsx`) | P0 (done) |
+| jspdf, jspdf-autotable, xlsx-js-style, bahttext (`lib/billingDocument.ts:12-16`, `lib/shopeeExpressReport.ts:14-15`) | `lib/billingDocument.ts` split into `billingDocumentModel.ts` (types, pure helpers) and `billingDocumentRender.ts` (renderers); the render module and `shopeeExpressReport.ts` load with `await import()` in the download handlers (`billing-document`, `billing-result`, `shopee-express-report`); Billing Document loads the renderer, jszip and the Sarabun font before it saves the statement (`lib/billingDocumentLoad.ts`), so a failed chunk cannot leave a numbered draft without its ZIP; deleted with server rendering (R69) | P0 (done) -> P3 exit |
+| jszip (`lib/download-image-urls-zip.ts:1`) | `await import("jszip")` inside `downloadImagesAsZip`; the rest of the module is small, so it is not split (refines Appendix E §E.7 row 6); kept for photo ZIPs | P0 (done) |
+| FullCalendar x5 (`holidays/page.tsx:67-71`) | `features/holidays/components/HolidayCalendar.tsx` through `next/dynamic(..., {ssr:false})` with a skeleton | P0 (done) |
+| barrels (`features/dashboard/index.ts:7`, `features/incident-reports/index.ts:2`, `features/accounting/index.ts:1-3`) | map clients, import dialogs and the accounting API are no longer re-exported (also `features/security-center` and `features/trucks`, same defect); ESLint `@typescript-eslint/no-restricted-imports` bans static imports of the heavy libraries outside the lazily loaded modules, and static imports or re-exports of those modules (`logitrack-web/eslint.config.mjs`) | P0 (done) |
+| both locales (`context/language.tsx:4`, `context/locales/index.ts:1-92`) | `context/locales/{en,th}/index.ts` + `context/locales/load.ts`: only the active language (stored preference, else English) is fetched, the other on its first toggle; en/th parity test (`context/locales/parity.test.ts`). The provider renders children once the dictionary is in, so prerendered HTML shows a loading screen instead of English text. Splitting `accounting` / `driverMonitor` per route group (step 2, Appendix E §E.7 row 9) moves to TW4 (#84), which owns the `LanguageProvider` (§10.6) | P0 (step 1 done, TW9; step 2 TW4) |
+| fonts + Material Symbols (`app/layout.tsx:9-34,53`) | Geist (sans + mono) and Sarabun only; `--font-display` = Geist + Sarabun; landing icons are `lucide-react`; no Google Fonts request at runtime | P0 (done) |
+| leaflet (`DashboardVehicleMap.tsx:5`, already `dynamic()`); `images.unoptimized` (`next.config.ts:12`) | leaflet stays lazy; `images.unoptimized: true` kept (decided after the baseline, Appendix E §E.7.1); react-leaflet under React 19 is still UNVERIFIED (§19.3) | P0 (decided) |
 | `firebase` SDK (219 files via `firebase/client.ts`) | removed with the bridge (TW7) | P6 |
 
 ### 10.12 Hosting migration (W1, TW2, P0)
@@ -1664,7 +1664,7 @@ Count: 5 + 22 + 6 + 13 + 5 + 3 + 9 = 63 (P0 to P6). TW7 deletes `/api/auth/fireb
 | 4 | Revocation: admin revoke lands every tab on `/login` within 5 s (T18); `claims_changed` keeps the tab signed in with a fresh `['me']`; three tabs idle past `JWT_ACCESS_TTL` cause one rotation and no reuse revocation; a language toggle costs no request beyond one locale chunk | P0 |
 | 5 | **Firestore read budget** (dev project, `document/read_count` per route vs Appendix E): from P0 no page reads a collection twice and an ops session reads each master collection at most once per stale time (today hubs about 7x); 0 reads on cut-over pages; 0 after P6 | P0, per phase |
 | 6 | Callables: web `setAdminClaims`/`checkAdminStatus` = 0 after P0; all web callables = 0 at P6 end (T54) | P0, P6 |
-| 7 | **Bundle**: baseline committed (TW9); CI fails on > 5% first-load growth; no xlsx, jspdf, jszip, `@fullcalendar/*` or leaflet in initial chunks; one locale per route; two font families; jspdf and xlsx-js-style gone at P3 exit (R69) | P0, P3, continuous |
+| 7 | **Bundle**: baseline committed (TW9: `logitrack-web/bundle-budget.json`, `pnpm bundle:check`); CI (`bundle-budget`, once T14 adds the `mv-go` triggers, §17.3 item 5) fails on > 5% first-load growth; no xlsx, jspdf, jszip, `@fullcalendar/*` or leaflet in initial chunks; one locale per route; two font families; jspdf and xlsx-js-style gone at P3 exit (R69) | P0, P3, continuous |
 | 8 | **Zero Firebase imports**: `grep -rE "from ['\"](firebase\|firebase/.*)['\"]" logitrack-web/{app,components,context,features,hooks,lib}` is empty; no `firebase` dependency or `NEXT_PUBLIC_FIREBASE_*`/`NEXT_PUBLIC_APP_CHECK_*` | P6 (TW7) |
 | 9 | **Caps gone**: with data above every cap, the E2E reaches the last row and the hub picker offers every hub; driver stats equal server counts | per list |
 | 10 | Realtime: one stream per tab; a mobile task change reaches the FM board within 5 s (T33); 50 trip events cause at most one monitor refetch per 2 s | P2 |
@@ -2537,10 +2537,12 @@ Legend:
 | `FIREBASE_SERVICE_ACCOUNT_DEV`, `FIREBASE_SERVICE_ACCOUNT_PROD` | yes | ci | today / P8 | KEEP | `deploy.yml:98,180`; Hosting redirect, shims, rules |
 | `FUNCTIONS_ENV_DEV`, `FUNCTIONS_ENV_PROD` | yes | ci | today / P8 | DROP | `deploy.yml:104,186`; carry `LOGITRACK_API_*` P2-P7 |
 | `PLAYWRIGHT_TEST_USER_EMAIL`, `PLAYWRIGHT_TEST_USER_PASSWORD`, `CI` | yes (password) | ci | today / — | KEEP | `web:tests/helpers/auth.ts:8-9,28-29`, `web:playwright.config.ts:10-12,28`; in no example today; seeded user |
+| `ANALYZE` | no | ci | P0 / — | MISSING | web build tooling only (TW9, §10.11, §17.3 item 5, Appendix E §E.7 row 13): `pnpm analyze` / `pnpm bundle:check` set it to `true` in the `bundle-budget` job and on developer machines, and `logitrack-web/next.config.ts` then adds `@next/bundle-analyzer` (reports under `.next/analyze`; emitted chunks unchanged); any other value leaves the config unchanged; never set in an image build, compose or `ENV_*_WEB` |
+| `NEXT_TELEMETRY_DISABLED` | no | ci | P0 / — | MISSING | `1` in the web CI jobs (`build-standalone`, `bundle-budget`) and in the build stage of the web image (`logitrack-web/Dockerfile`, TW2); read by Next itself, no project code reads it |
 
 ### 16.2 Missing today ("ขาด env อะไรบ้าง")
 
-Grouped as in the approved plan, updated by R74 and R82; none exists in any `.env*`, `.example` or CI secret today (only the mobile `FIREBASE_PROJECT_ID`). The names below need a value from the owner; every other `MISSING` name of §16.1 ships with a default in `.env.example` (e.g. `IDEMPOTENCY_TTL` 168h, `PASSWORD_MIN_LENGTH` 10, `MOBILE_ATTESTATION_MODE` off), except the reserved `LINE_CHANNEL_SECRET`, `TURNSTILE_SECRET_KEY` and the test-only `FIRESTORE_EMULATOR_HOST`.
+Grouped as in the approved plan, updated by R74 and R82; none exists in any `.env*`, `.example` or CI secret today (only the mobile `FIREBASE_PROJECT_ID`). The names below need a value from the owner; every other `MISSING` name of §16.1 ships with a default in `.env.example` (e.g. `IDEMPOTENCY_TTL` 168h, `PASSWORD_MIN_LENGTH` 10, `MOBILE_ATTESTATION_MODE` off), except the reserved `LINE_CHANNEL_SECRET`, `TURNSTILE_SECRET_KEY`, the test-only `FIRESTORE_EMULATOR_HOST` and the web build tooling `ANALYZE` and `NEXT_TELEMETRY_DISABLED` (set by the scripts and CI jobs that use them).
 
 | Group | Owner must supply |
 |---|---|
@@ -2627,7 +2629,7 @@ New `secret-scan.yml` runs gitleaks on push and pull request for `mv-go` and `mv
 2. Node 22 for every web job (deploy already uses 22, `deploy.yml:84-87`; CLAUDE.md pending item 7).
 3. Job `build-standalone` (TW2, in `ci.yml`; it runs once item 1 adds the `mv-go` triggers): `next build` with `output: 'standalone'`, no flatten, dummy `NEXT_PUBLIC_*` and sentinel server-only values; `pnpm check:standalone` asserts `.next/standalone/logitrack-web/server.js` and no traced `.env*` file, and fails on a `NEXT_PUBLIC_` name in app code outside the allow-list (`NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID`; Firebase and App Check until TW7) or on the value of a server-only name (the sentinels, e.g. `GO_API_INTERNAL_URL`) under `.next/static` or in the prerendered `.next/server/app` and `.next/server/pages` output (HTML, RSC payloads and segments, route-handler bodies, `.meta`). The web image build runs the same check without sentinels, so the value scan runs only in CI; pages rendered on demand at request time cannot be covered by a build-time scan.
 4. Job `image`: standalone server into `ghcr.io/smartcode54-bit/logitrack-web:{sha}-dev` and `:{sha}-prod` (public values are inlined at build, from `ENV_DEV_WEB` / `ENV_PROD_WEB`); server-only variables come from compose at runtime.
-5. Job `bundle-budget` (TW9): per-route First Load JS against `logitrack-web/bundle-budget.json`, committed from the first `@next/bundle-analyzer` baseline (today's sizes UNVERIFIED, §19.3); each W10 item lowers its budget.
+5. Job `bundle-budget` (TW9, in `ci.yml`; it runs once item 1 adds the `mv-go` triggers, T14; until then the reviewer runs `pnpm bundle:check` on every web PR into `mv-go`): `pnpm bundle:check` builds with `@next/bundle-analyzer` and compares each route's initial JS with `logitrack-web/bundle-budget.json` (`scripts/bundle-report.mjs`); it fails when xlsx, jspdf, jszip, `@fullcalendar/*`, leaflet or a locale dictionary reaches a route's initial JS, or a route grows more than 5%, and keeps the analyzer HTML as a run artifact. A change that means to grow a route regenerates the budget in the same PR; each later W10 item lowers it.
 6. `flutter analyze` / `flutter test` join at P7 (T55).
 
 ### 17.4 Deploy: single VM with docker compose (R30)
@@ -2840,10 +2842,10 @@ Numbers are stable because other documents cite them. Q1-Q12 come from the appro
 | Item | Why unverified | How measured | When |
 |---|---|---|---|
 | Collection sizes, read volumes, bucket sizes | audit figures are code-path ceilings | count-only `etl dump --dry-run`; Firestore metrics | before P0 (question 7) |
-| Bundle composition (barrels pulling leaflet/xlsx into chunks) | never measured | `@next/bundle-analyzer` (TW9) | P0 |
+| Bundle composition (barrels pulling leaflet/xlsx into chunks) | **Resolved (TW9):** they did; the barrels and static imports put xlsx, xlsx-js-style, jspdf, jszip, leaflet and `@fullcalendar/*` into initial chunks, now removed (Appendix E §E.7.1) | `@next/bundle-analyzer` (TW9) | — |
 | react-leaflet 4.2.1 under React 19.2.3 | expects React 18; `pnpm install` still warns about the peer range (TW2) | smoke test of every map page in a signed-in browser session (not possible in TW2: the pages need a real Firebase sign-in until T18) | P0 (TW3/T18) |
 | 500 ms redirect delay (`web:app/app/layout.tsx:115-132`) still needed | "login loop" not reproduced | removed under `proxy.ts`; login tested | P0 (TW3) |
-| `optimizePackageImports` defaults for `lucide-react` / `date-fns` in Next 16.1.1 | not checked | bundle analyzer | P0 (TW9) |
+| `optimizePackageImports` defaults for `lucide-react` / `date-fns` in Next 16.1.1 | **Resolved (TW9):** both are in Next's default list (`next/dist/server/config.js`); the client bundles hold 131 of 3,824 lucide icons and 58 date-fns modules | bundle analyzer | — |
 | Batching of `setCustomClaims` / `setLoading` (`web:context/auth.tsx:47-49`) | not checked | moot once `['me']` replaces it | P0 (TW4) |
 | "Customer with 0 trips sees every incident" | depends on data | unreachable under server scope | P2 |
 | BFF latency and SSE through Caddy and Next.js | no Go API yet | load test in TW3, TW5 | P0-P1 |
