@@ -106,13 +106,13 @@ func TestJobRoutesBehindAuth(t *testing.T) {
 	}
 	svc, err := auth.New(auth.Config{RefreshTTLWeb: 168 * time.Hour, RefreshTTLMobile: 2160 * time.Hour,
 		PasswordResetTTL: 30 * time.Minute, LoginIP: ratelimit.Limit{Count: 1000, Window: time.Minute}},
-		auth.Deps{Pool: pool, Store: auth.NewStore(rdb, "lt:local:"), Limiter: ratelimit.New(rdb, ks, zerolog.Nop()), Keys: token.New(priv, "http://localhost", "test", 15*time.Minute),
+		auth.Deps{Pool: pool, Store: auth.NewStore(rdb, ks.Prefix()), Limiter: ratelimit.New(rdb, ks, zerolog.Nop()), Keys: token.New(priv, "http://localhost", "test", 15*time.Minute),
 			Hasher: hasher, Policy: policy, Log: zerolog.Nop()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(svc.Close)
-	deps := app.APIDeps{Auth: svc, Jobs: jobs.NewService(pool, jobs.NewRedisLocker(rdb, "lt:local:"))}
+	deps := app.APIDeps{Auth: svc, Jobs: jobs.NewService(pool, jobs.NewRedisLocker(rdb, ks))}
 	cfg := &app.APIConfig{
 		Common:       app.Common{AppEnv: "local", LogLevel: "error", LogFormat: "json", OTelSamplerArg: 1},
 		Runtime:      app.Runtime{MetricsAddr: "127.0.0.1:0", ShutdownTimeout: 3 * time.Second},

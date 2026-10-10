@@ -29,6 +29,7 @@ import (
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/asynctest"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db/pgtest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
@@ -44,7 +45,15 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-const prefix = "lt:local:"
+// localKeyspace is the keyspace of APP_ENV=local (prefix lt:local:), as cache.Open builds it.
+func localKeyspace(t testing.TB) cache.Keyspace {
+	t.Helper()
+	ks, err := cache.NewKeyspace("local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ks
+}
 
 type fixture struct {
 	app   *fiber.App
@@ -74,7 +83,7 @@ func setup(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	f := &fixture{pool: d.Pool(t, db.RoleApp), etl: d.Pool(t, db.RoleETL)}
-	f.locks = jobs.NewRedisLocker(asynctest.SharedRedis(t).Client(t), prefix)
+	f.locks = jobs.NewRedisLocker(asynctest.SharedRedis(t).Client(t), localKeyspace(t))
 	svc := jobs.NewService(f.pool, f.locks)
 	f.app = fiber.New(fiber.Config{ErrorHandler: httpx.ErrorHandler(zerolog.Nop())})
 	f.app.Use(httpx.RequestID())

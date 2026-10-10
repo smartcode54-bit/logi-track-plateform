@@ -192,7 +192,7 @@ func TestPasswordResetMailArrivesInThaiAndEnglish(t *testing.T) {
 	if err := mq.DeclareTopology(conn, mq.Default); err != nil {
 		t.Fatal(err)
 	}
-	rt := realtime.NewWriter(rdb, realtime.NewKeys(prefix), 100, time.Hour)
+	rt := realtime.NewWriter(rdb, ks, 100, time.Hour)
 	relay := outbox.NewRelay(appPool, func() (outbox.Publisher, error) { return mq.NewPublisher(conn) }, rt, outbox.RelayOptions{Log: zerolog.Nop()})
 	if _, err := relay.Drain(ctx); err != nil {
 		t.Fatal(err)
@@ -324,7 +324,11 @@ func TestNotifyEmailJob(t *testing.T) {
 	if err := mq.DeclareTopology(conn, mq.Default); err != nil {
 		t.Fatal(err)
 	}
-	rt := realtime.NewWriter(asynctest.SharedRedis(t).Client(t), realtime.NewKeys(prefix), 100, time.Hour)
+	ks, err := cache.NewKeyspace("local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := realtime.NewWriter(asynctest.SharedRedis(t).Client(t), ks, 100, time.Hour)
 	relay := outbox.NewRelay(appPool, func() (outbox.Publisher, error) { return mq.NewPublisher(conn) }, rt, outbox.RelayOptions{Log: zerolog.Nop()})
 	if _, err := relay.Drain(ctx); err != nil {
 		t.Fatal(err)

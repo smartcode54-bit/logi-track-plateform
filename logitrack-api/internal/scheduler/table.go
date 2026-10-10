@@ -9,6 +9,7 @@ import (
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs/jobsdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db/dbq"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/outbox/outboxdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/realtime"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/scheduler/schedulerdb"
@@ -62,7 +63,9 @@ func Table(pool *pgxpool.Pool, rt *realtime.Writer) []Job {
 		}},
 		{Name: "idempotency.prune", Spec: "0 4 * * *", Kind: Local, Run: func(ctx context.Context) (any, error) {
 			n, err := prune(ctx, func(ctx context.Context) (int64, error) {
-				return schedulerdb.New(pool).PruneIdempotencyKeys(ctx, schedulerdb.PruneIdempotencyKeysParams{Now: time.Now(), BatchSize: pruneBatch})
+				// T09's query: it skips rows a live claim holds (SKIP LOCKED) and rechecks the expiry on
+				// the row it deletes, so a key re-claimed meanwhile is never deleted under its new owner.
+				return dbq.New(pool).IdempotencyPrune(ctx, pruneBatch)
 			})
 			return map[string]any{"deleted": n}, err
 		}},

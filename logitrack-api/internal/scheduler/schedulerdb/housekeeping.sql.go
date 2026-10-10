@@ -53,23 +53,3 @@ func (q *Queries) DeleteSpentPasswordResetTokens(ctx context.Context, now time.T
 	}
 	return result.RowsAffected(), nil
 }
-
-const pruneIdempotencyKeys = `-- name: PruneIdempotencyKeys :execrows
-DELETE FROM idempotency_keys
- WHERE (scope, key) IN (SELECT i.scope, i.key FROM idempotency_keys AS i
-                         WHERE i.expires_at <= $1::timestamptz ORDER BY i.expires_at LIMIT $2::int)
-`
-
-type PruneIdempotencyKeysParams struct {
-	Now       time.Time
-	BatchSize int32
-}
-
-// idempotency.prune (Appendix B §B.5.6): expired durable copies, one batch per call.
-func (q *Queries) PruneIdempotencyKeys(ctx context.Context, arg PruneIdempotencyKeysParams) (int64, error) {
-	result, err := q.db.Exec(ctx, pruneIdempotencyKeys, arg.Now, arg.BatchSize)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}

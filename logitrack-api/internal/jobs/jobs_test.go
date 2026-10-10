@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
 )
 
 func TestCursorRoundTrip(t *testing.T) {
@@ -38,7 +40,11 @@ func TestObjectAndTypes(t *testing.T) {
 			t.Fatal(bad)
 		}
 	}
-	l := NewRedisLocker(nil, "lt:local:")
+	ks, err := cache.NewKeyspace("local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := NewRedisLocker(nil, ks)
 	if l.JobKey("queue.replay", "") != "lt:local:lock:job:queue.replay:all" ||
 		!strings.HasPrefix(l.CronKey("storage.gc", time.Date(2026, 1, 2, 3, 0, 0, 0, time.FixedZone("ICT", 7*3600))), "lt:local:lock:cron:storage.gc:20260101T200000Z") {
 		t.Fatal(l.JobKey("queue.replay", ""), l.CronKey("storage.gc", time.Now()))

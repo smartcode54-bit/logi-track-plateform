@@ -19,7 +19,9 @@ import (
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/asynctest"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db/dbq"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db/pgtest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/migrate/migratetest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/realtime"
@@ -34,6 +36,16 @@ func TestMain(m *testing.M) {
 }
 
 const prefix = "lt:local:"
+
+// localKeyspace is the keyspace of APP_ENV=local (prefix lt:local:), as cache.Open builds it.
+func localKeyspace(t testing.TB) cache.Keyspace {
+	t.Helper()
+	ks, err := cache.NewKeyspace("local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ks
+}
 
 func migrated(t *testing.T) *pgtest.Database {
 	t.Helper()
@@ -66,7 +78,7 @@ func startReplica(t *testing.T, pool *pgxpool.Pool, rdb *redis.Client, withLeade
 	r := &replica{done: make(chan struct{})}
 	table := []scheduler.Job{{Name: "test.tick", Spec: "@every 1s", Kind: scheduler.Local,
 		Run: func(context.Context) (any, error) { r.fires.Add(1); return nil, nil }}}
-	cron, err := scheduler.NewCron(pool, jobs.NewRedisLocker(rdb, prefix), table, zerolog.Nop(), prometheus.NewRegistry())
+	cron, err := scheduler.NewCron(pool, jobs.NewRedisLocker(rdb, localKeyspace(t)), table, zerolog.Nop(), prometheus.NewRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +173,7 @@ func TestCommandCronEnqueuesJobAndOutboxRow(t *testing.T) {
 	d := migrated(t)
 	pool := d.Pool(t, db.RoleApp)
 	rdb := asynctest.SharedRedis(t).Client(t)
-	cron, err := scheduler.NewCron(pool, jobs.NewRedisLocker(rdb, prefix),
+	cron, err := scheduler.NewCron(pool, jobs.NewRedisLocker(rdb, localKeyspace(t)),
 		[]scheduler.Job{{Name: "storage.gc", Spec: "0 * * * *", Kind: scheduler.Command}}, zerolog.Nop(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -260,7 +272,7 @@ func contains(list []string, v string) bool {
 }
 
 // The 04:00 housekeeping: outbox (7 d, published only), consumer_inbox and jobs (30 d), expired
-// idempotency keys, and rtlog.trim.
+// idempotency keys (never one a request is re-claiming meanwhile), and rtlog.trim.
 func TestHousekeeping(t *testing.T) {
 	d := migrated(t)
 	app := d.Pool(t, db.RoleApp)
@@ -283,7 +295,7 @@ func TestHousekeeping(t *testing.T) {
 	exec(`INSERT INTO idempotency_keys (scope, key, request_hash, status, created_at, expires_at) VALUES
 		('u', 'old', 'h', 'in_progress', now() - interval '8 days', now() - interval '1 day'),
 		('u', 'new', 'h', 'in_progress', now(), now() + interval '1 day')`)
-	rt := realtime.NewWriter(rdb, realtime.NewKeys(prefix), 10, time.Hour)
+	rt := realtime.NewWriter(rdb, localKeyspace(t), 10, time.Hour)
 	for i := 1; i <= 30; i++ {
 		rdb.XAdd(ctx, &redis.XAddArgs{Stream: prefix + "rtlog:global", ID: "", Values: []string{"type", "x"}})
 	}
@@ -321,5 +333,47 @@ func TestHousekeeping(t *testing.T) {
 	}
 	if _, ok := table["auth.token-cleanup"]; !ok || table["auth.token-cleanup"].Spec != "*/10 * * * *" {
 		t.Fatal("auth.token-cleanup is not every 10 minutes")
+	}
+
+	// idempotency.prune runs T09's IdempotencyPrune: an expired key that a request is re-claiming
+	// (IdempotencyClaim takes over exactly the expired rows the prune targets) is skipped, not deleted
+	// once the claim commits; a delete there would let a duplicate with that key run again. Other
+	// expired keys still go.
+	exec(`INSERT INTO idempotency_keys (scope, key, request_hash, status, response_code, created_at, expires_at) VALUES
+		('u', 'reclaimed', 'h', 'completed', 201, now() - interval '8 days', now() - interval '1 day'),
+		('u', 'expired', 'h', 'completed', 201, now() - interval '8 days', now() - interval '1 day')`)
+	claim, err := app.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = claim.Rollback(ctx) }()
+	claimedAt, err := dbq.New(claim).IdempotencyClaim(ctx, dbq.IdempotencyClaimParams{
+		Scope: "u", Key: "reclaimed", RequestHash: "h2", TtlSeconds: 86400, LockSeconds: 30})
+	if err != nil || !claimedAt.Valid {
+		t.Fatalf("re-claim of the expired key: %v", err)
+	}
+	pruned := make(chan error, 1)
+	go func() {
+		_, err := table["idempotency.prune"].Run(ctx)
+		pruned <- err
+	}()
+	select {
+	case err := <-pruned:
+		if err != nil {
+			t.Fatalf("idempotency.prune: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		// The prune waits on the claim's row lock: commit, and see what it deletes then.
+		if err := claim.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		<-pruned
+		t.Fatal("idempotency.prune blocked on a key a live request is claiming instead of skipping it")
+	}
+	if err := claim.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n := scalar[string](t, app, `SELECT string_agg(key || ':' || request_hash, ',' ORDER BY key) FROM idempotency_keys`); n != "new:h,reclaimed:h2" {
+		t.Fatalf("idempotency keys left %s, want the live key and the re-claimed one", n)
 	}
 }

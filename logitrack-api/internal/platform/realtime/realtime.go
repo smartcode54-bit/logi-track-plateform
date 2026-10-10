@@ -1,5 +1,7 @@
-// Package realtime is the Redis side of SSE (main spec §8, Appendix B §B.4): the topic catalogue,
-// the keys of the rt: and rtlog: namespaces, and the writer the outbox relay uses to fan an event out.
+// Package realtime is the Redis side of SSE (main spec §8, Appendix B §B.4): the topic catalogue and
+// the writer the outbox relay uses to fan an event out. Its keys and channels in the rt: and rtlog:
+// namespaces are built by cache.Keyspace (RealtimeSeq, RealtimeLog, Channel), like every Redis key of
+// the module (Appendix B §B.6.1).
 // The SSE endpoint, its PSUBSCRIBE loop and Last-Event-ID replay read what this package writes
 // (issue T12).
 //
@@ -25,6 +27,8 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
 )
 
 // Defaults of RTLOG_MAXLEN and RTLOG_TTL (main spec §16.1, Appendix B §B.6.2).
@@ -46,24 +50,6 @@ func ValidTopic(t string) bool { return topicRx.MatchString(t) }
 // Ephemeral reports whether t is published without a replay log (tenant:{tid}:vehicle_locations).
 func Ephemeral(t string) bool { return strings.HasSuffix(t, ":vehicle_locations") }
 
-// Keys builds the realtime keys under one prefix lt:{APP_ENV}: (R26).
-type Keys struct{ prefix string }
-
-// NewKeys returns the keys of a REDIS_KEY_PREFIX value ("lt:{APP_ENV}:").
-func NewKeys(prefix string) Keys { return Keys{prefix: prefix} }
-
-// Seq is the global event sequence rtlog:seq (never reset).
-func (k Keys) Seq() string { return k.prefix + "rtlog:seq" }
-
-// Stream is the replay log rtlog:{topic}.
-func (k Keys) Stream(topic string) string { return k.prefix + "rtlog:" + topic }
-
-// Channel is the pub/sub channel rt:{topic}.
-func (k Keys) Channel(topic string) string { return k.prefix + "rt:" + topic }
-
-// StreamPattern matches every replay log (and the sequence key, which SCAN ... TYPE stream skips).
-func (k Keys) StreamPattern() string { return k.prefix + "rtlog:*" }
-
 // Event is one outbox row with realtime topics.
 type Event struct {
 	Type    string          // outbox_events.event_type
@@ -84,20 +70,21 @@ type Message struct {
 // Writer appends events to the replay logs and publishes them. Only the outbox relay writes.
 type Writer struct {
 	rdb    redis.UniversalClient
-	keys   Keys
+	ks     cache.Keyspace
 	maxLen int64
 	ttl    time.Duration
 }
 
-// NewWriter builds a writer; maxLen and ttl are RTLOG_MAXLEN and RTLOG_TTL (0 = the defaults).
-func NewWriter(rdb redis.UniversalClient, keys Keys, maxLen int64, ttl time.Duration) *Writer {
+// NewWriter builds a writer on the keyspace cache.Open returns (rtlog:seq, rtlog:{topic},
+// rt:{topic}); maxLen and ttl are RTLOG_MAXLEN and RTLOG_TTL (0 = the defaults).
+func NewWriter(rdb redis.UniversalClient, ks cache.Keyspace, maxLen int64, ttl time.Duration) *Writer {
 	if maxLen <= 0 {
 		maxLen = DefaultMaxLen
 	}
 	if ttl <= 0 {
 		ttl = DefaultTTL
 	}
-	return &Writer{rdb: rdb, keys: keys, maxLen: maxLen, ttl: ttl}
+	return &Writer{rdb: rdb, ks: ks, maxLen: maxLen, ttl: ttl}
 }
 
 // publishScript: KEYS = [seq, stream...]; ARGV = [maxlen, ttl ms, type, data, event id,
@@ -138,7 +125,7 @@ func (w *Writer) Publish(ctx context.Context, e Event) (int64, error) {
 	if len(data) == 0 {
 		data = json.RawMessage("{}")
 	}
-	keys := []string{w.keys.Seq()}
+	keys := []string{w.ks.RealtimeSeq()}
 	args := []any{w.maxLen, w.ttl.Milliseconds(), e.Type, string(data), e.EventID}
 	seen := map[string]bool{}
 	for _, t := range e.Topics {
@@ -150,13 +137,13 @@ func (w *Writer) Publish(ctx context.Context, e Event) (int64, error) {
 		}
 		seen[t] = true
 		if !Ephemeral(t) {
-			keys = append(keys, w.keys.Stream(t))
+			keys = append(keys, w.ks.RealtimeLog(t))
 		}
 		tail, err := messageTail(t, e.Type, e.EventID, data)
 		if err != nil {
 			return 0, err
 		}
-		args = append(args, w.keys.Channel(t), tail)
+		args = append(args, w.ks.Channel(t), tail)
 	}
 	n, err := publishScript.Run(ctx, w.rdb, keys, args...).Int64()
 	if err != nil {
@@ -181,12 +168,14 @@ func messageTail(topic, typ, eventID string, data json.RawMessage) (string, erro
 
 // Trim is the rtlog.trim housekeeping job (Appendix B §B.5.6): every replay log is cut to exactly
 // RTLOG_MAXLEN entries (XADD trims only approximately, by whole nodes) and gets RTLOG_TTL if it has no
-// expiry. It returns the number of streams seen.
+// expiry. It returns the number of streams seen. The scan pattern covers the rtlog: namespace, the
+// sequence key included, which SCAN ... TYPE stream skips.
 func (w *Writer) Trim(ctx context.Context) (int, error) {
+	pattern := w.ks.Pattern(cache.NSRealtimeLog)
 	var cursor uint64
 	n := 0
 	for {
-		keys, next, err := w.rdb.ScanType(ctx, cursor, w.keys.StreamPattern(), 200, "stream").Result()
+		keys, next, err := w.rdb.ScanType(ctx, cursor, pattern, 200, "stream").Result()
 		if err != nil {
 			return n, fmt.Errorf("realtime: scan replay logs: %w", err)
 		}

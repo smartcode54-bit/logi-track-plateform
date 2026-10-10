@@ -74,7 +74,7 @@ func (h *harness) relayDrain() *nopPublisher {
 	h.t.Helper()
 	pub := &nopPublisher{}
 	relay := outbox.NewRelay(h.pool, func() (outbox.Publisher, error) { return pub, nil },
-		realtime.NewWriter(h.rdb, realtime.NewKeys(h.prefix), 1000, time.Hour), outbox.RelayOptions{
+		realtime.NewWriter(h.rdb, h.ks, 1000, time.Hour), outbox.RelayOptions{
 			Log: zerolog.Nop(),
 			Hooks: map[string]outbox.Hook{
 				auth.RouteSessionsRevoked: auth.RevocationHook(h.pool, auth.NewStore(h.rdb, h.prefix), 15*time.Minute, zerolog.Nop()),

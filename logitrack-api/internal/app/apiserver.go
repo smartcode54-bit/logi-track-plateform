@@ -125,7 +125,7 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		svc.Close()
 		closeConns()
 	}
-	a, err := build(APIDeps{Auth: svc, Jobs: jobs.NewService(pool, jobs.NewRedisLocker(rdb, ks.Prefix()))})
+	a, err := build(APIDeps{Auth: svc, Jobs: jobs.NewService(pool, jobs.NewRedisLocker(rdb, ks))})
 	if err != nil {
 		closeAll()
 		return nil, nil, err

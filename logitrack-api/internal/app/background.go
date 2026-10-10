@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -12,12 +11,12 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	amqp "github.com/rabbitmq/amqp091-go"
-	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/notify"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/email"
@@ -228,8 +227,9 @@ func runConsumers(ctx context.Context, conn *amqp.Connection, regs []mq.Registra
 
 // RunScheduler is the scheduler process (main spec §7.1, §7.4): every replica campaigns for the
 // advisory lock; the leader runs the Bangkok cron table, the outbox relay (with auth's revocation hook
-// on user.sessions_revoked, Appendix C §C.4.7) and the queue replays. Readiness needs PostgreSQL and
-// Redis on every replica and the broker connection on the leader only.
+// on user.sessions_revoked, Appendix C §C.4.7, and the cache invalidation of every relayed event,
+// Appendix B §B.6.1) and the queue replays. Readiness needs PostgreSQL and Redis on every replica and
+// the broker connection on the leader only.
 func RunScheduler(ctx context.Context, stdout, stderr io.Writer) int {
 	return runBackground(ctx, "scheduler", stdout, stderr,
 		func(c *SchedulerConfig) (Common, Runtime) { return c.Common, c.Runtime },
@@ -238,13 +238,23 @@ func RunScheduler(ctx context.Context, stdout, stderr io.Writer) int {
 			if err != nil {
 				return background{}, &config.Error{Invalid: []string{"DATABASE_URL: " + err.Error()}}
 			}
-			rdb, err := newRedis(cfg.Redis)
-			if err != nil {
+			// The process's one Redis client and keyspace, as in the api (T09): context deadlines honoured
+			// with bounded socket and pool timeouts, the money-path guard, and go-redis's own log lines
+			// through the redacting logger. Every key below is built by ks.
+			cache.RouteDriverLogs(log)
+			rdb, ks, err := cache.Open(cache.Options{URL: cfg.RedisURL, Prefix: cfg.RedisKeyPrefix, AppEnv: cfg.AppEnv, TLS: cfg.RedisTLS})
+			if err != nil { // never carries the URL
 				pool.Close()
-				return background{}, err
+				return background{}, &config.Error{Invalid: []string{err.Error()}}
 			}
-			locks := jobs.NewRedisLocker(rdb, cfg.RedisKeyPrefix)
-			rt := realtime.NewWriter(rdb, realtime.NewKeys(cfg.RedisKeyPrefix), cfg.RTLogMaxLen, cfg.RTLogTTL)
+			invalidator := cache.New(rdb, ks, cache.WithLogger(log))
+			if err := invalidator.Register(m.Registry); err != nil {
+				pool.Close()
+				_ = rdb.Close()
+				return background{}, fmt.Errorf("register cache metrics: %w", err)
+			}
+			locks := jobs.NewRedisLocker(rdb, ks)
+			rt := realtime.NewWriter(rdb, ks, cfg.RTLogMaxLen, cfg.RTLogTTL)
 			cron, err := scheduler.NewCron(pool, locks, scheduler.Table(pool, rt), log, m.Registry)
 			if err != nil {
 				pool.Close()
@@ -258,7 +268,7 @@ func RunScheduler(ctx context.Context, stdout, stderr io.Writer) int {
 			log.Info().Strs("pending_crons", pending).Msg("cron jobs whose consumer lands later are not scheduled")
 			relayMetrics := outbox.NewRelayMetrics(m.Registry)
 			hooks := map[string]outbox.Hook{
-				auth.RouteSessionsRevoked: auth.RevocationHook(pool, auth.NewStore(rdb, cfg.RedisKeyPrefix), cfg.JWTAccessTTL, log),
+				auth.RouteSessionsRevoked: auth.RevocationHook(pool, auth.NewStore(rdb, ks.Prefix()), cfg.JWTAccessTTL, log),
 			}
 			probe := &mq.ConnProbe{}
 			leader := scheduler.NewLeader(pool, log, m.Registry)
@@ -268,7 +278,8 @@ func RunScheduler(ctx context.Context, stdout, stderr io.Writer) int {
 				Dial:   func() (*amqp.Connection, error) { return mq.Dial(cfg.RabbitMQURL, "logitrack-scheduler") },
 				NewRelay: func(conn *amqp.Connection) *outbox.Relay {
 					return outbox.NewRelay(pool, func() (outbox.Publisher, error) { return mq.NewPublisher(conn) }, rt,
-						outbox.RelayOptions{Interval: cfg.RelayInterval, BatchSize: cfg.BatchSize, Hooks: hooks, Log: log, Metrics: relayMetrics})
+						outbox.RelayOptions{Interval: cfg.RelayInterval, BatchSize: cfg.BatchSize, Hooks: hooks, Cache: invalidator,
+							Log: log, Metrics: relayMetrics})
 				},
 				Replayer: jobs.NewReplayer(pool, mq.Default, locks, log),
 				AMQP:     probe,
@@ -294,23 +305,4 @@ func RunScheduler(ctx context.Context, stdout, stderr io.Writer) int {
 				},
 			}, nil
 		})
-}
-
-// newRedis builds the client of REDIS_URL (+ REDIS_TLS) without dialling. An unreachable Redis fails
-// fast (2 s dial, 2 retries) unless the URL sets its own timeouts; errors never carry the URL.
-func newRedis(r Redis) (*redis.Client, error) {
-	opts, err := redis.ParseURL(r.RedisURL)
-	if err != nil {
-		return nil, &config.Error{Invalid: []string{"REDIS_URL: not a valid redis URL"}}
-	}
-	if r.RedisTLS && opts.TLSConfig == nil {
-		opts.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
-	}
-	if opts.DialTimeout == 0 {
-		opts.DialTimeout = 2 * time.Second
-	}
-	if opts.DialerRetries == 0 {
-		opts.DialerRetries = 2
-	}
-	return redis.NewClient(opts), nil
 }

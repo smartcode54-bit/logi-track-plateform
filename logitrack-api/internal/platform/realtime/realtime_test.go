@@ -3,6 +3,8 @@ package realtime
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
 )
 
 func TestTopicCatalogue(t *testing.T) {
@@ -29,9 +31,14 @@ func TestTopicCatalogue(t *testing.T) {
 }
 
 func TestKeysAndMessageTail(t *testing.T) {
-	k := NewKeys("lt:dev:")
-	if k.Seq() != "lt:dev:rtlog:seq" || k.Stream("global") != "lt:dev:rtlog:global" || k.Channel("global") != "lt:dev:rt:global" {
-		t.Fatal(k.Seq(), k.Stream("global"), k.Channel("global"))
+	// The wire names of Appendix B §B.4.4, built by cache.Keyspace.
+	k, err := cache.NewKeyspace("dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k.RealtimeSeq() != "lt:dev:rtlog:seq" || k.RealtimeLog("global") != "lt:dev:rtlog:global" ||
+		k.Channel("global") != "lt:dev:rt:global" || k.Pattern(cache.NSRealtimeLog) != "lt:dev:rtlog:*" {
+		t.Fatal(k.RealtimeSeq(), k.RealtimeLog("global"), k.Channel("global"), k.Pattern(cache.NSRealtimeLog))
 	}
 	tail, err := messageTail("global", "hubs.changed", "e1", json.RawMessage(`{"ids":["a"]}`))
 	if err != nil {

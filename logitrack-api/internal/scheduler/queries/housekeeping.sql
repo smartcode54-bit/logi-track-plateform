@@ -14,9 +14,3 @@ DELETE FROM password_reset_tokens WHERE used_at IS NOT NULL OR expires_at < @now
 -- auth.token-cleanup: sessions revoked, or past absolute_expires_at, more than 30 days ago (their
 -- refresh tokens go with them, ON DELETE CASCADE).
 DELETE FROM sessions WHERE revoked_at < @cutoff::timestamptz OR absolute_expires_at < @cutoff::timestamptz;
-
--- name: PruneIdempotencyKeys :execrows
--- idempotency.prune (Appendix B §B.5.6): expired durable copies, one batch per call.
-DELETE FROM idempotency_keys
- WHERE (scope, key) IN (SELECT i.scope, i.key FROM idempotency_keys AS i
-                         WHERE i.expires_at <= @now::timestamptz ORDER BY i.expires_at LIMIT @batch_size::int);

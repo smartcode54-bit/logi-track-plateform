@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
 )
 
 // Locker is the lock: namespace of Redis (Appendix B §B.6.2). Holders are job ids (or a scheduler
@@ -22,15 +24,16 @@ type Locker interface {
 	CronKey(job string, scheduledFor time.Time) string
 }
 
-// RedisLocker implements Locker under the prefix lt:{APP_ENV}: (R26).
+// RedisLocker implements Locker in the lock: namespace of a keyspace lt:{APP_ENV}: (R26).
 type RedisLocker struct {
-	rdb    redis.UniversalClient
-	prefix string
+	rdb redis.UniversalClient
+	ks  cache.Keyspace
 }
 
-// NewRedisLocker builds a locker; prefix is REDIS_KEY_PREFIX.
-func NewRedisLocker(rdb redis.UniversalClient, prefix string) *RedisLocker {
-	return &RedisLocker{rdb: rdb, prefix: prefix}
+// NewRedisLocker builds a locker on the client and keyspace cache.Open returns: its keys are built
+// only through cache.Keyspace (JobLock, CronLock; Appendix B §B.6.1).
+func NewRedisLocker(rdb redis.UniversalClient, ks cache.Keyspace) *RedisLocker {
+	return &RedisLocker{rdb: rdb, ks: ks}
 }
 
 // JobKey implements Locker. An empty scope is "all".
@@ -38,12 +41,12 @@ func (l *RedisLocker) JobKey(jobType, scope string) string {
 	if scope == "" {
 		scope = "all"
 	}
-	return l.prefix + "lock:job:" + jobType + ":" + scope
+	return l.ks.JobLock(jobType, scope)
 }
 
 // CronKey implements Locker; scheduledFor is written in UTC with second precision.
 func (l *RedisLocker) CronKey(job string, scheduledFor time.Time) string {
-	return l.prefix + "lock:cron:" + job + ":" + scheduledFor.UTC().Format("20060102T150405Z")
+	return l.ks.CronLock(job, scheduledFor.UTC().Format("20060102T150405Z"))
 }
 
 // Acquire implements Locker.

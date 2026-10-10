@@ -2,8 +2,8 @@
 
 // Acceptance tests of the outbox and its relay (issue T10) on postgres:18-alpine, RabbitMQ and Redis:
 // a committed event is delivered and a rolled-back one never is, the relay wakes on NOTIFY, a failed
-// publish stops the batch and is retried, and realtime ids are {seq}-0 and strictly increasing across
-// topics.
+// publish stops the batch and is retried, realtime ids are {seq}-0 and strictly increasing across
+// topics, and every relayed event drops the cache: keys it makes stale.
 package outbox_test
 
 import (
@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -23,6 +24,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/asynctest"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db/pgtest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/migrate/migratetest"
@@ -44,8 +46,18 @@ type env struct {
 	pool  *pgxpool.Pool
 	conn  *amqp.Connection
 	rdb   *redis.Client
+	ks    cache.Keyspace
 	rt    *realtime.Writer
 	relay *outbox.Relay
+}
+
+func localKeyspace(t testing.TB) cache.Keyspace {
+	t.Helper()
+	ks, err := cache.NewKeyspace("local")
+	if err != nil || ks.Prefix() != prefix {
+		t.Fatalf("keyspace %q (%v), want %s", ks.Prefix(), err, prefix)
+	}
+	return ks
 }
 
 // setup migrates a fresh database, opens a vhost with the Appendix B topology plus a tap queue that
@@ -56,7 +68,7 @@ func setup(t *testing.T, interval time.Duration) *env {
 	if _, err := migratetest.Runner(t, d, migrations.FS).Up(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	e := &env{pool: d.Pool(t, db.RoleApp), rdb: asynctest.SharedRedis(t).Client(t)}
+	e := &env{pool: d.Pool(t, db.RoleApp), rdb: asynctest.SharedRedis(t).Client(t), ks: localKeyspace(t)}
 	url, _ := asynctest.SharedRabbit(t).VHost(t)
 	conn, err := mq.Dial(url, "test")
 	if err != nil {
@@ -78,7 +90,7 @@ func setup(t *testing.T, interval time.Duration) *env {
 	if err := ch.QueueBind("tap", "#", mq.ExchangeEvents, false, nil); err != nil {
 		t.Fatal(err)
 	}
-	e.rt = realtime.NewWriter(e.rdb, realtime.NewKeys(prefix), 1000, time.Hour)
+	e.rt = realtime.NewWriter(e.rdb, e.ks, 1000, time.Hour)
 	e.relay = outbox.NewRelay(e.pool, func() (outbox.Publisher, error) { return mq.NewPublisher(conn) }, e.rt,
 		outbox.RelayOptions{Interval: interval, Log: zerolog.Nop(), Metrics: outbox.NewRelayMetrics(prometheus.NewRegistry())})
 	return e
@@ -347,7 +359,7 @@ func TestRealtimeIDsAreGlobalAndIncreasing(t *testing.T) {
 func TestRealtimeSequenceSkipsPastAStreamAhead(t *testing.T) {
 	rdb := asynctest.SharedRedis(t).Client(t)
 	ctx := context.Background()
-	w := realtime.NewWriter(rdb, realtime.NewKeys(prefix), 1000, time.Hour)
+	w := realtime.NewWriter(rdb, localKeyspace(t), 1000, time.Hour)
 	if err := rdb.XAdd(ctx, &redis.XAddArgs{Stream: prefix + "rtlog:global", ID: "100-0", Values: []string{"type", "x"}}).Err(); err != nil {
 		t.Fatal(err)
 	}
@@ -451,5 +463,124 @@ func TestRelayHookRunsBeforePublish(t *testing.T) {
 	}
 	if got := drainTap(t, e.conn); len(got) != 2 || got[0].RoutingKey != "user.sessions_revoked" {
 		t.Fatalf("broker received %d messages", len(got))
+	}
+}
+
+// flakyCache fails its first fails calls (Redis down), then invalidates through next.
+type flakyCache struct {
+	next  outbox.Invalidator
+	fails int
+	calls int
+}
+
+func (f *flakyCache) OnEvent(ctx context.Context, ev cache.Event) error {
+	f.calls++
+	if f.calls <= f.fails {
+		return errors.New("dial tcp: connection refused")
+	}
+	return f.next.OnEvent(ctx, ev)
+}
+
+// Every relayed row goes through Cache.OnEvent before it is published (Appendix B §B.6.1): a relayed
+// ratecard.changed drops cache:ratecard:{billingPartyId}, and tenant.updated, whose only invalidation
+// path is the relay (outbox only, §B.4.3), drops cache:tenant:own_fleet and the reach lists of both
+// contractors; the deleted keys are announced on rt:cache and the family generations move. A failed
+// invalidation stops the batch at that row like the realtime step, before anything reaches the broker.
+func TestRelayInvalidatesTheCache(t *testing.T) {
+	e := setup(t, time.Hour)
+	ctx := context.Background()
+	const (
+		party      = "0199c000-0000-7000-8000-00000000c001"
+		carrier    = "0199c000-0000-7000-8000-00000000d001"
+		contractor = "0199c000-0000-7000-8000-00000000d002"
+		previous   = "0199c000-0000-7000-8000-00000000d003"
+	)
+	ks := e.ks
+	stale := []string{ks.RateCard(party), ks.TenantOwnFleet(), ks.TenantSubtenants(contractor), ks.TenantSubtenants(previous)}
+	kept := []string{ks.RateCard("0199c000-0000-7000-8000-00000000c002"), ks.TenantSubtenants("0199c000-0000-7000-8000-00000000d004")}
+	for _, k := range append(slices.Clone(stale), kept...) {
+		if err := e.rdb.Set(ctx, k, `{}`, time.Hour).Err(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sub := e.rdb.Subscribe(ctx, ks.CacheChannel())
+	defer func() { _ = sub.Close() }()
+	if _, err := sub.Receive(ctx); err != nil {
+		t.Fatal(err)
+	}
+	fc := &flakyCache{next: cache.New(e.rdb, ks), fails: 1}
+	relay := outbox.NewRelay(e.pool, func() (outbox.Publisher, error) { return mq.NewPublisher(e.conn) }, e.rt,
+		outbox.RelayOptions{Log: zerolog.Nop(), Cache: fc})
+	ids := appendIn(t, e.pool, true,
+		outbox.Event{RoutingKey: "ratecard.changed", AggregateType: "billing_party", AggregateID: party,
+			Payload: map[string]any{"billingPartyId": party}},
+		outbox.Event{RoutingKey: "tenant.updated", AggregateType: "tenant", AggregateID: carrier,
+			Payload: map[string]any{"contractorTenantId": contractor, "previousContractorTenantId": previous}},
+		trip("after-cache"))
+
+	if n, err := relay.Drain(ctx); err == nil || n != 0 || !strings.Contains(err.Error(), "cache invalidation") {
+		t.Fatalf("drain with Redis down published %d (%v), want 0 and a cache invalidation error", n, err)
+	}
+	if got := drainTap(t, e.conn); len(got) != 0 {
+		t.Fatalf("the broker received %d messages before the invalidation succeeded", len(got))
+	}
+	var attempts int
+	if err := e.pool.QueryRow(ctx, `SELECT attempts FROM outbox_events WHERE id = $1`, ids[0].ID).Scan(&attempts); err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 1 {
+		t.Fatalf("the failed row has %d attempts, want 1", attempts)
+	}
+
+	if n, err := relay.Drain(ctx); err != nil || n != 3 {
+		t.Fatalf("drain after recovery published %d (%v), want 3", n, err)
+	}
+	if n := e.rdb.Exists(ctx, stale...).Val(); n != 0 {
+		t.Fatalf("%d of the stale keys %v survived the relay", n, stale)
+	}
+	if n := e.rdb.Exists(ctx, kept...).Val(); n != int64(len(kept)) {
+		t.Fatalf("keys of other parties and contractors were dropped: %d of %d left", n, len(kept))
+	}
+	for _, family := range []string{"ratecard", "tenant"} {
+		if gen, err := e.rdb.Get(ctx, ks.CacheGen(family)).Int(); err != nil || gen != 1 {
+			t.Fatalf("cache:gen:%s = %d (%v), want 1", family, gen, err)
+		}
+	}
+	// One rt:cache message per event that dropped keys, carrying the full keys.
+	var announced []string
+	for range 2 {
+		rctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		msg, err := sub.ReceiveMessage(rctx)
+		cancel()
+		if err != nil {
+			t.Fatalf("rt:cache: %v", err)
+		}
+		var inv struct {
+			Keys []string `json:"keys"`
+		}
+		if err := json.Unmarshal([]byte(msg.Payload), &inv); err != nil {
+			t.Fatalf("rt:cache payload %s: %v", msg.Payload, err)
+		}
+		announced = append(announced, inv.Keys...)
+	}
+	slices.Sort(announced)
+	if want := slices.Sorted(slices.Values(stale)); !slices.Equal(announced, want) {
+		t.Fatalf("rt:cache announced %v, want %v", announced, want)
+	}
+	var order []string
+	for _, d := range drainTap(t, e.conn) {
+		order = append(order, d.RoutingKey)
+	}
+	if strings.Join(order, ",") != "ratecard.changed,tenant.updated,trip.delivered" {
+		t.Fatalf("broker received %v", order)
+	}
+	// Every row goes through OnEvent; trip.delivered makes nothing stale and is not announced.
+	if fc.calls != 4 {
+		t.Fatalf("OnEvent ran %d times, want 4 (one failure, then each of the three rows)", fc.calls)
+	}
+	rctx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
+	defer cancel()
+	if msg, err := sub.ReceiveMessage(rctx); err == nil {
+		t.Fatalf("unexpected rt:cache message %s", msg.Payload)
 	}
 }

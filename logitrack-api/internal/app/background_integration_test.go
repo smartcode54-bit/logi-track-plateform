@@ -1,22 +1,26 @@
 //go:build integration
 
 // The worker and scheduler processes as cmd/worker and cmd/scheduler run them (T10): configuration from
-// the environment, the leader's relay woken by NOTIFY, the worker's topology assertion and the
-// notify.email consumer, a clean exit on cancellation.
+// the environment, the leader's relay woken by NOTIFY and dropping the cache: keys of what it relays,
+// the worker's topology assertion and the notify.email consumer, a clean exit on cancellation.
 package app_test
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/app"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/asynctest"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db/pgtest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/migrate/migratetest"
@@ -32,10 +36,11 @@ func TestWorkerAndSchedulerProcesses(t *testing.T) {
 		t.Fatal(err)
 	}
 	amqpURL, _ := asynctest.SharedRabbit(t).VHost(t)
+	redisURL := asynctest.SharedRedis(t).URL(t)
 	mp := asynctest.StartMailpit(t)
 	for k, v := range map[string]string{
 		"APP_ENV": "local", "LOG_LEVEL": "error", "METRICS_ADDR": "127.0.0.1:0", "SHUTDOWN_TIMEOUT": "5s",
-		"DATABASE_URL": d.URL(db.RoleApp), "RABBITMQ_URL": amqpURL, "REDIS_URL": asynctest.SharedRedis(t).URL(t),
+		"DATABASE_URL": d.URL(db.RoleApp), "RABBITMQ_URL": amqpURL, "REDIS_URL": redisURL,
 		"WORKER_CONSUMERS": "notify", "EMAIL_ENABLED": "true", "SMTP_HOST": mp.SMTPHost,
 		"SMTP_PORT": strconv.Itoa(mp.SMTPPort), "SMTP_FROM": "no-reply@logitrack.test", "SMTP_STARTTLS": "false",
 		"PUBLIC_WEB_BASE_URL": "http://localhost:3000", "OUTBOX_RELAY_INTERVAL": "1m", // only NOTIFY wakes the relay
@@ -89,8 +94,33 @@ func TestWorkerAndSchedulerProcesses(t *testing.T) {
 
 	ready := func(r readiness) bool { return r.status == http.StatusOK }
 
-	// Scheduler: elected leader, its relay wakes on NOTIFY (the tick is a minute) and publishes; ready
-	// once PostgreSQL and Redis answer and the leader holds its broker connection.
+	// The scheduler's Redis database, with cache: keys a tenant.updated makes stale (Appendix B §B.6.1).
+	ropts, err := redis.ParseURL(redisURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rdb := redis.NewClient(ropts)
+	defer func() { _ = rdb.Close() }()
+	ks, err := cache.NewKeyspace("local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const contractor = "0199c000-0000-7000-8000-00000000d002"
+	stale := []string{ks.TenantOwnFleet(), ks.TenantSubtenants(contractor)}
+	for _, k := range stale {
+		if err := rdb.Set(ctx, k, `[]`, time.Hour).Err(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cacheSub := rdb.Subscribe(ctx, ks.CacheChannel())
+	defer func() { _ = cacheSub.Close() }()
+	if _, err := cacheSub.Receive(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// Scheduler: elected leader, its relay wakes on NOTIFY (the tick is a minute), drops the cache: keys
+	// of what it relays and publishes; ready once PostgreSQL and Redis answer and the leader holds its
+	// broker connection.
 	saddr := freeAddr(t)
 	t.Setenv("METRICS_ADDR", saddr)
 	stopScheduler := run(app.RunScheduler)
@@ -105,10 +135,30 @@ func TestWorkerAndSchedulerProcesses(t *testing.T) {
 		AggregateID: user.String(), Payload: map[string]any{"userId": user, "purpose": "reset", "locale": "en"}}); err != nil {
 		t.Fatal(err)
 	}
+	// tenant.updated reaches no client (outbox only): the relay is its cache invalidation.
+	if _, err := outbox.Append(ctx, tx, outbox.Event{RoutingKey: "tenant.updated", AggregateType: "tenant",
+		AggregateID: "0199c000-0000-7000-8000-00000000d001", Payload: map[string]any{"contractorTenantId": contractor}}); err != nil {
+		t.Fatal(err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
 	asynctest.Eventually(t, 10*time.Second, "the relayed event in notify.email", func() bool { return queued() == 1 })
+	asynctest.Eventually(t, 10*time.Second, "the cache: keys of the relayed tenant.updated dropped", func() bool {
+		return rdb.Exists(ctx, stale...).Val() == 0
+	})
+	rctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	msg, err := cacheSub.ReceiveMessage(rctx)
+	cancel()
+	if err != nil {
+		t.Fatalf("rt:cache: %v", err)
+	}
+	var inv struct {
+		Keys []string `json:"keys"`
+	}
+	if err := json.Unmarshal([]byte(msg.Payload), &inv); err != nil || !slices.Equal(slices.Sorted(slices.Values(inv.Keys)), slices.Sorted(slices.Values(stale))) {
+		t.Fatalf("rt:cache announced %s (%v), want %v", msg.Payload, err, stale)
+	}
 	stopScheduler()
 
 	// Worker: asserts the topology, consumes notify.email and mails the link; ready with PostgreSQL and

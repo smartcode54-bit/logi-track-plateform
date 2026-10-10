@@ -14,6 +14,7 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/rs/zerolog"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/mq"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/outbox/outboxdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/realtime"
@@ -42,6 +43,13 @@ type Realtime interface {
 	Publish(ctx context.Context, e realtime.Event) (int64, error)
 }
 
+// Invalidator drops the cache: keys an event makes stale and announces them on rt:cache
+// (cache.Cache.OnEvent, Appendix B §B.6.1). It does nothing, without a Redis call, for a routing key
+// outside cache.InvalidatingEvents.
+type Invalidator interface {
+	OnEvent(ctx context.Context, ev cache.Event) error
+}
+
 // Hook is idempotent work the relay does for every row of one routing key before publishing it, so
 // it happens at least once per committed event: auth re-applies its revocation markers from
 // user.sessions_revoked (Appendix C §C.4.7). payload is the row's JSON payload. An error is handled
@@ -53,8 +61,13 @@ type RelayOptions struct {
 	Interval  time.Duration // OUTBOX_RELAY_INTERVAL: fallback tick behind LISTEN
 	BatchSize int           // OUTBOX_BATCH_SIZE
 	Hooks     map[string]Hook
-	Log       zerolog.Logger
-	Metrics   *RelayMetrics
+	// Cache receives every row before it is published (nil = no cache invalidation). For
+	// tenant.created and tenant.updated, which no client hears of (outbox only, Appendix B §B.4.3),
+	// this is the guaranteed invalidation path; for the other events of cache.InvalidatingEvents it is
+	// the second chance behind the service's post-commit call.
+	Cache   Invalidator
+	Log     zerolog.Logger
+	Metrics *RelayMetrics
 }
 
 // Relay moves committed outbox rows to RabbitMQ and Redis. Run it in one process only (the scheduler
@@ -184,10 +197,11 @@ func (r *Relay) Drain(ctx context.Context) (int, error) {
 	}
 }
 
-// batch relays at most BatchSize rows in one transaction. A hook, publish or realtime failure stops
-// the batch at that row: the rows before it are marked published, the failing row records attempts and
-// last_error, and it is retried with everything after it on the next round (at-least-once, id order).
-// A row whose publish was confirmed before its realtime step failed is not published again.
+// batch relays at most BatchSize rows in one transaction. A hook, cache invalidation, publish or
+// realtime failure stops the batch at that row: the rows before it are marked published, the failing
+// row records attempts and last_error, and it is retried with everything after it on the next round
+// (at-least-once, id order). A row whose publish was confirmed before its realtime step failed is not
+// published again.
 func (r *Relay) batch(ctx context.Context) (published int, full bool, err error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -230,10 +244,24 @@ func (r *Relay) batch(ctx context.Context) (published int, full bool, err error)
 	return len(done), len(rows) == r.opt.BatchSize, nil
 }
 
+// relayRow runs the steps of one row in order: its hook, the cache invalidation, the AMQP publish
+// (skipped when the broker already confirmed it), the realtime fan-out. The cache step comes before
+// anything that makes the event visible, so a consumer or an SSE client that reacts to it never
+// re-reads a cache: value the event made stale. Hooks and the invalidation are idempotent and repeat
+// on a retry.
 func (r *Relay) relayRow(ctx context.Context, row outboxdb.LockBatchRow) error {
 	if hook := r.opt.Hooks[row.RoutingKey]; hook != nil {
 		if err := hook(ctx, row.Payload); err != nil {
 			return fmt.Errorf("hook: %w", err)
+		}
+	}
+	if r.opt.Cache != nil {
+		// A failure stops the batch like the realtime step (developer-spec §7.1): the invalidation is
+		// at-least-once, so a cache: key never outlives its event by a TTL because Redis blinked.
+		if err := r.opt.Cache.OnEvent(ctx, cache.Event{
+			RoutingKey: row.RoutingKey, AggregateID: row.AggregateID, Payload: row.Payload,
+		}); err != nil {
+			return fmt.Errorf("cache invalidation: %w", err)
 		}
 	}
 	if r.confirmed != row.ID {
