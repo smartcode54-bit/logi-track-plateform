@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/google"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/password"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/token"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
@@ -73,10 +74,23 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 	}
 	store := auth.NewStore(rdb, cfg.RedisKeyPrefix)
 
+	deps := auth.Deps{Pool: pool, Store: store, Keys: keys, Hasher: hasher, Policy: policy, Log: log}
+	if len(cfg.GoogleClientIDs) > 0 {
+		// No I/O here: discovery and keys are fetched on the first Google sign-in, so the api starts
+		// while Google is unreachable (Appendix C §C.4.10).
+		gv, err := google.New(google.Config{ClientIDs: cfg.GoogleClientIDs})
+		if err != nil {
+			closeAll()
+			return nil, nil, &config.Error{Invalid: []string{"GOOGLE_OIDC_ALLOWED_CLIENT_IDS: " + err.Error()}}
+		}
+		deps.Google = gv
+	} else {
+		log.Info().Msg("Google sign-in off: GOOGLE_OIDC_ALLOWED_CLIENT_IDS is unset (/v1/auth/google* answer 404)")
+	}
 	svc, err := auth.New(auth.Config{
 		RefreshTTLWeb: cfg.RefreshTTLWeb, RefreshTTLMobile: cfg.RefreshTTLMobile, PasswordResetTTL: cfg.PasswordResetTTL,
 		Scrypt: cfg.Scrypt, RateLimitEnabled: cfg.RateLimitEnabled, LoginIP: cfg.LoginRate,
-	}, auth.Deps{Pool: pool, Store: store, Keys: keys, Hasher: hasher, Policy: policy, Log: log})
+	}, deps)
 	if err != nil {
 		closeAll()
 		return nil, nil, err

@@ -14,9 +14,9 @@ import (
 
 // Groups are the route groups of this package (Appendix B §B.2.2, §B.2.3):
 //
-//   - /v1/auth (public listener and internal): login, refresh, logout, logout-all, tenant, password
-//     forgot / reset / change, sse-ticket. Google sign-in (T06) and the session exchange (T08, P7a)
-//     join this group.
+//   - /v1/auth (public listener and internal): login, google/nonce and google (T06), refresh, logout,
+//     logout-all, tenant, password forgot / reset / change, sse-ticket. The session exchange (T08, P7a)
+//     joins this group.
 //   - /v1/me (internal only): GET/PATCH /v1/me, GET /v1/me/tenants, GET /v1/me/sessions,
 //     DELETE /v1/me/sessions/{sid}. The driver-app aliases under /v1/mobile/me* come with the mobile
 //     group (T55).
@@ -35,6 +35,8 @@ func (s *Service) Groups() []ingress.Group {
 func (s *Service) mountAuth(r fiber.Router) {
 	r.Use(noStore)
 	r.Post("/login", s.handleLogin)
+	r.Get("/google/nonce", s.handleGoogleNonce)
+	r.Post("/google", s.handleGoogle)
 	r.Post("/refresh", s.handleRefresh)
 	r.Post("/logout", s.handleLogout)
 	r.Post("/logout-all", s.RequireAuth(), s.handleLogoutAll)
@@ -76,6 +78,27 @@ func (s *Service) handleLogin(c fiber.Ctx) error {
 	}
 	in.IP, in.UserAgent, in.RequestID = httpx.ClientIPFrom(c), c.Get(fiber.HeaderUserAgent), httpx.RequestIDFrom(c)
 	res, err := s.Login(c.Context(), in)
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(c, http.StatusOK, res)
+}
+
+func (s *Service) handleGoogleNonce(c fiber.Ctx) error {
+	res, err := s.GoogleNonce(c.Context(), httpx.ClientIPFrom(c))
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(c, http.StatusOK, res)
+}
+
+func (s *Service) handleGoogle(c fiber.Ctx) error {
+	var in GoogleInput
+	if err := httpx.DecodeJSON(c, &in); err != nil {
+		return err
+	}
+	in.IP, in.UserAgent, in.RequestID = httpx.ClientIPFrom(c), c.Get(fiber.HeaderUserAgent), httpx.RequestIDFrom(c)
+	res, err := s.GoogleSignIn(c.Context(), in)
 	if err != nil {
 		return err
 	}

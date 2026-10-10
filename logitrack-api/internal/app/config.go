@@ -121,6 +121,9 @@ type Auth struct {
 	ScryptMemCost      int           `env:"FIREBASE_SCRYPT_MEM_COST"`
 	RateLimitEnabled   bool          `env:"RATE_LIMIT_ENABLED" envDefault:"true"`
 	RateLimitLogin     string        `env:"RATE_LIMIT_LOGIN" envDefault:"10/1m"`
+	// GOOGLE_OIDC_ALLOWED_CLIENT_IDS: the accepted aud values of Google ID tokens (the web GIS client and
+	// the OAuth client the installed APKs pass as serverClientId); unset turns Google sign-in off.
+	GoogleClientIDs []string `env:"GOOGLE_OIDC_ALLOWED_CLIENT_IDS" envSeparator:","`
 
 	// Parsed by Validate.
 	Scrypt    *firebasescrypt.Params `env:"-"`
@@ -156,6 +159,35 @@ func (a *Auth) validate(errs *[]string) {
 		*errs = append(*errs, config.Invalidf("RATE_LIMIT_LOGIN", "must be count/window, e.g. 10/1m"))
 	}
 	a.LoginRate = l
+	ids, ok := parseClientIDs(a.GoogleClientIDs)
+	if !ok {
+		*errs = append(*errs, config.Invalidf("GOOGLE_OIDC_ALLOWED_CLIENT_IDS",
+			"must be a comma list of OAuth client ids ending in %s", googleClientSuffix))
+	}
+	a.GoogleClientIDs = ids
+}
+
+// googleClientSuffix ends every Google OAuth client id; a value without it is a pasted secret or
+// another setting, refused at start-up.
+const googleClientSuffix = ".apps.googleusercontent.com"
+
+// parseClientIDs trims and de-duplicates the comma list; empty entries are dropped.
+func parseClientIDs(in []string) ([]string, bool) {
+	var out []string
+	for _, id := range in {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if !strings.HasSuffix(id, googleClientSuffix) || len(id) == len(googleClientSuffix) || len(id) > 255 ||
+			strings.ContainsFunc(id, func(r rune) bool { return r <= ' ' || r > '~' }) {
+			return nil, false
+		}
+		if !slices.Contains(out, id) {
+			out = append(out, id)
+		}
+	}
+	return out, true
 }
 
 // parseRate reads "count/window" (window a Go duration such as 1m or 15m).

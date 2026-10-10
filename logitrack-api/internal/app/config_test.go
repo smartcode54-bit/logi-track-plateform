@@ -176,6 +176,23 @@ func TestAPIConfigAuthDefaults(t *testing.T) {
 	if cfg.Scrypt != nil {
 		t.Fatal("no FIREBASE_SCRYPT_* means no legacy verification")
 	}
+	if cfg.GoogleClientIDs != nil {
+		t.Fatalf("no GOOGLE_OIDC_ALLOWED_CLIENT_IDS means Google sign-in off: %v", cfg.GoogleClientIDs)
+	}
+}
+
+// GOOGLE_OIDC_ALLOWED_CLIENT_IDS is a comma list (Appendix C §C.4.10): trimmed, empty entries dropped,
+// duplicates removed. The ids are placeholders in the client-id shape.
+func TestAPIConfigParsesGoogleClientIDs(t *testing.T) {
+	cfg, err := config.LoadFrom[app.APIConfig](override(baseEnv(), []string{
+		"GOOGLE_OIDC_ALLOWED_CLIENT_IDS= 1-web.apps.googleusercontent.com, ,2-apk.apps.googleusercontent.com,1-web.apps.googleusercontent.com",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(cfg.GoogleClientIDs, ","); got != "1-web.apps.googleusercontent.com,2-apk.apps.googleusercontent.com" {
+		t.Fatalf("client ids = %q", got)
+	}
 }
 
 func TestAPIConfigAuthValidation(t *testing.T) {
@@ -193,6 +210,9 @@ func TestAPIConfigAuthValidation(t *testing.T) {
 		"login rate":          {[]string{"RATE_LIMIT_LOGIN=ten"}, "RATE_LIMIT_LOGIN"},
 		"scrypt partial":      {[]string{"FIREBASE_SCRYPT_ROUNDS=8"}, "FIREBASE_SCRYPT_SIGNER_KEY"},
 		"scrypt bad base64":   {[]string{"FIREBASE_SCRYPT_SIGNER_KEY=not*base64!", "FIREBASE_SCRYPT_SALT_SEPARATOR=Bw==", "FIREBASE_SCRYPT_ROUNDS=8", "FIREBASE_SCRYPT_MEM_COST=14"}, "FIREBASE_SCRYPT_SIGNER_KEY: must be base64"},
+		"google client id":    {[]string{"GOOGLE_OIDC_ALLOWED_CLIENT_IDS=pasted-client-secret-value"}, "GOOGLE_OIDC_ALLOWED_CLIENT_IDS"},
+		"google other suffix": {[]string{"GOOGLE_OIDC_ALLOWED_CLIENT_IDS=1-x.apps.googleusercontent.com.example"}, "GOOGLE_OIDC_ALLOWED_CLIENT_IDS"},
+		"google inner space":  {[]string{"GOOGLE_OIDC_ALLOWED_CLIENT_IDS=1-a b.apps.googleusercontent.com"}, "GOOGLE_OIDC_ALLOWED_CLIENT_IDS"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
