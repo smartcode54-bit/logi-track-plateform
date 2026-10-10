@@ -2,7 +2,7 @@
 
 Go backend for the LogiTrack migration off Firebase (`mv-go`). Design: [`developer-spec.md`](../developer-spec.md) §2, routes in [Appendix B](../shared-docs/specs/mv-go/B-api-catalog.md). Branch policy: work lands by PR into `mv-go`, never `main` (R90).
 
-Status: **T01 scaffold + T02 local stack + T03 migrations + T04 core schema**. One module, seven binaries, shared `internal/`; no domain routes yet.
+Status: **T01 scaffold + T02 local stack + T03 migrations + T04 core schema + T14 CI**. One module, seven binaries, shared `internal/`; no domain routes yet.
 
 ## Layout
 
@@ -24,6 +24,7 @@ internal/platform/telemetry  OpenTelemetry (OTLP/HTTP) and Prometheus
 internal/platform/db         pgx pools per role (R66); dbq = sqlc output; pgtest = postgres:18-alpine for tests
 internal/platform/migrate    migration rules (R31), goose runner with a session lock; migratetest = round trip
 migrations/                  NNNN_name.sql, embedded into cmd/migrate: the Appendix A baseline 0001-0010 (T03, T04)
+api/routes.txt               generated route table (method, path, listeners) checked by go-ci gen-check (T14)
 sqlc.yaml                    sqlc v1.31.1: schema = migrations/, one block per query package
 ```
 
@@ -34,6 +35,8 @@ sqlc.yaml                    sqlc v1.31.1: schema = migrations/, one block per q
 | internal | `API_INTERNAL_ADDR` | every route group, incl. `/readyz`, `/startupz` |
 | public | `API_PUBLIC_ADDR` | only groups marked public **and** listed in `PUBLIC_ROUTE_GROUPS` (subset of `/v1/mobile`, `/v1/auth`, `/public/v1`, `/evidence`, `/healthz`); everything else `404 not_found` |
 | metrics | `METRICS_ADDR` | `GET /metrics` (Prometheus), private |
+
+`api routes` builds the API through the same `newAPI` as serving (`cmd/api/main.go`; domain groups are added there), refuses a group marked public outside the list and any public route other than `/healthz` or a path below `/v1/mobile/`, `/v1/auth/`, `/public/v1/`, `/evidence/` (exit 1; serving refuses the same at startup), and prints one line per route with the listeners that may serve it. `go generate` writes it to `api/routes.txt`, so a route or listener change shows up in review and `make gen-check` fails when the table is stale.
 
 `X-Forwarded-For` is honoured only when the TCP peer is inside `TRUSTED_PROXY_CIDRS`; the header is walked right to left and the first untrusted hop is the client. `X-Act-On-Tenant` is refused on the public listener (`400 header_not_allowed`).
 
@@ -131,12 +134,14 @@ make test-integration
 ```
 
 ```bash
-go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run ./...
+make lint
 ```
 
 ```bash
-go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+make gen-check
 ```
+
+`make lint` runs gofmt, `go mod tidy -diff`, `go vet`, golangci-lint v2.14.0 and govulncheck v1.8.0 (versions pinned in the Makefile only); `make gen-check` the generated-code, route and migration gates.
 
 Run the api locally (any free ports):
 
@@ -144,4 +149,14 @@ Run the api locally (any free ports):
 APP_ENV=local LOG_FORMAT=console API_INTERNAL_ADDR=127.0.0.1:8080 API_PUBLIC_ADDR=127.0.0.1:8081 METRICS_ADDR=127.0.0.1:9090 go run ./cmd/api
 ```
 
-CI for `mv-go` arrives with T14.
+## CI (T14, main spec §17.2)
+
+Three workflows run on pushes and pull requests of `mv-go` and `mv-go-**`; none has a `main` trigger and none deploys (R90).
+
+| Workflow | Jobs |
+|---|---|
+| `go-ci` (`.github/workflows/go-ci.yml`) | `changes` (skips the Go jobs when no checked path changed); `lint` (`make lint`); `gen-check` (`make gen-check`, `make env-check`, clean tree); `migrate` (`make migrate-check`, `make migrate-roundtrip`); `test` (`make test-integration TESTFLAGS=-count=1`); `goldens` (`make test` on amd64 with `GOAMD64=v3` and on arm64); `stack` (`make env dev-keys up smoke`, then seed smoke + verify once T16 lands); `etl-fixtures` (`make etl-fixtures-check` once T15 adds the fixtures); `build` (image with every binary, pushed to `ghcr.io/smartcode54-bit/logitrack-api:{sha}` only from `mv-go`, `:v{semver}` from an `api-v{semver}` tag on `mv-go`); `web-ci` (waits for the web `CI` run of the same commit, if its path filter started one); `go-ci` (sums them up) |
+| `secret-scan` (`.github/workflows/secret-scan.yml`) | gitleaks v8.30.1 over the commits of the push or PR (`.github/scripts/secret-scan.sh BASE HEAD` runs it locally), findings redacted |
+| `CI` (`.github/workflows/ci.yml`) | the web checks, now also for `mv-go` and `mv-go-**` (path filter and `main` entries unchanged) |
+
+Branch protection on `mv-go` requires `go-ci` and `secret-scan` (owner setting). Every PostgreSQL image in compose, the workflows and the Go code is `postgres:18-alpine` (`pgtest.TestEveryPostgresImageIsTheSame`).

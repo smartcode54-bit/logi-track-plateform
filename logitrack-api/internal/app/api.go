@@ -76,6 +76,19 @@ func NewAPI(cfg *APIConfig, log zerolog.Logger, extra ...ingress.Group) (*API, e
 	return a, nil
 }
 
+// Routes returns the routes each listener serves, keyed by ingress.Internal and ingress.Public.
+func (a *API) Routes() map[string][]ingress.Route {
+	return map[string][]ingress.Route{
+		ingress.Internal: ingress.Routes(a.internal),
+		ingress.Public:   ingress.Routes(a.public),
+	}
+}
+
+// CheckRoutes applies the route-level ingress check to the public listener.
+func (a *API) CheckRoutes() error {
+	return ingress.CheckPublicRoutes(ingress.Routes(a.public))
+}
+
 func (a *API) newFiber(listener string) *fiber.App {
 	app := fiber.New(fiber.Config{
 		AppName:      "logitrack-api-" + listener,

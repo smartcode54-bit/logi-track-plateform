@@ -1,15 +1,17 @@
 name: CI
 
+# mv-go and mv-go-** run the same web checks (developer-spec.md §17.3, T14); the main entries are
+# unchanged (R90). Deploy listens only to CI runs on main, so runs on mv-go never deploy.
 on:
   push:
-    branches: [main]
+    branches: [main, mv-go, 'mv-go-**']
     paths:
       - 'logitrack-web/**'
       - 'shared-docs/**'
       - 'pnpm-lock.yaml'
       - '.github/workflows/ci.yml'
   pull_request:
-    branches: [main]
+    branches: [main, mv-go, 'mv-go-**']
     paths:
       - 'logitrack-web/**'
       - 'shared-docs/**'

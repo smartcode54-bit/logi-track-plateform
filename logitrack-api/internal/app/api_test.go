@@ -251,6 +251,37 @@ func TestPublicGroupOutsideFixedListIsRejected(t *testing.T) {
 	}
 }
 
+// The route table behind `api routes` (go-ci gen-check): the public listener holds only the
+// allow-listed groups, the internal one every route; automatic HEAD routes are not listed.
+func TestRoutesPerListener(t *testing.T) {
+	log, _ := logx.New(logx.Options{Level: "info", Format: "json", Out: io.Discard})
+	cfg := &app.APIConfig{PublicRouteGroups: ingress.PublicPrefixes}
+	a, err := app.NewAPI(cfg, log, testGroups()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.CheckRoutes(); err != nil {
+		t.Fatal(err)
+	}
+	render := func(rs []ingress.Route) string {
+		var parts []string
+		for _, r := range rs {
+			parts = append(parts, r.Method+" "+r.Path)
+		}
+		return strings.Join(parts, ", ")
+	}
+	routes := a.Routes()
+	if got, want := render(routes[ingress.Public]),
+		"GET /healthz, POST /v1/mobile/echo, GET /v1/mobile/panic, GET /v1/mobile/slow, GET /v1/mobile/whoami"; got != want {
+		t.Fatalf("public routes:\n got %s\nwant %s", got, want)
+	}
+	if got, want := render(routes[ingress.Internal]),
+		"GET /healthz, GET /readyz, GET /startupz, POST /v1/mobile/echo, GET /v1/mobile/panic, GET /v1/mobile/slow, "+
+			"GET /v1/mobile/whoami, GET /v1/staff-probe, GET /v1/staff-probe/slow"; got != want {
+		t.Fatalf("internal routes:\n got %s\nwant %s", got, want)
+	}
+}
+
 func TestXForwardedForOnlyFromTrustedProxies(t *testing.T) {
 	ip := func(h *harness, xff string) string {
 		_, body, _ := get(t, h.public, "/v1/mobile/whoami", map[string]string{"X-Forwarded-For": xff})
