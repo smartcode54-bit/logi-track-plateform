@@ -9,13 +9,23 @@ type FakeUser = { uid: string; email: string };
 let authListener: ((user: FakeUser | null) => void) | undefined;
 let tokenClaims: Record<string, unknown> = {};
 
-const firestore = vi.hoisted(() => ({
-    getDoc: vi.fn(),
-    getDocs: vi.fn(),
-    onSnapshot: vi.fn(() => () => undefined),
-    doc: vi.fn(() => ({})),
-}));
+type Snapshot = { data: () => Record<string, unknown> | undefined };
+const firestore = vi.hoisted(() => {
+    // The `users/{uid}` listeners the provider opened (the forceLogoutAt listener).
+    const snapshots: Array<(snapshot: Snapshot) => void> = [];
+    return {
+        snapshots,
+        getDoc: vi.fn(),
+        getDocs: vi.fn(),
+        onSnapshot: vi.fn((_ref: unknown, next: (snapshot: Snapshot) => void) => {
+            snapshots.push(next);
+            return () => undefined;
+        }),
+        doc: vi.fn(() => ({})),
+    };
+});
 const signOut = vi.hoisted(() => vi.fn(async () => undefined));
+const signInWithEmailAndPassword = vi.hoisted(() => vi.fn(async () => ({ user: null })));
 
 vi.mock("@/firebase/client", () => ({ auth: {}, db: {}, functions: {}, storage: {} }));
 vi.mock("@/lib/updateUserLastLogin", () => ({ resolveLoginGeoForClient: vi.fn(), updateUserLastLogin: vi.fn() }));
@@ -33,7 +43,7 @@ vi.mock("firebase/auth", () => ({
     getIdTokenResult: async () => ({ claims: tokenClaims }),
     getIdToken: async () => "token",
     signOut,
-    signInWithEmailAndPassword: vi.fn(),
+    signInWithEmailAndPassword,
 }));
 vi.mock("firebase/firestore", () => firestore);
 
@@ -72,6 +82,11 @@ beforeEach(() => {
     firestore.getDoc.mockClear();
     firestore.getDocs.mockClear();
     signOut.mockClear();
+    // Firebase reports its own sign-out to the auth-state listener, as the SDK does.
+    signOut.mockImplementation(async () => {
+        authListener?.(null);
+    });
+    firestore.snapshots.length = 0;
     vi.stubGlobal(
         "fetch",
         vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -86,6 +101,7 @@ beforeEach(() => {
 
 afterEach(() => {
     vi.unstubAllGlobals();
+    window.history.replaceState({}, "", "/");
 });
 
 function setup() {
@@ -192,6 +208,107 @@ describe("AuthProvider over ['me']", () => {
         await waitFor(() => expect(result.current?.me).toBeNull());
         expect(result.current?.customClaims).toBeNull();
         expect(signOut).toHaveBeenCalledTimes(1);
+    });
+});
+
+// Until T18/TW5 replace them with SSE `session.revoked`, the Firebase signals end the whole session:
+// the Go session, the cache and the /app page, not only the Firebase sign-in (the /app layout and
+// /login decide "signed in" from ['me']). Each test is a fresh tab: a session end that leaves a
+// protected page latches for the rest of the page load.
+describe("the bridge-period session ends together (forceLogoutAt, sign-out in another tab)", () => {
+    async function freshTab({ bridgeUser = true }: { bridgeUser?: boolean } = {}) {
+        vi.resetModules();
+        const [authModule, queryClientModule, session, reactQuery] = await Promise.all([
+            import("./auth"),
+            import("@/lib/queryClient"),
+            import("@/lib/sessionEnd"),
+            import("@tanstack/react-query"),
+        ]);
+        const client = queryClientModule.createQueryClient();
+        const unbind = queryClientModule.bindQueryClientToSession(client);
+        const navigate = vi.fn();
+        session.configureSessionEnd({ navigate });
+        const Provider = reactQuery.QueryClientProvider;
+        const AuthProviderFresh = authModule.AuthProvider;
+        const wrapper = ({ children }: { children: React.ReactNode }) => (
+            <Provider client={client}>
+                <AuthProviderFresh>{children}</AuthProviderFresh>
+            </Provider>
+        );
+        const view = renderHook(() => authModule.useAuth(), { wrapper });
+        await firebaseSignedIn(bridgeUser ? { uid: "fb-1", email: "ann@example.test" } : null);
+        await waitFor(() => expect(view.result.current?.me?.id).toBe("u1"));
+        client.setQueryData(["customers"], [{ id: "c1" }]);
+        return { client, unbind, navigate, result: view.result };
+    }
+
+    it("a changed forceLogoutAt (admin disable or role change) ends the Go session, empties the cache and leaves /app", async () => {
+        window.history.replaceState({}, "", "/app/driver-monitor");
+        const { client, unbind, navigate, result } = await freshTab();
+        await waitFor(() => expect(firestore.snapshots).toHaveLength(1));
+        const emit = (ms: number) =>
+            act(async () => {
+                firestore.snapshots[0]({ data: () => ({ forceLogoutAt: { toMillis: () => ms } }) });
+            });
+        await emit(1); // the baseline seen on subscribing never logs out
+        expect(calls).not.toContain("POST /api/auth/logout");
+        await emit(2);
+        await waitFor(() => expect(signOut).toHaveBeenCalledTimes(1));
+        expect(calls.filter((c) => c === "POST /api/auth/logout")).toHaveLength(1);
+        expect(client.getQueryData(["customers"])).toBeUndefined();
+        await waitFor(() => expect(result.current?.me).toBeNull());
+        expect(navigate).toHaveBeenCalledTimes(1);
+        expect(navigate).toHaveBeenCalledWith("/login?next=%2Fapp%2Fdriver-monitor&reason=revoked");
+        unbind();
+    });
+
+    it("a Firebase sign-out in another tab ends this tab's session too", async () => {
+        window.history.replaceState({}, "", "/app/driver-monitor");
+        const { client, unbind, navigate, result } = await freshTab();
+        await firebaseSignedIn(null);
+        expect(calls).toContain("POST /api/auth/logout");
+        expect(client.getQueryData(["customers"])).toBeUndefined();
+        await waitFor(() => expect(result.current?.me).toBeNull());
+        expect(navigate).toHaveBeenCalledWith("/login?next=%2Fapp%2Fdriver-monitor");
+        unbind();
+    });
+
+    it("the user's own logout ends the session once, without a second session end", async () => {
+        window.history.replaceState({}, "", "/app/driver-monitor");
+        const { unbind, navigate, result } = await freshTab();
+        await act(async () => {
+            await result.current!.logout();
+        });
+        expect(signOut).toHaveBeenCalledTimes(1);
+        expect(calls.filter((c) => c === "POST /api/auth/logout")).toHaveLength(1);
+        expect(navigate).not.toHaveBeenCalled();
+        unbind();
+    });
+
+    it("a principal without a bridge session (R80) is left alone when Firebase reports no user", async () => {
+        window.history.replaceState({}, "", "/app/driver-monitor");
+        const { unbind, navigate, result } = await freshTab({ bridgeUser: false });
+        await firebaseSignedIn(null);
+        expect(calls).not.toContain("POST /api/auth/logout");
+        expect(navigate).not.toHaveBeenCalled();
+        expect(result.current?.me?.id).toBe("u1");
+        unbind();
+    });
+});
+
+describe("login", () => {
+    it("starts the new principal from an empty cache, then refetches ['me']", async () => {
+        const { client, wrapper } = setup();
+        const { result } = renderHook(() => useAuth(), { wrapper });
+        await waitFor(() => expect(result.current?.me?.id).toBe("u1"));
+        client.setQueryData(["customers"], [{ id: "cached before the sign-in" }]);
+        const before = calls.filter((c) => c === "GET /api/go/v1/me").length;
+        await act(async () => {
+            await result.current!.login("bob@example.test", "pw");
+        });
+        expect(signInWithEmailAndPassword).toHaveBeenCalledTimes(1);
+        expect(client.getQueryData(["customers"])).toBeUndefined();
+        expect(calls.filter((c) => c === "GET /api/go/v1/me")).toHaveLength(before + 1);
     });
 });
 

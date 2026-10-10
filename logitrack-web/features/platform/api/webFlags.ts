@@ -72,19 +72,26 @@ export const webFlagsQueryOptions = queryOptions({
     // up on focus. The stale time alone would refetch only on the next mount or focus.
     refetchInterval: WEB_FLAGS_REFRESH_MS,
     refetchOnWindowFocus: true,
+    // Never retried (TW4): the poll and the focus refetch are the retry. Every domain fetch waits for
+    // the flags (resolveDomainSource), and a fetch that joins a request already in flight shares that
+    // request's retries whatever it asks for itself; with the client's policy (2 retries, 1 s + 2 s
+    // back-off) a failing flags endpoint would hold every domain query for about 3 s.
+    retry: false,
 });
 
 /**
  * The source of `domain` for a fetch starting now: the cached flags (a stale copy is returned at
  * once and revalidated in the background), fetched first when there is none. If the flags cannot
  * be read and none were ever loaded, the domain stays on Firestore, its source before cut-over.
+ *
+ * Waits for at most one flags request, because `['webFlags']` itself never retries: a fetch started
+ * here, or one by the providers' observer that this call joins, fails after a single attempt, and
+ * the domain then uses the last known flags or Firestore. The 60 s poll and the focus refetch
+ * (useWebFlagsSync) try again, and `watchWebFlagFlips` refetches the queries that fell back.
  */
 export async function resolveDomainSource(client: QueryClient, domain: WebDomain): Promise<DomainSource> {
     try {
-        // No retries here (TW4): a domain fetch must not wait out the client's network/5xx retry
-        // policy for the flags; on failure it uses the last known flags or Firestore at once, and the
-        // 60 s poll (useWebFlagsSync) keeps retrying in the background.
-        const flags = await client.ensureQueryData({ ...webFlagsQueryOptions, revalidateIfStale: true, retry: false });
+        const flags = await client.ensureQueryData({ ...webFlagsQueryOptions, revalidateIfStale: true });
         return flags.domains[domain];
     } catch {
         return client.getQueryData<WebFlags>(WEB_FLAGS_KEY)?.domains[domain] ?? "firebase";

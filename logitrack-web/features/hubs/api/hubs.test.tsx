@@ -8,7 +8,7 @@ import React from "react";
 import { readdirSync, readFileSync, statSync } from "fs";
 import path from "path";
 import { renderHook, waitFor } from "@testing-library/react";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, QueryObserver } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const store = vi.hoisted(() => ({ hubs: [] as Array<{ id: string; data: Record<string, unknown> }>, reads: [] as string[] }));
@@ -38,6 +38,8 @@ const selectors = await import("./selectors");
 const { useHubMaps, useHubs } = await import("./useHubs");
 const { taskService } = await import("@/features/tasks/services/taskService");
 const { getQueryClient, resetQueryClientForTests } = await import("@/lib/queryClient");
+const { webFlagsQueryOptions } = await import("@/features/platform/api/webFlags");
+const { useWebFlagsSync } = await import("@/features/platform/api/useWebFlags");
 
 const FIXTURE: Array<{ id: string; data: Record<string, unknown> }> = [
     {
@@ -255,7 +257,10 @@ describe("one read per session (#84 acceptance)", () => {
         expect(store.reads.filter((c) => c === "hubs")).toHaveLength(2);
     });
 
-    it("falls back to Firestore at once when the flags cannot be read (no retry wait)", async () => {
+    // The flags observer of the providers (useWebFlagsSync) starts ['webFlags'] before any domain
+    // fetch, and a later fetch joins that request with the observer's retry policy, not its own: the
+    // flags query itself must not retry (the 60 s poll and the focus refetch are its retry).
+    it("falls back to Firestore at once when the flags cannot be read, with the flags observer mounted (no retry wait)", async () => {
         const urls: string[] = [];
         vi.stubGlobal(
             "fetch",
@@ -264,11 +269,39 @@ describe("one read per session (#84 acceptance)", () => {
                 return new Response("<html>bad gateway</html>", { status: 502 });
             })
         );
+        const stopFlags = new QueryObserver(getQueryClient(), webFlagsQueryOptions).subscribe(() => undefined);
         const started = Date.now();
         await expect(fetchHubsCached()).resolves.toHaveLength(FIXTURE.length);
         expect(Date.now() - started).toBeLessThan(500);
         expect(urls).toEqual(["/api/go/v1/config/web-flags"]);
         expect(store.reads).toEqual(["hubs"]);
+        stopFlags();
+    });
+
+    it("a page's useHubs beside the providers' useWebFlagsSync falls back after one flags request", async () => {
+        const urls: string[] = [];
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(async (input: RequestInfo | URL) => {
+                urls.push(String(input));
+                return new Response("<html>bad gateway</html>", { status: 502 });
+            })
+        );
+        const readsBefore = store.reads.length;
+        const started = Date.now();
+        // The providers' order: the flags runtime is a sibling before the page.
+        const { result } = renderHook(
+            () => {
+                useWebFlagsSync();
+                return useHubs(selectors.selectHubRows);
+            },
+            { wrapper }
+        );
+        await waitFor(() => expect(result.current.data).toHaveLength(FIXTURE.length));
+        expect(Date.now() - started).toBeLessThan(500);
+        expect(urls).toEqual(["/api/go/v1/config/web-flags"]);
+        // One flags request, then the Firestore read: no retry was waited for.
+        expect(store.reads.slice(readsBefore)).toEqual(["hubs"]);
     });
 
     it("reads GET /v1/hubs instead once the masterdata flag is go, under the same key", async () => {

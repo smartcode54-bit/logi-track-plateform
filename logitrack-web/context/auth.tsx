@@ -15,7 +15,12 @@
  *   no longer re-renders and re-runs the effects of every consumer (ends `context/auth.tsx:171`).
  *
  * T18 owns the login and logout UI flows, the bridge sign-in (`POST /api/auth/firebase-token`) and the
- * removal of `setAdminClaims` and the `forceLogoutAt` listener, which stay below until then.
+ * removal of `setAdminClaims` and the `forceLogoutAt` listener, which stay below until then. Until
+ * T18/TW5 replace them with SSE `session.revoked`, the two Firebase signals end the whole session, as
+ * a revoked Go session does (lib/sessionEnd.ts): a changed `forceLogoutAt` (an admin disabled the user
+ * or changed their role through the legacy callables) and a Firebase sign-out reported from another
+ * tab. The Go session is revoked, the cache emptied, `['me']` set to null and an `/app` page leaves
+ * for `/login`; signing out of Firebase alone would leave `/app` and `/login` both admitting the user.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -25,9 +30,10 @@ import { doc, onSnapshot, type Timestamp } from "firebase/firestore";
 import { auth, db } from "@/firebase/client";
 import { resolveLoginGeoForClient, updateUserLastLogin } from "@/lib/updateUserLastLogin";
 import { sharedRefresh } from "@/lib/sharedRefresh";
-import { AUTH_LOGOUT_PATH } from "@/lib/sessionEnd";
+import { ApiError } from "@/lib/apiError";
+import { AUTH_LOGOUT_PATH, endSession } from "@/lib/sessionEnd";
 import { queryKeys } from "@/lib/queryKeys";
-import { resetSessionCache } from "@/lib/queryClient";
+import { clearCacheExceptMe, resetSessionCache } from "@/lib/queryClient";
 import { claimsFromMe, meQueryOptions, type MeDTO, type SynthesizedClaims } from "@/features/auth/api/me";
 
 type AuthContextType = {
@@ -64,9 +70,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   // The Firebase (bridge) session: its user and the legacy ids in its token claims.
   useEffect(() => {
+    let previous: User | null = null;
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      const hadUser = previous !== null;
+      previous = user;
       if (!user) {
         setFirebase({ ready: true, user: null, claims: null });
+        // The Firebase user went away while Go still knows the principal: a sign-out in another tab
+        // (Firebase reports it to every tab) or Firebase dropping a disabled user. Until T18 both are
+        // one sign-in, so the Go session and the cache end too. `logout()` and a forced logout empty
+        // `['me']` before signing out, so they do not get here; the first "no user" of a principal
+        // without a bridge session (R80) is no transition and is left alone.
+        if (hadUser && client.getQueryData(queryKeys.me())) {
+          endSession(new ApiError({ status: 401, code: "unauthenticated", message: "firebase signed out" }));
+        }
         return;
       }
       let claims: Record<string, unknown> | null = null;
@@ -91,11 +108,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
     });
     return () => unsubscribe();
-  }, []);
+  }, [client]);
 
-  // Force logout listener (replaced by SSE `session.revoked` in T18/TW5): log out of Firebase only when
-  // forceLogoutAt CHANGES after the listener has seen an initial value. We don't compare against
-  // wall-clock time (client clocks can drift relative to Firestore server time).
+  // Force logout listener (replaced by SSE `session.revoked` in T18/TW5): ends the whole session (Go
+  // session, cache, `/app` page, then Firebase) only when forceLogoutAt CHANGES after the listener has
+  // seen an initial value. We don't compare against wall-clock time (client clocks can drift relative
+  // to Firestore server time).
   //
   // NOTE: The listener may fail with "permission-denied" if the user's token claims haven't
   // propagated yet or the user doc doesn't exist. We retry with exponential back-off up to a few
@@ -126,7 +144,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           return;
         }
         if (currentMs !== null && currentMs !== initialForceLogoutMs) {
-          console.log("[Auth] forceLogoutAt changed after subscription - logging out");
+          console.log("[Auth] forceLogoutAt changed after subscription - ending the session");
+          // The legacy callables that write forceLogoutAt (functions/src/users.ts) reach neither Go nor
+          // this tab's cache: end it as a revoked session (`onSessionEnd` listeners empty the cache and
+          // `['me']`, the BFF revokes the Go session and expires both cookies, `/app` goes to
+          // `/login?reason=revoked`), then sign out of Firebase.
+          endSession(new ApiError({ status: 401, code: "session_revoked", message: "forceLogoutAt" }));
           try {
             await signOut(auth);
           } catch (err) {
@@ -182,7 +205,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         const geo = await resolveLoginGeoForClient();
         await updateUserLastLogin(cred.user, geo);
       }
-      // A sign-in changes who `['me']` is (the BFF login of T18 sets the cookies before this runs).
+      // A sign-in changes who `['me']` is (the BFF login of T18 sets the cookies before this runs). The
+      // new principal starts from an empty cache, whatever this tab held before.
+      clearCacheExceptMe(client);
       await client.invalidateQueries({ queryKey: queryKeys.me() });
     },
     [client]

@@ -113,7 +113,8 @@ const EMPTY_SET: ReadonlySet<SplitNamespace> = new Set();
  * The base dictionary leaves out the split namespaces (`accounting`, `driverMonitor`); the route
  * groups that render them ask for them through `useLocaleNamespaces` (the `/app` layout's
  * `RouteNamespaces`), and a language toggle loads the new language's base and the namespaces in use
- * before switching, so the screen never shows a raw key.
+ * before switching, so the screen never shows a raw key; if any of them fails, the toggle keeps the
+ * current language and the mounted page (its unsaved state included).
  *
  * `t` changes only when the language or the merged dictionary does (TW4): effects must not list it as
  * a dependency (a toggle would re-run them); callbacks read it through `useEffectEvent`.
@@ -148,20 +149,31 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     // and the current language stays on screen until the new one is in.
     useEffect(() => {
         const language = choice?.language ?? storedLanguage();
+        // A user's toggle (not the first load, not the fallback after it) has a language on screen to keep.
+        const isToggle = choice !== null && !choice.fallback;
         // Child effects (the route group's request) run before this one, so the map is current.
         const wanted = [...counts.current.keys()];
         let current = true;
-        Promise.all([
-            loadDictionary(language),
-            Promise.all(wanted.map((ns) => loadNamespace(language, ns).then((d) => [ns, d] as const, () => undefined))),
-        ]).then(
-            ([base, nsEntries]) => {
+        Promise.all([loadDictionary(language), Promise.allSettled(wanted.map((ns) => loadNamespace(language, ns)))]).then(
+            ([base, settled]) => {
                 if (!current) return;
+                const failedNs = wanted.filter((_, i) => settled[i].status === "rejected");
+                if (isToggle && failedNs.length > 0) {
+                    // Switching without the mounted group's namespace would unmount its page (and any
+                    // unsaved state in it) for a spinner or an error screen: keep the language on screen,
+                    // as for a failed base dictionary; the user can toggle again.
+                    console.error(`[language] switching to "${language}" failed: ${failedNs.join(",")} did not load`);
+                    return;
+                }
+                // The first load and the fallback commit the base anyway: the shell renders, and the group
+                // shows its failed state (RouteNamespaces) while the effect below retries its chunk.
                 setState((prev) => {
                     // Re-choosing the current language keeps the same value, so `t` stays the same too.
                     if (prev?.language === language && prev.base === base) return prev;
                     const namespaces: Loaded["namespaces"] = {};
-                    for (const entry of nsEntries) if (entry) namespaces[entry[0]] = entry[1];
+                    settled.forEach((result, i) => {
+                        if (result.status === "fulfilled") namespaces[wanted[i]] = result.value;
+                    });
                     return { language, base, namespaces };
                 });
             },
@@ -173,7 +185,8 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
                 } else if (choice === null || choice.fallback) {
                     setFailed(true);
                 }
-                // A failed toggle keeps the language on screen; the user can toggle again.
+                // A failed toggle keeps the language on screen; the user can toggle again. A toggle
+                // switches only when the base dictionary and every namespace of the mounted group loaded.
             }
         );
         return () => {

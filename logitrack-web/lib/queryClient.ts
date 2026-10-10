@@ -5,7 +5,8 @@
  * for a network failure or a 5xx; mutations never retry. Errors:
  * - A 401 never reaches the cache as something to handle: `goFetch` refreshes once and, when that
  *   fails, ends the session itself (lib/sessionEnd.ts), whose listener here clears the cache. On a
- *   public page a signed-out 401 only means signed out (`['me']` resolves to `null`).
+ *   public page a signed-out 401 only means signed out (`['me']` resolves to `null`); the cache is
+ *   emptied then too, because it follows every change of principal in `['me']`.
  * - A 403 shows one toast (the notifier the providers register with the active language).
  * Mutations declare the keys they make stale in `meta.invalidates`; one `MutationCache.onSuccess`
  * invalidates them, so no page reloads "everything" after a write.
@@ -14,7 +15,7 @@
  * plain async functions that read cached master data (`fetchHubsCached`, ...), so a hub list read
  * by one page is the one every other page sees until its stale time ends.
  */
-import { MutationCache, QueryCache, QueryClient, type QueryKey } from "@tanstack/react-query";
+import { MutationCache, QueryCache, QueryClient, type Query, type QueryKey } from "@tanstack/react-query";
 import { isApiError, type ApiError } from "./apiError";
 import { onClaimsRefreshed } from "./sharedRefresh";
 import { onSessionEnd } from "./sessionEnd";
@@ -110,6 +111,12 @@ export function resetQueryClientForTests(): void {
 
 const ME_KEY = ["me"] as const;
 
+function isMeKey(key: QueryKey): boolean {
+    return key.length === ME_KEY.length && key[0] === ME_KEY[0];
+}
+
+const notMe = (query: Query) => !isMeKey(query.queryKey);
+
 /**
  * Empties the cache for a signed-out tab: in-flight fetches are cancelled, every query but `['me']`
  * is dropped, and `['me']` reads `null` at once, so observers that stay mounted (the providers, a
@@ -119,23 +126,75 @@ const ME_KEY = ["me"] as const;
 export function resetSessionCache(client: QueryClient): void {
     void client.cancelQueries();
     client.getMutationCache().clear();
-    client.removeQueries({ predicate: (query) => query.queryKey[0] !== ME_KEY[0] });
+    client.removeQueries({ predicate: notMe });
     client.setQueryData(ME_KEY, null);
 }
 
 /**
- * Ties the cache to the session (developer-spec.md §10.4 steps 3-4): a session end empties it (no
- * data of the previous user survives a sign-out in this tab), and a forced refresh after
+ * Drops everything but `['me']` before a sign-in, so the next principal starts from an empty cache
+ * whatever the tab held (`['me']` itself is refetched by the caller).
+ */
+export function clearCacheExceptMe(client: QueryClient): void {
+    void client.cancelQueries({ predicate: notMe });
+    client.getMutationCache().clear();
+    client.removeQueries({ predicate: notMe });
+}
+
+/** Who `['me']` holds: `undefined` while unknown, `null` signed out, else the user and the active tenant. */
+function principalOf(data: unknown): string | null | undefined {
+    if (data === undefined) return undefined;
+    if (typeof data !== "object" || data === null) return null;
+    const me = data as { id?: unknown; tenant?: { id?: unknown } | null };
+    if (typeof me.id !== "string") return null;
+    const tenant = me.tenant && typeof me.tenant.id === "string" ? me.tenant.id : "";
+    return JSON.stringify([me.id, tenant]);
+}
+
+/**
+ * Watches `['me']` and empties the cache whenever a known principal goes away or becomes another one
+ * (another user, or the same user in another tenant: no key carries the tenant). This covers what no
+ * session end reports: a session that lapses quietly on a public page (a 401 `unauthenticated` whose
+ * refresh is refused resolves `['me']` to `null` without ending anything), a sign-in as someone else
+ * in the same tab, a tenant switch. Signed out: every other query is dropped. Another principal: they
+ * are cancelled and reset, so mounted observers drop the old data at once and refetch as the new
+ * one. A refetch of the same principal (`claims_changed`) and the first sign-in of the tab keep the
+ * cache. It runs inside the cache's own notification, before any observer of `['me']` re-renders.
+ */
+function watchPrincipal(client: QueryClient): () => void {
+    let principal = principalOf(client.getQueryData(ME_KEY));
+    return client.getQueryCache().subscribe((event) => {
+        if (event.type !== "updated" || !isMeKey(event.query.queryKey)) return;
+        const next = principalOf(event.query.state.data);
+        if (next === undefined || next === principal) return;
+        const previous = principal;
+        principal = next;
+        if (!previous) return;
+        if (next === null) {
+            clearCacheExceptMe(client);
+            return;
+        }
+        void client.cancelQueries({ predicate: notMe });
+        client.getMutationCache().clear();
+        void client.resetQueries({ predicate: notMe });
+    });
+}
+
+/**
+ * Ties the cache to the session (developer-spec.md §10.4 steps 3-4): a session end empties it, and
+ * so does any change of principal in `['me']` (`watchPrincipal`), so no data of the previous user
+ * survives a sign-out or a sign-in as someone else in this tab; a forced refresh after
  * `claims_changed` invalidates `['me']` and every active query, so pages refetch with the new role
- * or scope while the user stays signed in. Returns the function that unbinds both listeners.
+ * or scope while the user stays signed in. Returns the function that unbinds the three listeners.
  */
 export function bindQueryClientToSession(client: QueryClient): () => void {
     const offEnd = onSessionEnd(() => resetSessionCache(client));
     // One call: every query (`['me']` included, which the shell always observes) is marked stale and
     // the active ones refetch; a second call would cancel and restart the refetch of the first.
     const offClaims = onClaimsRefreshed(() => void client.invalidateQueries());
+    const offPrincipal = watchPrincipal(client);
     return () => {
         offEnd();
         offClaims();
+        offPrincipal();
     };
 }

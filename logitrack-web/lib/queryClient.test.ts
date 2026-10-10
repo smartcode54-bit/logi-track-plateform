@@ -16,6 +16,7 @@ import {
 } from "./queryClient";
 import { configureSessionEnd, endSession } from "./sessionEnd";
 import { sharedRefresh } from "./sharedRefresh";
+import { meQueryOptions } from "@/features/auth/api/me";
 
 const apiError = (status: number, code = "x") => new ApiError({ status, code, message: code });
 
@@ -180,5 +181,115 @@ describe("bindQueryClientToSession (developer-spec.md §10.4 steps 3-4)", () => 
         expect(client.getQueryState(["inactive"])?.isInvalidated).toBe(true);
         unsub();
         off();
+    });
+});
+
+// A `GET /v1/me` body (Appendix C §C.8) for user `id` in tenant `tid`.
+function principal(id: string, tid: string | null = "t1") {
+    return {
+        id,
+        email: `${id}@example.test`,
+        displayName: id,
+        photoUrl: null,
+        tenant: tid ? { id: tid, nameTh: tid, nameEn: null, kind: "own_fleet", role: "manager" } : null,
+        tenants: [],
+        platformRoles: [],
+        dispatcher: false,
+        steward: true,
+        driver: null,
+        customerScopes: [],
+        capabilities: ["masterdata:view_hubs"],
+        mustChangePassword: false,
+    };
+}
+
+function envelope(status: number, code: string): Response {
+    return new Response(JSON.stringify({ error: { code, message: code, details: {}, requestId: "r" } }), {
+        status,
+        headers: { "Content-Type": "application/json" },
+    });
+}
+
+describe("a change of principal empties the cache (no data of one user reaches the next)", () => {
+    afterEach(() => {
+        window.history.replaceState({}, "", "/");
+        window.localStorage.clear();
+    });
+
+    it("a session that lapses quietly on a public page drops the previous user's data", async () => {
+        // On /support, a 401 `unauthenticated` whose refresh is refused is a signed-out visitor, not a
+        // session end: no listener runs and no logout is sent, yet ['me'] turns null.
+        window.history.replaceState({}, "", "/support");
+        const client = createQueryClient();
+        const off = bindQueryClientToSession(client);
+        client.setQueryData(["me"], principal("ann"));
+        client.setQueryData(["hubs"], [{ id: "h1" }]);
+        client.setQueryData(["customers"], [{ id: "c1" }]);
+        client.setQueryData(["companies", { owner: true }], { bank: "of ann's tenant" });
+        const calls: string[] = [];
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+                const url = String(input);
+                calls.push(`${init?.method ?? "GET"} ${url}`);
+                if (url === "/api/go/v1/me") return envelope(401, "unauthenticated");
+                if (url === "/api/auth/refresh") return envelope(401, "session_revoked");
+                return new Response(null, { status: 204 });
+            })
+        );
+        await expect(client.fetchQuery({ ...meQueryOptions, staleTime: 0 })).resolves.toBeNull();
+        expect(calls).toEqual(["GET /api/go/v1/me", "POST /api/auth/refresh"]);
+        expect(client.getQueryData(["me"])).toBeNull();
+        expect(client.getQueryCache().getAll().map((q) => q.queryKey)).toEqual([["me"]]);
+        off();
+    });
+
+    it("another user or another tenant never sees the previous principal's data; the same one keeps it", async () => {
+        const client = createQueryClient();
+        const off = bindQueryClientToSession(client);
+        // The first principal of the tab (loading -> signed in) clears nothing.
+        client.setQueryData(["webFlags"], { domains: {} });
+        client.setQueryData(["me"], principal("ann", "t1"));
+        expect(client.getQueryData(["webFlags"])).toEqual({ domains: {} });
+
+        let hubsFetches = 0;
+        const hubs = new QueryObserver(client, { queryKey: ["hubs"], queryFn: async () => `hubs-${++hubsFetches}`, staleTime: Infinity });
+        const unsub = hubs.subscribe(() => undefined);
+        await vi.waitFor(() => expect(hubs.getCurrentResult().data).toBe("hubs-1"));
+        client.setQueryData(["customers"], ["of ann"]);
+        new MutationObserver(client, { mutationFn: async () => "x" }).mutate().catch(() => undefined);
+
+        // The same principal again (a claims_changed refetch): nothing is dropped.
+        client.setQueryData(["me"], { ...principal("ann", "t1"), capabilities: [] });
+        expect(client.getQueryData(["customers"])).toEqual(["of ann"]);
+        expect(client.getQueryData(["hubs"])).toBe("hubs-1");
+
+        // Another user in this tab: inactive data is gone at once, the mounted page refetches.
+        client.setQueryData(["me"], principal("bob", "t1"));
+        expect(client.getQueryData(["customers"])).toBeUndefined();
+        expect(client.getQueryData(["hubs"])).toBeUndefined();
+        expect(client.getMutationCache().getAll()).toHaveLength(0);
+        await vi.waitFor(() => expect(hubs.getCurrentResult().data).toBe("hubs-2"));
+        expect(client.getQueryData(["me"])).toMatchObject({ id: "bob" });
+
+        // A tenant switch of the same user is a change of principal too (keys carry no tenant).
+        client.setQueryData(["customers"], ["of bob in t1"]);
+        client.setQueryData(["me"], principal("bob", "t2"));
+        expect(client.getQueryData(["customers"])).toBeUndefined();
+        await vi.waitFor(() => expect(hubs.getCurrentResult().data).toBe("hubs-3"));
+
+        // Signed out, then someone signs in: the signed-out state already dropped everything.
+        client.setQueryData(["customers"], ["of bob in t2"]);
+        client.setQueryData(["me"], null);
+        expect(client.getQueryData(["customers"])).toBeUndefined();
+        client.setQueryData(["customers"], ["fetched while signed out"]);
+        client.setQueryData(["me"], principal("cat", "t1"));
+        expect(client.getQueryData(["customers"])).toEqual(["fetched while signed out"]);
+
+        unsub();
+        off();
+        // Unbound: a change of principal is no longer watched.
+        client.setQueryData(["me"], principal("dan", "t1"));
+        expect(client.getQueryData(["customers"])).toEqual(["fetched while signed out"]);
     });
 });

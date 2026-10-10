@@ -2,7 +2,7 @@
 // the language and the merged dictionary, the split namespaces load per route group, and a language
 // toggle refetches nothing at the eight sites that listed `t` as an effect dependency.
 import React, { useEffect, useState } from "react";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { readFileSync } from "fs";
 import path from "path";
@@ -18,12 +18,15 @@ const split: Record<Language, Record<SplitNamespace, Dictionary>> = {
     th: { accounting: { "accounting.title": "บัญชี" }, driverMonitor: { "driverMonitor.title": "ติดตาม" } },
 };
 const loads: string[] = [];
+// Namespace chunks (`<language>:<ns>`) whose request fails, as a flaky network would.
+const failingChunks = new Set<string>();
 const loadDictionary = vi.fn(async (language: Language) => {
     loads.push(language);
     return base[language];
 });
 const loadNamespace = vi.fn(async (language: Language, ns: SplitNamespace) => {
     loads.push(`${language}:${ns}`);
+    if (failingChunks.has(`${language}:${ns}`)) throw new Error(`chunk locale-${language}-${ns} failed`);
     return split[language][ns];
 });
 
@@ -54,6 +57,7 @@ let stored: string | null;
 beforeEach(() => {
     stored = null;
     loads.length = 0;
+    failingChunks.clear();
     loadDictionary.mockClear();
     loadNamespace.mockClear();
     getTruckByIdClient.mockClear();
@@ -126,6 +130,69 @@ describe("route-group namespaces", () => {
         await user.click(screen.getByText("toggle"));
         expect(await screen.findByText("Monitor")).toBeInTheDocument();
         expect(loads.slice(4)).toEqual(["en", "en:driverMonitor"]);
+    });
+
+    // A page with unsaved local state (an open dialog's draft) and a count of its mounts.
+    function DraftPage({ onMount }: { onMount: () => void }) {
+        const { t } = useLanguage();
+        const [draft, setDraft] = useState("");
+        useEffect(onMount, [onMount]);
+        return (
+            <div>
+                <p>{t("accounting.title")}</p>
+                <input aria-label="draft" value={draft} onChange={(e) => setDraft(e.target.value)} />
+            </div>
+        );
+    }
+
+    it("a toggle whose namespace chunk fails keeps the current language and the page mounted", async () => {
+        vi.spyOn(console, "error").mockImplementation(() => undefined);
+        const user = userEvent.setup();
+        const onMount = vi.fn();
+        render(
+            <LanguageProvider>
+                <Toggle />
+                <RouteNamespaces pathname="/app/accounting/income">
+                    <DraftPage onMount={onMount} />
+                </RouteNamespaces>
+            </LanguageProvider>
+        );
+        expect(await screen.findByText("Accounting")).toBeInTheDocument();
+        await user.type(screen.getByLabelText("draft"), "unsaved");
+
+        failingChunks.add("th:accounting");
+        await user.click(screen.getByText("toggle"));
+        await waitFor(() => expect(loads).toContain("th:accounting"));
+        await act(async () => undefined);
+        // English stays on screen, as for a failed base dictionary; nothing unmounted.
+        expect(screen.getByText("Accounting")).toBeInTheDocument();
+        expect(screen.getByLabelText("draft")).toHaveValue("unsaved");
+        expect(onMount).toHaveBeenCalledTimes(1);
+
+        // Once the chunk loads, the next toggle switches, still without a remount.
+        failingChunks.clear();
+        await user.click(screen.getByText("toggle"));
+        expect(await screen.findByText("บัญชี")).toBeInTheDocument();
+        expect(screen.getByLabelText("draft")).toHaveValue("unsaved");
+        expect(onMount).toHaveBeenCalledTimes(1);
+    });
+
+    it("on the first load a failing namespace still shows the base language and the group's failed state", async () => {
+        vi.spyOn(console, "error").mockImplementation(() => undefined);
+        failingChunks.add("en:accounting");
+        render(
+            <LanguageProvider>
+                <Toggle />
+                <RouteNamespaces pathname="/app/accounting/income">
+                    <Text k="accounting.title" />
+                </RouteNamespaces>
+            </LanguageProvider>
+        );
+        // The shell (base dictionary) is up; only the group shows its failure, with a reload.
+        expect(await screen.findByText("shell.namespaceLoadFailed")).toBeInTheDocument();
+        expect(screen.getByText("toggle")).toBeInTheDocument();
+        expect(screen.getByText("Reload")).toBeInTheDocument();
+        expect(screen.queryByTestId("accounting.title")).toBeNull();
     });
 });
 

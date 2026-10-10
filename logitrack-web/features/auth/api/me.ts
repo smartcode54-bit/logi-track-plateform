@@ -7,9 +7,11 @@
  * - Signed out: on a public page Go answers 401 `unauthenticated` and the refresh is refused;
  *   `goFetch` throws that 401 without ending anything and the query resolves to `null`. On a
  *   protected page `goFetch` has already ended the session (lib/sessionEnd.ts) by then.
- * - Freshness: 5 min stale / 30 min gc; invalidated by a forced refresh after `claims_changed`
- *   (lib/queryClient.ts `bindQueryClientToSession`), a tenant switch, the role-matrix save and, from
- *   TW5, the realtime `roles.changed` event.
+ * - Freshness: 5 min stale / 30 min gc; invalidated after a sign-in (context/auth.tsx `login`) and
+ *   by a forced refresh after `claims_changed` (lib/queryClient.ts `bindQueryClientToSession`), set to
+ *   `null` by a logout or a session end. Planned, not wired yet: the tenant switch (T18), the
+ *   role-matrix save (`useSaveRoleMatrix`, T51/P6) and the realtime `roles.changed` event (TW5). The
+ *   Role Matrix page still saves to Firestore `permissions_config`, which Go does not read in P0.
  *
  * The selectors below are pure, so components select only what they render (`useMe(select)`).
  */
