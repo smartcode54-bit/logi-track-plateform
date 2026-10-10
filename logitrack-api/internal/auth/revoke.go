@@ -281,17 +281,36 @@ type Revocation struct {
 	RequestID   string
 }
 
-// RevokeInTx performs the database half of a revocation inside the caller's WithSystem transaction:
-// it locks the user's row, then auth_version++, sessions.revoked_*, their refresh tokens, and outbox
-// user.sessions_revoked on user:{uid} (SSE session.revoked; notify.fcm pushes session_revoked to the
-// revoked installs). The caller appends its security_events row with security.Append in the same
-// transaction and calls Apply after COMMIT. internal/iam (T19) uses it for disable, role, scope,
-// driver-link and platform-role changes; such a caller locks or updates the users row before it
-// touches any sessions or refresh_tokens row (lock order users -> sessions -> refresh_tokens).
+// RevokeInTx performs a revocation inside the caller's WithSystem transaction: it locks the user's row,
+// then auth_version++, sessions.revoked_*, their refresh tokens, and outbox user.sessions_revoked on
+// user:{uid} (SSE session.revoked; notify.fcm pushes session_revoked to the revoked installs). While the
+// Firebase bridge mirrors (Appendix C §C.6.4) it also writes the user's Firebase account before COMMIT:
+// claims_changed merges the recomputed legacy claim object into its custom attributes, and an
+// admin_revoke or disabled revocation of every session (SessionIDs nil) sets validSince = now, which ends
+// the Firebase sessions of installed APKs (one Go session cannot name a Firebase one, so revoking only
+// some sessions leaves Firebase alone). A mirror failure is 503 bridge_unavailable: the caller's
+// transaction rolls back. The caller appends its security_events row with security.Append in the same
+// transaction and calls Apply after COMMIT. internal/iam (T19) uses it for role, scope, driver-link,
+// platform-role changes and admin revocation (disable: SetStatusInTx); such a caller writes its rows
+// first, so the claims read here are the new ones, and locks or updates the users row before it touches
+// any sessions or refresh_tokens row (lock order users -> sessions -> refresh_tokens).
 func (s *Service) RevokeInTx(ctx context.Context, tx pgx.Tx, r Revocation) (*PostCommit, []uuid.UUID, error) {
 	pc := newPostCommit()
-	sids, err := s.revokeTx(ctx, authdb.New(tx), r, s.clock(), pc)
-	return pc, sids, err
+	q := authdb.New(tx)
+	sids, err := s.revokeTx(ctx, q, r, s.clock(), pc)
+	if err != nil {
+		return nil, nil, err
+	}
+	switch {
+	case r.Reason == RevokeClaimsChanged:
+		err = s.mirror(ctx, q, r.UserID, accountChange{op: "claims", claims: true})
+	case (r.Reason == RevokeAdmin || r.Reason == RevokeDisabled) && r.SessionIDs == nil:
+		err = s.mirror(ctx, q, r.UserID, accountChange{op: "revoke", revoke: true})
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	return pc, sids, nil
 }
 
 func (s *Service) revokeTx(ctx context.Context, q *authdb.Queries, r Revocation, now time.Time, pc *PostCommit) ([]uuid.UUID, error) {

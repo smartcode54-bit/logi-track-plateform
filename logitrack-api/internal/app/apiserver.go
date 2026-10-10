@@ -8,6 +8,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/firebase"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/google"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/password"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/token"
@@ -83,6 +84,10 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 	} else {
 		log.Info().Msg("Google sign-in off: GOOGLE_OIDC_ALLOWED_CLIENT_IDS is unset (/v1/auth/google* answer 404)")
 	}
+	if deps.Firebase, err = buildFirebase(cfg.Bridge, log); err != nil {
+		closeAll()
+		return nil, nil, err
+	}
 	svc, err := auth.New(auth.Config{
 		RefreshTTLWeb: cfg.RefreshTTLWeb, RefreshTTLMobile: cfg.RefreshTTLMobile, PasswordResetTTL: cfg.PasswordResetTTL,
 		Scrypt: cfg.Scrypt, RateLimitEnabled: cfg.RateLimit.Enabled, LoginIP: cfg.RateLimit.Limit(ratelimit.LoginIP),
@@ -115,6 +120,38 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		checker{"redis", store.Ping},
 	)
 	return a, closeAll, nil
+}
+
+// buildFirebase builds the bridge's collaborators (Appendix C §C.6) without I/O beyond reading the key
+// file: Google's keys and tokens are fetched on first use, so the api starts while Google is
+// unreachable. An unreadable or malformed key file is a *config.Error (exit 2) naming the variable only.
+func buildFirebase(b Bridge, log zerolog.Logger) (auth.Firebase, error) {
+	fb := auth.Firebase{Mode: b.Mode}
+	if b.FirebaseProjectID != "" {
+		v, err := firebase.NewVerifier(firebase.VerifierConfig{ProjectID: b.FirebaseProjectID})
+		if err != nil {
+			return fb, &config.Error{Invalid: []string{"FIREBASE_PROJECT_ID: " + err.Error()}}
+		}
+		fb.Verifier = v
+	}
+	if b.Mode != auth.BridgeOff {
+		sa, err := firebase.LoadServiceAccount(b.GoogleCredentials)
+		if err != nil {
+			return fb, &config.Error{Invalid: []string{err.Error()}}
+		}
+		if sa.ProjectID() != "" && sa.ProjectID() != b.FirebaseProjectID {
+			// Firebase accepts custom tokens only from a service account of its own project.
+			log.Warn().Msg("Firebase bridge: the GOOGLE_APPLICATION_CREDENTIALS service account belongs to another project than FIREBASE_PROJECT_ID")
+		}
+		acc, err := firebase.NewAccounts(firebase.AccountsConfig{ProjectID: b.FirebaseProjectID, Credentials: sa})
+		if err != nil {
+			return fb, &config.Error{Invalid: []string{"GOOGLE_APPLICATION_CREDENTIALS: " + err.Error()}}
+		}
+		fb.Signer, fb.Accounts = sa, acc
+	}
+	log.Info().Bool("web_custom_tokens", b.Mode.Web()).Bool("apk_firebase_tokens", b.Mode.Mobile()).
+		Bool("account_mirror", b.Mode.Mirror()).Bool("firebase_id_tokens", fb.Verifier != nil).Msg("Firebase bridge")
+	return fb, nil
 }
 
 // checker adapts a ping function to health.Checker.

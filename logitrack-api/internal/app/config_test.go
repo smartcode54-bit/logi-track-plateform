@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/app"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
 )
@@ -256,5 +257,64 @@ func TestAPIConfigParsesScryptParams(t *testing.T) {
 	}
 	if cfg.RateLimit.Limit(ratelimit.LoginIP) != (ratelimit.Limit{Count: 20, Window: 30 * time.Second}) {
 		t.Fatalf("login rate: %+v", cfg.RateLimit)
+	}
+}
+
+func TestAPIConfigBridgeDefaults(t *testing.T) {
+	cfg, err := config.LoadFrom[app.APIConfig](baseEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Mode != auth.BridgeOff || cfg.Mode.Mirror() || cfg.Mode.Web() || cfg.Mode.Mobile() {
+		t.Fatalf("default bridge mode = %q", cfg.Mode)
+	}
+	// Compose passes empty values for unset names: still off.
+	cfg, err = config.LoadFrom[app.APIConfig](override(baseEnv(), []string{"AUTH_FIREBASE_BRIDGE_MODE="}))
+	if err != nil || cfg.Mode != auth.BridgeOff {
+		t.Fatalf("empty mode: %q %v", cfg.Mode, err)
+	}
+	// The shims verify ID tokens in every mode, so the project id alone is fine with mode off.
+	if _, err := config.LoadFrom[app.APIConfig](override(baseEnv(), []string{"FIREBASE_PROJECT_ID=logitrack-dev"})); err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"web", "mobile", "both"} {
+		cfg, err := config.LoadFrom[app.APIConfig](override(baseEnv(), []string{
+			"AUTH_FIREBASE_BRIDGE_MODE=" + mode, "FIREBASE_PROJECT_ID=logitrack-dev",
+			"GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/firebase-sa.json",
+		}))
+		if err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		if string(cfg.Mode) != mode {
+			t.Fatalf("mode = %q", cfg.Mode)
+		}
+	}
+}
+
+func TestAPIConfigBridgeValidation(t *testing.T) {
+	cases := map[string]struct {
+		env  []string
+		want []string
+	}{
+		"unknown mode":       {[]string{"AUTH_FIREBASE_BRIDGE_MODE=web-only"}, []string{"AUTH_FIREBASE_BRIDGE_MODE"}},
+		"mode needs both":    {[]string{"AUTH_FIREBASE_BRIDGE_MODE=web"}, []string{"FIREBASE_PROJECT_ID", "GOOGLE_APPLICATION_CREDENTIALS"}},
+		"mobile needs creds": {[]string{"AUTH_FIREBASE_BRIDGE_MODE=mobile", "FIREBASE_PROJECT_ID=logitrack-dev"}, []string{"GOOGLE_APPLICATION_CREDENTIALS"}},
+		"bad project id":     {[]string{"FIREBASE_PROJECT_ID=LogiTrack_Dev"}, []string{"FIREBASE_PROJECT_ID"}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := config.LoadFrom[app.APIConfig](override(baseEnv(), tc.env))
+			if err == nil {
+				t.Fatal("want error")
+			}
+			for _, n := range tc.want {
+				if !strings.Contains(err.Error(), n) {
+					t.Fatalf("error does not name %s: %v", n, err)
+				}
+			}
+			if strings.Contains(err.Error(), "LogiTrack_Dev") || strings.Contains(err.Error(), "web-only") {
+				t.Fatalf("error echoes a value: %v", err)
+			}
+		})
 	}
 }

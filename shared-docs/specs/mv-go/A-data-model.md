@@ -3364,7 +3364,7 @@ Draft synonyms are never written: `tenant_orphan` → `tenant_unresolved` (it su
 |---|---|
 | Row inserted in PG (class A/B) and projected | `id` from `uuidv7()`; the same transaction sets `legacy_doc_id = id::text` before the outbox event; the projection upserts doc `{legacy_doc_id}` |
 | Write-back of a Firestore-owned doc (class C, P2–P7b) | Go creates the doc with a fresh uuidv7 string as id; the mirror loads it with `id` = `legacy_doc_id` = that string, so identity round-trips without a lookup |
-| User created in Go while `AUTH_FIREBASE_BRIDGE_MODE` includes `mobile` | Firebase uid = `users.id::text`, also stored in `users.legacy_auth_uid` |
+| User created in Go while `AUTH_FIREBASE_BRIDGE_MODE` is not `off` (a driver or own-fleet user, mirrored account) or minting its first web custom token (own-fleet staff, platform_admin) | Firebase uid = `users.id::text`, also stored in `users.legacy_auth_uid` (Appendix C §C.6.3, §C.6.4) |
 | Legacy doc (Firestore auto-id or driver-typed trip id) | `id` = new `uuidv7()`; `legacy_doc_id` = original doc id |
 | Field values in the projection | status via the translation table (canonical lower_snake → legacy literal, e.g. `checked_in` → `'Checked in'`, D2); `dateStr` written as Bangkok `ddMMyyyy`; `driverId` = `drivers.legacy_doc_id` on tasks and the driver's `legacy_auth_uid` on collections that store the auth uid (trip_records, standby_records, vehicle_expenses, chats, payroll, …; schemas report line 1); `helperDriverIds` = `[legacy_auth_uid]` |
 

@@ -2,7 +2,7 @@
 
 Go backend for the LogiTrack migration off Firebase (`mv-go`). Design: [`developer-spec.md`](../developer-spec.md) §2, routes in [Appendix B](../shared-docs/specs/mv-go/B-api-catalog.md). Branch policy: work lands by PR into `mv-go`, never `main` (R90).
 
-Status: **T01 scaffold + T02 local stack + T03 migrations + T04 core schema + T05 own auth + T06 Google sign-in + T36 billing engine + TW2 edge (web container + Caddy) + T14 CI**. One module, seven binaries, shared `internal/`; the first routes are `/v1/auth/*` and `/v1/me*` (T05).
+Status: **T01 scaffold + T02 local stack + T03 migrations + T04 core schema + T05 own auth + T06 Google sign-in + T08 Firebase bridge + T36 billing engine + TW2 edge (web container + Caddy) + T14 CI**. One module, seven binaries, shared `internal/`; the first routes are `/v1/auth/*` and `/v1/me*` (T05).
 
 ## Layout
 
@@ -20,6 +20,7 @@ internal/auth/token          Ed25519 access JWT: sign, verify (active + previous
 internal/auth/password       Argon2id PHC hashing, re-hash on weaker parameters, password policy
 internal/auth/firebasescrypt verify-then-rehash of imported Firebase scrypt hashes
 internal/auth/google         Google ID-token verifier (go-oidc, lazy discovery, aud allow list; googletest = in-process fake Google)
+internal/auth/firebase       Firebase bridge protocol, no Admin SDK (T08): ID-token verifier, RS256 custom tokens, Identity Toolkit accounts; firebasetest = in-process fake Google
 internal/authz               request principal (T05 identity half; catalog and RequireCap with T07)
 internal/security            the only writer of security_events: security.Append in the caller's transaction (T05)
 internal/platform/config     env loading: all missing/invalid names in one error, never values
@@ -78,6 +79,8 @@ Errors are always `{"error":{"code","message","details","requestId"}}` and `requ
 | `ARGON2_MEMORY_KB`, `ARGON2_ITERATIONS`, `ARGON2_PARALLELISM` | api | no | `65536`, `3`, `2` |
 | `FIREBASE_SCRYPT_SIGNER_KEY`, `_SALT_SEPARATOR`, `_ROUNDS`, `_MEM_COST` | api | all four or none | none: legacy hashes cannot sign in (`make env` sets the public firebase/scrypt test set locally) |
 | `RATE_LIMIT_ENABLED`, `RATE_LIMIT_LOGIN`, `RATE_LIMIT_PUBLIC_FORMS`, `RATE_LIMIT_EVIDENCE` | api | no | `true`, `10/1m` (login per IP; the 5-failure lockout always applies), `5/1h`, `60/1m`; parsed once by `ratelimit.Config` |
+| `AUTH_FIREBASE_BRIDGE_MODE` | api | no | `off` (`off`, `mobile`, `web`, `both`; any mode but `off` needs the next two) |
+| `FIREBASE_PROJECT_ID`, `GOOGLE_APPLICATION_CREDENTIALS` | api | with the bridge | none: no Firebase ID-token verification, no custom tokens, no mirror (the key file is read at start-up; unreadable or malformed = exit 2, naming the variable only) |
 
 A missing or invalid variable stops the process with exit code 2 and a message naming every offending variable (never its value). Startup logs list each variable as `set`/`unset`.
 
@@ -158,6 +161,23 @@ Go returns tokens in JSON bodies and never sets cookies (the BFF does, TW3). Rou
 - **Passwords**: Argon2id (parameters read back; weaker stored hashes re-hash on login), Firebase scrypt verify-then-rehash, `must_change_password` -> `403 password_change_required` with a single-use `passwordChangeTicket` redeemed at `/v1/auth/password/change`, forgot always `202` (outbox `auth.password_reset_requested`; the `notify.email` consumer of T10 calls `IssuePasswordResetToken`, which stores only the hash), 5 failures / 15 min lock an email (`423 locked`; each attempt is counted before its check). Every failed check costs one Argon2id plus, while `FIREBASE_SCRYPT_*` is set, one scrypt (no timing enumeration); at most `GOMAXPROCS / ARGON2_PARALLELISM` hashes run at once (`503` after 3 s); a login opens its session only while the row still holds the credential it verified, so a racing reset wins.
 - **Google sign-in** (T06, Appendix C §C.4.10): `GET /v1/auth/google/nonce` (web, through the BFF; single use, 10 min) and `POST /v1/auth/google {idToken, nonce?, platform, installId?, appVersion?}` with a GIS or `google_sign_in` ID token; no authorization-code flow (R23). `internal/auth/google` verifies with go-oidc (discovery on the first sign-in, so the api starts without Google; RS256; every `aud` in `GOOGLE_OIDC_ALLOWED_CLIENT_IDS`; `email_verified`). The account is the `auth_identities` Google `sub`, else the user with the verified email when Google is authoritative for it (a Gmail address or a Workspace account with `hd`), linked in the same transaction as `google_identity_linked`; otherwise `403 no_account` (no self-signup). A body nonce must be the token's and unused; a driver-app token (`azp` != `aud`) sent without one may carry the SDK's own nonce (iOS), which is ignored. Bad token or nonce `401 invalid_token`, Google unreachable `503`, variable unset `404`. Locally the variable is empty, so Google sign-in is off; tests use `googletest` (no network).
 - Every statement runs in `db.WithSystem` (`app.bypass_tenant=on`); queries are sqlc (`internal/auth/queries` -> `internal/auth/authdb`). Tests: `go test ./internal/auth/... ./internal/security/...` (unit: JWT, the firebase/scrypt public vectors, Argon2id and the hashing gate, policy, equal work per failed check) and `make test-integration` (PostgreSQL 18 + Redis 7 containers, both listeners; `hardening_integration_test.go` covers the races and lost Redis writes).
+
+## Firebase bridge (T08, main spec §4.9, Appendix C §C.6)
+
+`AUTH_FIREBASE_BRIDGE_MODE` decides what the web and the APK may do with Firebase credentials while the strangler runs; no Firebase Admin SDK is linked (`internal/auth/firebase`). Nothing reaches Google at start-up: keys and OAuth2 tokens are fetched on first use.
+
+| Mode | Custom tokens for the web | APK Firebase ID tokens | Account mirror | Phases |
+|---|---|---|---|---|
+| `off` | no (`/v1/bridge/*` 404) | no (404) | no | local default; after P8 |
+| `web` | yes | no | yes | P0-P6, until TW7 |
+| `mobile` | no | yes | yes | P7a-P8 |
+| `both` | yes | yes | yes | only while P7a overlaps an unfinished TW7 |
+
+- **Web** (`POST /v1/bridge/firebase-token`, internal listener only, bearer): an RS256 custom token signed with the `GOOGLE_APPLICATION_CREDENTIALS` service account for the caller's Firebase uid (`users.legacy_auth_uid`; an own-fleet user created in Go gets `users.id` at the first mint) with the legacy claims of its active context (`admin`, `role`, `driverId`, `customerScopeId`, `partnerScopeId`, Appendix C §C.6.3). Only own-fleet staff, `platform_admin` and users imported from a legacy partner or customer claim (an `auth_identities` `firebase_legacy` row) get one; everyone else `403 permission_denied`. `GET /v1/me` adds `legacyAuthUid` in this mode.
+- **Firebase ID tokens** (`auth.Service.VerifyFirebaseIDToken`): go-oidc against `https://securetoken.google.com/{FIREBASE_PROJECT_ID}` with the securetoken JWKS; the principal (`amr` `firebase`, no session) comes from PostgreSQL, never from the token's claims. `FirebaseAPK` (the exchange of T55) needs a mode with `mobile`; `FirebaseShim` (T32) works in every mode. A Firebase token is never a bearer: `401 invalid_token` on every route.
+- **Account mirror** (every mode but `off`): password sets (change, reset, ticket change, temporary password), disable / enable, an admin revocation of every session and claims changes are written to Firebase Auth through Identity Toolkit inside the request's transaction, before COMMIT; a failure is `503 bridge_unavailable` and commits nothing. Entry points for T19: `RevokeInTx`, `SetStatusInTx`, `NewTemporaryPassword` + `SetTemporaryPasswordInTx`, `MirrorNewUserInTx`. Metrics `auth_firebase_mirror_failures_total{op}`, `auth_firebase_custom_tokens_total`.
+
+Tests use `internal/auth/firebase/firebasetest` (securetoken keys, OAuth2 token endpoint and Identity Toolkit in-process); nothing reaches Google. Signing a minted token in to the dev project is an owner step (Appendix C §C.9.5).
 
 ## Billing engine (T36, main spec §6)
 
