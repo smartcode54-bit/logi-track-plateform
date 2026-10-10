@@ -123,10 +123,21 @@ func (c *Cron) Run(ctx context.Context) {
 
 // Fire runs one slot of a job: lock:cron first, then the jobs row (owner NULL) and either the
 // lt.jobs command or the local work.
+//
+// Invariant: a slot has a jobs row only if this replica took lock:cron for it (or Redis was really
+// unavailable while ctx was still live, and the advisory lock alone guards the slot), and a Local
+// row always ends succeeded or failed.
 func (c *Cron) Fire(ctx context.Context, j Job, scheduledFor time.Time) {
 	log := c.log.With().Str("cron", j.Name).Time("scheduled_for", scheduledFor).Logger()
 	ok, _, err := c.locks.Acquire(ctx, c.locks.CronKey(j.Name, scheduledFor), c.holder, LockTTL)
 	switch {
+	case err != nil && ctx.Err() != nil:
+		// Shutdown before the slot was claimed: go-redis fails on a cancelled context without sending
+		// SET NX, so this replica does not hold lock:cron and must not record the slot. (If the SET NX
+		// did reach Redis and only its reply was lost, the key keeps the slot and nobody runs it, like
+		// any slot whose time comes during a shutdown.)
+		log.Info().Err(err).Msg("cron slot skipped: shutdown before lock:cron was taken")
+		return
 	case err != nil:
 		// The advisory lock is the primary guard; Redis only backs it up.
 		log.Warn().Err(err).Msg("cron lock unavailable; firing under the advisory lock alone")
@@ -152,9 +163,11 @@ func (c *Cron) fire(ctx context.Context, j Job, params map[string]any) error {
 			return err
 		})
 	}
-	// The claim transaction ignores cancellation: a shutdown arriving during COMMIT could otherwise
-	// leave a committed "running" row whose slot never runs (the lock:cron key blocks the other
-	// replica). Once claimed, the slot always ends as succeeded or failed.
+	// Fire calls this only after it took lock:cron (or Redis was really unavailable with a live ctx),
+	// so the row recorded here belongs to this replica. The claim transaction ignores cancellation: a
+	// shutdown arriving during COMMIT could otherwise leave a committed "running" row whose slot never
+	// runs (the lock:cron key blocks the other replica). Once claimed, the row always ends succeeded
+	// or failed; a shutdown that has begun by then fails it without running the work.
 	rctx := context.WithoutCancel(ctx)
 	var job jobs.Job
 	if err := db.WithSystem(rctx, c.pool, nil, func(tx pgx.Tx) error {
