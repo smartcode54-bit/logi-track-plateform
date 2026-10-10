@@ -25,6 +25,9 @@ internal/platform/db         pgx pools per role (R66); dbq = sqlc output; pgtest
 internal/platform/migrate    migration rules (R31), goose runner with a session lock; migratetest = round trip
 internal/platform/clock      Bangkok (+07:00) calendar: dates, days, months, Bangkok midnight; never the wall clock
 internal/platform/jsmath     JavaScript number semantics money code needs: Math.round, Round2, toFixed
+internal/platform/cache      Redis layer (T09): client, lt:{APP_ENV}: keyspace, read-through caches, invalidation, money-path guard; cachetest = redis:7-alpine for tests
+internal/platform/httpx/idempotency  Idempotency-Key middleware: Redis hot copy + idempotency_keys durable claim (R53)
+internal/platform/httpx/ratelimit    GCRA buckets of Appendix B §B.6.3 + Fiber middleware (429 resource_exhausted, Retry-After)
 internal/billing/compute     the billing engine (T36): pure port of lib/billingCompute.ts + the pure pricing rules
 internal/billing/documents   pure invoice layout rules: axis date, price rounds, line items (renderers: T39)
 internal/golden              test-only runner for testdata/golden vectors
@@ -147,6 +150,26 @@ Golden vectors: `testdata/golden/billing` (see its README). `go test ./internal/
 | `http://:8090` (not published) | the api public listener | tunnel target: `/public/v1/*` only |
 
 Locally the sites are `http://` (no TLS). In prod they are bare host names with ACME certificates; Caddy then refuses to start until `ACME_EMAIL` is set. `make smoke EDGE=1` runs `deploy/edge-smoke.sh` after the T02 and T03 checks (real id under `/app/customers/<id>`, cache headers, public-listener-only API site, a presigned URL through the media site; `go run ./tools/presign` signs it). `internal/platform/ingress` tests keep the Caddyfile allow-list equal to `ingress.PublicPrefixes`.
+
+## Redis layer (T09, main spec §2.1, Appendix B §B.6)
+
+Every key and channel is `lt:{APP_ENV}:{namespace}:...` with the eight namespaces `cache`, `auth`, `rbac`, `idem`, `rl`, `rt`, `rtlog`, `lock` (R26); keys come only from `cache.Keyspace` builders (one per row of Appendix B §B.6.2 and Appendix C §C.4.14). The server runs AOF with `maxmemory-policy noeviction` (compose and `cachetest`, which reads the image and flags from `deploy/docker-compose.yml`).
+
+| Env | Default | Used by |
+|---|---|---|
+| `REDIS_URL`, `REDIS_KEY_PREFIX`, `REDIS_TLS` | prefix `lt:{APP_ENV}:` (anything else is refused), TLS off | `cache.Open` (lazy dial, 2 s dial timeout) |
+| `CACHE_TTL_HUBS`, `CACHE_TTL_RATECARD`, `CACHE_TTL_SETTINGS` | `10m`, `1h`, `5m` | `cache.TTLs` |
+| `IDEMPOTENCY_TTL` | `168h` | `idempotency.Config` |
+| `RATE_LIMIT_ENABLED`, `RATE_LIMIT_LOGIN`, `RATE_LIMIT_PUBLIC_FORMS`, `RATE_LIMIT_EVIDENCE` | `true`, `10/1m`, `5/1h`, `60/1m` | `ratelimit.Config` (other buckets are code constants) |
+
+- **Caches are UI hints.** `cache.GetJSON`, `HubMaps` (two hashes `cache:hubs:n2c` and `cache:hubs:c2n`, written and dropped together, never merged), `PeriodLocks`, `Subtenants` read through to a loader (PostgreSQL) and fall back to it when Redis fails. Writers call `Cache.Invalidate` / `Cache.OnEvent` after commit; the outbox relay (T10) calls `OnEvent` for every event; deletions go out on `rt:cache` so replicas running `Cache.Run` drop their `WithL1` copies.
+- **Money paths never read Redis** (R17). Pricing, period locks, invoice numbering and payroll run under `cache.MoneyPath(ctx)`: every command of a guarded client fails with `ErrMoneyPath` before it is sent, and the caches refuse to serve. `go list -deps` of the pure engines must not contain `go-redis` (`TestMoneyEnginesNeverLinkRedis`).
+- **Idempotency** (`httpx/idempotency`): mount `Middleware.Handler()` after authentication on each `✱` route; 2xx answers replay byte for byte (`Idempotent-Replayed: true`) from Redis (24 h) or `idempotency_keys` (until `IDEMPOTENCY_TTL`), a different body is `409 idempotency_conflict`; `PGStore.Prune` is the `idempotency.prune` job.
+- **Rate limits** (`httpx/ratelimit`): `Limiter.Middleware(enabled, rules...)`; subjects are stored as a sha256 prefix; fail open (logged and counted) when Redis does not answer within 300 ms.
+- **Mirror ack** (`SetMirrorAck`, `WaitMirrorAck`) for read-your-writes in P2-P7a; single-use tickets (`PutTicket`, `TakeTicket` with `GETDEL`) for `auth:pwchg`, `auth:sse`, `auth:google:nonce`.
+- Wiring: the api process builds the Redis client in T05 (`BuildAPI`); routes adopt the middleware as they land (first `✱` routes: T31, T56). Process wiring calls `cache.RouteDriverLogs(log)` so go-redis log lines go through the redacting logger.
+
+Tests: `go test ./internal/platform/cache/... ./internal/platform/httpx/...` (keyspace, events, L1, money-path guard with Redis stopped) and `make test-integration` (redis:7-alpine and postgres:18-alpine: read-through, invalidation over pub/sub, Redis stopped, GCRA, idempotency replay from Redis and from PostgreSQL, and a SCAN that every key is under the prefix and a listed namespace).
 
 ## Develop
 

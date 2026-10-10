@@ -70,6 +70,12 @@ n=$(printf 'user = "%s:%s"\n' "$(val RABBITMQ_DEFAULT_USER)" "$(val RABBITMQ_DEF
   | curl -s -K - http://localhost:15672/api/queues | grep -o '"name":"[^"]*"' | wc -l | tr -d ' ')
 [ "$n" -ge 37 ] && ok "$n queues declared (16 work + 16 dead + 5 retry)" || bad "queues declared: $n"
 
+echo "redis"
+# T09: idempotency records and revocations must never be evicted (Appendix B §B.6.1).
+rconf() { "${compose[@]}" exec -T redis redis-cli CONFIG GET "$1" 2>/dev/null | sed -n 2p || true; }
+v=$(rconf maxmemory-policy); [ "$v" = "noeviction" ] && ok "maxmemory-policy noeviction" || bad "maxmemory-policy ${v:-unknown}"
+v=$(rconf appendonly); [ "$v" = "yes" ] && ok "appendonly yes (AOF)" || bad "appendonly ${v:-unknown}"
+
 echo "api"
 c=$(code http://localhost:8080/readyz); [ "$c" = "200" ] && ok "internal /readyz 200" || bad "internal /readyz $c"
 c=$(code http://localhost:8081/healthz); [ "$c" = "200" ] && ok "public /healthz 200" || bad "public /healthz $c"
