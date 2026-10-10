@@ -122,9 +122,3 @@ FOR UPDATE;
 -- name: UsePasswordResetToken :exec
 UPDATE password_reset_tokens SET used_at = sqlc.arg(at)::timestamptz WHERE id = sqlc.arg(id);
 
--- name: InsertOutboxEvent :exec
--- Transactional outbox (Appendix B §B.5.5): the api never talks to RabbitMQ; the relay publishes later.
-INSERT INTO outbox_events (routing_key, aggregate_type, aggregate_id, event_type, tenant_id, payload, headers,
-                           realtime_topics)
-VALUES (sqlc.arg(routing_key), sqlc.arg(aggregate_type), sqlc.arg(aggregate_id), sqlc.arg(event_type),
-        sqlc.narg(tenant_id), sqlc.arg(payload), sqlc.arg(headers), sqlc.arg(realtime_topics));

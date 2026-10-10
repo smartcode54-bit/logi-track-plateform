@@ -61,39 +61,6 @@ func (q *Queries) GetSession(ctx context.Context, id uuid.UUID) (GetSessionRow, 
 	return i, err
 }
 
-const insertOutboxEvent = `-- name: InsertOutboxEvent :exec
-INSERT INTO outbox_events (routing_key, aggregate_type, aggregate_id, event_type, tenant_id, payload, headers,
-                           realtime_topics)
-VALUES ($1, $2, $3, $4,
-        $5, $6, $7, $8)
-`
-
-type InsertOutboxEventParams struct {
-	RoutingKey     string
-	AggregateType  string
-	AggregateID    string
-	EventType      string
-	TenantID       *uuid.UUID
-	Payload        []byte
-	Headers        []byte
-	RealtimeTopics []string
-}
-
-// Transactional outbox (Appendix B §B.5.5): the api never talks to RabbitMQ; the relay publishes later.
-func (q *Queries) InsertOutboxEvent(ctx context.Context, arg InsertOutboxEventParams) error {
-	_, err := q.db.Exec(ctx, insertOutboxEvent,
-		arg.RoutingKey,
-		arg.AggregateType,
-		arg.AggregateID,
-		arg.EventType,
-		arg.TenantID,
-		arg.Payload,
-		arg.Headers,
-		arg.RealtimeTopics,
-	)
-	return err
-}
-
 const insertPasswordResetToken = `-- name: InsertPasswordResetToken :one
 INSERT INTO password_reset_tokens (user_id, purpose, token_hash, expires_at, requested_ip, requested_by, created_at)
 VALUES ($1, $2, $3, $4, $5::inet,

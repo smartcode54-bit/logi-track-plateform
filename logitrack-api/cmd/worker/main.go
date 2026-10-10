@@ -1,5 +1,6 @@
-// Command worker is a long-running background process. Until issue T10 it only
-// serves /metrics on METRICS_ADDR and waits for SIGTERM (developer-spec.md §2.1, §7).
+// Command worker consumes the RabbitMQ work queues of Appendix B §B.5.3 selected by WORKER_CONSUMERS,
+// with consumer_inbox dedupe and the five-rung retry ladder before {queue}.dead (developer-spec.md
+// §2.1, §7.2-§7.3). It also serves /metrics on METRICS_ADDR.
 package main
 
 import (
@@ -10,7 +11,7 @@ import (
 
 func main() {
 	ctx, stop := app.SignalContext()
-	code := app.RunBackground(ctx, "worker", os.Stdout, os.Stderr)
+	code := app.RunWorker(ctx, os.Stdout, os.Stderr)
 	stop()
 	os.Exit(code)
 }

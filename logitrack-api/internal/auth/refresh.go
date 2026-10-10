@@ -158,7 +158,7 @@ func (s *Service) reuseDetected(ctx context.Context, tx pgx.Tx, q *authdb.Querie
 		return err
 	}
 	pc.dropHashes(fam...)
-	if _, err := s.revokeTx(ctx, q, Revocation{
+	if _, err := s.revokeTx(ctx, tx, Revocation{
 		UserID: rt.UserID, Reason: RevokeRefreshReuse, SessionIDs: []uuid.UUID{rt.SessionID}, BumpVersion: true,
 		RequestID: in.RequestID,
 	}, now, pc); err != nil {

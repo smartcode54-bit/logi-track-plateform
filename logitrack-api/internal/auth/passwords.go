@@ -59,7 +59,7 @@ func (s *Service) Forgot(ctx context.Context, in ForgotInput) error {
 	if in.Locale == "en" {
 		locale = "en"
 	}
-	return s.system(ctx, func(q *authdb.Queries) error {
+	return s.systemTx(ctx, func(tx pgx.Tx, q *authdb.Queries) error {
 		u, err := q.GetUserForLogin(ctx, email)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
@@ -70,14 +70,14 @@ func (s *Service) Forgot(ctx context.Context, in ForgotInput) error {
 		if u.Status != "active" && u.Status != "reset_required" {
 			return nil
 		}
-		if err := insertOutbox(ctx, q, outboxEvent{
+		if err := insertOutbox(ctx, tx, outboxEvent{
 			RoutingKey: RoutePasswordResetAsked, AggregateType: "user", AggregateID: u.ID.String(),
 			Payload:   resetRequestedPayload{UserID: u.ID, Purpose: PurposeReset, Locale: locale, RequestedIP: in.IP},
 			RequestID: in.RequestID,
 		}); err != nil {
 			return err
 		}
-		return emitSecurityEvent(ctx, q, security.Event{
+		return emitSecurityEvent(ctx, tx, security.Event{
 			EventType: "password_reset_requested", Severity: security.SeverityInfo, Summary: "password reset link requested",
 			Details: map[string]any{"ip": in.IP}, TargetUserID: &u.ID, RequestID: in.RequestID, OccurredAt: s.clock(),
 		})
@@ -89,7 +89,14 @@ func (s *Service) Forgot(ctx context.Context, in ForgotInput) error {
 // InviteTTL (invite). The caller mails {PUBLIC_WEB_BASE_URL}/reset-password#token=<token> and commits.
 func (s *Service) IssuePasswordResetToken(ctx context.Context, tx pgx.Tx, userID uuid.UUID, purpose string,
 	requestedIP string, requestedBy *uuid.UUID) (string, error) {
-	ttl := s.cfg.PasswordResetTTL
+	return IssueResetToken(ctx, tx, s.clock(), s.cfg.PasswordResetTTL, userID, purpose, requestedIP, requestedBy)
+}
+
+// IssueResetToken is IssuePasswordResetToken for a process without a Service: the worker's notify.email
+// consumer (T10) passes its PASSWORD_RESET_TTL, so the row is exactly what Reset looks up.
+func IssueResetToken(ctx context.Context, tx pgx.Tx, now time.Time, resetTTL time.Duration, userID uuid.UUID,
+	purpose, requestedIP string, requestedBy *uuid.UUID) (string, error) {
+	ttl := resetTTL
 	switch purpose {
 	case PurposeReset:
 	case PurposeInvite:
@@ -97,12 +104,14 @@ func (s *Service) IssuePasswordResetToken(ctx context.Context, tx pgx.Tx, userID
 	default:
 		return "", errors.New("auth: unknown password reset purpose")
 	}
+	if ttl <= 0 {
+		return "", errors.New("auth: the reset token lifetime is not set")
+	}
 	tok, err := newSecret()
 	if err != nil {
 		return "", err
 	}
 	sum, _, _ := secretHash(tok)
-	now := s.clock()
 	if _, err := authdb.New(tx).InsertPasswordResetToken(ctx, authdb.InsertPasswordResetTokenParams{
 		UserID: userID, Purpose: purpose, TokenHash: sum, ExpiresAt: now.Add(ttl),
 		RequestedIp: parseIP(requestedIP), RequestedBy: requestedBy, CreatedAt: now,
@@ -192,7 +201,7 @@ func (s *Service) Reset(ctx context.Context, in ResetInput) error {
 		if u.Status == "disabled" || u.Status == "deleted" {
 			return errBadSecret("token")
 		}
-		if err := s.setPassword(ctx, q, u, in.NewPassword, hash, nil, RevokePasswordReset, in.RequestID, now, pc); err != nil {
+		if err := s.setPassword(ctx, tx, q, u, in.NewPassword, hash, nil, RevokePasswordReset, in.RequestID, now, pc); err != nil {
 			return err
 		}
 		if err := q.UsePasswordResetToken(ctx, authdb.UsePasswordResetTokenParams{At: now, ID: t.ID}); err != nil {
@@ -363,7 +372,7 @@ func (s *Service) changePassword(ctx context.Context, uid uuid.UUID, in ChangeIn
 		case ticket != nil && (!u.MustChangePassword || u.AuthVersion != ticket.AuthVersion):
 			return errBadSecret("passwordChangeTicket") // superseded by a reset or another password event
 		}
-		if err := s.setPassword(ctx, q, u, in.NewPassword, hash, keep, RevokePasswordChanged, in.RequestID, now, pc); err != nil {
+		if err := s.setPassword(ctx, tx, q, u, in.NewPassword, hash, keep, RevokePasswordChanged, in.RequestID, now, pc); err != nil {
 			return err
 		}
 		return security.Append(ctx, tx, security.Event{
@@ -381,7 +390,7 @@ func (s *Service) changePassword(ctx context.Context, uid uuid.UUID, in ChangeIn
 
 // setPassword checks the full policy for pw, stores hash (its Argon2id hash, computed before the
 // transaction; SetPassword bumps auth_version), and revokes every session except keep with reason.
-func (s *Service) setPassword(ctx context.Context, q *authdb.Queries, u authdb.LockUserRow, pw, hash string, keep *uuid.UUID,
+func (s *Service) setPassword(ctx context.Context, tx pgx.Tx, q *authdb.Queries, u authdb.LockUserRow, pw, hash string, keep *uuid.UUID,
 	reason, requestID string, now time.Time, pc *PostCommit) error {
 	if err := s.policyCheck(ctx, q, u.ID, deref(u.Email), pw); err != nil {
 		return err
@@ -391,7 +400,7 @@ func (s *Service) setPassword(ctx context.Context, q *authdb.Queries, u authdb.L
 		return err
 	}
 	pc.version(u.ID, v)
-	_, err = s.revokeTx(ctx, q, Revocation{UserID: u.ID, Reason: reason, Except: keep, RequestID: requestID}, now, pc)
+	_, err = s.revokeTx(ctx, tx, Revocation{UserID: u.ID, Reason: reason, Except: keep, RequestID: requestID}, now, pc)
 	return err
 }
 

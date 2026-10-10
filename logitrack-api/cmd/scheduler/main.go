@@ -1,5 +1,6 @@
-// Command scheduler is a long-running background process. Until issue T10 it only
-// serves /metrics on METRICS_ADDR and waits for SIGTERM (developer-spec.md §2.1, §7).
+// Command scheduler runs as one active replica (PostgreSQL advisory lock): the outbox relay to
+// RabbitMQ and Redis, the Asia/Bangkok cron table and the dead-letter replays (developer-spec.md §2.1,
+// §7.1, §7.4). It also serves /metrics on METRICS_ADDR.
 package main
 
 import (
@@ -10,7 +11,7 @@ import (
 
 func main() {
 	ctx, stop := app.SignalContext()
-	code := app.RunBackground(ctx, "scheduler", os.Stdout, os.Stderr)
+	code := app.RunScheduler(ctx, os.Stdout, os.Stderr)
 	stop()
 	os.Exit(code)
 }

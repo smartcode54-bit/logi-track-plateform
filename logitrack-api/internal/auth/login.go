@@ -391,9 +391,9 @@ func (s *Service) loginFailed(ctx context.Context, in LoginInput, attempt int64,
 			ActorEmail: &email, TargetUserID: target, RequestID: in.RequestID, OccurredAt: now,
 		})
 	}
-	if err := s.system(ctx, func(q *authdb.Queries) error {
+	if err := s.systemTx(ctx, func(tx pgx.Tx, _ *authdb.Queries) error {
 		for _, e := range events {
-			if err := emitSecurityEvent(ctx, q, e); err != nil {
+			if err := emitSecurityEvent(ctx, tx, e); err != nil {
 				return err
 			}
 		}
@@ -444,7 +444,7 @@ type grant struct {
 func (s *Service) openSession(ctx context.Context, uid uuid.UUID, g grant, in LoginInput) (*LoginResult, error) {
 	pc := newPostCommit()
 	var res *LoginResult
-	err := s.system(ctx, func(q *authdb.Queries) error {
+	err := s.systemTx(ctx, func(tx pgx.Tx, q *authdb.Queries) error {
 		now := s.clock()
 		user, err := q.LockUser(ctx, uid)
 		if err != nil {
@@ -503,7 +503,7 @@ func (s *Service) openSession(ctx context.Context, uid uuid.UUID, g grant, in Lo
 		if err := q.TouchLastLogin(ctx, geo); err != nil {
 			return err
 		}
-		if err := insertOutbox(ctx, q, outboxEvent{
+		if err := insertOutbox(ctx, tx, outboxEvent{
 			RoutingKey: RouteUserLoggedIn, AggregateType: "user", AggregateID: uid.String(), TenantID: tid,
 			Payload:   loggedInPayload{UserID: uid, SessionID: sid, Platform: in.Platform, AMR: g.amr, TenantID: tid},
 			RequestID: in.RequestID,
