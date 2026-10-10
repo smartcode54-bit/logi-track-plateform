@@ -3,6 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +15,7 @@ import (
 	"github.com/gofiber/fiber/v3"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/app"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/token"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
 )
 
@@ -24,15 +29,55 @@ func clearEnv(t *testing.T, names ...string) {
 	}
 }
 
+// required are the variables the api cannot start without.
+var required = []string{"API_INTERNAL_ADDR", "API_PUBLIC_ADDR", "APP_ENV", "DATABASE_URL", "JWT_ACTIVE_KID",
+	"JWT_AUDIENCE", "JWT_ISSUER", "JWT_SIGNING_KEY_FILE", "METRICS_ADDR", "REDIS_URL"}
+
+// devKey writes a throw-away Ed25519 key and returns its path and RFC 7638 thumbprint.
+func devKey(t *testing.T) (string, string) {
+	t.Helper()
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "jwt.pem")
+	if err := os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path, token.Thumbprint(priv.Public().(ed25519.PublicKey))
+}
+
+// startEnv sets a startable environment. The database and Redis URLs point at closed ports: the api
+// connects lazily, so it starts and only /readyz would report them.
+func startEnv(t *testing.T) {
+	t.Helper()
+	key, kid := devKey(t)
+	for k, v := range map[string]string{
+		"APP_ENV": "local", "API_INTERNAL_ADDR": "127.0.0.1:0", "API_PUBLIC_ADDR": "localhost:0",
+		"METRICS_ADDR": "[::1]:0", "SHUTDOWN_TIMEOUT": "2s",
+		"DATABASE_URL": "postgres://logitrack_app@127.0.0.1:1/logitrack", "REDIS_URL": "redis://127.0.0.1:1/0",
+		"JWT_SIGNING_KEY_FILE": key, "JWT_ACTIVE_KID": kid, "JWT_ISSUER": "http://localhost", "JWT_AUDIENCE": "logitrack-test",
+		"ARGON2_MEMORY_KB": "8192", "ARGON2_ITERATIONS": "1",
+	} {
+		t.Setenv(k, v)
+	}
+	clearEnv(t, "OTEL_EXPORTER_OTLP_ENDPOINT", "REDIS_KEY_PREFIX", "JWT_PREVIOUS_KEY_FILE", "FIREBASE_SCRYPT_SIGNER_KEY",
+		"FIREBASE_SCRYPT_SALT_SEPARATOR", "FIREBASE_SCRYPT_ROUNDS", "FIREBASE_SCRYPT_MEM_COST")
+}
+
 func TestMissingRequiredEnvExitsNonZeroWithNames(t *testing.T) {
-	clearEnv(t, "APP_ENV", "API_INTERNAL_ADDR", "API_PUBLIC_ADDR", "METRICS_ADDR")
+	clearEnv(t, required...)
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), nil, &stdout, &stderr)
 	if code != app.ExitConfigError {
 		t.Fatalf("exit code = %d, want %d", code, app.ExitConfigError)
 	}
 	msg := stderr.String()
-	if !strings.Contains(msg, "missing required environment variables: API_INTERNAL_ADDR, API_PUBLIC_ADDR, APP_ENV, METRICS_ADDR") {
+	if !strings.Contains(msg, "missing required environment variables: "+strings.Join(required, ", ")) {
 		t.Fatalf("unclear message: %q", msg)
 	}
 	if stdout.Len() != 0 {
@@ -41,11 +86,8 @@ func TestMissingRequiredEnvExitsNonZeroWithNames(t *testing.T) {
 }
 
 func TestInvalidEnvNamesVariableWithoutValue(t *testing.T) {
-	clearEnv(t, "API_INTERNAL_ADDR", "API_PUBLIC_ADDR", "METRICS_ADDR")
+	startEnv(t)
 	t.Setenv("APP_ENV", "staging-secret-name")
-	t.Setenv("API_INTERNAL_ADDR", "127.0.0.1:0")
-	t.Setenv("API_PUBLIC_ADDR", "127.0.0.1:1")
-	t.Setenv("METRICS_ADDR", "127.0.0.1:2")
 	var stdout, stderr bytes.Buffer
 	if code := run(context.Background(), nil, &stdout, &stderr); code != app.ExitConfigError {
 		t.Fatalf("exit code = %d", code)
@@ -55,17 +97,25 @@ func TestInvalidEnvNamesVariableWithoutValue(t *testing.T) {
 	}
 }
 
+// A signing key that is not the one JWT_ACTIVE_KID names stops the api with the configuration exit
+// code before anything listens (Appendix C §C.4.2).
+func TestWrongSigningKeyRefusesToStart(t *testing.T) {
+	startEnv(t)
+	_, otherKID := devKey(t)
+	t.Setenv("JWT_ACTIVE_KID", otherKID)
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), nil, &stdout, &stderr); code != app.ExitConfigError {
+		t.Fatalf("exit code = %d, want %d; stdout %s", code, app.ExitConfigError, stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "JWT_ACTIVE_KID") || strings.Contains(stdout.String(), "api listening") {
+		t.Fatalf("want a JWT_ACTIVE_KID error before listening: %s", stdout.String())
+	}
+}
+
 func TestStartsAndStopsCleanly(t *testing.T) {
-	t.Setenv("APP_ENV", "local")
-	t.Setenv("API_INTERNAL_ADDR", "127.0.0.1:0")
-	t.Setenv("API_PUBLIC_ADDR", "127.0.0.1:0")
-	t.Setenv("METRICS_ADDR", "127.0.0.1:0")
-	t.Setenv("SHUTDOWN_TIMEOUT", "2s")
-	clearEnv(t, "OTEL_EXPORTER_OTLP_ENDPOINT")
-	// ":0" three times passes validation only because the strings differ;
-	// use distinct host spellings.
-	t.Setenv("API_PUBLIC_ADDR", "localhost:0")
-	t.Setenv("METRICS_ADDR", "[::1]:0")
+	// ":0" three times passes validation only because the strings differ; startEnv uses distinct
+	// host spellings.
+	startEnv(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // stop immediately after startup
 	var stdout, stderr bytes.Buffer
@@ -92,7 +142,10 @@ func TestRoutesTableMatchesTheCommittedFile(t *testing.T) {
 	if stdout.String() != string(committed) {
 		t.Fatalf("api/routes.txt is stale; run make gen\n--- generated\n%s--- committed\n%s", stdout.String(), committed)
 	}
-	for _, want := range []string{"GET /healthz internal,public\n", "GET /readyz internal\n", "GET /startupz internal\n"} {
+	// The auth groups (T05) reach the table through newAPI: /v1/auth on both listeners, /v1/me internal only.
+	for _, want := range []string{"GET /healthz internal,public\n", "GET /readyz internal\n", "GET /startupz internal\n",
+		"POST /v1/auth/login internal,public\n", "POST /v1/auth/refresh internal,public\n", "GET /v1/me internal\n",
+		"DELETE /v1/me/sessions/:sid internal\n"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("table lacks %q:\n%s", want, stdout.String())
 		}

@@ -11,6 +11,7 @@ package main
 import (
 	"cmp"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -22,6 +23,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/app"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
 )
@@ -35,9 +37,11 @@ func main() {
 
 // newAPI is the single place where the route registry meets the listeners: serving and
 // `api routes` both build the API here, so the checked table is the served one. Domain route
-// groups are added to this call; extra exists for tests.
-func newAPI(cfg *app.APIConfig, log zerolog.Logger, extra ...ingress.Group) (*app.API, error) {
-	return app.NewAPI(cfg, log, extra...)
+// groups are added to this call: the auth groups (T05) come from svc, which app.BuildAPI wires;
+// extra exists for tests. `api routes` passes a nil svc: Service.Groups only registers handlers
+// and never reads the service, so the table needs no database, Redis or signing key.
+func newAPI(cfg *app.APIConfig, log zerolog.Logger, svc *auth.Service, extra ...ingress.Group) (*app.API, error) {
+	return app.NewAPI(cfg, log, append(svc.Groups(), extra...)...)
 }
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -78,11 +82,17 @@ func serve(ctx context.Context, stdout, stderr io.Writer) int {
 		}
 	}()
 
-	api, err := newAPI(cfg, log)
+	api, closeDeps, err := app.BuildAPI(ctx, cfg, log, func(svc *auth.Service) (*app.API, error) {
+		return newAPI(cfg, log, svc)
+	})
 	if err != nil {
 		log.Error().Err(err).Msg("api build failed")
+		if _, ok := errors.AsType[*config.Error](err); ok {
+			return app.ExitConfigError
+		}
 		return app.ExitRuntimeError
 	}
+	defer closeDeps()
 	if err := api.CheckRoutes(); err != nil {
 		log.Error().Err(err).Msg("api build failed")
 		return app.ExitRuntimeError
@@ -111,7 +121,7 @@ func routes(args []string, stdout, stderr io.Writer, extra ...ingress.Group) int
 		return app.ExitConfigError
 	}
 	cfg := &app.APIConfig{PublicRouteGroups: ingress.PublicPrefixes}
-	a, err := newAPI(cfg, zerolog.Nop(), extra...)
+	a, err := newAPI(cfg, zerolog.Nop(), nil, extra...)
 	if err == nil {
 		err = a.CheckRoutes()
 	}

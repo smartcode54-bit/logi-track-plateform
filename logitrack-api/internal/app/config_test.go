@@ -1,8 +1,11 @@
 package app_test
 
 import (
+	"bytes"
+	"encoding/base64"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/app"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
@@ -14,6 +17,13 @@ func baseEnv() []string {
 		"API_INTERNAL_ADDR=127.0.0.1:8080",
 		"API_PUBLIC_ADDR=127.0.0.1:8081",
 		"METRICS_ADDR=127.0.0.1:9090",
+		// Placeholders: config loading never connects or reads the key file (BuildAPI does).
+		"DATABASE_URL=postgres://logitrack_app@localhost:5432/logitrack",
+		"REDIS_URL=redis://localhost:6379/0",
+		"JWT_SIGNING_KEY_FILE=/nonexistent/jwt.pem",
+		"JWT_ACTIVE_KID=test-kid",
+		"JWT_ISSUER=http://localhost:8080",
+		"JWT_AUDIENCE=logitrack-test",
 	}
 }
 
@@ -38,7 +48,8 @@ func TestAPIConfigMissingRequired(t *testing.T) {
 	if err == nil {
 		t.Fatal("want error")
 	}
-	for _, n := range []string{"API_INTERNAL_ADDR", "API_PUBLIC_ADDR", "METRICS_ADDR"} {
+	for _, n := range []string{"API_INTERNAL_ADDR", "API_PUBLIC_ADDR", "METRICS_ADDR", "DATABASE_URL", "REDIS_URL",
+		"JWT_SIGNING_KEY_FILE", "JWT_ACTIVE_KID", "JWT_ISSUER", "JWT_AUDIENCE"} {
 		if !strings.Contains(err.Error(), n) {
 			t.Fatalf("error does not name %s: %v", n, err)
 		}
@@ -141,5 +152,82 @@ func override(base, extra []string) []string {
 func TestAPIConfigAcceptsBracketedIPv6(t *testing.T) {
 	if _, err := config.LoadFrom[app.APIConfig](override(baseEnv(), []string{"METRICS_ADDR=[::1]:9091"})); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestAPIConfigAuthDefaults(t *testing.T) {
+	cfg, err := config.LoadFrom[app.APIConfig](baseEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.JWTAccessTTL != 15*time.Minute || cfg.RefreshTTLWeb != 168*time.Hour || cfg.RefreshTTLMobile != 2160*time.Hour ||
+		cfg.PasswordResetTTL != 30*time.Minute || cfg.PasswordMinLength != 10 {
+		t.Fatalf("lifetimes: %+v", cfg.Auth)
+	}
+	if cfg.Argon2MemoryKB != 65536 || cfg.Argon2Iterations != 3 || cfg.Argon2Parallelism != 2 {
+		t.Fatalf("argon2: %+v", cfg.Auth)
+	}
+	if !cfg.RateLimitEnabled || cfg.LoginRate.Count != 10 || cfg.LoginRate.Window != time.Minute {
+		t.Fatalf("login rate: %+v", cfg.LoginRate)
+	}
+	if cfg.RedisKeyPrefix != "lt:local:" {
+		t.Fatalf("redis prefix derived from APP_ENV: %q", cfg.RedisKeyPrefix)
+	}
+	if cfg.Scrypt != nil {
+		t.Fatal("no FIREBASE_SCRYPT_* means no legacy verification")
+	}
+}
+
+func TestAPIConfigAuthValidation(t *testing.T) {
+	cases := map[string]struct {
+		env  []string
+		want string
+	}{
+		"database scheme":     {[]string{"DATABASE_URL=mysql://x"}, "DATABASE_URL: must be a postgres:// URL"},
+		"redis scheme":        {[]string{"REDIS_URL=http://x"}, "REDIS_URL"},
+		"redis prefix":        {[]string{"REDIS_KEY_PREFIX=lt:prod:"}, "REDIS_KEY_PREFIX: must be lt:{APP_ENV}:"},
+		"access ttl":          {[]string{"JWT_ACCESS_TTL=5h"}, "JWT_ACCESS_TTL"},
+		"web refresh ttl":     {[]string{"REFRESH_TOKEN_TTL_WEB=1000h"}, "REFRESH_TOKEN_TTL_WEB"},
+		"password min length": {[]string{"PASSWORD_MIN_LENGTH=4"}, "PASSWORD_MIN_LENGTH"},
+		"argon2 memory":       {[]string{"ARGON2_MEMORY_KB=1024"}, "ARGON2_MEMORY_KB"},
+		"login rate":          {[]string{"RATE_LIMIT_LOGIN=ten"}, "RATE_LIMIT_LOGIN"},
+		"scrypt partial":      {[]string{"FIREBASE_SCRYPT_ROUNDS=8"}, "FIREBASE_SCRYPT_SIGNER_KEY"},
+		"scrypt bad base64":   {[]string{"FIREBASE_SCRYPT_SIGNER_KEY=not*base64!", "FIREBASE_SCRYPT_SALT_SEPARATOR=Bw==", "FIREBASE_SCRYPT_ROUNDS=8", "FIREBASE_SCRYPT_MEM_COST=14"}, "FIREBASE_SCRYPT_SIGNER_KEY: must be base64"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := config.LoadFrom[app.APIConfig](override(baseEnv(), tc.env))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("want error containing %q, got %v", tc.want, err)
+			}
+			for _, kv := range tc.env {
+				if _, v, _ := strings.Cut(kv, "="); len(v) > 3 && strings.Contains(err.Error(), v) {
+					t.Fatalf("the error echoes a value: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestAPIConfigParsesScryptParams(t *testing.T) {
+	// A placeholder, not a key: the bytes 0..63 in unpadded URL-safe base64, built at run time so the
+	// source holds no literal a secret scanner could take for one.
+	placeholder := make([]byte, 64)
+	for i := range placeholder {
+		placeholder[i] = byte(i)
+	}
+	cfg, err := config.LoadFrom[app.APIConfig](override(baseEnv(), []string{
+		"FIREBASE_SCRYPT_SIGNER_KEY=" + base64.RawURLEncoding.EncodeToString(placeholder),
+		"FIREBASE_SCRYPT_SALT_SEPARATOR=Bw==", "FIREBASE_SCRYPT_ROUNDS=8", "FIREBASE_SCRYPT_MEM_COST=14",
+		"RATE_LIMIT_LOGIN=20/30s",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Scrypt == nil || !bytes.Equal(cfg.Scrypt.SignerKey, placeholder) || cfg.Scrypt.Rounds != 8 || cfg.Scrypt.MemCost != 14 {
+		t.Fatalf("scrypt params: %+v", cfg.Scrypt)
+	}
+	if cfg.LoginRate.Count != 20 || cfg.LoginRate.Window != 30*time.Second {
+		t.Fatalf("login rate: %+v", cfg.LoginRate)
 	}
 }
