@@ -15,18 +15,27 @@ export const SECURITY_HEADERS = [
 /**
  * Cache rules carried over from Firebase Hosting (firebase.json:34-61 before TW2):
  * - `/_next/static/*`: Next's own `public, max-age=31536000, immutable` (hashed assets), not set here;
- * - documents (`**\/*.html` on Hosting) must revalidate on every load: `PAGE_CACHE_CONTROL`;
+ * - documents (`**\/*.html` on Hosting) must revalidate on every load: `PAGE_CACHE_CONTROL` on
+ *   `PAGE_SOURCE`, every path outside `/_next`, `/api` and `/app`;
+ * - unhashed images and fonts (`public/`, `app/icon.jpg`) matched no Hosting header rule and got
+ *   Hosting's default one-hour cache: `ASSET_CACHE_CONTROL` on `ASSET_SOURCE`, a later rule than
+ *   `PAGE_SOURCE`, so it wins (Next applies matching rules in order, the last value of a key wins);
  * - `/app/*` documents are per-user from TW3 on (proxy.ts gate), so no shared cache may keep
  *   them either: `APP_CACHE_CONTROL` (developer-spec.md §10.12).
  * Verified on the standalone build of Next 16.1.1 (TW2): headers() values reach the browser on
- * prerendered and dynamic pages and on RSC payloads; Next does not override them, so Caddy
- * leaves Cache-Control alone. `/api/*` route handlers set their own.
+ * prerendered and dynamic pages, RSC payloads and `public/` files; Next does not override them,
+ * so Caddy leaves Cache-Control alone. `/api/*` route handlers set their own.
  */
 export const PAGE_CACHE_CONTROL = "public, max-age=0, must-revalidate";
 export const APP_CACHE_CONTROL = "private, no-cache";
+export const ASSET_CACHE_CONTROL = "public, max-age=3600";
 
 /** Every path except `/_next/*`, `/api/*` and `/app`, `/app/*` (path-to-regexp negative lookahead). */
 export const PAGE_SOURCE = "/:path((?!_next/|api/|app/|app$).*)";
+
+/** Image and font files outside `/_next/*`, `/api/*` and `/app/*`: `public/` and metadata files. */
+export const ASSET_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "svg", "ico", "webp", "avif", "ttf", "otf", "woff", "woff2"];
+export const ASSET_SOURCE = `/:path((?!_next/|api/|app/).+\\.(?:${ASSET_EXTENSIONS.join("|")}))`;
 
 const monorepoRoot = path.join(__dirname, "..");
 
@@ -74,6 +83,7 @@ const nextConfig: NextConfig = {
     return [
       { source: "/:path*", headers: SECURITY_HEADERS },
       { source: PAGE_SOURCE, headers: [{ key: "Cache-Control", value: PAGE_CACHE_CONTROL }] },
+      { source: ASSET_SOURCE, headers: [{ key: "Cache-Control", value: ASSET_CACHE_CONTROL }] },
       // `/app/:path*` also matches `/app` itself.
       { source: "/app/:path*", headers: [{ key: "Cache-Control", value: APP_CACHE_CONTROL }] },
     ];

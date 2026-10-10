@@ -152,6 +152,11 @@ func checkEnvExample(path string, lines []dotenv.Line, inv inventory, banned map
 		if isLive && live.secret == "yes" && strings.TrimSpace(l.Value) != "" {
 			add("%s: %s is a secret and must be blank", path, l.Key)
 		}
+		// Caddy dials "api" + API_PUBLIC_ADDR (deploy/Caddyfile, §16.1); the api enforces the same
+		// rule for APP_ENV dev and prod. The value is not echoed.
+		if l.Key == "API_PUBLIC_ADDR" && !strings.HasPrefix(strings.TrimSpace(l.Value), ":") {
+			add("%s: API_PUBLIC_ADDR must be written :port (Caddy dials api + this value)", path)
+		}
 	}
 	for n := range required {
 		if !seen[n] {

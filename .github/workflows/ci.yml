@@ -67,7 +67,8 @@ jobs:
 
   # developer-spec.md §17.3 item 3 (TW2): the web ships as a Next.js standalone server. Builds with
   # dummy public values and sentinel server-only values, then scripts/check-standalone.mjs asserts
-  # server.js, no traced .env file, no server-only value in .next/static and only allow-listed
+  # server.js, no traced .env file, no server-only value in the browser-facing output (.next/static
+  # and the prerendered .next/server/app and .next/server/pages pages) and only allow-listed
   # NEXT_PUBLIC_ names. No secrets are used.
   build-standalone:
     name: Standalone build

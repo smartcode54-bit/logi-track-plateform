@@ -2,7 +2,10 @@
 # Sites and upstream come from env, consumer `caddy` in §16.1:
 #   WEB_DOMAIN        -> web (Next.js standalone, BFF); the browser never calls Go directly
 #   API_PUBLIC_DOMAIN -> the Go public listener only; the upstream is "api" + API_PUBLIC_ADDR, so
-#                        API_PUBLIC_ADDR is written ":port" (as in .env.example)
+#                        API_PUBLIC_ADDR must be ":port": "0.0.0.0:8081" would adapt to the dial
+#                        address "api0.0.0.0:8081" (502 on every route) and "[::]:8081" stops Caddy
+#                        from starting. The api refuses any host part when APP_ENV is dev or prod,
+#                        and envcheck holds .env.example to ":port".
 #   MEDIA_DOMAIN      -> MinIO, for presigned and public object URLs (R74)
 # Caddy never routes to the Go internal listener (API_INTERNAL_ADDR). Locally the three sites
 # are http:// addresses (no TLS); bare host names in prod get ACME certificates for ACME_EMAIL.

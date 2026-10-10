@@ -68,6 +68,7 @@ func TestEnvExample(t *testing.T) {
 		"banned":                {append(clone(goodEnv), "HTTP_ADDR=x"), "HTTP_ADDR is a spelling not adopted"},
 		"secret value":          {append(clone(goodEnv[1:]), "APP_ENV=local", "DATABASE_URL=postgres://x"), "DATABASE_URL is a secret"},
 		"missing":               {goodEnv[1:], "APP_ENV is missing"},
+		"public addr with host": {replace(goodEnv, "API_PUBLIC_ADDR=0.0.0.0:8081"), "API_PUBLIC_ADDR must be written :port"},
 	}
 	for name, c := range cases {
 		p, _ := checkEnvExample("env", lines(c.env...), inv, banned, prefixes)
@@ -146,3 +147,15 @@ func TestCompose(t *testing.T) {
 }
 
 func clone(s []string) []string { return append([]string(nil), s...) }
+
+// replace returns env with the KEY=VALUE pair kv in place of the line of the same key.
+func replace(env []string, kv string) []string {
+	key, _, _ := strings.Cut(kv, "=")
+	out := clone(env)
+	for i, s := range out {
+		if k, _, _ := strings.Cut(s, "="); k == key {
+			out[i] = kv
+		}
+	}
+	return out
+}

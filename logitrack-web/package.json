@@ -9,7 +9,7 @@
     "dev": "next dev --webpack",
     "build": "next build --webpack",
     "check:standalone": "node scripts/check-standalone.mjs",
-    "start": "node .next/standalone/logitrack-web/server.js",
+    "start": "node scripts/start-standalone.mjs",
     "lint": "eslint",
     "clean": "pnpm exec rimraf .next out .turbo .firebase",
     "prepare": "husky",

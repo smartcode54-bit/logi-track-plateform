@@ -5,7 +5,11 @@
 //
 //  1. .next/standalone/logitrack-web/server.js exists (outputFileTracingRoot is the repo root).
 //  2. No .env* file was traced into .next/standalone (server values are runtime env only).
-//  3. No server-only env value (when set while building) appears in the browser bundles (.next/static).
+//  3. No server-only env value (when set while building) appears in browser-facing output: the
+//     client bundles (.next/static) and the pages prerendered at build time (.next/server/app and
+//     .next/server/pages: HTML, RSC payloads and segments, route-handler bodies, .meta headers),
+//     which the server returns as they are. Pages rendered on demand cannot be covered by a
+//     build-time scan; the image build sets no sentinels, so only CI runs this value scan.
 //  4. Source code references only the allow-listed NEXT_PUBLIC_* names (§16.1, web-public).
 // Prints names and file paths only, never values.
 import fs from "node:fs";
@@ -64,6 +68,20 @@ function* walk(dir, skip = () => false) {
   }
 }
 
+// Build-time prerender output the server sends as is: page HTML, RSC payloads (`*.rsc`, also under
+// `*.segments/`), prerendered route-handler bodies (`*.body`) and their headers (`*.meta`).
+const PRERENDER_FILE = /\.(html|rsc|body|meta)$/;
+
+/** Files of the build that reach browsers unchanged: `.next/static` and the prerendered pages. */
+function* browserFacingFiles(webDir) {
+  yield* walk(path.join(webDir, ".next", "static"));
+  for (const dir of ["app", "pages"]) {
+    for (const f of walk(path.join(webDir, ".next", "server", dir))) {
+      if (PRERENDER_FILE.test(f)) yield f;
+    }
+  }
+}
+
 /**
  * @param {{ env?: Record<string, string | undefined>, webDir?: string }} [options]
  * @returns {{ problems: string[], sentinelsChecked: string[] }}
@@ -81,13 +99,12 @@ export function check({ env = process.env, webDir = defaultWebDir } = {}) {
     if (path.basename(f).startsWith(".env")) problems.push(`env file traced into the standalone output: ${rel(f)}`);
   }
 
-  const staticDir = path.join(webDir, ".next", "static");
   const sentinels = SERVER_ONLY.filter((n) => (env[n] ?? "").length >= 8).map((n) => [n, env[n]]);
   if (sentinels.length > 0) {
-    for (const f of walk(staticDir)) {
+    for (const f of browserFacingFiles(webDir)) {
       const text = fs.readFileSync(f, "latin1");
       for (const [name, value] of sentinels) {
-        if (text.includes(value)) problems.push(`value of server-only ${name} found in browser bundle ${rel(f)}`);
+        if (text.includes(value)) problems.push(`value of server-only ${name} found in browser-facing output ${rel(f)}`);
       }
     }
   }

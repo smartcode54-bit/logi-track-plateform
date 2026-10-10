@@ -24,6 +24,9 @@
   },
   "hosting": {
     "public": "hosting-placeholder",
+    "predeploy": [
+      "node \"$PROJECT_DIR/scripts/check-hosting-redirect.mjs\" \"$PROJECT_DIR/firebase.json\""
+    ],
     "ignore": [
       "firebase.json",
       "**/.*",

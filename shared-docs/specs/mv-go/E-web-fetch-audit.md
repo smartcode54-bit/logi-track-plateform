@@ -568,7 +568,9 @@ Plan W1, done in P0 (TW2) because the BFF and `proxy.ts` need a Node server. The
 +export const SECURITY_HEADERS = [ /* COEP unsafe-none (firebase.json "**"), nosniff, strict-origin-when-cross-origin */ ];
 +export const PAGE_CACHE_CONTROL = "public, max-age=0, must-revalidate";   // firebase.json "**/*.html"
 +export const APP_CACHE_CONTROL = "private, no-cache";                    // /app/* is per-user from TW3
++export const ASSET_CACHE_CONTROL = "public, max-age=3600";               // Hosting's default for unmatched files
 +export const PAGE_SOURCE = "/:path((?!_next/|api/|app/|app$).*)";         // every path but /_next, /api, /app
++export const ASSET_SOURCE = `/:path((?!_next/|api/|app/).+\\.(?:${ASSET_EXTENSIONS.join("|")}))`; // images, fonts
 +const monorepoRoot = path.join(__dirname, "..");
 +
  const nextConfig: NextConfig = {
@@ -590,6 +592,7 @@ Plan W1, done in P0 (TW2) because the BFF and `proxy.ts` need a Node server. The
 +    return [
 +      { source: "/:path*", headers: SECURITY_HEADERS },
 +      { source: PAGE_SOURCE, headers: [{ key: "Cache-Control", value: PAGE_CACHE_CONTROL }] },
++      { source: ASSET_SOURCE, headers: [{ key: "Cache-Control", value: ASSET_CACHE_CONTROL }] },  // later rule wins
 +      { source: "/app/:path*", headers: [{ key: "Cache-Control", value: APP_CACHE_CONTROL }] }, // also matches /app
 +    ];
 +  },
@@ -607,7 +610,7 @@ Notes:
 
 - `output: 'standalone'` applies to dev and prod alike, so the "dev is a server, prod is an export" split (`next.config.ts:10`) disappears.
 - Verified in TW2 (E.11 item 11): `server.js` lands at `.next/standalone/logitrack-web/server.js`; `shared-docs` is bundled through the webpack alias, so the server needs no `shared-docs` files at runtime; a `turbopack.root` different from `outputFileTracingRoot` makes Next warn and use the latter, so both are the repo root.
-- Cache rules: `firebase.json:44-52` (`**/*.html` → `public, max-age=0, must-revalidate`) becomes `PAGE_CACHE_CONTROL` on every document outside `/app`, and `/app`, `/app/*` get the stricter `private, no-cache`; `firebase.json:35-43` (`/_next/static/**` immutable for one year) is what the standalone server already sends for hashed assets. Verified in TW2: Next 16.1.1 keeps these `headers()` values on prerendered and dynamic pages and on RSC payloads, so Caddy does not set `Cache-Control` (the earlier plan to repeat it in Caddy is dropped). Unknown paths keep Next's `private, no-cache, no-store` 404.
+- Cache rules: `firebase.json:44-52` (`**/*.html` → `public, max-age=0, must-revalidate`) becomes `PAGE_CACHE_CONTROL` on `PAGE_SOURCE`, every path outside `/_next`, `/api` and `/app` (documents and RSC payloads); the images and fonts among those paths (`ASSET_SOURCE`: `public/` and `app/icon.jpg`) never matched `**/*.html` and got Hosting's default one-hour cache, so they keep it as `ASSET_CACHE_CONTROL` (`public, max-age=3600`, a later rule than `PAGE_SOURCE`, so it wins); `/app`, `/app/*` get the stricter `private, no-cache`; `firebase.json:35-43` (`/_next/static/**` immutable for one year) is what the standalone server already sends for hashed assets. Verified in TW2: Next 16.1.1 keeps these `headers()` values on prerendered and dynamic pages, RSC payloads, `public/` files and the `app/icon.jpg` metadata route, so Caddy does not set `Cache-Control` (the earlier plan to repeat it in Caddy is dropped). Unknown paths keep Next's `private, no-cache, no-store` 404.
 - `images.remotePatterns` keeps the `firebasestorage.googleapis.com` entry until P8; it has no effect while `unoptimized` is true (E.7 row 12).
 
 ### E.9.2 `package.json`
@@ -619,21 +622,23 @@ Notes:
 -    "start": "next start",
 +    "build": "next build --webpack",
 +    "check:standalone": "node scripts/check-standalone.mjs",
-+    "start": "node .next/standalone/logitrack-web/server.js",
++    "start": "node scripts/start-standalone.mjs",
 -    "deploy": "pnpm run build && firebase deploy",
 -    "deploy:dev": "… copies ../envs/.env.dev.web, builds the export, firebase deploy --project … ",
 -    "deploy:prod": "… copies ../envs/.env.prod.web, builds the export, firebase deploy --config firebase.prod.json …",
 -    "deploy:clean": "pnpm run clean && pnpm run build && firebase deploy",
 ```
 
-- `scripts/flatten-next-flight-paths.mjs` is deleted (it only exists to make the export servable by Hosting, `package.json:10`). `scripts/check-standalone.mjs` (TW2) is the post-build gate of main spec §17.3 item 3; the `analyze` script arrives with `@next/bundle-analyzer` in TW9.
+- `scripts/flatten-next-flight-paths.mjs` is deleted (it only exists to make the export servable by Hosting, `package.json:10`). `scripts/check-standalone.mjs` (TW2) is the post-build gate of main spec §17.3 item 3: it also scans the prerendered `.next/server/app` and `.next/server/pages` output, not only `.next/static`, for server-only values; the `analyze` script arrives with `@next/bundle-analyzer` in TW9.
+- `start` runs `scripts/start-standalone.mjs`, not `server.js` directly: the standalone trace leaves out `.next/static` and `public`, and `server.js` serves both from its own directory, so the script first copies them next to it (replacing earlier copies), as the Dockerfile's two `COPY` lines do. Without that, `pnpm build && pnpm start` serves HTML whose chunks, CSS and `public/` files all 404.
 - Deployment becomes a container image built in CI (main spec §17); the `deploy:*` scripts (`package.json:14-17`) and the root `deploy:dev` / `deploy:prod` that called them go away together with their env-file copying.
 - Dependencies added in P0: `@tanstack/react-query` (v5), `@tanstack/react-query-devtools` (dev), `jose`, `@next/bundle-analyzer` (dev); with the first W9 list: `@tanstack/react-table` **v8** (pinned; v9 is evaluated later, R75) and `@tanstack/react-virtual`. Exact versions are pinned by the lockfile in TW4 / TW9.
 - `firebase-admin` moves to `devDependencies` (E.7 row 14); `firebase` is removed in P6 (E.7 row 17).
 
 ### E.9.3 Firebase Hosting
 
-- `firebase.json` keeps its `functions`, `firestore` and `storage` blocks (they deploy Cloud Functions and rules until P8). The `hosting` block (`firebase.json:25-81`) loses `public: "out"`, the cache `headers` (`:34-61`) and the four placeholder `rewrites` (`:63-80`), and becomes `public: "hosting-placeholder"` (one `index.html`, never served because redirects win over static files) plus a single redirect `/:path*` → `https://WEB_DOMAIN/:path` with status 301, so old bookmarks keep working until P8. Same change in `firebase.prod.json` (rewrites at `:59-76`). `WEB_DOMAIN` is a literal placeholder: the owner writes the decided dev and prod hosts over it in the commit used for the targeted Hosting deploy (main spec §19 questions 8, 18). Whether Hosting keeps the query string on this redirect is checked on that deploy.
+- `firebase.json` keeps its `functions`, `firestore` and `storage` blocks (they deploy Cloud Functions and rules until P8). The `hosting` block (`firebase.json:25-81`) loses `public: "out"`, the cache `headers` (`:34-61`) and the four placeholder `rewrites` (`:63-80`), and becomes `public: "hosting-placeholder"` (one `index.html`, never served because redirects win over static files) plus a single redirect `/:path*` → `https://WEB_DOMAIN/:path` with status 301, so old bookmarks keep working until P8. Same change in `firebase.prod.json` (rewrites at `:59-76`). `WEB_DOMAIN` is a literal placeholder: the owner writes the decided dev and prod hosts over it in the commit used for the targeted Hosting deploy (main spec §19 questions 8, 18). Both files declare `hosting.predeploy: node "$PROJECT_DIR/scripts/check-hosting-redirect.mjs" "$PROJECT_DIR/<file>"`, which fails while a redirect holds `WEB_DOMAIN`, a host without a dot or a non-`https://` URL; the CLI runs every predeploy hook before preparing anything, so any deploy that includes Hosting aborts as a whole until the host is written (targeted `functions:<names>` / `firestore:rules` deploys do not run it). Whether Hosting keeps the query string on this redirect is checked on that deploy.
+- Before that deploy, for dev and prod each (main spec §10.12): add `WEB_DOMAIN` to Firebase Auth → Authorized domains (the web still uses `signInWithPopup` until TW3), to the domain list of the App Check reCAPTCHA key behind `NEXT_PUBLIC_APP_CHECK_RECAPTCHA_SITE_KEY` (callables keeping the global `enforceAppCheck: true` are still called until TW7) and, if the browser API key has HTTP-referrer restrictions, `https://WEB_DOMAIN/*`; then pass the smoke gate on `https://WEB_DOMAIN` (one Google sign-in, one email/password sign-in, one App Check-enforced callable such as `getUsers`). TW3's GIS button additionally needs `https://WEB_DOMAIN` among the Authorized JavaScript origins of the OAuth client behind `NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID`. The 301 is cached by browsers, so rolling back to the previous Hosting release does not reach clients that already followed it.
 - The four `[id]` pages lose their `generateStaticParams` placeholders (`app/app/customers/[id]/page.tsx:3-5`, `app/app/subcontractors/[id]/page.tsx:3-5`, and the two `[id]/edit` pages) and become real dynamic routes rendered on demand (the client components read `useParams()`); `features/customers/utils/customerRouteId.ts` (ID parsed from the URL path because the export served one placeholder HTML for every ID) is deleted.
 
 ### E.9.4 Container and Caddy (web only; the full Dockerfile is main spec §10.12, compose and Caddyfile §15)
