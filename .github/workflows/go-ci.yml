@@ -202,7 +202,7 @@ jobs:
         run: |
           docker compose -f deploy/docker-compose.yml --env-file .env --profile '*' ps -a
           docker compose -f deploy/docker-compose.yml --env-file .env logs --no-color --tail=200 \
-            migrate api worker scheduler rabbitmq-init minio-init
+            postgres redis rabbitmq rabbitmq-init minio-init migrate api worker scheduler
 
   etl-fixtures:
     name: etl-fixtures
