@@ -196,9 +196,11 @@ func TestUpWaitsForTheMigrationLock(t *testing.T) {
 	}
 }
 
-// The embedded chain at its production stop (R59, R88): up-to 9 applies the baseline and leaves
-// 0010_d5_unique_constraints pending; up then builds its indexes outside a transaction.
-func TestEmbeddedChainUpToNineLeavesD5Pending(t *testing.T) {
+// The embedded chain in the production order (R59, R88): up-to 9 applies the baseline and leaves
+// 0010_d5_unique_constraints pending; apply 11 ships the storage schema of T11 ahead of it (P0);
+// up-to 9 and apply 11 stay no-ops on the next deploys; the P1 runbook's up then builds the D5
+// indexes outside a transaction, after 0011.
+func TestEmbeddedChainUpToNineApplyElevenLeavesD5Pending(t *testing.T) {
 	ctx := context.Background()
 	d := pgtest.NewDatabase(t)
 	r := migratetest.Runner(t, d, migrations.FS)
@@ -210,26 +212,120 @@ func TestEmbeddedChainUpToNineLeavesD5Pending(t *testing.T) {
 		t.Fatalf("up-to 9 applied %+v", res)
 	}
 	pool := d.Pool(t, db.RoleMigrator)
-	var d5 int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_class WHERE relname IN
-		('vehicle_expenses_fuel_taxinv','chats_one_open_per_driver','customer_service_fees_one_per_type')`).Scan(&d5); err != nil || d5 != 0 {
-		t.Fatalf("%d D5 unique indexes exist at version 9 (%v)", d5, err)
+	d5 := func() int {
+		t.Helper()
+		var n int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+			WHERE i.indisunique AND i.indisvalid AND c.relname IN
+			('vehicle_expenses_fuel_taxinv','chats_one_open_per_driver','customer_service_fees_one_per_type')`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
 	}
+	if n := d5(); n != 0 {
+		t.Fatalf("%d D5 unique indexes exist at version 9", n)
+	}
+	// Nothing past 9 is applied by up-to 9.
 	st, err := r.Status(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if last := st[len(st)-1]; last.Name != "0010_d5_unique_constraints.sql" || last.Applied {
-		t.Fatalf("last status = %+v, want 0010_d5_unique_constraints.sql pending", last)
+	for _, s := range st[9:] {
+		if s.Applied {
+			t.Fatalf("status %+v applied at version 9", s)
+		}
 	}
-	if res, err = r.Up(ctx); err != nil || len(res) != 1 || res[0].Name != "0010_d5_unique_constraints.sql" {
+	if st[9].Name != "0010_d5_unique_constraints.sql" || st[10].Name != "0011_file_objects_storage_backend.sql" {
+		t.Fatalf("pending = %+v, %+v", st[9], st[10])
+	}
+
+	// P0: apply 11 ahead of the held 0010.
+	if res, err = r.Apply(ctx, 11); err != nil || len(res) != 1 || res[0].Name != "0011_file_objects_storage_backend.sql" {
+		t.Fatalf("apply 11 applied %+v (%v)", res, err)
+	}
+	var col int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns
+		WHERE table_name = 'file_objects' AND column_name = 'storage_backend'`).Scan(&col); err != nil || col != 1 {
+		t.Fatalf("file_objects.storage_backend after apply 11: %d (%v)", col, err)
+	}
+	if st, err = r.Status(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if st[9].Applied || !st[10].Applied {
+		t.Fatalf("after apply 11: 0010 %+v, 0011 %+v", st[9], st[10])
+	}
+	if v, _ := r.Version(ctx); v != 11 {
+		t.Fatalf("version = %d, want 11", v)
+	}
+	// The next deploy repeats both steps: no-ops, no out-of-order error.
+	if res, err := r.UpTo(ctx, 9); err != nil || len(res) != 0 {
+		t.Fatalf("up-to 9 after apply 11: %+v (%v)", res, err)
+	}
+	if res, err := r.Apply(ctx, 11); err != nil || len(res) != 0 {
+		t.Fatalf("apply 11 again: %+v (%v)", res, err)
+	}
+	if n := d5(); n != 0 {
+		t.Fatalf("%d D5 unique indexes before the P1 runbook", n)
+	}
+
+	// P1 runbook: up applies the held 0010 (and anything above 11).
+	if res, err = r.Up(ctx); err != nil || len(res) != len(st)-10 || res[0].Name != "0010_d5_unique_constraints.sql" {
 		t.Fatalf("up applied %+v (%v)", res, err)
 	}
-	var valid int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
-		WHERE i.indisunique AND i.indisvalid AND c.relname IN
-		('vehicle_expenses_fuel_taxinv','chats_one_open_per_driver','customer_service_fees_one_per_type')`).Scan(&valid); err != nil || valid != 3 {
-		t.Fatalf("%d valid D5 unique indexes after up, want 3 (%v)", valid, err)
+	if n := d5(); n != 3 {
+		t.Fatalf("%d valid D5 unique indexes after up, want 3", n)
+	}
+	if st, err = r.Status(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range st {
+		if !s.Applied {
+			t.Fatalf("%s still pending after up", s.Name)
+		}
+	}
+}
+
+// Only a Held version may stay behind: apply refuses to skip any other pending version, and up
+// refuses a database where one is missing below the applied maximum (goose's own default).
+func TestHeldVersionIsTheOnlyAllowedGap(t *testing.T) {
+	ctx := context.Background()
+	d := pgtest.NewDatabase(t)
+	r := migratetest.Runner(t, d, migrations.FS)
+	if _, err := r.UpTo(ctx, 8); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := r.Apply(ctx, 11); err == nil || !strings.Contains(err.Error(), "0009_infra.sql") {
+		t.Fatalf("apply 11 at version 8: %+v (%v)", res, err)
+	}
+	if v, _ := r.Version(ctx); v != 8 {
+		t.Fatalf("version = %d after a refused apply, want 8", v)
+	}
+	if _, err := r.Apply(ctx, 99); err == nil || !strings.Contains(err.Error(), "no version 99") {
+		t.Fatalf("apply of an unknown version: %v", err)
+	}
+	if _, err := r.Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// A version recorded as missing below the maximum (not Held) stops every run.
+	if _, err := d.Pool(t, db.RoleMigrator).Exec(ctx, `DELETE FROM goose_db_version WHERE version_id = 5`); err != nil {
+		t.Fatal(err)
+	}
+	for name, run := range map[string]func() ([]migrate.Result, error){
+		"up":       func() ([]migrate.Result, error) { return r.Up(ctx) },
+		"up-to 9":  func() ([]migrate.Result, error) { return r.UpTo(ctx, 9) },
+		"apply 11": func() ([]migrate.Result, error) { return r.Apply(ctx, 11) },
+	} {
+		res, err := run()
+		if name == "apply 11" {
+			// 11 is applied: a no-op that never looks at the gap.
+			if err != nil || len(res) != 0 {
+				t.Errorf("%s: %+v (%v)", name, res, err)
+			}
+			continue
+		}
+		if err == nil || !strings.Contains(err.Error(), "0005_billing.sql") || !strings.Contains(err.Error(), "out of order") {
+			t.Errorf("%s with 0005 missing: %+v (%v)", name, res, err)
+		}
 	}
 }
 

@@ -1,6 +1,7 @@
 // Command api serves the HTTP API on two listeners: internal (every route,
 // reached by the web BFF over the private network) and public (mobile, auth,
-// postbacks, evidence, liveness). See developer-spec.md §2.
+// postbacks, evidence, local storage objects under /media, liveness). See
+// developer-spec.md §2.
 //
 //	api           serve (configuration from the environment)
 //	api routes    check the ingress policy per route and print the route table
@@ -39,14 +40,15 @@ func main() {
 // newAPI is the single place where the route registry meets the listeners: serving and
 // `api routes` both build the API here, so the checked table is the served one. Domain route
 // groups are added to this call: the auth groups (T05) and the jobs groups (T10) come from deps,
-// which app.BuildAPI wires, GET /v1/roles (T07) sits behind deps.Auth.RequireAuth, and the web
-// flags (T17) come from the configuration; extra exists for tests. `api routes` passes zero deps:
-// Groups and RequireAuth only register handlers and never read a service, so the table needs no
-// database, Redis or signing key.
+// which app.BuildAPI wires, GET /v1/roles (T07) sits behind deps.Auth.RequireAuth, the web flags
+// (T17) come from the configuration and the storage groups (T11) from deps.Storage; extra exists for
+// tests. `api routes` passes zero deps: Groups and RequireAuth only register handlers and never read a
+// service, so the table needs no database, Redis or signing key.
 func newAPI(cfg *app.APIConfig, log zerolog.Logger, deps app.APIDeps, extra ...ingress.Group) (*app.API, error) {
 	groups := append(deps.Auth.Groups(), app.JobGroups(deps)...)
 	groups = append(groups, iam.RoleGroups(deps.Auth.RequireAuth())...)
 	groups = append(groups, webcfg.Group(cfg.WebFlags))
+	groups = append(groups, app.StorageGroups(deps)...)
 	return app.NewAPI(cfg, log, append(groups, extra...)...)
 }
 
@@ -167,8 +169,8 @@ func renderRoutes(byListener map[string][]ingress.Route) string {
 		"# USE = middleware or a mounted sub-app (Use), matching every path at or below PATH; the\n" +
 		"# listener-wide middleware at / is not listed.\n" +
 		"# public = served on API_PUBLIC_ADDR when its group is in PUBLIC_ROUTE_GROUPS; only\n" +
-		"# /v1/mobile/*, /v1/auth/*, /public/v1/*, /evidence/* and /healthz qualify (main spec §2.6),\n" +
-		"# and USE only at or below the first four.\n")
+		"# /v1/mobile/*, /v1/auth/*, /public/v1/*, /evidence/*, /media/* and /healthz qualify (main spec\n" +
+		"# §2.6), and USE only at or below the first five.\n")
 	for _, r := range all {
 		fmt.Fprintf(&b, "%s %s %s\n", r.Method, r.Path, strings.Join(on[r], ","))
 	}

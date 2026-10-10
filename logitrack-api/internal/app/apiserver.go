@@ -22,13 +22,18 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/health"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
 )
 
 // APIDeps are the services BuildAPI wires and cmd/api's newAPI turns into route groups. `api routes`
 // passes the zero value: Groups only registers handlers and never reads a service.
 type APIDeps struct {
-	Auth *auth.Service
-	Jobs *jobs.Service
+	Auth    *auth.Service
+	Jobs    *jobs.Service
+	Storage *storage.Service
+	// Limiter and RateLimitEnabled feed the rate-limit rules of route groups (presign_user, T11).
+	Limiter          *ratelimit.Limiter
+	RateLimitEnabled bool
 }
 
 // JobGroups are GET /v1/jobs, GET /v1/jobs/{id} and POST /v1/admin/queues/{queue}/replay (T10) behind
@@ -49,7 +54,8 @@ func JobGroups(d APIDeps) []ingress.Group {
 }
 
 // BuildAPI wires the api process: the logitrack_app pool (DATABASE_URL), Redis, the rate limiter, the
-// JWT key set, the auth and jobs services, and the readiness checks for PostgreSQL and Redis. build
+// JWT key set, the storage, auth and jobs services, and the readiness checks for PostgreSQL, Redis and the
+// active storage backend. The S3 buckets are re-asserted in the background (main spec §9.1). build
 // turns the services into the API: cmd/api passes its newAPI, the single place where route groups meet
 // the listeners, so `api routes` lists and checks the table that is served. Connections are lazy: the
 // process starts while a dependency is still coming up and /readyz reports it. A key file that is
@@ -89,8 +95,15 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		pool.Close()
 		return nil, nil, &config.Error{Invalid: []string{err.Error()}}
 	}
+	st, s3, err := newStorage(storageBuild{Storage: cfg.Storage, API: &cfg.StorageAPI}, pool, log)
+	if err != nil {
+		pool.Close()
+		_ = rdb.Close()
+		return nil, nil, err
+	}
 	closeAll := func() {
 		pool.Close()
+		st.Close()
 		if err := rdb.Close(); err != nil {
 			log.Warn().Err(err).Msg("redis close")
 		}
@@ -110,7 +123,7 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 	}
 
 	deps := auth.Deps{Pool: pool, Store: store, Limiter: limiter, Keys: keys, Hasher: hasher, Policy: policy, Log: log,
-		Capabilities: rbac, Authorizer: rbac}
+		Capabilities: rbac, Authorizer: rbac, Files: st}
 	if len(cfg.GoogleClientIDs) > 0 {
 		// No I/O here: discovery and keys are fetched on the first Google sign-in, so the api starts
 		// while Google is unreachable (Appendix C §C.4.10).
@@ -141,7 +154,8 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		svc.Close()
 		closeConns()
 	}
-	a, err := build(APIDeps{Auth: svc, Jobs: jobs.NewService(pool, jobs.NewRedisLocker(rdb, ks))})
+	a, err := build(APIDeps{Auth: svc, Jobs: jobs.NewService(pool, jobs.NewRedisLocker(rdb, ks)), Storage: st,
+		Limiter: limiter, RateLimitEnabled: cfg.RateLimit.Enabled})
 	if err != nil {
 		closeAll()
 		return nil, nil, err
@@ -161,7 +175,9 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 	a.Health.Register(
 		checker{"postgres", pool.Ping},
 		checker{"redis", store.Ping},
+		checker{"storage", st.Check},
 	)
+	bootstrapS3(ctx, s3, log)
 	return a, closeAll, nil
 }
 

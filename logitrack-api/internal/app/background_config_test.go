@@ -18,6 +18,7 @@ func workerEnv(extra ...string) []string {
 		"REDIS_URL=redis://localhost:6379/0",
 		"EMAIL_ENABLED=true", "SMTP_HOST=mailpit", "SMTP_PORT=1025", "SMTP_FROM=no-reply@logitrack.test",
 		"PUBLIC_WEB_BASE_URL=http://localhost:3000", "RABBITMQ_PREFETCH=", "SMTP_USER=", "SMTP_PASSWORD=",
+		"S3_ENDPOINT=http://minio:9000", "S3_REGION=us-east-1", "S3_ACCESS_KEY_ID=placeholder", "S3_SECRET_ACCESS_KEY=placeholder",
 		"FCM_ENABLED=false", "FCM_PROJECT_ID=", "FCM_SERVICE_ACCOUNT_JSON=",
 	}, extra...)
 }

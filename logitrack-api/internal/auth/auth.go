@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
@@ -41,6 +42,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
 )
 
 // Fixed rules of Appendix C (code constants; changing one is a code change reviewed with the security
@@ -116,7 +118,18 @@ type Deps struct {
 	// Firebase is the bridge (AUTH_FIREBASE_BRIDGE_MODE, FIREBASE_PROJECT_ID, GOOGLE_APPLICATION_CREDENTIALS);
 	// the zero value is mode off with no ID-token verifier.
 	Firebase Firebase
-	Now      func() time.Time // optional, defaults to time.Now
+	// Files is the storage service (T11), optional: PATCH /v1/me commits photoKey through it and GET /v1/me signs
+	// photoUrl. Without it a photoKey is refused (not_found) and photoUrl stays null.
+	Files Files
+	Now   func() time.Time // optional, defaults to time.Now
+}
+
+// Files is the storage service as auth uses it (internal/storage implements it).
+type Files interface {
+	// Commit links an uploaded key to its entity inside the entity transaction (main spec §9.4).
+	Commit(ctx context.Context, tx pgx.Tx, in storage.CommitInput) (storage.Committed, error)
+	// SignedURL is the short-lived URL of a committed file (ttl 0 = S3_PRESIGN_GET_TTL).
+	SignedURL(ctx context.Context, fileID uuid.UUID, ttl time.Duration) (string, error)
 }
 
 // Service implements the auth use cases.
@@ -133,6 +146,7 @@ type Service struct {
 	gate     Authorizer
 	google   GoogleVerifier
 	fb       Firebase
+	files    Files
 	now      func() time.Time
 	fallback prometheus.Counter
 	// mirrorFailures counts Firebase account mirror writes that failed (op: password, status, revoke,
@@ -171,7 +185,7 @@ func New(cfg Config, d Deps) (*Service, error) {
 	}
 	s := &Service{
 		cfg: cfg, pool: d.Pool, store: d.Store, limiter: d.Limiter, keys: d.Keys, hasher: d.Hasher, policy: d.Policy,
-		log: d.Log, caps: d.Capabilities, gate: d.Authorizer, google: d.Google, fb: d.Firebase, now: d.Now,
+		log: d.Log, caps: d.Capabilities, gate: d.Authorizer, google: d.Google, fb: d.Firebase, files: d.Files, now: d.Now,
 		fallback: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "auth_revocation_fallback_total",
 			Help: "Per-request revocation checks answered from PostgreSQL because Redis was unreachable.",

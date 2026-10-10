@@ -27,6 +27,12 @@ func baseEnv() []string {
 		"JWT_ACTIVE_KID=test-kid",
 		"JWT_ISSUER=http://localhost:8080",
 		"JWT_AUDIENCE=logitrack-test",
+		// The s3 backend (default STORAGE_BACKEND) with placeholder credentials.
+		"S3_ENDPOINT=http://minio:9000",
+		"S3_PRESIGN_ENDPOINT=http://localhost:9000",
+		"S3_REGION=us-east-1",
+		"S3_ACCESS_KEY_ID=placeholder",
+		"S3_SECRET_ACCESS_KEY=placeholder",
 	}
 }
 
@@ -35,7 +41,7 @@ func TestAPIConfigDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(cfg.PublicRouteGroups, ","); got != "/v1/mobile,/v1/auth,/public/v1,/evidence,/healthz" {
+	if got := strings.Join(cfg.PublicRouteGroups, ","); got != "/v1/mobile,/v1/auth,/public/v1,/evidence,/healthz,/media" {
 		t.Fatalf("default allow-list = %s", got)
 	}
 	if cfg.LogLevel != "info" || cfg.LogFormat != "json" || cfg.ShutdownTimeout.Seconds() != 30 {

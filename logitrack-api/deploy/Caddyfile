@@ -48,8 +48,10 @@
 		}
 	}
 	# Only the public route groups (internal/platform/ingress.PublicPrefixes); the listener itself
-	# also answers 404 to anything outside PUBLIC_ROUTE_GROUPS, so this is a second fence.
-	@public path /v1/mobile /v1/mobile/* /v1/auth /v1/auth/* /public/v1 /public/v1/* /evidence /evidence/* /healthz
+	# also answers 404 to anything outside PUBLIC_ROUTE_GROUPS, so this is a second fence. /media is the
+	# local storage backend's signed object route (T11); encode leaves images and APKs alone (Caddy
+	# compresses only text-like content types by default).
+	@public path /v1/mobile /v1/mobile/* /v1/auth /v1/auth/* /public/v1 /public/v1/* /evidence /evidence/* /healthz /media /media/*
 	handle @public {
 		encode zstd gzip
 		reverse_proxy api{$API_PUBLIC_ADDR}
