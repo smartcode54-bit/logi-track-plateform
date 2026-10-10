@@ -23,55 +23,20 @@
     ]
   },
   "hosting": {
-    "public": "out",
-    "cleanUrls": true,
-    "trailingSlash": false,
-    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
-    "headers": [
-      {
-        "source": "/_next/static/**",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "public, max-age=31536000, immutable"
-          }
-        ]
-      },
-      {
-        "source": "**/*.html",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "public, max-age=0, must-revalidate"
-          }
-        ]
-      },
-      {
-        "source": "**",
-        "headers": [
-          {
-            "key": "Cross-Origin-Embedder-Policy",
-            "value": "unsafe-none"
-          }
-        ]
-      }
+    "public": "hosting-placeholder",
+    "predeploy": [
+      "node \"$PROJECT_DIR/scripts/check-hosting-redirect.mjs\" \"$PROJECT_DIR/firebase.prod.json\""
     ],
-    "rewrites": [
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "redirects": [
       {
-        "source": "/app/customers/*/edit",
-        "destination": "/app/customers/placeholder/edit.html"
-      },
-      {
-        "source": "/app/customers/*",
-        "destination": "/app/customers/placeholder.html"
-      },
-      {
-        "source": "/app/subcontractors/*/edit",
-        "destination": "/app/subcontractors/placeholder/edit.html"
-      },
-      {
-        "source": "/app/subcontractors/*",
-        "destination": "/app/subcontractors/placeholder.html"
+        "source": "/:path*",
+        "destination": "https://WEB_DOMAIN/:path",
+        "type": 301
       }
     ]
   },
