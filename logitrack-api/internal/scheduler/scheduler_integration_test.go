@@ -139,11 +139,16 @@ func TestTwoReplicasFireEachSlotOnce(t *testing.T) {
 	if n < 5 || n != distinct {
 		t.Fatalf("%d fires over %d distinct slots: every slot must fire exactly once", n, distinct)
 	}
-	if got := int(a.fires.Load() + b.fires.Load()); got != n {
-		t.Fatalf("replicas ran %d times, jobs has %d rows", got, n)
+	succeeded := scalar[int](t, pool, `SELECT count(*) FROM jobs WHERE type = 'test.tick' AND status = 'succeeded'`)
+	if got := int(a.fires.Load() + b.fires.Load()); got != succeeded {
+		t.Fatalf("replicas ran %d times, jobs has %d succeeded rows", got, succeeded)
 	}
-	if bad := scalar[int](t, pool, `SELECT count(*) FROM jobs WHERE type = 'test.tick' AND (status <> 'succeeded' OR owner_user_id IS NOT NULL)`); bad != 0 {
-		t.Fatalf("%d scheduled runs are not succeeded rows without an owner", bad)
+	// A slot has a jobs row only if its replica took lock:cron (Redis is up here), and that row always
+	// ends succeeded or failed: failed only when the replica took the lock and then stopped before
+	// the run, with the shutdown cause. A shutdown before the lock is taken leaves no row at all.
+	if bad := scalar[int](t, pool, `SELECT count(*) FROM jobs WHERE type = 'test.tick' AND (owner_user_id IS NOT NULL OR
+		(status <> 'succeeded' AND NOT (status = 'failed' AND error LIKE 'cron: shutdown before the run started%')))`); bad != 0 {
+		t.Fatalf("%d scheduled runs are neither succeeded nor shutdown-failed rows without an owner", bad)
 	}
 }
 
@@ -159,12 +164,46 @@ func TestCronLockStopsADoubleFire(t *testing.T) {
 	a.stop()
 	b.stop()
 	n, distinct := slots(t, pool)
-	if n < 2 || n != distinct || int(a.fires.Load()+b.fires.Load()) != n {
-		t.Fatalf("%d fires (%d + %d) over %d slots: want one fire per slot", n, a.fires.Load(), b.fires.Load(), distinct)
+	// A slot has a jobs row only if one replica took its lock:cron key (so one row and one key per
+	// slot), and that row always ends succeeded or failed: a replica that took the lock and then
+	// stopped before the run fails the row without running; one that stopped before taking the lock
+	// writes nothing. Every succeeded row is exactly one fire, and no row is left running.
+	succeeded := scalar[int](t, pool, `SELECT count(*) FROM jobs WHERE type = 'test.tick' AND status = 'succeeded'`)
+	running := scalar[int](t, pool, `SELECT count(*) FROM jobs WHERE type = 'test.tick' AND status NOT IN ('succeeded', 'failed')`)
+	if n < 2 || n != distinct || int(a.fires.Load()+b.fires.Load()) != succeeded || running != 0 {
+		t.Fatalf("%d rows (%d succeeded, %d unfinished) over %d slots, fires %d + %d: want one row per slot, one fire per succeeded row",
+			n, succeeded, running, distinct, a.fires.Load(), b.fires.Load())
 	}
 	keys, err := rdb.Keys(context.Background(), prefix+"lock:cron:test.tick:*").Result()
 	if err != nil || len(keys) != n {
 		t.Fatalf("lock:cron keys %v (%v), want one per slot", keys, err)
+	}
+}
+
+// A shutdown that arrives before the slot is claimed writes nothing: go-redis refuses SET NX on a
+// cancelled context, so the replica never took lock:cron, and a jobs row there would record a slot
+// it does not own (regression of FLAKE2: it used to write a failed row with no lock behind it).
+func TestCronFireAfterShutdownWritesNothing(t *testing.T) {
+	d := migrated(t)
+	pool := d.Pool(t, db.RoleApp)
+	rdb := asynctest.SharedRedis(t).Client(t)
+	var ran atomic.Bool
+	job := scheduler.Job{Name: "test.cancelled", Spec: "@every 1s", Kind: scheduler.Local,
+		Run: func(context.Context) (any, error) { ran.Store(true); return nil, nil }}
+	cron, err := scheduler.NewCron(pool, jobs.NewRedisLocker(rdb, localKeyspace(t)), []scheduler.Job{job}, zerolog.Nop(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cron.Fire(ctx, job, time.Date(2026, 10, 10, 3, 0, 0, 0, time.UTC))
+	rows := scalar[int](t, pool, `SELECT count(*) FROM jobs WHERE type = 'test.cancelled'`)
+	keys, err := rdb.Keys(context.Background(), prefix+"lock:cron:test.cancelled:*").Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows != 0 || len(keys) != 0 || ran.Load() {
+		t.Fatalf("fire on a cancelled context: %d jobs rows, lock:cron keys %v, ran %v; want nothing", rows, keys, ran.Load())
 	}
 }
 
