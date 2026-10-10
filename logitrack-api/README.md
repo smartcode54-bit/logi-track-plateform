@@ -31,6 +31,9 @@ internal/platform/db         pgx pools per role (R66), WithSystem; dbq = sqlc ou
 internal/platform/migrate    migration rules (R31), goose runner with a session lock; migratetest = round trip
 internal/platform/clock      Bangkok (+07:00) calendar: dates, days, months, Bangkok midnight; never the wall clock
 internal/platform/jsmath     JavaScript number semantics money code needs: Math.round, Round2, toFixed
+internal/platform/cache      Redis layer (T09): client, lt:{APP_ENV}: keyspace, read-through caches, invalidation, money-path guard; cachetest = redis:7-alpine for tests
+internal/platform/httpx/idempotency  Idempotency-Key middleware: Redis hot copy + idempotency_keys durable claim (R53)
+internal/platform/httpx/ratelimit    GCRA buckets of Appendix B §B.6.3 + Fiber middleware (429 resource_exhausted, Retry-After)
 internal/billing/compute     the billing engine (T36): pure port of lib/billingCompute.ts + the pure pricing rules
 internal/billing/documents   pure invoice layout rules: axis date, price rounds, line items (renderers: T39)
 internal/golden              test-only runner for testdata/golden vectors
@@ -73,7 +76,7 @@ Errors are always `{"error":{"code","message","details","requestId"}}` and `requ
 | `REFRESH_TOKEN_TTL_WEB`, `REFRESH_TOKEN_TTL_MOBILE`, `PASSWORD_RESET_TTL`, `PASSWORD_MIN_LENGTH` | api | no | `168h` (30 d absolute cap), `2160h`, `30m`, `10` |
 | `ARGON2_MEMORY_KB`, `ARGON2_ITERATIONS`, `ARGON2_PARALLELISM` | api | no | `65536`, `3`, `2` |
 | `FIREBASE_SCRYPT_SIGNER_KEY`, `_SALT_SEPARATOR`, `_ROUNDS`, `_MEM_COST` | api | all four or none | none: legacy hashes cannot sign in (`make env` sets the public firebase/scrypt test set locally) |
-| `RATE_LIMIT_ENABLED`, `RATE_LIMIT_LOGIN` | api | no | `true`, `10/1m` (login per IP; the 5-failure lockout always applies) |
+| `RATE_LIMIT_ENABLED`, `RATE_LIMIT_LOGIN`, `RATE_LIMIT_PUBLIC_FORMS`, `RATE_LIMIT_EVIDENCE` | api | no | `true`, `10/1m` (login per IP; the 5-failure lockout always applies), `5/1h`, `60/1m`; parsed once by `ratelimit.Config` |
 
 A missing or invalid variable stops the process with exit code 2 and a message naming every offending variable (never its value). Startup logs list each variable as `set`/`unset`.
 
@@ -175,6 +178,30 @@ Golden vectors: `testdata/golden/billing` (see its README). `go test ./internal/
 | `http://:8090` (not published) | the api public listener | tunnel target: `/public/v1/*` only |
 
 Locally the sites are `http://` (no TLS). In prod they are bare host names with ACME certificates; Caddy then refuses to start until `ACME_EMAIL` is set. `make smoke EDGE=1` runs `deploy/edge-smoke.sh` after the T02 and T03 checks (real id under `/app/customers/<id>`, cache headers, public-listener-only API site, a presigned URL through the media site; `go run ./tools/presign` signs it). `internal/platform/ingress` tests keep the Caddyfile allow-list equal to `ingress.PublicPrefixes`.
+
+## Redis layer (T09, main spec §2.1, Appendix B §B.6)
+
+Every key and channel is `lt:{APP_ENV}:{namespace}:...` with the eight namespaces `cache`, `auth`, `rbac`, `idem`, `rl`, `rt`, `rtlog`, `lock` (R26); keys come only from `cache.Keyspace` builders (one per row of Appendix B §B.6.2 and Appendix C §C.4.14). The server runs AOF with `maxmemory-policy noeviction` (compose and `cachetest`, which reads the image and flags from `deploy/docker-compose.yml`).
+
+| Env | Default | Used by |
+|---|---|---|
+| `REDIS_URL`, `REDIS_KEY_PREFIX`, `REDIS_TLS` | prefix `lt:{APP_ENV}:` (anything else is refused), TLS off | `cache.Open` (lazy dial; context deadlines honoured; dial 2 s, read and write 1 s, pool wait 1 s, one retry, unless the URL's query sets them) |
+| `CACHE_TTL_HUBS`, `CACHE_TTL_RATECARD`, `CACHE_TTL_SETTINGS` | `10m`, `1h`, `5m` | `cache.TTLs` |
+| `IDEMPOTENCY_TTL` | `168h` | `idempotency.Config` |
+| `RATE_LIMIT_ENABLED`, `RATE_LIMIT_LOGIN`, `RATE_LIMIT_PUBLIC_FORMS`, `RATE_LIMIT_EVIDENCE` | `true`, `10/1m`, `5/1h`, `60/1m` | `ratelimit.Config`: `login_ip`, `public_form_ip`, `evidence_ip`; other buckets are code constants |
+
+`.env.example` ships exactly these defaults (`TestEnvExampleShipsTheDesignDefaults`). A local `.env` made from an earlier `.env.example` keeps the old values `CACHE_TTL_RATECARD=10m`, `CACHE_TTL_SETTINGS=1m`, `RATE_LIMIT_LOGIN=10/15m`, `RATE_LIMIT_PUBLIC_FORMS=5/1m` until you edit them or rerun `make env FORCE=1`.
+
+Every Redis call is bounded: 300 ms in the caches, the rate limiter and the idempotency middleware, 1 s for an invalidation. A Redis that accepts connections but never answers therefore costs a request at most one such bound before the fallback (loader, fail open, PostgreSQL alone) answers (`TestHungRedis*`, against a listener that never replies).
+
+- **Caches are UI hints.** `cache.GetJSON`, `HubMaps` (two hashes `cache:hubs:n2c` and `cache:hubs:c2n`, written and dropped together, never merged), `PeriodLocks`, `Subtenants` read through to a loader (PostgreSQL) and fall back to it when Redis fails. Writers call `Cache.Invalidate` / `Cache.OnEvent` after commit; the outbox relay (T10) calls `OnEvent` for every event; deletions go out on `rt:cache` so replicas running `Cache.Run` drop their `WithL1` copies. An event that does not name the id (for example `statement.*` without `billingPartyId`) drops every key of its family. Each invalidation first increments `cache:gen:{family}`, and a read-through stores what it loaded only while that counter is unchanged, so a reader that loaded before a commit never writes the old value back.
+- **Money paths never read Redis** (R17). Pricing, period locks, invoice numbering and payroll run under `cache.MoneyPath(ctx)`: every command of a guarded client fails with `ErrMoneyPath` before it is sent, and the caches refuse to serve. `go list -deps` of the pure engines must not contain `go-redis` (`TestMoneyEnginesNeverLinkRedis`).
+- **Idempotency** (`httpx/idempotency`): mount `Middleware.Handler()` after authentication on each `✱` route; 2xx answers replay byte for byte (`Idempotent-Replayed: true`) from Redis (24 h) or `idempotency_keys` (until `IDEMPOTENCY_TTL`), a different body is `409 idempotency_conflict`; `PGStore.Prune` is the `idempotency.prune` job. The route runs under a 25 s deadline (`HandlerBudget`, inside the 30 s lease): **a `✱` handler must do its database and storage work under `c.Context()`**, so a request that cannot finish is cancelled and rolled back before a retry could take its claim over.
+- **Rate limits** (`httpx/ratelimit`): `Limiter.Middleware(enabled, rules...)`; a request is counted when it is checked (no peek, so parallel requests cannot all pass); subjects are stored as a sha256 prefix (pseudonymous, not anonymous); `ByIP` limits an IPv6 client by its /64; fail open (logged and counted) when Redis does not answer within 300 ms. A rule without a usable limit panics when the route is built, and `Config.Validate` refuses an unusable `RATE_LIMIT_*` value, so nothing fails open by mistake. The api builds one `Limiter`: `internal/auth` checks its buckets (`login_ip`, `refresh_session`, `sse_ticket`, `forgot_*`, `reset_ip`) through `Limiter.Allow` with the same 429 and fail-open behaviour, so every caller of a bucket spends one budget. `login_fail` is not a GCRA bucket: the sign-in lockout of Appendix C §C.4.12 lives in `internal/auth` (T05).
+- **Mirror ack** (`SetMirrorAck`, `WaitMirrorAck`) for read-your-writes in P2-P7a; single-use tickets (`PutTicket`, `TakeTicket` with `GETDEL`) for `auth:pwchg`, `auth:sse`, `auth:google:nonce`.
+- Wiring: `app.BuildAPI` (T05) builds the process's one Redis client with `cache.Open`, so the auth store's per-request checks get the same deadlines, and calls `cache.RouteDriverLogs(log)` so go-redis log lines go through the redacting logger; routes adopt the middleware as they land (first `✱` routes: T31, T56).
+
+Tests: `go test ./internal/platform/cache/... ./internal/platform/httpx/...` (keyspace, events, L1, money-path guard with Redis stopped) and `make test-integration` (redis:7-alpine and postgres:18-alpine: read-through, invalidation over pub/sub, Redis stopped, GCRA, idempotency replay from Redis and from PostgreSQL, and a SCAN that every key is under the prefix and a listed namespace).
 
 ## Develop
 

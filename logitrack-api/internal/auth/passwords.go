@@ -12,6 +12,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/password"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/security"
 )
 
@@ -50,8 +51,8 @@ func (s *Service) Forgot(ctx context.Context, in ForgotInput) error {
 	if email == "" || len(email) > 320 {
 		return nil
 	}
-	if s.limit(ctx, "forgot_ip", ipSubject(in.IP), limitForgotIP) != nil ||
-		s.limit(ctx, "forgot_email", emailSubject(email), limitForgotEmail) != nil {
+	if s.limit(ctx, ratelimit.ForgotIP, ipSubject(in.IP)) != nil ||
+		s.limit(ctx, ratelimit.ForgotEmail, email) != nil {
 		return nil
 	}
 	locale := "th"
@@ -142,7 +143,7 @@ func policyError(v *password.Violation) *httpx.Error {
 // The token is checked before the new password is hashed, and the hash is computed before the
 // transaction, so the users row is never held during a memory-hard computation.
 func (s *Service) Reset(ctx context.Context, in ResetInput) error {
-	if err := s.limit(ctx, "reset_ip", ipSubject(in.IP), limitResetIP); err != nil {
+	if err := s.limit(ctx, ratelimit.ResetIP, ipSubject(in.IP)); err != nil {
 		return err
 	}
 	sum, _, ok := secretHash(in.Token)
@@ -228,7 +229,7 @@ type ChangeInput struct {
 // forgot / reset instead (C.5.6). The change applies only while the row still holds the credential the
 // current password was checked against.
 func (s *Service) ChangePassword(ctx context.Context, p *authz.Principal, in ChangeInput) error {
-	if err := s.limit(ctx, "reset_ip", ipSubject(in.IP), limitResetIP); err != nil {
+	if err := s.limit(ctx, ratelimit.ResetIP, ipSubject(in.IP)); err != nil {
 		return err
 	}
 	if in.CurrentPassword == "" {
@@ -271,7 +272,7 @@ func errCurrentPasswordMismatch() *httpx.Error {
 // checked before the ticket is consumed, so a rejected password does not burn it. A ticket issued
 // before a reset, a new temporary password or any other auth_version bump of the user is void.
 func (s *Service) ChangePasswordWithTicket(ctx context.Context, in ChangeInput) error {
-	if err := s.limit(ctx, "reset_ip", ipSubject(in.IP), limitResetIP); err != nil {
+	if err := s.limit(ctx, ratelimit.ResetIP, ipSubject(in.IP)); err != nil {
 		return err
 	}
 	if _, _, ok := secretHash(in.PasswordChangeTicket); !ok {

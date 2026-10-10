@@ -9,11 +9,20 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/caarlos0/env/v11"
 )
+
+// AppEnvs are the allowed APP_ENV values (main spec §16.1). APP_ENV is also part of the Redis key
+// prefix lt:{APP_ENV}: (R26), so the process configuration (internal/app) and the keyspace
+// (internal/platform/cache) both check against this one list.
+var AppEnvs = []string{"local", "dev", "prod"}
+
+// ValidAppEnv reports whether s is one of AppEnvs.
+func ValidAppEnv(s string) bool { return slices.Contains(AppEnvs, s) }
 
 // Validator is implemented by configuration structs that need checks beyond
 // presence and type, such as enumerations or cross-field rules.

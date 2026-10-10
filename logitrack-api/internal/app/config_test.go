@@ -9,6 +9,7 @@ import (
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/app"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
 )
 
 func baseEnv() []string {
@@ -167,8 +168,10 @@ func TestAPIConfigAuthDefaults(t *testing.T) {
 	if cfg.Argon2MemoryKB != 65536 || cfg.Argon2Iterations != 3 || cfg.Argon2Parallelism != 2 {
 		t.Fatalf("argon2: %+v", cfg.Auth)
 	}
-	if !cfg.RateLimitEnabled || cfg.LoginRate.Count != 10 || cfg.LoginRate.Window != time.Minute {
-		t.Fatalf("login rate: %+v", cfg.LoginRate)
+	if !cfg.RateLimit.Enabled || cfg.RateLimit.Limit(ratelimit.LoginIP) != (ratelimit.Limit{Count: 10, Window: time.Minute}) ||
+		cfg.RateLimit.Limit(ratelimit.PublicFormIP) != (ratelimit.Limit{Count: 5, Window: time.Hour}) ||
+		cfg.RateLimit.Limit(ratelimit.EvidenceIP) != (ratelimit.Limit{Count: 60, Window: time.Minute}) {
+		t.Fatalf("rate limits: %+v", cfg.RateLimit)
 	}
 	if cfg.RedisKeyPrefix != "lt:local:" {
 		t.Fatalf("redis prefix derived from APP_ENV: %q", cfg.RedisKeyPrefix)
@@ -191,6 +194,10 @@ func TestAPIConfigAuthValidation(t *testing.T) {
 		"password min length": {[]string{"PASSWORD_MIN_LENGTH=4"}, "PASSWORD_MIN_LENGTH"},
 		"argon2 memory":       {[]string{"ARGON2_MEMORY_KB=1024"}, "ARGON2_MEMORY_KB"},
 		"login rate":          {[]string{"RATE_LIMIT_LOGIN=ten"}, "RATE_LIMIT_LOGIN"},
+		"login rate interval": {[]string{"RATE_LIMIT_LOGIN=1001/1ms"}, "RATE_LIMIT_LOGIN"},
+		"public forms rate":   {[]string{"RATE_LIMIT_PUBLIC_FORMS=5/1d"}, "RATE_LIMIT_PUBLIC_FORMS"},
+		"evidence rate":       {[]string{"RATE_LIMIT_EVIDENCE=-5/1m"}, "RATE_LIMIT_EVIDENCE"},
+		"rate limit switch":   {[]string{"RATE_LIMIT_ENABLED=maybe"}, "RATE_LIMIT_ENABLED"},
 		"scrypt partial":      {[]string{"FIREBASE_SCRYPT_ROUNDS=8"}, "FIREBASE_SCRYPT_SIGNER_KEY"},
 		"scrypt bad base64":   {[]string{"FIREBASE_SCRYPT_SIGNER_KEY=not*base64!", "FIREBASE_SCRYPT_SALT_SEPARATOR=Bw==", "FIREBASE_SCRYPT_ROUNDS=8", "FIREBASE_SCRYPT_MEM_COST=14"}, "FIREBASE_SCRYPT_SIGNER_KEY: must be base64"},
 	}
@@ -227,7 +234,7 @@ func TestAPIConfigParsesScryptParams(t *testing.T) {
 	if cfg.Scrypt == nil || !bytes.Equal(cfg.Scrypt.SignerKey, placeholder) || cfg.Scrypt.Rounds != 8 || cfg.Scrypt.MemCost != 14 {
 		t.Fatalf("scrypt params: %+v", cfg.Scrypt)
 	}
-	if cfg.LoginRate.Count != 20 || cfg.LoginRate.Window != 30*time.Second {
-		t.Fatalf("login rate: %+v", cfg.LoginRate)
+	if cfg.RateLimit.Limit(ratelimit.LoginIP) != (ratelimit.Limit{Count: 20, Window: 30 * time.Second}) {
+		t.Fatalf("login rate: %+v", cfg.RateLimit)
 	}
 }

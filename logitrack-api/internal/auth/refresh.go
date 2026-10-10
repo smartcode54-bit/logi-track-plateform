@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/authdb"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/security"
 )
 
@@ -76,7 +77,7 @@ func (s *Service) Refresh(ctx context.Context, in RefreshInput) (*TokenPair, err
 		case !rt.ExpiresAt.After(now) || !rt.AbsoluteExpiresAt.After(now):
 			return errInvalidToken()
 		}
-		if err := s.limit(ctx, "refresh_session", rt.SessionID.String(), limitRefreshSession); err != nil {
+		if err := s.limit(ctx, ratelimit.RefreshSession, rt.SessionID.String()); err != nil {
 			return err
 		}
 		if user.Status != "active" {

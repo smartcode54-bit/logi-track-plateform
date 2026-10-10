@@ -14,6 +14,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/authdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
 )
 
 // Me is the body of GET /v1/me (Appendix C §C.8). photoUrl stays null until the storage service (T11)
@@ -395,7 +396,7 @@ func (s *Service) IssueSSETicket(ctx context.Context, p *authz.Principal) (*SSET
 	if !isMobile(platform) {
 		return nil, errPermissionDenied("SSE tickets are issued to driver-app sessions only")
 	}
-	if err := s.limit(ctx, "sse_ticket", p.SessionID.String(), limitSSETicket); err != nil {
+	if err := s.limit(ctx, ratelimit.SSETicket, p.SessionID.String()); err != nil {
 		return nil, err
 	}
 	t, err := newSecret()
