@@ -11,8 +11,10 @@ import {
     configureFirebaseBridge,
     getBridgeState,
     signOutFirebaseBridge,
+    subscribeBridge,
     syncFirebaseBridge,
     type BridgeDeps,
+    type BridgeStatus,
 } from "./firebaseBridge";
 
 interface FakeUser {
@@ -176,5 +178,118 @@ describe("syncFirebaseBridge", () => {
         await Promise.all([first, second]);
         expect(state.mints).toBe(2);
         expect(getBridgeState().claims).toEqual({ admin: true, role: "admin" });
+    });
+});
+
+describe("a previous user's Firebase session (shared browser)", () => {
+    const admin = { uid: "fb-A", claims: { admin: true, role: "admin" } };
+    const failing = (status: number) => async () => {
+        throw new ApiError({ status, code: status === 429 ? "resource_exhausted" : "unavailable", message: "" });
+    };
+
+    it.each([
+        ["a 5xx after the retries", 503],
+        ["a network error after the retries", 0],
+        ["a 429 (not retried)", 429],
+    ])("is signed out when the forced mint fails with %s: Firestore never runs as that user", async (_label, status) => {
+        const { state, deps } = fakeSdk({ current: admin, mint: failing(status) });
+        configureFirebaseBridge(async () => deps);
+        await syncFirebaseBridge({ id: "go-B", legacyAuthUid: "fb-B" }, { force: true });
+        expect(getBridgeState()).toMatchObject({ status: "error", userId: "go-B" });
+        expect(state.current).toBeNull();
+        expect(state.signOuts).toBe(1);
+    });
+
+    it("is signed out when signInWithCustomToken fails", async () => {
+        const { state, deps } = fakeSdk({ current: admin });
+        deps.signInWithCustomToken = async () => {
+            throw new Error("auth/custom-token-mismatch");
+        };
+        configureFirebaseBridge(async () => deps);
+        await syncFirebaseBridge({ id: "go-B", legacyAuthUid: "fb-B" }, { force: true });
+        expect(getBridgeState()).toMatchObject({ status: "error", userId: "go-B" });
+        expect(state.current).toBeNull();
+        expect(state.signOuts).toBe(1);
+    });
+
+    it("is signed out on a page load whose mint fails (restored uid of someone else)", async () => {
+        const { state, deps } = fakeSdk({ current: admin, mint: failing(500) });
+        configureFirebaseBridge(async () => deps);
+        await syncFirebaseBridge({ id: "go-B", legacyAuthUid: "fb-B" });
+        expect(state.current).toBeNull();
+        expect(getBridgeState().status).toBe("error");
+    });
+
+    it("is foreign to a principal without a legacy uid (a Go-created user), whatever the mint answers", async () => {
+        const { state, deps } = fakeSdk({ current: admin, mint: failing(503) });
+        configureFirebaseBridge(async () => deps);
+        await syncFirebaseBridge({ id: "dispatcher" }, { force: true });
+        expect(state.current).toBeNull();
+    });
+
+    it("a refused principal with someone else's restored session is signed out and not asked again", async () => {
+        window.sessionStorage.setItem(BRIDGE_DENIED_KEY, "dispatcher");
+        let calls = 0;
+        const { state, deps } = fakeSdk({
+            current: admin,
+            mint: async () => {
+                calls += 1;
+                return { customToken: "x|y" };
+            },
+        });
+        configureFirebaseBridge(async () => deps);
+        await syncFirebaseBridge({ id: "dispatcher" });
+        expect(state.current).toBeNull();
+        expect(calls).toBe(0);
+        expect(getBridgeState().status).toBe("none");
+    });
+
+    it("keeps the target's own session when a forced re-mint fails (the account mirror updates its claims)", async () => {
+        const own = { uid: "fb-1", claims: { admin: false, role: "manager" } };
+        const { state, deps } = fakeSdk({ current: own, mint: failing(503) });
+        configureFirebaseBridge(async () => deps);
+        await syncFirebaseBridge({ id: "u1", legacyAuthUid: "fb-1" }, { force: true });
+        expect(getBridgeState()).toMatchObject({ status: "error", userId: "u1" });
+        expect(state.current?.uid).toBe("fb-1");
+        expect(state.signOuts).toBe(0);
+    });
+});
+
+describe("states seen by AuthProvider", () => {
+    function record() {
+        const seen: BridgeStatus[] = [];
+        const off = subscribeBridge(() => seen.push(getBridgeState().status));
+        return { seen, off };
+    }
+
+    it("a forced re-mint for a user already settled never goes back to pending (the /app page stays mounted)", async () => {
+        let n = 0;
+        const { deps } = fakeSdk({
+            mint: async () => {
+                n += 1;
+                return { customToken: `fb-1|${n === 1 ? "manager" : "admin"}` };
+            },
+        });
+        configureFirebaseBridge(async () => deps);
+        await syncFirebaseBridge({ id: "u1", legacyAuthUid: "fb-1" }, { force: true });
+        const { seen, off } = record();
+        await syncFirebaseBridge({ id: "u1", legacyAuthUid: "fb-1" }, { force: true });
+        off();
+        expect(seen).toEqual(["ready"]);
+        expect(getBridgeState().claims).toEqual({ admin: true, role: "admin" });
+        expect(bridgeSettledFor(getBridgeState(), "u1")).toBe(true);
+    });
+
+    it("a sign-in and a different user still go through pending", async () => {
+        const { deps } = fakeSdk();
+        configureFirebaseBridge(async () => deps);
+        const first = record();
+        await syncFirebaseBridge({ id: "u1", legacyAuthUid: "fb-1" }, { force: true });
+        first.off();
+        expect(first.seen).toEqual(["pending", "ready"]);
+        const second = record();
+        await syncFirebaseBridge({ id: "u2", legacyAuthUid: "fb-1" }, { force: true });
+        second.off();
+        expect(second.seen[0]).toBe("pending");
     });
 });

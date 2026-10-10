@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/apiError";
 import { fetchAllPages } from "@/lib/goPages";
 import { safeNext } from "@/lib/safeNext";
-import { findUserForLegacyAccount } from "@/features/users/api/users";
+import { findUserForLegacyAccount, usersReach } from "@/features/users/api/users";
 import { grantableRoles, userActions } from "@/features/users/utils/roles";
 import { legacyClaimsFromMe } from "../api/me";
 import { makeMe } from "@/test-utils/fakeWeb";
@@ -83,28 +83,44 @@ describe("user actions from ['me']", () => {
 
 describe("findUserForLegacyAccount", () => {
     function stub(users: unknown[]) {
-        const urls: string[] = [];
+        const requests: { url: string; headers: Headers }[] = [];
         vi.stubGlobal(
             "fetch",
-            vi.fn(async (u: string) => {
-                urls.push(u);
+            vi.fn(async (u: string, init: RequestInit = {}) => {
+                requests.push({ url: u, headers: new Headers(init.headers) });
                 return new Response(JSON.stringify({ data: users }), { status: 200 });
             })
         );
-        return urls;
+        return requests;
     }
-    it("matches the Firebase uid first, else a unique exact email", async () => {
-        const urls = stub([
+    it("matches only the Firebase uid of the document (the email only narrows the search)", async () => {
+        const requests = stub([
             { id: "a", email: "x@y.test", legacyAuthUid: "other" },
             { id: "b", email: "X@y.test", legacyAuthUid: "fb-b" },
         ]);
         expect((await findUserForLegacyAccount({ uid: "fb-b", email: "x@y.test" }))?.id).toBe("b");
-        expect(urls[0]).toBe("/api/go/v1/users?q=x%40y.test&limit=50");
-        stub([{ id: "c", email: "c@y.test", legacyAuthUid: null }]);
-        expect((await findUserForLegacyAccount({ uid: "fb-c", email: "C@y.test" }))?.id).toBe("c");
+        expect(requests[0].url).toBe("/api/go/v1/users?q=x%40y.test&limit=50");
+        expect(requests[0].headers.has("X-Act-On-Tenant")).toBe(false);
         stub([]);
         expect(await findUserForLegacyAccount({ uid: "fb-z", email: "z@y.test" })).toBeNull();
         expect(await findUserForLegacyAccount({ uid: "fb-z", email: "" })).toBeNull();
+    });
+
+    it("never resolves a row that names someone else's email (the row's owner can rewrite users/{uid})", async () => {
+        // X wrote users/{fb-x}.email = boss@company: the search finds the boss, whose uid is not the row's.
+        stub([{ id: "go-boss", email: "boss@company.test", legacyAuthUid: "fb-boss" }]);
+        expect(await findUserForLegacyAccount({ uid: "fb-x", email: "boss@company.test" })).toBeNull();
+        // Nor a unique email match of a user without a legacy uid.
+        stub([{ id: "go-c", email: "c@y.test", legacyAuthUid: null }]);
+        expect(await findUserForLegacyAccount({ uid: "fb-c", email: "c@y.test" })).toBeNull();
+    });
+
+    it("a platform principal searches every tenant with X-Act-On-Tenant: *", async () => {
+        const requests = stub([{ id: "b", email: "x@y.test", legacyAuthUid: "fb-b" }]);
+        expect((await findUserForLegacyAccount({ uid: "fb-b", email: "x@y.test" }, usersReach(makeMe({ platformRoles: ["platform_admin"] }))))?.id).toBe("b");
+        expect(requests[0].headers.get("X-Act-On-Tenant")).toBe("*");
+        expect(usersReach(makeMe({ platformRoles: ["support"] }))).toBe("all");
+        expect(usersReach(makeMe())).toBe("tenant");
     });
 });
 
@@ -126,6 +142,6 @@ describe("fetchAllPages", () => {
             "/api/go/v1/tenants?kind=carrier&limit=100&cursor=c2",
         ]);
         urls.length = 0;
-        expect(await fetchAllPages<number>("/v1/tenants", {}, undefined, 2)).toEqual([1, 2]);
+        expect(await fetchAllPages<number>("/v1/tenants", {}, { maxPages: 2 })).toEqual([1, 2]);
     });
 });

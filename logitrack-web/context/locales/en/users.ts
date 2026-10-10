@@ -155,4 +155,6 @@ export default {
     "users.tempPassword.done": "Done",
     "users.invite.action": "Send invite email",
     "users.revokeSessionsNotFound": "This account is not in the user directory yet.",
+    "users.revokeSessionsAccount": "Account that will be signed out:",
+    "users.revokeSessionsEmailMismatch": "The overview row shows another email ({email}). The account above is the one bound to the row; check it before you continue.",
 };

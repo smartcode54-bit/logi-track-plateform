@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { collection, GeoPoint, limit, onSnapshot, orderBy, query } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "@/firebase/client";
@@ -9,7 +9,7 @@ import { COLLECTIONS } from "@/lib/collections";
 import { useAuth } from "@/context/auth";
 import { useLanguage } from "@/context/language";
 import { hasCapability } from "@/features/auth/api/me";
-import { findUserForLegacyAccount, revokeUserSessions } from "@/features/users/api/users";
+import { findUserForLegacyAccount, revokeUserSessions, usersReach, type UserDTO } from "@/features/users/api/users";
 import { apiErrorText } from "@/lib/apiError";
 import { Button } from "@/components/ui/button";
 import {
@@ -135,6 +135,9 @@ export function SessionManagementActiveUsers() {
     const [rows, setRows] = useState<RowUser[]>([]);
     const [loading, setLoading] = useState(true);
     const [revokeTarget, setRevokeTarget] = useState<RowUser | null>(null);
+    // The Go account behind the row, resolved when the dialog opens and shown before anything is revoked.
+    const [revokeAccount, setRevokeAccount] = useState<{ state: "loading" | "found" | "missing" | "error"; user?: UserDTO; error?: string } | null>(null);
+    const lookup = useRef(0);
     const [isRevoking, setIsRevoking] = useState(false);
     const [isSyncing, setIsSyncing] = useState(false);
     const [mapUser, setMapUser] = useState<RowUser | null>(null);
@@ -177,23 +180,40 @@ export function SessionManagementActiveUsers() {
     }, [currentUser, isAdmin, t]);
 
     // Revoke through Go (T18, `DELETE /v1/users/{id}/sessions`; no `revokeUserRefreshTokens`): the row
-    // is a legacy users/{uid} document until P6 (row 29), so its Go user is found by uid, else email.
+    // is a legacy users/{uid} document until P6 (row 29) whose fields its owner can rewrite, so the Go
+    // user is the one bound to the document id (`legacyAuthUid`), never one found by email alone. It
+    // is resolved when the dialog opens and shown there, so the admin sees who will be signed out.
+    const openRevoke = (row: RowUser) => {
+        const ticket = ++lookup.current;
+        setRevokeTarget(row);
+        setRevokeAccount({ state: "loading" });
+        findUserForLegacyAccount({ uid: row.uid, email: row.email }, usersReach(auth?.me)).then(
+            (user) => {
+                if (lookup.current === ticket) setRevokeAccount(user ? { state: "found", user } : { state: "missing" });
+            },
+            (e: unknown) => {
+                if (lookup.current === ticket) setRevokeAccount({ state: "error", error: apiErrorText(e, t) });
+            }
+        );
+    };
+    const closeRevoke = () => {
+        lookup.current += 1;
+        setRevokeTarget(null);
+        setRevokeAccount(null);
+    };
+
     const confirmRevoke = async () => {
-        if (!revokeTarget) return;
+        const user = revokeAccount?.state === "found" ? revokeAccount.user : undefined;
+        if (!revokeTarget || !user) return;
         setIsRevoking(true);
         try {
-            const user = await findUserForLegacyAccount({ uid: revokeTarget.uid, email: revokeTarget.email });
-            if (!user) {
-                toast.error(t("users.revokeSessionsNotFound"));
-                return;
-            }
             if (user.id === auth?.me?.id) {
                 toast.error(t("users.revokeSessionsSelf"));
                 return;
             }
             await revokeUserSessions(user.id);
             toast.success(t("users.revokeSessionsSuccess"));
-            setRevokeTarget(null);
+            closeRevoke();
         } catch (e) {
             console.error("[SessionManagementActiveUsers] revoke:", e);
             toast.error(`${t("users.revokeSessionsFailed")}: ${apiErrorText(e, t)}`);
@@ -336,7 +356,7 @@ export function SessionManagementActiveUsers() {
                                                             disabled={isSelf}
                                                             title={isSelf ? t("users.revokeSessionsSelf") : undefined}
                                                             onSelect={() => {
-                                                                if (!isSelf) setRevokeTarget(user);
+                                                                if (!isSelf) openRevoke(user);
                                                             }}
                                                         >
                                                             <LogOut className="mr-2 h-4 w-4" />
@@ -385,24 +405,42 @@ export function SessionManagementActiveUsers() {
                 </DialogContent>
             </Dialog>
 
-            <Dialog open={!!revokeTarget} onOpenChange={(open) => !open && setRevokeTarget(null)}>
+            <Dialog open={!!revokeTarget} onOpenChange={(open) => !open && !isRevoking && closeRevoke()}>
                 <DialogContent>
                     <DialogHeader>
                         <DialogTitle>{t("users.revokeSessionsTitle")}</DialogTitle>
-                        <DialogDescription className="space-y-2">
-                            <span>{t("users.revokeSessionsDesc")}</span>
-                            {revokeTarget ? (
-                                <span className="block text-foreground font-medium">
-                                    {revokeTarget.displayName} ({revokeTarget.email})
-                                </span>
-                            ) : null}
-                        </DialogDescription>
+                        <DialogDescription>{t("users.revokeSessionsDesc")}</DialogDescription>
                     </DialogHeader>
+                    <div className="space-y-2 text-sm" data-testid="revoke-account">
+                        {revokeAccount?.state === "found" && revokeAccount.user ? (
+                            <>
+                                <p className="text-muted-foreground">{t("users.revokeSessionsAccount")}</p>
+                                <p className="font-medium text-foreground">
+                                    {revokeAccount.user.displayName || "—"} ({revokeAccount.user.email ?? "—"})
+                                </p>
+                                {revokeTarget && (revokeAccount.user.email ?? "").toLowerCase() !== revokeTarget.email.trim().toLowerCase() ? (
+                                    <p role="alert" className="text-amber-600">
+                                        {t("users.revokeSessionsEmailMismatch", { email: revokeTarget.email })}
+                                    </p>
+                                ) : null}
+                            </>
+                        ) : revokeAccount?.state === "missing" ? (
+                            <p role="alert" className="text-destructive">
+                                {t("users.revokeSessionsNotFound")}
+                            </p>
+                        ) : revokeAccount?.state === "error" ? (
+                            <p role="alert" className="text-destructive">
+                                {revokeAccount.error}
+                            </p>
+                        ) : (
+                            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                        )}
+                    </div>
                     <DialogFooter>
-                        <Button type="button" variant="outline" onClick={() => setRevokeTarget(null)} disabled={isRevoking}>
+                        <Button type="button" variant="outline" onClick={closeRevoke} disabled={isRevoking}>
                             {t("users.revokeSessionsCancel")}
                         </Button>
-                        <Button type="button" variant="destructive" onClick={() => void confirmRevoke()} disabled={isRevoking}>
+                        <Button type="button" variant="destructive" onClick={() => void confirmRevoke()} disabled={isRevoking || revokeAccount?.state !== "found"}>
                             {isRevoking ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                             {t("users.revokeSessionsConfirm")}
                         </Button>

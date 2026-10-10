@@ -31,6 +31,7 @@ import {
     setUserDisabled,
     useInvalidateUsers,
     useUsers,
+    usersReach,
     type CreateUserResult,
     type UserDTO,
 } from "../api/users";
@@ -70,7 +71,8 @@ export function UsersPage() {
         return () => clearTimeout(id);
     }, [search]);
 
-    const users = useUsers({ q, role, status }, Boolean(me));
+    // A platform principal lists every tenant's users (`X-Act-On-Tenant: *`), a tenant principal its reach.
+    const users = useUsers({ q, role, status }, Boolean(me), usersReach(me));
     const rows = useMemo(() => users.data?.pages.flatMap((p) => p.data ?? []) ?? [], [users.data]);
 
     const [createOpen, setCreateOpen] = useState(false);

@@ -207,6 +207,30 @@ describe("UsersPage", () => {
         expect(web.calls.find((c) => c.method === "PUT")?.body).toEqual({ role: "manager" });
     });
 
+    it("a tenant principal lists its own reach (no X-Act-On-Tenant); a platform principal lists every tenant with X-Act-On-Tenant: *", async () => {
+        const tenantStaff = setup();
+        tenantStaff.web.on("GET", "/api/go/v1/users", () => json(200, { data: [user(4)] }));
+        const first = renderWithProviders(<UsersPage />);
+        await screen.findAllByTestId("user-row");
+        const own = tenantStaff.web.calls.filter((c) => c.url.startsWith("/api/go/v1/users"));
+        expect(own.length).toBeGreaterThan(0);
+        expect(own.every((c) => c.headers["x-act-on-tenant"] === undefined)).toBe(true);
+        first.unmount();
+        vi.unstubAllGlobals();
+
+        // The bootstrap platform admin: platform role only, no membership, so no `tid`.
+        const platform = setup({ tenant: null, tenants: [], platformRoles: ["platform_admin"] });
+        const customer = user(5, { memberships: [], scopes: [{ kind: "customer", billingPartyId: "bp-1", name: "CJSF" }] });
+        platform.web.on("GET", "/api/go/v1/users", (c) => json(200, { data: c.headers["x-act-on-tenant"] === "*" ? [user(4), customer] : [] }));
+        const { client } = renderWithProviders(<UsersPage />);
+        await waitFor(() => expect(screen.getAllByTestId("user-row")).toHaveLength(2));
+        const all = platform.web.calls.filter((c) => c.url.startsWith("/api/go/v1/users"));
+        expect(all.every((c) => c.headers["x-act-on-tenant"] === "*")).toBe(true);
+        // The reach is part of the key, so a tenant-reach page is never cached under the platform reach.
+        const loaded = client.getQueryCache().findAll({ queryKey: ["users"] }).filter((q) => q.state.data !== undefined);
+        expect(loaded.map((q) => (q.queryKey[1] as { reach: string }).reach)).toEqual(["all"]);
+    });
+
     it("hides the write controls without users:manage", async () => {
         const { web } = setup({ capabilities: ["users:view"] });
         web.on("GET", "/api/go/v1/users", () => json(200, { data: [user(3)] }));

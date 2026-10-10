@@ -13,7 +13,7 @@ import { RealtimeProvider } from "./realtime";
 import { ME_KEY, type Me } from "@/features/auth/api/me";
 import { configureFirebaseBridge, getBridgeState } from "@/lib/firebaseBridge";
 import { makeQueryClient } from "@/lib/queryClient";
-import { configureSessionEnd } from "@/lib/sessionEnd";
+import { configureSessionEnd, resetSessionEndForTests } from "@/lib/sessionEnd";
 import { LAST_FORCED_REFRESH_KEY, LAST_REFRESH_KEY, sharedRefresh } from "@/lib/sharedRefresh";
 import { fakeFirebase, fakeWeb, goErr, json, makeMe } from "@/test-utils/fakeWeb";
 
@@ -60,12 +60,30 @@ function Grab({ onAuth }: { onAuth: (a: ReturnType<typeof useAuth>) => void }) {
     return null;
 }
 
-function renderApp() {
+/** A page under the same gate as app/app/layout.tsx: a spinner while `loading`, else the page. */
+function GatedPage({ onMount }: { onMount: () => void }) {
+    const auth = useAuth();
+    return auth?.loading ? <p>spinner</p> : <CountedPage onMount={onMount} />;
+}
+function CountedPage({ onMount }: { onMount: () => void }) {
+    React.useEffect(() => onMount(), [onMount]);
+    return <p>page</p>;
+}
+/** Reports each change of the auth state ("loading", "in", "out", "error"). */
+function StateLog({ onState }: { onState: (s: string) => void }) {
+    const auth = useAuth();
+    const s = auth?.loading ? "loading" : auth?.me ? "in" : auth?.error ? "error" : "out";
+    React.useEffect(() => onState(s), [s, onState]);
+    return null;
+}
+
+function renderApp(extra: React.ReactNode = null) {
     const client = makeQueryClient();
     const view = render(
         <QueryClientProvider client={client}>
             <AuthProvider>
                 <RealtimeProvider>
+                    {extra}
                     <Probe />
                     <Grab
                         onAuth={(a) => {
@@ -83,6 +101,9 @@ const state = () => screen.getByTestId("state").textContent;
 
 beforeEach(() => {
     navigated = [];
+    // The admin_revoke test leaves lib/sessionEnd.ts "leaving": without the reset every later test would
+    // run with endSession as a silent no-op and its "never signs out" checks could not fail.
+    resetSessionEndForTests();
     configureSessionEnd({ navigate: (u) => navigated.push(u) });
     window.localStorage.removeItem(LAST_REFRESH_KEY);
     window.localStorage.removeItem(LAST_FORCED_REFRESH_KEY);
@@ -219,6 +240,7 @@ describe("AuthProvider", () => {
         expect(forced).toHaveLength(1);
         expect(forced[0].body).toEqual({ force: true });
         expect(navigated).toEqual([]);
+        expect(web.count("POST", "/api/auth/logout")).toBe(0);
         // The stream is reopened with the new claims.
         await waitFor(() => expect(FakeEventSource.all.length).toBeGreaterThan(1));
     });
@@ -265,6 +287,103 @@ describe("AuthProvider", () => {
         expect(web.calls.find((c) => c.url === "/api/auth/tenant")?.body).toEqual({ tenantId: "t-carrier" });
         expect(web.count("POST", "/api/auth/firebase-token")).toBe(mints + 1);
         expect(client.getQueryData(["trucks", { page: 1 }])).toBeUndefined();
+    });
+
+    it("claims_changed, refreshClaims and switchTenant keep the page under the auth gate mounted (no loading flash)", async () => {
+        window.history.replaceState(null, "", "/app/dashboard");
+        const web = fakeWeb();
+        let role = "operator";
+        let tenant = "t-own";
+        web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe({ tenant: { id: tenant, nameTh: tenant, nameEn: null, kind: "own_fleet", role } }) }));
+        web.on("POST", "/api/auth/firebase-token", () => json(200, { data: { customToken: `fb-u-1|${role}`, expiresIn: 3600 } }));
+        web.on("POST", "/api/auth/refresh", () => new Response(null, { status: 204 }));
+        web.on("POST", "/api/auth/tenant", (c) => {
+            tenant = (c.body as { tenantId: string }).tenantId;
+            return new Response(null, { status: 204 });
+        });
+        fakeFirebase();
+        const mounts = { n: 0 };
+        const states: string[] = [];
+        const onMount = () => {
+            mounts.n += 1;
+        };
+        const onState = (st: string) => {
+            if (states.at(-1) !== st) states.push(st);
+        };
+        renderApp(
+            <>
+                <GatedPage onMount={onMount} />
+                <StateLog onState={onState} />
+            </>
+        );
+        await waitFor(() => expect(screen.getByTestId("role").textContent).toBe("operator"));
+        await waitFor(() => expect(FakeEventSource.all).toHaveLength(1));
+        const mints = web.count("POST", "/api/auth/firebase-token");
+        expect(mounts.n).toBe(1);
+
+        role = "manager";
+        act(() => {
+            FakeEventSource.all[0].emit("session.revoked", { type: "session.revoked", topic: "user:u-1", eventId: "e", data: { userId: "u-1", sessionIds: [], reason: "claims_changed" } });
+        });
+        await waitFor(() => expect(screen.getByTestId("role").textContent).toBe("manager"));
+
+        role = "tenant_admin";
+        await act(async () => {
+            await authApi!.refreshClaims();
+        });
+        await waitFor(() => expect(screen.getByTestId("role").textContent).toBe("tenant_admin"));
+
+        await act(async () => {
+            await authApi!.switchTenant("t-two");
+        });
+        await waitFor(() => expect(screen.getByTestId("tenant").textContent).toBe("t-two"));
+
+        expect(web.count("POST", "/api/auth/firebase-token")).toBe(mints + 3);
+        expect(mounts.n).toBe(1);
+        expect(states.slice(states.indexOf("in"))).toEqual(["in"]);
+        expect(navigated).toEqual([]);
+    });
+
+    it("a signed-out visitor's leftover Firebase session (a previous user of this browser) is signed out on a public page", async () => {
+        const web = fakeWeb();
+        web.on("GET", "/api/go/v1/me", () => goErr(401, "unauthenticated"));
+        web.on("POST", "/api/auth/refresh", () => goErr(401, "unauthenticated"));
+        const fb = fakeFirebase();
+        fb.current = { uid: "fb-ADMIN-A", role: "admin" };
+        renderApp();
+        await waitFor(() => expect(state()).toBe("out"));
+        await waitFor(() => expect(fb.signOuts).toBe(1));
+        expect(fb.current).toBeNull();
+        expect(web.count("POST", "/api/auth/firebase-token")).toBe(0);
+        expect(web.count("POST", "/api/auth/logout")).toBe(0);
+    });
+
+    it("a sign-in whose mint keeps failing leaves no Firebase session of the previous user", async () => {
+        const web = fakeWeb();
+        let signedIn = false;
+        const me = makeMe({ id: "go-B", legacyAuthUid: "fb-B", tenant: { id: "t-own", nameTh: "ก", nameEn: null, kind: "own_fleet", role: "operator" } });
+        web.on("GET", "/api/go/v1/me", () => (signedIn ? json(200, { data: me }) : goErr(401, "unauthenticated")));
+        web.on("POST", "/api/auth/refresh", () => goErr(401, "unauthenticated"));
+        web.on("POST", "/api/auth/login", () => {
+            signedIn = true;
+            return json(200, { data: { tenants: [], defaultTenantId: "t-own", expiresIn: 900 } });
+        });
+        web.on("POST", "/api/auth/firebase-token", () => goErr(503, "unavailable"));
+        web.on("PATCH", "/api/go/v1/me", () => json(200, { data: me }));
+        const fb = fakeFirebase();
+        renderApp();
+        await waitFor(() => expect(state()).toBe("out"));
+        // The previous user's session is restored from IndexedDB only now (after the visitor cleanup).
+        fb.current = { uid: "fb-ADMIN-A", role: "admin" };
+
+        await act(async () => {
+            await authApi!.login("operator@own.test", "pw");
+        });
+        await waitFor(() => expect(state()).toBe("in"));
+        expect(getBridgeState()).toMatchObject({ status: "error", userId: "go-B" });
+        expect(fb.current).toBeNull();
+        expect(screen.getByTestId("uid").textContent).toBe("go-B");
+        expect(screen.getByTestId("role").textContent).toBe("operator");
     });
 
     it("an unreachable api is an error with a retry, never a sign-out", async () => {

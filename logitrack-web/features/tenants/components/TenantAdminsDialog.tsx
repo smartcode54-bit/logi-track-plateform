@@ -6,6 +6,8 @@
  * assigned from an existing user (`GET /v1/users?q=` then `PUT /v1/tenants/{id}/members/{userId}
  * {role: "tenant_admin"}`) or created (`POST /v1/users {role: "tenant_admin", tenantId}`, temporary
  * password shown once). The new admin signs in and sees only that tenant (RLS; its only membership).
+ * The two reads cross tenants, so a platform principal sends `X-Act-On-Tenant` (`<id>` for the
+ * members, `*` for the user search; Appendix C §C.3.9); the writes need no header.
  */
 import { useEffect, useState } from "react";
 import { Loader2, Plus, Search, Trash2, UserPlus } from "lucide-react";
@@ -17,10 +19,10 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { useAuth } from "@/context/auth";
 import { useLanguage } from "@/context/language";
-import { tenantName } from "@/features/auth/api/me";
+import { isPlatformPrincipal, tenantName } from "@/features/auth/api/me";
 import { CreateUserDialog } from "@/features/users/components/CreateUserDialog";
 import { TemporaryPasswordDialog } from "@/features/users/components/dialogs";
-import { removeMember, setMemberRole, useInvalidateUsers, useUsers, type CreateUserResult } from "@/features/users/api/users";
+import { removeMember, setMemberRole, useInvalidateUsers, useUsers, usersReach, type CreateUserResult } from "@/features/users/api/users";
 import { userActions } from "@/features/users/utils/roles";
 import { apiErrorText } from "@/lib/apiError";
 import { useInvalidateTenants, useTenantMembers, type TenantDTO } from "../api/tenants";
@@ -33,7 +35,7 @@ export function TenantAdminsDialog({ tenant, onOpenChange }: { tenant: TenantDTO
     const me = auth?.me ?? null;
     const invalidateTenants = useInvalidateTenants();
     const invalidateUsers = useInvalidateUsers();
-    const admins = useTenantMembers(tenant?.id ?? null, ADMIN_ROLE);
+    const admins = useTenantMembers(tenant?.id ?? null, ADMIN_ROLE, isPlatformPrincipal(me));
     const [search, setSearch] = useState("");
     const [q, setQ] = useState("");
     const [busy, setBusy] = useState<string | null>(null);
@@ -44,7 +46,7 @@ export function TenantAdminsDialog({ tenant, onOpenChange }: { tenant: TenantDTO
         const id = setTimeout(() => setQ(search.trim()), 300);
         return () => clearTimeout(id);
     }, [search]);
-    const candidates = useUsers({ q, role: "", status: "active" }, Boolean(tenant) && q.length >= 2);
+    const candidates = useUsers({ q, role: "", status: "active" }, Boolean(tenant) && q.length >= 2, usersReach(me));
 
     if (!tenant) return null;
     const adminIds = new Set((admins.data ?? []).map((m) => m.user.id));

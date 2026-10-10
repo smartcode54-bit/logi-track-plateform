@@ -14,6 +14,8 @@ export interface FakeCall {
     method: string;
     url: string;
     body: unknown;
+    /** Request headers, names lower-cased (`x-act-on-tenant`, `idempotency-key`, ...). */
+    headers: Record<string, string>;
 }
 
 export type Handler = (call: FakeCall) => Response | undefined | Promise<Response | undefined>;
@@ -61,7 +63,11 @@ export function fakeWeb() {
                 body = init.body;
             }
         }
-        const call = { method, url, body };
+        const headers: Record<string, string> = {};
+        new Headers(init.headers).forEach((value, name) => {
+            headers[name] = value;
+        });
+        const call = { method, url, body, headers };
         calls.push(call);
         for (const h of handlers) {
             const res = await h(call);

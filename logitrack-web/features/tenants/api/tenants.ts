@@ -14,6 +14,7 @@ import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-quer
 import { goFetch, goPath } from "@/lib/goFetch";
 import { goInfiniteQueryFn, goNextPageParam } from "@/lib/goQuery";
 import { fetchAllPages } from "@/lib/goPages";
+import { ACT_ON_TENANT_HEADER } from "@/features/users/api/users";
 
 export type TenantKind = "own_fleet" | "carrier" | "quarantine";
 export type TenantStatus = "active" | "pending" | "suspended";
@@ -88,22 +89,30 @@ export function useTenants(filter: TenantsFilter, enabled = true) {
 export function useAllTenants(enabled: boolean) {
     return useQuery({
         queryKey: ["tenants", { all: true }] as const,
-        queryFn: ({ signal }) => fetchAllPages<TenantDTO>(TENANTS_PATH, {}, signal),
+        queryFn: ({ signal }) => fetchAllPages<TenantDTO>(TENANTS_PATH, {}, { signal }),
         staleTime: 5 * 60_000,
         enabled,
     });
 }
 
-export function tenantMembersKey(tenantId: string, role: string) {
-    return ["tenants", tenantId, "members", { role }] as const;
+export function tenantMembersKey(tenantId: string, role: string, actOnTenant = false) {
+    return ["tenants", tenantId, "members", { role, actOnTenant }] as const;
 }
 
-/** `['tenants', id, 'members', {role}]`: the members of one tenant (all pages). */
-export function useTenantMembers(tenantId: string | null, role: string) {
+/**
+ * `['tenants', id, 'members', {role, actOnTenant}]`: the members of one tenant (all pages). A platform
+ * principal (`actOnTenant`, `isPlatformPrincipal(me)`) reads them as that tenant's `tenant_admin`
+ * through `X-Act-On-Tenant: <id>` (Appendix C §C.3.9, §C.8: `platform:cross_tenant_read`, one audit
+ * row naming the tenant); without it RLS would show only the members of its own tenant reach.
+ */
+export function useTenantMembers(tenantId: string | null, role: string, actOnTenant = false) {
     return useQuery({
-        queryKey: tenantMembersKey(tenantId ?? "", role),
+        queryKey: tenantMembersKey(tenantId ?? "", role, actOnTenant),
         queryFn: ({ signal }) =>
-            fetchAllPages<TenantMemberDTO>(goPath`/v1/tenants/${tenantId ?? ""}/members`, role ? { role } : {}, signal),
+            fetchAllPages<TenantMemberDTO>(goPath`/v1/tenants/${tenantId ?? ""}/members`, role ? { role } : {}, {
+                signal,
+                headers: actOnTenant && tenantId ? { [ACT_ON_TENANT_HEADER]: tenantId } : undefined,
+            }),
         enabled: Boolean(tenantId),
         staleTime: 30_000,
     });

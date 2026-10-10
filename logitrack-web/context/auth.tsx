@@ -13,7 +13,13 @@
  *   email, name and photo from `['me']`.
  * - `customClaims`: the legacy claims (`admin`, `role`, ...) of the bridged Firebase ID token, else
  *   synthesised from `['me']` (`legacyClaimsFromMe`) for `getRole()` / `can()`.
- * - `loading`: until `['me']` has answered and, for a signed-in principal, the bridge has settled.
+ * - `loading`: until `['me']` has answered and, for a signed-in principal, the bridge has first
+ *   settled. A later forced re-mint (`claims_changed`, tenant switch) does not bring it back, so the
+ *   `/app` layout keeps the page mounted (lib/firebaseBridge.ts).
+ *
+ * A signed-out visitor (`['me']` resolved `null`, no error) holds no Firebase session either: one
+ * left in this browser by a previous user (IndexedDB outlives the Go session) is signed out on every
+ * page, the landing page's sign-in dialogs included, before anyone signs in there.
  *
  * Removed by T18: the Firebase auth listener, `setAdminClaims` on every load (`context/auth.tsx:51-59`
  * before), and the `users/{uid}.forceLogoutAt` listener (`:91-129`), replaced by SSE `session.revoked`
@@ -162,6 +168,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     useEffect(() => {
         if (meId) void syncFirebaseBridge({ id: meId, legacyAuthUid });
     }, [meId, legacyAuthUid]);
+
+    // A signed-out visitor: whatever Firebase session this browser still holds (a previous user's,
+    // restored from IndexedDB) is signed out, so no Firestore session outlives the Go one and a
+    // sign-in from any page starts clean.
+    const signedOut = !meQuery.isPending && me === null && !meQuery.error;
+    useEffect(() => {
+        if (signedOut) void signOutFirebaseBridge();
+    }, [signedOut]);
 
     // A session that ended in this tab (lib/sessionEnd.ts) or another reason for "signed out": drop
     // the principal, every cached query and the Firebase session (R50, §10.4 step 4).

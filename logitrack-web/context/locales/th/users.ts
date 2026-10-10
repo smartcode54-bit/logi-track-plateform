@@ -155,4 +155,6 @@ export default {
     "users.tempPassword.done": "เสร็จสิ้น",
     "users.invite.action": "ส่งอีเมลเชิญ",
     "users.revokeSessionsNotFound": "บัญชีนี้ยังไม่อยู่ในไดเรกทอรีผู้ใช้",
+    "users.revokeSessionsAccount": "บัญชีที่จะถูกออกจากระบบ:",
+    "users.revokeSessionsEmailMismatch": "แถวในหน้าภาพรวมแสดงอีเมลอื่น ({email}) บัญชีด้านบนคือบัญชีที่ผูกกับแถวนี้ กรุณาตรวจสอบก่อนดำเนินการต่อ",
 };

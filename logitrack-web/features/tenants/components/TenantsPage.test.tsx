@@ -1,6 +1,8 @@
 // T18 owner addition (2026-10-10): a platform admin creates a carrier tenant and its admin in the UI
 // (POST /v1/tenants, POST /v1/users {role: tenant_admin, tenantId}), assigns and removes tenant admins
 // (PUT/DELETE /v1/tenants/{id}/members/{userId}) and edits names and status (PATCH /v1/tenants/{id}).
+// The persona has a platform role and no membership: its cross-tenant reads carry X-Act-On-Tenant
+// (Appendix C §C.3.9, §C.8), its writes do not.
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 import { screen, waitFor, within } from "@testing-library/react";
@@ -93,12 +95,17 @@ describe("TenantsPage", () => {
         await u.click(within(create).getByRole("button", { name: "Create User" }));
 
         expect(await screen.findByTestId("temporary-password")).toHaveTextContent("TEMP-PASS-0001");
-        expect(web.calls.find((c) => c.method === "POST" && c.url === "/api/go/v1/users")?.body).toEqual({
+        const createUser = web.calls.find((c) => c.method === "POST" && c.url === "/api/go/v1/users");
+        expect(createUser?.body).toEqual({
             email: "admin@carrier.test",
             displayName: "Carrier Admin",
             role: "tenant_admin",
             tenantId: "t-new",
         });
+        // The new tenant's members are read as that tenant; the writes carry no header.
+        expect(web.calls.filter((c) => c.url.startsWith("/api/go/v1/tenants/t-new/members")).every((c) => c.headers["x-act-on-tenant"] === "t-new")).toBe(true);
+        expect(createUser?.headers["x-act-on-tenant"]).toBeUndefined();
+        expect(web.calls.find((c) => c.method === "POST" && c.url === "/api/go/v1/tenants")?.headers["x-act-on-tenant"]).toBeUndefined();
     });
 
     it("assigns an existing user as tenant admin and removes an admin", async () => {
@@ -138,9 +145,17 @@ describe("TenantsPage", () => {
         await u.click(within(old).getByRole("button", { name: "Remove administrator" }));
         await waitFor(() => expect(screen.getAllByTestId("tenant-admin")).toHaveLength(1));
         expect(web.calls.some((c) => c.method === "DELETE" && c.url === "/api/go/v1/tenants/t-a/members/u-old")).toBe(true);
+
+        // A platform admin without membership: the members are read as tenant t-a, the user search
+        // covers every tenant (`*`); PUT and DELETE are authorised without the header.
+        const members = web.calls.filter((c) => c.method === "GET" && c.url.startsWith("/api/go/v1/tenants/t-a/members"));
+        expect(members.length).toBeGreaterThan(0);
+        expect(members.every((c) => c.headers["x-act-on-tenant"] === "t-a")).toBe(true);
+        expect(web.calls.find((c) => c.url.startsWith("/api/go/v1/users?"))?.headers["x-act-on-tenant"]).toBe("*");
+        expect(web.calls.filter((c) => c.method === "PUT" || c.method === "DELETE").every((c) => c.headers["x-act-on-tenant"] === undefined)).toBe(true);
     });
 
-    it("edits names and status with PATCH /v1/tenants/{id}", async () => {
+    it("edits names and status with PATCH /v1/tenants/{id}; suspending a carrier asks first", async () => {
         const web = fakeWeb();
         web.on("GET", "/api/go/v1/me", () => json(200, { data: platformAdmin }));
         web.on("GET", "/api/go/v1/tenants", () => json(200, { data: [carrier("t-a", { nameEn: "Old EN" })] }));
@@ -157,8 +172,51 @@ describe("TenantsPage", () => {
         await u.click(within(form).getByRole("combobox", { name: "Status" }));
         await u.click(await screen.findByRole("option", { name: "Suspended" }));
         await u.click(within(form).getByRole("button", { name: "Save Changes" }));
+        const confirm = await screen.findByRole("dialog", { name: "Suspend this tenant?" });
+        expect(web.calls.some((c) => c.method === "PATCH")).toBe(false);
+        await u.click(within(confirm).getByRole("button", { name: "Suspend tenant" }));
         await waitFor(() => expect(web.calls.some((c) => c.method === "PATCH")).toBe(true));
         expect(web.calls.find((c) => c.method === "PATCH")?.body).toEqual({ nameTh: "ขนส่ง t-a", nameEn: "New EN", status: "suspended" });
+    });
+
+    it("a name edit sends no status; the own-fleet tenant's status is read-only and never sent", async () => {
+        const web = fakeWeb();
+        const own: TenantDTO = { ...carrier("t-own"), kind: "own_fleet", code: "OWN", nameTh: "บริษัทเรา", nameEn: "Own" };
+        const patches: FakeCall[] = [];
+        web.on("GET", "/api/go/v1/me", () => json(200, { data: platformAdmin }));
+        web.on("GET", "/api/go/v1/tenants", (c) => json(200, { data: c.url.includes("kind=carrier") ? [carrier("t-a")] : [own, carrier("t-a")] }));
+        web.on("PATCH", /^\/api\/go\/v1\/tenants\/[^/]+$/, (c) => {
+            patches.push(c);
+            return json(200, { data: own });
+        });
+        renderWithProviders(<TenantsPage />);
+        const u = userEvent.setup();
+
+        // A carrier, names only: no status in the body.
+        await u.click(within((await screen.findAllByTestId("tenant-row"))[0]).getByRole("button", { name: "Actions" }));
+        await u.click(await screen.findByRole("menuitem", { name: "Edit" }));
+        let form = await screen.findByRole("dialog");
+        await u.type(within(form).getByLabelText("Name (English)"), "Alpha");
+        await u.click(within(form).getByRole("button", { name: "Save Changes" }));
+        await waitFor(() => expect(patches).toHaveLength(1));
+        expect(patches[0].body).toEqual({ nameTh: "ขนส่ง t-a", nameEn: "Alpha" });
+        await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+        // The own-fleet row (kind filter "All kinds").
+        await u.click(screen.getByRole("combobox", { name: "Kind" }));
+        await u.click(await screen.findByRole("option", { name: "All kinds" }));
+        await waitFor(() => expect(screen.getAllByTestId("tenant-row")).toHaveLength(2));
+        await u.click(within(screen.getAllByTestId("tenant-row")[0]).getByRole("button", { name: "Actions" }));
+        await u.click(await screen.findByRole("menuitem", { name: "Edit" }));
+        form = await screen.findByRole("dialog");
+        expect(within(form).queryByRole("combobox", { name: "Status" })).toBeNull();
+        expect(within(form).getByLabelText("Status")).toBeDisabled();
+        await u.clear(within(form).getByLabelText("Name (English)"));
+        await u.type(within(form).getByLabelText("Name (English)"), "Our fleet");
+        await u.click(within(form).getByRole("button", { name: "Save Changes" }));
+        await waitFor(() => expect(patches).toHaveLength(2));
+        expect(patches[1].url).toBe("/api/go/v1/tenants/t-own");
+        expect(patches[1].body).toEqual({ nameTh: "บริษัทเรา", nameEn: "Our fleet" });
     });
 
     it("is closed to everyone without platform:manage_tenants (no tenant request at all)", async () => {

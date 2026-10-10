@@ -4,6 +4,11 @@
  * Create a carrier tenant (`POST /v1/tenants`) or edit a tenant's names and status
  * (`PATCH /v1/tenants/{id}`) (T18 owner addition; Appendix B §B.2.4). Go creates the tenant's
  * `billing_parties` row in the same transaction and records `tenant_created` / `tenant_updated`.
+ *
+ * Status is edited for carrier tenants only and sent only when it changed: suspending the own-fleet
+ * row would take the `tid` of every staff session at its next refresh (Appendix C §C.4.4), so its
+ * status is shown read-only (Go refuses it too, Appendix B §B.2.4 web contract). Suspending a carrier
+ * asks for confirmation first.
  */
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
@@ -15,8 +20,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useLanguage } from "@/context/language";
+import { ConfirmDialog } from "@/features/users/components/dialogs";
 import { apiErrorText } from "@/lib/apiError";
-import { createTenant, TENANT_STATUSES, updateTenant, type LegalType, type TenantDTO, type TenantStatus } from "../api/tenants";
+import { createTenant, TENANT_STATUSES, updateTenant, type LegalType, type TenantDTO, type TenantStatus, type UpdateTenantInput } from "../api/tenants";
 
 export function TenantFormDialog({
     tenant,
@@ -32,6 +38,8 @@ export function TenantFormDialog({
 }) {
     const { t } = useLanguage();
     const editing = tenant !== null;
+    // Only a carrier's status is edited here (see the module comment).
+    const statusEditable = tenant?.kind === "carrier";
     const [code, setCode] = useState(tenant?.code ?? "");
     const [nameTh, setNameTh] = useState(tenant?.nameTh ?? "");
     const [nameEn, setNameEn] = useState(tenant?.nameEn ?? "");
@@ -39,18 +47,20 @@ export function TenantFormDialog({
     const [status, setStatus] = useState<TenantStatus>(tenant?.status ?? "active");
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState("");
+    const [confirmSuspend, setConfirmSuspend] = useState(false);
 
-    const submit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setError("");
-        if (!nameTh.trim() || (!editing && !code.trim())) {
-            setError(t("users.toast.fillRequired"));
-            return;
-        }
+    /** The PATCH body: the names, and `status` only for a carrier whose status changed. */
+    const patch = (): UpdateTenantInput => ({
+        nameTh,
+        nameEn,
+        ...(statusEditable && tenant && status !== tenant.status ? { status } : {}),
+    });
+
+    const save = async () => {
         setSaving(true);
         try {
             const saved = editing
-                ? await updateTenant(tenant.id, { nameTh, nameEn, status })
+                ? await updateTenant(tenant.id, patch())
                 : await createTenant({ code, nameTh, nameEn, legalType });
             toast.success(editing ? t("tenants.toast.updated") : t("tenants.toast.created"));
             onOpenChange(false);
@@ -60,6 +70,20 @@ export function TenantFormDialog({
         } finally {
             setSaving(false);
         }
+    };
+
+    const submit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setError("");
+        if (!nameTh.trim() || (!editing && !code.trim())) {
+            setError(t("users.toast.fillRequired"));
+            return;
+        }
+        if (patch().status === "suspended") {
+            setConfirmSuspend(true);
+            return;
+        }
+        await save();
     };
 
     return (
@@ -96,6 +120,12 @@ export function TenantFormDialog({
                                 </SelectContent>
                             </Select>
                         </div>
+                    ) : !statusEditable ? (
+                        <div className="space-y-2">
+                            <Label htmlFor="tenant-status-fixed">{t("tenants.form.status")}</Label>
+                            <Input id="tenant-status-fixed" value={t(`tenants.status.${tenant.status}`, tenant.status)} disabled readOnly />
+                            <p className="text-xs text-muted-foreground">{t("tenants.form.statusFixed")}</p>
+                        </div>
                     ) : (
                         <div className="space-y-2">
                             <Label htmlFor="tenant-status">{t("tenants.form.status")}</Label>
@@ -129,6 +159,18 @@ export function TenantFormDialog({
                     </DialogFooter>
                 </form>
             </DialogContent>
+            <ConfirmDialog
+                open={confirmSuspend}
+                title={t("tenants.suspend.title")}
+                description={t("tenants.suspend.desc")}
+                confirmLabel={t("tenants.suspend.confirm")}
+                destructive
+                onConfirm={async () => {
+                    setConfirmSuspend(false);
+                    await save();
+                }}
+                onCancel={() => setConfirmSuspend(false)}
+            />
         </Dialog>
     );
 }

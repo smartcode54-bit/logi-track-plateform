@@ -10,13 +10,20 @@
  * `platform:manage_platform_roles`), refuses actions on the caller itself, bumps `auth_version` on
  * role, scope, driver-link and platform-role changes (the user's tabs refresh and stay signed in, R50)
  * and ends the sessions on disable and temporary password. The UI hides what `['me']` does not allow.
+ *
+ * Reach (Appendix C §C.3.9, §C.8): a tenant principal reads the users of its tenant reach. A platform
+ * principal (`platform_admin`, `support`) reads every tenant's users only through `X-Act-On-Tenant: *`
+ * (read-only bypass, one `platform_cross_tenant_access` audit row per request), so the users reads of
+ * such a principal (`GET /v1/users`, the admin search of the tenants page, the legacy-account lookup)
+ * carry it. Writes never do: `PUT/DELETE /v1/tenants/{id}/members/{userId}` and
+ * `POST /v1/users {tenantId}` are authorised for platform admins without it.
  */
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { goFetch, goFetchEnvelope, goPath } from "@/lib/goFetch";
 import { fetchAllPages } from "@/lib/goPages";
 import { goInfiniteQueryFn, goNextPageParam } from "@/lib/goQuery";
-import type { PlatformRole, TenantRole } from "@/features/auth/api/me";
+import { isPlatformPrincipal, type Me, type PlatformRole, type TenantRole } from "@/features/auth/api/me";
 
 export type UserStatus = "active" | "disabled" | "reset_required" | "deleted";
 export type ScopeKind = "customer" | "dispatcher";
@@ -90,8 +97,26 @@ export const USERS_PAGE_SIZE = 50;
 /** The list is polled every 60 s while the tab is visible (Appendix E §E.5 row 14). */
 export const USERS_POLL_MS = 60_000;
 
-export function usersQueryKey(filter: UsersFilter) {
-    return ["users", { q: filter.q, role: filter.role, status: filter.status }] as const;
+/** The cross-tenant header of a platform principal (Appendix C §C.3.9; the BFF forwards it). */
+export const ACT_ON_TENANT_HEADER = "X-Act-On-Tenant";
+/** Its read-only "every tenant" form (`GET`/`HEAD` only). */
+export const ACT_ON_ALL_TENANTS = "*";
+
+/** Whose users a read covers: `all` (a platform principal, with `X-Act-On-Tenant: *`) or the caller's tenant reach. */
+export type UsersReach = "all" | "tenant";
+
+export function usersReach(me: Pick<Me, "platformRoles"> | null | undefined): UsersReach {
+    return isPlatformPrincipal(me) ? "all" : "tenant";
+}
+
+/** The request headers of a users read with this reach. */
+export function usersReachHeaders(reach: UsersReach): Record<string, string> | undefined {
+    return reach === "all" ? { [ACT_ON_TENANT_HEADER]: ACT_ON_ALL_TENANTS } : undefined;
+}
+
+/** `['users', {q, role, status, reach}]`: the reach is in the key, so a changed reach never shows another's rows. */
+export function usersQueryKey(filter: UsersFilter, reach: UsersReach = "tenant") {
+    return ["users", { q: filter.q, role: filter.role, status: filter.status, reach }] as const;
 }
 
 type UsersKey = ReturnType<typeof usersQueryKey>;
@@ -107,11 +132,18 @@ export function usersQuery(filter: Pick<UsersFilter, "q" | "role" | "status">) {
     };
 }
 
-/** `['users', filter]`: the keyset list, newest sign-in first, 50 per page, polled while visible. */
-export function useUsers(filter: UsersFilter, enabled = true) {
+/**
+ * `['users', filter]`: the keyset list, newest sign-in first, 50 per page, polled while visible. A
+ * platform principal passes `reach: "all"` (`usersReach(me)`): every poll then writes one
+ * `platform_cross_tenant_access` audit row in Go (Appendix B §B.2.5 web contract).
+ */
+export function useUsers(filter: UsersFilter, enabled = true, reach: UsersReach = "tenant") {
     return useInfiniteQuery({
-        queryKey: usersQueryKey(filter),
-        queryFn: goInfiniteQueryFn<UserDTO, UsersKey>(USERS_PATH, { query: ([, f]) => usersQuery(f) }),
+        queryKey: usersQueryKey(filter, reach),
+        queryFn: goInfiniteQueryFn<UserDTO, UsersKey>(USERS_PATH, {
+            query: ([, f]) => usersQuery(f),
+            headers: ([, f]) => usersReachHeaders(f.reach),
+        }),
         initialPageParam: undefined as string | undefined,
         getNextPageParam: goNextPageParam,
         staleTime: USERS_POLL_MS,
@@ -189,18 +221,21 @@ export function setPlatformRole(userId: string, role: PlatformRole, granted: boo
 
 /**
  * The Go user behind a legacy `users/{uid}` document (the active-users list of the Security Center
- * overview reads Firestore until P6, Appendix E §E.5 row 29): searched by email, matched on the
- * Firebase uid, else on the exact email. `null` when Go has no such user.
+ * overview reads Firestore until P6, Appendix E §E.5 row 29). The document's `email` only narrows the
+ * search (`GET /v1/users?q=<email>`): its owner can rewrite any field of it (`firestore.rules`
+ * `match /users/{uid}`), so the match is bound to the document id, which it cannot change, and which
+ * is the user's `legacyAuthUid` (every bridged user has one: imported, or set at its first mint,
+ * Appendix C §C.6.3). There is no email fallback: a document naming someone else's email resolves to
+ * nobody (`null`), never to that someone.
  */
-export async function findUserForLegacyAccount(legacy: { uid: string; email: string }): Promise<UserDTO | null> {
+export async function findUserForLegacyAccount(legacy: { uid: string; email: string }, reach: UsersReach = "tenant"): Promise<UserDTO | null> {
     const email = legacy.email.trim();
-    if (!email) return null;
-    const page = await goFetchEnvelope<UserDTO[]>(USERS_PATH, { query: { q: email, limit: USERS_PAGE_SIZE } });
-    const users = page.data ?? [];
-    const byUid = users.find((u) => u.legacyAuthUid === legacy.uid);
-    if (byUid) return byUid;
-    const byEmail = users.filter((u) => (u.email ?? "").toLowerCase() === email.toLowerCase());
-    return byEmail.length === 1 ? byEmail[0] : null;
+    if (!email || !legacy.uid) return null;
+    const page = await goFetchEnvelope<UserDTO[]>(USERS_PATH, {
+        query: { q: email, limit: USERS_PAGE_SIZE },
+        headers: usersReachHeaders(reach),
+    });
+    return (page.data ?? []).find((u) => u.legacyAuthUid === legacy.uid) ?? null;
 }
 
 // --- pickers ---
@@ -223,7 +258,7 @@ export interface DriverOption {
 export function useCustomerOptions(enabled: boolean) {
     return useQuery({
         queryKey: ["customers", { fields: "minimal" }] as const,
-        queryFn: ({ signal }) => fetchAllPages<CustomerOption>("/v1/customers", { fields: "minimal" }, signal),
+        queryFn: ({ signal }) => fetchAllPages<CustomerOption>("/v1/customers", { fields: "minimal" }, { signal }),
         staleTime: 10 * 60_000,
         gcTime: 60 * 60_000,
         enabled,

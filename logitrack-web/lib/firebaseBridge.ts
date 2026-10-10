@@ -17,9 +17,19 @@
  * remembers the refusal for this tab, so a reload does not ask again. Those users see only pages
  * served by Go (§10.13). Sign-out, and any session end (`onSessionEnd`), sign out of Firebase too.
  *
+ * A Firebase session of anyone but the target (`auth.currentUser.uid !== ['me'].legacyAuthUid`, or any
+ * session when the target has no legacy uid) is signed out before the mint, and again if the sync ends
+ * without a session of its own. So a failed mint or `signInWithCustomToken` (5xx, network, 429, an
+ * unreachable identitytoolkit) leaves no Firebase session at all, never the previous user's of a shared
+ * browser: Firestore pages then fail closed instead of running under someone else's claims. A
+ * restored session of the target itself is kept when a forced re-mint fails; the account mirror
+ * (Appendix C §C.6.4) brings its claims in line.
+ *
  * State lives in a small store read by `AuthProvider` (`useSyncExternalStore`): the auth context
- * stays loading until the bridge has settled for the signed-in user, so a Firestore page never
- * queries before its Firebase session exists.
+ * stays loading until the bridge has first settled for the signed-in user, so a Firestore page never
+ * queries before its Firebase session exists. A forced re-mint for a user already settled (a
+ * `claims_changed` refresh, a tenant switch) keeps that state until the new outcome replaces it: the
+ * existing Firebase session stays valid meanwhile, so the page under the auth gate is not torn down.
  */
 import type { Auth, IdTokenResult, User, UserCredential } from "firebase/auth";
 import { isApiError } from "./apiError";
@@ -149,9 +159,29 @@ export interface SyncTarget {
     legacyAuthUid?: string;
 }
 
+/** Whether the Firebase user of `auth` is someone other than `target` (a target without legacy uid owns none). */
+function foreignUser(auth: Auth, target: SyncTarget): boolean {
+    const u = auth.currentUser;
+    return Boolean(u && u.uid !== target.legacyAuthUid);
+}
+
+/** Signs out a Firebase session that does not belong to `target`; never rejects. */
+async function dropForeignSession(deps: BridgeDeps, target: SyncTarget): Promise<void> {
+    if (foreignUser(deps.auth, target)) await deps.signOut(deps.auth).catch(() => undefined);
+}
+
+/** Settles as `error`: first drops a session that is not the target's (see the module comment). */
+async function settleError(deps: BridgeDeps, target: SyncTarget): Promise<void> {
+    await dropForeignSession(deps, target);
+    setState({ status: "error", userId: target.id });
+}
+
 async function runSync(target: SyncTarget, force: boolean): Promise<void> {
     if (!force && state.userId === target.id && (state.status === "ready" || state.status === "none")) return;
-    setState({ status: "pending", userId: target.id });
+    // A forced re-mint for a user already settled keeps that state until the new outcome: the existing
+    // Firebase session stays valid meanwhile, and `loading` must not flip back (the /app layout would
+    // unmount the page). Sign-in and another user go through `pending` (`idle` or another `userId`).
+    if (!bridgeSettledFor(state, target.id)) setState({ status: "pending", userId: target.id });
     let deps: BridgeDeps;
     try {
         deps = await loadDeps();
@@ -163,22 +193,23 @@ async function runSync(target: SyncTarget, force: boolean): Promise<void> {
     }
     const { auth } = deps;
     const current = auth.currentUser;
-    if (!force) {
-        // A restored Firebase session of this very user is kept: its claims follow Go through the
-        // account mirror (Appendix C §C.6.4) and the forced mints above.
-        if (current && target.legacyAuthUid && current.uid === target.legacyAuthUid) {
-            try {
-                const result = await deps.getIdTokenResult(current);
-                setState(readyState(target.id, current, result));
-                return;
-            } catch {
-                // The restored session cannot produce a token (revoked by the mirror): mint a new one.
-            }
-        }
-        if (!current && deniedFor(target.id)) {
-            setState({ status: "none", userId: target.id });
+    // A restored Firebase session of this very user is kept: its claims follow Go through the
+    // account mirror (Appendix C §C.6.4) and the forced mints above.
+    if (!force && current && target.legacyAuthUid && current.uid === target.legacyAuthUid) {
+        try {
+            const result = await deps.getIdTokenResult(current);
+            setState(readyState(target.id, current, result));
             return;
+        } catch {
+            // The restored session cannot produce a token (revoked by the mirror): mint a new one.
         }
+    }
+    // Anyone else's session (a previous user of this browser) goes before the mint, so no outcome
+    // below can leave Firestore running as that user.
+    await dropForeignSession(deps, target);
+    if (!force && !auth.currentUser && deniedFor(target.id)) {
+        setState({ status: "none", userId: target.id });
+        return;
     }
 
     let token: { customToken: string } | undefined;
@@ -196,12 +227,13 @@ async function runSync(target: SyncTarget, force: boolean): Promise<void> {
             }
             if (isApiError(error) && error.status === 401) {
                 // The Go session ended meanwhile; lib/sessionEnd.ts has taken over.
+                await dropForeignSession(deps, target);
                 setState({ status: "none", userId: target.id });
                 return;
             }
             if (!retryable(error) || attempt >= BRIDGE_RETRY_DELAYS_MS.length) {
                 console.warn("[bridge] custom token unavailable", error);
-                setState({ status: "error", userId: target.id });
+                await settleError(deps, target);
                 return;
             }
             await deps.sleep(BRIDGE_RETRY_DELAYS_MS[attempt]);
@@ -213,8 +245,9 @@ async function runSync(target: SyncTarget, force: boolean): Promise<void> {
         const result = await deps.getIdTokenResult(credential.user);
         setState(readyState(target.id, credential.user, result));
     } catch (error) {
+        // A failed sign-in leaves the SDK as it was: check the user again before settling.
         console.warn("[bridge] signInWithCustomToken failed", error);
-        setState({ status: "error", userId: target.id });
+        await settleError(deps, target);
     }
 }
 

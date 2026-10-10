@@ -7,7 +7,7 @@
  * address bar. `POST /api/go/v1/auth/password/reset {token, newPassword}` -> 204 revokes every session
  * of the user, who then signs in with the new password.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeftIcon, Loader2 } from "lucide-react";
 
@@ -36,8 +36,14 @@ export default function ResetPasswordForm() {
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState("");
 
+    // The token already read: React StrictMode (`next dev`) runs this effect twice on mount, and the
+    // second run finds the fragment already removed. A lazy `useState` initialiser is no option: the
+    // page is prerendered, so reading `window` during render would break hydration.
+    const tokenRef = useRef("");
     useEffect(() => {
         const found = tokenFromHash(window.location.hash);
+        if (!found && tokenRef.current) return;
+        tokenRef.current = found;
         if (found) {
             // Keep the token out of the history entry and of anything that reads the URL later.
             window.history.replaceState(null, "", window.location.pathname + window.location.search);
