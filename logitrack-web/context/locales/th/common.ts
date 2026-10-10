@@ -387,4 +387,8 @@ export default {
     "unauthorized.goBack": "ย้อนกลับ",
     "unauthorized.goHome": "ไปหน้าหลักของฉัน",
     "unauthorized.roleHint": "เข้าสู่ระบบในฐานะ: {role}",
+    // Tenant switcher and app shell (T18)
+    "nav.switchTenant": "สลับองค์กร",
+    "nav.tenantSwitched": "กำลังทำงานใน {name}",
+    "app.retry": "ลองใหม่",
 };

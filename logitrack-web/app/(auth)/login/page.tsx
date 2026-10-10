@@ -1,5 +1,7 @@
 "use client";
 
+import { Suspense } from "react";
+
 import { LoginForm } from "@/features/auth";
 
 export default function LoginPage() {
@@ -11,9 +13,11 @@ export default function LoginPage() {
       </div>
 
       <div className="relative z-10 w-full flex justify-center px-4">
-        <LoginForm />
+        {/* useSearchParams (next, reason) needs a Suspense boundary on a prerendered page. */}
+        <Suspense fallback={null}>
+          <LoginForm />
+        </Suspense>
       </div>
     </div>
   );
 }
-

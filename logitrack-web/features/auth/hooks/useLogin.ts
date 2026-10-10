@@ -1,51 +1,41 @@
-import { useState, useEffect } from "react";
-import { useLanguage } from "@/context/language";
+"use client";
+
+/**
+ * The login page (T18; developer-spec.md §10.4, §10.5): where to go after signing in (`?next=`, a
+ * same-origin `/app` path, else `/app`, whose edge gate picks the role's home, R89), why the user is
+ * here (`?reason=revoked` after a revoked session), and the redirect once `['me']` holds a principal
+ * (a sign-in on this page, or a visitor who is already signed in). A signed-out visitor's Firebase
+ * session left from before the P0 switch is signed out here, so no Firestore session outlives the Go one.
+ */
+import { useEffect, useRef } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+
 import { useAuth } from "@/context/auth";
-import { useRouter } from "next/navigation";
-import { toast } from "sonner";
-import { getDefaultRouteForRole } from "@/lib/permissions";
+import { useLanguage } from "@/context/language";
+import { signOutFirebaseBridge } from "@/lib/firebaseBridge";
+import { safeNext } from "@/lib/safeNext";
 
 export function useLogin() {
-  const { t } = useLanguage();
-  const auth = useAuth();
-  const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
+    const { t } = useLanguage();
+    const auth = useAuth();
+    const router = useRouter();
+    const params = useSearchParams();
+    const next = safeNext(params.get("next"));
+    const notice = params.get("reason") === "revoked" ? t("auth.login.revoked") : "";
+    const settled = Boolean(auth && !auth.loading);
+    const signedIn = settled && Boolean(auth?.me);
+    const signedOut = settled && auth?.me === null && !auth?.error;
 
-  useEffect(() => {
-    if (!auth?.loading && auth?.currentUser) {
-      const defaultRoute = getDefaultRouteForRole(auth.customClaims ?? null);
-      router.replace(defaultRoute);
-    }
-  }, [auth?.loading, auth?.currentUser, auth?.customClaims, router]);
+    useEffect(() => {
+        if (signedIn) router.replace(next);
+    }, [signedIn, next, router]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
+    const cleaned = useRef(false);
+    useEffect(() => {
+        if (!signedOut || cleaned.current) return;
+        cleaned.current = true;
+        void signOutFirebaseBridge();
+    }, [signedOut]);
 
-    try {
-      if (!auth) {
-        throw new Error("Auth context not initialized");
-      }
-      await auth.login(email, password);
-      // Redirect will be handled by the useEffect above after auth state updates
-      toast.success("Logged in successfully");
-    } catch (error: any) {
-      console.error("Login error:", error);
-      toast.error(error.message || "Failed to login");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return {
-    email,
-    setEmail,
-    password,
-    setPassword,
-    loading,
-    handleSubmit,
-    t
-  };
+    return { t, next, notice, signedIn };
 }

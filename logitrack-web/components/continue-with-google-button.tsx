@@ -1,94 +1,71 @@
 "use client";
 
-import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
-import { auth } from "@/firebase/client";
-import { resolveLoginGeoForClient, updateUserLastLogin } from "@/lib/updateUserLastLogin";
-import { useState } from "react";
+/**
+ * The stand-alone Google sign-in of the landing page (T18). The Firebase popup is gone: the GIS
+ * button signs in through `POST /api/auth/google` (features/auth/components/GoogleSignInButton.tsx),
+ * then `/app` sends the user to the role's home (proxy.ts, R89). A `must_change_password` account
+ * sets its new password in a dialog first (R79) and then signs in again.
+ */
+import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
+
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useAuth } from "@/context/auth";
 import { useLanguage } from "@/context/language";
+import { ChangePasswordForm } from "@/features/auth/components/ChangePasswordForm";
+import { GoogleSignInButton } from "@/features/auth/components/GoogleSignInButton";
+import { apiErrorText } from "@/lib/apiError";
+import { passwordChangeTicket } from "@/lib/authClient";
+import { APP_PATH } from "@/lib/sessionEnd";
 
 export default function ContinueWithGoogleButton() {
-  const [loading, setLoading] = useState(false);
-  const router = useRouter();
-  const { t } = useLanguage();
+    const auth = useAuth();
+    const router = useRouter();
+    const { t } = useLanguage();
+    const [ticket, setTicket] = useState<string | null>(null);
 
-  const handleGoogleSignIn = async () => {
-    try {
-      setLoading(true);
-      const provider = new GoogleAuthProvider();
-      provider.setCustomParameters({
-        prompt: "select_account",
-      });
-      const result = await signInWithPopup(auth, provider);
-      const geo = await resolveLoginGeoForClient();
-      await updateUserLastLogin(result.user, geo);
+    const signIn = useCallback(
+        async (idToken: string, nonce: string) => {
+            if (!auth) return;
+            try {
+                await auth.loginWithGoogle(idToken, nonce);
+                router.push(APP_PATH);
+            } catch (err) {
+                const changeTicket = passwordChangeTicket(err);
+                if (changeTicket) setTicket(changeTicket);
+                else toast.error(apiErrorText(err, t));
+                throw err;
+            }
+        },
+        [auth, router, t]
+    );
 
-      let tokenResult = await result.user.getIdTokenResult();
-      await result.user.getIdToken(true);
-      tokenResult = await result.user.getIdTokenResult();
-      const claims = tokenResult.claims;
-
-      // Route to the appropriate page based on user role
-      const role = claims?.role as string | undefined;
-      const isAdmin = claims?.admin === true;
-      if (isAdmin || role === "admin" || role === "manager" || role === "operation_staff") {
-        router.replace("/app/dashboard");
-      } else if (role === "customer" || role === "operator" || role === "partner") {
-        router.replace("/app/driver-monitor");
-      } else {
-        router.replace("/app/dashboard");
-      }
-    } catch (error: any) {
-      console.error("Error signing in:", error);
-      if (error.code === "auth/popup-closed-by-user") {
-        alert("Sign in was cancelled. Please try again.");
-      } else if (error.code === "auth/popup-blocked") {
-        alert("Popup was blocked. Please allow popups for this site.");
-      } else if (error.code === "auth/configuration-not-found") {
-        alert(
-          "Firebase Authentication is not configured properly.\n\n" +
-            "Please check:\n" +
-            "1. Firebase Authentication is enabled in Firebase Console\n" +
-            "2. Google Sign-In provider is enabled\n" +
-            "3. API key and project ID are correct in .env.local\n" +
-            "4. Restart Next.js dev server after updating .env.local"
-        );
-      } else {
-        alert(`An error occurred: ${error.message || "Please try again."}`);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <Button
-      type="button"
-      onClick={handleGoogleSignIn}
-      disabled={loading}
-      className="w-full flex items-center justify-center gap-3"
-      variant="outline"
-    >
-      <svg className="w-5 h-5" viewBox="0 0 24 24">
-        <path
-          fill="#4285F4"
-          d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-        />
-        <path
-          fill="#34A853"
-          d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-        />
-        <path
-          fill="#FBBC05"
-          d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-        />
-        <path
-          fill="#EA4335"
-          d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-        />
-      </svg>
-      {loading ? t("auth.signingIn") : t("auth.continueWithGoogle")}
-    </Button>
-  );
+    return (
+        <>
+            <GoogleSignInButton onCredential={signIn} />
+            <Dialog open={ticket !== null} onOpenChange={(open) => !open && setTicket(null)}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle>{t("auth.changePassword.title")}</DialogTitle>
+                        <DialogDescription>{t("auth.changePassword.subtitle")}</DialogDescription>
+                    </DialogHeader>
+                    {ticket ? (
+                        <ChangePasswordForm
+                            ticket={ticket}
+                            idPrefix="google-chg"
+                            onChanged={() => {
+                                setTicket(null);
+                                toast.success(t("auth.changePassword.done"));
+                            }}
+                            onCancel={(messageKey) => {
+                                setTicket(null);
+                                if (messageKey) toast.error(t(messageKey));
+                            }}
+                        />
+                    ) : null}
+                </DialogContent>
+            </Dialog>
+        </>
+    );
 }

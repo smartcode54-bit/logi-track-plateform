@@ -8,8 +8,9 @@ import { db, functions } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { useAuth } from "@/context/auth";
 import { useLanguage } from "@/context/language";
-import { usePermission } from "@/hooks/usePermission";
-import { CAPABILITIES } from "@/lib/capabilities";
+import { hasCapability } from "@/features/auth/api/me";
+import { findUserForLegacyAccount, revokeUserSessions } from "@/features/users/api/users";
+import { apiErrorText } from "@/lib/apiError";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -127,7 +128,9 @@ export function SessionManagementActiveUsers() {
     const currentUser = auth?.currentUser;
     const claims = auth?.customClaims as Record<string, unknown> | null | undefined;
     const isAdmin = claims?.admin === true;
-    const { hasPermission: canManageUsers, loading: permLoading } = usePermission(CAPABILITIES.security_manage_users);
+    // The revoke action is on Go from P0 (T18): the Go capability, not the legacy matrix.
+    const canManageUsers = hasCapability(auth?.me, "users:revoke_sessions");
+    const permLoading = Boolean(auth?.loading);
 
     const [rows, setRows] = useState<RowUser[]>([]);
     const [loading, setLoading] = useState(true);
@@ -173,17 +176,27 @@ export function SessionManagementActiveUsers() {
         return () => unsub();
     }, [currentUser, isAdmin, t]);
 
+    // Revoke through Go (T18, `DELETE /v1/users/{id}/sessions`; no `revokeUserRefreshTokens`): the row
+    // is a legacy users/{uid} document until P6 (row 29), so its Go user is found by uid, else email.
     const confirmRevoke = async () => {
         if (!revokeTarget) return;
         setIsRevoking(true);
         try {
-            const revoke = httpsCallable<{ targetUid: string }, { ok: boolean }>(functions, "revokeUserRefreshTokens");
-            await revoke({ targetUid: revokeTarget.uid });
+            const user = await findUserForLegacyAccount({ uid: revokeTarget.uid, email: revokeTarget.email });
+            if (!user) {
+                toast.error(t("users.revokeSessionsNotFound"));
+                return;
+            }
+            if (user.id === auth?.me?.id) {
+                toast.error(t("users.revokeSessionsSelf"));
+                return;
+            }
+            await revokeUserSessions(user.id);
             toast.success(t("users.revokeSessionsSuccess"));
             setRevokeTarget(null);
         } catch (e) {
             console.error("[SessionManagementActiveUsers] revoke:", e);
-            toast.error(t("users.revokeSessionsFailed"));
+            toast.error(`${t("users.revokeSessionsFailed")}: ${apiErrorText(e, t)}`);
         } finally {
             setIsRevoking(false);
         }

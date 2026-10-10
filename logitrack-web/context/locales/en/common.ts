@@ -387,4 +387,8 @@ export default {
     "unauthorized.goBack": "Go Back",
     "unauthorized.goHome": "Go to My Home Page",
     "unauthorized.roleHint": "Logged in as: {role}",
+    // Tenant switcher and app shell (T18)
+    "nav.switchTenant": "Switch organisation",
+    "nav.tenantSwitched": "Now working in {name}",
+    "app.retry": "Retry",
 };

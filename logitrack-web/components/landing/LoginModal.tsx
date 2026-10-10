@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import ContinueWithGoogleButton from "@/components/continue-with-google-button";
+import { useRouter } from "next/navigation";
+
 import {
     Dialog,
     DialogContent,
@@ -10,15 +10,9 @@ import {
     DialogTitle,
     DialogTrigger,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import Link from "next/link";
 import { useLanguage } from "@/context/language";
-import { useAuth } from "@/context/auth";
-import { useRouter } from "next/navigation";
-import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { SignInPanel } from "@/features/auth/components/SignInPanel";
+import { APP_PATH } from "@/lib/sessionEnd";
 
 interface LoginModalProps {
     children?: React.ReactNode;
@@ -26,111 +20,30 @@ interface LoginModalProps {
     onOpenChange?: (open: boolean) => void;
 }
 
+/**
+ * The landing page's login dialog: the shared sign-in panel (T18, Go session through the BFF). After a
+ * sign-in `/app` sends the user to the role's home (proxy.ts, R89).
+ */
 export function LoginModal({ children, open, onOpenChange }: LoginModalProps) {
     const { t } = useLanguage();
-    const auth = useAuth();
     const router = useRouter();
-    const [email, setEmail] = useState("");
-    const [password, setPassword] = useState("");
-    const [loading, setLoading] = useState(false);
-
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setLoading(true);
-
-        try {
-            if (!auth) {
-                throw new Error("Auth context not initialized");
-            }
-            if (auth) {
-                await auth.login(email, password);
-            }
-            // Close modal if successful
-            if (onOpenChange) onOpenChange(false);
-
-            // Let the auth state listener in useLogin/layout handle role-based redirect
-            const tokenResult = await auth.currentUser?.getIdTokenResult();
-            const claims = tokenResult?.claims;
-            const role = claims?.role as string | undefined;
-            const isAdmin = claims?.admin === true;
-            if (isAdmin || role === "admin" || role === "manager" || role === "operation_staff") {
-                router.push("/app/dashboard");
-            } else if (role === "customer" || role === "operator" || role === "partner") {
-                router.push("/app/driver-monitor");
-            } else {
-                router.push("/app/dashboard");
-            }
-            toast.success("Logged in successfully");
-        } catch (error: any) {
-            console.error("Login error:", error);
-            toast.error(error.message || "Failed to login");
-        } finally {
-            setLoading(false);
-        }
-    };
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogTrigger asChild>
-                {children}
-            </DialogTrigger>
+            <DialogTrigger asChild>{children}</DialogTrigger>
             <DialogContent className="sm:max-w-[425px]">
                 <DialogHeader>
-                    <DialogTitle>{t("auth.login.title") || "Login"}</DialogTitle>
-                    <DialogDescription>
-                        {t("auth.login.subtitle") || "Enter your email below to login to your account"}
-                    </DialogDescription>
+                    <DialogTitle>{t("auth.login.title")}</DialogTitle>
+                    <DialogDescription>{t("auth.login.subtitle")}</DialogDescription>
                 </DialogHeader>
-                <div className="grid gap-4 py-4">
-                    <form onSubmit={handleSubmit} className="space-y-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="email">{t("auth.email") || "Email"}</Label>
-                            <Input
-                                id="email"
-                                type="email"
-                                placeholder={t("auth.emailPlaceholder") || "Enter your email"}
-                                required
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <div className="flex items-center justify-between">
-                                <Label htmlFor="password">{t("auth.password") || "Password"}</Label>
-                                <Link
-                                    href="/forgot-password"
-                                    className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors"
-                                >
-                                    {t("auth.forgotPassword") || "Forgot your password?"}
-                                </Link>
-                            </div>
-                            <Input
-                                id="password"
-                                type="password"
-                                placeholder={t("auth.passwordPlaceholder") || "Enter your password"}
-                                required
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                            />
-                        </div>
-
-                        <Button type="submit" className="w-full" disabled={loading}>
-                            {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                            {t("auth.login.title") || "Login"}
-                        </Button>
-                    </form>
-
-                    <div className="relative">
-                        <div className="absolute inset-0 flex items-center">
-                            <span className="w-full border-t" />
-                        </div>
-                        <div className="relative flex justify-center text-xs uppercase">
-                            <span className="bg-background px-2 text-muted-foreground">
-                                {t("auth.or") || "or"}
-                            </span>
-                        </div>
-                    </div>
-                    <ContinueWithGoogleButton />
+                <div className="py-2">
+                    <SignInPanel
+                        idPrefix="modal-login"
+                        onSignedIn={() => {
+                            onOpenChange?.(false);
+                            router.push(APP_PATH);
+                        }}
+                    />
                 </div>
             </DialogContent>
         </Dialog>

@@ -1,10 +1,11 @@
 "use client";
 
 import { useAuth } from "@/context/auth";
-import { useRouter, usePathname } from "next/navigation";
-import { getRole } from "@/lib/permissions";
-import { useEffect, useState, useRef } from "react";
-import Navigation from "@/components/navigation";
+import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
+import { TenantSwitcher } from "@/components/tenant-switcher";
+import { principalRoleLabel } from "@/features/auth/utils/principalLabel";
+import { apiErrorText } from "@/lib/apiError";
 import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SecurityCenterSidebar } from "@/components/security-center-sidebar";
@@ -91,10 +92,9 @@ export default function AdminLayout({
     children: React.ReactNode;
 }) {
     const authContext = useAuth();
-    const router = useRouter();
     const currentUser = authContext?.currentUser;
     const pathname = usePathname();
-    const { language, setLanguage } = useLanguage();
+    const { language, setLanguage, t } = useLanguage();
 
     const isDashboard = pathname === "/app/dashboard";
     const isSecurityCenter = pathname?.startsWith("/app/security-center");
@@ -112,25 +112,6 @@ export default function AdminLayout({
         else document.documentElement.classList.remove('dark');
     }, []);
 
-    // Auth redirect: หน่วงก่อนส่งไป /login เพื่อให้ Firebase persistence โหลด (กัน login loop)
-    const redirectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    useEffect(() => {
-        if (authContext?.loading || currentUser) {
-            if (redirectTimeoutRef.current) {
-                clearTimeout(redirectTimeoutRef.current);
-                redirectTimeoutRef.current = null;
-            }
-            return;
-        }
-        redirectTimeoutRef.current = setTimeout(() => {
-            redirectTimeoutRef.current = null;
-            router.replace("/login");
-        }, 500);
-        return () => {
-            if (redirectTimeoutRef.current) clearTimeout(redirectTimeoutRef.current);
-        };
-    }, [currentUser, authContext?.loading, router]);
-
     // Route access is decided before any page code runs, by the proxy.ts edge gate over the Go
     // capabilities (TW3, developer-spec.md §10.5); the post-render check over Firebase claims is gone.
 
@@ -147,7 +128,21 @@ export default function AdminLayout({
         window.dispatchEvent(new Event('themechange'));
     };
 
-    if (!authContext || authContext.loading) {
+    // proxy.ts let this page render only for a valid session (§10.5), so there is no client-side
+    // redirect and no 500 ms wait any more (T18): a session that ends meanwhile is taken to /login by
+    // lib/sessionEnd.ts, and an api that cannot be reached shows a retry instead of a sign-out.
+    if (authContext?.error && !currentUser) {
+        return (
+            <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4 p-6 text-center" role="alert">
+                <p className="text-muted-foreground">{apiErrorText(authContext.error, t)}</p>
+                <button type="button" className="rounded-md border px-4 py-2 text-sm hover:bg-accent" onClick={authContext.retry}>
+                    {t("app.retry")}
+                </button>
+            </div>
+        );
+    }
+
+    if (!authContext || authContext.loading || !currentUser) {
         return (
             <div className="min-h-screen bg-background flex flex-col items-center justify-center">
                 <div className="flex flex-col items-center gap-4">
@@ -156,10 +151,6 @@ export default function AdminLayout({
                 </div>
             </div>
         );
-    }
-
-    if (!currentUser) {
-        return null; // Will redirect in useEffect
     }
 
     return (
@@ -225,6 +216,8 @@ export default function AdminLayout({
                         </div>
 
                         <div className="flex items-center gap-4 px-4">
+                            <TenantSwitcher />
+
                             {isDashboard && (
                                 <div className="flex items-center gap-2">
                                     <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider hidden md:inline-block">Real-Time Operations</span>
@@ -290,7 +283,7 @@ export default function AdminLayout({
                                         <div className="text-right hidden sm:block">
                                             <p className="text-sm font-medium leading-none">{currentUser?.displayName || currentUser?.email || "User"}</p>
                                             <p className="text-xs text-muted-foreground mt-1 capitalize">
-                                                {(getRole(authContext.customClaims ?? null) || "user").replace(/_/g, " ")}
+                                                {principalRoleLabel(authContext.me, t, language)}
                                             </p>
                                         </div>
                                         <Avatar className="h-9 w-9 border border-border">
@@ -309,9 +302,9 @@ export default function AdminLayout({
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem className="text-red-500 focus:text-red-500" onClick={async () => {
                                         await authContext.logout();
-                                        window.location.href = "/";
+                                        window.location.href = "/login";
                                     }}>
-                                        Log out
+                                        {t("nav.logout")}
                                     </DropdownMenuItem>
                                 </DropdownMenuContent>
                             </DropdownMenu>

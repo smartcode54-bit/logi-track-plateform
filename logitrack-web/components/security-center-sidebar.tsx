@@ -11,6 +11,7 @@ import {
     Layers,
     Smartphone,
     Rocket,
+    Building2,
 } from "lucide-react"
 
 import {
@@ -30,18 +31,20 @@ import { useLanguage } from "@/context/language"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useAuth } from "@/context/auth"
-import { can } from "@/lib/permissions"
-import { CAPABILITIES } from "@/lib/capabilities"
+import { routeAllowed } from "@/lib/routeCapabilities"
 
+// Each item is shown when the edge gate would let the principal open it (lib/routeCapabilities.ts over
+// the Go capabilities of `['me']`, T18), so the menu and proxy.ts can never disagree.
 const securityItems = [
-    { titleKey: "securityCenter.overviewSoon", url: "/app/security-center", icon: LayoutDashboard, capability: CAPABILITIES.security_view_overview },
-    { titleKey: "securityCenter.userManagement", url: "/app/security-center/users", icon: Users, capability: CAPABILITIES.security_manage_users },
-    { titleKey: "securityCenter.rolePermissionMatrix", url: "/app/security-center/roles", icon: Layers, capability: CAPABILITIES.security_manage_roles },
-    { titleKey: "securityCenter.securityAudit", url: "/app/security-center/audit", icon: Shield, capability: CAPABILITIES.security_view_audit },
-    { titleKey: "securityCenter.apiKeys", url: "/app/security-center/api-keys", icon: Key, capability: CAPABILITIES.security_manage_api_keys },
-    { titleKey: "securityCenter.systemStatus", url: "/app/security-center/status", icon: Server, capability: CAPABILITIES.security_view_status },
-    { titleKey: "securityCenter.mobileClients", url: "/app/security-center/mobile-clients", icon: Smartphone, capability: CAPABILITIES.security_view_mobile_clients },
-    { titleKey: "securityCenter.mobileRelease", url: "/app/security-center/mobile-release", icon: Rocket, capability: CAPABILITIES.security_manage_mobile_release },
+    { titleKey: "securityCenter.overviewSoon", url: "/app/security-center", icon: LayoutDashboard },
+    { titleKey: "securityCenter.userManagement", url: "/app/security-center/users", icon: Users },
+    { titleKey: "securityCenter.tenants", url: "/app/security-center/tenants", icon: Building2 },
+    { titleKey: "securityCenter.rolePermissionMatrix", url: "/app/security-center/roles", icon: Layers },
+    { titleKey: "securityCenter.securityAudit", url: "/app/security-center/audit", icon: Shield },
+    { titleKey: "securityCenter.apiKeys", url: "/app/security-center/api-keys", icon: Key },
+    { titleKey: "securityCenter.systemStatus", url: "/app/security-center/status", icon: Server },
+    { titleKey: "securityCenter.mobileClients", url: "/app/security-center/mobile-clients", icon: Smartphone },
+    { titleKey: "securityCenter.mobileRelease", url: "/app/security-center/mobile-release", icon: Rocket },
 ]
 
 export function SecurityCenterSidebar() {
@@ -49,8 +52,8 @@ export function SecurityCenterSidebar() {
     const pathname = usePathname()
     const auth = useAuth()
     const logout = auth?.logout
-    const claims = auth?.customClaims ?? null
-    const filteredItems = securityItems.filter((item) => can(claims, item.capability))
+    const capabilities = auth?.me?.capabilities ?? []
+    const filteredItems = securityItems.filter((item) => routeAllowed(capabilities, item.url))
 
     return (
         <Sidebar
@@ -112,7 +115,7 @@ export function SecurityCenterSidebar() {
                             className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50"
                             onClick={async () => {
                                 await logout?.()
-                                window.location.href = "/"
+                                window.location.href = "/login"
                             }}
                         >
                             <LogOut />

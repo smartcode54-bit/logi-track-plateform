@@ -300,7 +300,7 @@ Rules: only the role docs `manager`, `operation_staff`, `operator`, `driver` pro
 
 | Route | Today | New |
 |---|---|---|
-| `/app/security-center/*` | admin-only regardless of capability (`permissions.ts:55-57`) | mapped capability only: index `security:view_overview`, `/users` `users:view` (create/edit dialogs `users:manage`, role field `users:assign_role`), `/mobile-clients` `security:view_mobile_clients`, `/mobile-release` `security:manage_mobile_release` |
+| `/app/security-center/*` | admin-only regardless of capability (`permissions.ts:55-57`) | mapped capability only: index `security:view_overview`, `/users` `users:view` (create/edit dialogs `users:manage`, role field `users:assign_role`), `/mobile-clients` `security:view_mobile_clients`, `/mobile-release` `security:manage_mobile_release`, `/tenants` `platform:manage_tenants` (new page, T18 owner addition) |
 | `/app/dashboard` | open to any authenticated user | unchanged |
 | unmapped routes | allowed (`permissions.ts:72`) | **denied**; a CI test fails when a page under `app/app/**` has no mapping |
 | `/app/job-assign`, `/app/first-mile`, `/app/line-haul` write actions | page-level `operations:view_*` | buttons gated by `operations:manage_tasks` |

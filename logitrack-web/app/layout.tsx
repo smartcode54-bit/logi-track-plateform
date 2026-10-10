@@ -1,9 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Sarabun } from "next/font/google";
 import "./globals.css";
-import { AuthProvider } from "@/context/auth";
-import { LanguageProvider } from "@/context/language";
-import { Toaster } from "@/components/ui/sonner";
+import { Providers } from "./providers";
 
 // Two families (developer-spec.md §10.11): Geist (sans + mono) for Latin text, Sarabun for Thai.
 // The body uses `font-display` (app/globals.css): Geist first, Sarabun for the glyphs Geist lacks.
@@ -61,12 +59,7 @@ export default function RootLayout({
             `,
           }}
         />
-        <AuthProvider>
-          <LanguageProvider>
-            {children}
-            <Toaster duration={5000} closeButton richColors />
-          </LanguageProvider>
-        </AuthProvider>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

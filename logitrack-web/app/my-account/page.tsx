@@ -20,14 +20,14 @@ export default function MyAccountPage() {
   const currentUser = authContext?.currentUser;
 
   useEffect(() => {
-    // Redirect to login if not authenticated
-    if (authContext && !currentUser) {
+    // Redirect to login once ['me'] says signed out (not while it is still loading, T18).
+    if (authContext && !authContext.loading && !currentUser) {
       router.push("/login");
     }
   }, [authContext, currentUser, router]);
 
   // Show loading state while checking auth
-  if (!authContext) {
+  if (!authContext || authContext.loading) {
     return (
       <div className="min-h-screen bg-background flex flex-col">
         <Navigation />
