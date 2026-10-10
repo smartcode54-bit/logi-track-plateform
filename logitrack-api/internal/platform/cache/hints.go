@@ -26,23 +26,34 @@ func (c *Cache) PeriodLocks(ctx context.Context, billingPartyID string, load fun
 		return nil, ErrMoneyPath
 	}
 	key := c.ks.PeriodLocks(billingPartyID)
+	mark := c.l1.mark()
 	if v, ok := c.l1.get(key); ok {
 		if s, ok := v.([]string); ok {
 			c.metrics.lookups.WithLabelValues("l1").Inc()
 			return slices.Clone(s), nil
 		}
 	}
-	members, err := c.rdb.SMembers(ctx, key).Result()
-	if err != nil {
+	gen := c.genKey(key)
+	var members *redis.StringSliceCmd
+	var seen *redis.StringCmd
+	err := c.call(ctx, func(ctx context.Context) error {
+		_, err := c.rdb.Pipelined(ctx, func(p redis.Pipeliner) error {
+			members = p.SMembers(ctx, key)
+			seen = c.readGen(ctx, p, gen)
+			return nil
+		})
+		return err
+	})
+	if err != nil && !errors.Is(err, redis.Nil) {
 		c.redisFailed(ctx, "smembers", err)
 		c.metrics.lookups.WithLabelValues("error").Inc()
 		return loadPeriods(ctx, load)
 	}
-	if slices.Contains(members, hashSentinel) {
-		out := slices.DeleteFunc(members, func(m string) bool { return m == hashSentinel })
+	if got := members.Val(); slices.Contains(got, hashSentinel) {
+		out := slices.DeleteFunc(got, func(m string) bool { return m == hashSentinel })
 		slices.Sort(out)
 		c.metrics.lookups.WithLabelValues("hit").Inc()
-		c.l1.put(key, slices.Clone(out))
+		c.l1.put(mark, key, slices.Clone(out))
 		return out, nil
 	}
 	c.metrics.lookups.WithLabelValues("miss").Inc()
@@ -55,17 +66,18 @@ func (c *Cache) PeriodLocks(ctx context.Context, billingPartyID string, load fun
 	for _, p := range periods {
 		args = append(args, p)
 	}
-	_, err = c.rdb.TxPipelined(ctx, func(p redis.Pipeliner) error {
+	stored, err := c.storeIfCurrent(ctx, gen, genValue(seen), func(ctx context.Context, p redis.Pipeliner) {
 		p.Del(ctx, key)
 		p.SAdd(ctx, key, args...)
 		p.PExpire(ctx, key, PeriodLocksTTL)
-		return nil
 	})
 	if err != nil {
 		c.redisFailed(ctx, "sadd", err)
 		return periods, nil
 	}
-	c.l1.put(key, slices.Clone(periods))
+	if stored {
+		c.l1.put(mark, key, slices.Clone(periods))
+	}
 	return periods, nil
 }
 
@@ -100,8 +112,10 @@ func (c *Cache) SetMirrorAck(ctx context.Context, collection, docID string, upda
 	if IsMoneyPath(ctx) {
 		return ErrMoneyPath
 	}
-	return raiseScript.Run(ctx, c.rdb, []string{c.ks.MirrorAck(collection, docID)},
-		updateTime.UnixMicro(), MirrorAckTTL.Milliseconds()).Err()
+	return c.call(ctx, func(ctx context.Context) error {
+		return raiseScript.Run(ctx, c.rdb, []string{c.ks.MirrorAck(collection, docID)},
+			updateTime.UnixMicro(), MirrorAckTTL.Milliseconds()).Err()
+	})
 }
 
 // MirrorAck returns the last UpdateTime the mirror applied to a document, and false when none is
@@ -110,7 +124,11 @@ func (c *Cache) MirrorAck(ctx context.Context, collection, docID string) (time.T
 	if IsMoneyPath(ctx) {
 		return time.Time{}, false, ErrMoneyPath
 	}
-	v, err := c.rdb.Get(ctx, c.ks.MirrorAck(collection, docID)).Result()
+	var v string
+	err := c.call(ctx, func(ctx context.Context) (err error) {
+		v, err = c.rdb.Get(ctx, c.ks.MirrorAck(collection, docID)).Result()
+		return err
+	})
 	if errors.Is(err, redis.Nil) {
 		return time.Time{}, false, nil
 	}
@@ -172,7 +190,12 @@ func (c *Cache) PutTicket(ctx context.Context, key string, value []byte, ttl tim
 	if IsMoneyPath(ctx) {
 		return false, ErrMoneyPath
 	}
-	return c.rdb.SetNX(ctx, key, value, ttl).Result()
+	var ok bool
+	err := c.call(ctx, func(ctx context.Context) (err error) {
+		ok, err = c.rdb.SetNX(ctx, key, value, ttl).Result()
+		return err
+	})
+	return ok, err
 }
 
 // TakeTicket consumes a ticket atomically (GETDEL): of two concurrent redemptions exactly one gets
@@ -181,7 +204,11 @@ func (c *Cache) TakeTicket(ctx context.Context, key string) ([]byte, bool, error
 	if IsMoneyPath(ctx) {
 		return nil, false, ErrMoneyPath
 	}
-	b, err := c.rdb.GetDel(ctx, key).Bytes()
+	var b []byte
+	err := c.call(ctx, func(ctx context.Context) (err error) {
+		b, err = c.rdb.GetDel(ctx, key).Bytes()
+		return err
+	})
 	if errors.Is(err, redis.Nil) {
 		return nil, false, nil
 	}

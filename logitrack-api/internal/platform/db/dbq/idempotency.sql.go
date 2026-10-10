@@ -119,10 +119,15 @@ func (q *Queries) IdempotencyGet(ctx context.Context, arg IdempotencyGetParams) 
 const idempotencyPrune = `-- name: IdempotencyPrune :execrows
 DELETE FROM idempotency_keys
  WHERE (scope, key) IN (SELECT i.scope, i.key FROM idempotency_keys AS i
-                         WHERE i.expires_at <= now() ORDER BY i.expires_at LIMIT $1::int)
+                         WHERE i.expires_at <= now() ORDER BY i.expires_at LIMIT $1::int
+                         FOR UPDATE SKIP LOCKED)
+   AND expires_at <= now()
 `
 
-// idempotency.prune (scheduler, Appendix B §B.5.6): deletes up to batch_size expired rows.
+// idempotency.prune (scheduler, Appendix B §B.5.6): deletes up to batch_size expired rows. Rows a live
+// claim is taking over are skipped (SKIP LOCKED), and the expiry is tested on the target row as well:
+// after a lock wait PostgreSQL rechecks only the outer WHERE against the newest row version, so a row
+// re-claimed meanwhile (expires_at moved forward) is never deleted.
 func (q *Queries) IdempotencyPrune(ctx context.Context, batchSize int32) (int64, error) {
 	result, err := q.db.Exec(ctx, idempotencyPrune, batchSize)
 	if err != nil {

@@ -1,6 +1,8 @@
 // Package ratelimit is the GCRA rate limiter of the rl: namespace (Appendix B §B.6.3, Appendix C
 // §C.4.12): one Redis key per bucket and subject, updated atomically by a Lua script that reads the
-// Redis server clock, so every api replica shares one limit and host clock skew does not matter.
+// Redis server clock, so every api replica shares one limit and host clock skew does not matter. A
+// request is counted when it is checked (there is no separate "peek"), so concurrent requests cannot
+// all pass a check made before any of them was counted.
 package ratelimit
 
 import (
@@ -27,22 +29,30 @@ type Limit struct {
 	Window time.Duration
 }
 
-// ParseLimit reads the "count/window" form of RATE_LIMIT_* (window a Go duration, e.g. 10/1m).
+// ParseLimit reads the "count/window" form of RATE_LIMIT_* (window a Go duration, e.g. 10/1m). The
+// interval window/count must be at least 1µs, the resolution of the script.
 func ParseLimit(s string) (Limit, error) {
 	c, w, ok := strings.Cut(strings.TrimSpace(s), "/")
 	n, err1 := strconv.Atoi(strings.TrimSpace(c))
 	d, err2 := time.ParseDuration(strings.TrimSpace(w))
-	if !ok || err1 != nil || err2 != nil || n < 1 || d <= 0 {
+	lim := Limit{Count: n, Window: d}
+	if !ok || err1 != nil || err2 != nil || !lim.valid() {
 		return Limit{}, errors.New("ratelimit: want count/window, e.g. 10/1m")
 	}
-	return Limit{Count: n, Window: d}, nil
+	return lim, nil
 }
 
 func (l Limit) String() string { return strconv.Itoa(l.Count) + "/" + l.Window.String() }
 
+// valid: a positive count and an emission interval window/count of at least 1µs.
 func (l Limit) valid() bool {
-	return l.Count > 0 && l.Window > 0 && l.Window/time.Duration(l.Count) > 0
+	return l.Count > 0 && l.Window > 0 && l.Window/time.Duration(l.Count) >= time.Microsecond
 }
+
+// ErrInvalidLimit is returned for an invalid limit or a cost outside 1..Count: a programming or
+// configuration error, never a Redis condition. Config.Validate and Middleware reject such limits
+// before a request arrives.
+var ErrInvalidLimit = errors.New("ratelimit: invalid limit or cost")
 
 // Decision is the outcome of one request against a bucket.
 type Decision struct {
@@ -52,7 +62,8 @@ type Decision struct {
 	ResetAfter time.Duration // until the bucket is full again
 }
 
-// callTimeout bounds one check: a slow or stopped Redis costs a request at most this long.
+// callTimeout bounds one check: a slow, hung or stopped Redis costs a request at most this long (the
+// client honours context deadlines, cache.Open).
 const callTimeout = 300 * time.Millisecond
 
 // Limiter checks buckets of one keyspace.
@@ -71,9 +82,11 @@ func New(rdb redis.UniversalClient, ks cache.Keyspace, log zerolog.Logger) *Limi
 // Register adds the limiter metrics to a Prometheus registry.
 func (l *Limiter) Register(reg prometheus.Registerer) error { return l.metrics.register(reg) }
 
-// SubjectKey is the subject part of rl:{bucket}:{subject}: the first 16 bytes of sha256 in hex, so IP
-// addresses and emails never appear in Redis (Appendix C §C.4.12 hashes the email) and every key has
-// the same length whatever the input.
+// SubjectKey is the subject part of rl:{bucket}:{subject}: the first 16 bytes of an unkeyed sha256 in
+// hex, so every key has the same length and no raw IP address or email appears in a key name
+// (Appendix C §C.4.12 hashes the email). This pseudonymises and does not anonymise: an IPv4 subject is
+// recovered by hashing all 2^32 addresses, an email by hashing candidates, so rl: keys are personal
+// data like the rest of Redis.
 func SubjectKey(subject string) string {
 	sum := sha256.Sum256([]byte(subject))
 	return hex.EncodeToString(sum[:16])
@@ -85,32 +98,18 @@ func (l *Limiter) Allow(ctx context.Context, bucket, subject string, lim Limit) 
 }
 
 // AllowN counts n requests at once (1 <= n <= lim.Count). A denied request consumes nothing.
-// Errors (Redis down, invalid limit) come back with Allowed = true: the caller decides whether to
-// fail open (the middleware does, Appendix B §B.6.3) or closed.
+// Errors come back with Allowed = true: a Redis failure, which the caller may fail open on (the
+// middleware does, Appendix B §B.6.3), or ErrInvalidLimit, a bug the caller must not treat as one.
 func (l *Limiter) AllowN(ctx context.Context, bucket, subject string, lim Limit, n int) (Decision, error) {
-	return l.run(ctx, bucket, subject, lim, n, true)
-}
-
-// Peek reports whether one more request would be allowed, without counting it (e.g. "is this email
-// locked?" before a password check, with Allow on each failure).
-func (l *Limiter) Peek(ctx context.Context, bucket, subject string, lim Limit) (Decision, error) {
-	return l.run(ctx, bucket, subject, lim, 1, false)
-}
-
-func (l *Limiter) run(ctx context.Context, bucket, subject string, lim Limit, n int, commit bool) (Decision, error) {
 	if !lim.valid() || n < 1 || n > lim.Count {
-		return Decision{Allowed: true}, fmt.Errorf("ratelimit: invalid limit %s or cost %d for bucket %s", lim, n, bucket)
+		return Decision{Allowed: true}, fmt.Errorf("%w: %s, cost %d, bucket %s", ErrInvalidLimit, lim, n, bucket)
 	}
 	emission := max(1, (lim.Window / time.Duration(lim.Count)).Microseconds())
 	tolerance := emission * int64(lim.Count)
 	key := l.ks.RateLimit(bucket, SubjectKey(subject))
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
-	write := 0
-	if commit {
-		write = 1
-	}
-	res, err := gcraScript.Run(ctx, l.rdb, []string{key}, emission, tolerance, n, write).Int64Slice()
+	res, err := gcraScript.Run(ctx, l.rdb, []string{key}, emission, tolerance, n).Int64Slice()
 	if err == nil && len(res) != 4 {
 		err = errors.New("ratelimit: unexpected script reply")
 	}
@@ -124,18 +123,18 @@ func (l *Limiter) run(ctx context.Context, bucket, subject string, lim Limit, n 
 		RetryAfter: time.Duration(res[2]) * time.Microsecond,
 		ResetAfter: time.Duration(res[3]) * time.Microsecond,
 	}
-	if commit {
-		outcome := "allowed"
-		if !d.Allowed {
-			outcome = "denied"
-		}
-		l.metrics.decisions.WithLabelValues(bucket, outcome).Inc()
+	outcome := "allowed"
+	if !d.Allowed {
+		outcome = "denied"
 	}
+	l.metrics.decisions.WithLabelValues(bucket, outcome).Inc()
 	return d, nil
 }
 
-// Reset forgets a subject's state in a bucket (e.g. login_fail after a successful sign-in).
+// Reset forgets a subject's state in a bucket.
 func (l *Limiter) Reset(ctx context.Context, bucket, subject string) error {
+	ctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
 	return l.rdb.Del(ctx, l.ks.RateLimit(bucket, SubjectKey(subject))).Err()
 }
 
@@ -146,14 +145,13 @@ func (d Decision) RetryAfterSeconds() int {
 
 // gcraScript is the generic cell rate algorithm. State: the theoretical arrival time (TAT) in
 // microseconds of the Redis clock. ARGV: emission interval T (µs), delay tolerance τ = T·Count (µs),
-// cost n, commit (1 = count the request, 0 = peek). A request of cost n is allowed when
-// max(TAT, now) + n·T − τ ≤ now; on commit TAT becomes max(TAT, now) + n·T and the key lives until TAT.
+// cost n. A request of cost n is allowed when max(TAT, now) + n·T − τ ≤ now; it is counted in the same
+// step (TAT becomes max(TAT, now) + n·T and the key lives until TAT).
 // Reply: {allowed, remaining, retry_after_us, reset_after_us}.
 var gcraScript = redis.NewScript(`
 local emission = tonumber(ARGV[1])
 local tolerance = tonumber(ARGV[2])
 local cost = tonumber(ARGV[3])
-local commit = ARGV[4] == '1'
 local t = redis.call('TIME')
 local now = tonumber(t[1]) * 1000000 + tonumber(t[2])
 local tat = tonumber(redis.call('GET', KEYS[1]))
@@ -164,9 +162,6 @@ local new_tat = tat + emission * cost
 local diff = now - (new_tat - tolerance)
 if diff < 0 then
   return {0, 0, -diff, tat - now}
-end
-if not commit then
-  return {1, math.floor(diff / emission) + 1, 0, tat - now}
 end
 -- string.format keeps the integer exact (tostring would use %.14g)
 redis.call('SET', KEYS[1], string.format('%.0f', new_tat), 'PX', string.format('%.0f', math.max(1, math.ceil((new_tat - now) / 1000))))
@@ -185,7 +180,7 @@ func newMetrics() *metrics {
 		}, []string{"bucket", "outcome"}),
 		errors: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "ratelimit_errors_total",
-			Help: "Rate-limit checks that could not reach Redis (the middleware then fails open).",
+			Help: "Rate-limit checks that could not reach Redis in time (the middleware then fails open).",
 		}),
 	}
 }

@@ -5,10 +5,14 @@ package ratelimit_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -68,35 +72,79 @@ func TestGCRABurstThenSteadyRate(t *testing.T) {
 	}
 }
 
-func TestPeekAndReset(t *testing.T) {
+func TestResetAndCostAboveBurst(t *testing.T) {
 	rdb, ks := cachetest.NewClient(t)
 	l := ratelimit.New(rdb, ks, zerolog.Nop())
 	ctx := context.Background()
-	lim := ratelimit.LoginFail.Default // 5 failures / 15 min
-	subject := "sha256-of-email"
-	for i := range 5 {
-		if d, err := l.Peek(ctx, ratelimit.LoginFail.Name, subject, lim); err != nil || !d.Allowed || d.Remaining != 5-i {
-			t.Fatalf("peek before failure %d: %+v %v", i+1, d, err)
-		}
-		if d, _ := l.Allow(ctx, ratelimit.LoginFail.Name, subject, lim); !d.Allowed {
-			t.Fatalf("failure %d denied", i+1)
+	lim := ratelimit.ForgotEmail.Default // 3/h
+	for i := range 3 {
+		if d, err := l.Allow(ctx, ratelimit.ForgotEmail.Name, "sha256-of-email", lim); err != nil || !d.Allowed {
+			t.Fatalf("request %d: %+v %v", i+1, d, err)
 		}
 	}
-	d, err := l.Peek(ctx, ratelimit.LoginFail.Name, subject, lim)
-	if err != nil || d.Allowed || d.RetryAfter < 2*time.Minute {
-		t.Fatalf("peek after 5 failures: %+v %v (want locked)", d, err)
+	d, err := l.Allow(ctx, ratelimit.ForgotEmail.Name, "sha256-of-email", lim)
+	if err != nil || d.Allowed || d.RetryAfter < 19*time.Minute {
+		t.Fatalf("4th request: %+v %v, want denied for about 20 min", d, err)
 	}
-	if d2, _ := l.Peek(ctx, ratelimit.LoginFail.Name, subject, lim); d2.Allowed {
-		t.Fatal("a peek consumed or released something")
-	}
-	if err := l.Reset(ctx, ratelimit.LoginFail.Name, subject); err != nil {
+	if err := l.Reset(ctx, ratelimit.ForgotEmail.Name, "sha256-of-email"); err != nil {
 		t.Fatal(err)
 	}
-	if d, _ := l.Peek(ctx, ratelimit.LoginFail.Name, subject, lim); !d.Allowed || d.Remaining != 5 {
+	if d, _ := l.Allow(ctx, ratelimit.ForgotEmail.Name, "sha256-of-email", lim); !d.Allowed || d.Remaining != 2 {
 		t.Fatalf("after reset: %+v", d)
 	}
-	if _, err := l.AllowN(ctx, "x", "y", ratelimit.Limit{Count: 2, Window: time.Second}, 3); err == nil {
-		t.Fatal("a cost above the burst was accepted")
+	if _, err := l.AllowN(ctx, "x", "y", ratelimit.Limit{Count: 2, Window: time.Second}, 3); !errors.Is(err, ratelimit.ErrInvalidLimit) {
+		t.Fatalf("a cost above the burst: %v", err)
+	}
+	// login_fail is not a GCRA bucket (its lockout lives in internal/auth): refused, nothing written.
+	if _, err := l.Allow(ctx, ratelimit.LoginFail.Name, "e", ratelimit.LoginFail.Default); !errors.Is(err, ratelimit.ErrInvalidLimit) {
+		t.Fatalf("login_fail through GCRA: %v", err)
+	}
+	if n := rdb.Exists(ctx, ks.RateLimit(ratelimit.LoginFail.Name, ratelimit.SubjectKey("e"))).Val(); n != 0 {
+		t.Fatal("login_fail wrote a GCRA key")
+	}
+}
+
+// TestConcurrentChecksAreCountedAtomically: a check counts the request in the same script, so a burst
+// of parallel requests for one subject gets exactly Count through, never a check-then-count race.
+func TestConcurrentChecksAreCountedAtomically(t *testing.T) {
+	rdb, ks := cachetest.NewClient(t)
+	l := ratelimit.New(rdb, ks, zerolog.Nop())
+	lim := ratelimit.Limit{Count: 5, Window: 15 * time.Minute}
+	var allowed atomic.Int32
+	var wg sync.WaitGroup
+	for range 50 {
+		wg.Go(func() {
+			if d, err := l.Allow(context.Background(), "burst", "victim@example.com", lim); err == nil && d.Allowed {
+				allowed.Add(1)
+			}
+		})
+	}
+	wg.Wait()
+	if allowed.Load() != int32(lim.Count) {
+		t.Fatalf("%d of 50 parallel requests allowed, want %d", allowed.Load(), lim.Count)
+	}
+}
+
+// TestIPv6ClientsAreLimitedPerSlash64: rotating through the addresses of one /64 does not escape a
+// per-IP bucket.
+func TestIPv6ClientsAreLimitedPerSlash64(t *testing.T) {
+	rdb, ks := cachetest.NewClient(t)
+	l := ratelimit.New(rdb, ks, zerolog.Nop())
+	app := fiber.New(fiber.Config{ErrorHandler: httpx.ErrorHandler(zerolog.Nop())})
+	app.Post("/v1/auth/login", l.Middleware(true, ratelimit.Rule{
+		Bucket: ratelimit.LoginIP, By: func(c fiber.Ctx) string { return ratelimit.IPSubject(c.Get("X-Test-IP")) },
+	}), func(c fiber.Ctx) error { return c.SendStatus(204) })
+	denied := 0
+	for i := range 50 {
+		if code, _, _ := post(t, app, fmt.Sprintf("2001:db8:1234:5678::%x", i+1)); code == 429 {
+			denied++
+		}
+	}
+	if denied != 40 {
+		t.Fatalf("%d of 50 requests from one /64 denied, want 40 (10/min)", denied)
+	}
+	if code, _, _ := post(t, app, "2001:db8:1234:5679::1"); code != 204 {
+		t.Fatalf("the neighbouring /64 was limited: %d", code)
 	}
 }
 

@@ -7,9 +7,15 @@
 //
 // Concurrency: idem:lock:{userId}:{key} (SET NX PX 30000) turns a concurrent duplicate away early,
 // and the in_progress row of idempotency_keys is the durable claim, so a Redis outage degrades to
-// PostgreSQL alone and never executes a request twice. A request that ends in anything but 2xx
-// committed nothing: its claim is released and the client may retry with the same key. The durable
-// natural keys (client_op_id, R63) stay the last line of defence after IDEMPOTENCY_TTL.
+// PostgreSQL alone. Both last LockTTL (30 s); an in_progress row older than that is taken over, as
+// its holder is presumed dead. So that a live holder is never taken over, the route runs under a
+// deadline of HandlerBudget (25 s) counted from before the lock and the claim: ✱ handlers do their
+// work under c.Context(), so a request that cannot finish in time has its database work cancelled
+// and rolled back, and its claim released, before the lease ends. A handler that ignores its context
+// and outlives the lease can run a second time for a retry; the route's natural key (client_op_id,
+// R63) then decides, and the late response is not stored over the newer one (ErrTakenOver). A request
+// that ends in anything but 2xx committed nothing: its claim is released and the client may retry
+// with the same key. The natural keys stay the last line of defence after IDEMPOTENCY_TTL.
 package idempotency
 
 import (
@@ -44,8 +50,14 @@ const (
 	LockTTL = 30 * time.Second // idem:lock and the takeover age of an abandoned in_progress row
 )
 
-// redisTimeout bounds each Redis call: a slow Redis costs a request at most this long before the
-// middleware carries on with PostgreSQL alone.
+// HandlerBudget is how long a route may run behind the middleware with the default LockTTL: the lease
+// minus a sixth of it, kept for storing the response (the budget is LockTTL - LockTTL/6 when tests
+// shorten the lease).
+const HandlerBudget = LockTTL - LockTTL/6
+
+// redisTimeout bounds each Redis call (the client honours context deadlines, cache.Open). After the
+// first Redis failure a request skips Redis, so a slow or hung Redis costs it at most this long before
+// the middleware carries on with PostgreSQL alone.
 const redisTimeout = 300 * time.Millisecond
 
 // Config is IDEMPOTENCY_TTL (main spec §16.1).
@@ -150,20 +162,20 @@ func (m *Middleware) Handler() fiber.Handler {
 		}
 		fp := Fingerprint(c.Method(), c.OriginalURL(), c.Body())
 		ctx := c.Context()
+		// The leases (Redis lock, durable claim) start after this instant, so the route's deadline,
+		// counted from here, ends before either can be taken over.
+		deadline := time.Now().Add(m.o.LockTTL - m.o.LockTTL/6)
+		r := &request{m: m, scope: scope, key: key, redis: m.o.Redis != nil}
 
 		// 1. Hot copy.
-		if rec, ok := m.hotGet(ctx, scope, key); ok {
+		if rec, ok := r.hotGet(ctx); ok {
 			return m.replay(c, rec, fp, "replayed_redis")
 		}
 		// 2. In-flight lock; when Redis fails the durable claim below is the only guard.
-		token := uuid.NewString()
-		locked, lockErr := m.lock(ctx, scope, key, token)
-		if lockErr == nil && !locked {
+		if locked, ok := r.lock(ctx); ok && !locked {
 			return m.inFlight(c)
 		}
-		if locked {
-			defer m.unlock(scope, key, token)
-		}
+		defer r.unlock()
 		// 3. Durable claim.
 		for range 3 {
 			claimedAt, ok, err := m.o.Store.Claim(ctx, scope, key, fp, m.o.TTL, m.o.LockTTL)
@@ -171,7 +183,7 @@ func (m *Middleware) Handler() fiber.Handler {
 				return httpx.ErrUnavailable("idempotency store unavailable").Wrap(err)
 			}
 			if ok {
-				return m.execute(c, scope, key, fp, claimedAt)
+				return m.execute(c, r, fp, claimedAt, deadline)
 			}
 			row, found, err := m.o.Store.Get(ctx, scope, key)
 			if err != nil {
@@ -181,7 +193,7 @@ func (m *Middleware) Handler() fiber.Handler {
 				continue // expired or released between the two statements: claim again
 			}
 			if row.Completed {
-				m.hotSet(scope, key, row.Record, time.Until(row.ExpiresAt))
+				r.hotSet(row.Record, time.Until(row.ExpiresAt))
 				return m.replay(c, row.Record, fp, "replayed_postgres")
 			}
 			if row.Record.Fingerprint != fp {
@@ -208,32 +220,45 @@ func (m *Middleware) replay(c fiber.Ctx, rec Record, fp, outcome string) error {
 	return c.Status(rec.Status).Send(rec.Bytes())
 }
 
-// execute runs the route and records a 2xx response; anything else (an error, a non-2xx status, a
-// streamed body or a panic) releases the claim.
-func (m *Middleware) execute(c fiber.Ctx, scope, key, fp string, claimedAt time.Time) error {
+// execute runs the route under the deadline and records a 2xx response; anything else (an error, a
+// non-2xx status, a streamed body or a panic) releases the claim.
+func (m *Middleware) execute(c fiber.Ctx, r *request, fp string, claimedAt, deadline time.Time) error {
 	settled := false
 	defer func() {
 		if !settled { // panic: release, then let the recover middleware answer
-			m.release(scope, key, claimedAt)
+			m.release(r.scope, r.key, claimedAt)
 		}
 	}()
+	parent := c.Context()
+	hctx, cancel := context.WithDeadline(parent, deadline)
+	defer cancel()
+	c.SetContext(hctx)
 	err := c.Next()
+	c.SetContext(parent)
 	status := c.Response().StatusCode()
 	if err != nil || status < 200 || status > 299 || c.Response().IsBodyStream() {
 		settled = true
-		m.release(scope, key, claimedAt)
+		m.release(r.scope, r.key, claimedAt)
 		return err
 	}
 	rec := NewRecord(fp, status, string(c.Response().Header.ContentType()), c.Response().Body())
 	settled = true
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(c.Context()), 5*time.Second)
-	defer cancel()
-	if err := m.o.Store.Complete(ctx, scope, key, claimedAt, rec); err != nil {
+	ctx, cancelStore := context.WithTimeout(context.WithoutCancel(parent), 5*time.Second)
+	defer cancelStore()
+	if err := m.o.Store.Complete(ctx, r.scope, r.key, claimedAt, rec); err != nil {
+		if errors.Is(err, ErrTakenOver) {
+			// This request outlived its lease and a retry took the key over: the retry owns the key
+			// and stores its own response, so this one is stored nowhere (no hot copy either, which
+			// would disagree with the durable one).
+			m.metrics.outcomes.WithLabelValues("taken_over").Inc()
+			m.log(parent).Error().Err(err).Str("component", "idempotency").Msg("the claim was taken over while the route ran; response not stored")
+			return nil
+		}
 		// The response still goes out. The in_progress row turns stale after LockTTL; a replay then
 		// runs again and meets the route's own natural key (client_op_id, R63).
-		m.log(c.Context()).Error().Err(err).Str("component", "idempotency").Msg("could not store the response")
+		m.log(parent).Error().Err(err).Str("component", "idempotency").Msg("could not store the response")
 	}
-	m.hotSet(scope, key, rec, m.o.TTL)
+	r.hotSet(rec, m.o.TTL)
 	m.metrics.outcomes.WithLabelValues("executed").Inc()
 	return nil
 }
@@ -259,16 +284,30 @@ func (m *Middleware) redisFailed(op string, err error) {
 	m.o.Log.Warn().Err(err).Str("component", "idempotency").Str("op", op).Msg("redis unavailable, using PostgreSQL only")
 }
 
-func (m *Middleware) hotGet(ctx context.Context, scope, key string) (Record, bool) {
-	if m.o.Redis == nil {
+// request carries one request's Redis state: after the first Redis failure the rest of the request
+// skips Redis, so a hung Redis costs it one redisTimeout.
+type request struct {
+	m          *Middleware
+	scope, key string
+	redis      bool   // Redis configured and not failed in this request
+	token      string // lock token while the lock is held
+}
+
+func (r *request) failed(op string, err error) {
+	r.redis = false
+	r.m.redisFailed(op, err)
+}
+
+func (r *request) hotGet(ctx context.Context) (Record, bool) {
+	if !r.redis {
 		return Record{}, false
 	}
 	ctx, cancel := context.WithTimeout(ctx, redisTimeout)
 	defer cancel()
-	b, err := m.o.Redis.Get(ctx, m.o.Keys.IdemHTTP(scope, key)).Bytes()
+	b, err := r.m.o.Redis.Get(ctx, r.m.o.Keys.IdemHTTP(r.scope, r.key)).Bytes()
 	if err != nil {
 		if !errors.Is(err, redis.Nil) {
-			m.redisFailed("get", err)
+			r.failed("get", err)
 		}
 		return Record{}, false
 	}
@@ -280,11 +319,11 @@ func (m *Middleware) hotGet(ctx context.Context, scope, key string) (Record, boo
 }
 
 // hotSet stores the hot copy for min(HotTTL, remaining durable life).
-func (m *Middleware) hotSet(scope, key string, rec Record, remaining time.Duration) {
-	if m.o.Redis == nil {
+func (r *request) hotSet(rec Record, remaining time.Duration) {
+	if !r.redis {
 		return
 	}
-	ttl := min(m.o.HotTTL, remaining)
+	ttl := min(r.m.o.HotTTL, remaining)
 	if ttl <= 0 {
 		return
 	}
@@ -294,22 +333,28 @@ func (m *Middleware) hotSet(scope, key string, rec Record, remaining time.Durati
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), redisTimeout)
 	defer cancel()
-	if err := m.o.Redis.Set(ctx, m.o.Keys.IdemHTTP(scope, key), b, ttl).Err(); err != nil {
-		m.redisFailed("set", err)
+	if err := r.m.o.Redis.Set(ctx, r.m.o.Keys.IdemHTTP(r.scope, r.key), b, ttl).Err(); err != nil {
+		r.failed("set", err)
 	}
 }
 
-func (m *Middleware) lock(ctx context.Context, scope, key, token string) (bool, error) {
-	if m.o.Redis == nil {
-		return false, errors.New("idempotency: no redis")
+// lock takes the in-flight lock; ok is false when Redis did not answer (the durable claim decides).
+func (r *request) lock(ctx context.Context) (locked, ok bool) {
+	if !r.redis {
+		return false, false
 	}
 	ctx, cancel := context.WithTimeout(ctx, redisTimeout)
 	defer cancel()
-	ok, err := m.o.Redis.SetNX(ctx, m.o.Keys.IdemLock(scope, key), token, m.o.LockTTL).Result()
+	token := uuid.NewString()
+	locked, err := r.m.o.Redis.SetNX(ctx, r.m.o.Keys.IdemLock(r.scope, r.key), token, r.m.o.LockTTL).Result()
 	if err != nil {
-		m.redisFailed("lock", err)
+		r.failed("lock", err)
+		return false, false
 	}
-	return ok, err
+	if locked {
+		r.token = token
+	}
+	return locked, true
 }
 
 // unlockScript deletes the lock only while it still holds this request's token.
@@ -319,11 +364,14 @@ if redis.call('GET', KEYS[1]) == ARGV[1] then
 end
 return 0`)
 
-func (m *Middleware) unlock(scope, key, token string) {
+func (r *request) unlock() {
+	if r.token == "" || !r.redis {
+		return // not held, or Redis failed meanwhile: the lock expires after LockTTL
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), redisTimeout)
 	defer cancel()
-	if err := unlockScript.Run(ctx, m.o.Redis, []string{m.o.Keys.IdemLock(scope, key)}, token).Err(); err != nil {
-		m.redisFailed("unlock", err)
+	if err := unlockScript.Run(ctx, r.m.o.Redis, []string{r.m.o.Keys.IdemLock(r.scope, r.key)}, r.token).Err(); err != nil {
+		r.failed("unlock", err)
 	}
 }
 
@@ -336,7 +384,7 @@ func newMetrics() *metrics {
 	return &metrics{
 		outcomes: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "idempotency_requests_total",
-			Help: "Idempotency-Key requests by outcome (executed, replayed_redis, replayed_postgres, conflict, in_flight, released).",
+			Help: "Idempotency-Key requests by outcome (executed, replayed_redis, replayed_postgres, conflict, in_flight, released, taken_over).",
 		}, []string{"outcome"}),
 		redisErrors: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "idempotency_redis_errors_total",

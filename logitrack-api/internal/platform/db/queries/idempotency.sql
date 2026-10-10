@@ -36,7 +36,12 @@ DELETE FROM idempotency_keys
  WHERE scope = @scope AND key = @key AND status = 'in_progress' AND created_at = @claimed_at;
 
 -- name: IdempotencyPrune :execrows
--- idempotency.prune (scheduler, Appendix B §B.5.6): deletes up to batch_size expired rows.
+-- idempotency.prune (scheduler, Appendix B §B.5.6): deletes up to batch_size expired rows. Rows a live
+-- claim is taking over are skipped (SKIP LOCKED), and the expiry is tested on the target row as well:
+-- after a lock wait PostgreSQL rechecks only the outer WHERE against the newest row version, so a row
+-- re-claimed meanwhile (expires_at moved forward) is never deleted.
 DELETE FROM idempotency_keys
  WHERE (scope, key) IN (SELECT i.scope, i.key FROM idempotency_keys AS i
-                         WHERE i.expires_at <= now() ORDER BY i.expires_at LIMIT @batch_size::int);
+                         WHERE i.expires_at <= now() ORDER BY i.expires_at LIMIT @batch_size::int
+                         FOR UPDATE SKIP LOCKED)
+   AND expires_at <= now();

@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"errors"
 	"maps"
 	"time"
 
@@ -23,26 +24,34 @@ type HubMaps struct {
 const hashSentinel = ""
 
 // HubMaps is the read-through cache of the two hub maps (TTL CACHE_TTL_HUBS). Both hashes must be
-// present for a hit; otherwise load runs and both are rewritten in one MULTI. When Redis fails the
-// loader answers. Under MoneyPath it returns ErrMoneyPath.
+// present for a hit; otherwise load runs and both are rewritten in one MULTI, unless the hubs family
+// was invalidated while load ran. When Redis fails the loader answers. Under MoneyPath it returns
+// ErrMoneyPath.
 func (c *Cache) HubMaps(ctx context.Context, load func(context.Context) (HubMaps, error)) (HubMaps, error) {
 	if IsMoneyPath(ctx) {
 		return HubMaps{}, ErrMoneyPath
 	}
 	n2cKey, c2nKey := c.ks.HubsNameToCode(), c.ks.HubsCodeToName()
+	mark := c.l1.mark()
 	if v, ok := c.l1.get(n2cKey); ok {
 		if m, ok := v.(HubMaps); ok {
 			c.metrics.lookups.WithLabelValues("l1").Inc()
 			return m.clone(), nil
 		}
 	}
+	gen := c.genKey(n2cKey)
 	var n2c, c2n *redis.MapStringStringCmd
-	_, err := c.rdb.Pipelined(ctx, func(p redis.Pipeliner) error {
-		n2c = p.HGetAll(ctx, n2cKey)
-		c2n = p.HGetAll(ctx, c2nKey)
-		return nil
+	var seen *redis.StringCmd
+	err := c.call(ctx, func(ctx context.Context) error {
+		_, err := c.rdb.Pipelined(ctx, func(p redis.Pipeliner) error {
+			n2c = p.HGetAll(ctx, n2cKey)
+			c2n = p.HGetAll(ctx, c2nKey)
+			seen = c.readGen(ctx, p, gen)
+			return nil
+		})
+		return err
 	})
-	if err != nil {
+	if err != nil && !errors.Is(err, redis.Nil) {
 		c.redisFailed(ctx, "hgetall", err)
 		c.metrics.lookups.WithLabelValues("error").Inc()
 		return load(ctx)
@@ -52,7 +61,7 @@ func (c *Cache) HubMaps(ctx context.Context, load func(context.Context) (HubMaps
 		delete(b, hashSentinel)
 		m := HubMaps{NameToCode: a, CodeToName: b}
 		c.metrics.lookups.WithLabelValues("hit").Inc()
-		c.l1.put(n2cKey, m.clone(), n2cKey, c2nKey)
+		c.l1.put(mark, n2cKey, m.clone(), n2cKey, c2nKey)
 		return m, nil
 	}
 	c.metrics.lookups.WithLabelValues("miss").Inc()
@@ -62,16 +71,17 @@ func (c *Cache) HubMaps(ctx context.Context, load func(context.Context) (HubMaps
 	}
 	m = m.normalised()
 	ttl := c.ttl.Hubs
-	_, err = c.rdb.TxPipelined(ctx, func(p redis.Pipeliner) error {
+	stored, err := c.storeIfCurrent(ctx, gen, genValue(seen), func(ctx context.Context, p redis.Pipeliner) {
 		writeHash(ctx, p, n2cKey, m.NameToCode, ttl)
 		writeHash(ctx, p, c2nKey, m.CodeToName, ttl)
-		return nil
 	})
 	if err != nil {
 		c.redisFailed(ctx, "hset", err)
 		return m, nil
 	}
-	c.l1.put(n2cKey, m.clone(), n2cKey, c2nKey)
+	if stored {
+		c.l1.put(mark, n2cKey, m.clone(), n2cKey, c2nKey)
+	}
 	return m, nil
 }
 

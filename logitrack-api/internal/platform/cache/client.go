@@ -23,7 +23,10 @@ type Options struct {
 
 // Open builds a client and the keyspace without dialling: the first command connects, so a process
 // starts while Redis is still coming up and reports it through its readiness check. The client
-// carries the money-path guard (MoneyPath).
+// carries the money-path guard (MoneyPath) and honours context deadlines (ContextTimeoutEnabled), so a
+// caller's context.WithTimeout bounds every call even when Redis accepts connections but never
+// answers; without a deadline a call waits at most ReadTimeout (1 s by default) per try, with one
+// retry.
 func Open(o Options) (*redis.Client, Keyspace, error) {
 	ks, err := ParseKeyspace(o.Prefix, o.AppEnv)
 	if err != nil {
@@ -36,13 +39,30 @@ func Open(o Options) (*redis.Client, Keyspace, error) {
 	if o.TLS && ropts.TLSConfig == nil {
 		ropts.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	}
-	// An unreachable Redis must fail fast: every caller here has a PostgreSQL or fail-open fallback.
-	// URL query parameters (dial_timeout, ...) still win.
+	// An unreachable or hung Redis must fail fast: every caller here has a PostgreSQL or fail-open
+	// fallback and bounds its calls with a context deadline (300 ms in the rate limiter and the
+	// idempotency middleware, callTimeout here). go-redis ignores context deadlines on socket reads and
+	// writes unless ContextTimeoutEnabled is set; it would then wait ReadTimeout (5 s) per try, three
+	// retries, so a Redis that accepts connections but never answers would stall every request.
+	// URL query parameters (dial_timeout, read_timeout, max_retries, ...) still win.
+	ropts.ContextTimeoutEnabled = true
 	if ropts.DialTimeout == 0 {
 		ropts.DialTimeout = 2 * time.Second
 	}
 	if ropts.DialerRetries == 0 {
 		ropts.DialerRetries = 2
+	}
+	if ropts.ReadTimeout == 0 { // also bounds calls made without a deadline
+		ropts.ReadTimeout = time.Second
+	}
+	if ropts.WriteTimeout == 0 {
+		ropts.WriteTimeout = time.Second
+	}
+	if ropts.PoolTimeout == 0 {
+		ropts.PoolTimeout = time.Second
+	}
+	if ropts.MaxRetries == 0 {
+		ropts.MaxRetries = 1
 	}
 	rdb := redis.NewClient(ropts)
 	Guard(rdb)

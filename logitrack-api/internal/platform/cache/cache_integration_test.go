@@ -10,9 +10,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -220,8 +222,169 @@ func TestSubtenantsDroppedOnTenantEvents(t *testing.T) {
 	if err := c.OnEvent(ctx, cache.Event{RoutingKey: "tenant.created", AggregateID: "carrier-z"}); err != nil {
 		t.Fatal(err)
 	}
-	if n := len(cachetest.Keys(t, rdb)); n != 0 {
-		t.Fatalf("tenant.created without contractor ids left %d keys", n)
+	if keys := dataKeys(t, rdb, ks); len(keys) != 0 {
+		t.Fatalf("tenant.created without contractor ids left %v", keys)
+	}
+}
+
+// dataKeys lists the keys of the database except the cache:gen counters.
+func dataKeys(t *testing.T, rdb *redis.Client, ks cache.Keyspace) []string {
+	t.Helper()
+	return slices.DeleteFunc(cachetest.Keys(t, rdb), func(k string) bool {
+		return strings.HasPrefix(k, ks.Key(cache.NSCache, "gen")+":")
+	})
+}
+
+// TestEventsInTheSpecShapesDropTheirKeys: the payloads of Appendix B §B.4.3 and the Appendix D EV3
+// fixture. An event that names no billing party drops every key of the family instead of none.
+func TestEventsInTheSpecShapesDropTheirKeys(t *testing.T) {
+	c, rdb := newCache(t)
+	ctx := context.Background()
+	ks := c.Keys()
+	seed := func() {
+		t.Helper()
+		for _, p := range []string{"party-1", "party-2"} {
+			if _, err := c.PeriodLocks(ctx, p, func(context.Context) ([]string, error) { return []string{"2026-08"}, nil }); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := cache.GetJSON(ctx, c, ks.RateCard(p), time.Hour, func(context.Context) (int, error) { return 1, nil }); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, id := range []string{"c1", "c2", "c3"} {
+			if _, err := cache.GetJSON(ctx, c, ks.Customer(id), time.Hour, func(context.Context) (string, error) { return id, nil }); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	raw := func(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
+	exists := func(keys ...string) int64 { return rdb.Exists(ctx, keys...).Val() }
+	for _, tc := range []struct {
+		name      string
+		ev        cache.Event
+		gone      []string
+		untouched []string
+	}{
+		{"statement.status_changed {statementId, status}", cache.Event{RoutingKey: "statement.status_changed", AggregateID: "st-1",
+			Payload: raw(map[string]string{"statementId": "st-1", "status": "sent"})},
+			[]string{ks.PeriodLocks("party-1"), ks.PeriodLocks("party-2")}, []string{ks.RateCard("party-1")}},
+		{"statement.created EV3", cache.Event{RoutingKey: "statement.created", AggregateID: "@ST3",
+			Payload: raw(map[string]string{"statementId": "@ST3", "invoiceNumber": "CJSF-202608-001"})},
+			[]string{ks.PeriodLocks("party-1"), ks.PeriodLocks("party-2")}, nil},
+		{"statement with billingPartyId", cache.Event{RoutingKey: "statement.status_changed", AggregateID: "st-1",
+			Payload: raw(map[string]string{"billingPartyId": "party-1", "statementId": "st-1", "status": "paid"})},
+			[]string{ks.PeriodLocks("party-1")}, []string{ks.PeriodLocks("party-2")}},
+		{"ratecard.changed {customerId, table}", cache.Event{RoutingKey: "ratecard.changed", AggregateID: "rc_1760000000000",
+			Payload: raw(map[string]string{"customerId": "cust-uuid", "table": "entries"})},
+			[]string{ks.RateCard("party-1"), ks.RateCard("party-2")}, []string{ks.PeriodLocks("party-1")}},
+		{"ratecard with billingPartyId", cache.Event{RoutingKey: "ratecard.changed",
+			Payload: raw(map[string]string{"billingPartyId": "party-2", "customerId": "cust-uuid", "table": "fuelAdj"})},
+			[]string{ks.RateCard("party-2")}, []string{ks.RateCard("party-1")}},
+		{"customers.changed {ids[]}", cache.Event{RoutingKey: "customers.changed", Payload: raw(map[string]any{"ids": []string{"c1", "c2"}})},
+			[]string{ks.Customer("c1"), ks.Customer("c2")}, []string{ks.Customer("c3")}},
+	} {
+		rdb.FlushDB(ctx)
+		seed()
+		if err := c.OnEvent(ctx, tc.ev); err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if n := exists(tc.gone...); n != 0 {
+			t.Errorf("%s: %d of %v survived", tc.name, n, tc.gone)
+		}
+		if len(tc.untouched) > 0 && exists(tc.untouched...) != int64(len(tc.untouched)) {
+			t.Errorf("%s: dropped one of %v", tc.name, tc.untouched)
+		}
+	}
+}
+
+// TestReaderThatLoadedBeforeTheCommitDoesNotStoreIt: a reader misses, loads the old value from
+// PostgreSQL, and is still loading when the writer commits, runs its post-commit Invalidate and the
+// relay's OnEvent. Its value must not be stored: the next read loads the committed value at once.
+func TestReaderThatLoadedBeforeTheCommitDoesNotStoreIt(t *testing.T) {
+	ctx := context.Background()
+	raw := func(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
+	type rates struct{ Rate int }
+	cases := []struct {
+		name string
+		// read reads through with load; returns what it got.
+		read func(c *cache.Cache, load func() int) (int, error)
+		// event is the outbox event of the change.
+		event cache.Event
+	}{
+		{"GetJSON ratecard", func(c *cache.Cache, load func() int) (int, error) {
+			v, err := cache.GetJSON(ctx, c, c.Keys().RateCard("p1"), time.Hour, func(context.Context) (rates, error) { return rates{load()}, nil })
+			return v.Rate, err
+		}, cache.Event{RoutingKey: "ratecard.changed", Payload: raw(map[string]string{"billingPartyId": "p1"})}},
+		{"Subtenants (RLS reach)", func(c *cache.Cache, load func() int) (int, error) {
+			ids, err := c.Subtenants(ctx, "own", func(context.Context) ([]string, error) { return []string{strconv.Itoa(load())}, nil })
+			if err != nil || len(ids) != 1 {
+				return 0, err
+			}
+			return strconv.Atoi(ids[0])
+		}, cache.Event{RoutingKey: "tenant.updated", Payload: raw(map[string]string{"contractorTenantId": "own"})}},
+		{"HubMaps", func(c *cache.Cache, load func() int) (int, error) {
+			m, err := c.HubMaps(ctx, func(context.Context) (cache.HubMaps, error) {
+				v := strconv.Itoa(load())
+				return cache.HubMaps{NameToCode: map[string]string{"n": v}, CodeToName: map[string]string{v: "n"}}, nil
+			})
+			if err != nil {
+				return 0, err
+			}
+			return strconv.Atoi(m.NameToCode["n"])
+		}, cache.Event{RoutingKey: "hubs.changed"}},
+		{"PeriodLocks", func(c *cache.Cache, load func() int) (int, error) {
+			got, err := c.PeriodLocks(ctx, "p1", func(context.Context) ([]string, error) {
+				return []string{fmt.Sprintf("2026-%02d", load())}, nil
+			})
+			if err != nil || len(got) != 1 {
+				return 0, err
+			}
+			return strconv.Atoi(strings.TrimPrefix(got[0], "2026-"))
+		}, cache.Event{RoutingKey: "statement.status_changed", Payload: raw(map[string]string{"statementId": "s1", "status": "sent"})}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := newCache(t)
+			var committed atomic.Int32
+			committed.Store(8)
+			loading, release := make(chan struct{}), make(chan struct{})
+			slow := func() int {
+				v := int(committed.Load()) // the snapshot before the commit
+				close(loading)
+				<-release
+				return v
+			}
+			first := make(chan int, 1)
+			go func() {
+				v, err := tc.read(c, slow)
+				if err != nil {
+					t.Error(err)
+				}
+				first <- v
+			}()
+			<-loading
+			// The writer commits, runs its post-commit hook, and the relay hands over the event later.
+			committed.Store(9)
+			if err := c.OnEvent(ctx, tc.event); err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(50 * time.Millisecond)
+			if err := c.OnEvent(ctx, tc.event); err != nil {
+				t.Fatal(err)
+			}
+			close(release)
+			if v := <-first; v != 8 {
+				t.Fatalf("the slow reader got %d, want its own snapshot 8", v)
+			}
+			var loads atomic.Int32
+			v, err := tc.read(c, func() int { loads.Add(1); return int(committed.Load()) })
+			if err != nil || v != 9 || loads.Load() != 1 {
+				t.Fatalf("next read: %d (loads %d, err %v), want the committed 9 loaded again", v, loads.Load(), err)
+			}
+			if v, _ := tc.read(c, func() int { t.Error("loaded again"); return 0 }); v != 9 {
+				t.Fatalf("cached value %d, want 9", v)
+			}
+		})
 	}
 }
 

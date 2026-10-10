@@ -25,6 +25,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache/cachetest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db/dbq"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db/pgtest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/idempotency"
@@ -308,5 +309,135 @@ func TestExpiredAndAbandonedRows(t *testing.T) {
 	}
 	if _, ok, _ := store.Claim(ctx, user, opID, fp, time.Hour, idempotency.LockTTL); !ok {
 		t.Fatal("the key is not free after prune")
+	}
+}
+
+// TestPruneSkipsARowBeingReclaimed: a Claim taking over an expired row while prune runs keeps its
+// fresh claim (prune skips the locked row, and rechecks the expiry on the target row).
+func TestPruneSkipsARowBeingReclaimed(t *testing.T) {
+	pool, super := appPool(t)
+	ctx := context.Background()
+	store := idempotency.NewPGStore(pool)
+	fp := idempotency.Fingerprint("POST", "/x", nil)
+	if _, err := super.Exec(ctx, `INSERT INTO idempotency_keys (scope, key, request_hash, status, created_at, expires_at)
+	                               VALUES ($1, $2, 'h', 'in_progress', now() - interval '2 days', now() - interval '1 day')`, user, opID); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	at, err := dbq.New(tx).IdempotencyClaim(ctx, dbq.IdempotencyClaimParams{
+		Scope: user, Key: opID, RequestHash: fp, TtlSeconds: time.Hour.Seconds(), LockSeconds: idempotency.LockTTL.Seconds(),
+	})
+	if err != nil {
+		t.Fatal(err) // the takeover of the expired row, not committed yet
+	}
+	pruned := make(chan int64, 1)
+	go func() {
+		n, err := store.Prune(ctx, 10)
+		if err != nil {
+			t.Error(err)
+		}
+		pruned <- n
+	}()
+	select {
+	case n := <-pruned:
+		if n != 0 {
+			t.Fatalf("prune deleted %d rows, want 0 (the only expired row is being re-claimed)", n)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("prune waited on the row a claim holds")
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if row, found, err := store.Get(ctx, user, opID); err != nil || !found || row.Completed {
+		t.Fatalf("the fresh claim after prune: %+v %v %v", row, found, err)
+	}
+	if err := store.Complete(ctx, user, opID, at.Time, idempotency.NewRecord(fp, 201, "", []byte(`{}`))); err != nil {
+		t.Fatalf("Complete of the fresh claim: %v", err)
+	}
+}
+
+// TestBodyWithNULIsStoredDurably: jsonb rejects \u0000, so such a body travels as base64 and still
+// replays byte for byte from PostgreSQL.
+func TestBodyWithNULIsStoredDurably(t *testing.T) {
+	pool, _ := appPool(t)
+	ctx := context.Background()
+	store := idempotency.NewPGStore(pool)
+	fp := idempotency.Fingerprint("POST", "/x", nil)
+	at, ok, err := store.Claim(ctx, user, opID, fp, time.Hour, idempotency.LockTTL)
+	if err != nil || !ok {
+		t.Fatalf("claim: %v %v", ok, err)
+	}
+	body := []byte("a\x00b ไทย")
+	if err := store.Complete(ctx, user, opID, at, idempotency.NewRecord(fp, 200, "text/plain", body)); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	row, found, err := store.Get(ctx, user, opID)
+	if err != nil || !found || !row.Completed || !bytes.Equal(row.Record.Bytes(), body) {
+		t.Fatalf("stored: %+v %v %v", row, found, err)
+	}
+}
+
+// TestLateResponseIsNotStoredOverTheTakeover: a route that ignores its context and outlives the lease
+// (1 s here, 30 s in production) loses its claim to a retry; when it finally ends, its response is
+// stored nowhere, so Redis and PostgreSQL hold the same (the retry's) response.
+func TestLateResponseIsNotStoredOverTheTakeover(t *testing.T) {
+	pool, super := appPool(t)
+	rdb, ks := cachetest.NewClient(t)
+	ctx := context.Background()
+	m, err := idempotency.New(idempotency.Options{
+		Redis: rdb, Keys: ks, Store: idempotency.NewPGStore(pool), TTL: 168 * time.Hour, LockTTL: time.Second,
+		Scope: func(fiber.Ctx) string { return user }, Log: zerolog.Nop(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls atomic.Int32
+	app := fiber.New(fiber.Config{ErrorHandler: httpx.ErrorHandler(zerolog.Nop())})
+	app.Post("/w", m.Handler(), func(c fiber.Ctx) error {
+		n := calls.Add(1)
+		if n == 1 {
+			time.Sleep(2500 * time.Millisecond) // ignores c.Context(): the case the deadline cannot stop
+		}
+		return httpx.JSON(c, 201, map[string]int32{"run": n})
+	})
+	send := func() []byte {
+		req := httptest.NewRequest("POST", "/w", strings.NewReader(`{}`))
+		req.Header.Set(idempotency.Header, opID)
+		resp, err := app.Test(req, fiber.TestConfig{Timeout: 10 * time.Second})
+		if err != nil {
+			t.Error(err)
+			return nil
+		}
+		defer func() { _ = resp.Body.Close() }()
+		b, _ := io.ReadAll(resp.Body)
+		return b
+	}
+	late := make(chan []byte)
+	go func() { late <- send() }()
+	time.Sleep(1500 * time.Millisecond) // past the lease
+	if b := send(); string(b) != `{"data":{"run":2}}` {
+		t.Fatalf("takeover: %s", b)
+	}
+	if b := <-late; string(b) != `{"data":{"run":1}}` {
+		t.Fatalf("late request: %s", b)
+	}
+	var hot idempotency.Record
+	if err := json.Unmarshal([]byte(rdb.Get(ctx, ks.IdemHTTP(user, opID)).Val()), &hot); err != nil {
+		t.Fatal(err)
+	}
+	var durable []byte
+	if err := super.QueryRow(ctx, `SELECT response_body->>'body' FROM idempotency_keys WHERE scope = $1 AND key = $2`, user, opID).Scan(&durable); err != nil {
+		t.Fatal(err)
+	}
+	if hot.Body != `{"data":{"run":2}}` || string(durable) != `{"data":{"run":2}}` {
+		t.Fatalf("Redis holds %q, PostgreSQL %q: both must hold the takeover's response", hot.Body, durable)
+	}
+	if b := send(); string(b) != `{"data":{"run":2}}` || calls.Load() != 2 {
+		t.Fatalf("replay: %s, calls %d", b, calls.Load())
 	}
 }

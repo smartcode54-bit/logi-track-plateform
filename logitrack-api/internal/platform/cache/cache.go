@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -59,6 +60,17 @@ const (
 	MirrorAckTTL   = 10 * time.Minute
 	CustomerTTL    = time.Hour
 	WebFlagsTTL    = time.Minute
+	// GenTTL keeps a cache:gen:{family} counter after its last increment. It only has to outlive the
+	// longest load of a read-through (seconds); a day keeps the handful of counters around.
+	GenTTL = 24 * time.Hour
+)
+
+// Bounds of each Redis round trip (the client honours context deadlines, Open). A slow or hung Redis
+// costs a cached read at most callTimeout before the loader answers, and a write path's post-commit
+// invalidation at most invalidateTimeout (it may SCAN).
+const (
+	callTimeout       = 300 * time.Millisecond
+	invalidateTimeout = time.Second
 )
 
 // Cache serves the cache: namespace of one keyspace.
@@ -122,8 +134,9 @@ func (c *Cache) redisFailed(ctx context.Context, op string, err error) {
 }
 
 // GetJSON is a read-through cache of one string key holding JSON: a hit is decoded, a miss (or an
-// undecodable value) calls load and stores its result for ttl. When Redis fails the loader answers
-// and nothing is stored. Under MoneyPath it returns ErrMoneyPath without calling load.
+// undecodable value) calls load and stores its result for ttl, unless the key's family was
+// invalidated while load ran (storeIfCurrent). When Redis fails the loader answers and nothing is
+// stored. Under MoneyPath it returns ErrMoneyPath without calling load.
 //
 // Values are shared by every caller and tenant: load must read the same data whoever asks (system
 // context), and callers authorise access before they ask. With WithL1 the returned value is also the
@@ -133,26 +146,35 @@ func GetJSON[T any](ctx context.Context, c *Cache, key string, ttl time.Duration
 	if IsMoneyPath(ctx) {
 		return zero, ErrMoneyPath
 	}
+	mark := c.l1.mark()
 	if v, ok := c.l1.get(key); ok {
 		if t, ok := v.(T); ok {
 			c.metrics.lookups.WithLabelValues("l1").Inc()
 			return t, nil
 		}
 	}
-	b, err := c.rdb.Get(ctx, key).Bytes()
-	switch {
-	case err == nil:
-		var t T
-		if json.Unmarshal(b, &t) == nil {
-			c.metrics.lookups.WithLabelValues("hit").Inc()
-			c.l1.put(key, t)
-			return t, nil
-		}
-	case errors.Is(err, redis.Nil):
-	default:
+	gen := c.genKey(key)
+	var val, seen *redis.StringCmd
+	err := c.call(ctx, func(ctx context.Context) error {
+		_, err := c.rdb.Pipelined(ctx, func(p redis.Pipeliner) error {
+			val = p.Get(ctx, key)
+			seen = c.readGen(ctx, p, gen)
+			return nil
+		})
+		return err
+	})
+	if err != nil && !errors.Is(err, redis.Nil) {
 		c.redisFailed(ctx, "get", err)
 		c.metrics.lookups.WithLabelValues("error").Inc()
 		return load(ctx)
+	}
+	if b, err := val.Bytes(); err == nil {
+		var t T
+		if json.Unmarshal(b, &t) == nil {
+			c.metrics.lookups.WithLabelValues("hit").Inc()
+			c.l1.put(mark, key, t)
+			return t, nil
+		}
 	}
 	c.metrics.lookups.WithLabelValues("miss").Inc()
 	t, err := load(ctx)
@@ -163,21 +185,112 @@ func GetJSON[T any](ctx context.Context, c *Cache, key string, ttl time.Duration
 	if err != nil {
 		return zero, fmt.Errorf("cache: encode %T: %w", t, err)
 	}
-	if err := c.rdb.Set(ctx, key, enc, ttl).Err(); err != nil {
+	stored, err := c.storeIfCurrent(ctx, gen, genValue(seen), func(ctx context.Context, p redis.Pipeliner) {
+		p.Set(ctx, key, enc, ttl)
+	})
+	if err != nil {
 		c.redisFailed(ctx, "set", err)
 		return t, nil
 	}
-	c.l1.put(key, t)
+	if stored {
+		c.l1.put(mark, key, t)
+	}
 	return t, nil
+}
+
+// call runs Redis round trips under callTimeout.
+func (c *Cache) call(ctx context.Context, fn func(context.Context) error) error {
+	ctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	return fn(ctx)
+}
+
+// genKey is the cache:gen key guarding key, or "" for a key outside the cache: namespace.
+func (c *Cache) genKey(key string) string {
+	if f := c.ks.cacheFamily(key); f != "" {
+		return c.ks.CacheGen(f)
+	}
+	return ""
+}
+
+// readGen queues the read of a generation counter next to the data read; nil when there is none.
+func (c *Cache) readGen(ctx context.Context, p redis.Pipeliner, gen string) *redis.StringCmd {
+	if gen == "" {
+		return nil
+	}
+	return p.Get(ctx, gen)
+}
+
+// genValue is the generation a read saw ("" when the counter did not exist).
+func genValue(cmd *redis.StringCmd) string {
+	if cmd == nil {
+		return ""
+	}
+	v, err := cmd.Result()
+	if err != nil {
+		return ""
+	}
+	return v
+}
+
+// storeIfCurrent runs write in one MULTI only while the generation counter gen still holds seen, the
+// value read before the loader ran (WATCH gen). Invalidate increments the counter before it deletes,
+// so a reader that loaded before a commit and its post-commit invalidation never writes the old
+// value back; stored is false then, and the next read loads again. Without a counter (a key outside
+// cache:) write runs as it is.
+func (c *Cache) storeIfCurrent(ctx context.Context, gen, seen string, write func(context.Context, redis.Pipeliner)) (stored bool, err error) {
+	ctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	if gen == "" {
+		_, err := c.rdb.TxPipelined(ctx, func(p redis.Pipeliner) error {
+			write(ctx, p)
+			return nil
+		})
+		return err == nil, err
+	}
+	err = c.rdb.Watch(ctx, func(tx *redis.Tx) error {
+		if now, err := tx.Get(ctx, gen).Result(); err != nil && !errors.Is(err, redis.Nil) {
+			return err
+		} else if now != seen {
+			c.metrics.lookups.WithLabelValues("superseded").Inc()
+			return nil // invalidated while loading: the loaded value may be the old one
+		}
+		_, err := tx.TxPipelined(ctx, func(p redis.Pipeliner) error {
+			write(ctx, p)
+			return nil
+		})
+		stored = err == nil
+		return err
+	}, gen)
+	if errors.Is(err, redis.TxFailedErr) { // the counter moved between WATCH and EXEC
+		c.metrics.lookups.WithLabelValues("superseded").Inc()
+		return false, nil
+	}
+	return stored, err
 }
 
 // Invalidate deletes keys and publishes them on rt:cache so every replica drops its in-process
 // copies. Services call it after their transaction commits (post-commit DEL); the outbox relay calls
-// OnEvent for the same change once it relays the event, which closes the window in which a reader
-// that loaded before the commit stores the old value again. The local copies are dropped even when
-// Redis fails; the error is returned for logging and never fails the write that caused it.
+// OnEvent for the same change once it relays the event, a second chance when the first call failed.
+// Each call first increments the cache:gen counter of the keys' families, so a reader that loaded
+// before the commit does not store what it loaded (storeIfCurrent). The local copies are dropped even
+// when Redis fails; the error is returned for logging and never fails the write that caused it.
 func (c *Cache) Invalidate(ctx context.Context, keys ...string) error {
-	if len(keys) == 0 {
+	return c.invalidate(ctx, keys, nil)
+}
+
+// invalidate increments the generation of the families of keys and of the families listed, deletes
+// keys and publishes them.
+func (c *Cache) invalidate(ctx context.Context, keys, families []string) error {
+	families = slices.Clone(families)
+	for _, k := range keys {
+		if f := c.ks.cacheFamily(k); f != "" {
+			families = append(families, f)
+		}
+	}
+	slices.Sort(families)
+	families = slices.Compact(families)
+	if len(keys) == 0 && len(families) == 0 {
 		return nil
 	}
 	c.l1.drop(keys...)
@@ -188,9 +301,17 @@ func (c *Cache) Invalidate(ctx context.Context, keys ...string) error {
 	if err != nil {
 		return err
 	}
+	ctx, cancel := context.WithTimeout(ctx, invalidateTimeout)
+	defer cancel()
 	_, err = c.rdb.Pipelined(ctx, func(p redis.Pipeliner) error {
-		p.Del(ctx, keys...)
-		p.Publish(ctx, c.ks.CacheChannel(), msg)
+		for _, f := range families { // before the DEL: see storeIfCurrent
+			p.Incr(ctx, c.ks.CacheGen(f))
+			p.PExpire(ctx, c.ks.CacheGen(f), GenTTL)
+		}
+		if len(keys) > 0 {
+			p.Del(ctx, keys...)
+			p.Publish(ctx, c.ks.CacheChannel(), msg)
+		}
 		return nil
 	})
 	if err != nil {
@@ -252,7 +373,7 @@ func newMetrics() *metrics {
 	return &metrics{
 		lookups: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "cache_lookups_total",
-			Help: "Read-through cache lookups by result (l1, hit, miss, error).",
+			Help: "Read-through cache lookups by result (l1, hit, miss, error; superseded: a loaded value not stored because its family was invalidated meanwhile).",
 		}, []string{"result"}),
 		errors: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "cache_redis_errors_total",

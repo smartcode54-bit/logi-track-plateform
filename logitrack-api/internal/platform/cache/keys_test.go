@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 )
 
 func mustKeyspace(t *testing.T, env string) Keyspace {
@@ -33,6 +35,7 @@ func allKeys(ks Keyspace) map[string]string {
 		"TenantSubtenants":     ks.TenantSubtenants("t1"),
 		"WebFlags":             ks.WebFlags(),
 		"MirrorAck":            ks.MirrorAck("trips", "d1"),
+		"CacheGen":             ks.CacheGen("ratecard"),
 		"AuthRefresh":          ks.AuthRefresh("ab"),
 		"AuthSessionRevoked":   ks.AuthSessionRevoked("s1"),
 		"AuthUserVersion":      ks.AuthUserVersion("u1"),
@@ -60,7 +63,7 @@ func allKeys(ks Keyspace) map[string]string {
 }
 
 func TestEveryKeyIsUnderThePrefixAndAListedNamespace(t *testing.T) {
-	for _, env := range AppEnvs {
+	for _, env := range config.AppEnvs {
 		ks := mustKeyspace(t, env)
 		for name, key := range allKeys(ks) {
 			if !strings.HasPrefix(key, "lt:"+env+":") {
@@ -82,6 +85,7 @@ func TestSpecKeyShapes(t *testing.T) {
 		"PeriodLocks":        "lt:prod:cache:period_locks:p1",
 		"TenantSubtenants":   "lt:prod:cache:tenant:subtenants:t1",
 		"MirrorAck":          "lt:prod:cache:mirror_ack:trips:d1",
+		"CacheGen":           "lt:prod:cache:gen:ratecard",
 		"AuthPasswordChange": "lt:prod:auth:pwchg:x",
 		"AuthFirebaseUID":    "lt:prod:auth:fbuid:f",
 		"IdemHTTP":           "lt:prod:idem:http:u1:k",
@@ -154,40 +158,84 @@ func TestZeroKeyspacePanics(t *testing.T) {
 	_ = Keyspace{}.HubsAll()
 }
 
-func TestKeysForEvents(t *testing.T) {
+func TestStaleForEvents(t *testing.T) {
 	c := New(nil, mustKeyspace(t, "local"))
 	ks := c.Keys()
 	raw := func(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
+	sweep := func(parts ...string) []string { return []string{ks.Pattern(NSCache, parts...)} }
 	cases := []struct {
-		ev   Event
-		want []string
+		name  string
+		ev    Event
+		keys  []string
+		sweep []string
 	}{
-		{Event{RoutingKey: "hubs.changed"}, []string{ks.HubsAll(), ks.HubsCodeToName(), ks.HubsNameToCode()}},
-		{Event{RoutingKey: "ratecard.changed", AggregateID: "p1"}, []string{ks.RateCard("p1")}},
-		{Event{RoutingKey: "ratecard.changed", AggregateID: "x", Payload: raw(map[string]string{"billingPartyId": "p2"})}, []string{ks.RateCard("p2")}},
-		{Event{RoutingKey: "customers.changed", AggregateID: "c1"}, []string{ks.Customer("c1")}},
-		{Event{RoutingKey: "settings.changed", AggregateID: "mobile_app"}, []string{ks.Settings("mobile_app")}},
-		{Event{RoutingKey: "statement.status_changed", AggregateID: "s1", Payload: raw(map[string]string{"billingPartyId": "p1"})}, []string{ks.PeriodLocks("p1")}},
-		{Event{RoutingKey: "statement.created", AggregateID: "s1"}, nil},
-		{Event{RoutingKey: "tenant.updated", AggregateID: "t9", Payload: raw(map[string]string{"contractorTenantId": "t1", "previousContractorTenantId": "t2"})},
-			[]string{ks.TenantOwnFleet(), ks.TenantSubtenants("t1"), ks.TenantSubtenants("t2")}},
-		{Event{RoutingKey: "tenant.created", AggregateID: "t9"}, []string{ks.TenantOwnFleet()}},
-		{Event{RoutingKey: "trip.delivered", AggregateID: "x"}, nil},
+		{"hubs", Event{RoutingKey: "hubs.changed", Payload: raw(map[string]any{"ids": []string{"h1"}})},
+			[]string{ks.HubsAll(), ks.HubsCodeToName(), ks.HubsNameToCode()}, nil},
+		// Appendix B §B.4.3 shapes: the payload names the billing party.
+		{"ratecard with party", Event{RoutingKey: "ratecard.changed", AggregateID: "rc_1760000000000",
+			Payload: raw(map[string]string{"billingPartyId": "p2", "customerId": "cust-uuid", "table": "entries"})},
+			[]string{ks.RateCard("p2")}, nil},
+		// No party in the payload: aggregate_id is not the party id, so every rate card goes.
+		{"ratecard without party", Event{RoutingKey: "ratecard.changed", AggregateID: "rc_1760000000000",
+			Payload: raw(map[string]string{"customerId": "cust-uuid", "table": "entries"})}, nil, sweep("ratecard")},
+		{"customers ids", Event{RoutingKey: "customers.changed", Payload: raw(map[string]any{"ids": []string{"c1", "c2"}})},
+			[]string{ks.Customer("c1"), ks.Customer("c2")}, nil},
+		{"customers aggregate", Event{RoutingKey: "customers.changed", AggregateID: "c1"}, []string{ks.Customer("c1")}, nil},
+		{"customers nothing", Event{RoutingKey: "customers.changed"}, nil, sweep("customer")},
+		{"settings key", Event{RoutingKey: "settings.changed", AggregateID: "x", Payload: raw(map[string]string{"key": "mobile_app"})},
+			[]string{ks.Settings("mobile_app")}, nil},
+		{"settings aggregate", Event{RoutingKey: "settings.changed", AggregateID: "mobile_app", Payload: raw(map[string]string{"flavor": "prod"})},
+			[]string{ks.Settings("mobile_app")}, nil},
+		{"settings nothing", Event{RoutingKey: "settings.changed", Payload: raw(map[string]string{"flavor": "prod"})}, nil, sweep("settings")},
+		{"statement with party", Event{RoutingKey: "statement.status_changed", AggregateID: "s1",
+			Payload: raw(map[string]string{"billingPartyId": "p1", "statementId": "s1", "status": "sent"})}, []string{ks.PeriodLocks("p1")}, nil},
+		// Without billingPartyId (an older producer): every period-lock hint goes, never none.
+		{"statement status without party", Event{RoutingKey: "statement.status_changed", AggregateID: "s1",
+			Payload: raw(map[string]string{"statementId": "s1", "status": "sent"})}, nil, sweep("period_locks")},
+		// Appendix D EV3 as it was: {statementId, invoiceNumber}.
+		{"statement created EV3", Event{RoutingKey: "statement.created", AggregateID: "@ST3",
+			Payload: raw(map[string]string{"statementId": "@ST3", "invoiceNumber": "CJSF-202608-001"})}, nil, sweep("period_locks")},
+		{"tenant contractors", Event{RoutingKey: "tenant.updated", AggregateID: "t9", Payload: raw(map[string]string{"contractorTenantId": "t1", "previousContractorTenantId": "t2"})},
+			[]string{ks.TenantOwnFleet(), ks.TenantSubtenants("t1"), ks.TenantSubtenants("t2")}, nil},
+		{"tenant without contractors", Event{RoutingKey: "tenant.created", AggregateID: "t9"}, []string{ks.TenantOwnFleet()}, sweep("tenant", "subtenants")},
+		{"undecodable payload", Event{RoutingKey: "statement.created", Payload: json.RawMessage("{")}, nil, sweep("period_locks")},
+		{"unrelated", Event{RoutingKey: "trip.delivered", AggregateID: "x"}, nil, nil},
 	}
 	for _, tc := range cases {
-		got := c.KeysFor(tc.ev)
-		want := slices.Clone(tc.want)
+		got := c.StaleFor(tc.ev)
+		want := slices.Clone(tc.keys)
 		slices.Sort(want)
-		if !slices.Equal(got, want) {
-			t.Errorf("%s: KeysFor = %v, want %v", tc.ev.RoutingKey, got, want)
+		if !slices.Equal(got.Keys, want) || !slices.Equal(got.Sweep, tc.sweep) {
+			t.Errorf("%s: StaleFor = %+v, want keys %v sweep %v", tc.name, got, want, tc.sweep)
 		}
 	}
+	// Every invalidating event drops something whatever its payload.
 	for _, rk := range InvalidatingEvents {
-		if strings.HasPrefix(rk, "statement.") || rk == "tenant.created" {
-			continue // keyed by payload fields, covered above
+		for _, ev := range []Event{{RoutingKey: rk}, {RoutingKey: rk, AggregateID: "id"}} {
+			if st := c.StaleFor(ev); len(st.Keys)+len(st.Sweep) == 0 {
+				t.Errorf("%+v drops nothing", ev)
+			}
 		}
-		if len(c.KeysFor(Event{RoutingKey: rk, AggregateID: "id"})) == 0 {
-			t.Errorf("%s drops no key", rk)
+	}
+}
+
+func TestCacheFamilyAndGenKeys(t *testing.T) {
+	ks := mustKeyspace(t, "local")
+	for key, want := range map[string]string{
+		ks.RateCard("p1"):                   "ratecard",
+		ks.TenantSubtenants("t1"):           "tenant",
+		ks.Pattern(NSCache, "period_locks"): "period_locks",
+		ks.HubsNameToCode():                 "hubs",
+		ks.WebFlags():                       "web_flags",
+		ks.AuthPasswordChange("x"):          "",
+		"lt:dev:cache:ratecard:p1":          "",
+		ks.Key(NSCache):                     "",
+	} {
+		if got := ks.cacheFamily(key); got != want {
+			t.Errorf("cacheFamily(%q) = %q, want %q", key, got, want)
 		}
+	}
+	if got := ks.CacheGen("ratecard"); got != "lt:local:cache:gen:ratecard" {
+		t.Errorf("CacheGen = %q", got)
 	}
 }

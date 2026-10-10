@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http/httptest"
 	"strings"
@@ -16,6 +17,8 @@ import (
 	recoverer "github.com/gofiber/fiber/v3/middleware/recover"
 	"github.com/rs/zerolog"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache/cachetest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 )
@@ -65,8 +68,9 @@ func (s *memStore) Complete(_ context.Context, scope, key string, at time.Time, 
 	defer s.mu.Unlock()
 	if r, ok := s.rows[scope+"|"+key]; ok && !r.completed && r.createdAt.Equal(at) {
 		r.completed, r.rec = true, rec
+		return nil
 	}
-	return nil
+	return ErrTakenOver
 }
 
 func (s *memStore) Release(_ context.Context, scope, key string, at time.Time) error {
@@ -254,13 +258,107 @@ func TestInFlightDuplicateIsTurnedAway(t *testing.T) {
 }
 
 func TestRecordKeepsBytes(t *testing.T) {
-	for _, body := range [][]byte{[]byte(`{"b":1,"a":[2,1]}  `), {0xff, 0x00, 0xfe}, nil} {
+	for _, body := range [][]byte{[]byte(`{"b":1,"a":[2,1]}  `), {0xff, 0x00, 0xfe}, []byte("a\x00b"), nil} {
 		rec := NewRecord("fp", 200, "application/json", body)
 		b, _ := json.Marshal(rec)
 		var back Record
 		if err := json.Unmarshal(b, &back); err != nil || !bytes.Equal(back.Bytes(), body) {
 			t.Fatalf("round trip of %q: %q %v", body, back.Bytes(), err)
 		}
+	}
+	// Text only when jsonb can hold it: valid UTF-8 without NUL (jsonb rejects \u0000).
+	if r := NewRecord("fp", 200, "text/plain", []byte("a\x00b")); r.Body != "" || r.BodyBase64 == "" {
+		t.Fatalf("a NUL byte must take the base64 path: %+v", r)
+	}
+	if r := NewRecord("fp", 200, "text/plain", []byte("ไทย")); r.Body != "ไทย" || r.BodyBase64 != "" {
+		t.Fatalf("UTF-8 text must stay text: %+v", r)
+	}
+}
+
+// TestSlowRouteIsCancelledBeforeItsLeaseEnds: the route runs under a deadline inside the lease, so a
+// request that cannot finish is cancelled and released while a retry is still turned away, and the
+// claim is never taken over from a live holder (the handler's work runs once).
+func TestSlowRouteIsCancelledBeforeItsLeaseEnds(t *testing.T) {
+	store := newMemStore()
+	const lease = 600 * time.Millisecond
+	m, err := New(Options{Store: store, Scope: func(fiber.Ctx) string { return "u1" }, Log: zerolog.Nop(), LockTTL: lease})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var committed, started atomic.Int32
+	var deadlineLeft atomic.Int64
+	var slow atomic.Bool // the database is slow (a lock wait) until the test clears it
+	slow.Store(true)
+	app := fiber.New(fiber.Config{ErrorHandler: httpx.ErrorHandler(zerolog.Nop())})
+	app.Post("/w", m.Handler(), func(c fiber.Ctx) error {
+		started.Add(1)
+		if dl, ok := c.Context().Deadline(); ok {
+			deadlineLeft.Store(int64(time.Until(dl)))
+		}
+		if slow.Load() {
+			select {
+			case <-c.Context().Done(): // the database work is cancelled and rolls back
+				return c.Context().Err()
+			case <-time.After(3 * lease):
+			}
+		}
+		committed.Add(1)
+		return httpx.JSON(c, 201, map[string]int32{"run": committed.Load()})
+	})
+	send := func(body string) int {
+		req := httptest.NewRequest("POST", "/w", strings.NewReader(body))
+		req.Header.Set(Header, opID)
+		resp, err := app.Test(req, fiber.TestConfig{Timeout: 10 * time.Second})
+		if err != nil {
+			t.Error(err)
+			return 0
+		}
+		_ = resp.Body.Close()
+		return resp.StatusCode
+	}
+	first := make(chan int)
+	start := time.Now()
+	go func() { first <- send(`{"amount":1}`) }()
+	time.Sleep(lease / 2)
+	if code := send(`{"amount":1}`); code != 409 {
+		t.Fatalf("retry during the lease: %d, want 409 in_flight", code)
+	}
+	code := <-first
+	if elapsed := time.Since(start); code < 500 || elapsed >= lease {
+		t.Fatalf("slow route: %d after %v, want an error before the %v lease ends", code, elapsed, lease)
+	}
+	if left := time.Duration(deadlineLeft.Load()); left <= 0 || left > lease-lease/6 {
+		t.Fatalf("route deadline %v ahead, want within %v", left, lease-lease/6)
+	}
+	if len(store.rows) != 0 {
+		t.Fatal("the cancelled request left its claim")
+	}
+	slow.Store(false)
+	if code := send(`{"amount":1}`); code != 201 || committed.Load() != 1 {
+		t.Fatalf("retry after the cancellation: %d, committed %d", code, committed.Load())
+	}
+	if started.Load() != 2 {
+		t.Fatalf("route started %d times, want 2 (the cancelled one and the retry)", started.Load())
+	}
+}
+
+// TestTakenOverClaimIsNotRecorded: Complete of a claim taken over reports ErrTakenOver, and the
+// middleware neither overwrites nor counts it as executed.
+func TestTakenOverClaimIsNotRecorded(t *testing.T) {
+	s := newMemStore()
+	ctx := context.Background()
+	at, ok, _ := s.Claim(ctx, "u1", opID, "fp", time.Hour, LockTTL)
+	if !ok {
+		t.Fatal("claim")
+	}
+	s.mu.Lock()
+	s.rows["u1|"+opID].createdAt = at.Add(-time.Minute) // abandoned
+	s.mu.Unlock()
+	if _, ok, _ := s.Claim(ctx, "u1", opID, "fp", time.Hour, LockTTL); !ok {
+		t.Fatal("takeover")
+	}
+	if err := s.Complete(ctx, "u1", opID, at, NewRecord("fp", 201, "", []byte("late"))); !errors.Is(err, ErrTakenOver) {
+		t.Fatalf("Complete of a taken-over claim: %v", err)
 	}
 }
 
@@ -287,5 +385,42 @@ func TestConfig(t *testing.T) {
 	}
 	if _, err := config.LoadFrom[Config]([]string{"IDEMPOTENCY_TTL=30m"}); err == nil || !strings.Contains(err.Error(), "IDEMPOTENCY_TTL") {
 		t.Fatalf("30m accepted: %v", err)
+	}
+}
+
+// TestHungRedisCostsARequestOneCallTimeout: with a Redis that accepts connections but never answers,
+// the first Redis call gives up after redisTimeout and the rest of the request skips Redis; the
+// durable store alone decides (replay included).
+func TestHungRedisCostsARequestOneCallTimeout(t *testing.T) {
+	rdb, ks, err := cache.Open(cache.Options{URL: cachetest.Hung(t), AppEnv: "local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = rdb.Close() })
+	store := newMemStore()
+	m, err := New(Options{Redis: rdb, Keys: ks, Store: store, Scope: func(fiber.Ctx) string { return "u1" }, Log: zerolog.Nop()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls atomic.Int32
+	app := fiber.New(fiber.Config{ErrorHandler: httpx.ErrorHandler(zerolog.Nop())})
+	app.Post("/w", m.Handler(), func(c fiber.Ctx) error {
+		return httpx.JSON(c, 201, map[string]int32{"id": calls.Add(1)})
+	})
+	for i, wantReplay := range []string{"", "true"} {
+		req := httptest.NewRequest("POST", "/w", strings.NewReader(`{}`))
+		req.Header.Set(Header, opID)
+		start := time.Now()
+		resp, err := app.Test(req, fiber.TestConfig{Timeout: 10 * time.Second})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if took := time.Since(start); resp.StatusCode != 201 || resp.Header.Get(HeaderReplayed) != wantReplay || took > redisTimeout+400*time.Millisecond {
+			t.Fatalf("request %d: %d replayed %q after %v, want 201 within about %v", i+1, resp.StatusCode, resp.Header.Get(HeaderReplayed), took, redisTimeout)
+		}
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("handler ran %d times", calls.Load())
 	}
 }

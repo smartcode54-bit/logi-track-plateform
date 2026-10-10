@@ -17,10 +17,17 @@ type Bucket struct {
 
 func per(n int, d time.Duration) Limit { return Limit{Count: n, Window: d} }
 
-// The buckets of Appendix B §B.6.3. webhook has no default: each provider route sets its own limit.
+// The buckets of Appendix B §B.6.3. Two have no Default, so Allow refuses them and Middleware panics
+// on a rule that does not set Limit: webhook (each provider route sets its own limit) and login_fail.
+//
+// login_fail is listed for its key name only (rl:login_fail:{sha256(email)}): it is not a GCRA bucket.
+// The lockout of Appendix C §C.4.12 (5 failed sign-ins per email within 15 min -> 423 locked) counts
+// each attempt atomically before the password check and clears the count on success; internal/auth
+// (T05) owns that counter. GCRA would let one more guess through every window/count (3 min) instead
+// of holding the lock, and a check made before counting lets concurrent guesses through.
 var (
 	LoginIP          = Bucket{Name: "login_ip", Default: per(10, time.Minute), Env: "RATE_LIMIT_LOGIN"}
-	LoginFail        = Bucket{Name: "login_fail", Default: per(5, 15*time.Minute)} // -> 423 locked; always applied
+	LoginFail        = Bucket{Name: "login_fail"}
 	GoogleIP         = Bucket{Name: "google_ip", Default: per(30, time.Minute)}
 	RefreshSession   = Bucket{Name: "refresh_session", Default: per(60, time.Minute)}
 	ExchangeIP       = Bucket{Name: "exchange_ip", Default: per(30, time.Minute)}
@@ -47,8 +54,10 @@ var Buckets = []Bucket{
 	APIKey, User,
 }
 
-// Config is the rate-limit configuration (main spec §16.1). Enabled switches the middleware; the
-// login_fail lockout of Appendix C §C.4.12 applies whatever it says.
+// Config is the rate-limit configuration (main spec §16.1). Enabled switches the request buckets; the
+// login_fail lockout of Appendix C §C.4.12 applies whatever it says. RATE_LIMIT_LOGIN sets login_ip,
+// RATE_LIMIT_PUBLIC_FORMS public_form_ip and RATE_LIMIT_EVIDENCE evidence_ip; every other limit is a
+// code constant.
 type Config struct {
 	Enabled     bool   `env:"RATE_LIMIT_ENABLED" envDefault:"true"`
 	Login       string `env:"RATE_LIMIT_LOGIN" envDefault:"10/1m"`
@@ -58,7 +67,8 @@ type Config struct {
 	limits map[string]Limit // parsed by Validate, by bucket name
 }
 
-// Validate implements config.Validator: each RATE_LIMIT_* value is count/window.
+// Validate implements config.Validator: each RATE_LIMIT_* value is count/window with window/count of
+// at least 1µs, so an unusable limit stops the process at start instead of failing open per request.
 func (c *Config) Validate() error {
 	var errs []string
 	c.limits = map[string]Limit{}

@@ -15,6 +15,9 @@ type l1 struct {
 	now     func() time.Time
 	entries map[string]l1Entry
 	byDep   map[string]map[string]struct{}
+	// epoch counts drops and flushes. A reader takes mark() before it reads Redis and stores with
+	// put(mark, ...): a value read before a drop is never stored after it.
+	epoch uint64
 }
 
 type l1Entry struct {
@@ -47,8 +50,19 @@ func (s *l1) get(key string) (any, bool) {
 	return e.v, true
 }
 
-// put stores v under key; deps are the Redis keys it was read from (key itself when empty).
-func (s *l1) put(key string, v any, deps ...string) {
+// mark is the drop epoch to pass to put.
+func (s *l1) mark() uint64 {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.epoch
+}
+
+// put stores v under key unless a drop or flush happened since mark; deps are the Redis keys it was
+// read from (key itself when empty).
+func (s *l1) put(mark uint64, key string, v any, deps ...string) {
 	if s == nil {
 		return
 	}
@@ -57,6 +71,9 @@ func (s *l1) put(key string, v any, deps ...string) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.epoch != mark {
+		return // the value may predate an invalidation; the next read loads it again
+	}
 	s.removeLocked(key)
 	if len(s.entries) >= s.max {
 		now := s.now()
@@ -88,6 +105,7 @@ func (s *l1) drop(keys ...string) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.epoch++
 	for _, k := range keys {
 		s.removeLocked(k)
 		for owner := range s.byDep[k] {
@@ -102,6 +120,7 @@ func (s *l1) flush() {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.epoch++
 	s.entries = map[string]l1Entry{}
 	s.byDep = map[string]map[string]struct{}{}
 }

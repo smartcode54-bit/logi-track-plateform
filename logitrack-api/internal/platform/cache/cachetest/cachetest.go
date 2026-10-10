@@ -199,6 +199,39 @@ func NewClient(tb testing.TB) (*redis.Client, cache.Keyspace) {
 	return Shared(tb).Client(tb)
 }
 
+// Hung listens on a local port that accepts connections and never answers, like a Redis stalled in
+// a fork or fsync, a paused VM or a half-open network path, and returns a redis:// URL for it. It needs
+// no container, so unit tests use it. Closed when the test ends.
+func Hung(tb testing.TB) string {
+	tb.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		tb.Fatalf("cachetest: listen: %v", err)
+	}
+	var mu sync.Mutex
+	var conns []net.Conn
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			conns = append(conns, c) // held open, never read or answered
+			mu.Unlock()
+		}
+	}()
+	tb.Cleanup(func() {
+		_ = ln.Close()
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range conns {
+			_ = c.Close()
+		}
+	})
+	return "redis://" + ln.Addr().String() + "/0"
+}
+
 // Keys lists every key of the client's database.
 func Keys(tb testing.TB, rdb redis.UniversalClient) []string {
 	tb.Helper()

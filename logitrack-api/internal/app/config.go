@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -16,9 +15,6 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
 )
-
-// AppEnvs are the allowed APP_ENV values (part of the Redis prefix, R26).
-var AppEnvs = []string{"local", "dev", "prod"}
 
 // Common is read by every Go process.
 type Common struct {
@@ -31,8 +27,8 @@ type Common struct {
 }
 
 func (c Common) validate(errs *[]string) {
-	if c.AppEnv != "" && !contains(AppEnvs, c.AppEnv) {
-		*errs = append(*errs, config.Invalidf("APP_ENV", "must be one of %s", strings.Join(AppEnvs, ", ")))
+	if c.AppEnv != "" && !config.ValidAppEnv(c.AppEnv) {
+		*errs = append(*errs, config.Invalidf("APP_ENV", "must be one of %s", strings.Join(config.AppEnvs, ", ")))
 	}
 	if _, err := zerolog.ParseLevel(strings.ToLower(c.LogLevel)); err != nil || c.LogLevel == "" {
 		*errs = append(*errs, config.Invalidf("LOG_LEVEL", "must be one of trace, debug, info, warn, error"))
@@ -213,6 +209,3 @@ func parsePrefix(s string) (netip.Prefix, error) {
 	return netip.PrefixFrom(a, a.BitLen()), nil
 }
 
-func contains(list []string, v string) bool {
-	return slices.Contains(list, v)
-}

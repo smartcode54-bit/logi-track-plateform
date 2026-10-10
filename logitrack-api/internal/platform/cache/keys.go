@@ -2,9 +2,12 @@ package cache
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 )
 
 // Namespace is the first segment after the lt:{APP_ENV}: prefix (R26, Appendix B §B.6.1). Every key
@@ -26,9 +29,6 @@ const (
 // Namespaces lists every namespace in the order of Appendix B §B.6.1.
 var Namespaces = []Namespace{NSCache, NSAuth, NSRBAC, NSIdem, NSRateLimit, NSRealtime, NSRealtimeLog, NSLock}
 
-// AppEnvs are the APP_ENV values a prefix may carry (main spec §16.1).
-var AppEnvs = []string{"local", "dev", "prod"}
-
 // Keyspace builds keys under one prefix lt:{APP_ENV}:. Keys are only ever built through it, so a key
 // outside the prefix or outside a listed namespace cannot be written by this module. The zero value
 // has no prefix and panics when used: that is a wiring bug, never a runtime condition.
@@ -36,10 +36,11 @@ type Keyspace struct {
 	prefix string
 }
 
-// NewKeyspace returns the keyspace of an APP_ENV value.
+// NewKeyspace returns the keyspace of an APP_ENV value (one of config.AppEnvs, the list the process
+// configuration validates against).
 func NewKeyspace(appEnv string) (Keyspace, error) {
-	if !slices.Contains(AppEnvs, appEnv) {
-		return Keyspace{}, errors.New("cache: APP_ENV must be one of local, dev, prod")
+	if !config.ValidAppEnv(appEnv) {
+		return Keyspace{}, fmt.Errorf("cache: APP_ENV must be one of %s", strings.Join(config.AppEnvs, ", "))
 	}
 	return Keyspace{prefix: "lt:" + appEnv + ":"}, nil
 }
@@ -111,6 +112,27 @@ func globEscape(s string) string {
 }
 
 // --- cache: (Appendix B §B.6.2; UI hints only, never read by a money path, R17) ---
+
+// CacheGen is the invalidation generation of a cache family (the segment after cache:, such as
+// "ratecard" or "tenant"): every invalidation of a key of the family increments it, and a
+// read-through stores what it loaded only while the generation is still the one it saw before
+// loading (Appendix B §B.6.1).
+func (k Keyspace) CacheGen(family string) string { return k.Key(NSCache, "gen", family) }
+
+// cacheFamily is the segment after cache: of a full key or SCAN pattern ("ratecard" for
+// lt:local:cache:ratecard:p1, "tenant" for lt:local:cache:tenant:subtenants:*), and "" outside the
+// cache: namespace.
+func (k Keyspace) cacheFamily(key string) string {
+	if k.prefix == "" {
+		return ""
+	}
+	rest, ok := strings.CutPrefix(key, k.prefix+string(NSCache)+":")
+	if !ok {
+		return ""
+	}
+	family, _, _ := strings.Cut(rest, ":")
+	return family
+}
 
 // HubsAll is the hub master in the single /v1/hubs DTO.
 func (k Keyspace) HubsAll() string { return k.Key(NSCache, "hubs", "all") }

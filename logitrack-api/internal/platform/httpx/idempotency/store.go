@@ -1,6 +1,7 @@
 package idempotency
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -16,8 +17,9 @@ import (
 )
 
 // Record is a stored response: the Redis value of idem:http:{userId}:{key} and, split into columns,
-// an idempotency_keys row. The body is kept verbatim (as text when it is UTF-8, else base64), so a
-// replay is byte-identical; a jsonb copy of the JSON itself would reorder its keys.
+// an idempotency_keys row. The body is kept verbatim, so a replay is byte-identical (a jsonb copy of
+// the JSON itself would reorder its keys): as text when it is UTF-8 without a NUL byte, else base64
+// (jsonb rejects the \u0000 escape a NUL would become).
 type Record struct {
 	Fingerprint string `json:"fingerprint"`
 	Status      int    `json:"status"`
@@ -29,7 +31,7 @@ type Record struct {
 // NewRecord copies a response into a Record.
 func NewRecord(fingerprint string, status int, contentType string, body []byte) Record {
 	r := Record{Fingerprint: fingerprint, Status: status, ContentType: contentType}
-	if utf8.Valid(body) {
+	if utf8.Valid(body) && bytes.IndexByte(body, 0) < 0 {
 		r.Body = string(body)
 	} else {
 		r.BodyBase64 = base64.StdEncoding.EncodeToString(body)
@@ -62,13 +64,18 @@ type Row struct {
 	ExpiresAt time.Time
 }
 
+// ErrTakenOver is returned by Complete when another request took the claim over (this one outlived
+// its lease): the other request owns the key now.
+var ErrTakenOver = errors.New("idempotency: the claim was taken over")
+
 // Store is the durable copy (PostgreSQL in production, a fake in unit tests).
 type Store interface {
 	// Claim takes (scope, key) for one execution; ok false means the key is completed or held.
 	Claim(ctx context.Context, scope, key, fingerprint string, ttl, lock time.Duration) (claimedAt time.Time, ok bool, err error)
 	// Get returns the live row; found false when there is none (or it expired).
 	Get(ctx context.Context, scope, key string) (row Row, found bool, err error)
-	// Complete stores the response of the claim made at claimedAt.
+	// Complete stores the response of the claim made at claimedAt; ErrTakenOver when that claim is
+	// no longer the live one.
 	Complete(ctx context.Context, scope, key string, claimedAt time.Time, rec Record) error
 	// Release drops the claim made at claimedAt (the request committed nothing).
 	Release(ctx context.Context, scope, key string, claimedAt time.Time) error
@@ -134,7 +141,7 @@ func (s *PGStore) Complete(ctx context.Context, scope, key string, claimedAt tim
 		return fmt.Errorf("idempotency: complete: %w", err)
 	}
 	if n == 0 {
-		return errors.New("idempotency: complete: the claim was taken over")
+		return ErrTakenOver
 	}
 	return nil
 }
