@@ -84,6 +84,7 @@ type harness struct {
 	public   string
 	scrypt   firebasescrypt.Params
 	google   auth.GoogleVerifier // nil: Google sign-in off
+	firebase auth.Firebase       // zero: bridge off
 }
 
 type option func(*auth.Config)
@@ -97,6 +98,14 @@ func newHarness(t *testing.T, opts ...option) *harness {
 // (google_integration_test.go); a nil google leaves Google sign-in off.
 func newHarnessWith(t *testing.T, google func(now func() time.Time) auth.GoogleVerifier, opts ...option) *harness {
 	t.Helper()
+	return newHarnessFull(t, google, nil, opts...)
+}
+
+// newHarnessFull also takes the Firebase bridge that firebase returns for the harness clock
+// (bridge_integration_test.go); a nil firebase leaves the bridge off.
+func newHarnessFull(t *testing.T, google func(now func() time.Time) auth.GoogleVerifier,
+	firebase func(now func() time.Time) auth.Firebase, opts ...option) *harness {
+	t.Helper()
 	ctx := context.Background()
 	d := pgtest.NewDatabase(t)
 	if _, err := migratetest.Runner(t, d, migrations.FS).Up(ctx); err != nil {
@@ -105,6 +114,9 @@ func newHarnessWith(t *testing.T, google func(now func() time.Time) auth.GoogleV
 	h := &harness{t: t, d: d, pool: d.Pool(t, db.RoleApp), clock: &clock{}}
 	if google != nil {
 		h.google = google(h.clock.Now)
+	}
+	if firebase != nil {
+		h.firebase = firebase(h.clock.Now)
 	}
 	var err error
 	if h.etl, err = pgx.Connect(ctx, d.URL(db.RoleETL)); err != nil {
@@ -173,7 +185,7 @@ func (h *harness) service(cfg auth.Config, rdb redis.UniversalClient) (*auth.Ser
 	}
 	svc, err := auth.New(cfg, auth.Deps{
 		Pool: h.pool, Store: auth.NewStore(rdb, h.prefix), Limiter: limiter,
-		Keys: keys, Hasher: hasher, Policy: policy, Google: h.google, Log: zerolog.Nop(), Now: h.clock.Now,
+		Keys: keys, Hasher: hasher, Policy: policy, Google: h.google, Firebase: h.firebase, Log: zerolog.Nop(), Now: h.clock.Now,
 	})
 	if err != nil {
 		h.t.Fatal(err)

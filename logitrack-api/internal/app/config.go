@@ -15,6 +15,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/firebase"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/firebasescrypt"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
@@ -158,6 +159,43 @@ func (a *Auth) validate(errs *[]string) {
 	a.GoogleClientIDs = ids
 }
 
+// Bridge is the Firebase bridge of the api process (main spec §4.9, §16.1, Appendix C §C.6).
+type Bridge struct {
+	// AUTH_FIREBASE_BRIDGE_MODE: off | mobile | web | both (R8).
+	BridgeMode string `env:"AUTH_FIREBASE_BRIDGE_MODE" envDefault:"off"`
+	// FIREBASE_PROJECT_ID: issuer suffix and audience of Firebase ID tokens, and the project whose accounts
+	// the mirror writes; never ETL_FIRESTORE_PROJECT_ID (R74). The callable shims verify with it in every
+	// mode (R45), so it may be set while the mode is off.
+	FirebaseProjectID string `env:"FIREBASE_PROJECT_ID"`
+	// GOOGLE_APPLICATION_CREDENTIALS: path of the service-account key file that signs custom tokens and
+	// the mirror's OAuth2 assertions; read by BuildAPI, never logged.
+	GoogleCredentials string `env:"GOOGLE_APPLICATION_CREDENTIALS"`
+
+	// Mode is BridgeMode parsed by Validate.
+	Mode auth.BridgeMode `env:"-"`
+}
+
+func (b *Bridge) validate(errs *[]string) {
+	m, ok := auth.ParseBridgeMode(strings.TrimSpace(b.BridgeMode))
+	if !ok {
+		*errs = append(*errs, config.Invalidf("AUTH_FIREBASE_BRIDGE_MODE", "must be one of off, mobile, web, both"))
+	}
+	b.Mode = m
+	if b.FirebaseProjectID != "" && !firebase.ValidProjectID(b.FirebaseProjectID) {
+		*errs = append(*errs, config.Invalidf("FIREBASE_PROJECT_ID",
+			"must be a Firebase project id (6-30 lower-case letters, digits or hyphens)"))
+	}
+	if ok && m != auth.BridgeOff {
+		if b.FirebaseProjectID == "" {
+			*errs = append(*errs, config.Invalidf("FIREBASE_PROJECT_ID", "is required when AUTH_FIREBASE_BRIDGE_MODE is not off"))
+		}
+		if b.GoogleCredentials == "" {
+			*errs = append(*errs, config.Invalidf("GOOGLE_APPLICATION_CREDENTIALS",
+				"is required when AUTH_FIREBASE_BRIDGE_MODE is not off (custom tokens and the account mirror)"))
+		}
+	}
+}
+
 // googleClientSuffix ends every Google OAuth client id; a value without it is a pasted secret or
 // another setting, refused at start-up.
 const googleClientSuffix = ".apps.googleusercontent.com"
@@ -188,6 +226,7 @@ type APIConfig struct {
 	Database
 	Redis
 	Auth
+	Bridge
 	// RateLimit is RATE_LIMIT_ENABLED and RATE_LIMIT_{LOGIN,PUBLIC_FORMS,EVIDENCE}, parsed once by
 	// ratelimit.Config (Validate below) for the rate-limit middleware and the auth buckets alike.
 	RateLimit         ratelimit.Config
@@ -208,6 +247,7 @@ func (c *APIConfig) Validate() error {
 	c.Database.validate(&errs)
 	c.Redis.validate(c.AppEnv, &errs)
 	c.Auth.validate(&errs)
+	c.Bridge.validate(&errs)
 	if err := c.RateLimit.Validate(); err != nil {
 		var cerr *config.Error
 		if errors.As(err, &cerr) {

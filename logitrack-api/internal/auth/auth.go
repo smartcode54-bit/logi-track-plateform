@@ -3,7 +3,8 @@
 // rotating refresh-token families and a 30 s reuse grace (R37), revocation by session and auth_version
 // (R50, R78), the must-change-password ticket (R79), forgot / reset / change password, Google sign-in
 // with GIS / google_sign_in ID tokens (T06, C.4.10), the current principal endpoints (/v1/me*) and the
-// per-request RequireAuth middleware.
+// per-request RequireAuth middleware, and the Firebase bridge (T08, C.6): custom tokens for the web, the
+// Firebase ID-token principal, and the account mirror into Firebase Auth.
 //
 // Go returns tokens in JSON bodies and never sets cookies: the web BFF does (R38). Every database
 // statement runs inside db.WithSystem (R12); every security-relevant change appends its security_events
@@ -101,7 +102,10 @@ type Deps struct {
 	Log          zerolog.Logger
 	Capabilities CapabilityResolver // optional
 	Google       GoogleVerifier     // optional: nil (GOOGLE_OIDC_ALLOWED_CLIENT_IDS unset) turns Google sign-in off (404)
-	Now          func() time.Time   // optional, defaults to time.Now
+	// Firebase is the bridge (AUTH_FIREBASE_BRIDGE_MODE, FIREBASE_PROJECT_ID, GOOGLE_APPLICATION_CREDENTIALS);
+	// the zero value is mode off with no ID-token verifier.
+	Firebase Firebase
+	Now      func() time.Time // optional, defaults to time.Now
 }
 
 // Service implements the auth use cases.
@@ -116,8 +120,14 @@ type Service struct {
 	log      zerolog.Logger
 	caps     CapabilityResolver
 	google   GoogleVerifier
+	fb       Firebase
 	now      func() time.Time
 	fallback prometheus.Counter
+	// mirrorFailures counts Firebase account mirror writes that failed (op: password, status, revoke,
+	// claims, create); each failed its request with 503 bridge_unavailable.
+	mirrorFailures *prometheus.CounterVec
+	// customTokens counts minted Firebase custom tokens (exit criterion of the web bridge, C.6.6).
+	customTokens prometheus.Counter
 	// postCommitFailed counts post-commit Redis writes that failed (op: version, revoked, rt_drop,
 	// rt_put); the security-relevant ones are retried in the background (Apply).
 	postCommitFailed *prometheus.CounterVec
@@ -144,9 +154,12 @@ func New(cfg Config, d Deps) (*Service, error) {
 	if !cfg.LoginIP.Valid() {
 		return nil, errors.New("auth: RATE_LIMIT_LOGIN must be count/window with window/count of at least 1µs")
 	}
+	if err := d.Firebase.validate(); err != nil {
+		return nil, err
+	}
 	s := &Service{
 		cfg: cfg, pool: d.Pool, store: d.Store, limiter: d.Limiter, keys: d.Keys, hasher: d.Hasher, policy: d.Policy,
-		log: d.Log, caps: d.Capabilities, google: d.Google, now: d.Now,
+		log: d.Log, caps: d.Capabilities, google: d.Google, fb: d.Firebase, now: d.Now,
 		fallback: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "auth_revocation_fallback_total",
 			Help: "Per-request revocation checks answered from PostgreSQL because Redis was unreachable.",
@@ -155,6 +168,14 @@ func New(cfg Config, d Deps) (*Service, error) {
 			Name: "auth_postcommit_failures_total",
 			Help: "Post-commit Redis writes of auth that failed (version and revoked are retried until the access-token lifetime ends).",
 		}, []string{"op"}),
+		mirrorFailures: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "auth_firebase_mirror_failures_total",
+			Help: "Firebase account mirror writes that failed; each request answered 503 bridge_unavailable and committed nothing.",
+		}, []string{"op"}),
+		customTokens: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "auth_firebase_custom_tokens_total",
+			Help: "Firebase custom tokens minted for the web (POST /v1/bridge/firebase-token).",
+		}),
 		retry: newRetrier(),
 	}
 	if s.now == nil {
@@ -163,13 +184,15 @@ func New(cfg Config, d Deps) (*Service, error) {
 	return s, nil
 }
 
-// Register adds the service's metrics (auth_revocation_fallback_total, auth_postcommit_failures_total)
-// to reg.
+// Register adds the service's metrics (auth_revocation_fallback_total, auth_postcommit_failures_total,
+// auth_firebase_mirror_failures_total, auth_firebase_custom_tokens_total) to reg.
 func (s *Service) Register(reg prometheus.Registerer) error {
-	if err := reg.Register(s.fallback); err != nil {
-		return err
+	for _, c := range []prometheus.Collector{s.fallback, s.postCommitFailed, s.mirrorFailures, s.customTokens} {
+		if err := reg.Register(c); err != nil {
+			return err
+		}
 	}
-	return reg.Register(s.postCommitFailed)
+	return nil
 }
 
 // Close stops the background retries of post-commit writes and waits for them; call it before the

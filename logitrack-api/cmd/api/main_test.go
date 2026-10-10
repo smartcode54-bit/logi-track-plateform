@@ -15,6 +15,7 @@ import (
 	"github.com/gofiber/fiber/v3"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/app"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/firebase/firebasetest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/token"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
 )
@@ -66,7 +67,54 @@ func startEnv(t *testing.T) {
 		t.Setenv(k, v)
 	}
 	clearEnv(t, "OTEL_EXPORTER_OTLP_ENDPOINT", "REDIS_KEY_PREFIX", "JWT_PREVIOUS_KEY_FILE", "FIREBASE_SCRYPT_SIGNER_KEY",
-		"FIREBASE_SCRYPT_SALT_SEPARATOR", "FIREBASE_SCRYPT_ROUNDS", "FIREBASE_SCRYPT_MEM_COST")
+		"FIREBASE_SCRYPT_SALT_SEPARATOR", "FIREBASE_SCRYPT_ROUNDS", "FIREBASE_SCRYPT_MEM_COST",
+		"AUTH_FIREBASE_BRIDGE_MODE", "FIREBASE_PROJECT_ID", "GOOGLE_APPLICATION_CREDENTIALS")
+}
+
+// An unreadable service-account file stops a bridged api with the configuration exit code, naming the
+// variable but not the path (Appendix C §C.6).
+func TestBridgeWithoutKeyFileRefusesToStart(t *testing.T) {
+	startEnv(t)
+	missing := filepath.Join(t.TempDir(), "secret-sa-name.json")
+	t.Setenv("AUTH_FIREBASE_BRIDGE_MODE", "web")
+	t.Setenv("FIREBASE_PROJECT_ID", "logitrack-bridge-test")
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", missing)
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), nil, &stdout, &stderr); code != app.ExitConfigError {
+		t.Fatalf("exit code = %d, want %d; stdout %s", code, app.ExitConfigError, stdout.String())
+	}
+	out := stdout.String() + stderr.String()
+	if !strings.Contains(out, "GOOGLE_APPLICATION_CREDENTIALS") || strings.Contains(out, "secret-sa-name") {
+		t.Fatalf("want the variable named without its value: %s", out)
+	}
+}
+
+// A bridged api starts without reaching Google (keys and tokens are fetched on first use) and never
+// logs the key file's content.
+func TestBridgeStartsWithoutGoogle(t *testing.T) {
+	startEnv(t)
+	b := firebasetest.New(t, "logitrack-bridge-test")
+	path := filepath.Join(t.TempDir(), "sa.json")
+	if err := os.WriteFile(path, b.ServiceAccountJSON(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AUTH_FIREBASE_BRIDGE_MODE", "both")
+	t.Setenv("FIREBASE_PROJECT_ID", "logitrack-bridge-test")
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", path)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var stdout, stderr bytes.Buffer
+	if code := run(ctx, nil, &stdout, &stderr); code != app.ExitOK {
+		t.Fatalf("exit code = %d, stderr %q, stdout %q", code, stderr.String(), stdout.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, `"account_mirror":true`) || !strings.Contains(out, `"web_custom_tokens":true`) ||
+		!strings.Contains(out, `"GOOGLE_APPLICATION_CREDENTIALS":"set"`) {
+		t.Fatalf("bridge state not logged: %s", out)
+	}
+	if strings.Contains(out, "PRIVATE KEY") || strings.Contains(out, "iam.gserviceaccount.com") || strings.Contains(out, path) {
+		t.Fatalf("the key file leaked into the log: %s", out)
+	}
 }
 
 func TestMissingRequiredEnvExitsNonZeroWithNames(t *testing.T) {

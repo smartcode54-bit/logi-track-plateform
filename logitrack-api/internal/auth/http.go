@@ -20,6 +20,8 @@ import (
 //   - /v1/me (internal only): GET/PATCH /v1/me, GET /v1/me/tenants, GET /v1/me/sessions,
 //     DELETE /v1/me/sessions/{sid}. The driver-app aliases under /v1/mobile/me* come with the mobile
 //     group (T55).
+//   - /v1/bridge (internal only, T08): POST /v1/bridge/firebase-token, 404 unless the Firebase bridge
+//     mode includes web (removed with TW7).
 //
 // The JWKS route (/.well-known/jwks.json, internal) is mounted by TW3 from KeySet.JWKS.
 //
@@ -29,6 +31,7 @@ func (s *Service) Groups() []ingress.Group {
 	return []ingress.Group{
 		{Prefix: "/v1/auth", Public: true, Mount: s.mountAuth},
 		{Prefix: "/v1/me", Mount: s.mountMe},
+		{Prefix: "/v1/bridge", Mount: s.mountBridge},
 	}
 }
 

@@ -39,7 +39,7 @@ type Principal struct {
 	UserID      uuid.UUID // sub
 	SessionID   uuid.UUID // sid
 	AuthVersion int32     // ver
-	AMR         string    // "pwd" | "google"
+	AMR         string    // "pwd" | "google"; "firebase" for a Firebase ID-token principal (T08), which has no session
 	TokenID     string    // jti, log correlation only
 
 	TenantID   *uuid.UUID     // tid; nil for customer-scope and platform-only principals

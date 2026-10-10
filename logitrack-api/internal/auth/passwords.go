@@ -389,7 +389,10 @@ func (s *Service) changePassword(ctx context.Context, uid uuid.UUID, in ChangeIn
 }
 
 // setPassword checks the full policy for pw, stores hash (its Argon2id hash, computed before the
-// transaction; SetPassword bumps auth_version), and revokes every session except keep with reason.
+// transaction; SetPassword bumps auth_version), revokes every session except keep with reason, and,
+// while the Firebase bridge mirrors, sets the same password on the user's Firebase account with
+// validSince = now before COMMIT (Appendix C §C.6.4): a failure there is 503 bridge_unavailable and the
+// password stays unchanged in both stores.
 func (s *Service) setPassword(ctx context.Context, tx pgx.Tx, q *authdb.Queries, u authdb.LockUserRow, pw, hash string, keep *uuid.UUID,
 	reason, requestID string, now time.Time, pc *PostCommit) error {
 	if err := s.policyCheck(ctx, q, u.ID, deref(u.Email), pw); err != nil {
@@ -400,8 +403,10 @@ func (s *Service) setPassword(ctx context.Context, tx pgx.Tx, q *authdb.Queries,
 		return err
 	}
 	pc.version(u.ID, v)
-	_, err = s.revokeTx(ctx, tx, Revocation{UserID: u.ID, Reason: reason, Except: keep, RequestID: requestID}, now, pc)
-	return err
+	if _, err = s.revokeTx(ctx, tx, Revocation{UserID: u.ID, Reason: reason, Except: keep, RequestID: requestID}, now, pc); err != nil {
+		return err
+	}
+	return s.mirror(ctx, q, u.ID, accountChange{op: "password", password: &pw, revoke: true})
 }
 
 func deref(p *string) string {
