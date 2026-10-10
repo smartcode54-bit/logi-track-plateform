@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -23,13 +24,55 @@ func chain(files map[string]string) fstest.MapFS {
 	return m
 }
 
+// The baseline of Appendix A (R59, R88): 0001-0009 in transactions, 0010 the only NO TRANSACTION file.
+var baseline = []string{
+	"0001_preamble.sql", "0002_identity.sql", "0003_master.sql", "0004_operations.sql", "0005_billing.sql",
+	"0006_finance_hr.sql", "0007_comms.sql", "0008_platform.sql", "0009_infra.sql", "0010_d5_unique_constraints.sql",
+}
+
 func TestEmbeddedChainPassesCheck(t *testing.T) {
 	files, err := migrate.Check(migrations.FS)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if files[0].Name != "0001_preamble.sql" || files[0].NoTransaction || files[0].Irreversible {
-		t.Fatalf("first file = %+v", files[0])
+	if len(files) < len(baseline) {
+		t.Fatalf("the chain has %d files, the baseline alone has %d", len(files), len(baseline))
+	}
+	for i, name := range baseline {
+		f := files[i]
+		if f.Name != name || f.Irreversible || f.NoTransaction != (name == "0010_d5_unique_constraints.sql") {
+			t.Errorf("file %d = %+v, want %s", i+1, f, name)
+		}
+	}
+	if migrate.RoundTripFloor(files) != 0 {
+		t.Error("the baseline has no irreversible file; the round trip goes down to 0")
+	}
+}
+
+// 0009_infra is the single grant site of the baseline (R66): no other file of 0001-0010 grants or
+// revokes. Later migrations (0011+) grant their own new tables, so the rule stops at the baseline.
+func TestBaselineGrantsOnlyIn0009(t *testing.T) {
+	grant := regexp.MustCompile(`(?i)\b(grant|revoke)\b`)
+	for _, name := range baseline {
+		src, err := fs.ReadFile(migrations.FS, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := len(grant.FindAllString(migrate.Code(src), -1))
+		switch {
+		case name == "0009_infra.sql" && n == 0:
+			t.Errorf("%s holds no GRANT", name)
+		case name != "0009_infra.sql" && n > 0:
+			t.Errorf("%s: %d GRANT/REVOKE outside comments and strings; 0009_infra.sql is the single grant site (R66)", name, n)
+		}
+	}
+}
+
+func TestCodeDropsCommentsStringsAndIdentifiers(t *testing.T) {
+	src := "-- +goose Up\n-- GRANT in a comment\nSELECT 'GRANT', \"revoke\" /* grant\nstill a comment */ FROM t; -- revoke\nGRANT SELECT ON t TO r;\n"
+	got := migrate.Code([]byte(src))
+	if want := "\n\nSELECT  ,   \n FROM t; \nGRANT SELECT ON t TO r;\n"; got != want {
+		t.Fatalf("Code = %q, want %q", got, want)
 	}
 }
 
