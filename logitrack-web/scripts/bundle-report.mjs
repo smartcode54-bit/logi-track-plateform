@@ -15,10 +15,15 @@
  *   node scripts/bundle-report.mjs --json out.json         # also write the machine-readable report
  *   node scripts/bundle-report.mjs --check                 # fail on a forbidden library or a
  *                                                          # locale dictionary in initial JS
- *   node scripts/bundle-report.mjs --check --baseline bundle/baseline.json [--max-growth 5]
+ *   node scripts/bundle-report.mjs --check --baseline bundle-budget.json [--max-growth 5]
  *                                                          # also fail when a route's initial gzip
  *                                                          # grows more than 5% over the baseline
  *   --analyze-dir <dir>   analyzer output directory (default .next/analyze)
+ *
+ * `pnpm bundle:check` builds with the analyzer and runs the gate against bundle-budget.json (CI job
+ * `bundle-budget`). When a size change is intended, regenerate the budget in the same PR:
+ *   pnpm analyze && node scripts/bundle-report.mjs --json bundle-budget.json
+ * bundle-before-tw9.json is the report of the tree before TW9, kept as the reference measurement.
  *
  * Exit codes: 0 pass, 1 gate violation, 2 missing or unreadable input.
  */
