@@ -1,0 +1,3 @@
+[
+{"id": "@DA01", "tenant_id": "@TN_OWN", "tenant_source": "driver", "driver_id": "@D1", "amount_thb": "2000.00", "withdrawn_at": "2026-09-08T12:00:00+07:00", "deduct_period": "2026-09", "deduct_round": "R2", "status": "pending", "reason": "เบิกล่วงหน้าค่าซ่อมยางระหว่างทาง", "created_by": "@U_WRT_MGR", "created_at": "2026-09-08T12:05:00+07:00"}
+]

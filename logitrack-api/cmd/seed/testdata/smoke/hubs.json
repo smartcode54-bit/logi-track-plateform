@@ -1,0 +1,11 @@
+[
+{"id": "@H_ALANGA", "source_id": "ALANG-A", "name_th": "วังทองหลาง", "latitude": 13.7766, "longitude": 100.6087, "station_type": "HUB", "network": "SPX", "linked_party_id": "@BP_SPX", "created_at": "2026-01-05T09:00:00+07:00"},
+{"id": "@H_WTL12", "source_id": "WANGTHONGLANG12", "name_th": "วังทองหลาง12", "latitude": 13.7801, "longitude": 100.6152, "station_type": "HUB", "network": "SPX", "linked_party_id": "@BP_SPX", "created_at": "2026-01-05T09:00:00+07:00"},
+{"id": "@H_SPKGW", "source_id": "SPK-GW", "name_th": "ศูนย์เกตเวย์บางปู", "name_en": "Bangpu Gateway", "latitude": 13.5236, "longitude": 100.6583, "station_type": "HUB", "network": "SPK", "linked_party_id": "@BP_SPK", "created_at": "2026-01-05T09:00:00+07:00"},
+{"id": "@H_SPK103", "source_id": "SPK890103", "name_th": "ลาดกระบัง26", "latitude": 13.7225, "longitude": 100.7569, "station_type": "HUB", "network": "SPK", "linked_party_id": "@BP_SPK", "created_at": "2026-01-05T09:00:00+07:00"},
+{"id": "@H_SPK146", "source_id": "SPK890146", "name_th": "ประเวศ18", "name_en": "Prawet 18", "latitude": 13.6957, "longitude": 100.6918, "station_type": "HUB", "network": "SPK", "linked_party_id": "@BP_SPK", "created_at": "2026-01-05T09:00:00+07:00"},
+{"id": "@H_SPK174", "source_id": "SPK890174", "name_th": "ห้วยขวาง10", "latitude": 13.7691, "longitude": 100.5747, "station_type": "HUB", "network": "SPK", "linked_party_id": "@BP_SPK", "created_at": "2026-01-05T09:00:00+07:00"},
+{"id": "@H_TTP1", "source_id": "TTP-HUB1", "name_th": "ลานจอด TTP ร่มเกล้า", "latitude": 13.748, "longitude": 100.702, "station_type": "HUB", "network": "SPX", "linked_party_id": "@BP_TTP", "created_at": "2026-01-05T09:00:00+07:00"},
+{"id": "@H_SOCE", "source_id": "SOCE", "name_th": "บัวโรย", "latitude": 13.6157, "longitude": 100.7368, "station_type": "SOC", "network": "SPX", "linked_party_id": "@BP_SPX", "created_at": "2026-01-05T09:00:00+07:00"},
+{"id": "@H_BANGNA", "source_id": "BANGNA-DRV", "name_th": "บางนา (คนขับเพิ่ม)", "latitude": 13.6676, "longitude": 100.6342, "station_type": "HUB", "network": "SPX", "created_by_driver": true, "created_at": "2026-01-05T09:00:00+07:00"}
+]

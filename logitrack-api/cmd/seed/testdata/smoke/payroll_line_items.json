@@ -1,0 +1,8 @@
+[
+{"id": "@PL01_1", "payroll_run_id": "@PR01", "line_no": 1, "item_type": "earning", "category": "TRIP_COMMISSION", "name": "Trip pay", "amount_thb": "650.00", "meta": {"weekdayTrips": ["@TR07"], "holidayTrips": ["@TR08"], "rates": {"weekday": 300, "holiday": 350}}},
+{"id": "@PL02_1", "payroll_run_id": "@PR02", "line_no": 1, "item_type": "earning", "category": "TRIP_COMMISSION", "name": "Trip pay", "amount_thb": "650.00", "meta": {"weekdayTrips": ["@TR21"], "holidayTrips": ["@TR04"], "excludedMultiStop": ["@TR05"]}},
+{"id": "@PL02_2", "payroll_run_id": "@PR02", "line_no": 2, "item_type": "earning", "category": "HELPER_PAY", "name": "Helper/training pay", "amount_thb": "400.00", "quantity": "1.000", "unit_rate_thb": "400.00", "meta": {"helperDayKeys": ["2026-08-25"], "taskIds": ["@TK16"]}},
+{"id": "@PL02_3", "payroll_run_id": "@PR02", "line_no": 3, "item_type": "deduction", "category": "SOCIAL_SECURITY", "name": "Social security", "amount_thb": "750.00", "meta": {"baseThb": 15000, "ratePercent": 5}},
+{"id": "@PL02_4", "payroll_run_id": "@PR02", "line_no": 4, "item_type": "deduction", "category": "PENALTY", "name": "ส่งงานล่าช้ากว่า SLA", "amount_thb": "200.00", "reference_id": "@PN01"},
+{"id": "@PL03_1", "payroll_run_id": "@PR03", "line_no": 1, "item_type": "earning", "category": "TRIP_COMMISSION", "name": "Trip pay", "amount_thb": "0.00", "meta": {"excludedMultiStop": ["@TR16"]}}
+]

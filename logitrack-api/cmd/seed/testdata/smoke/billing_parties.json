@@ -1,0 +1,7 @@
+[
+{"id": "@BP_CJSF", "kind": "customer", "customer_id": "@CU_CJSF", "billing_date_basis": "plan"},
+{"id": "@BP_TTP", "kind": "customer", "customer_id": "@CU_TTP", "billing_date_basis": "delivered"},
+{"id": "@BP_SPX", "kind": "customer", "customer_id": "@CU_SPX", "billing_date_basis": "delivered"},
+{"id": "@BP_SPK", "kind": "customer", "customer_id": "@CU_SPK", "billing_date_basis": "delivered"},
+{"id": "@BP_NWR", "kind": "tenant", "tenant_id": "@TN_NWR", "billing_date_basis": "plan"}
+]

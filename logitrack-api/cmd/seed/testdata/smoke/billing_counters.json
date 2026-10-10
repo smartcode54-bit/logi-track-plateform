@@ -1,0 +1,6 @@
+[
+{"billing_party_id": "@BP_CJSF", "period_year": 2026, "period_month": 7, "tenant_id": "@TN_OWN", "tenant_source": "form", "last_seq": 1, "customer_code": "CJSF", "updated_at": "2026-08-02T10:00:00+07:00"},
+{"billing_party_id": "@BP_SPX", "period_year": 2026, "period_month": 7, "tenant_id": "@TN_OWN", "tenant_source": "form", "last_seq": 1, "customer_code": "SPX", "updated_at": "2026-08-02T11:00:00+07:00"},
+{"billing_party_id": "@BP_CJSF", "period_year": 2026, "period_month": 8, "tenant_id": "@TN_OWN", "tenant_source": "form", "last_seq": 1, "customer_code": "CJSF", "updated_at": "2026-09-02T10:00:00+07:00"},
+{"billing_party_id": "@BP_TTP", "period_year": 2026, "period_month": 8, "tenant_id": "@TN_OWN", "tenant_source": "form", "last_seq": 1, "customer_code": "TTP", "updated_at": "2026-09-02T11:00:00+07:00"}
+]

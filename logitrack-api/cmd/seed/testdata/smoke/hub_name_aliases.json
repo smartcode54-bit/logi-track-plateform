@@ -1,0 +1,9 @@
+[
+{"alias": "วังทองหลาง", "hub_id": "@H_ALANGA", "source": "name_th", "created_at": "2026-01-05T09:00:00+07:00"},
+{"alias": "ประเวศ18", "hub_id": "@H_SPK146", "source": "name_th", "created_at": "2026-01-05T09:00:00+07:00"},
+{"alias": "Prawet 18", "hub_id": "@H_SPK146", "source": "name_en", "created_at": "2026-01-05T09:00:00+07:00"},
+{"alias": "ห้วยขวาง10", "hub_id": "@H_SPK174", "source": "name_th", "created_at": "2026-01-05T09:00:00+07:00"},
+{"alias": "ศูนย์เกตเวย์บางปู", "hub_id": "@H_SPKGW", "source": "name_th", "created_at": "2026-01-05T09:00:00+07:00"},
+{"alias": "Bangpu Gateway", "hub_id": "@H_SPKGW", "source": "name_en", "created_at": "2026-01-05T09:00:00+07:00"},
+{"alias": "ลาดกระบัง26", "hub_id": "@H_SPK103", "source": "name_th", "created_at": "2026-01-05T09:00:00+07:00"}
+]

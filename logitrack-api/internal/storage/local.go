@@ -101,7 +101,10 @@ type Local struct {
 	now     func() time.Time
 }
 
-var _ Backend = (*Local)(nil)
+var (
+	_ Backend = (*Local)(nil)
+	_ Reader  = (*Local)(nil)
+)
 
 // NewLocal opens (and creates) the directory tree. Errors never carry the signing key.
 func NewLocal(cfg LocalConfig) (*Local, error) {
@@ -509,6 +512,15 @@ func (l *Local) Open(key string) (*os.File, Info, error) {
 		info.ContentType, info.SHA256 = m.ContentType, m.SHA256
 	}
 	return f, info, nil
+}
+
+// Read implements Reader.
+func (l *Local) Read(_ context.Context, o Object) (io.ReadCloser, error) {
+	f, _, err := l.Open(o.Key)
+	if err != nil {
+		return nil, err
+	}
+	return f, nil
 }
 
 // SweepTemp removes partial uploads older than age (a crash between create and rename); storage.gc calls it.

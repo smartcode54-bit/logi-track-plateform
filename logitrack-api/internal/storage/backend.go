@@ -85,6 +85,13 @@ type Backend interface {
 	Check(ctx context.Context) error
 }
 
+// Reader streams a stored object server-side. Both backends implement it; the seed's --verify hashes every
+// committed object with it (Appendix D §D.3 #9), since S3 keeps no sha256 of an object it did not receive
+// with a checksum. ErrObjectNotFound when the object does not exist.
+type Reader interface {
+	Read(ctx context.Context, o Object) (io.ReadCloser, error)
+}
+
 // Errors shared by the backends.
 var (
 	ErrObjectNotFound = errors.New("storage: object not found")

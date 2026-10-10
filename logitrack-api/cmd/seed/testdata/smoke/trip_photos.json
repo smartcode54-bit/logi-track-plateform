@@ -1,0 +1,6 @@
+[
+{"id": "@PH01", "trip_id": "@TR01", "photo_type": "seal", "_photo_type_known": true, "file_id": "@FO_TR01_SEAL", "geocode_lat": 13.5236, "geocode_lng": 100.6583, "position": 0, "created_at": "2026-07-10T09:50:00+07:00"},
+{"id": "@PH03", "trip_id": "@TR03", "photo_type": "seal", "_photo_type_known": true, "file_id": "@FO_TR03_SEAL", "position": 0, "created_at": "2026-07-23T07:58:00+07:00"},
+{"id": "@PH16", "trip_id": "@TR16", "stop_id": "@PDS16_2", "photo_type": "stop_2_arrived", "_photo_type_known": true, "file_id": "@FO_TR16_S2", "position": 0, "created_at": "2026-08-26T13:05:00+07:00"},
+{"id": "@PH19", "trip_id": "@TR19", "photo_type": "pre_close", "_photo_type_known": true, "file_id": "@FO_TR19_PC", "position": 0, "created_at": "2026-07-05T07:15:00+07:00"}
+]

@@ -29,7 +29,7 @@ GITLEAKS_IMG := zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16
 
 .PHONY: help env dev-keys dev-db up api-reload down reset ps logs psql redis-cli amqp-ui minio-console tunnel \
         migrate migrate-up-to migrate-apply migrate-new migrate-status migrate-down migrate-check migrate-roundtrip \
-        seed seed-verify etl-fixtures etl-fixtures-check \
+        seed seed-verify seed-budget etl-fixtures etl-fixtures-check \
         test test-integration lint sqlc gen gen-check openapi web env-check secrets-scan print-gitleaks-img smoke
 
 help: ## list targets
@@ -61,9 +61,10 @@ api-reload: .env ## recreate only the api with the current .env (a WEB_FLAG_OVER
 down: ## stop the stack incl. profiled services, keep volumes
 	$(COMPOSE) --profile '*' down
 
-reset: ## drop all volumes and start again (seeding arrives with T16)
+reset: ## drop all volumes, start again and seed SEED_PROFILE (default smoke)
 	$(COMPOSE) --profile '*' down -v
 	$(MAKE) --no-print-directory up
+	$(MAKE) --no-print-directory seed
 
 ps: ## service status
 	$(COMPOSE) --profile '*' ps
@@ -114,11 +115,14 @@ migrate-check: ## lint migrations/ (R31): numbering, Up and Down, NO TRANSACTION
 migrate-roundtrip: ## up -> down-to floor -> up on postgres:18-alpine via testcontainers (R31)
 	DOCKER_HOST=$(DOCKER_HOST) go test -race -count=1 -tags=integration -run 'RoundTrip|UpToNine|HeldVersion' ./internal/platform/migrate/ ./cmd/migrate/
 
-seed: ## seed a profile (SEED_PROFILE=smoke|demo|load; cmd/seed lands in T16)
+seed: ## seed a profile (SEED_PROFILE=smoke|demo|load): --reset, then the profile through ETL_DATABASE_URL (Appendix D)
 	$(COMPOSE) --profile tools run --rm seed --profile $(SEED_PROFILE)
 
-seed-verify: ## seed --verify invariants (T16)
-	$(COMPOSE) --profile tools run --rm seed --verify
+seed-verify: ## the twelve invariants of Appendix D §D.3 for SEED_PROFILE (on a freshly seeded, quiescent stack); exit 1 violation, 2 dependency unreachable
+	$(COMPOSE) --profile tools run --rm seed --verify --profile $(SEED_PROFILE)
+
+seed-budget: ## T16 AC: seed --profile smoke < 5 s at the .env.example Argon2id cost (testcontainers, no race detector)
+	DOCKER_HOST=$(DOCKER_HOST) go test -count=1 -tags=integration -run 'TestSmokeLoadVerifyTwice$$' ./cmd/seed/
 
 etl-fixtures: ## dry-run the embedded fixture dump against the local database (rolled back; needs OWN_FLEET_TENANT_ID in .env) (T15)
 	$(COMPOSE) --profile tools run --rm etl load --dry-run --fixtures
@@ -168,8 +172,16 @@ sqlc: ## sqlc generate (schema = migrations/, queries next to their package)
 openapi: ## OpenAPI -> web types and Dart models (R27; first routes in T05)
 	@echo "the OpenAPI pipeline lands with the first routes (T05)" >&2; exit 3
 
-web: ## run the Next.js dev server against the local api (internal listener)
-	cd ../logitrack-web && GO_API_INTERNAL_URL=http://localhost:8080 pnpm --filter logi-track dev
+web: .env ## run the Next.js dev server on localhost:3000 against the local api (internal listener); BFF env from .env (TW3)
+	@# The BFF and proxy.ts read the §16.1 web-server names; JWT_* must equal the api's (R39). Values
+	@# are passed to the dev server, never printed.
+	cd ../logitrack-web && GO_API_INTERNAL_URL=http://localhost:8080 WEB_PUBLIC_ORIGIN=http://localhost:3000 \
+	  SESSION_COOKIE_SECURE=false SESSION_COOKIE_DOMAIN= \
+	  JWT_ISSUER="$$(sed -n 's/^JWT_ISSUER=//p' ../logitrack-api/.env | head -1)" \
+	  JWT_AUDIENCE="$$(sed -n 's/^JWT_AUDIENCE=//p' ../logitrack-api/.env | head -1)" \
+	  JWT_ACCESS_TTL="$$(sed -n 's/^JWT_ACCESS_TTL=//p' ../logitrack-api/.env | head -1)" \
+	  REFRESH_TOKEN_TTL_WEB="$$(sed -n 's/^REFRESH_TOKEN_TTL_WEB=//p' ../logitrack-api/.env | head -1)" \
+	  pnpm --filter logi-track dev
 
 ## --- checks ---------------------------------------------------------------------------------
 env-check: ## .env.example and compose environments match developer-spec.md §16

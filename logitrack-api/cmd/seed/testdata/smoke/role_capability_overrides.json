@@ -1,0 +1,3 @@
+[
+{"id": "@RCO1", "tenant_id": "@TN_NWR", "role": "operator", "capability": "fleet:view_live_map", "allowed": false, "updated_by": "@U_NWR_ADMIN", "updated_at": "2026-09-02T09:00:00+07:00"}
+]
