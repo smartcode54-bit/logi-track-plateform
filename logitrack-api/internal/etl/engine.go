@@ -520,6 +520,9 @@ func (e *Engine) ensureOwnFleet(ctx context.Context, tx pgx.Tx, d *dump.Dump) er
 // ownFleetLegacyID is settings/tenancy.ownFleetTenantId (a subcontractors doc id; tenantLookups.ts:12-21) when the
 // dump holds that document.
 func ownFleetLegacyID(d *dump.Dump) string {
+	if d == nil {
+		return ""
+	}
 	if _, ok := d.Collection("settings"); !ok {
 		return ""
 	}

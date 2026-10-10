@@ -421,6 +421,15 @@ func (b *Backend) serveToolkit(w http.ResponseWriter, r *http.Request, body []by
 		if v, ok := req["disableUser"].(bool); ok {
 			a.Disabled = v
 		}
+		if v, ok := req["email"].(string); ok {
+			for _, o := range b.accounts {
+				if o.UID != uid && v != "" && strings.EqualFold(o.Email, v) {
+					toolkitError(w, http.StatusBadRequest, "EMAIL_EXISTS")
+					return
+				}
+			}
+			a.Email = v
+		}
 		if v, ok := req["validSince"].(string); ok {
 			s, err := strconv.ParseInt(v, 10, 64)
 			if err != nil {

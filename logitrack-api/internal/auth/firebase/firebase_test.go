@@ -342,6 +342,19 @@ func TestAccounts(t *testing.T) {
 	if err := a.Update(ctx, "fb-1", firebase.Update{CustomAttributes: &bad}); err == nil {
 		t.Fatal("reserved attribute sent")
 	}
+	// An email change (PATCH /v1/users/{id}, T19); an address another account holds is ErrEmailExists.
+	email := "one.new@example.test"
+	if err := a.Update(ctx, "fb-1", firebase.Update{Email: &email}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := b.Get("fb-1"); got.Email != email || b.Calls()[len(b.Calls())-1].Body["email"] != email {
+		t.Fatalf("email update: %+v", got)
+	}
+	b.Put(firebasetest.Account{UID: "fb-9", Email: "taken@example.test"})
+	taken := "taken@example.test"
+	if err := a.Update(ctx, "fb-1", firebase.Update{Email: &taken}); !errors.Is(err, firebase.ErrEmailExists) {
+		t.Fatalf("taken email: %v", err)
+	}
 
 	if err := a.Create(ctx, firebase.NewAccount{UID: "fb-2", Email: "two@example.test", Password: "a-password-2", Disabled: true}); err != nil {
 		t.Fatal(err)

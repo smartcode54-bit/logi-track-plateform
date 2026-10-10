@@ -85,7 +85,7 @@ func TestDryRun(t *testing.T) {
 	}
 }
 
-// A load needs SEED_DEFAULT_PASSWORD and the database URLs; the bootstrap subcommand belongs to T19.
+// A load needs SEED_DEFAULT_PASSWORD and the database URLs; the bootstrap commands (T19) need their names.
 func TestRequiredInputs(t *testing.T) {
 	env := baseEnv("local")[:4]
 	if code, _, stderr := runSeed(t, env); code != app.ExitConfigError || !strings.Contains(stderr, "SEED_DEFAULT_PASSWORD") {
@@ -94,10 +94,46 @@ func TestRequiredInputs(t *testing.T) {
 	if code, _, stderr := runSeed(t, baseEnv("local")); code != 2 || !strings.Contains(stderr, "ETL_DATABASE_URL") {
 		t.Errorf("load without ETL_DATABASE_URL: exit %d, %q", code, stderr)
 	}
-	if code, _, _ := runSeed(t, baseEnv("local"), "bootstrap-platform-admins"); code != app.ExitNotImplemented {
-		t.Errorf("bootstrap-platform-admins: exit %d, want %d (T19)", code, app.ExitNotImplemented)
+	if code, _, stderr := runSeed(t, baseEnv("local"), "bootstrap-platform-admins"); code != app.ExitConfigError ||
+		!strings.Contains(stderr, "PLATFORM_ADMIN_EMAILS") {
+		t.Errorf("bootstrap-platform-admins without PLATFORM_ADMIN_EMAILS: exit %d, %q", code, stderr)
+	}
+	if code, _, stderr := runSeed(t, baseEnv("local"), "--bootstrap-admin"); code != app.ExitConfigError ||
+		!strings.Contains(stderr, "BOOTSTRAP_ADMIN_EMAIL, BOOTSTRAP_ADMIN_PASSWORD") {
+		t.Errorf("--bootstrap-admin without its names: exit %d, %q", code, stderr)
+	}
+	if code, _, stderr := runSeed(t, baseEnv("local"), "--bootstrap-admin", "--profile", "smoke"); code != app.ExitConfigError ||
+		!strings.Contains(stderr, "runs alone") {
+		t.Errorf("--bootstrap-admin with --profile: exit %d, %q", code, stderr)
 	}
 	if code, _, _ := runSeed(t, baseEnv("local"), "--profile", "smoke", "extra"); code != app.ExitConfigError {
 		t.Errorf("a stray argument: exit %d", code)
+	}
+}
+
+// The bootstrap admin's password passes the policy before anything connects; the refusal names the rule, never
+// the value (owner addition to T19: no password in any output).
+func TestBootstrapAdminPasswordPolicy(t *testing.T) {
+	const short = "Sh0rt-pw" // 8 characters, under PASSWORD_MIN_LENGTH=12
+	env := append(baseEnv("prod"), "BOOTSTRAP_ADMIN_EMAIL=root@example.test", "BOOTSTRAP_ADMIN_PASSWORD="+short,
+		"PASSWORD_MIN_LENGTH=12", "PLATFORM_ADMIN_EMAILS=root@example.test")
+	code, out, stderr := runSeed(t, env, "--bootstrap-admin")
+	if code != app.ExitConfigError || !strings.Contains(stderr, "too_short") || !strings.Contains(stderr, "at least 12") {
+		t.Fatalf("a short BOOTSTRAP_ADMIN_PASSWORD: exit %d, %q", code, stderr)
+	}
+	if strings.Contains(out+stderr, short) {
+		t.Fatal("the refused BOOTSTRAP_ADMIN_PASSWORD reached the output")
+	}
+	// A valid password and no database: exit 2 (dependency), still without the password anywhere. APP_ENV=prod
+	// does not refuse the bootstrap.
+	const long = "a-long-Bootstrap-passphrase-9"
+	env = append(baseEnv("prod"), "BOOTSTRAP_ADMIN_EMAIL=root@example.test", "BOOTSTRAP_ADMIN_PASSWORD="+long,
+		"ARGON2_MEMORY_KB=8192", "ARGON2_ITERATIONS=1", "ARGON2_PARALLELISM=1")
+	code, out, stderr = runSeed(t, env, "--bootstrap-admin")
+	if code != app.ExitConfigError || !strings.Contains(stderr, "ETL_DATABASE_URL") || strings.Contains(stderr, "APP_ENV=prod") {
+		t.Fatalf("bootstrap without a database: exit %d, %q", code, stderr)
+	}
+	if strings.Contains(out+stderr, long) {
+		t.Fatal("BOOTSTRAP_ADMIN_PASSWORD reached the output")
 	}
 }

@@ -125,12 +125,12 @@ func errBridgeUnavailable() *httpx.Error {
 		"the Firebase account could not be updated; the change was not committed")
 }
 
-// errFirebaseEmailTaken: another Firebase account holds the email of a user being created and is not an
-// orphan the creation may adopt (C.6.4). A retry cannot succeed, so it is not bridge_unavailable; the
+// errFirebaseEmailTaken: another Firebase account holds the email of a user being created (and is not an
+// orphan the creation may adopt, C.6.4) or the new email of a user (MirrorEmailInTx, T19). A retry cannot succeed, so it is not bridge_unavailable; the
 // holder's uid is never named.
 func errFirebaseEmailTaken() *httpx.Error {
 	return httpx.NewError(http.StatusConflict, CodeAlreadyExists,
-		"a Firebase account already holds this email; the user was not created").
+		"a Firebase account already holds this email; the change was not committed").
 		WithDetails(map[string]any{"field": "email", "reason": "firebase_account_exists"})
 }
 

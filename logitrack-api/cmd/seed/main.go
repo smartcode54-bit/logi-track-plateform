@@ -48,6 +48,7 @@ const (
 )
 
 const usage = `usage: seed [flags]
+       seed --bootstrap-admin
        seed bootstrap-platform-admins
 
   --profile smoke|demo|load  profile to load or verify (default SEED_PROFILE, else smoke)
@@ -59,11 +60,19 @@ const usage = `usage: seed [flags]
   --emit-events              leave the seeded outbox rows unpublished so the relay publishes them
   --dry-run                  build the plan, print per-table counts, write nothing
   --allow-shared             required when APP_ENV=dev (a shared database: upsert, no reset)
+  --temporary-password-file PATH
+                             write the temporary password of the must-change-password fixture user to PATH
+                             (mode 0600) when the load inserts it; it is never printed
+  --bootstrap-admin          create or update BOOTSTRAP_ADMIN_EMAIL with BOOTSTRAP_ADMIN_PASSWORD (Argon2id, never
+                             printed; at least PASSWORD_MIN_LENGTH); platform_admin only when the address is in
+                             PLATFORM_ADMIN_EMAILS; idempotent; also in APP_ENV=prod
+  bootstrap-platform-admins  platform_admin for the PLATFORM_ADMIN_EMAILS users (idempotent; also in APP_ENV=prod)
 
 Environment (developer-spec.md §16.1): ETL_DATABASE_URL, MIGRATE_DATABASE_URL, DATABASE_URL (--verify),
 REDIS_URL, STORAGE_BACKEND and the S3_* / LOCAL_MEDIA_* names, SEED_PROFILE, SEED_RANDOM_SEED,
 SEED_ANCHOR_DATE, SEED_NAMESPACE, SEED_DEFAULT_PASSWORD (secret, never printed), OWN_FLEET_TENANT_ID,
-ARGON2_*, FIREBASE_SCRYPT_* (public test parameters locally).
+ARGON2_*, FIREBASE_SCRYPT_* (public test parameters locally), PLATFORM_ADMIN_EMAILS, BOOTSTRAP_ADMIN_EMAIL,
+BOOTSTRAP_ADMIN_PASSWORD (secret, never printed), PASSWORD_MIN_LENGTH.
 `
 
 func main() {
@@ -79,6 +88,9 @@ type options struct {
 	verify, reset, resetSet, emitEvents, dry bool
 	allowShared                              bool
 	mode                                     string
+	temporaryPasswordFile                    string
+	bootstrapAdmin                           bool
+	explicit                                 []string // the flags given on the command line
 }
 
 func parseFlags(args []string) (options, error) {
@@ -92,6 +104,8 @@ func parseFlags(args []string) (options, error) {
 	fl.BoolVar(&o.emitEvents, "emit-events", false, "")
 	fl.BoolVar(&o.dry, "dry-run", false, "")
 	fl.BoolVar(&o.allowShared, "allow-shared", false, "")
+	fl.StringVar(&o.temporaryPasswordFile, "temporary-password-file", "", "")
+	fl.BoolVar(&o.bootstrapAdmin, "bootstrap-admin", false, "")
 	if err := fl.Parse(args); err != nil {
 		return o, err
 	}
@@ -99,10 +113,18 @@ func parseFlags(args []string) (options, error) {
 		return o, fmt.Errorf("unexpected argument %q", fl.Arg(0))
 	}
 	fl.Visit(func(f *flag.Flag) {
+		o.explicit = append(o.explicit, f.Name)
 		if f.Name == "reset" {
 			o.resetSet = true
 		}
 	})
+	if o.bootstrapAdmin {
+		for _, f := range o.explicit {
+			if f != "bootstrap-admin" {
+				return o, fmt.Errorf("--bootstrap-admin runs alone (not with --%s)", f)
+			}
+		}
+	}
 	return o, nil
 }
 
@@ -113,15 +135,28 @@ func run(ctx context.Context, args, environ []string, stdout, stderr io.Writer) 
 			_, _ = fmt.Fprint(stdout, usage)
 			return app.ExitOK
 		case "bootstrap-platform-admins":
-			// The bootstrap super admin and PLATFORM_ADMIN_EMAILS land with the users ETL (owner addition to
-			// issue #39): the profiles carry the fixture's platform_admin only.
-			return app.NotImplemented("seed bootstrap-platform-admins", "T19", stderr)
+			if len(args) > 1 {
+				_, _ = fmt.Fprintf(stderr, "seed: bootstrap-platform-admins takes no arguments\n\n%s", usage)
+				return app.ExitConfigError
+			}
+			cfg, log, code := loadConfig(environ, stderr)
+			if code != app.ExitOK {
+				return code
+			}
+			return bootstrapPlatformAdmins(ctx, cfg, log, stdout, stderr)
 		}
 	}
 	o, err := parseFlags(args)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "seed: %v\n\n%s", err, usage)
 		return app.ExitConfigError
+	}
+	if o.bootstrapAdmin {
+		cfg, log, code := loadConfig(environ, stderr)
+		if code != app.ExitOK {
+			return code
+		}
+		return bootstrapAdmin(ctx, cfg, log, stdout, stderr)
 	}
 	cfg, err := config.LoadFrom[app.SeedConfig](environ)
 	if err != nil {
@@ -158,7 +193,23 @@ func run(ctx context.Context, args, environ []string, stdout, stderr io.Writer) 
 	case o.verify:
 		return verify(ctx, cfg, fx, profile, log, stdout, stderr)
 	}
-	return load(ctx, cfg, fx, profile, mode, reset, o.emitEvents, log, stdout, stderr)
+	return load(ctx, cfg, fx, profile, mode, reset, o.emitEvents, o.temporaryPasswordFile, log, stdout, stderr)
+}
+
+// loadConfig reads the configuration and the logger of the bootstrap commands.
+func loadConfig(environ []string, stderr io.Writer) (*app.SeedConfig, zerolog.Logger, int) {
+	cfg, err := config.LoadFrom[app.SeedConfig](environ)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "seed: %v\n", err)
+		return nil, zerolog.Nop(), app.ExitConfigError
+	}
+	log, err := app.NewLogger(cfg.Common, "seed", stderr)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "seed: %v\n", err)
+		return nil, zerolog.Nop(), app.ExitConfigError
+	}
+	app.LogConfig[app.SeedConfig](log)
+	return cfg, log, app.ExitOK
 }
 
 // decideMode applies the safety guard of Appendix D §D.1.1: prod refuses everything but the bootstrap; dev
@@ -316,7 +367,7 @@ func open(ctx context.Context, cfg *app.SeedConfig, needMigrator, needApp, needR
 }
 
 func load(ctx context.Context, cfg *app.SeedConfig, fx seed.FixtureFS, profile seed.Profile, mode seed.Mode, reset,
-	emitEvents bool, log zerolog.Logger, stdout, stderr io.Writer) int {
+	emitEvents bool, temporaryPasswordFile string, log zerolog.Logger, stdout, stderr io.Writer) int {
 	start := time.Now()
 	if cfg.SeedDefaultPassword == "" {
 		_, _ = fmt.Fprintln(stderr, "seed: SEED_DEFAULT_PASSWORD is required to load a profile (make env sets a local one)")
@@ -415,19 +466,43 @@ func load(ctx context.Context, cfg *app.SeedConfig, fx seed.FixtureFS, profile s
 	}
 	_, _ = fmt.Fprintf(stdout, "seed: profile %s loaded in %s (%s mode%s): %d rows in %d tables, %d objects%s, %d task counters\n",
 		profile, time.Since(start).Round(time.Millisecond), mode, resetNote(reset), rows, len(res.Inserted), put, keptNote, res.Counters)
+	// The must-change-password fixture user's temporary password (crypto/rand) is never printed: stdout and
+	// stderr reach CI logs (owner addition to T19). A local tester who needs it passes --temporary-password-file;
+	// the load that inserts the user writes it there with mode 0600. SEED_DEFAULT_PASSWORD is never printed either.
 	switch {
 	case plan.TemporaryPassword == "":
+	case res.TemporaryUserInserted && temporaryPasswordFile != "":
+		if err := writeSecretFile(temporaryPasswordFile, plan.TemporaryPassword); err != nil {
+			log.Error().Err(err).Msg("--temporary-password-file not written")
+			return app.ExitRuntimeError
+		}
+		_, _ = fmt.Fprintf(stdout, "seed: %s was created with a temporary password (must change at the first sign-in); written to %s (mode 0600)\n",
+			plan.TemporaryEmail, temporaryPasswordFile)
 	case res.TemporaryUserInserted:
-		// The must-change-password fixture user's temporary password (crypto/rand) is shown once, by the load
-		// that stores it, like the real POST /v1/users/{id}/password/temporary; SEED_DEFAULT_PASSWORD is never
-		// printed.
-		_, _ = fmt.Fprintf(stdout, "seed: temporary password of %s (must change at the first sign-in): %s\n",
-			plan.TemporaryEmail, plan.TemporaryPassword)
-	default:
-		_, _ = fmt.Fprintf(stdout, "seed: %s already exists: its password is unchanged (the temporary one was shown by the load that inserted it)\n",
+		_, _ = fmt.Fprintf(stdout, "seed: %s was created with a temporary password (must change at the first sign-in); it is not printed: pass --temporary-password-file PATH to keep it\n",
 			plan.TemporaryEmail)
+	default:
+		_, _ = fmt.Fprintf(stdout, "seed: %s already exists: its password is unchanged\n", plan.TemporaryEmail)
 	}
 	return app.ExitOK
+}
+
+// writeSecretFile writes a secret to path with mode 0600 (also when the file existed with a wider mode); the
+// value is never echoed.
+func writeSecretFile(path, value string) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if _, err := f.WriteString(value + "\n"); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 func resetNote(reset bool) string {

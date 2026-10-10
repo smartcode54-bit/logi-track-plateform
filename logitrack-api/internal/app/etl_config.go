@@ -5,6 +5,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/firebasescrypt"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/tenancy"
 )
@@ -30,9 +32,18 @@ type ETLConfig struct {
 	S3Bucket            string `env:"S3_BUCKET" envDefault:"logitrack"`
 	S3UsePathStyle      bool   `env:"S3_USE_PATH_STYLE" envDefault:"true"`
 	S3UseSSL            bool   `env:"S3_USE_SSL"`
+	// PlatformAdminEmails marks the auth-import report lines that seed bootstrap-platform-admins grants (T19).
+	PlatformAdminEmails string `env:"PLATFORM_ADMIN_EMAILS"`
+	// FIREBASE_SCRYPT_* are the Console "Password hash parameters" of auth-weak-scan (Appendix C §C.5.2, §C.5.7).
+	ScryptSignerKey string `env:"FIREBASE_SCRYPT_SIGNER_KEY"`
+	ScryptSaltSep   string `env:"FIREBASE_SCRYPT_SALT_SEPARATOR"`
+	ScryptRounds    int    `env:"FIREBASE_SCRYPT_ROUNDS"`
+	ScryptMemCost   int    `env:"FIREBASE_SCRYPT_MEM_COST"`
 
 	// Parsed by Validate.
-	OwnFleet uuid.UUID `env:"-"`
+	OwnFleet    uuid.UUID              `env:"-"`
+	Scrypt      *firebasescrypt.Params `env:"-"`
+	AdminEmails []string               `env:"-"`
 }
 
 // Validate implements config.Validator.
@@ -62,6 +73,16 @@ func (c *ETLConfig) Validate() error {
 	if c.S3Endpoint != "" && (c.S3Region == "" || c.S3AccessKeyID == "" || c.S3SecretAccessKey == "") {
 		errs = append(errs, "S3_REGION, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY: required with S3_ENDPOINT")
 	}
+	sp, err := firebasescrypt.ParseParams(c.ScryptSignerKey, c.ScryptSaltSep, c.ScryptRounds, c.ScryptMemCost)
+	if err != nil {
+		errs = append(errs, err.Error()+" (set all four FIREBASE_SCRYPT_* or none)")
+	}
+	c.Scrypt = sp
+	emails, bad := iam.ParseEmails(c.PlatformAdminEmails)
+	if len(bad) > 0 {
+		errs = append(errs, config.Invalidf("PLATFORM_ADMIN_EMAILS", "must be a comma list of email addresses"))
+	}
+	c.AdminEmails = emails
 	if len(errs) > 0 {
 		return &config.Error{Invalid: errs}
 	}
@@ -87,6 +108,15 @@ func (c *ETLConfig) RequireFirestore() error {
 	}
 	if len(missing) > 0 {
 		return &config.Error{Missing: missing}
+	}
+	return nil
+}
+
+// RequireScrypt checks the names of auth-weak-scan (the Firebase Console hash parameters).
+func (c *ETLConfig) RequireScrypt() error {
+	if c.Scrypt == nil {
+		return &config.Error{Missing: []string{"FIREBASE_SCRYPT_SIGNER_KEY", "FIREBASE_SCRYPT_SALT_SEPARATOR",
+			"FIREBASE_SCRYPT_ROUNDS", "FIREBASE_SCRYPT_MEM_COST"}}
 	}
 	return nil
 }

@@ -167,6 +167,9 @@ type Update struct {
 	RevokeBefore *time.Time
 	// CustomAttributes replaces the account's custom claims (a JSON object, at most MaxClaimsLength).
 	CustomAttributes *string
+	// Email replaces the account's email (PATCH /v1/users/{id}, T19); another account holding it is
+	// ErrEmailExists.
+	Email *string
 }
 
 // Update writes u to the account of uid (accounts:update). An unknown uid is ErrUserNotFound.
@@ -180,6 +183,9 @@ func (a *Accounts) Update(ctx context.Context, uid string, u Update) error {
 	}
 	if u.Disabled != nil {
 		body["disableUser"] = *u.Disabled
+	}
+	if u.Email != nil {
+		body["email"] = *u.Email
 	}
 	if u.RevokeBefore != nil {
 		body["validSince"] = strconv.FormatInt(u.RevokeBefore.Unix(), 10)
