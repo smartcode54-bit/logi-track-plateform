@@ -6,6 +6,12 @@
 // It reports, in non-test Go files:
 //   - a reference to db.WithSystem (app.bypass_tenant=on) outside Allowed: every other package opens
 //     its transactions with db.WithPrincipal and lets RLS decide;
+//   - the two helpers that hand a WithSystem transaction to their caller, outside the same Allowed: a
+//     reference to inbox.Run (a consumer's side-effect transaction with the event's tenant; a domain
+//     consumer package joins Allowed in its own task), and an InTx hook of jobs.Service.Submit, that is
+//     a key InTx in a jobs.SubmitInput literal (or one whose type is elided) or a write of .InTx, in a
+//     file that imports internal/jobs (a request reads tenant rows under db.WithPrincipal before it
+//     calls Submit; go vet's composites check refuses an unkeyed jobs.SubmitInput outside its package);
 //   - a reference to db.RLS outside RLSAllowed: db.WithPrincipal trusts the RLS() of the principal it
 //     is given, so only internal/authz (authz.Principal.RLS) may build a request context; a hand-made
 //     type with an RLS() method could otherwise ask for the bypass or any tenant with the steward flag;
@@ -44,10 +50,18 @@ const DBImport = "github.com/smartcode54-bit/logi-track-plateform/logitrack-api/
 // AuthzImport is the package that defines the request principal.
 const AuthzImport = "github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 
+// InboxImport is the package of inbox.Run, which runs a consumer's callback in a WithSystem transaction.
+const InboxImport = "github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/inbox"
+
+// JobsImport is the package of jobs.Service.Submit, whose SubmitInput.InTx hook runs in Submit's
+// WithSystem transaction.
+const JobsImport = "github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs"
+
 // Allowed are the module-relative package directories (and everything below them) that may call
-// WithSystem: identity and security services, storage key lookups after entity authorization, the
-// anonymous public forms, the outbox relay and inbox, tenancy moves, and the processes without a
-// request principal (worker consumers, scheduler jobs, ETL, seed). Appendix C §C.3.2 lists the same.
+// WithSystem, inbox.Run, or Submit with an InTx hook: identity and security services, storage key
+// lookups after entity authorization, the anonymous public forms, the outbox relay and inbox, tenancy
+// moves, and the processes without a request principal (worker consumers, scheduler jobs, ETL, seed).
+// Appendix C §C.3.2 lists the same.
 var Allowed = []string{
 	"internal/platform/db", // the definition
 	"internal/auth",
@@ -191,6 +205,9 @@ func importNames(f *ast.File, path string) (names map[string]bool, dot bool) {
 func inspect(f *ast.File) []hit {
 	dbNames, dbDot := importNames(f, DBImport)
 	azNames, azDot := importNames(f, AuthzImport)
+	ibNames, ibDot := importNames(f, InboxImport)
+	jbNames, jbDot := importNames(f, JobsImport)
+	importsJobs := jbDot || len(jbNames) > 0
 	// Identifiers that declare or select a name rather than refer to a dot-imported one.
 	declared := map[*ast.Ident]bool{}
 	ast.Inspect(f, func(n ast.Node) bool {
@@ -219,6 +236,12 @@ func inspect(f *ast.File) []hit {
 	var out []hit
 	isDB := func(e ast.Expr, sel string) bool { return isRef(e, sel, dbNames, dbDot, declared) }
 	isAuthz := func(e ast.Expr, sel string) bool { return isRef(e, sel, azNames, azDot, declared) }
+	isInbox := func(e ast.Expr, sel string) bool { return isRef(e, sel, ibNames, ibDot, declared) }
+	isJobs := func(e ast.Expr, sel string) bool { return isRef(e, sel, jbNames, jbDot, declared) }
+	const (
+		inTxWhat = "a jobs.SubmitInput InTx hook (it runs in Submit's db.WithSystem transaction)"
+		inTxFix  = "read tenant rows under db.WithPrincipal before Submit; only allow-listed packages pass a hook"
+	)
 	ast.Inspect(f, func(n ast.Node) bool {
 		switch n := n.(type) {
 		case *ast.SelectorExpr, *ast.Ident:
@@ -228,6 +251,9 @@ func inspect(f *ast.File) []hit {
 				out = append(out, hit{e.Pos(), "db.WithSystem", "use db.WithPrincipal", nil})
 			case isDB(e, "RLS"):
 				out = append(out, hit{e.Pos(), "db.RLS", "pass the request's authz.Principal to db.WithPrincipal", RLSAllowed})
+			case isInbox(e, "Run"):
+				out = append(out, hit{e.Pos(), "inbox.Run (a db.WithSystem transaction)",
+					"only allow-listed consumer packages run it; a domain consumer joins Allowed in its own task", nil})
 			}
 		case *ast.CompositeLit:
 			t := n.Type
@@ -237,17 +263,27 @@ func inspect(f *ast.File) []hit {
 			if t != nil && isAuthz(t, "Principal") {
 				out = append(out, hit{n.Pos(), "an authz.Principal literal", "use authz.PrincipalFrom(c) of a RequireAuth route", PrincipalAllowed})
 			}
+			// A SubmitInput literal, or an elided one (in a []jobs.SubmitInput, say), in a file of jobs.
+			submitInput := importsJobs && (t == nil || isJobs(t, "SubmitInput"))
 			for _, el := range n.Elts {
 				if kv, ok := el.(*ast.KeyValueExpr); ok {
-					if id, ok := kv.Key.(*ast.Ident); ok && (id.Name == "ActOnAll" || id.Name == "ActOnTenant") {
+					id, ok := kv.Key.(*ast.Ident)
+					switch {
+					case ok && (id.Name == "ActOnAll" || id.Name == "ActOnTenant"):
 						out = append(out, hit{kv.Pos(), id.Name, "X-Act-On-Tenant is applied by iam.RBAC.Authorize only", ActOnAllowed})
+					case ok && id.Name == "InTx" && submitInput:
+						out = append(out, hit{kv.Pos(), inTxWhat, inTxFix, nil})
 					}
 				}
 			}
 		case *ast.AssignStmt:
 			for _, lhs := range n.Lhs {
-				if s, ok := lhs.(*ast.SelectorExpr); ok && (s.Sel.Name == "ActOnAll" || s.Sel.Name == "ActOnTenant") {
+				s, ok := lhs.(*ast.SelectorExpr)
+				switch {
+				case ok && (s.Sel.Name == "ActOnAll" || s.Sel.Name == "ActOnTenant"):
 					out = append(out, hit{s.Pos(), "a write of " + s.Sel.Name, "X-Act-On-Tenant is applied by iam.RBAC.Authorize only", ActOnAllowed})
+				case ok && s.Sel.Name == "InTx" && importsJobs:
+					out = append(out, hit{s.Pos(), "a write of " + inTxWhat, inTxFix, nil})
 				}
 			}
 		case *ast.BasicLit:

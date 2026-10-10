@@ -131,6 +131,75 @@ func TestForgedContexts(t *testing.T) {
 	}
 }
 
+const inboxPkg = `"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/inbox"`
+
+const jobsPkg = `"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs"`
+
+// TestSystemHandOffs: the two helpers that run their caller's code in a WithSystem transaction count
+// as WithSystem (Appendix C §C.3.2): a reference to inbox.Run, and an InTx hook given to
+// jobs.Service.Submit, are reported outside Allowed; inbox.Claim, a Submit without a hook, a read of
+// InTx and an InTx field of another type are not.
+func TestSystemHandOffs(t *testing.T) {
+	pre := "package billing\n\nimport "
+	run := pre + inboxPkg + "\n\nvar f = inbox.Run\n"                                                         // 1
+	runRenamed := pre + "ib " + inboxPkg + "\n\nfunc g() { _, _ = ib.Run(nil, nil, nil, nil) }\n"             // 1
+	runDot := pre + ". " + inboxPkg + "\n\nvar f = Run\n"                                                     // 1
+	claim := pre + inboxPkg + "\n\ntype c struct{}\n\nfunc (c) Run() {}\n\nvar f, h = inbox.Claim, c{}.Run\n" // clean
+	hook := pre + jobsPkg + "\n\nfunc g(s *jobs.Service) { _, _ = s.Submit(nil, jobs.SubmitInput{Command: true, InTx: nil}) }\n"
+	hookPtr := pre + "j " + jobsPkg + "\n\nvar in = &j.SubmitInput{InTx: nil}\n"    // 1
+	hookDot := pre + ". " + jobsPkg + "\n\nvar in = SubmitInput{InTx: nil}\n"       // 1
+	hookElided := pre + jobsPkg + "\n\nvar ins = []jobs.SubmitInput{{InTx: nil}}\n" // 1 (the inner literal)
+	hookWrite := pre + jobsPkg + "\n\nfunc g() { var in jobs.SubmitInput; in.InTx = nil; _ = in }\n"
+	noHook := pre + jobsPkg + "\n\ntype own struct{ InTx func() }\n\n" +
+		"var in = jobs.SubmitInput{Command: true}\n\nvar o = own{InTx: nil}\n\nfunc g(in *jobs.SubmitInput) bool { return in.InTx != nil }\n" // clean
+	noImport := "package billing\n\ntype own struct{ InTx func() }\n\nfunc g(o *own) { o.InTx = nil; _ = []own{{InTx: nil}} }\n" // clean
+	root := write(t, map[string]string{
+		"go.mod":                           "module example\n",
+		"internal/billing/run.go":          run,
+		"internal/billing/run_renamed.go":  runRenamed,
+		"internal/billing/run_dot.go":      runDot,
+		"internal/billing/claim.go":        claim,
+		"internal/billing/hook.go":         hook,
+		"internal/billing/hook_ptr.go":     hookPtr,
+		"internal/billing/hook_dot.go":     hookDot,
+		"internal/billing/hook_elided.go":  hookElided,
+		"internal/billing/hook_write.go":   hookWrite,
+		"internal/billing/no_hook.go":      noHook,
+		"internal/billing/no_import.go":    noImport,
+		"internal/billing/hook_test.go":    hook, // test files are exempt
+		"internal/billing/consume_test.go": run,
+		// allowed where they belong
+		"internal/notify/email.go":        strings.Replace(run, "package billing", "package notify", 1),
+		"internal/jobs/http.go":           strings.Replace(hook, "package billing", "package jobs", 1),
+		"cmd/worker/consumers/billing.go": strings.Replace(run, "package billing", "package consumers", 1),
+		"internal/scheduler/replay.go":    strings.Replace(hookWrite, "package billing", "package scheduler", 1),
+	})
+	findings, err := Check(root, Allowed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := map[string]int{}
+	for _, f := range files(root, findings) {
+		count[f]++
+	}
+	want := map[string]int{
+		"internal/billing/run.go": 1, "internal/billing/run_renamed.go": 1, "internal/billing/run_dot.go": 1,
+		"internal/billing/hook.go": 1, "internal/billing/hook_ptr.go": 1, "internal/billing/hook_dot.go": 1,
+		"internal/billing/hook_elided.go": 1, "internal/billing/hook_write.go": 1,
+	}
+	if !maps.Equal(count, want) {
+		for _, f := range findings {
+			t.Log(f)
+		}
+		t.Fatalf("findings per file %v, want %v", count, want)
+	}
+	for _, f := range findings {
+		if s := f.String(); !strings.Contains(s, "inbox.Run") && !strings.Contains(s, "db.WithPrincipal before Submit") {
+			t.Errorf("message %q names neither inbox.Run nor the WithPrincipal read before Submit", s)
+		}
+	}
+}
+
 // TestModuleIsClean runs the analyzer on this module, so go test ./... guards it too.
 func TestModuleIsClean(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
