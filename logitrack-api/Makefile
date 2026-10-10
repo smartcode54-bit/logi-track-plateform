@@ -124,7 +124,7 @@ seed-verify: ## the twelve invariants of Appendix D §D.3 for SEED_PROFILE (on a
 seed-budget: ## T16 AC: seed --profile smoke < 5 s at the .env.example Argon2id cost (testcontainers, no race detector)
 	DOCKER_HOST=$(DOCKER_HOST) go test -count=1 -tags=integration -run 'TestSmokeLoadVerifyTwice$$' ./cmd/seed/
 
-etl-fixtures: ## dry-run ETL over the fixtures against logitrack_test (T15)
+etl-fixtures: ## dry-run the embedded fixture dump against the local database (rolled back; needs OWN_FLEET_TENANT_ID in .env) (T15)
 	$(COMPOSE) --profile tools run --rm etl load --dry-run --fixtures
 
 etl-fixtures-check: ## go-ci etl-fixtures: integration tests of cmd/etl over cmd/etl/testdata/firestore-fixtures (T15)
