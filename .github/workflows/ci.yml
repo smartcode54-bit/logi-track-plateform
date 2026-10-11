@@ -1,12 +1,16 @@
 name: CI
 
-# mv-go and mv-go-** run the same web checks (developer-spec.md §17.3, T14); the main entries are
-# unchanged (R90). Deploy follows CI runs whose head branch is main: pushes to main, but also a pull
-# request whose head branch is named main, so the job refuse-main-head fails such a PR into mv-go
-# and Deploy skips it. main reaches mv-go only through a mv-go-sync-<date> branch (§17.5).
+# Pushes to mv-go and pull requests into mv-go and mv-go-** run the same web checks (developer-spec.md
+# §17.3, T14; a feature branch runs them through its pull request only); the main entries are
+# unchanged (R90). Only the push filter lists this file, so a pull request that changes ci.yml and
+# no path of the pull_request filter starts no run; go-ci's web-ci job fails such a pull request
+# (.github/scripts/go-ci-web-ci.sh) until it also changes a file under that filter. Deploy follows
+# CI runs whose head branch is main: pushes to main, but also a pull request whose head branch is
+# named main, so the job refuse-main-head fails such a PR into mv-go and Deploy skips it. main
+# reaches mv-go only through a mv-go-sync-<date> branch (§17.5).
 on:
   push:
-    branches: [main, mv-go, 'mv-go-**']
+    branches: [main, mv-go]
     paths:
       - 'logitrack-web/**'
       - 'shared-docs/**'
