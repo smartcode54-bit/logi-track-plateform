@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -25,7 +26,11 @@ import (
 
 // Check is one compared value.
 type Check struct {
-	Name   string `json:"name"`   // counts | targets | trip_money | trip_unpriced | standby_money | expense_money | findings | quarantine_rows
+	// counts | targets | trip_money | trip_unpriced | standby_money | expense_money | findings | quarantine_rows; with
+	// --finance (T41): finance_inputs | rate_tables | standby_rate_review | service_fees_d5 | service_fees_d5_winner | statements |
+	// statement_totals | counters | counters_next | fuel_snapshots | parity_trip | parity_standby | parity_load |
+	// parity_summary | divergence_1 | divergence_9 | spk_collisions | parity_window
+	Name   string `json:"name"`
 	Key    string `json:"key"`    // collection, table or "party period"
 	Source string `json:"source"` // the dump side
 	Target string `json:"target"` // the database side
@@ -43,6 +48,8 @@ type Reconciliation struct {
 	// AcceptedBy names the owner who accepted this run's open findings as the new baseline (--accept-findings).
 	AcceptedBy string  `json:"acceptedBy,omitempty"`
 	Checks     []Check `json:"checks"`
+	// Finance is the finance cut-over part of a --finance run (T41): its window and parity records.
+	Finance *FinanceRun `json:"finance,omitempty"`
 }
 
 // ReconcileOptions select one reconciliation.
@@ -52,6 +59,12 @@ type ReconcileOptions struct {
 	// AcceptFindingsBy, when set, records the owner's sign-off of the open findings: their codes and counts pass
 	// and, if every other check matches, this run becomes the baseline of the next one.
 	AcceptFindingsBy string
+	// Finance adds the finance cut-over checks of T41 (finance.go): rate tables, voids, the D5 fee dedupe, legacy
+	// statements, counters, fuel snapshots and the parity dry run of the last Months closed Bangkok months ending at
+	// Through (YYYY-MM; "" = the month before now). Months defaults to 3 (main spec §6.17).
+	Finance bool
+	Months  int
+	Through string
 }
 
 // Mismatches lists the failed checks.
@@ -81,6 +94,17 @@ func (e *Engine) Reconcile(ctx context.Context, d *dump.Dump, o ReconcileOptions
 		}
 	}
 	rec := &Reconciliation{Period: period, ExportedAt: d.Manifest.ExportedAt, Match: true, AcceptedBy: strings.TrimSpace(o.AcceptFindingsBy)}
+	if o.Finance {
+		months := o.Months
+		if months == 0 {
+			months = 3
+		}
+		w, err := newFinanceWindow(o.Through, months, e.cfg.Now())
+		if err != nil {
+			return nil, err
+		}
+		rec.Finance = &FinanceRun{Window: w}
+	}
 	docs := map[string][]dump.Doc{}
 	for _, n := range d.Names() {
 		ds, err := d.Read(n)
@@ -105,6 +129,11 @@ func (e *Engine) Reconcile(ctx context.Context, d *dump.Dump, o ReconcileOptions
 		}
 		if err := reconcileExpenses(ctx, tx, docs, status, period, rec); err != nil {
 			return err
+		}
+		if rec.Finance != nil {
+			if err := e.reconcileFinance(ctx, tx, docs, status, rec.Finance.Window, rec); err != nil {
+				return err
+			}
 		}
 		if err := reconcileFindings(ctx, tx, rec, rec.AcceptedBy); err != nil {
 			return err
@@ -639,6 +668,9 @@ func (r *Reconciliation) WriteMarkdown(w io.Writer) error {
 	if r.Period != "" {
 		fmt.Fprintf(&b, ", money for %s (Asia/Bangkok)", r.Period)
 	}
+	if r.Finance != nil {
+		fmt.Fprintf(&b, ", finance cut-over checks with the parity dry run of %s (Asia/Bangkok)", strings.Join(r.Finance.Window.Months, ", "))
+	}
 	b.WriteString(".")
 	if r.AcceptedBy != "" {
 		fmt.Fprintf(&b, " Open findings accepted by %s.", mdEscape(r.AcceptedBy))
@@ -657,14 +689,24 @@ func (r *Reconciliation) WriteMarkdown(w io.Writer) error {
 
 func mdEscape(s string) string { return strings.ReplaceAll(s, "|", `\|`) }
 
-// WriteCSV prints the checks as CSV.
+// csvCell is a CSV cell the owner opens in a spreadsheet: a finite number stays as it is (a negative amount or count
+// remains a number), any other text that a spreadsheet would read as a formula is defused (csvSafe).
+func csvCell(s string) string {
+	if f, err := strconv.ParseFloat(s, 64); err == nil && !math.IsNaN(f) && !math.IsInf(f, 0) {
+		return s
+	}
+	return csvSafe(s)
+}
+
+// WriteCSV prints the checks as CSV. Keys, values and notes can carry source text (trip numbers, stop codes, doc ids),
+// so every cell is defused for a spreadsheet (csvCell).
 func (r *Reconciliation) WriteCSV(w io.Writer) error {
 	cw := csv.NewWriter(w)
 	if err := cw.Write([]string{"check", "key", "source", "target", "ok", "note"}); err != nil {
 		return err
 	}
 	for _, c := range r.Checks {
-		if err := cw.Write([]string{c.Name, c.Key, c.Source, c.Target, strconv.FormatBool(c.OK), c.Note}); err != nil {
+		if err := cw.Write([]string{c.Name, csvCell(c.Key), csvCell(c.Source), csvCell(c.Target), strconv.FormatBool(c.OK), csvCell(c.Note)}); err != nil {
 			return err
 		}
 	}

@@ -57,7 +57,7 @@ Tree on the VM:
 | `env-names/<program>.txt` | the exact §16.1 names each program receives (checked by `make env-check`) |
 | `provision.sh` | one-time, idempotent set-up as root (`--dry-run` prints the plan) |
 | `deploy.sh` | build and ship from the operator's machine (`--dry-run`, `--rollback`, `--status`, `--provision`, `--kit`) |
-| `rollout.sh` | the VM side of a deploy: migrate, first-deploy seed, switch, pm2, checks, rollback, pruning; `rollout.sh pm2 ...` |
+| `rollout.sh` | the VM side of a deploy: migrate, first-deploy seed (or the `--reseed` top-up), switch, pm2, checks, rollback, pruning; `rollout.sh pm2 ...` |
 | `run-app.sh` | starts a program with its names from `shared/.env`, read at exec time (also `release`, section 8) |
 | `ecosystem.config.cjs` | the four pm2 apps and their per-process listener settings |
 | `nginx/` | the two vhosts, the Cloudflare real-IP and proxy-header snippets, the access-log format |
@@ -204,7 +204,13 @@ Sign in at `https://logi.showkhun.co/login` as `ssadmin@showkhun.co`. Demo users
 ## 4. Later deploys
 
 The same command from a newer commit of `mv-go`: no seed, `migrate up` first (expand/contract: the running release
-keeps serving on the new schema), then the switch and the checks. Redeploying the commit that is already live is
+keeps serving on the new schema), then the switch and the checks. When the release's seed generators add rows (a
+seed PR such as T35's demo operations), deploy it with `--reseed`: `rollout.sh activate --reseed` then runs
+`seed --profile demo --allow-shared` after `migrate up` and before the switch (`APP_ENV=dev` loads in upsert mode:
+only missing rows; the admin bootstrap stays a first-deploy step). The top-up uses the new release's seed, which prices
+the rows it adds from the rate tables and hubs the database holds; a failed top-up stops the deploy with `current`
+unchanged. Keep `SEED_ANCHOR_DATE` as it was at the first seed: the master data is anchored to it, and another anchor
+would add a second set of anchor-relative rows next to the first. Redeploying the commit that is already live is
 refused; to apply an edited `.env`, reload instead (`rollout.sh pm2 reload <app>`). `deploy.sh --status` shows the
 current release, the kept ones and the last activations, and says so when the current release was never
 recorded as live (a deploy interrupted between the on-VM checks and `confirm`).
@@ -371,7 +377,7 @@ of api, worker, scheduler, migrate and seed (`STORAGE_BACKEND=local`, empty `S3_
 node, every script run against a temporary tree with stub commands (dry runs change nothing; no generated secret
 in any output or process argument; a second provision changes nothing; a JWT key path outside `shared/secrets/`
 is refused; deploy from a clean export, refusal of untracked files, rollback, the public-check failure path,
-the first-deploy seed, pruning; the section 2 reload; the backup commands' modes). With `-tags=integration`
+the first-deploy seed and the `--reseed` top-up of a later deploy, pruning; the section 2 reload; the backup commands' modes). With `-tags=integration`
 (`make test-integration`, or `make vm-check`): `nginx -t`, the routing of both vhosts and the error logs of an
 unreachable upstream (no credential in them) under `nginx:1.24` with a dummy certificate at the real paths,
 shellcheck over every script, and section 7's restore run as written on PostgreSQL 18 (definer owners kept,
