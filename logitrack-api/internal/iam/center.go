@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam/iamdb"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/mobileapp"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/security"
@@ -388,8 +388,9 @@ func installCounts(ctx context.Context, q *iamdb.Queries, since time.Time) (*Ins
 	case !errors.Is(err, pgx.ErrNoRows):
 		return nil, err
 	}
-	floor, hasFloor := parseVersion(set.MinAllowedVersion)
-	latest, hasLatest := parseVersion(set.LatestVersion)
+	// One version rule for the server (T52): mobileapp's port of the web's lib/mobileVersion.ts.
+	floor, hasFloor := mobileapp.ParseVersion(set.MinAllowedVersion)
+	latest, hasLatest := mobileapp.ParseVersion(set.LatestVersion)
 	vs, err := q.InstallationVersions(ctx, since)
 	if err != nil {
 		return nil, err
@@ -398,47 +399,19 @@ func installCounts(ctx context.Context, q *iamdb.Queries, since time.Time) (*Ins
 		n := int(v.Installs)
 		out.Total += n
 		out.Seen7d += int(v.Seen)
-		ver, ok := parseVersion(v.AppVersion)
+		ver, ok := mobileapp.ParseVersion(v.AppVersion)
 		if !ok {
 			out.UnknownVersion += n
 			continue
 		}
-		if hasFloor && versionLess(ver, floor) {
+		if hasFloor && ver.Compare(floor) < 0 {
 			out.BelowFloor += n
 		}
-		if hasLatest && versionLess(ver, latest) {
+		if hasLatest && ver.Compare(latest) < 0 {
 			out.BelowLatest += n
 		}
 	}
 	return out, nil
-}
-
-// parseVersion reads a strict x.y.z version (the pub_semver gate refuses labels, ADR 0007); a build suffix after
-// '+' is ignored.
-func parseVersion(s string) ([3]int, bool) {
-	var v [3]int
-	s, _, _ = strings.Cut(strings.TrimSpace(s), "+")
-	parts := strings.Split(s, ".")
-	if len(parts) != 3 {
-		return v, false
-	}
-	for i, p := range parts {
-		n, err := strconv.Atoi(p)
-		if err != nil || n < 0 || p == "" || (len(p) > 1 && p[0] == '0') {
-			return v, false
-		}
-		v[i] = n
-	}
-	return v, true
-}
-
-func versionLess(a, b [3]int) bool {
-	for i := range a {
-		if a[i] != b[i] {
-			return a[i] < b[i]
-		}
-	}
-	return false
 }
 
 // Status is GET /v1/security/status (security:view_status, the data of /app/security-center/status): platform-wide

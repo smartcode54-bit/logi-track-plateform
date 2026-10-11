@@ -74,6 +74,7 @@ var Allowed = []string{
 	"internal/iam",
 	"internal/security",
 	"internal/storage",
+	"internal/mobileapp", // the version gate and releases: exempt settings / mobile_app_releases, the APK commit, mobile_floor_changed (T52)
 	"internal/public",
 	"internal/platform/outbox",
 	"internal/platform/inbox",

@@ -9,6 +9,15 @@ VALUES (@bucket, @object_key, sqlc.narg(tenant_id)::uuid, @purpose, @content_typ
         sqlc.narg(sha256)::text, 'private', 'pending', @uploaded_by::uuid, @expires_at::timestamptz, @storage_backend)
 RETURNING *;
 
+-- name: InsertPendingPublic :one
+-- PresignPublic (APKs of cmd/release, main spec §9.7): a pending platform object (tenant NULL) of the public bucket,
+-- committed by the release it becomes; uploaded_by is NULL for an API key, which has no users row.
+INSERT INTO file_objects (bucket, object_key, tenant_id, purpose, content_type, size_bytes, sha256, visibility,
+                          status, uploaded_by, expires_at, storage_backend)
+VALUES (@bucket, @object_key, NULL, @purpose, @content_type::text, @size_bytes::bigint, @sha256::text, 'public',
+        'pending', sqlc.narg(uploaded_by)::uuid, @expires_at::timestamptz, @storage_backend)
+RETURNING *;
+
 -- name: GetFileByKey :one
 -- Keys are unique per bucket; across the two buckets the same key never occurs in practice (app_releases/ lives
 -- only in the public one), and a committed row wins over a pending one.

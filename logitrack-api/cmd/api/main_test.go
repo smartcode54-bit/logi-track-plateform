@@ -236,7 +236,8 @@ func TestRoutesRefusesAPublicGroupOutsideTheAllowList(t *testing.T) {
 // middleware passes, and Use matches by prefix, so the table shows what answers below PATH.
 func TestRoutesListsUseRegistrations(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	// /public/v1 has no group of its own yet (the served /v1/mobile group belongs to the SSE stream, T12).
+	// /public/v1 has no group of its own yet (the served /v1/mobile group holds the SSE stream of T12 and the gate and
+	// heartbeat of T52).
 	code := routes(nil, &stdout, &stderr, ingress.Group{Prefix: "/public/v1", Public: true, Mount: func(r fiber.Router) {
 		r.Use(func(c fiber.Ctx) error { return c.Next() })
 		r.Post("/webhooks/x", nop)
@@ -263,3 +264,25 @@ func TestUnknownArgumentIsAUsageError(t *testing.T) {
 }
 
 func nop(fiber.Ctx) error { return nil }
+
+// T52S (issue #72): the installation and release administration is internal only (R43), the driver app's gate and
+// heartbeat are on both listeners, and the APK publish routes are the only ones a release_publisher key reaches
+// (asserted with the keys in internal/mobileapp's integration tests).
+func TestMobileReleaseRoutesListeners(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := routes(nil, &stdout, &stderr); code != app.ExitOK {
+		t.Fatalf("exit %d, stderr %q", code, stderr.String())
+	}
+	table := stdout.String()
+	for _, line := range []string{
+		"GET /v1/app-installations internal\n", "GET /v1/app-installations/stats internal\n",
+		"GET /v1/app-releases internal\n", "PUT /v1/app-releases/floor internal\n",
+		"POST /v1/app-releases/presign internal\n", "POST /v1/app-releases internal\n",
+		"GET /v1/mobile/settings internal,public\n", "POST /v1/mobile/heartbeat internal,public\n",
+		"GET /v1/mobile/events internal,public\n",
+	} {
+		if !strings.Contains(table, line) {
+			t.Errorf("route table lacks %q", line)
+		}
+	}
+}

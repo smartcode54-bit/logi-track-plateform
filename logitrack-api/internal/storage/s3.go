@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -137,7 +138,9 @@ func (s *S3) signing() (*minio.Client, error) {
 // declared size (another length, or a chunked body, fails the signature or gets 411), and the PUT can only create
 // the object: once it exists (uploaded, or committed) the same URL gets 412 instead of replacing it. Clients send
 // the returned headers; Content-Length is their body's own, which browsers and HTTP clients set themselves.
-func (s *S3) PresignPut(ctx context.Context, o Object, contentType string, size int64, ttl time.Duration, _ PutOptions) (PutURL, error) {
+// opts.CacheControl and opts.Metadata (APKs, main spec §9.7) join the signed headers, so the object is stored with
+// them and a PUT without them fails the signature.
+func (s *S3) PresignPut(ctx context.Context, o Object, contentType string, size int64, ttl time.Duration, opts PutOptions) (PutURL, error) {
 	c, err := s.signing()
 	if err != nil {
 		return PutURL{}, err
@@ -145,18 +148,34 @@ func (s *S3) PresignPut(ctx context.Context, o Object, contentType string, size 
 	if size <= 0 {
 		return PutURL{}, errors.New("storage: an upload needs its size")
 	}
-	exp := time.Now().Add(ttl)
-	u, err := c.PresignHeader(ctx, http.MethodPut, o.Bucket, o.Key, ttl, nil, http.Header{
+	signed := http.Header{
 		"Content-Type":   {contentType},
 		"Content-Length": {strconv.FormatInt(size, 10)},
 		"If-None-Match":  {"*"},
-	})
+	}
+	headers := map[string]string{"Content-Type": contentType, "If-None-Match": "*"}
+	if opts.CacheControl != "" {
+		signed.Set("Cache-Control", opts.CacheControl)
+		headers["Cache-Control"] = opts.CacheControl
+	}
+	for k, v := range opts.Metadata {
+		if !metaNameRx.MatchString(k) {
+			return PutURL{}, fmt.Errorf("storage: invalid metadata name %q", k)
+		}
+		h := "X-Amz-Meta-" + k
+		signed.Set(h, v)
+		headers[http.CanonicalHeaderKey(h)] = v
+	}
+	exp := time.Now().Add(ttl)
+	u, err := c.PresignHeader(ctx, http.MethodPut, o.Bucket, o.Key, ttl, nil, signed)
 	if err != nil {
 		return PutURL{}, err
 	}
-	return PutURL{URL: u.String(), Method: http.MethodPut, Expires: exp,
-		Headers: map[string]string{"Content-Type": contentType, "If-None-Match": "*"}}, nil
+	return PutURL{URL: u.String(), Method: http.MethodPut, Expires: exp, Headers: headers}, nil
 }
+
+// metaNameRx is an object metadata name (x-amz-meta-{name}): lower-case letters, digits and hyphens.
+var metaNameRx = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 
 // PresignGet implements Backend.
 func (s *S3) PresignGet(ctx context.Context, o Object, ttl time.Duration, opts GetOptions) (string, time.Time, error) {

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # run-app.sh: exec one program of a release with its environment from the VM's shared .env
 # (deploy/vm/README.md). pm2 starts api, worker, scheduler and web through it (ecosystem.config.cjs);
-# rollout.sh runs migrate and seed through it.
+# rollout.sh runs migrate and seed through it; the operator runs cmd/release through it (README "Publishing a
+# driver-app APK"), which gets the internal listener's URL from kit.conf.
 #
-#   run-app.sh api|worker|scheduler|migrate|seed [ARGS...]
+#   run-app.sh api|worker|scheduler|migrate|seed|release [ARGS...]
 #   run-app.sh web
 #
 # The .env (0640 root:logitrack) is read here, at exec time: only the names of env-names/<program>.txt
@@ -17,14 +18,14 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: run-app.sh api|worker|scheduler|migrate|seed|web [ARGS...]" >&2
+  echo "usage: run-app.sh api|worker|scheduler|migrate|seed|release|web [ARGS...]" >&2
   exit 2
 }
 [ $# -ge 1 ] || usage
 program=$1
 shift
 case $program in
-  api | worker | scheduler | migrate | seed | web) ;;
+  api | worker | scheduler | migrate | seed | release | web) ;;
   *) usage ;;
 esac
 
@@ -77,6 +78,14 @@ while IFS= read -r line || [ -n "$line" ]; do
   esac
 done <"$env_file"
 unset line name allowed n
+
+# cmd/release calls the api's internal listener (R43): its URL is per-process like the web's (ecosystem.config.cjs),
+# so it comes from the kit's port unless the caller set one.
+if [ "$program" = release ] && [ -z "${GO_API_INTERNAL_URL:-}" ]; then
+  # shellcheck source=kit.conf
+  . "$kit_dir/kit.conf"
+  export GO_API_INTERNAL_URL="http://127.0.0.1:${kit_api_internal_port}"
+fi
 
 case $program in
   web)

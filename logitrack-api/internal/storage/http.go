@@ -57,14 +57,14 @@ func (s *Service) Groups(o HTTPOptions) []ingress.Group {
 	return []ingress.Group{
 		{Prefix: UploadsPrefix, Uploads: apiUpload, Mount: func(r fiber.Router) {
 			r.Post("/presign", o.Auth, presign...)
-			r.Put("/local/*", h.upload)
+			r.Put("/local/*", h.uploadAPI)
 		}},
 		{Prefix: FilesPrefix, Mount: func(r fiber.Router) {
 			r.Get("", o.Auth, h.file)
 		}},
 		{Prefix: MediaPrefix, Public: true, Uploads: mediaUpload, Mount: func(r fiber.Router) {
 			r.Get("/*", h.media)
-			r.Put("/*", h.upload)
+			r.Put("/*", h.uploadMedia)
 		}},
 	}
 }
@@ -149,14 +149,28 @@ func contentLength(n int) string {
 	return strconv.Itoa(n)
 }
 
+// maxUpload is the largest body the local upload route below prefix takes for key: UPLOAD_MAX_BYTES, and for an
+// APK (a key under PublicPrefix) MaxReleaseBytes on the API route only. The public /media route takes no APK at all
+// (0): release uploads stay on the internal listener (R43).
+func (s *Service) maxUpload(prefix, key string) int64 {
+	if !IsPublicKey(key) {
+		return s.cfg.UploadMaxBytes
+	}
+	if prefix == LocalUploadPath+"/" {
+		return max(s.cfg.UploadMaxBytes, MaxReleaseBytes)
+	}
+	return 0
+}
+
 // UploadLimit is the head check of the local upload route below prefix (ingress.Upload.Limit): the signed size
 // when the request's path, Content-Type, Content-Length and query carry a valid, unexpired upload signature, else
 // 0. It runs in fasthttp's HeaderReceived, before any body byte is read, so an unsigned request reserves no more
-// than the 4 MiB / 30 s of every other route; the handler verifies again.
+// than the 4 MiB / 30 s of every other route; the handler verifies again. The size may reach maxUpload: an APK on
+// the API route is the one upload above UPLOAD_MAX_BYTES.
 func (s *Service) UploadLimit(prefix string) func(ingress.UploadHead) int64 {
 	return func(h ingress.UploadHead) int64 {
 		l := s.local
-		if l == nil || h.ContentLength <= 0 || int64(h.ContentLength) > s.cfg.UploadMaxBytes {
+		if l == nil || h.ContentLength <= 0 {
 			return 0
 		}
 		raw, ok := strings.CutPrefix(h.Path, prefix)
@@ -164,7 +178,7 @@ func (s *Service) UploadLimit(prefix string) func(ingress.UploadHead) int64 {
 			return 0
 		}
 		key, ok := rawObjectKey(h.Path, raw)
-		if !ok {
+		if !ok || int64(h.ContentLength) > s.maxUpload(prefix, key) {
 			return 0
 		}
 		q, err := url.ParseQuery(h.Query)
@@ -185,12 +199,20 @@ func signatureError(err error) error {
 	return errPermission("signature_invalid")
 }
 
+// uploadAPI is the local backend's PUT on the internal listener: /v1/uploads/local/{key} (the web through the BFF,
+// cmd/release with an APK).
+func (h handlers) uploadAPI(c fiber.Ctx) error { return h.upload(c, LocalUploadPath+"/") }
+
+// uploadMedia is the local backend's PUT on /media/{key} (the driver app, public listener); an APK key is 404 there.
+func (h handlers) uploadMedia(c fiber.Ctx) error { return h.upload(c, MediaPrefix+"/") }
+
 // upload is the local backend's PUT (web: /v1/uploads/local/{key} through the BFF; driver app: /media/{key} on the
 // public listener). The signature covers method, key, expiry, the Content-Type header and the declared size
 // (Content-Length), as a SigV4 PUT does on S3. Only a pending upload of the local backend takes bytes, and the
 // bytes are renamed into place while that row is locked (PublishLocal), so a still-valid URL can neither
-// overwrite a committed object nor replace the bytes a concurrent commit verifies.
-func (h handlers) upload(c fiber.Ctx) error {
+// overwrite a committed object nor replace the bytes a concurrent commit verifies. prefix is the route's own
+// (maxUpload: APKs only on the API route).
+func (h handlers) upload(c fiber.Ctx, prefix string) error {
 	l := h.s.local
 	if l == nil {
 		return httpx.ErrNotFound()
@@ -199,13 +221,17 @@ func (h handlers) upload(c fiber.Ctx) error {
 	if !ok {
 		return httpx.ErrNotFound()
 	}
+	limit := h.s.maxUpload(prefix, key)
+	if limit <= 0 {
+		return httpx.ErrNotFound()
+	}
 	ct := c.Get(fiber.HeaderContentType)
 	if err := l.Verify(http.MethodPut, key, ct, contentLength(c.Request().Header.ContentLength()), "",
 		c.Query(QueryExpires), c.Query(QuerySignature)); err != nil {
 		return signatureError(err)
 	}
 	body := c.Request().Body() // the request's own buffer: no copy of up to UPLOAD_MAX_BYTES
-	if int64(len(body)) > h.s.cfg.UploadMaxBytes {
+	if int64(len(body)) > limit {
 		return httpx.NewError(http.StatusRequestEntityTooLarge, httpx.CodePayloadTooLarge, "request body too large")
 	}
 	// A cheap refusal before anything touches the disk; PublishLocal decides under the row lock.
@@ -216,7 +242,7 @@ func (h handlers) upload(c fiber.Ctx) error {
 	if !pending {
 		return errFailedPrecondition("not_pending")
 	}
-	st, err := l.Stage(key, bytes.NewReader(body), normalizeType(ct), h.s.cfg.UploadMaxBytes)
+	st, err := l.Stage(key, bytes.NewReader(body), normalizeType(ct), limit)
 	if err != nil {
 		return err
 	}

@@ -279,20 +279,6 @@ func TestDiffRows(t *testing.T) {
 	}
 }
 
-func TestParseVersion(t *testing.T) {
-	for in, ok := range map[string]bool{"3.2.0": true, "10.0.1+7": true, " 1.2.3 ": true, "1.2": false, "1.2.3-beta": false,
-		"01.2.3": false, "": false, "a.b.c": false, "1..3": false} {
-		if _, got := parseVersion(in); got != ok {
-			t.Errorf("parseVersion(%q) ok = %t", in, got)
-		}
-	}
-	a, _ := parseVersion("2.9.3")
-	b, _ := parseVersion("2.10.0")
-	if !versionLess(a, b) || versionLess(b, a) || versionLess(a, a) {
-		t.Fatal("2.9.3 < 2.10.0 (numeric, not lexical)")
-	}
-}
-
 func TestSchedulerLockName(t *testing.T) {
 	if SchedulerLockName != scheduler.LockName {
 		t.Fatalf("the status page looks for %q, the scheduler takes %q", SchedulerLockName, scheduler.LockName)
