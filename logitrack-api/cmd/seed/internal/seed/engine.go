@@ -44,11 +44,14 @@ type partyTables struct {
 type engineInputs struct {
 	hubs    compute.HubMaps
 	parties map[string]*partyTables
+	// standbyTenants is the tenant of every standby rate (by id): the billing carrier of a standby record it prices
+	// (0015, R61). The engine check does not compare it; the seed's pricing pass writes it.
+	standbyTenants map[string]string
 }
 
 // loadEngineInputs reads every billing party's tables and the hub maps.
 func loadEngineInputs(ctx context.Context, q pgx.Tx) (*engineInputs, error) {
-	in := &engineInputs{parties: map[string]*partyTables{}}
+	in := &engineInputs{parties: map[string]*partyTables{}, standbyTenants: map[string]string{}}
 	party := func(id string) *partyTables {
 		p, ok := in.parties[id]
 		if !ok {
@@ -128,17 +131,19 @@ func loadEngineInputs(ctx context.Context, q pgx.Tx) (*engineInputs, error) {
 		return nil, fmt.Errorf("service fees: %w", err)
 	}
 	rows, err = q.Query(ctx, `SELECT id::text, coalesce(legacy_doc_id, ''), created_at, billing_party_id::text, rate_thb::float8,
-		effective_from_at, voided_at IS NOT NULL FROM standby_rate_entries ORDER BY billing_party_id, created_at, id`)
+		effective_from_at, voided_at IS NOT NULL, tenant_id::text FROM standby_rate_entries ORDER BY billing_party_id, created_at, id`)
 	if err != nil {
 		return nil, err
 	}
 	if err := scanAll(rows, func(r pgx.Rows) error {
 		var s compute.StandbyRate
-		if err := r.Scan(&s.ID, &s.LegacyDocID, &s.CreatedAt, &s.PartyID, &s.RateTHB, &s.EffectiveFrom, &s.Voided); err != nil {
+		var tenant string
+		if err := r.Scan(&s.ID, &s.LegacyDocID, &s.CreatedAt, &s.PartyID, &s.RateTHB, &s.EffectiveFrom, &s.Voided, &tenant); err != nil {
 			return err
 		}
 		p := party(s.PartyID)
 		p.standbys = append(p.standbys, s)
+		in.standbyTenants[s.ID] = tenant
 		return nil
 	}); err != nil {
 		return nil, fmt.Errorf("standby rates: %w", err)

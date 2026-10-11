@@ -137,3 +137,18 @@ func TestBootstrapAdminPasswordPolicy(t *testing.T) {
 		t.Fatal("BOOTSTRAP_ADMIN_PASSWORD reached the output")
 	}
 }
+
+// Every load of a process draws with the same drawer (T35), so a load that draws an object an earlier load drew
+// takes it from the memo: the integration tests load the demo's ~3,600 photos six times under the race detector.
+func TestOneMediaPerProcess(t *testing.T) {
+	a, err := media()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := media(); a != b {
+		t.Fatal("two loads of one process got different placeholder drawers")
+	}
+	if c, _ := processMedia()(); c == a {
+		t.Fatal("processMedia did not make a new drawer")
+	}
+}

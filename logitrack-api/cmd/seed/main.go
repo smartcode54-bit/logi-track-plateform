@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -40,6 +41,16 @@ var fixtures embed.FS
 //
 //go:embed assets/Sarabun-Regular.ttf
 var sarabun []byte
+
+// media draws the placeholder objects of every load this process runs: the font is parsed once, and a load that
+// draws an object an earlier load of the process drew takes its bytes from the drawer's memo (seed.Media). A
+// command runs one load; the integration tests run many, each the demo's ~3,600 photos.
+var media = processMedia()
+
+// processMedia is a drawer with an empty memo, made on first use.
+func processMedia() func() (*seed.Media, error) {
+	return sync.OnceValues(func() (*seed.Media, error) { return seed.NewMedia(sarabun) })
+}
 
 // Exit codes of --verify (Appendix D §D.1.1): 0 pass, 1 invariant violation, 2 dependency unreachable.
 const (
@@ -386,14 +397,14 @@ func load(ctx context.Context, cfg *app.SeedConfig, fx seed.FixtureFS, profile s
 		log.Error().Err(err).Msg("password hasher")
 		return app.ExitConfigError
 	}
-	media, err := seed.NewMedia(sarabun)
+	m, err := media()
 	if err != nil {
 		log.Error().Err(err).Msg("overlay font")
 		return app.ExitRuntimeError
 	}
 	opts := buildOptions(cfg, profile)
 	opts.EmitEvents, opts.Materialize, opts.Hasher, opts.DefaultPassword = emitEvents, true, hasher, cfg.SeedDefaultPassword
-	opts.Scrypt, opts.Media = cfg.Scrypt, media
+	opts.Scrypt, opts.Media = cfg.Scrypt, m
 	opts.PublicURL = func(o storage.Object) (string, error) {
 		b, err := c.backends.For(cfg.StorageBackend)
 		if err != nil {
