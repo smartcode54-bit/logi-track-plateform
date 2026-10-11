@@ -7,7 +7,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/dump"
@@ -41,6 +40,14 @@ type ExportDoc struct {
 	Keep func(cur map[string]any) []string
 	// Skip, when set, says why the row is not written (a quarantined row, a hub a driver created in Firestore).
 	Skip string
+	// Merge, per field, builds the value to write from the stored one (nil when the field is absent or the document
+	// does not exist): a map whose entries PostgreSQL holds only in part (customerDriverIds keeps the entries of a code
+	// the load could not resolve, under the stored spelling of each key). The field is the same when the merged value
+	// is legacyEqual to the stored one.
+	Merge map[string]func(cur any) any
+	// Retired marks the document of a row whose document id moved (a distance pair minted again after its hub's code
+	// changed): it is written only when it exists, never created, and the reconciliation does not count it as a row.
+	Retired bool
 }
 
 // ExportOptions select an export-back run.
@@ -60,7 +67,7 @@ type ExportResult struct {
 var exportEncoders = map[string]func(context.Context, pgx.Tx) ([]ExportDoc, error){
 	// The projection's encoder (shadow_encode.go) over every row, without minting: export-back never writes PostgreSQL.
 	"customers": func(ctx context.Context, tx pgx.Tx) ([]ExportDoc, error) {
-		return encodeCustomerDocs(ctx, tx, selection{all: true, ids: []uuid.UUID{}, hubs: []uuid.UUID{}}, false)
+		return encodeCustomerDocs(ctx, tx, selectAll(), false)
 	},
 }
 

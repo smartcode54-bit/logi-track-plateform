@@ -14,7 +14,7 @@ const specFixture = "### 16.1 Canonical table\n" +
 	"| `APP_ENV` | no | all-go | P0 / — | MISSING | |\n" +
 	"| `DATABASE_URL` | yes | api, worker, scheduler, seed | P0 / — | MISSING | |\n" +
 	"| `MIGRATE_DATABASE_URL` | yes | migrate, seed | P0 / — | MISSING | |\n" +
-	"| `ETL_DATABASE_URL` | yes | etl, seed, worker | P0 / — | MISSING | |\n" +
+	"| `ETL_DATABASE_URL` | yes | etl, seed, worker-sync | P0 / — | MISSING | |\n" +
 	"| `API_PUBLIC_ADDR` | no | api, caddy | P0 / — | MISSING | |\n" +
 	"| `JWT_ISSUER` | no | api, web-server | P0 / — | MISSING | |\n" +
 	"| `GO_API_INTERNAL_URL` | no | web-server, release | P0 / — | MISSING | |\n" +
@@ -108,7 +108,8 @@ func goodCompose() composeConfig {
 		cfg.Services[svc] = s
 	}
 	set("api", map[string]*string{"APP_ENV": str(""), "DATABASE_URL": str(""), "API_PUBLIC_ADDR": str(""), "JWT_ISSUER": str("")}, nil)
-	set("worker", map[string]*string{"APP_ENV": str(""), "DATABASE_URL": str(""), "ETL_DATABASE_URL": str("")}, nil)
+	set("worker", map[string]*string{"APP_ENV": str(""), "DATABASE_URL": str("")}, nil)
+	set("worker-sync", map[string]*string{"APP_ENV": str(""), "DATABASE_URL": str(""), "ETL_DATABASE_URL": str("")}, nil)
 	set("scheduler", map[string]*string{"APP_ENV": str(""), "DATABASE_URL": str("")}, nil)
 	set("migrate", map[string]*string{"APP_ENV": str(""), "MIGRATE_DATABASE_URL": str("")}, nil)
 	set("seed", map[string]*string{"APP_ENV": str(""), "DATABASE_URL": str(""), "MIGRATE_DATABASE_URL": str(""), "ETL_DATABASE_URL": str("")}, nil)
@@ -129,14 +130,17 @@ func TestCompose(t *testing.T) {
 		mutate func(c composeConfig)
 		want   string
 	}{
-		"web gets a Go-only name":   {func(c composeConfig) { c.Services["web"].Environment["DATABASE_URL"] = str("") }, "web receives DATABASE_URL"},
-		"web misses a server name":  {func(c composeConfig) { delete(c.Services["web"].Environment, "WEB_PUBLIC_ORIGIN") }, "web does not receive WEB_PUBLIC_ORIGIN"},
-		"server value as build arg": {func(c composeConfig) { c.Services["web"].Build.Args["GO_API_INTERNAL_URL"] = str("") }, "build arg GO_API_INTERNAL_URL is not"},
-		"missing web-public arg":    {func(c composeConfig) { delete(c.Services["web"].Build.Args, "NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID") }, "does not receive NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID"},
-		"caddy gets more":           {func(c composeConfig) { c.Services["caddy"].Environment["JWT_ISSUER"] = str("") }, "caddy receives JWT_ISSUER"},
-		"caddy misses upstream":     {func(c composeConfig) { delete(c.Services["caddy"].Environment, "API_PUBLIC_ADDR") }, "caddy does not receive API_PUBLIC_ADDR"},
-		"api gets every DB URL":     {func(c composeConfig) { c.Services["api"].Environment["ETL_DATABASE_URL"] = str("") }, "api DB URLs"},
-		"worker gets the migrator":  {func(c composeConfig) { c.Services["worker"].Environment["MIGRATE_DATABASE_URL"] = str("") }, "worker DB URLs"},
+		"web gets a Go-only name":    {func(c composeConfig) { c.Services["web"].Environment["DATABASE_URL"] = str("") }, "web receives DATABASE_URL"},
+		"web misses a server name":   {func(c composeConfig) { delete(c.Services["web"].Environment, "WEB_PUBLIC_ORIGIN") }, "web does not receive WEB_PUBLIC_ORIGIN"},
+		"server value as build arg":  {func(c composeConfig) { c.Services["web"].Build.Args["GO_API_INTERNAL_URL"] = str("") }, "build arg GO_API_INTERNAL_URL is not"},
+		"missing web-public arg":     {func(c composeConfig) { delete(c.Services["web"].Build.Args, "NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID") }, "does not receive NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID"},
+		"caddy gets more":            {func(c composeConfig) { c.Services["caddy"].Environment["JWT_ISSUER"] = str("") }, "caddy receives JWT_ISSUER"},
+		"caddy misses upstream":      {func(c composeConfig) { delete(c.Services["caddy"].Environment, "API_PUBLIC_ADDR") }, "caddy does not receive API_PUBLIC_ADDR"},
+		"api gets every DB URL":      {func(c composeConfig) { c.Services["api"].Environment["ETL_DATABASE_URL"] = str("") }, "api DB URLs"},
+		"worker gets the migrator":   {func(c composeConfig) { c.Services["worker"].Environment["MIGRATE_DATABASE_URL"] = str("") }, "worker DB URLs"},
+		"worker gets the ETL URL":    {func(c composeConfig) { c.Services["worker"].Environment["ETL_DATABASE_URL"] = str("") }, "worker DB URLs"},
+		"sync replica without it":    {func(c composeConfig) { delete(c.Services["worker-sync"].Environment, "ETL_DATABASE_URL") }, "worker-sync does not receive ETL_DATABASE_URL"},
+		"sync replica misses a name": {func(c composeConfig) { delete(c.Services["worker-sync"].Environment, "APP_ENV") }, "worker-sync does not receive APP_ENV"},
 	}
 	for name, c := range cases {
 		cfg := goodCompose()

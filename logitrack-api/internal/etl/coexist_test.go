@@ -1,6 +1,7 @@
 package etl
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -27,7 +28,7 @@ func TestEveryMappedCollectionHasADomain(t *testing.T) {
 		}
 	}
 	for n := range collectionDomains {
-		if _, ok := specOf(n); !ok {
+		if _, ok := specOf(n); !ok && !separateCollections[n] {
 			t.Errorf("%s is not a mapped collection", n)
 		}
 	}
@@ -38,46 +39,77 @@ func TestEveryMappedCollectionHasADomain(t *testing.T) {
 	}
 }
 
+// The class C collections the installed 3.x APKs write until P7b (§12.1).
+var classCCollections = []string{"mobile_installations", "tasks", "trip_records", "standby_records", "incidentReport",
+	"vehicle_expenses", "maintenance", "chats", "messages", "leave_requests"}
+
 func TestPlanMirror(t *testing.T) {
-	// P0: nothing PostgreSQL-owned but auth: every collection mirrored whole, in the load order.
+	// P0: nothing PostgreSQL-owned but auth: every collection mirrored whole, in the load order, and the 3.x users
+	// fields (users are PostgreSQL's from P0) right after the drivers.
 	p, err := PlanMirror(set("auth"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(p.Names(), MappedCollections()) {
+	want := slices.Clone(MappedCollections())
+	want = slices.Insert(want, slices.Index(want, "drivers")+1, "users")
+	if !slices.Equal(p.Names(), want) {
 		t.Fatalf("P0 plan %v", p.Names())
 	}
 	for _, e := range p.Entries {
-		if e.Mode != MirrorFull {
+		if (e.Name == "users") != (e.Mode == MirrorFields) {
 			t.Errorf("%s: %s", e.Name, e.Mode)
 		}
+	}
+	// Before P0 (auth not owned) the users documents are auth-import's: never mirrored.
+	if p, _ := PlanMirror(set(), nil); p.Mode("users") != "" || p.Mode("tasks") != MirrorFull {
+		t.Errorf("before P0: %+v", p.Entries)
 	}
 	// P1: masterdata owned. Its class B collections keep their field mirror, the rest of it is not mirrored.
 	p, _ = PlanMirror(set("auth", "masterdata"), nil)
 	for coll, want := range map[string]string{"drivers": MirrorFields, "hubs": MirrorFields, "trucks": MirrorFields,
 		"customers": "", "subcontractors": "", "truckAssignment": "", "hub_soc_distances": "", "mobile_installations": MirrorFull,
-		"transactions": MirrorFull, "tasks": MirrorFull, "users": "", "permissions_config": ""} {
+		"transactions": MirrorFull, "tasks": MirrorFull, "users": MirrorFields, "permissions_config": ""} {
 		if got := p.Mode(coll); got != want {
 			t.Errorf("P1 %s: %q, want %q", coll, got, want)
 		}
 	}
-	// P3: billing owned too: trucks lose their field mirror (the PM alert is Go's).
-	p, _ = PlanMirror(set("auth", "masterdata", "operations", "billing"), nil)
-	if p.Mode("trucks") != "" || p.Mode("vehicle_expenses") != "" || p.Mode("transactions") != MirrorFull {
+	// P3 (billing), P4 (hr), P5 (comms), P6 (all but operations): trucks lose their field mirror once billing is
+	// owned (the PM alert is Go's), but every class C collection stays mirrored whole whatever its domain flag says:
+	// the 3.x APKs write expenses, maintenance, leave requests and chats in Firestore until P7b (§12.1, §12.2).
+	for name, owned := range map[string]map[string]bool{
+		"P3": set("auth", "masterdata", "billing"),
+		"P4": set("auth", "masterdata", "billing", "hr"),
+		"P5": set("auth", "masterdata", "billing", "hr", "comms"),
+		"P6": set("auth", "masterdata", "billing", "hr", "comms", "security", "mobile_release", "dashboard"),
+		"P2": set("auth", "masterdata", "operations"),
+	} {
+		p, _ := PlanMirror(owned, nil)
+		for _, c := range classCCollections {
+			if p.Mode(c) != MirrorFull {
+				t.Errorf("%s %s: %q, want full", name, c, p.Mode(c))
+			}
+		}
+		if owned["billing"] && (p.Mode("trucks") != "" || p.Mode("customer_rate_entries") != "") {
+			t.Errorf("%s plan %+v", name, p.Entries)
+		}
+	}
+	if p, _ := PlanMirror(set("auth", "masterdata", "billing"), nil); p.Mode("transactions") != MirrorFull || p.Mode("payroll") != MirrorFull {
 		t.Errorf("P3 plan %+v", p.Entries)
 	}
-	// P7b: every domain: only the class B field mirrors and the installations remain (the sync is switched off then).
+	// P7b: every domain: the class B field mirrors, the users fields and class C remain listed; the sync itself is
+	// switched off then (ETL_SYNC_ENABLED), which stops them all.
 	p, _ = PlanMirror(set("auth", "masterdata", "operations", "billing", "hr", "comms", "security", "mobile_release", "dashboard"), nil)
-	if strings.Join(p.Names(), ",") != "hubs,drivers,mobile_installations" {
+	if strings.Join(p.Names(), ",") != "hubs,drivers,users,mobile_installations,tasks,trip_records,standby_records,incidentReport,"+
+		"vehicle_expenses,maintenance,chats,messages,leave_requests" {
 		t.Errorf("P7b plan %v", p.Names())
 	}
 	// A pin narrows; an unknown name is refused.
-	p, _ = PlanMirror(set("auth"), []string{"tasks", "drivers"})
-	if strings.Join(p.Names(), ",") != "drivers,tasks" {
+	p, _ = PlanMirror(set("auth"), []string{"tasks", "drivers", "users"})
+	if strings.Join(p.Names(), ",") != "drivers,users,tasks" {
 		t.Errorf("pinned plan %v", p.Names())
 	}
-	if _, err := PlanMirror(nil, []string{"tasks", "users"}); err == nil || !strings.Contains(err.Error(), "ETL_MIRROR_COLLECTIONS") {
-		t.Errorf("a pin naming users: %v", err)
+	if _, err := PlanMirror(nil, []string{"tasks", "permissions_config"}); err == nil || !strings.Contains(err.Error(), "ETL_MIRROR_COLLECTIONS") {
+		t.Errorf("a pin naming permissions_config: %v", err)
 	}
 }
 
@@ -112,13 +144,16 @@ func TestShadowTargets(t *testing.T) {
 	}{
 		{"hubs.changed", `{"ids":["` + a.String() + `"]}`, []ShadowTarget{{Collection: "hubs", IDs: []uuid.UUID{a}},
 			{Collection: "hub_soc_distances", IDs: []uuid.UUID{}, Hubs: []uuid.UUID{a}}, {Collection: "soc_hub_distances", IDs: []uuid.UUID{}, Hubs: []uuid.UUID{a}}}},
-		{"customers.changed", `{"ids":["` + a.String() + `","` + b.String() + `"]}`, []ShadowTarget{{Collection: "customers", IDs: []uuid.UUID{a, b}}}},
+		{"customers.changed", `{"ids":["` + a.String() + `","` + b.String() + `"]}`, []ShadowTarget{{Collection: "customers", IDs: []uuid.UUID{a, b}},
+			{Collection: "hubs", Customers: []uuid.UUID{a, b}}, {Collection: "drivers", Customers: []uuid.UUID{a, b}}}},
 		{"companies.changed", `{"ids":["` + a.String() + `"]}`, []ShadowTarget{{Collection: "companies", IDs: []uuid.UUID{a}}}},
 		{"truck.renewed", `{"entity":"truck","id":"` + a.String() + `"}`, []ShadowTarget{{Collection: "trucks", IDs: []uuid.UUID{a}}}},
 		{"driver.updated", `{"entity":"driver","id":"` + a.String() + `","changed":["mobile"]}`, []ShadowTarget{{Collection: "drivers", IDs: []uuid.UUID{a}}}},
 		{"assignment.revoked", `{"entity":"truck_assignment","id":"` + a.String() + `","truckId":"` + b.String() + `","driverId":"` + c.String() + `"}`,
 			[]ShadowTarget{{Collection: "truckAssignment", IDs: []uuid.UUID{a}}, {Collection: "trucks", IDs: []uuid.UUID{b}}, {Collection: "drivers", IDs: []uuid.UUID{c}}}},
-		{"tenant.updated", `{"tenantId":"` + a.String() + `","fields":["phone"]}`, []ShadowTarget{{Collection: "subcontractors", IDs: []uuid.UUID{a}}}},
+		{"tenant.updated", `{"tenantId":"` + a.String() + `","fields":["phone"]}`, []ShadowTarget{{Collection: "subcontractors", IDs: []uuid.UUID{a}},
+			{Collection: "hubs", Tenants: []uuid.UUID{a}}}},
+		{"tenant.created", `{"tenantId":"` + a.String() + `"}`, []ShadowTarget{{Collection: "subcontractors", IDs: []uuid.UUID{a}}}},
 		{"settings.changed", `{"key":"distances_last_calculated"}`, []ShadowTarget{{Collection: "hub_soc_distances", All: true},
 			{Collection: "soc_hub_distances", All: true}, {Collection: "metadata", All: true}}},
 		{"settings.changed", `{"key":"mobile_app"}`, nil},
@@ -137,7 +172,8 @@ func TestShadowTargets(t *testing.T) {
 		}
 		for i := range got {
 			g, w := got[i], tc.want[i]
-			if g.Collection != w.Collection || g.All != w.All || !slices.Equal(g.IDs, w.IDs) || !slices.Equal(g.Hubs, w.Hubs) {
+			if g.Collection != w.Collection || g.All != w.All || !sameIDs(g.IDs, w.IDs) || !sameIDs(g.Hubs, w.Hubs) ||
+				!sameIDs(g.Customers, w.Customers) || !sameIDs(g.Tenants, w.Tenants) {
 				t.Errorf("%s target %d: %+v, want %+v", tc.key, i, g, w)
 			}
 		}
@@ -257,3 +293,89 @@ func TestEquivalences(t *testing.T) {
 }
 
 func truckStatusLiteralSame(status, cur string) bool { return truckStatusCanon(cur) == status }
+
+// sameIDs: nil and empty are the same selector.
+func sameIDs(a, b []uuid.UUID) bool { return len(a) == len(b) && (len(a) == 0 || slices.Equal(a, b)) }
+
+// A distance pair keeps any legacy id that still names it; an id of a former hub code does not.
+func TestNamesPair(t *testing.T) {
+	for _, c := range []struct {
+		id, dir, code, soc string
+		want               bool
+	}{
+		{"HUBA_SOCE", "hub_to_soc", "HUBA", "SOCE", true},
+		{"huba_SOCE", "hub_to_soc", "HUBA", "SOCE", true},         // the legacy lower-case code
+		{"HUB_A_1_SOCE", "hub_to_soc", "HUB_A_1", "SOCE", true},   // a code holding '_'
+		{"HUBA_SOCE (บางนา)", "hub_to_soc", "HUBA", "SOCE", true}, // the SOC key's fold
+		{"SOCE_huba", "soc_to_hub", "HUBA", "SOCE", true},
+		{"HUBA_SOCE", "hub_to_soc", "HUBQ", "SOCE", false}, // the hub's code changed
+		{"HUBA_SOCN", "hub_to_soc", "HUBA", "SOCE", false},
+		{"SOCE_HUBA", "hub_to_soc", "HUBA", "SOCE", false}, // the other direction's shape
+		{"x", "hub_to_soc", "HUBA", "SOCE", false},
+	} {
+		if got := namesPair(c.id, c.dir, c.code, c.soc); got != c.want {
+			t.Errorf("namesPair(%q, %s, %s, %s) = %v", c.id, c.dir, c.code, c.soc, got)
+		}
+	}
+	for id, want := range map[string]bool{"HUBA_SOCE": true, "A/B_SOCE": false, ".": false, "..": false, "__x__": false, "": false,
+		"__x": true, strings.Repeat("a", 1501): false} {
+		if validDocID(id) != want {
+			t.Errorf("validDocID(%q) != %v", id, want)
+		}
+	}
+	for path, want := range map[string]bool{"hub_soc_distances/HUBA_SOCE": true, "hub_soc_distances/A/B_SOCE": false,
+		"drivers/d1/mobile_installations/i1": true, "hubs/..": false} {
+		if validDocPath(path) != want {
+			t.Errorf("validDocPath(%q) != %v", path, want)
+		}
+	}
+}
+
+// customerDriverIds: an entry is compared and written under its stored key whatever its case, an entry of a code no
+// customer has stays, a code PostgreSQL holds and the map lacks is added, and a code changed in Go moves the entry.
+func TestMergeCodes(t *testing.T) {
+	known := map[string]bool{"SPX": true, "CJSF": true}
+	want := map[string]any{"SPX": map[string]any{"appId": "A-001"}}
+	stored := map[string]any{"spx": map[string]any{"appId": "A-001", "blank": ""}, "NOPE": map[string]any{"x": "1"}}
+	d := newDoc("drivers/d").set("customerDriverIds", want)
+	d.d.Merge["customerDriverIds"] = mergeCodes(want, known)
+	if _, mask := d.doc().Diff(map[string]any{"customerDriverIds": stored}); len(mask) != 0 {
+		t.Errorf("an equivalent map is rewritten: %v", mask)
+	}
+	// A Go edit of the value: written under the stored key, the unresolved entry kept.
+	want2 := map[string]any{"SPX": map[string]any{"appId": "A-002"}, "CJSF": map[string]any{"empId": "E-9"}}
+	got := mergeCodes(want2, known)(stored).(map[string]any)
+	if fmt.Sprint(got) != fmt.Sprint(map[string]any{"spx": map[string]any{"appId": "A-002", "blank": ""}, "NOPE": map[string]any{"x": "1"},
+		"CJSF": map[string]any{"empId": "E-9"}}) {
+		t.Errorf("merged %v", got)
+	}
+	// Every value removed in Go: the entry goes; the unresolved one stays.
+	got = mergeCodes(map[string]any{}, known)(map[string]any{"SPX": map[string]any{"appId": "A-001"}, "NOPE": map[string]any{"x": "1"}}).(map[string]any)
+	if fmt.Sprint(got) != fmt.Sprint(map[string]any{"NOPE": map[string]any{"x": "1"}}) {
+		t.Errorf("after removal %v", got)
+	}
+	// The customer's code changed in Go (SPX -> SPXN): the entry moves to the new code.
+	known2 := map[string]bool{"SPXN": true}
+	got = mergeCodes(map[string]any{"SPXN": map[string]any{"appId": "A-001"}}, known2)(map[string]any{"SPX": map[string]any{"appId": "A-001"},
+		"NOPE": map[string]any{"x": "1"}}).(map[string]any)
+	if fmt.Sprint(got) != fmt.Sprint(map[string]any{"SPXN": map[string]any{"appId": "A-001"}, "NOPE": map[string]any{"x": "1"}}) {
+		t.Errorf("after the code change %v", got)
+	}
+	if mergeCodes(map[string]any{}, known)(nil) != nil {
+		t.Error("no codes on either side is no field")
+	}
+}
+
+// linkedCustomerName: the legacy "code — Name" (any case of the code) or the bare name are kept; a renamed party is not.
+func TestLinkedPartyLabel(t *testing.T) {
+	if linkedPartyLabel("SPX", "Shopee Express") != "SPX — Shopee Express" || linkedPartyLabel("", "N") != "N" || linkedPartyLabel("C", "") != "C" {
+		t.Error("label")
+	}
+	same := sameLinkedPartyLabel("SPX", "Shopee Express")
+	for cur, want := range map[any]bool{"SPX — Shopee Express": true, "spx — Shopee Express": true, "Shopee Express": true,
+		"SPX — Shopee": false, "Shopee": false, nil: false} {
+		if got := same(cur, cur != nil); got != want {
+			t.Errorf("same(%v) = %v", cur, got)
+		}
+	}
+}

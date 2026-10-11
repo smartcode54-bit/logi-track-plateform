@@ -88,7 +88,10 @@ type Metrics struct {
 	lag         *prometheus.HistogramVec
 }
 
-// NewMetrics registers mirror_apply_total{collection,result} (documents a sweep applied, per load outcome),
+// ResultHeld is the mirror_apply_total result of a billable document a sweep holds (R19): alert on it.
+const ResultHeld = "held"
+
+// NewMetrics registers mirror_apply_total{collection,result} (documents a sweep applied, per load outcome, and held),
 // projection_writes_total{collection,result} (written, unchanged, skipped, not_projected, disabled) and
 // projection_lag_seconds{collection} (event time to projected).
 func NewMetrics(reg prometheus.Registerer) *Metrics {
@@ -144,10 +147,12 @@ type SyncConfig struct {
 
 // Sync is the etl.sync consumer.
 type Sync struct {
-	c     SyncConfig
-	login sync.Once
-	// loginErr is the result of the one check that ETLPool logs in as logitrack_etl (R66).
-	loginErr error
+	c SyncConfig
+	// loginOK records that ETLPool was seen to log in as logitrack_etl (R66). Only that verdict is kept: a query that
+	// fails (the database restarting while the worker starts) is retried by the ladder, and a wrong login is checked
+	// again on every sweep, so neither outlives its cause.
+	loginMu sync.Mutex
+	loginOK bool
 }
 
 // NewSync builds the consumer.
@@ -183,10 +188,11 @@ func (s *Sync) etlTx(ctx context.Context, fn func(pgx.Tx) error) error {
 }
 
 // Handle runs one sweep: the jobs row goes running, the plan is applied (etl.Engine.Mirror) and the job ends with
-// the per-collection counts. A worker whose mirror is off, an ETL_DATABASE_URL of another login, a database without
-// the P1 load and a billable document that cannot be applied (R19) fail the job (acked: the next fire tries again
-// once it is fixed); a Firestore or database outage is retried by the ladder (a redelivered command finds the job
-// running and sweeps again, which is idempotent).
+// the per-collection counts. A worker whose mirror is off, an ETL_DATABASE_URL of another login and a database
+// without the P1 load fail the job (acked: the next fire tries again once it is fixed); a billable document the sweep
+// cannot apply is held (etl.Engine.Mirror) and the rest of the sweep commits; a Firestore or database outage,
+// including one during the login check, is retried by the ladder (a redelivered command finds the job running and
+// sweeps again, which is idempotent).
 func (s *Sync) Handle(ctx context.Context, d *mq.Delivery) error {
 	if d.RoutingKey != RouteSync {
 		return mq.Permanent(fmt.Errorf("etl.sync: unexpected routing key %s", d.RoutingKey))
@@ -223,17 +229,10 @@ func (s *Sync) Handle(ctx context.Context, d *mq.Delivery) error {
 		s.c.Log.Warn().Msg("etl.sync: a sweep command reached a worker whose mirror is off")
 		return finish(ErrTextSyncOff, nil)
 	}
-	s.login.Do(func() {
-		l, err := db.CurrentLogin(ctx, s.c.ETLPool)
-		switch {
-		case err != nil:
-			s.loginErr = err
-		case l.RoleName != db.RoleETL || l.Superuser:
-			s.loginErr = fmt.Errorf("ETL_DATABASE_URL must log in as %s (R66), not as %s", db.RoleETL, l.RoleName)
-		}
-	})
-	if s.loginErr != nil {
-		return finish(s.loginErr.Error(), nil)
+	if wrong, err := s.checkLogin(ctx); err != nil {
+		return fmt.Errorf("etl.sync: the login check of ETL_DATABASE_URL: %w", err)
+	} else if wrong != "" {
+		return finish(wrong, nil)
 	}
 	var own uuid.UUID
 	var found bool
@@ -266,9 +265,37 @@ func (s *Sync) Handle(ctx context.Context, d *mq.Delivery) error {
 			for o, n := range c.Outcomes {
 				s.c.Metrics.mirrorApply.WithLabelValues(c.Name, string(o)).Add(float64(n))
 			}
+			if c.Held > 0 {
+				s.c.Metrics.mirrorApply.WithLabelValues(c.Name, ResultHeld).Add(float64(c.Held))
+			}
+		}
+	}
+	for _, c := range rep.Collections {
+		if c.Held > 0 {
+			s.c.Log.Error().Str("collection", c.Name).Int("held", c.Held).
+				Msg("etl.sync: billable documents the sweep cannot apply are held until they are fixed at the source (R19)")
 		}
 	}
 	return finish("", sweepResult(rep))
+}
+
+// checkLogin checks once per process that ETLPool logs in as logitrack_etl (R66): err is a failed query (transient,
+// not remembered), wrong the job error of another login (checked again on the next sweep).
+func (s *Sync) checkLogin(ctx context.Context) (wrong string, err error) {
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
+	if s.loginOK {
+		return "", nil
+	}
+	l, err := db.CurrentLogin(ctx, s.c.ETLPool)
+	if err != nil {
+		return "", err
+	}
+	if l.RoleName != db.RoleETL || l.Superuser {
+		return fmt.Sprintf("ETL_DATABASE_URL must log in as %s (R66), not as %s", db.RoleETL, l.RoleName), nil
+	}
+	s.loginOK = true
+	return "", nil
 }
 
 // sweepResult is the jobs.result of a sweep: per collection its mode, documents read and the outcomes applied.
@@ -280,7 +307,7 @@ func sweepResult(rep *etl.Report) map[string]any {
 			out[string(o)] = n
 		}
 		colls[c.Name] = map[string]any{"mode": c.Mode, "read": c.Total, "unchanged": c.Unchanged, "beforeWatermark": c.BeforeMark,
-			"applied": out}
+			"applied": out, "held": c.Held}
 	}
 	return map[string]any{"applied": rep.Applied(), "readAt": rep.ExportedAt, "collections": colls}
 }

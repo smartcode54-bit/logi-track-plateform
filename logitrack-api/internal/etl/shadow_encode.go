@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -21,16 +23,23 @@ import (
 // same thing, and its mask is the set of fields that loader reads, minus the MobileOwnedFields.
 
 // mintID is the document id of a row (R25): legacy_doc_id, else id::text, stored into legacy_doc_id when mint is set.
-// table is a constant of the encoders, never document data.
-func mintID(ctx context.Context, tx pgx.Tx, table string, id uuid.UUID, legacy *string, mint bool) (string, error) {
+// The minting UPDATE moves the row's updated_at (trg_set_updated_at): updated, when given, takes the value it left, so
+// the document says what the row says once the mint commits. table is a constant of the encoders, never document data.
+func mintID(ctx context.Context, tx pgx.Tx, table string, id uuid.UUID, legacy *string, mint bool, updated *time.Time) (string, error) {
 	if legacy != nil && *legacy != "" {
 		return *legacy, nil
 	}
 	docID := id.String()
 	if mint {
-		if _, err := tx.Exec(ctx, `UPDATE `+pgx.Identifier{table}.Sanitize()+` SET legacy_doc_id = $2 WHERE id = $1 AND legacy_doc_id IS NULL`,
-			id, docID); err != nil {
+		var at time.Time
+		err := tx.QueryRow(ctx, `UPDATE `+pgx.Identifier{table}.Sanitize()+` SET legacy_doc_id = $2 WHERE id = $1 AND legacy_doc_id IS NULL
+			RETURNING updated_at`, id, docID).Scan(&at)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows): // minted meanwhile by another projection
+		case err != nil:
 			return "", fmt.Errorf("etl: mint the document id of %s %s: %w", table, id, err)
+		case updated != nil:
+			*updated = at
 		}
 	}
 	return docID, nil
@@ -58,31 +67,33 @@ func stringSet(ctx context.Context, tx pgx.Tx, sql string, args ...any) (map[str
 // --- hubs -------------------------------------------------------------------------------------------------------
 
 // encodeHubs: hubs (+ the linked party) -> hubs/{id} (§A.3.3 inverse). The network and the aliases are PostgreSQL's
-// own (not in the legacy document); a hub a driver created in Firestore is the mirror's (skipped).
+// own (not in the legacy document); a hub a driver created in Firestore is the mirror's (skipped). The selection also
+// takes the hubs linked to some customers or carriers (their code and name are copied into linkedCustomerName).
 func encodeHubs(ctx context.Context, tx pgx.Tx, sel selection, mint bool) ([]ExportDoc, error) {
 	rows, err := tx.Query(ctx, `SELECT h.id, h.legacy_doc_id, h.source_id::text, h.name_th, h.name_en, h.latitude, h.longitude,
 		  h.station_type, h.created_by_driver, bp.kind, coalesce(cu.legacy_doc_id, cu.id::text, t.legacy_doc_id, t.id::text),
-		  coalesce(cu.name, t.name_th), u.legacy_auth_uid, h.created_at, h.updated_at
+		  coalesce(cu.code::text, t.code::text), coalesce(cu.name, t.name_th), u.legacy_auth_uid, h.created_at, h.updated_at
 		FROM hubs h LEFT JOIN billing_parties bp ON bp.id = h.linked_party_id LEFT JOIN customers cu ON cu.id = bp.customer_id
 		LEFT JOIN tenants t ON t.id = bp.tenant_id LEFT JOIN users u ON u.id = h.created_by
-		WHERE $1 OR h.id = ANY($2) ORDER BY h.id`, sel.all, sel.ids)
+		WHERE $1 OR h.id = ANY($2) OR bp.customer_id = ANY($3) OR bp.tenant_id = ANY($4) ORDER BY h.id`,
+		sel.all, sel.ids, sel.customers, sel.tenants)
 	if err != nil {
 		return nil, fmt.Errorf("etl: encode hubs: %w", err)
 	}
 	type hub struct {
-		id                         uuid.UUID
-		legacy, nameEn             *string
-		code, nameTh, station      string
-		lat, lng                   *float64
-		byDriver                   bool
-		kind, partyDoc, party, uid *string
-		created, updated           time.Time
+		id                                    uuid.UUID
+		legacy, nameEn                        *string
+		code, nameTh, station                 string
+		lat, lng                              *float64
+		byDriver                              bool
+		kind, partyDoc, partyCode, party, uid *string
+		created, updated                      time.Time
 	}
 	var hs []hub
 	for rows.Next() {
 		var h hub
 		if err := rows.Scan(&h.id, &h.legacy, &h.code, &h.nameTh, &h.nameEn, &h.lat, &h.lng, &h.station, &h.byDriver, &h.kind,
-			&h.partyDoc, &h.party, &h.uid, &h.created, &h.updated); err != nil {
+			&h.partyDoc, &h.partyCode, &h.party, &h.uid, &h.created, &h.updated); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -102,7 +113,7 @@ func encodeHubs(ctx context.Context, tx pgx.Tx, sel selection, mint bool) ([]Exp
 			out = append(out, newDoc("hubs/"+*h.legacy).skip("a hub a driver created in Firestore: the mirror's").doc())
 			continue
 		}
-		docID, err := mintID(ctx, tx, "hubs", h.id, h.legacy, mint)
+		docID, err := mintID(ctx, tx, "hubs", h.id, h.legacy, mint, &h.updated)
 		if err != nil {
 			return nil, err
 		}
@@ -125,12 +136,14 @@ func encodeHubs(ctx context.Context, tx pgx.Tx, sel selection, mint bool) ([]Exp
 			created(h.created).set("updatedAt", h.updated)
 		if h.kind != nil {
 			kind := map[string]string{"customer": "customer", "tenant": "partner"}[*h.kind]
-			b.set("linkedCustomerId", h.partyDoc).set("customerLinkKind", kind).set("linkedCustomerName", h.party).
+			label := linkedPartyLabel(deref(h.partyCode, ""), deref(h.party, ""))
+			b.set("linkedCustomerId", h.partyDoc).set("customerLinkKind", kind).set("linkedCustomerName", label).
 				eq("customerLinkKind", func(cur any, has bool) bool {
 					s, _ := cur.(string)
 					// The loader resolves the party without the kind (customers first): an absent kind of a customer is the same.
 					return (has && s == kind) || (kind == "customer" && blank(cur))
-				})
+				}).
+				eq("linkedCustomerName", sameLinkedPartyLabel(deref(h.partyCode, ""), deref(h.party, "")))
 		} else {
 			// No link in PostgreSQL: an unlinked hub, or a link the load could not resolve (party_unresolved), which stays.
 			b.set("linkedCustomerId", nil).set("customerLinkKind", nil).set("linkedCustomerName", nil).
@@ -142,15 +155,56 @@ func encodeHubs(ctx context.Context, tx pgx.Tx, sel selection, mint bool) ([]Exp
 	return out, nil
 }
 
+// linkedPartyLabel is the denormalised linkedCustomerName the hub form and the Go hubs API write: "CODE — Name", or
+// the part there is (internal/hubs displayName; hub-dialog.tsx).
+func linkedPartyLabel(code, name string) string {
+	code, name = strings.TrimSpace(code), strings.TrimSpace(name)
+	switch {
+	case code != "" && name != "":
+		return code + " — " + name
+	case name != "":
+		return name
+	}
+	return code
+}
+
+// sameLinkedPartyLabel: a stored label says the party's current code and name ("code — Name" with the code in any
+// case, as the legacy form copied the customers document's spelling), or its current name alone (older documents);
+// after a rename or a code change neither matches and the label is rewritten.
+func sameLinkedPartyLabel(code, name string) func(cur any, has bool) bool {
+	code, name = strings.TrimSpace(code), strings.TrimSpace(name)
+	return func(cur any, has bool) bool {
+		s, ok := cur.(string)
+		if !has || !ok {
+			return code == "" && name == ""
+		}
+		s = strings.TrimSpace(s)
+		if s == name && name != "" || s == linkedPartyLabel(code, name) {
+			return true
+		}
+		c, n, found := strings.Cut(s, " — ")
+		return found && code != "" && strings.EqualFold(strings.TrimSpace(c), code) && strings.TrimSpace(n) == name
+	}
+}
+
 // --- hub <-> SOC distances --------------------------------------------------------------------------------------
 
-// encodeDistances: hub_soc_distances(direction) -> hub_soc_distances/{hub}_{soc} or soc_hub_distances/{soc}_{hub}. A
-// pair computed in Go is minted with that natural id (the 3.x app reads a pair by it, hub_soc_distances_repository.dart:68),
-// not with its uuid; a natural id another row of the direction already holds leaves the row unprojected.
+// encodeDistances: hub_soc_distances(direction) -> hub_soc_distances/{hub}_{soc} or soc_hub_distances/{soc}_{hub}. The
+// 3.x app reads a pair by that natural id, built from the hubs document's source_id and the SOC key
+// (hub_soc_distances_repository.dart:60-69), so a pair is projected under it, not under its uuid:
+//   - a pair whose legacy_doc_id still names it (any split {H}_{S} with H the hub's code and S the SOC key, the loaded
+//     spelling of either kept) keeps that id;
+//   - a pair computed in Go is minted with the natural id, the hub part spelled as the hub's loaded pairs spell it (a
+//     legacy lower-case code stays lower-case, as its hubs document does), else as the code;
+//   - a pair whose hub's code changed (PATCH /v1/hubs/{id}) is minted again under the new natural id, and its former
+//     document loses its distance and duration (Retired), so a hub that later takes the old code is never served this
+//     pair's figures;
+//   - a natural id another pair of the direction still holds, or one that is not a valid document id (a '/' in a
+//     code), leaves the pair under its current id, or unprojected when it has none.
 func encodeDistances(direction string) encoder {
 	coll := map[string]string{hubs.DirectionHubToSOC: "hub_soc_distances", hubs.DirectionSOCToHub: "soc_hub_distances"}[direction]
 	return func(ctx context.Context, tx pgx.Tx, sel selection, mint bool) ([]ExportDoc, error) {
-		rows, err := tx.Query(ctx, `SELECT d.id, d.legacy_doc_id, h.source_id::text, d.soc_key, d.network, d.distance_m, d.distance_km::float8,
+		rows, err := tx.Query(ctx, `SELECT d.id, d.hub_id, d.legacy_doc_id, h.source_id::text, d.soc_key, d.network, d.distance_m, d.distance_km::float8,
 			  d.duration_s, d.duration_min::float8, d.hub_lat, d.hub_lng, d.soc_lat, d.soc_lng, cu.legacy_auth_uid, uu.legacy_auth_uid,
 			  d.created_at, d.updated_at
 			FROM hub_soc_distances d JOIN hubs h ON h.id = d.hub_id LEFT JOIN users cu ON cu.id = d.created_by
@@ -160,7 +214,7 @@ func encodeDistances(direction string) encoder {
 			return nil, fmt.Errorf("etl: encode %s: %w", coll, err)
 		}
 		type pair struct {
-			id                                uuid.UUID
+			id, hubID                         uuid.UUID
 			legacy, network, createdBy, updBy *string
 			hub, soc                          string
 			meters, seconds                   int32
@@ -171,7 +225,7 @@ func encodeDistances(direction string) encoder {
 		var ps []pair
 		for rows.Next() {
 			var p pair
-			if err := rows.Scan(&p.id, &p.legacy, &p.hub, &p.soc, &p.network, &p.meters, &p.km, &p.seconds, &p.minutes, &p.hubLat,
+			if err := rows.Scan(&p.id, &p.hubID, &p.legacy, &p.hub, &p.soc, &p.network, &p.meters, &p.km, &p.seconds, &p.minutes, &p.hubLat,
 				&p.hubLng, &p.socLat, &p.socLng, &p.createdBy, &p.updBy, &p.created, &p.updated); err != nil {
 				rows.Close()
 				return nil, err
@@ -181,25 +235,84 @@ func encodeDistances(direction string) encoder {
 		if err := rows.Err(); err != nil {
 			return nil, err
 		}
+		hubIDs := make([]uuid.UUID, 0, len(ps))
+		codes := map[uuid.UUID]string{}
+		for _, p := range ps {
+			if _, ok := codes[p.hubID]; !ok {
+				hubIDs = append(hubIDs, p.hubID)
+				codes[p.hubID] = p.hub
+			}
+		}
+		spelling, err := hubSpellings(ctx, tx, hubIDs, codes)
+		if err != nil {
+			return nil, err
+		}
+		natural := func(p pair) string {
+			if direction == hubs.DirectionSOCToHub {
+				return p.soc + "_" + spelling[p.hubID]
+			}
+			return spelling[p.hubID] + "_" + p.soc
+		}
+		// A pair whose id moves goes first: a pair of the same batch may take the id it frees.
+		slices.SortStableFunc(ps, func(a, b pair) int {
+			am, bm := a.legacy != nil && !namesPair(*a.legacy, direction, a.hub, a.soc), b.legacy != nil && !namesPair(*b.legacy, direction, b.hub, b.soc)
+			switch {
+			case am && !bm:
+				return -1
+			case bm && !am:
+				return 1
+			}
+			return 0
+		})
 		var out []ExportDoc
 		for _, p := range ps {
-			docID := p.hub + "_" + p.soc
-			if direction == hubs.DirectionSOCToHub {
-				docID = p.soc + "_" + p.hub
+			legacy := deref(p.legacy, "")
+			docID, retire := legacy, ""
+			if legacy == "" || !namesPair(legacy, direction, p.hub, p.soc) {
+				nat := natural(p)
+				var held bool
+				if validDocID(nat) {
+					if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM hub_soc_distances WHERE legacy_doc_id = $1 AND direction = $2 AND id <> $3)`,
+						nat, direction, p.id).Scan(&held); err != nil {
+						return nil, fmt.Errorf("etl: distance %s: %w", p.id, err)
+					}
+				}
+				switch {
+				case !validDocID(nat) || held:
+					if legacy == "" {
+						reason := "another pair of this direction holds the document id"
+						if !validDocID(nat) {
+							reason = "the natural id is not a valid document id (a '/' or a reserved name in the hub or SOC code)"
+						}
+						out = append(out, newDoc(coll+"/"+nat).skip(reason).doc())
+						continue
+					}
+					// The pair stays under its current id until the natural one is free.
+				case mint:
+					var at time.Time
+					err := tx.QueryRow(ctx, `UPDATE hub_soc_distances SET legacy_doc_id = $2 WHERE id = $1 AND legacy_doc_id IS NOT DISTINCT FROM $3
+						AND NOT EXISTS (SELECT 1 FROM hub_soc_distances o WHERE o.legacy_doc_id = $2 AND o.direction = $4 AND o.id <> $1)
+						RETURNING updated_at`, p.id, nat, p.legacy, direction).Scan(&at)
+					switch {
+					case errors.Is(err, pgx.ErrNoRows): // minted meanwhile, or the id was taken: the next projection settles it
+						if legacy == "" {
+							out = append(out, newDoc(coll+"/"+nat).skip("another pair of this direction holds the document id").doc())
+							continue
+						}
+					case err != nil:
+						return nil, fmt.Errorf("etl: mint the document id of distance %s: %w", p.id, err)
+					default:
+						docID, retire, p.updated = nat, legacy, at
+					}
+				default: // the reconciliation: what the projection would write
+					docID, retire = nat, legacy
+				}
 			}
-			switch {
-			case p.legacy != nil && *p.legacy != "":
-				docID = *p.legacy
-			case mint:
-				tag, err := tx.Exec(ctx, `UPDATE hub_soc_distances SET legacy_doc_id = $2 WHERE id = $1 AND legacy_doc_id IS NULL
-					AND NOT EXISTS (SELECT 1 FROM hub_soc_distances o WHERE o.legacy_doc_id = $2 AND o.direction = $3)`, p.id, docID, direction)
-				if err != nil {
-					return nil, fmt.Errorf("etl: mint the document id of distance %s: %w", p.id, err)
-				}
-				if tag.RowsAffected() == 0 {
-					out = append(out, newDoc(coll+"/"+docID).skip("another pair of this direction holds the document id").doc())
-					continue
-				}
+			if retire != "" && validDocID(retire) {
+				r := newDoc(coll+"/"+retire).set("distanceMeters", nil).set("distanceKm", nil).set("durationSeconds", nil).
+					set("durationMinutes", nil)
+				r.d.Retired = true
+				out = append(out, r.doc())
 			}
 			hub, soc := p.hub, p.soc
 			b := newDoc(coll+"/"+docID).
@@ -220,6 +333,80 @@ func encodeDistances(direction string) encoder {
 		}
 		return out, nil
 	}
+}
+
+// namesPair: a document id that splits into {H}_{S} (hub_to_soc) or {S}_{H} (soc_to_hub), H being the hub's code and
+// S the SOC key in any spelling the loader folds to them (a code may itself hold '_', so every split is tried).
+func namesPair(id, direction, code, soc string) bool {
+	for i := 0; i < len(id); i++ {
+		if id[i] != '_' {
+			continue
+		}
+		left, right := id[:i], id[i+1:]
+		if direction == hubs.DirectionSOCToHub {
+			left, right = right, left
+		}
+		if hubs.NormalizeSourceID(left) == code && hubs.NormalizeSocKey(right) == soc {
+			return true
+		}
+	}
+	return false
+}
+
+// hubSpellings is, per hub, the spelling of its code in the ids of its loaded pairs (the hubs document's source_id
+// the legacy writer built them from, which the 3.x app builds its reads from), else the code itself.
+func hubSpellings(ctx context.Context, tx pgx.Tx, hubIDs []uuid.UUID, codes map[uuid.UUID]string) (map[uuid.UUID]string, error) {
+	out := make(map[uuid.UUID]string, len(codes))
+	for id, code := range codes {
+		out[id] = code
+	}
+	if len(hubIDs) == 0 {
+		return out, nil
+	}
+	rows, err := tx.Query(ctx, `SELECT hub_id, direction, legacy_doc_id, soc_key FROM hub_soc_distances
+		WHERE hub_id = ANY($1) AND legacy_doc_id IS NOT NULL ORDER BY hub_id, legacy_doc_id`, hubIDs)
+	if err != nil {
+		return nil, fmt.Errorf("etl: distance ids: %w", err)
+	}
+	defer rows.Close()
+	counts := map[uuid.UUID]map[string]int{}
+	for rows.Next() {
+		var hub uuid.UUID
+		var dir, id, soc string
+		if err := rows.Scan(&hub, &dir, &id, &soc); err != nil {
+			return nil, err
+		}
+		code := codes[hub]
+		for i := 0; i < len(id); i++ {
+			if id[i] != '_' {
+				continue
+			}
+			h, sk := id[:i], id[i+1:]
+			if dir == hubs.DirectionSOCToHub {
+				h, sk = sk, h
+			}
+			if hubs.NormalizeSourceID(h) == code && hubs.NormalizeSocKey(sk) == soc {
+				if counts[hub] == nil {
+					counts[hub] = map[string]int{}
+				}
+				counts[hub][h]++
+				break
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for hub, c := range counts {
+		best, n := out[hub], 0
+		for sp, k := range c {
+			if k > n || (k == n && sp < best) {
+				best, n = sp, k
+			}
+		}
+		out[hub] = best
+	}
+	return out, nil
 }
 
 // encodeMetadata: settings('distances_last_calculated') -> metadata/distances_last_calculated {timestamp} (the shape of
@@ -356,7 +543,7 @@ func encodeTrucks(ctx context.Context, tx pgx.Tx, sel selection, mint bool) ([]E
 			out = append(out, newDoc("trucks/"+deref(t.legacy, t.id.String())).skip("in the quarantine tenant").doc())
 			continue
 		}
-		docID, err := mintID(ctx, tx, "trucks", t.id, t.legacy, mint)
+		docID, err := mintID(ctx, tx, "trucks", t.id, t.legacy, mint, &t.updated)
 		if err != nil {
 			return nil, err
 		}
@@ -660,10 +847,14 @@ func sameTruckAssignments(as []assignmentRow) func(cur any, has bool) bool {
 
 // encodeDrivers: drivers + files + status_history + customer codes + the home assignment -> drivers/{id} (§A.3.4
 // inverse). The 3.x app's fields (MobileOwnedFields: fcmToken, activeTruck, currentTruckId, truckId, updatedAt) are
-// never written; authId is the driver's legacy uid, else its user's (the 3.x app finds its driver by authId).
+// never written. authId, by which the 3.x app finds its driver and the Firestore rules grant a driver its own data,
+// follows the login PostgreSQL links (driverAuthID). The selection also takes the drivers holding codes of some
+// customers (customerDriverIds is keyed by the customer's code).
 func encodeDrivers(ctx context.Context, tx pgx.Tx, sel selection, mint bool) ([]ExportDoc, error) {
 	rows, err := tx.Query(ctx, `SELECT d.id, d.legacy_doc_id, d.tenant_source, tn.kind, coalesce(tn.legacy_doc_id, tn.id::text),
-		  coalesce(d.legacy_auth_uid, u.legacy_auth_uid), d.first_name, d.last_name, d.full_name_th, d.mobile, d.email::text, d.birth_date,
+		  d.user_id IS NOT NULL, u.legacy_auth_uid, d.legacy_auth_uid,
+		  EXISTS (SELECT 1 FROM users x WHERE x.legacy_auth_uid = d.legacy_auth_uid AND x.id IS DISTINCT FROM d.user_id),
+		  d.first_name, d.last_name, d.full_name_th, d.mobile, d.email::text, d.birth_date,
 		  d.id_card, d.id_card_expired_date, d.truck_license_id, d.license_type, d.license_expired_date, d.employment_type,
 		  d.contract_years::float8, d.hire_date, d.probation_passed, d.status, d.assign_to_project, pf.legacy_url, cf.legacy_url,
 		  lf.legacy_url, coalesce(a.legacy_doc_id, a.id::text), coalesce(tr.legacy_doc_id, tr.id::text), tr.license_plate, tr.model,
@@ -672,13 +863,16 @@ func encodeDrivers(ctx context.Context, tx pgx.Tx, sel selection, mint bool) ([]
 		LEFT JOIN file_objects pf ON pf.id = d.profile_file_id LEFT JOIN file_objects cf ON cf.id = d.id_card_file_id
 		LEFT JOIN file_objects lf ON lf.id = d.license_file_id
 		LEFT JOIN truck_assignments a ON a.id = d.current_assignment_id LEFT JOIN trucks tr ON tr.id = a.truck_id
-		WHERE $1 OR d.id = ANY($2) ORDER BY d.id`, sel.all, sel.ids)
+		WHERE $1 OR d.id = ANY($2) OR d.id IN (SELECT dc.driver_id FROM driver_customer_codes dc WHERE dc.customer_id = ANY($3))
+		ORDER BY d.id`, sel.all, sel.ids, sel.customers)
 	if err != nil {
 		return nil, fmt.Errorf("etl: encode drivers: %w", err)
 	}
 	type driver struct {
 		id                                                 uuid.UUID
-		legacy, uid, fullTh, email, idCard, licenseID      *string
+		linked, legacyUIDHeld                              bool
+		userUID, legacyUID                                 *string
+		legacy, fullTh, email, idCard, licenseID           *string
 		licenseType, project, profile, idImg, licImg       *string
 		source, tenantKind, tenantDoc, first, last, mobile string
 		employment, status                                 string
@@ -692,7 +886,8 @@ func encodeDrivers(ctx context.Context, tx pgx.Tx, sel selection, mint bool) ([]
 	var ds []driver
 	for rows.Next() {
 		var d driver
-		if err := rows.Scan(&d.id, &d.legacy, &d.source, &d.tenantKind, &d.tenantDoc, &d.uid, &d.first, &d.last, &d.fullTh, &d.mobile,
+		if err := rows.Scan(&d.id, &d.legacy, &d.source, &d.tenantKind, &d.tenantDoc, &d.linked, &d.userUID, &d.legacyUID,
+			&d.legacyUIDHeld, &d.first, &d.last, &d.fullTh, &d.mobile,
 			&d.email, &d.birth, &d.idCard, &d.idExpiry, &d.licenseID, &d.licenseType, &d.licExpiry, &d.employment, &d.contract,
 			&d.hire, &d.probation, &d.status, &d.project, &d.profile, &d.idImg, &d.licImg, &d.asgDoc, &d.asgTruck, &d.asgPlate,
 			&d.asgModel, &d.asgAt, &d.created); err != nil {
@@ -724,13 +919,18 @@ func encodeDrivers(ctx context.Context, tx pgx.Tx, sel selection, mint bool) ([]
 	if err != nil {
 		return nil, err
 	}
+	known, err := stringSet(ctx, tx, `SELECT code::text FROM customers`)
+	if err != nil {
+		return nil, err
+	}
+	var uids *driverUIDs // read once, when a driver needs it
 	var out []ExportDoc
 	for _, d := range ds {
 		if quarantinedRow(d.source) {
 			out = append(out, newDoc("drivers/"+deref(d.legacy, d.id.String())).skip("in the quarantine tenant").doc())
 			continue
 		}
-		docID, err := mintID(ctx, tx, "drivers", d.id, d.legacy, mint)
+		docID, err := mintID(ctx, tx, "drivers", d.id, d.legacy, mint, nil) // updatedAt is the 3.x app's
 		if err != nil {
 			return nil, err
 		}
@@ -754,9 +954,25 @@ func encodeDrivers(ctx context.Context, tx pgx.Tx, sel selection, mint bool) ([]
 			}
 			b.set(f.field, bangkokMidnight(*f.v)).eq(f.field, sameDay(*f.v))
 		}
-		// authId is how the 3.x app finds its driver: written when known, never deleted (a uid another driver held
-		// at P1 is left as Firestore has it).
-		b.uid("authId", d.uid)
+		switch {
+		case d.linked && d.userUID != nil && *d.userUID != "":
+			b.set("authId", *d.userUID) // the linked login's Firebase uid
+		case d.linked || (d.legacyUID != nil && d.legacyUIDHeld):
+			// A login without a Firebase uid yet (it gets one, and an event, when the bridge gives it one), or a P1 uid
+			// whose login is no longer linked: no account finds the driver.
+			b.set("authId", nil)
+		case d.legacyUID != nil:
+			b.uid("authId", d.legacyUID) // a uid no login PostgreSQL knows holds (user_unresolved): kept, never deleted
+		default:
+			if uids == nil {
+				if uids, err = readDriverUIDs(ctx, tx); err != nil {
+					return nil, err
+				}
+			}
+			// No link and no P1 uid: a stored uid of a login PostgreSQL knows is a former link and goes; one it does
+			// not know, or another driver's P1 uid (a duplicate the steward resolves), stays as Firestore has it.
+			b.set("authId", nil).keepIf("authId", "", func(v string) bool { return !uids.users[v] || uids.drivers[v] }, "authId")
+		}
 		if d.tenantKind == "carrier" {
 			b.set("subcontractorId", d.tenantDoc)
 		} else {
@@ -774,7 +990,8 @@ func encodeDrivers(ctx context.Context, tx pgx.Tx, sel selection, mint bool) ([]
 		h := history[d.id]
 		b.set("statusHistory", driverHistoryDoc(h)).eq("statusHistory", sameDriverHistory(h))
 		c := codes[d.id]
-		b.set("customerDriverIds", c).eq("customerDriverIds", sameCodes(c))
+		b.set("customerDriverIds", c)
+		b.d.Merge["customerDriverIds"] = mergeCodes(c, known)
 		if d.asgDoc != nil {
 			ca := map[string]any{"assignmentId": *d.asgDoc, "truckId": deref(d.asgTruck, ""), "truckPlate": deref(d.asgPlate, ""),
 				"truckModel": deref(d.asgModel, "")}
@@ -872,30 +1089,108 @@ func driverCodes(ctx context.Context, tx pgx.Tx, ids []uuid.UUID) (map[uuid.UUID
 	return out, rows.Err()
 }
 
-// sameCodes: the stored map holds the same non-blank values per known customer code (an unknown code was dropped by
-// the loader with customer_unresolved and stays as it is).
-func sameCodes(want map[string]any) func(cur any, has bool) bool {
-	return func(cur any, has bool) bool {
-		m, _ := cur.(map[string]any)
-		for code, wv := range want {
-			got, _ := m[code].(map[string]any)
-			for k, v := range wv.(map[string]any) {
-				if got[k] != v {
-					return false
-				}
-			}
-		}
-		for code, gv := range m {
-			wv, known := want[code].(map[string]any)
-			got, _ := gv.(map[string]any)
-			for k, v := range got {
-				if s, _ := v.(string); known && strings.TrimSpace(s) != "" && strings.TrimSpace(k) != "" && wv[k] == nil {
-					return false
-				}
-			}
-		}
-		return true
+// driverUIDs are the Firebase uids PostgreSQL knows: of every login, and the P1 uids of the drivers.
+type driverUIDs struct{ users, drivers map[string]bool }
+
+func readDriverUIDs(ctx context.Context, tx pgx.Tx) (*driverUIDs, error) {
+	users, err := stringSet(ctx, tx, `SELECT legacy_auth_uid FROM users WHERE legacy_auth_uid IS NOT NULL`)
+	if err != nil {
+		return nil, err
 	}
+	drivers, err := stringSet(ctx, tx, `SELECT legacy_auth_uid FROM drivers WHERE legacy_auth_uid IS NOT NULL`)
+	if err != nil {
+		return nil, err
+	}
+	return &driverUIDs{users: users, drivers: drivers}, nil
+}
+
+// foldCode is a customerDriverIds key as the loader reads it (customers.code is upper case and trimmed).
+func foldCode(k string) string { return strings.ToUpper(strings.TrimSpace(k)) }
+
+// mergeCodes builds customerDriverIds over the stored map (known: every customers.code). Cloud Functions look an
+// entry up by the customers document's code exactly (resolveDriverCustomerCode, lineMessage.ts:93-113), and the
+// customers projection keeps a legacy lower-case code, so:
+//   - an entry whose key folds to a code PostgreSQL knows says what PostgreSQL holds for that customer, under the
+//     stored key (its non-blank values PostgreSQL no longer holds go, its blank ones stay as the loader skipped them);
+//     an entry whose every value went is removed;
+//   - a code PostgreSQL holds and the map lacks is added under the code; an entry of no known code holding exactly
+//     those values is the same entry under the customer's former code (changed in Go) and goes;
+//   - any other entry (a code no customer has: customer_unresolved at the load) stays as it is.
+func mergeCodes(want map[string]any, known map[string]bool) func(cur any) any {
+	return func(cur any) any {
+		stored, _ := cur.(map[string]any)
+		out := make(map[string]any, len(stored)+len(want))
+		present := map[string]bool{}
+		var unknown []string
+		for k, v := range stored {
+			f := foldCode(k)
+			if !known[f] {
+				out[k] = v
+				unknown = append(unknown, k)
+				continue
+			}
+			pg, _ := want[f].(map[string]any)
+			entry, _ := v.(map[string]any)
+			merged := map[string]any{}
+			for ik, iv := range entry {
+				if s, ok := iv.(string); ok && strings.TrimSpace(s) != "" && strings.TrimSpace(ik) != "" && pg[ik] == nil {
+					continue // removed in PostgreSQL
+				}
+				merged[ik] = iv
+			}
+			for ik, iv := range pg {
+				merged[ik] = iv
+			}
+			if hasValue(merged) || !hasValue(entry) {
+				out[k] = merged
+			}
+			present[f] = true
+		}
+		slices.Sort(unknown)
+		for _, code := range slices.Sorted(maps.Keys(want)) {
+			if present[code] {
+				continue
+			}
+			for i, u := range unknown {
+				if u != "" && sameValues(out[u], want[code]) {
+					delete(out, u)
+					unknown[i] = ""
+					break
+				}
+			}
+			out[code] = want[code]
+		}
+		if len(out) == 0 {
+			return nil
+		}
+		return out
+	}
+}
+
+// hasValue: an entry holds a non-blank string value (what the loader keeps).
+func hasValue(m map[string]any) bool {
+	for k, v := range m {
+		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" && strings.TrimSpace(k) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// sameValues: a stored entry's non-blank values are exactly the values PostgreSQL holds for a customer.
+func sameValues(stored, want any) bool {
+	s, _ := stored.(map[string]any)
+	w, _ := want.(map[string]any)
+	n := 0
+	for k, v := range s {
+		if sv, ok := v.(string); ok && strings.TrimSpace(sv) != "" && strings.TrimSpace(k) != "" {
+			if w[k] != sv {
+				return false
+			}
+			n++
+		}
+	}
+	return n > 0 && n == len(w)
 }
 
 // --- truck assignments ------------------------------------------------------------------------------------------
@@ -938,7 +1233,7 @@ func encodeAssignments(ctx context.Context, tx pgx.Tx, sel selection, mint bool)
 			out = append(out, newDoc("truckAssignment/"+deref(a.legacy, a.id.String())).skip("in the quarantine tenant").doc())
 			continue
 		}
-		docID, err := mintID(ctx, tx, "truck_assignments", a.id, a.legacy, mint)
+		docID, err := mintID(ctx, tx, "truck_assignments", a.id, a.legacy, mint, &a.updated)
 		if err != nil {
 			return nil, err
 		}
@@ -1012,7 +1307,7 @@ func encodeCarriers(ctx context.Context, tx pgx.Tx, sel selection, mint bool) ([
 	}
 	var out []ExportDoc
 	for _, c := range cs {
-		docID, err := mintID(ctx, tx, "tenants", c.id, c.legacy, mint && c.kind == "carrier")
+		docID, err := mintID(ctx, tx, "tenants", c.id, c.legacy, mint && c.kind == "carrier", &c.updated)
 		if err != nil {
 			return nil, err
 		}
@@ -1081,7 +1376,7 @@ func encodeCustomerDocs(ctx context.Context, tx pgx.Tx, sel selection, mint bool
 	}
 	var out []ExportDoc
 	for _, c := range cs {
-		docID, err := mintID(ctx, tx, "customers", c.id, c.legacy, mint)
+		docID, err := mintID(ctx, tx, "customers", c.id, c.legacy, mint, &c.updated)
 		if err != nil {
 			return nil, err
 		}
@@ -1178,7 +1473,7 @@ func encodeCompanies(ctx context.Context, tx pgx.Tx, sel selection, mint bool) (
 			out = append(out, newDoc("companies/"+deref(c.legacy, c.id.String())).skip("in the quarantine tenant").doc())
 			continue
 		}
-		docID, err := mintID(ctx, tx, "companies", c.id, c.legacy, mint)
+		docID, err := mintID(ctx, tx, "companies", c.id, c.legacy, mint, &c.updated)
 		if err != nil {
 			return nil, err
 		}

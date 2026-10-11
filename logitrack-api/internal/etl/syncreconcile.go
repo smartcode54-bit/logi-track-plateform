@@ -19,8 +19,9 @@ import (
 // §13.10 "checksums of mirrored and projected fields"; T24): it reads the live collections (or a dump of them) and
 // compares, without writing anything but its run:
 //   - mirror: every document of a mirrored collection is recorded in etl.source_docs at its current update time (the
-//     mirror caught up), and the fields the field-level mirror applies (activeTruck, fcmToken; the maintenance fields
-//     of a truck) equal the PostgreSQL columns;
+//     mirror caught up) and none is held (a billable document the sweep cannot apply), and the fields the field-level
+//     mirror applies (activeTruck, fcmToken; the maintenance fields of a truck; a login's last sign-in and tokens) equal
+//     the PostgreSQL columns;
 //   - projection: every row a projected collection writes has its document, and the document's PostgreSQL-owned
 //     fields are equivalent to the row (ExportDoc.Diff over the encoder's mask; ids are computed, never minted);
 //     documents no row projects to are reported (informational: legacy duplicates such as a losing hub document);
@@ -102,30 +103,36 @@ func (e *Engine) ReconcileSync(ctx context.Context, src DocSource, o SyncReconci
 // reconcileMirror: the collection's documents are recorded at their update time; in MirrorFields mode the applied
 // fields equal the row.
 func reconcileMirror(ctx context.Context, tx pgx.Tx, m MirrorEntry, docs []dump.Doc, owned map[string]bool, rec *Reconciliation) error {
-	rows, err := tx.Query(ctx, `SELECT doc_path, source_update_time FROM etl.source_docs WHERE collection = $1`, m.Name)
+	rows, err := tx.Query(ctx, `SELECT doc_path, source_update_time, status FROM etl.source_docs WHERE collection = $1`, m.Name)
 	if err != nil {
 		return err
 	}
 	stored := map[string]time.Time{}
+	pending := map[string]bool{}
 	for rows.Next() {
-		var p string
+		var p, status string
 		var t time.Time
-		if err := rows.Scan(&p, &t); err != nil {
+		if err := rows.Scan(&p, &t, &status); err != nil {
 			rows.Close()
 			return err
 		}
 		stored[p] = t
+		pending[p] = status == string(Pending)
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	var behind, differ []string
+	var behind, held, differ []string
 	inSource := map[string]bool{}
 	for _, d := range docs {
 		inSource[d.Path] = true
 		t, ok := stored[d.Path]
 		if !ok || t.Before(d.UpdateTime.Truncate(time.Microsecond)) {
 			behind = append(behind, d.Path)
+			continue
+		}
+		if pending[d.Path] { // a billable document the sweep holds (R19) until it is fixed at the source
+			held = append(held, d.Path)
 			continue
 		}
 		if m.Mode != MirrorFields {
@@ -140,17 +147,25 @@ func reconcileMirror(ctx context.Context, tx pgx.Tx, m MirrorEntry, docs []dump.
 		}
 	}
 	key := m.Name + " (" + m.Mode + ")"
-	note := "documents recorded at their current update time"
+	var notes []string
 	if len(behind) > 0 {
-		note = "not mirrored yet: " + listed(behind)
+		notes = append(notes, "not mirrored yet: "+listed(behind))
 	}
-	rec.add("mirror", key, len(docs), len(docs)-len(behind), len(behind) == 0, note)
+	if len(held) > 0 {
+		notes = append(notes, "held (billable, cannot be applied; fix at the source): "+listed(held))
+	}
+	note := "documents recorded at their current update time"
+	if len(notes) > 0 {
+		note = strings.Join(notes, "; ")
+	}
+	rec.add("mirror", key, len(docs), len(docs)-len(behind)-len(held), len(behind)+len(held) == 0, note)
 	if m.Mode == MirrorFields {
 		note := "the fields the 3.x app (or another domain) writes equal the row"
 		if len(differ) > 0 {
 			note = "differ: " + listed(differ)
 		}
-		rec.add("mirror_fields", m.Name, len(docs)-len(behind), len(docs)-len(behind)-len(differ), len(differ) == 0, note)
+		n := len(docs) - len(behind) - len(held)
+		rec.add("mirror_fields", m.Name, n, n-len(differ), len(differ) == 0, note)
 	}
 	gone := 0
 	for p := range stored {
@@ -207,11 +222,35 @@ func mirroredFieldsMatch(ctx context.Context, tx pgx.Tx, coll string, d dump.Doc
 			return false, nil
 		}
 		if tok := strings.TrimSpace(c.str("fcmToken")); tok != "" && user != nil {
+			owner, err := driverTokenOwner(ctx, tx, *user, d.Fields)
+			if err != nil || !owner { // another account's token is never stored (mirrorDriverToken)
+				return err == nil, err
+			}
 			var held bool
 			if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM device_tokens WHERE token = $1)`, tok).Scan(&held); err != nil {
 				return false, err
 			}
 			return held, nil
+		}
+		return true, nil
+	case "users":
+		var last *time.Time
+		var status string
+		err := tx.QueryRow(ctx, `SELECT last_login_at, status FROM users WHERE legacy_auth_uid = $1`, d.ID).Scan(&last, &status)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return true, nil
+		}
+		if err != nil || status == "deleted" {
+			return err == nil, err
+		}
+		if at, ok := userDocTime(d.Fields, "lastLogin"); ok && (last == nil || last.Before(at.Truncate(time.Microsecond))) {
+			return false, nil
+		}
+		for _, tok := range userTokens(d.Fields["fcmTokens"]) {
+			var held bool
+			if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM device_tokens WHERE token = $1)`, tok).Scan(&held); err != nil || !held {
+				return false, err
+			}
 		}
 		return true, nil
 	case "trucks":
@@ -282,7 +321,7 @@ func reconcileProjection(ctx context.Context, tx pgx.Tx, coll string, docs []dum
 	if !ok {
 		return fmt.Errorf("etl: %s is not a projected collection", coll)
 	}
-	want, err := enc(ctx, tx, selection{all: true, ids: []uuid.UUID{}, hubs: []uuid.UUID{}}, false)
+	want, err := enc(ctx, tx, selectAll(), false)
 	if err != nil {
 		return err
 	}
@@ -292,6 +331,12 @@ func reconcileProjection(ctx context.Context, tx pgx.Tx, coll string, docs []dum
 	}
 	foreign := ForeignFields(coll, owned)
 	projected := map[string]bool{}
+	live := map[string]bool{}
+	for _, w := range want {
+		if !w.Retired && w.Skip == "" {
+			live[w.Path] = true
+		}
+	}
 	var missing, differ []string
 	rows := 0
 	for _, w := range want {
@@ -299,8 +344,11 @@ func reconcileProjection(ctx context.Context, tx pgx.Tx, coll string, docs []dum
 		if w.Skip != "" {
 			continue
 		}
-		rows++
 		cur, ok := byPath[w.Path]
+		if w.Retired && (!ok || live[w.Path]) {
+			continue // a former id: checked only while its document exists and no row took it over
+		}
+		rows++
 		if !ok {
 			missing = append(missing, w.Path)
 			continue

@@ -43,6 +43,25 @@ func (q *Queries) AssignLegacyAuthUID(ctx context.Context, id uuid.UUID) (string
 	return legacy_auth_uid, err
 }
 
+const driverOfLogin = `-- name: DriverOfLogin :one
+SELECT id, tenant_id FROM drivers WHERE user_id = $1
+`
+
+type DriverOfLoginRow struct {
+	ID       uuid.UUID
+	TenantID uuid.UUID
+}
+
+// The driver a login is linked to (drivers.user_id, unique): its projected Firestore drivers document carries the
+// login's Firebase uid as authId (internal/etl encodeDrivers), so a uid assigned or adopted here is followed by
+// driver.updated.
+func (q *Queries) DriverOfLogin(ctx context.Context, userID *uuid.UUID) (DriverOfLoginRow, error) {
+	row := q.db.QueryRow(ctx, driverOfLogin, userID)
+	var i DriverOfLoginRow
+	err := row.Scan(&i.ID, &i.TenantID)
+	return i, err
+}
+
 const firebaseUIDHeld = `-- name: FirebaseUIDHeld :one
 SELECT (EXISTS (SELECT 1 FROM users WHERE id = $1::uuid OR legacy_auth_uid = $2::text)
      OR EXISTS (SELECT 1 FROM drivers WHERE legacy_auth_uid = $2::text))::boolean AS held

@@ -103,9 +103,11 @@ type WorkerConfig struct {
 
 	// The coexistence consumers of group sync (T24, developer-spec.md §13.7-§13.8): which collections are mirrored or
 	// projected follows from PG_OWNED_DOMAINS; the pins narrow it. The mirror (ETL_SYNC_ENABLED) is the ETL load path
-	// and logs in as logitrack_etl through ETL_DATABASE_URL (R66); the projection (COMPAT_PROJECTION_ENABLED, the kill
-	// switch) uses DATABASE_URL. Both reach ETL_FIRESTORE_PROJECT_ID with the GOOGLE_APPLICATION_CREDENTIALS key. Off
-	// (the default, and the staging VM, which runs PostgreSQL only) neither needs a database URL or a key.
+	// and logs in as logitrack_etl through ETL_DATABASE_URL (R66), on a replica that runs group sync alone
+	// (WORKER_CONSUMERS=sync; compose service worker-sync), the only one that may hold that URL; the projection
+	// (COMPAT_PROJECTION_ENABLED, the kill switch) uses DATABASE_URL. Both reach ETL_FIRESTORE_PROJECT_ID with the
+	// GOOGLE_APPLICATION_CREDENTIALS key. Off (the default, and the staging VM, which runs PostgreSQL only) neither
+	// needs a database URL or a key.
 	PGOwnedDomains              string `env:"PG_OWNED_DOMAINS"`
 	ETLSyncEnabled              bool   `env:"ETL_SYNC_ENABLED"`
 	ETLDatabaseURL              string `env:"ETL_DATABASE_URL"`
@@ -173,16 +175,25 @@ func (c *WorkerConfig) Validate() error {
 	plan, perrs := coexist.ParsePlan(c.PGOwnedDomains, c.ETLMirrorCollections, c.CompatProjectionCollections)
 	errs = append(errs, perrs...)
 	c.Coexist = plan
-	if c.ETLSyncEnabled {
-		if c.ETLDatabaseURL == "" {
-			errs = append(errs, config.Invalidf("ETL_DATABASE_URL", "is required when ETL_SYNC_ENABLED is true (the mirror logs in as logitrack_etl, R66)"))
-		} else if !strings.HasPrefix(c.ETLDatabaseURL, "postgres://") && !strings.HasPrefix(c.ETLDatabaseURL, "postgresql://") {
-			errs = append(errs, config.Invalidf("ETL_DATABASE_URL", "must be a postgres:// URL"))
-		}
+	// R66 (T24S): the BYPASSRLS logitrack_etl login is held only by the replica that runs the mirror, and that replica
+	// runs group sync alone, so no other consumer of the worker ever holds it.
+	mirror := c.ETLSyncEnabled && slices.Contains(c.Groups, "sync")
+	switch {
+	case mirror && !slices.Equal(c.Groups, []string{"sync"}):
+		errs = append(errs, config.Invalidf("WORKER_CONSUMERS", "must be sync alone on the replica that runs the mirror (ETL_SYNC_ENABLED): "+
+			"it holds ETL_DATABASE_URL, which no other consumer may hold (R66); run the other groups on another replica"))
+	case mirror && c.ETLDatabaseURL == "":
+		errs = append(errs, config.Invalidf("ETL_DATABASE_URL", "is required on the replica that runs the mirror (ETL_SYNC_ENABLED, "+
+			"WORKER_CONSUMERS=sync): the mirror logs in as logitrack_etl (R66)"))
+	case mirror && !strings.HasPrefix(c.ETLDatabaseURL, "postgres://") && !strings.HasPrefix(c.ETLDatabaseURL, "postgresql://"):
+		errs = append(errs, config.Invalidf("ETL_DATABASE_URL", "must be a postgres:// URL"))
+	case !mirror && c.ETLDatabaseURL != "":
+		errs = append(errs, config.Invalidf("ETL_DATABASE_URL", "must be empty unless this replica runs the mirror (ETL_SYNC_ENABLED, "+
+			"WORKER_CONSUMERS=sync): the logitrack_etl login bypasses RLS (R66)"))
 	}
-	if c.ETLSyncEnabled || c.CompatProjectionEnabled {
+	if (c.ETLSyncEnabled || c.CompatProjectionEnabled) && slices.Contains(c.Groups, "sync") {
 		if c.FirestoreProjectID == "" || c.GoogleCredentials == "" {
-			errs = append(errs, "ETL_FIRESTORE_PROJECT_ID, GOOGLE_APPLICATION_CREDENTIALS: required when ETL_SYNC_ENABLED or COMPAT_PROJECTION_ENABLED is true")
+			errs = append(errs, "ETL_FIRESTORE_PROJECT_ID, GOOGLE_APPLICATION_CREDENTIALS: required when ETL_SYNC_ENABLED or COMPAT_PROJECTION_ENABLED is true on a replica that runs group sync")
 		}
 	}
 	if c.FCMEnabled {

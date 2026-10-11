@@ -79,8 +79,10 @@ func New(cfg Config) (*Engine, error) {
 // trip number collision needs a manual decision, or the own-fleet configuration disagrees with the database.
 type AbortError struct {
 	Collection, Path string
-	Reason           Reason
-	Detail           string
+	// Field is the document field the rejection names ("" for the row or the run).
+	Field  string
+	Reason Reason
+	Detail string
 }
 
 func (e *AbortError) Error() string {
@@ -102,6 +104,10 @@ type LoadOptions struct {
 	SinceWatermark bool
 	// Force re-applies documents whose _updateTime is not newer than the stored one (after a mapping change).
 	Force bool
+	// Mirror is an etl.sync sweep (Engine.Mirror): each document applies in a savepoint, an out-of-vocabulary literal
+	// keeps PostgreSQL's value of its field, and a billable document that still cannot be applied is held instead of
+	// stopping the sweep (mirrorApply).
+	Mirror bool
 }
 
 // CollectionStats count one collection of a run.
@@ -114,6 +120,9 @@ type CollectionStats struct {
 	Unchanged  int // _updateTime not newer than etl.source_docs (skipped)
 	BeforeMark int // filtered out by --since / the watermark
 	Outcomes   map[Outcome]int
+	// Held are the billable documents a sweep could not apply (R19): recorded pending with their finding, retried by
+	// every sweep, never counted as applied (mirrorApply).
+	Held int `json:",omitempty"`
 }
 
 // DocResult is one applied document.
@@ -288,6 +297,15 @@ func (e *Engine) loadCollection(ctx context.Context, tx pgx.Tx, spec collectionS
 			return stats, fmt.Errorf("etl: %s: read source doc: %w", doc.Path, err)
 		case !o.Force && !reapply && !ut.After(storedUT) && (storedStatus != string(Pending) || spec.mapper == nil):
 			// A pending document waits for its mapping: it is applied by the first load that has one.
+			if storedStatus == string(Rejected) && spec.rowNow != nil {
+				found, err := spec.rowNow(ctx, tx, doc)
+				if err != nil {
+					return stats, fmt.Errorf("etl: %s: %w", doc.Path, err)
+				}
+				if found {
+					break // rejected before its row existed: apply it now
+				}
+			}
 			stats.Unchanged++
 			if storedStatus != string(Pending) {
 				advance()
@@ -295,7 +313,20 @@ func (e *Engine) loadCollection(ctx context.Context, tx pgx.Tx, spec collectionS
 			continue
 		}
 		c := &docCtx{ctx: ctx, tx: tx, e: e, coll: spec.name, doc: doc, f: doc.Fields, billable: billable.has(spec.name, doc), run: r}
-		if err := e.apply(c, spec); err != nil {
+		if o.Mirror {
+			held, err := e.mirrorApply(c, spec)
+			if err != nil {
+				return stats, err
+			}
+			if held != nil {
+				if err := e.hold(c, held, exportedAt); err != nil {
+					return stats, err
+				}
+				stats.Held++
+				rep.Docs = append(rep.Docs, DocResult{Collection: spec.name, Path: doc.Path, Outcome: Pending, Findings: c.findings})
+				continue
+			}
+		} else if err := e.apply(c, spec); err != nil {
 			return stats, err
 		}
 		if err := e.record(c, exportedAt); err != nil {

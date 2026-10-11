@@ -182,9 +182,9 @@ func TestBackgroundConfigsDescribeOnlyTheirNames(t *testing.T) {
 	}
 }
 
-// The coexistence consumers (T24): off by default with no database URL or key; the mirror needs ETL_DATABASE_URL,
-// both need the Firestore project and the key file; the plan follows PG_OWNED_DOMAINS and the pins, whose errors name
-// the variable and never the value.
+// The coexistence consumers (T24): off by default with no database URL or key; the mirror needs ETL_DATABASE_URL on a
+// replica that runs group sync alone, and no other replica may hold that URL (R66); both need the Firestore project and
+// the key file; the plan follows PG_OWNED_DOMAINS and the pins, whose errors name the variable and never the value.
 func TestWorkerConfigCoexistence(t *testing.T) {
 	cfg, err := config.LoadFrom[app.WorkerConfig](workerEnv())
 	if err != nil || cfg.ETLSyncEnabled || cfg.CompatProjectionEnabled || cfg.Coexist.Mirror.Mode("tasks") != "full" ||
@@ -193,7 +193,7 @@ func TestWorkerConfigCoexistence(t *testing.T) {
 	}
 	on := []string{"ETL_SYNC_ENABLED=true", "COMPAT_PROJECTION_ENABLED=true", "PG_OWNED_DOMAINS=auth,masterdata",
 		"ETL_DATABASE_URL=postgres://etl:placeholder@localhost:5432/x", "ETL_FIRESTORE_PROJECT_ID=logitrack-test",
-		"GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/sa.json", "COMPAT_PROJECTION_COLLECTIONS=hubs,drivers"}
+		"GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/sa.json", "COMPAT_PROJECTION_COLLECTIONS=hubs,drivers", "WORKER_CONSUMERS=sync"}
 	cfg, err = config.LoadFrom[app.WorkerConfig](workerEnv(on...))
 	if err != nil || cfg.Coexist.Mirror.Mode("drivers") != "fields" || strings.Join(cfg.Coexist.Projection, ",") != "hubs,drivers" {
 		t.Fatalf("on: %+v %v", cfg.Coexist, err)
@@ -206,6 +206,10 @@ func TestWorkerConfigCoexistence(t *testing.T) {
 		"PG_OWNED_DOMAINS=masterdata,secret_zz":   "PG_OWNED_DOMAINS",
 		"ETL_MIRROR_COLLECTIONS=tasks,secret_zz":  "ETL_MIRROR_COLLECTIONS",
 		"COMPAT_PROJECTION_COLLECTIONS=secret_zz": "COMPAT_PROJECTION_COLLECTIONS",
+		// R66: the mirror runs on a replica of its own, which alone holds the logitrack_etl URL.
+		"WORKER_CONSUMERS=all":         "WORKER_CONSUMERS",
+		"WORKER_CONSUMERS=sync,notify": "WORKER_CONSUMERS",
+		"ETL_SYNC_ENABLED=false":       "ETL_DATABASE_URL",
 	} {
 		_, err := config.LoadFrom[app.WorkerConfig](workerEnv(append(on, env)...))
 		if err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), "secret_zz") || strings.Contains(err.Error(), "placeholder") {
@@ -216,6 +220,15 @@ func TestWorkerConfigCoexistence(t *testing.T) {
 	if _, err := config.LoadFrom[app.WorkerConfig](workerEnv("COMPAT_PROJECTION_ENABLED=true", "ETL_FIRESTORE_PROJECT_ID=logitrack-test",
 		"GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/sa.json")); err != nil {
 		t.Errorf("projection only: %v", err)
+	}
+	// With the mirror on, the other replicas leave group sync out and hold no ETL URL; one that holds it refuses to start.
+	rest := "WORKER_CONSUMERS=billing,notify,documents,integrations,hr,platform"
+	if _, err := config.LoadFrom[app.WorkerConfig](workerEnv("ETL_SYNC_ENABLED=true", rest)); err != nil {
+		t.Errorf("a replica without group sync: %v", err)
+	}
+	_, err = config.LoadFrom[app.WorkerConfig](workerEnv("ETL_SYNC_ENABLED=true", rest, "ETL_DATABASE_URL=postgres://etl:placeholder@localhost:5432/x"))
+	if err == nil || !strings.Contains(err.Error(), "ETL_DATABASE_URL") || strings.Contains(err.Error(), "placeholder") {
+		t.Errorf("a replica without group sync holding the URL: %v", err)
 	}
 	w := config.Describe[app.WorkerConfig]()
 	for _, n := range []string{"ETL_SYNC_ENABLED", "ETL_DATABASE_URL", "ETL_MIRROR_COLLECTIONS", "COMPAT_PROJECTION_ENABLED",

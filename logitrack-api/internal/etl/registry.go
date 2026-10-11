@@ -30,6 +30,9 @@ type collectionSpec struct {
 	prepare func(c *docCtx, docs []dump.Doc, full bool) error
 	reapply func(r *runState, path string) bool
 	after   func(r *runState, coll string) error
+	// rowNow (field-level mirrors) says whether the row a rejected document lacked exists now: such a document is
+	// applied again although Firestore did not change it, so a rejection that was only early heals.
+	rowNow func(ctx context.Context, tx pgx.Tx, doc dump.Doc) (bool, error)
 }
 
 // mappedCollections are the collections this release loads, in the load order of Appendix A §A.3.0: tenants,
@@ -161,7 +164,7 @@ func (c *docCtx) find(field string, r Reason, detail string, raw any) {
 // rejected (R19): the run aborts instead, so the source can be fixed first.
 func (c *docCtx) reject(field string, r Reason, detail string, raw any) error {
 	if c.billable {
-		return &AbortError{Collection: c.coll, Path: c.doc.Path, Reason: r,
+		return &AbortError{Collection: c.coll, Path: c.doc.Path, Field: field, Reason: r,
 			Detail: fmt.Sprintf("%s (field %q) on a document with billing evidence; fix it at the source and dump again (R19)", detail, field)}
 	}
 	c.outcome = Rejected

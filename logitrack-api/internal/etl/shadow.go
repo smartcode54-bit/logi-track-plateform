@@ -29,29 +29,52 @@ import (
 //     for SOC, a yyyy-MM-dd string for a date, a download URL with its token) is kept, and a document that already
 //     says what PostgreSQL says is not written at all, so the mirror sees no change from it (no echo loop);
 //   - writes under a precondition on the update time it compared with (a concurrent writer makes it retry);
-//   - mints the document id of a row born in PostgreSQL in the same transaction (R25): legacy_doc_id = id::text, or the
-//     natural key of a distance pair ({hub}_{soc}, {soc}_{hub}: the 3.x app reads distances by that id,
-//     hub_soc_distances_repository.dart); the transaction commits only after the Firestore write succeeded;
+//   - mints the document id of a row born in PostgreSQL (R25): legacy_doc_id = id::text, or the natural key of a
+//     distance pair ({hub}_{soc}, {soc}_{hub}: the 3.x app reads distances by that id,
+//     hub_soc_distances_repository.dart, minted again when the hub's code changes); the minting transaction commits
+//     before anything reaches Firestore, so a mirror sweep that reads the new document always finds its row, and the
+//     document carries the updated_at the minting UPDATE left on the row (the reconciliation compares it). A minted id
+//     whose write then fails is harmless: the next projection writes the same id;
+//   - never writes a path that is not a valid document path (a '/' or a reserved name in a code): the row is skipped;
 //   - skips the rows that are not PostgreSQL's to project: rows in the quarantine tenant (unresolved, Firestore keeps
 //     the original), the hubs drivers created in Firestore (the mirror owns them), and the own fleet unless a
 //     subcontractors document named it.
 
-// ShadowTarget is one projection: rows of Collection by id, the distance rows of some hubs, or every row.
+// ShadowTarget is one projection: rows of Collection by id, the rows that copy something of some hubs, customers or
+// tenants (a distance pair names its hub's code, a hub its linked party's code and name, a driver its customers'
+// codes), or every row.
 type ShadowTarget struct {
 	Collection string
 	IDs        []uuid.UUID
 	Hubs       []uuid.UUID // hub_soc_distances / soc_hub_distances: the pairs of these hubs
+	Customers  []uuid.UUID // hubs linked to these customers; drivers holding codes of them
+	Tenants    []uuid.UUID // hubs linked to these carriers
 	All        bool
 }
 
 // selection is what an encoder reads.
 type selection struct {
-	all       bool
-	ids, hubs []uuid.UUID
+	all                           bool
+	ids, hubs, customers, tenants []uuid.UUID
 }
 
 func (t ShadowTarget) selection() selection {
-	return selection{all: t.All, ids: nonNilIDs(t.IDs), hubs: nonNilIDs(t.Hubs)}
+	return selection{all: t.All, ids: nonNilIDs(t.IDs), hubs: nonNilIDs(t.Hubs), customers: nonNilIDs(t.Customers),
+		tenants: nonNilIDs(t.Tenants)}
+}
+
+// selectAll is the selection of every row (the reconciliation, export-back).
+func selectAll() selection {
+	return selection{all: true, ids: []uuid.UUID{}, hubs: []uuid.UUID{}, customers: []uuid.UUID{}, tenants: []uuid.UUID{}}
+}
+
+// selectIDs is the selection of rows by id.
+func selectIDs(ids []uuid.UUID) selection {
+	return selection{ids: nonNilIDs(ids), hubs: []uuid.UUID{}, customers: []uuid.UUID{}, tenants: []uuid.UUID{}}
+}
+
+func (s selection) empty() bool {
+	return !s.all && len(s.ids)+len(s.hubs)+len(s.customers)+len(s.tenants) == 0
 }
 
 func nonNilIDs(ids []uuid.UUID) []uuid.UUID {
@@ -113,7 +136,14 @@ func ShadowTargets(routingKey string, body []byte) ([]ShadowTarget, error) {
 		return []ShadowTarget{{Collection: "hubs", IDs: list}, {Collection: "hub_soc_distances", Hubs: list},
 			{Collection: "soc_hub_distances", Hubs: list}}, nil
 	case "customers.changed":
-		return one("customers", p.IDs...)
+		// A customer's code and name are copied onto the hubs linked to it (linkedCustomerName) and its code keys the
+		// drivers' customerDriverIds.
+		list, err := ids(p.IDs...)
+		if err != nil {
+			return nil, err
+		}
+		return []ShadowTarget{{Collection: "customers", IDs: list}, {Collection: "hubs", Customers: list},
+			{Collection: "drivers", Customers: list}}, nil
 	case "companies.changed":
 		return one("companies", p.IDs...)
 	case "truck.created", "truck.updated", "truck.renewed":
@@ -135,8 +165,15 @@ func ShadowTargets(routingKey string, body []byte) ([]ShadowTarget, error) {
 			return nil, err
 		}
 		return []ShadowTarget{{Collection: "truckAssignment", IDs: a}, {Collection: "trucks", IDs: tr}, {Collection: "drivers", IDs: dr}}, nil
-	case "tenant.created", "tenant.updated":
+	case "tenant.created":
 		return one("subcontractors", p.TenantID)
+	case "tenant.updated":
+		// A carrier's code and name are copied onto the hubs linked to it (linkedCustomerName).
+		list, err := ids(p.TenantID)
+		if err != nil {
+			return nil, err
+		}
+		return []ShadowTarget{{Collection: "subcontractors", IDs: list}, {Collection: "hubs", Tenants: list}}, nil
 	case "settings.changed":
 		if p.Key != settingDistancesLastCalculated {
 			return nil, nil
@@ -212,22 +249,12 @@ func (p *Projector) Project(ctx context.Context, t ShadowTarget) (ProjectStats, 
 		st.NotProjected++
 		return st, nil
 	}
-	if !t.All {
-		if len(t.IDs) == 0 && len(t.Hubs) == 0 {
+	if !t.All || t.Collection == "metadata" { // metadata: one document
+		sel := t.selection()
+		if sel.empty() {
 			return st, nil
 		}
-		return st, p.Tx(ctx, func(tx pgx.Tx) error {
-			s, err := p.write(ctx, tx, t.Collection, enc, t.selection())
-			st = s
-			return err
-		})
-	}
-	if t.Collection == "metadata" { // one document
-		return st, p.Tx(ctx, func(tx pgx.Tx) error {
-			s, err := p.write(ctx, tx, t.Collection, enc, t.selection())
-			st = s
-			return err
-		})
+		return p.project(ctx, t.Collection, enc, sel)
 	}
 	// Every row, in batches of ids so no transaction stays open over thousands of Firestore round trips.
 	table, idCol := projectedTable(t.Collection)
@@ -247,11 +274,9 @@ func (p *Projector) Project(ctx context.Context, t ShadowTarget) (ProjectStats, 
 		if len(batch) == 0 {
 			return st, nil
 		}
-		if err := p.Tx(ctx, func(tx pgx.Tx) error {
-			s, err := p.write(ctx, tx, t.Collection, enc, selection{ids: batch, hubs: []uuid.UUID{}})
-			st.add(s)
-			return err
-		}); err != nil {
+		s, err := p.project(ctx, t.Collection, enc, selectIDs(batch))
+		st.add(s)
+		if err != nil {
 			return st, err
 		}
 		after = batch[len(batch)-1]
@@ -291,22 +316,35 @@ func (p *Projector) ProjectAll(ctx context.Context) (map[string]ProjectStats, er
 	return out, nil
 }
 
-// write encodes the selection (minting ids in tx) and writes each document that differs.
-func (p *Projector) write(ctx context.Context, tx pgx.Tx, coll string, enc encoder, sel selection) (ProjectStats, error) {
-	var st ProjectStats
-	docs, err := enc(ctx, tx, sel, true)
-	if err != nil {
-		return st, err
+// project encodes the selection in one transaction, which mints the document ids of rows born in PostgreSQL and
+// commits, then writes each document that differs: a sweep that reads a projected document finds its row.
+func (p *Projector) project(ctx context.Context, coll string, enc encoder, sel selection) (ProjectStats, error) {
+	var docs []ExportDoc
+	if err := p.Tx(ctx, func(tx pgx.Tx) error {
+		var err error
+		docs, err = enc(ctx, tx, sel, true)
+		return err
+	}); err != nil {
+		return ProjectStats{}, err
 	}
+	return p.write(ctx, coll, docs)
+}
+
+// write writes each document of docs that differs from Firestore's.
+func (p *Projector) write(ctx context.Context, coll string, docs []ExportDoc) (ProjectStats, error) {
+	var st ProjectStats
 	foreign := ForeignFields(coll, p.Owned)
 	for _, d := range docs {
-		d = d.without(foreign)
+		if d.Skip == "" && !validDocPath(d.Path) {
+			d.Skip = "not a valid document path (a '/' or a reserved name in a code)"
+			p.Log.Warn().Str("path", d.Path).Msg("firestore.shadow: a row whose document path is not valid is not projected")
+		}
 		if d.Skip != "" {
 			st.Skipped++
 			p.Log.Debug().Str("path", d.Path).Str("reason", d.Skip).Msg("firestore.shadow: not projected")
 			continue
 		}
-		changed, err := writeDoc(ctx, p.FS, d)
+		changed, err := writeDoc(ctx, p.FS, d, foreign)
 		if err != nil {
 			return st, err
 		}
@@ -319,13 +357,38 @@ func (p *Projector) write(ctx context.Context, tx pgx.Tx, coll string, enc encod
 	return st, nil
 }
 
+// validDocID is a Firestore document id: not empty, no '/', not '.' or '..', not __name__-shaped, at most 1500 bytes.
+func validDocID(id string) bool {
+	return id != "" && id != "." && id != ".." && len(id) <= 1500 && !strings.Contains(id, "/") &&
+		!(strings.HasPrefix(id, "__") && strings.HasSuffix(id, "__"))
+}
+
+// validDocPath is collection/id pairs of valid segments (an id with a '/' would name a collection or a nested document).
+func validDocPath(path string) bool {
+	segs := strings.Split(path, "/")
+	if len(segs)%2 != 0 {
+		return false
+	}
+	for _, s := range segs {
+		if !validDocID(s) {
+			return false
+		}
+	}
+	return true
+}
+
 // writeDoc writes the fields of d that differ from the stored document, under a precondition on its update time
-// (Exists=false when there is none); it reports whether anything was written.
-func writeDoc(ctx context.Context, fs FirestoreWriter, d ExportDoc) (bool, error) {
+// (Exists=false when there is none); it reports whether anything was written. A Retired document that does not exist
+// is not created. foreign (ForeignFields) are left out of a stored document, whose other writer owns them; a document
+// created here gets them from PostgreSQL (a truck born in Go starts with its form's status and mileage, which the
+// maintenance flow then keeps).
+func writeDoc(ctx context.Context, fs FirestoreWriter, d ExportDoc, foreign []string) (bool, error) {
 	cur, err := fs.Get(ctx, d.Path)
 	var pre gcp.Precondition
 	var curFields map[string]any
 	switch {
+	case errors.Is(err, gcp.ErrNotFound) && d.Retired:
+		return false, nil
 	case errors.Is(err, gcp.ErrNotFound):
 		no := false
 		pre.Exists = &no
@@ -334,6 +397,7 @@ func writeDoc(ctx context.Context, fs FirestoreWriter, d ExportDoc) (bool, error
 	default:
 		pre.UpdateTime = cur.UpdateTime
 		curFields = cur.Fields
+		d = d.without(foreign)
 	}
 	fields, mask := d.Diff(curFields)
 	if len(mask) == 0 && pre.Exists == nil {
@@ -355,7 +419,8 @@ func (d ExportDoc) without(fields []string) ExportDoc {
 }
 
 // Diff returns the fields of d whose stored value in cur is not equivalent, and the mask that writes them (a masked
-// field absent from the result is deleted); the fields ExportDoc.Keep names are left alone. Equivalence: ExportDoc.Equiv when the encoder gives one, else
+// field absent from the result is deleted); the fields ExportDoc.Keep names are left alone, and a Merge field is
+// compared and written as merged over the stored value. Equivalence: ExportDoc.Equiv when the encoder gives one, else
 // legacyEqual; a field PostgreSQL leaves empty matches an absent, null, blank or empty stored value. A nil cur is a
 // document that does not exist yet: every field with a value is written (an Equiv that reads an absent field as the
 // loader's default only spares rewriting a stored document).
@@ -371,6 +436,10 @@ func (d ExportDoc) Diff(cur map[string]any) (map[string]any, []string) {
 		}
 		want, has := d.Fields[f]
 		c, curHas := cur[f]
+		if m := d.Merge[f]; m != nil {
+			want = m(c)
+			has = want != nil
+		}
 		var same bool
 		switch eq := d.Equiv[f]; {
 		case cur == nil:
@@ -587,7 +656,8 @@ func anyStrings(in []string) []any {
 type docBuilder struct{ d ExportDoc }
 
 func newDoc(path string) *docBuilder {
-	return &docBuilder{d: ExportDoc{Path: path, Fields: map[string]any{}, Equiv: map[string]func(any, bool) bool{}}}
+	return &docBuilder{d: ExportDoc{Path: path, Fields: map[string]any{}, Equiv: map[string]func(any, bool) bool{},
+		Merge: map[string]func(any) any{}}}
 }
 
 // set adds field to the mask with value v (nil, a nil pointer or a blank string: the field is empty and deleted).

@@ -172,7 +172,7 @@ func TestMirrorSweepOfFirestoreOwnedCollections(t *testing.T) {
 	h := newSyncHarness(t)
 	p := h.plan(owned("auth"))
 	if p.Mode("drivers") != MirrorFull || p.Mode("tasks") != MirrorFull || p.Mode("mobile_installations") != MirrorFull ||
-		p.Mode("users") != "" || p.Mode("permissions_config") != "" {
+		p.Mode("users") != MirrorFields || p.Mode("permissions_config") != "" {
 		t.Fatalf("plan %+v", p.Entries)
 	}
 	if rep := h.sweep(p); rep.Applied() != 0 {
@@ -596,7 +596,7 @@ func TestEncodersRoundTripTheFixtures(t *testing.T) {
 	var diffs []string
 	err := h.e.cfg.Tx(h.ctx, func(tx pgx.Tx) error {
 		for _, coll := range ProjectedCollections {
-			docs, err := projectors[coll](h.ctx, tx, selection{all: true, ids: []uuid.UUID{}, hubs: []uuid.UUID{}}, false)
+			docs, err := projectors[coll](h.ctx, tx, selectAll(), false)
 			if err != nil {
 				return err
 			}

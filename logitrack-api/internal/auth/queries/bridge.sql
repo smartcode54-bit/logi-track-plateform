@@ -32,6 +32,12 @@ RETURNING legacy_auth_uid::text;
 SELECT (EXISTS (SELECT 1 FROM users WHERE id = sqlc.arg(id)::uuid OR legacy_auth_uid = sqlc.arg(uid)::text)
      OR EXISTS (SELECT 1 FROM drivers WHERE legacy_auth_uid = sqlc.arg(uid)::text))::boolean AS held;
 
+-- name: DriverOfLogin :one
+-- The driver a login is linked to (drivers.user_id, unique): its projected Firestore drivers document carries the
+-- login's Firebase uid as authId (internal/etl encodeDrivers), so a uid assigned or adopted here is followed by
+-- driver.updated.
+SELECT id, tenant_id FROM drivers WHERE user_id = sqlc.arg(user_id);
+
 -- name: AdoptLegacyAuthUID :exec
 -- A user created in Go takes over the orphan Firebase account of a rolled-back attempt to create it (C.6.4):
 -- its Firebase uid becomes that account's (users_legacy_uid keeps it unique).

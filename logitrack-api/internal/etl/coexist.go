@@ -23,13 +23,15 @@ const (
 )
 
 // collectionDomains are the coexistence domains of each collection `load` maps (§12.1 classes, §12.2 phase table): a
-// collection is PostgreSQL-owned once every domain it lists is in PG_OWNED_DOMAINS. transactions holds both the
-// truck-renewal ledger (masterdata, P1) and the payout ledger (hr, P4), so it is mirrored until both are owned.
-// mobile_installations is written by every installed 3.x APK until P7b whatever the domain flags say: it has no
-// domain and is mirrored while the sync runs. users and permissions_config are loaded by their own steps (auth-import,
-// auth-rbac) and never mirrored by etl.sync.
+// class A or B collection is PostgreSQL-owned once every domain it lists is in PG_OWNED_DOMAINS. transactions holds
+// both the truck-renewal ledger (masterdata, P1) and the payout ledger (hr, P4), so it is mirrored until both are
+// owned. The class C collections (classC) are written in Firestore by the installed 3.x APKs until P7b whatever their
+// domain flag says, so their domain never stops their mirror. mobile_installations has no domain: it is class C too.
+// users are loaded by their own step (auth-import, P0) and PostgreSQL-owned from then on (auth): only the fields the
+// 3.x app keeps writing on them (lastLogin*, fcmTokens; class C) are mirrored, field by field. permissions_config is
+// auth-rbac's and never mirrored.
 var collectionDomains = func() map[string][]string {
-	m := map[string][]string{"mobile_installations": nil, "transactions": {"masterdata", "hr"}}
+	m := map[string][]string{"mobile_installations": nil, "transactions": {"masterdata", "hr"}, "users": {"auth"}}
 	for domain, names := range map[string][]string{
 		"masterdata": {"subcontractors", "customers", "companies", "hubs", "hub_soc_distances", "soc_hub_distances", "metadata",
 			"trucks", "drivers", "truckAssignment"},
@@ -49,11 +51,33 @@ var collectionDomains = func() map[string][]string {
 	return m
 }()
 
+// classC are the collections the installed 3.x APKs write in Firestore until P7b (§12.1 class C: tasks, trips, standby
+// records, incidents, expenses, maintenance, chats and their messages, leave requests, and the installations): the
+// mirror carries them whole from P1 until the sync is switched off at P7b, whatever PG_OWNED_DOMAINS says. A domain
+// flag moves only the class A and B collections of that domain; the Go writes of a class C collection reach Firestore
+// as synchronous write-backs (§12.2 P2-P7a), and the mirror brings them back like any other write.
+var classC = map[string]bool{"tasks": true, "trip_records": true, "standby_records": true, "incidentReport": true,
+	"vehicle_expenses": true, "maintenance": true, "chats": true, "messages": true, "leave_requests": true, "mobile_installations": true}
+
 // groupCollections are read as collection groups (drivers/*/mobile_installations, chats/*/messages; main spec §13.1).
 var groupCollections = map[string]bool{"mobile_installations": true, "messages": true}
 
-// fieldMirrored are the PostgreSQL-owned class B collections whose 3.x-app fields stay mirrored (§12.1 class B).
-var fieldMirrored = map[string]bool{"drivers": true, "hubs": true}
+// fieldMirrored are the PostgreSQL-owned collections whose 3.x-app fields stay mirrored (§12.1 class B, and the users
+// fields of class C).
+var fieldMirrored = map[string]bool{"drivers": true, "hubs": true, "users": true}
+
+// mirrorOrder is the load order of Appendix A §A.3.0 with users after drivers (a users token row names the login's
+// driver): the order of a sweep.
+func mirrorOrder() []string {
+	var out []string
+	for _, s := range mappedCollections() {
+		out = append(out, s.name)
+		if s.name == "drivers" {
+			out = append(out, "users")
+		}
+	}
+	return out
+}
 
 // foreignFields are fields of a collection that the flows of another domain write: the trucks fields of the PM alert
 // and the maintenance pages (checkMaintenanceAlert after a fuel-log approval, functions/src/triggers.ts:449-516, and
@@ -150,33 +174,39 @@ func checkPin(pin, known []string, what string) error {
 // MirrorCollections are the collection names a mirror pin may name.
 func MirrorCollections() []string {
 	var out []string
-	for _, s := range mappedCollections() {
-		if _, ok := collectionDomains[s.name]; ok {
-			out = append(out, s.name)
+	for _, n := range mirrorOrder() {
+		if _, ok := collectionDomains[n]; ok {
+			out = append(out, n)
 		}
 	}
 	return out
 }
 
 // PlanMirror derives the sweep from the PostgreSQL-owned domains (PG_OWNED_DOMAINS) and an optional pin
-// (ETL_MIRROR_COLLECTIONS, which only narrows it): a collection whose domains are not all owned is mirrored whole;
-// drivers and hubs of an owned masterdata keep their field-level mirror, and so do trucks while billing is not owned
-// (ForeignFields); mobile_installations is always mirrored.
+// (ETL_MIRROR_COLLECTIONS, which only narrows it): a class C collection is always mirrored whole (the 3.x APKs write it
+// until P7b, when the sync is switched off), and so is any other collection whose domains are not all owned; drivers
+// and hubs of an owned masterdata keep their field-level mirror, and so do trucks while billing is not owned
+// (ForeignFields), and users (lastLogin*, fcmTokens) once auth is owned (P0).
 func PlanMirror(owned map[string]bool, pin []string) (MirrorPlan, error) {
 	if err := checkPin(pin, MirrorCollections(), "ETL_MIRROR_COLLECTIONS"); err != nil {
 		return MirrorPlan{}, err
 	}
 	p := MirrorPlan{Owned: owned}
-	for _, s := range mappedCollections() {
-		domains, known := collectionDomains[s.name]
-		if !known || (len(pin) > 0 && !slices.Contains(pin, s.name)) {
+	for _, name := range mirrorOrder() {
+		domains, known := collectionDomains[name]
+		if !known || (len(pin) > 0 && !slices.Contains(pin, name)) {
 			continue
 		}
 		switch {
-		case !ownedAll(owned, domains):
-			p.Entries = append(p.Entries, MirrorEntry{Name: s.name, Mode: MirrorFull})
-		case fieldMirrored[s.name] || len(ForeignFields(s.name, owned)) > 0:
-			p.Entries = append(p.Entries, MirrorEntry{Name: s.name, Mode: MirrorFields})
+		case separateCollections[name]:
+			// Loaded by its own step (auth-import at P0), never whole: only its 3.x fields, once auth is PostgreSQL's.
+			if ownedAll(owned, domains) {
+				p.Entries = append(p.Entries, MirrorEntry{Name: name, Mode: MirrorFields})
+			}
+		case classC[name] || !ownedAll(owned, domains):
+			p.Entries = append(p.Entries, MirrorEntry{Name: name, Mode: MirrorFull})
+		case fieldMirrored[name] || len(ForeignFields(name, owned)) > 0:
+			p.Entries = append(p.Entries, MirrorEntry{Name: name, Mode: MirrorFields})
 		}
 	}
 	return p, nil

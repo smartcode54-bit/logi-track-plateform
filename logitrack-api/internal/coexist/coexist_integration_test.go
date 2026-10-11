@@ -8,9 +8,11 @@ package coexist
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/google/uuid"
@@ -203,6 +205,65 @@ func TestSyncConsumer(t *testing.T) {
 	}
 	if err := s.Handle(f.ctx, &mq.Delivery{RoutingKey: "job.other"}); !mq.IsPermanent(err) {
 		t.Errorf("another routing key: %v", err)
+	}
+}
+
+// flakyLogin is the ETL pool whose first query fails as a database restarting while the worker starts does.
+type flakyLogin struct {
+	*pgxpool.Pool
+	failed atomic.Bool
+}
+
+type errRow struct{ err error }
+
+func (r errRow) Scan(...any) error { return r.err }
+
+func (f *flakyLogin) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	if f.failed.CompareAndSwap(false, true) {
+		return errRow{errors.New("dial tcp 127.0.0.1:5432: connect: connection refused")}
+	}
+	return f.Pool.QueryRow(ctx, sql, args...)
+}
+
+// Review panel (T24S): a transient failure of the login check goes back to the retry ladder (the job keeps running and
+// is not failed), is not remembered, and the redelivered command sweeps; a billable document the sweep cannot apply
+// is held, counted mirror_apply_total{result="held"} and named in the job result, while the rest of the sweep commits.
+func TestSyncConsumerRetriesTheLoginCheckAndHolds(t *testing.T) {
+	f := newFixture(t, true)
+	reg := prometheus.NewRegistry()
+	pool := &flakyLogin{Pool: f.etl}
+	s, err := NewSync(SyncConfig{Enabled: true, AppPool: f.app, ETLPool: pool, Source: f.fs.Firestore(), Plan: plan(t, "auth").Mirror,
+		Bucket: "logitrack", PublicBucket: "logitrack-public", Log: zerolog.Nop(), Metrics: NewMetrics(reg)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.fs.Merge("trip_records/TRIP002", map[string]any{"status": ""})
+	f.fs.Merge("drivers/drv_own", map[string]any{"mobile": "0899999998"})
+	d, id := f.command(t)
+	if err := s.Handle(f.ctx, d); err == nil || mq.IsPermanent(err) || !strings.Contains(err.Error(), "login check") {
+		t.Fatalf("a failed login check: %v", err)
+	}
+	if j := f.job(t, id); j.Status != jobs.StatusRunning {
+		t.Fatalf("the job after a transient failure: %s %v", j.Status, j.Error)
+	}
+	if err := s.Handle(f.ctx, d); err != nil { // the ladder redelivers the command
+		t.Fatal(err)
+	}
+	j := f.job(t, id)
+	var result struct {
+		Collections map[string]struct {
+			Held int `json:"held"`
+		} `json:"collections"`
+	}
+	if err := json.Unmarshal(j.Result, &result); err != nil || j.Status != jobs.StatusSucceeded || result.Collections["trip_records"].Held != 1 {
+		t.Fatalf("job %s %s %v %v", j.Status, j.Result, j.Error, err)
+	}
+	var mobile string
+	if err := f.etl.QueryRow(f.ctx, `SELECT mobile FROM drivers WHERE legacy_doc_id = 'drv_own'`).Scan(&mobile); err != nil || mobile != "0899999998" {
+		t.Errorf("the sweep around the held document: %q %v", mobile, err)
+	}
+	if v := counter(t, reg, "mirror_apply_total", "trip_records", ResultHeld); v != 1 {
+		t.Errorf("mirror_apply_total held %v", v)
 	}
 }
 
