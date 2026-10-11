@@ -172,7 +172,7 @@ func (m *TaskMover) ReassignTask(ctx context.Context, p *authz.Principal, rid st
 				return err
 			}
 			task.TenantID, task.TenantSource = to, string(tenancy.SourceForm)
-			if err := m.audit(ctx, tx, p, rid, task, from, driver, prev, files); err != nil {
+			if err := m.audit(ctx, tx, p, rid, task, from, driver, prev, in.Platform, files); err != nil {
 				return err
 			}
 		}
@@ -281,7 +281,7 @@ func assignDriver(ctx context.Context, ops *operationsdb.Queries, task operation
 // audit appends task_tenant_reassigned in the move's transaction: actor the caller, tenant the target (the staff of the
 // tenant that now runs the task read it; platform principals read every row).
 func (m *TaskMover) audit(ctx context.Context, tx pgx.Tx, p *authz.Principal, rid string, task operationsdb.Task,
-	from uuid.UUID, driver, prev *uuid.UUID, files []tenancy.Moved) error {
+	from uuid.UUID, driver, prev *uuid.UUID, platform bool, files []tenancy.Moved) error {
 	to, actor := task.TenantID, p.UserID
 	nStandby, nFiles := 0, 0
 	for _, mv := range files {
@@ -292,7 +292,7 @@ func (m *TaskMover) audit(ctx context.Context, tx pgx.Tx, p *authz.Principal, ri
 		}
 	}
 	details := map[string]any{"taskId": task.ID, "taskNo": task.TaskNo, "from": from, "to": to, "driverId": driver,
-		"previousDriverId": prev, "by": by(p), "standbyRecords": nStandby, "files": nFiles}
+		"previousDriverId": prev, "by": by(platform), "standbyRecords": nStandby, "files": nFiles}
 	return security.Append(ctx, tx, security.Event{
 		EventType: EventTaskTenantReassigned, Severity: security.SeverityWarning,
 		Summary: "task moved to another tenant", Details: details, ActorUserID: &actor, TenantID: &to, RequestID: rid,
@@ -300,9 +300,9 @@ func (m *TaskMover) audit(ctx context.Context, tx pgx.Tx, p *authz.Principal, ri
 	})
 }
 
-// by names the authority the caller used: dispatcher or platform_admin.
-func by(p *authz.Principal) string {
-	if p.HasPlatform(authz.PlatformAdmin) && p.Can(authz.PlatformCrossTenantWrite) {
+// by names the authority the request passed (operations.Service.ReassignTask): platform_admin or dispatcher.
+func by(platform bool) string {
+	if platform {
 		return string(authz.PlatformAdmin)
 	}
 	return "dispatcher"

@@ -114,7 +114,7 @@ func stampedTables(ctx context.Context, tx pgx.Tx) ([]stampedTable, error) {
 		JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 		JOIN pg_catalog.pg_attribute s ON s.attrelid = c.oid AND s.attname = 'tenant_source' AND NOT s.attisdropped
 		JOIN pg_catalog.pg_attribute t ON t.attrelid = c.oid AND t.attname = 'tenant_id' AND NOT t.attisdropped
-		WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND has_table_privilege(c.oid, 'SELECT')
+		WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND NOT c.relispartition AND has_table_privilege(c.oid, 'SELECT')
 		ORDER BY c.relname`)
 	if err != nil {
 		return nil, fmt.Errorf("tenancy: list the tenant-stamped tables: %w", err)
