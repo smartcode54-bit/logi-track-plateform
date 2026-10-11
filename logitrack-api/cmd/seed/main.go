@@ -1,6 +1,6 @@
 // Command seed loads the deterministic seed profiles and checks them (developer-spec.md §14, Appendix D):
-// uuid v5 ids, the smoke fixture of §D.4, the generated demo and load identities, placeholder media, and the
-// twelve --verify invariants. Writes go through ETL_DATABASE_URL as logitrack_etl inside db.WithSystem,
+// uuid v5 ids, the smoke fixture of §D.4, the generated demo and load identities and master data, placeholder
+// media, and the twelve --verify invariants. Writes go through ETL_DATABASE_URL as logitrack_etl inside db.WithSystem,
 // --reset and the schema check through MIGRATE_DATABASE_URL, the --verify isolation role-play through
 // DATABASE_URL as logitrack_app (R66, R87); nothing uses SET ROLE. Profile loads, --reset and --verify refuse
 // APP_ENV=prod; dev needs --allow-shared and loads in upsert mode.
@@ -242,16 +242,13 @@ func decideMode(appEnv string, o options) (seed.Mode, bool, string) {
 	return mode, reset, ""
 }
 
-// buildOptions maps the configuration onto the plan options.
+// buildOptions maps the configuration onto the plan options. RandomSeed 0 (SEED_RANDOM_SEED empty) is
+// seed.DefaultRandomSeed, which seed.Build applies, so the unit tests build the plan a load writes.
 func buildOptions(cfg *app.SeedConfig, profile seed.Profile) seed.Options {
-	o := seed.Options{
+	return seed.Options{
 		Profile: profile, Namespace: cfg.Namespace, OwnFleet: cfg.OwnFleet, RandomSeed: cfg.RandomSeed,
 		Anchor: cfg.Anchor, Bucket: cfg.S3Bucket, PublicBucket: cfg.S3PublicBucket, Backend: cfg.StorageBackend,
 	}
-	if o.RandomSeed == 0 {
-		o.RandomSeed = seed.DefaultRandomSeed
-	}
-	return o
 }
 
 func dryRun(ctx context.Context, cfg *app.SeedConfig, fx seed.FixtureFS, profile seed.Profile, o options, stdout, stderr io.Writer) int {
