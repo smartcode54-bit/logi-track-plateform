@@ -189,6 +189,45 @@ func TestExplainEveryQueryShapeUsesAnIndex(t *testing.T) {
 			_, err := q.UpdateTask(ctx, operationsdb.UpdateTaskParams{ID: task, Status: "assigned", PlanAt: from, SourceHubRaw: "A", DestinationRaw: "B"})
 			return err
 		}, []string{"tasks_pkey"}},
+		// --- the write routes (T31): the master rows a write reads, the parties of its events, its side effects
+		{"WriteTruck", staff, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.WriteTruck(ctx, w.truckO)
+			return err
+		}, nil},
+		{"TrucksByPlate", staff, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.TrucksByPlate(ctx, "1กข1234")
+			return err
+		}, nil}, // the trucks master (not an operations table): one tenant's fleet, read by the import only
+		{"WriteDriver", staff, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.WriteDriver(ctx, drv)
+			return err
+		}, nil},
+		{"WriteParty", staff, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.WriteParty(ctx, w.partyX)
+			return err
+		}, nil},
+		{"TaskParties", staff, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.TaskParties(ctx, task)
+			return err
+		},
+			[]string{"tasks_pkey"}},
+		{"TripParties", staff, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.TripParties(ctx, trip)
+			return err
+		},
+			[]string{"trip_records_pkey"}},
+		{"DeleteTaskStops", staff, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.DeleteTaskStops(ctx, task)
+			return err
+		}, []string{"task_delivery_stops_task_id_destination_raw_key", "task_delivery_stops_task_id_stop_index_key"}},
+		{"ClearDriverActiveTask", staff, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.ClearDriverActiveTask(ctx, operationsdb.ClearDriverActiveTaskParams{DriverID: drv, TaskID: &task})
+			return err
+		}, nil}, // drivers primary key
+		{"SetIncidentPhotos", staff, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.SetIncidentPhotos(ctx, operationsdb.SetIncidentPhotosParams{ID: incident})
+			return err
+		}, []string{"incident_reports_pkey"}},
 		{"CheckInTask", driver, func(ctx context.Context, q *operationsdb.Queries) error {
 			_, err := q.CheckInTask(ctx, operationsdb.CheckInTaskParams{ID: task, CheckInAt: from})
 			return err

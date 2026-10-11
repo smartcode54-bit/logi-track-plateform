@@ -72,7 +72,8 @@ SELECT * FROM tasks WHERE id = sqlc.arg(id) FOR UPDATE;
 
 -- name: UpdateTask :one
 -- PATCH writes the merged row (Go merges the request into the locked row; an absent field keeps its value, and status
--- and run_order change only when the caller sets them, fixing tasks.ts:120-137). Never tenant_id (frozen,
+-- and run_order change only when the caller sets them, fixing tasks.ts:120-137; a cancelled task reopened by a new
+-- driver clears its cancellation, the legacy edit's Cancelled -> Assigned). Never tenant_id (frozen,
 -- t_freeze_tenant_id; the R13 reassignment is the tenant-move path of T28, iam.TaskMover + tenancy.MoveTask), task_no,
 -- task_type or the check-in columns.
 UPDATE tasks
@@ -86,7 +87,8 @@ SET job_category = sqlc.narg(job_category), status = sqlc.arg(status), plan_at =
     legacy_truck_type = sqlc.narg(legacy_truck_type), license_plate_snapshot = sqlc.narg(license_plate_snapshot),
     driver_id = sqlc.narg(driver_id), legacy_driver_ref = sqlc.narg(legacy_driver_ref),
     driver_ref_match = sqlc.narg(driver_ref_match), helper_driver_id = sqlc.narg(helper_driver_id),
-    run_order = sqlc.narg(run_order), is_multi_delivery = sqlc.arg(is_multi_delivery)
+    run_order = sqlc.narg(run_order), is_multi_delivery = sqlc.arg(is_multi_delivery),
+    cancelled_at = sqlc.narg(cancelled_at), cancel_reason = sqlc.narg(cancel_reason)
 WHERE id = sqlc.arg(id)
 RETURNING *;
 

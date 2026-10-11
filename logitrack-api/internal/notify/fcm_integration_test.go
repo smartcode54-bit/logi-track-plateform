@@ -777,3 +777,37 @@ func TestFCMDriverFanOutIsCapped(t *testing.T) {
 		t.Fatalf("%d pushes, want the %d most recently seen devices", len(sent), notify.MaxDevicesPerDriver)
 	}
 }
+
+// T31: the push of a Go write-back (header origin=writeback) is the writer's own: while the FS->PG mirror has not
+// loaded the task yet its delivery fails transiently (the retry ladder waits for the mirror), never as a permanent
+// error that would drop the push; once the row is there exactly one visible push is sent. The mirror's event of the
+// same change (origin=etl.sync) sends nothing.
+func TestFCMWriteBackPushWaitsForTheMirror(t *testing.T) {
+	e := newFCMEnv(t)
+	a, ua := e.driver("wb@logitrack.test", "fsDriverWB")
+	e.device(ua, "inst-wb", "tok-wb", "android")
+	id := uuid.Must(uuid.NewV7())
+	d := e.delivery(notify.RouteTaskAssigned, map[string]any{"id": id, "driverId": a})
+	d.Headers = map[string]any{outbox.HeaderOrigin: outbox.OriginWriteBack}
+	err := e.consumer.Handle(e.ctx, d)
+	if err == nil || mq.IsPermanent(err) {
+		t.Fatalf("a write-back push of a task the mirror has not loaded: %v", err)
+	}
+	if !notify.FromWriteBack(d) || notify.FromMirror(d) {
+		t.Fatal("origin")
+	}
+	// Without the header a missing task stays a permanent error (a stale event).
+	if err := e.consumer.Handle(e.ctx, e.delivery(notify.RouteTaskAssigned, map[string]any{"id": uuid.New(), "driverId": a})); !mq.IsPermanent(err) {
+		t.Fatalf("a missing task: %v", err)
+	}
+	// The mirror loads the row under the minted id; the retry sends the push once.
+	e.exec(`INSERT INTO tasks (id, tenant_id, tenant_source, task_type, status, plan_at, source_hub_raw, destination_raw, driver_id, legacy_doc_id)
+		VALUES ($1, $2, 'driver', 'first_mile', 'assigned', now(), 'SPK-GW', 'SOCE', $3, $4)`, id, e.tenant, a, id.String())
+	e.handle(d)
+	mirror := e.delivery(notify.RouteTaskAssigned, map[string]any{"id": id, "driverId": a})
+	mirror.Headers = map[string]any{outbox.HeaderOrigin: outbox.OriginMirror}
+	e.handle(mirror)
+	if rows := e.rows(); count(rows, "task_assigned", notify.StatusSent) != 1 || len(rows) != 1 || rows[0].Data["taskId"] != id.String() {
+		t.Fatalf("pushes %+v", rows)
+	}
+}

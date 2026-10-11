@@ -65,6 +65,14 @@ func FromMirror(d *mq.Delivery) bool {
 	return ok && v == outbox.OriginMirror
 }
 
+// FromWriteBack reports whether a delivery is the notify event of a Go write-back handler (header origin=writeback,
+// T31): the writer's own push of a Firestore-owned change, sent while the mirror's event of the same change pushes
+// nothing.
+func FromWriteBack(d *mq.Delivery) bool {
+	v, ok := d.Headers[outbox.HeaderOrigin].(string)
+	return ok && v == outbox.OriginWriteBack
+}
+
 // Delivery statuses (notification_deliveries.status). queued is never written: a row is inserted once
 // its outcome is known.
 const (
@@ -501,6 +509,11 @@ func planTask(ctx context.Context, q *notifydb.Queries, d *mq.Delivery) ([]targe
 	}
 	t, err := q.GetTaskForPush(ctx, ev.ID)
 	if errors.Is(err, pgx.ErrNoRows) {
+		if FromWriteBack(d) {
+			// The Go write-back wrote the Firestore document and queued its push; the FS->PG mirror may not have applied
+			// the row yet (it waited up to 3 s for the ack). The retry ladder waits for the mirror (T31).
+			return nil, fmt.Errorf("notify.fcm: task %s of a write-back is not mirrored yet", ev.ID)
+		}
 		return nil, mq.Permanent(fmt.Errorf("notify.fcm: task %s not found", ev.ID))
 	}
 	if err != nil {

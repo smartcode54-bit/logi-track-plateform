@@ -382,6 +382,16 @@ func (s *Service) listScopeTasks(ctx context.Context, p *authz.Principal, f Task
 // their reach (TaskView), a driver its own or helper task (driver:self, R33: TaskBase), a scope principal the
 // projection (TaskBase). Outside the reach 404; a task of a type p does not read 403.
 func (s *Service) GetTaskView(ctx context.Context, p *authz.Principal, id uuid.UUID) (any, error) {
+	return s.taskView(ctx, p, id, true)
+}
+
+// writtenTaskView is the answer of a task write (T31): GET /v1/tasks/{id}'s payload for p, without the task-type read
+// check (the writer holds operations:manage_tasks, which reads the task it just wrote whatever its type).
+func (s *Service) writtenTaskView(ctx context.Context, p *authz.Principal, id uuid.UUID) (any, error) {
+	return s.taskView(ctx, p, id, false)
+}
+
+func (s *Service) taskView(ctx context.Context, p *authz.Principal, id uuid.UUID, checkType bool) (any, error) {
 	d, err := s.directory(ctx, p)
 	if err != nil {
 		return nil, err
@@ -397,7 +407,7 @@ func (s *Service) GetTaskView(ctx context.Context, p *authz.Principal, id uuid.U
 		}); err != nil {
 			return nil, err
 		}
-		if !mayReadTaskType(p, t.TaskType) {
+		if checkType && !mayReadTaskType(p, t.TaskType) {
 			return nil, errTaskType(t.TaskType)
 		}
 		list, err := s.scopeTaskBases(ctx, p, d, []scopedb.ScopeTask{t})
@@ -410,7 +420,7 @@ func (s *Service) GetTaskView(ctx context.Context, p *authz.Principal, id uuid.U
 		if err != nil {
 			return nil, err
 		}
-		if !mayReadTaskType(p, detail.Task.TaskType) {
+		if checkType && !mayReadTaskType(p, detail.Task.TaskType) {
 			return nil, errTaskType(detail.Task.TaskType)
 		}
 		list, err := s.staffTaskViews(ctx, p, d, []Task{detail.Task})

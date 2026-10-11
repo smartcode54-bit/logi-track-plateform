@@ -18,18 +18,26 @@ type Querier interface {
 	// (bump_task_seq(), SECURITY DEFINER, 0014), so NextTaskSeq never mints that number again. It locks the counter row
 	// until COMMIT, as NextTaskSeq does.
 	BumpTaskSeq(ctx context.Context, arg BumpTaskSeqParams) (int32, error)
-	// POST /v1/trips/bulk-cancel: in-transit trips only; the ids that were not cancelled are the caller's failed[].
-	CancelInTransitTrips(ctx context.Context, ids []uuid.UUID) ([]uuid.UUID, error)
+	// POST /v1/trips/bulk-cancel: in-transit trips only; the ids that were not cancelled are the caller's failed[]. The
+	// task of each cancelled trip is cancelled with it in the same transaction (EditTripDetailsDialog.tsx:782-797).
+	CancelInTransitTrips(ctx context.Context, ids []uuid.UUID) ([]CancelInTransitTripsRow, error)
 	// POST /v1/tasks/{id}/cancel; a task already cancelled is not rewritten (no row).
 	CancelTask(ctx context.Context, arg CancelTaskParams) (Task, error)
 	// The driver's check-in (POST /v1/mobile/tasks/{id}/check-in, P7a): status checked_in, the evidence files (committed in
 	// the same transaction), the position and the truck of this job (the vehicle-identity rule: the truck of one job,
 	// never drivers.current_assignment_id). The helper is set only when the request names one.
 	CheckInTask(ctx context.Context, arg CheckInTaskParams) (Task, error)
+	// The delivery of a trip (POST /v1/trips/{id}/deliver, admin_web) ends the job the driver was running: the driver's
+	// active truck is cleared when it still names this task (a driver who has since checked in to another job keeps it).
+	ClearDriverActiveTask(ctx context.Context, arg ClearDriverActiveTaskParams) (int64, error)
 	// The monitor's incident count per trip of a page (useDriverMonitor.ts:482-503 listened to every incident).
 	CountIncidentsOfTrips(ctx context.Context, arg CountIncidentsOfTripsParams) ([]CountIncidentsOfTripsRow, error)
 	// The day counts of the boards (taskService.ts:77-83 counted every tenant's tasks; the reach is named now).
 	CountTasksOnDay(ctx context.Context, arg CountTasksOnDayParams) ([]CountTasksOnDayRow, error)
+	// --- writes ------------------------------------------------------------------------------------------------------
+	// A task update that replaces the planned stops of a multi-drop task (still pending or assigned: no trip delivers
+	// them yet); the new plan is inserted as stop 1..n in the same transaction.
+	DeleteTaskStops(ctx context.Context, taskID uuid.UUID) (int64, error)
 	DeleteTripPhoto(ctx context.Context, arg DeleteTripPhotoParams) (int64, error)
 	// The trip's delivery (driver or admin_web): only an in-transit or incident trip is delivered; a repeat finds no row.
 	DeliverTrip(ctx context.Context, arg DeliverTripParams) (TripRecord, error)
@@ -236,6 +244,9 @@ type Querier interface {
 	// POST /v1/trips/{id}/rename: the number changes in place (the row, its photos and incidents keep their ids, so
 	// nothing is re-pointed, unlike renameTripRecord.ts:51); the history row is written in the same transaction.
 	RenameTripNo(ctx context.Context, arg RenameTripNoParams) (TripRecord, error)
+	// The photos of an admin-reported incident (POST /v1/incidents): committed after the insert with the report as their
+	// owner, then linked here in the same transaction (a NULL keeps the column).
+	SetIncidentPhotos(ctx context.Context, arg SetIncidentPhotosParams) (IncidentReport, error)
 	// The first extra stop upgrades a single-stop task (addDeliveryStop, multiDeliveryTrips.ts:420-424).
 	SetTaskMultiDelivery(ctx context.Context, id uuid.UUID) error
 	// A lifecycle step written by another aggregate's transaction: in_transit at loading, completed at delivery or standby.
@@ -259,6 +270,10 @@ type Querier interface {
 	TaskByClientOp(ctx context.Context, arg TaskByClientOpParams) (Task, error)
 	// The shim targets accept a Firestore task doc id (Appendix B §B.2.21: resolved through legacy_doc_id).
 	TaskByLegacyDocID(ctx context.Context, arg TaskByLegacyDocIDParams) (Task, error)
+	// --- realtime topics -------------------------------------------------------------------------------------------
+	// The billing parties of a task (its billing party, its linked source and destination, its stops' linked
+	// destinations): the dispatch:{partyId}:tasks topics of its events (Appendix B §B.4.2), the set app_task_in_scope reads.
+	TaskParties(ctx context.Context, id uuid.UUID) ([]uuid.UUID, error)
 	TaskStops(ctx context.Context, taskID uuid.UUID) ([]TaskDeliveryStop, error)
 	// The stops of a page of tasks (one round trip instead of one per row).
 	TaskStopsOf(ctx context.Context, taskIds []uuid.UUID) ([]TaskDeliveryStop, error)
@@ -279,6 +294,8 @@ type Querier interface {
 	TripNoHistory(ctx context.Context, tripID uuid.UUID) ([]TripNoHistory, error)
 	// The trip numbers of a page of incidents (the caller's reach).
 	TripNumbersOf(ctx context.Context, arg TripNumbersOfParams) ([]TripNumbersOfRow, error)
+	// The billing parties of a trip: its billed party and the parties of its task (dispatch:{partyId}:trips topics).
+	TripParties(ctx context.Context, id uuid.UUID) ([]uuid.UUID, error)
 	// Insertion / replace order; the service sorts by the ADR 0018 workflow rank.
 	TripPhotos(ctx context.Context, tripID uuid.UUID) ([]TripPhoto, error)
 	TripPhotosOf(ctx context.Context, tripIds []uuid.UUID) ([]TripPhoto, error)
@@ -294,10 +311,14 @@ type Querier interface {
 	// GET /v1/tasks/{id}/trip and the boards' trip column (first-mile/page.tsx:136-141): the trips of the given tasks,
 	// newest first per task (trip_records_task).
 	TripsOfTasks(ctx context.Context, arg TripsOfTasksParams) ([]TripRecord, error)
+	// The fleet trucks of a plate as the task import matches it (import-dialog.tsx normalizePlate: upper case without
+	// spaces and dashes), at most two (two trucks of one plate make the cell ambiguous).
+	TrucksByPlate(ctx context.Context, plateKey string) ([]TrucksByPlateRow, error)
 	// Photos whose type is outside TRIP_PHOTO_TYPE_ENUM and stop_{n}_* (trip_photos_unknown_type): the ETL review list.
 	UnknownTripPhotos(ctx context.Context, tripID uuid.UUID) ([]TripPhoto, error)
 	// PATCH writes the merged row (Go merges the request into the locked row; an absent field keeps its value, and status
-	// and run_order change only when the caller sets them, fixing tasks.ts:120-137). Never tenant_id (frozen,
+	// and run_order change only when the caller sets them, fixing tasks.ts:120-137; a cancelled task reopened by a new
+	// driver clears its cancellation, the legacy edit's Cancelled -> Assigned). Never tenant_id (frozen,
 	// t_freeze_tenant_id; the R13 reassignment is the tenant-move path of T28, iam.TaskMover + tenancy.MoveTask), task_no,
 	// task_type or the check-in columns.
 	UpdateTask(ctx context.Context, arg UpdateTaskParams) (Task, error)
@@ -310,6 +331,24 @@ type Querier interface {
 	// One row per (trip, photo_type): a new file for a type replaces the old one (mergeTripPhotosReplacingTypes). Any
 	// non-empty type is stored (R19); photo_type_known is generated (TRIP_PHOTO_TYPE_ENUM or stop_{n}_*).
 	UpsertTripPhoto(ctx context.Context, arg UpsertTripPhotoParams) (TripPhoto, error)
+	// The driver or helper of a task, a standby record or an incident: its tenant (the stamping reads it again through
+	// tenancy.TenantOf), its status, and the Firestore references the write-back names: legacy_doc_id (tasks.driverId,
+	// main spec §13.8) and the Firebase uid of its login (trip, standby and incident driverId, the helper array, Q1).
+	WriteDriver(ctx context.Context, id uuid.UUID) (WriteDriverRow, error)
+	// A billing party a task names (billingPartyId, the linked source and destination, a stop's linked destination): the
+	// customer or carrier it bills, with the Firestore id of that customers or subcontractors document (the write-back
+	// names billingCustomerId / *LinkedCustomerId by it) and its code and name (the denormalised *Code / *Name fields).
+	WriteParty(ctx context.Context, id uuid.UUID) (WritePartyRow, error)
+	// The staff write routes of the operations domain (T31, issue #51; Appendix B §B.2.11-§B.2.13): the master rows a
+	// write snapshots or links (a truck's plate and vehicle class, a driver, a billing party), the parties of a task or a
+	// trip (the dispatch:{partyId}:* topics of their events), the delivery side effect on the driver, and the stop
+	// replacement of a task update. Every statement runs in the caller's request transaction (db.WithPrincipal), so RLS
+	// decides: a master row the caller cannot read is not found.
+	// --- master rows a write reads ------------------------------------------------------------------------------------
+	// The truck of a task or a trip edit: its plate and vehicle class are snapshotted on the row (the class from the
+	// truck master's mapper, unknown = NULL and the raw type kept, R15); legacy_doc_id is the Firestore id the write-back
+	// names (truckId). Primary-key lookup.
+	WriteTruck(ctx context.Context, id uuid.UUID) (WriteTruckRow, error)
 }
 
 var _ Querier = (*Queries)(nil)

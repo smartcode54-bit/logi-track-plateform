@@ -304,6 +304,67 @@ func (f *Firestore) Patch(ctx context.Context, path string, fields map[string]an
 	return f.decodeDoc(out)
 }
 
+// Write is one write of a Commit: Delete removes the document at Path; otherwise Fields are written under Mask (a
+// field in Mask but not in Fields is deleted, fields outside Mask are kept; an empty Mask replaces the document).
+// Pre guards the write.
+type Write struct {
+	Path   string
+	Fields map[string]any
+	Mask   []string
+	Delete bool
+	Pre    Precondition
+}
+
+// Commit applies writes atomically (documents:commit: all of them or none) and returns the commit time, which is the
+// update time of every document it wrote. A failed precondition is ErrPrecondition and nothing is written.
+func (f *Firestore) Commit(ctx context.Context, writes []Write) (time.Time, error) {
+	if len(writes) == 0 {
+		return time.Time{}, errors.New("gcp: commit without writes")
+	}
+	body := make([]map[string]any, 0, len(writes))
+	for _, w := range writes {
+		name := f.root + "/" + w.Path
+		var out map[string]any
+		if w.Delete {
+			out = map[string]any{"delete": name}
+		} else {
+			enc := map[string]any{}
+			for k, v := range w.Fields {
+				ev, err := EncodeValue(f.root, v)
+				if err != nil {
+					return time.Time{}, fmt.Errorf("gcp: %s.%s: %w", w.Path, k, err)
+				}
+				enc[k] = ev
+			}
+			out = map[string]any{"update": map[string]any{"name": name, "fields": enc}}
+			if len(w.Mask) > 0 {
+				paths := make([]string, len(w.Mask))
+				for i, m := range w.Mask {
+					paths[i] = quoteFieldPath(m)
+				}
+				out["updateMask"] = map[string]any{"fieldPaths": paths}
+			}
+		}
+		switch {
+		case w.Pre.Exists != nil:
+			out["currentDocument"] = map[string]any{"exists": *w.Pre.Exists}
+		case !w.Pre.UpdateTime.IsZero():
+			out["currentDocument"] = map[string]any{"updateTime": w.Pre.UpdateTime.UTC().Format(time.RFC3339Nano)}
+		}
+		body = append(body, out)
+	}
+	var res struct {
+		CommitTime time.Time `json:"commitTime"`
+	}
+	if err := do(ctx, f.client, f.tokens, "commit", http.MethodPost, f.base+":commit", map[string]any{"writes": body}, &res); err != nil {
+		return time.Time{}, err
+	}
+	if res.CommitTime.IsZero() {
+		return time.Time{}, errors.New("gcp: commit: the answer has no commit time")
+	}
+	return res.CommitTime, nil
+}
+
 type restDoc struct {
 	Name       string                     `json:"name"`
 	Fields     map[string]json.RawMessage `json:"fields"`

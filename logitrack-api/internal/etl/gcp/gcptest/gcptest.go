@@ -1,7 +1,8 @@
 // Package gcptest is an in-process stand-in for the Google endpoints cmd/etl talks to: the OAuth2 token
 // endpoint of the service-account JWT bearer grant (the assertion's signature is verified), the Firestore v1
 // REST methods runQuery (by name, or the listeners' timestamp filter field >= since ordered by the field and the
-// name, T29), listCollectionIds, get (at a read time too) and patch (with preconditions and update masks) over an
+// name, T29), listCollectionIds, get (at a read time too), patch (with preconditions and update masks) and commit
+// (an atomic batch of masked updates and deletes with preconditions, one tick for the batch, T31) over an
 // in-memory document table with deletes (Delete, and Rename for renameTripRecord's copy-and-delete batch), and Cloud
 // Storage media downloads. Everything is served through an
 // http.RoundTripper, so tests never open a socket or reach Google. Test support only.
@@ -46,11 +47,12 @@ var (
 	keyErr  error
 )
 
-// Write is one patch the fake accepted.
+// Write is one patch (or one write of a commit) the fake accepted; Delete marks a commit's delete.
 type Write struct {
 	Path   string
 	Fields map[string]any
 	Mask   []string
+	Delete bool
 }
 
 // Backend is the fake Google.
@@ -369,6 +371,8 @@ func (b *Backend) firestore(w http.ResponseWriter, r *http.Request) {
 		b.handleRunQuery(w, r)
 	case r.Method == http.MethodPost && rest == ":listCollectionIds":
 		b.handleListCollections(w)
+	case r.Method == http.MethodPost && rest == ":commit":
+		b.handleCommit(w, r)
 	case strings.HasPrefix(rest, "/") && (r.Method == http.MethodGet || r.Method == http.MethodPatch):
 		path, err := url.PathUnescape(rest[1:])
 		if err != nil {
@@ -647,6 +651,124 @@ func (b *Backend) handlePatch(w http.ResponseWriter, r *http.Request, path strin
 	b.writes = append(b.writes, Write{Path: path, Fields: fields, Mask: slices.Clone(mask)})
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(b.restDoc(next))
+}
+
+// commitWrite is one write of a documents:commit request.
+type commitWrite struct {
+	Update *struct {
+		Name   string                     `json:"name"`
+		Fields map[string]json.RawMessage `json:"fields"`
+	} `json:"update"`
+	Delete     string `json:"delete"`
+	UpdateMask *struct {
+		FieldPaths []string `json:"fieldPaths"`
+	} `json:"updateMask"`
+	CurrentDocument *struct {
+		Exists     *bool  `json:"exists"`
+		UpdateTime string `json:"updateTime"`
+	} `json:"currentDocument"`
+}
+
+// handleCommit applies a batch atomically: every precondition is checked first (one failing writes nothing), then all
+// writes take the same tick, which is the commit time and every written document's update time.
+func (b *Backend) handleCommit(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Writes []commitWrite `json:"writes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Writes) == 0 {
+		apiError(w, http.StatusBadRequest, "INVALID_ARGUMENT")
+		return
+	}
+	type planned struct {
+		path   string
+		del    bool
+		fields map[string]any
+		mask   []string
+	}
+	plan := make([]planned, 0, len(req.Writes))
+	for _, cw := range req.Writes {
+		name := cw.Delete
+		if cw.Update != nil {
+			name = cw.Update.Name
+		}
+		path, ok := strings.CutPrefix(name, b.Root()+"/")
+		if !ok || path == "" || (cw.Update != nil) == (cw.Delete != "") {
+			apiError(w, http.StatusBadRequest, "INVALID_ARGUMENT")
+			return
+		}
+		p := planned{path: path, del: cw.Delete != "", fields: map[string]any{}}
+		if cw.Update != nil {
+			for k, raw := range cw.Update.Fields {
+				v, err := gcp.DecodeValue(b.Root(), raw)
+				if err != nil {
+					apiError(w, http.StatusBadRequest, "INVALID_ARGUMENT")
+					return
+				}
+				p.fields[k] = v
+			}
+		}
+		if cw.UpdateMask != nil {
+			for _, m := range cw.UpdateMask.FieldPaths {
+				if strings.HasPrefix(m, "`") {
+					m = strings.NewReplacer("\\`", "`", `\\`, `\`).Replace(strings.Trim(m, "`"))
+				}
+				p.mask = append(p.mask, m)
+			}
+		}
+		plan = append(plan, p)
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for i, cw := range req.Writes {
+		if cw.CurrentDocument == nil {
+			continue
+		}
+		cur, exists := b.docs[plan[i].path]
+		if e := cw.CurrentDocument.Exists; e != nil && *e != exists {
+			apiError(w, http.StatusBadRequest, "FAILED_PRECONDITION")
+			return
+		}
+		if ut := cw.CurrentDocument.UpdateTime; ut != "" {
+			t, err := time.Parse(time.RFC3339Nano, ut)
+			if err != nil || !exists || !cur.UpdateTime.Equal(t) {
+				apiError(w, http.StatusBadRequest, "FAILED_PRECONDITION")
+				return
+			}
+		}
+	}
+	now := b.now()
+	results := make([]map[string]any, 0, len(plan))
+	for _, p := range plan {
+		results = append(results, map[string]any{"updateTime": now.UTC().Format(time.RFC3339Nano)})
+		b.writes = append(b.writes, Write{Path: p.path, Fields: p.fields, Mask: slices.Clone(p.mask), Delete: p.del})
+		if p.del {
+			b.remove(p.path)
+			continue
+		}
+		cur, exists := b.docs[p.path]
+		parts := strings.Split(p.path, "/")
+		next := dump.Doc{ID: parts[len(parts)-1], Path: p.path, Fields: map[string]any{}, CreateTime: now, UpdateTime: now}
+		if exists {
+			next.CreateTime = cur.CreateTime
+			if len(p.mask) > 0 {
+				maps.Copy(next.Fields, cur.Fields)
+			}
+		}
+		if len(p.mask) == 0 {
+			next.Fields = p.fields
+		} else {
+			for _, m := range p.mask {
+				if v, ok := p.fields[m]; ok {
+					next.Fields[m] = v
+				} else {
+					delete(next.Fields, m)
+				}
+			}
+		}
+		b.store(next)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"writeResults": results, "commitTime": now.UTC().Format(time.RFC3339Nano)})
 }
 
 func (b *Backend) storage(w http.ResponseWriter, r *http.Request) {
