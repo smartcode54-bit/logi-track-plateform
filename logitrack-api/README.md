@@ -2,7 +2,7 @@
 
 Go backend for the LogiTrack migration off Firebase (`mv-go`). Design: [`developer-spec.md`](../developer-spec.md) §2, routes in [Appendix B](../shared-docs/specs/mv-go/B-api-catalog.md). Branch policy: work lands by PR into `mv-go`, never `main` (R90).
 
-Status: **T01 scaffold + T02 local stack + T03 migrations + T04 core schema + T05 own auth + T06 Google sign-in + T07 RBAC + T08 Firebase bridge + T10 async + T11 object storage + T12 SSE + T15 ETL framework + T16 seed + T36 billing engine + TW2 edge (web container + Caddy) + T14 CI + T17 web flags + TW3 web BFF and JWKS + T19 users and tenants administration, users ETL and platform bootstrap + OPSVM staging VM kit**. One module, seven binaries, shared `internal/`; the first routes are `/v1/auth/*` and `/v1/me*` (T05), `/v1/roles` (T07), `/v1/users*` and `/v1/tenants*` (T19), `GET /v1/config/web-flags` (T17), the SSE streams `GET /v1/events` / `GET /v1/mobile/events` (T12) and `GET /.well-known/jwks.json` (TW3).
+Status: **T01 scaffold + T02 local stack + T03 migrations + T04 core schema + T05 own auth + T06 Google sign-in + T07 RBAC + T08 Firebase bridge + T10 async + T11 object storage + T12 SSE + T15 ETL framework + T16 seed + T36 billing engine + TW2 edge (web container + Caddy) + T14 CI + T17 web flags + TW3 web BFF and JWKS + T19 users and tenants administration, users ETL and platform bootstrap + OPSVM staging VM kit + T20 customers, carrier profiles and companies**. One module, seven binaries, shared `internal/`; the first routes are `/v1/auth/*` and `/v1/me*` (T05), `/v1/roles` (T07), `/v1/users*` and `/v1/tenants*` (T19), `/v1/customers*`, `/v1/subcontractors*` and `/v1/companies*` (T20), `GET /v1/config/web-flags` (T17), the SSE streams `GET /v1/events` / `GET /v1/mobile/events` (T12) and `GET /.well-known/jwks.json` (TW3).
 
 ## Layout
 
@@ -24,6 +24,7 @@ internal/auth/firebase       Firebase bridge protocol, no Admin SDK (T08): ID-to
 internal/authz               request principal; 81-key catalog, role defaults, resolution, web route map, RequireCap/RequireTenant (T07)
 internal/authz/tsgen         writes the catalog to ../shared-docs/schemas/capabilities.ts (go generate)
 internal/iam                 per-request authorization (RBAC: overrides under rbac:ver, steward, contractor reach, X-Act-On-Tenant) + GET /v1/roles (T07); users and tenants administration /v1/users*, /v1/tenants* and the platform bootstrap (T19)
+internal/parties             customers + billing parties and companies (T20): /v1/customers*, /v1/companies* under db.WithPrincipal (partiesdb); carrier profiles /v1/subcontractors* live in internal/iam
 internal/scope               dispatcher / customer-scope reads: scope_* views only (repo/scope_*.sql -> scopedb, sqlc vet rule scope-views-only)
 internal/security            the only writer of security_events: security.Append in the caller's transaction (T05)
 internal/webcfg              runtime web domain flags: GET /v1/config/web-flags from PG_OWNED_DOMAINS + WEB_FLAG_OVERRIDES (T17)
@@ -63,7 +64,7 @@ internal/golden              test-only runner for testdata/golden vectors
 tools/vmenv                  the staging VM's .env: generates every secret on the VM, role SCRAM verifiers, container env-files (OPSVM)
 deploy/vm/                   staging VM kit for showkhun.co: pm2 + nginx, provision.sh, deploy.sh, rollout.sh, runbook (OPSVM)
 tools/analyzers/withsystem   fails make lint when db.WithSystem, inbox.Run, a jobs.Submit InTx hook, db.RLS, an authz.Principal literal or raw GUC SQL is used outside its allow-list (T07)
-migrations/                  NNNN_name.sql, embedded into cmd/migrate: the Appendix A baseline 0001-0010 (T03, T04), 0011 storage_backend (T11)
+migrations/                  NNNN_name.sql, embedded into cmd/migrate: the Appendix A baseline 0001-0010 (T03, T04), 0011 storage_backend (T11), 0012 customer-scope party reads (T20)
 api/routes.txt               generated route table (method, path, listeners) checked by go-ci gen-check (T14)
 sqlc.yaml                    sqlc v1.31.1: schema = migrations/, one block per query package
 testdata/golden/             language-neutral golden vectors exported from the TypeScript engines (main spec §6.16)
@@ -216,6 +217,24 @@ PostgreSQL is the users writer from P0 (R49). `internal/iam` `Admin` serves, on 
 - **Tenants**: `POST /v1/tenants` creates a carrier (`legalType` required, `code` unique case-insensitively, Thai checksum on `taxId` / `idCardNumber`, optional `contractorTenantId`) with its `billing_parties(kind='tenant')` row and first `status_history` entry; `PATCH` never changes `kind`, keeps the own-fleet and quarantine status (`409 failed_precondition`) and records status changes in `status_history`. A platform admin then creates the tenant's admin with `POST /v1/users {role:"tenant_admin", tenantId}`.
 
 Tests: `make test-integration` (`internal/iam/admin_integration_test.go`: 1,200 users paged past 1000 in both orders, claims changes keep the session while disable and temporary password end it, not-self, every write gated and recorded by exactly one named event, scope kind 422, platform reads with the header, tenant onboarding with the new admin's RLS view and tenant switch).
+
+## Customers, carrier profiles and companies (T20, Appendix B §B.2.10)
+
+Master data of who pays and who invoices, on the internal listener behind `auth.RequireAuth`:
+
+| Routes | Package | Guard | Transaction |
+|---|---|---|---|
+| `GET /v1/customers` (`?fields=minimal&q&limit&cursor`, by code), `POST`, `GET /{id}`, `PATCH /{id}` | `internal/parties` | minimal: authenticated; full and writes: `fleet:manage_customers` (steward key, R60) | `db.WithPrincipal` (RLS global-read-steward-write) |
+| `GET /v1/companies` (`?type&q&limit&cursor`), `GET /owner`, `POST`, `PATCH /{id}` | `internal/parties` | `company:view`, `company:manage` (POST: an active tenant) | `db.WithPrincipal` (RLS G-tenant: own tenant + carriers working for it; the list and owner queries name the same reach, `authz.Principal.TenantReach`) |
+| `GET /v1/subcontractors` (`?fields=minimal&q&status&limit&cursor`, by Thai name), `POST`, `GET /{id}`, `PATCH /{id}` | `internal/iam` | minimal: authenticated; full: `fleet:manage_subcontractors` \| `platform:manage_tenants`; POST: those, from the own fleet; GET: the rule of `GET /v1/tenants/{id}`; PATCH: a steward with `fleet:manage_subcontractors` or the tenant's own `tenant_admin` | reads `db.WithPrincipal` (a scope principal: `scope_tenants` only); writes `db.WithSystem` after Go authorization |
+
+- **Billing parties (R6):** `POST /v1/customers` and `POST /v1/subcontractors` (like `POST /v1/tenants`) create exactly one `billing_parties` row in the same transaction; `billingDateBasis` (`delivered` \| `plan`, ADR 0027) lives there. A carrier's own `tenant_admin` edits its profile but never the basis (`403` `steward_only`).
+- **Validation:** Thai 13-digit checksum on customer and company `taxId` and on a carrier's `idCardNumber` / `taxId` (an individual needs the ID card, a company the tax id) → `422 invalid_argument` with `details.fields[]`; customer `code` upper case and unique (`409 already_exists`); a branch needs its 5-digit number; company `withholdingTaxRate` is required (0-100, two decimals, NUMERIC(5,2); snapshotted by statements, R18); one `owner` company, in the own fleet only.
+- **Scope:** a customer-scope principal's `GET /v1/customers?fields=minimal` holds only its own parties, and migration `0012_customer_scope_party_read` narrows `p_read` of `customers`, `billing_parties`, `customer_driver_id_types` for it (everyone else keeps the global read).
+- **Files:** `logoKey` (purpose `customer_logo`), `logoKey` / `stampKey` / `signatureKey` (`company_*`, read through `GET /v1/files` only with `company:view`) and a carrier's `documentKeys` (`tenant_document`) come from `POST /v1/uploads/presign` and are committed in the entity transaction; payloads carry the key and a presigned URL (`storage.Service.SignedFile`, signed after the request transaction closes: it takes its own pool connection), `null` unlinks (the object stays). A PATCH that sends back a key the entity already links in that slot keeps that file without a new commit, whoever uploaded it (`storage.Service.FileIDsByKey`, looked up before the transaction); only new keys must be the caller's or its tenant's uploads.
+- **Events:** outbox `customers.changed` / `companies.changed` (`{ids}`, SSE `global`; a customer write also drops `cache:customer:{id}` after COMMIT), `tenant.created` / `tenant.updated` with `tenant_created` / `tenant_updated` (`details.source = "subcontractors"`) in the transaction. A PATCH that changes nothing writes nothing.
+
+Tests: `go test ./internal/parties/ ./internal/iam/` (validation, cursors, error mapping) and `make test-integration` (`internal/parties/parties_integration_test.go`: real logins as `logitrack_app`, the local storage backend; every T20 acceptance criterion: checksum 422s, one billing party per customer and carrier, company assets only through presigned GETs, the customer scope's single party (API and RLS), carrier staff refused on customers by the capability and by RLS; plus companies' reach, owner rules, carrier-profile edits and documents).
 
 ## Firebase bridge (T08, main spec §4.9, Appendix C §C.6)
 

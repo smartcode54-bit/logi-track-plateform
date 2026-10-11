@@ -72,3 +72,42 @@ func TestNilPrincipal(t *testing.T) {
 		t.Fatalf("WithPrincipal with a nil *Principal: %v, want db.ErrNoPrincipal", err)
 	}
 }
+
+// TestTenantReach: the reach a repository names on a G-tenant table equals the one RLS p_tenant_staff applies.
+func TestTenantReach(t *testing.T) {
+	uid, did, key, party, sub := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	for _, tc := range []struct {
+		name    string
+		p       Principal
+		all     bool
+		tenants []uuid.UUID
+	}{
+		{"own-fleet manager: own tenant and contractor reach",
+			Principal{UserID: uid, TenantID: ptr(ownFleet), TenantRole: Manager, SubtenantIDs: []uuid.UUID{sub}},
+			false, []uuid.UUID{ownFleet, sub}},
+		{"carrier tenant_admin", Principal{UserID: uid, TenantID: ptr(carrier), TenantRole: TenantAdmin}, false, []uuid.UUID{carrier}},
+		{"driver: no staff reach",
+			Principal{UserID: uid, TenantID: ptr(ownFleet), TenantRole: Driver, DriverID: ptr(did), SubtenantIDs: []uuid.UUID{sub}},
+			false, []uuid.UUID{}},
+		{"customer scope", Principal{UserID: uid, PartyIDs: []uuid.UUID{party}}, false, []uuid.UUID{}},
+		{"platform_admin without the header", Principal{UserID: uid, Platform: []PlatformRole{PlatformAdmin}, Steward: true},
+			false, []uuid.UUID{}},
+		{"X-Act-On-Tenant: <uuid>",
+			Principal{UserID: uid, Platform: []PlatformRole{PlatformAdmin}, ActOnTenant: ptr(carrier), SubtenantIDs: []uuid.UUID{sub}},
+			false, []uuid.UUID{carrier, sub}},
+		{"X-Act-On-Tenant: *", Principal{UserID: uid, Platform: []PlatformRole{Support}, ActOnAll: true, TenantID: ptr(carrier),
+			TenantRole: Manager}, true, []uuid.UUID{}},
+		{"tenant API key: role user in its tenant", Principal{AMR: AMRAPIKey, APIKeyID: ptr(key), TenantID: ptr(carrier)},
+			false, []uuid.UUID{carrier}},
+		{"platform API key", Principal{AMR: AMRAPIKey, APIKeyID: ptr(key), Steward: true}, false, []uuid.UUID{}},
+	} {
+		all, tenants := tc.p.TenantReach()
+		if all != tc.all || !reflect.DeepEqual(tenants, tc.tenants) {
+			t.Errorf("%s: got (%v, %v), want (%v, %v)", tc.name, all, tenants, tc.all, tc.tenants)
+		}
+	}
+	var p *Principal
+	if all, tenants := p.TenantReach(); all || tenants == nil || len(tenants) != 0 {
+		t.Errorf("nil principal: (%v, %v), want (false, [])", all, tenants)
+	}
+}

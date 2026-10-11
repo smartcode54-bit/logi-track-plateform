@@ -29,6 +29,11 @@ SELECT * FROM file_objects
 -- name: GetFile :one
 SELECT * FROM file_objects WHERE id = @id AND deleted_at IS NULL;
 
+-- name: FileIDsByKeys :many
+-- An entity PATCH that gets back keys (T20): the live rows that hold them, so the caller can tell a file its locked
+-- row already links from a new upload.
+SELECT id, object_key FROM file_objects WHERE object_key = ANY (@object_keys::text[]) AND deleted_at IS NULL;
+
 -- name: ExtendPending :one
 -- Re-signing a pending key (offline retry): the row lives another 24 h from now.
 UPDATE file_objects SET expires_at = @expires_at::timestamptz

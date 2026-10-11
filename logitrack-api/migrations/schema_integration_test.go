@@ -9,11 +9,13 @@ package migrations_test
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -188,15 +190,38 @@ func TestUpAppliesTheWholeBaseline(t *testing.T) {
 	for _, x := range res {
 		names = append(names, x.Name)
 	}
+	// The baseline and T11 first, then every later file of the chain (0012+: T20, ...), in order.
 	want := []string{"0001_preamble.sql", "0002_identity.sql", "0003_master.sql", "0004_operations.sql", "0005_billing.sql",
 		"0006_finance_hr.sql", "0007_comms.sql", "0008_platform.sql", "0009_infra.sql", "0010_d5_unique_constraints.sql",
 		"0011_file_objects_storage_backend.sql"}
-	if !slices.Equal(names, want) {
+	if len(names) < len(want) || !slices.Equal(names[:len(want)], want) || !slices.Equal(names, chainFiles(t)) {
 		t.Fatalf("up applied %v", names)
 	}
-	if v, err := r.Version(context.Background()); err != nil || v != 11 {
-		t.Fatalf("version = %d (%v), want 11", v, err)
+	if v, err := r.Version(context.Background()); err != nil || v != latestVersion(t) {
+		t.Fatalf("version = %d (%v), want %d", v, err, latestVersion(t))
 	}
+}
+
+// chainFiles lists the NNNN_name.sql files of the embedded chain in order.
+func chainFiles(t *testing.T) []string {
+	t.Helper()
+	files, err := fs.Glob(migrations.FS, "[0-9][0-9][0-9][0-9]_*.sql")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("chain files: %v %v", files, err)
+	}
+	slices.Sort(files)
+	return files
+}
+
+// latestVersion is the version of the chain's last file: what up leaves applied.
+func latestVersion(t *testing.T) int64 {
+	t.Helper()
+	files := chainFiles(t)
+	v, err := strconv.ParseInt(files[len(files)-1][:4], 10, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
 }
 
 func TestSchemaCatalog(t *testing.T) {
@@ -436,8 +461,8 @@ func TestSchemaCatalog(t *testing.T) {
 	// /startupz reads the applied version as logitrack_app; no runtime login may rewrite migration state.
 	t.Run("goose_db_version is read-only for the API and ETL logins", func(t *testing.T) {
 		app := connect(t, d, db.RoleApp)
-		if v := scalar[int64](t, app, `SELECT max(version_id) FROM goose_db_version`); v != 11 {
-			t.Errorf("logitrack_app reads version %d, want 11", v)
+		if v := scalar[int64](t, app, `SELECT max(version_id) FROM goose_db_version`); v != latestVersion(t) {
+			t.Errorf("logitrack_app reads version %d, want %d", v, latestVersion(t))
 		}
 		for _, role := range []string{db.RoleApp, db.RoleETL} {
 			wantSQLState(t, connect(t, d, role), "42501", "permission denied", `DELETE FROM goose_db_version`)
@@ -693,8 +718,8 @@ func TestD5ConstraintsStopOnDuplicates(t *testing.T) {
 	if _, err := r.Up(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := r.Version(ctx); v != 11 { // 0010, then 0011 (T11) right after it
-		t.Fatalf("version = %d, want 11", v)
+	if v, _ := r.Version(ctx); v != latestVersion(t) { // 0010, then 0011 (T11) and every later file
+		t.Fatalf("version = %d, want %d", v, latestVersion(t))
 	}
 	if n := scalar[int](t, owner, `SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid WHERE i.indisvalid
 		AND c.relname IN ('vehicle_expenses_fuel_taxinv','chats_one_open_per_driver','customer_service_fees_one_per_type')`); n != 3 {

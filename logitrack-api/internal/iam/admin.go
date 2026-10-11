@@ -21,6 +21,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/outbox"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/security"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
 )
 
 // Security event types written by the users and tenants administration (Appendix C §C.4.13, R85), each in
@@ -71,9 +72,13 @@ const (
 	MaxLimit     = 500
 )
 
-// Files signs the photo URL of a user (internal/storage implements it); optional.
+// Files signs the photo URL of a user and, for the carrier profiles of /v1/subcontractors (T20), commits and signs
+// the tenant documents (internal/storage implements it); optional: without it a document key is refused
+// (not_found) and no URL is signed.
 type Files interface {
 	SignedURL(ctx context.Context, fileID uuid.UUID, ttl time.Duration) (string, error)
+	SignedFile(ctx context.Context, fileID uuid.UUID, ttl time.Duration) (key, url string, err error)
+	Commit(ctx context.Context, tx pgx.Tx, in storage.CommitInput) (storage.Committed, error)
 }
 
 // Admin is the users and tenants administration of T19 (Appendix B §B.2.4, §B.2.5, Appendix C §C.8):

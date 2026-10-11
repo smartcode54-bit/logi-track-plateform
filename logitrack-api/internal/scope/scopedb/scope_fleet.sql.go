@@ -11,6 +11,57 @@ import (
 	"github.com/google/uuid"
 )
 
+const listScopeCarriers = `-- name: ListScopeCarriers :many
+SELECT id, kind, code, name_th, name_en FROM scope_tenants
+WHERE kind = 'carrier'
+  AND ($1::text IS NULL
+       OR strpos(lower(name_th), lower($1::text)) > 0
+       OR strpos(lower(coalesce(name_en, '')), lower($1::text)) > 0
+       OR strpos(lower(coalesce(code::text, '')), lower($1::text)) > 0)
+  AND ($2::text IS NULL OR (name_th, id) > ($2::text, $3::uuid))
+ORDER BY name_th, id
+LIMIT $4
+`
+
+type ListScopeCarriersParams struct {
+	Q         *string   `json:"q"`
+	AfterName *string   `json:"afterName"`
+	AfterID   uuid.UUID `json:"afterId"`
+	RowLimit  int32     `json:"rowLimit"`
+}
+
+// GET /v1/subcontractors?fields=minimal for a scope principal (T20): carrier names only, by Thai name.
+func (q *Queries) ListScopeCarriers(ctx context.Context, arg ListScopeCarriersParams) ([]ScopeTenant, error) {
+	rows, err := q.db.Query(ctx, listScopeCarriers,
+		arg.Q,
+		arg.AfterName,
+		arg.AfterID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScopeTenant{}
+	for rows.Next() {
+		var i ScopeTenant
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.Code,
+			&i.NameTh,
+			&i.NameEn,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const scopeDriversByID = `-- name: ScopeDriversByID :many
 
 SELECT id, tenant_id, full_name_th, first_name, last_name, mobile, status, active_truck_id FROM scope_drivers WHERE id = ANY ($1::uuid[]) ORDER BY id
