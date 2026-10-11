@@ -50,7 +50,7 @@ vi.mock("firebase/firestore", () => {
 const { getQueryClient, resetQueryClientForTests } = await import("@/lib/queryClient");
 const { useDriverPages } = await import("@/features/drivers/api/useDrivers");
 const { createDriverLogin, driverQuery, driverFormValues, driverBodyFromForm, updateDriver } = await import("@/features/drivers/api/drivers");
-const { useTruckPages } = await import("@/features/trucks/api/useTrucks");
+const { useAssignmentHistory, useTruckPages } = await import("@/features/trucks/api/useTrucks");
 const { truckQuery, truckFormValues, truckBodyFromForm, storedFileKeys, truckFilePreviewUrls } = await import("@/features/trucks/api/trucks");
 const { customerQuery, customerFormValues, customerInputFromForm } = await import("@/features/customers/api/customers");
 const { subcontractorQuery, subcontractorFormValues } = await import("@/features/subcontractors/api/subcontractors");
@@ -220,5 +220,33 @@ describe("masterdata flag off: the Firestore adapters", () => {
         await waitFor(() => expect(result.current.drivers).toHaveLength(1));
         await act(() => result.current.fetchNextPage());
         expect(result.current.drivers).toHaveLength(1);
+    });
+
+    it("assignment history: the status and the search filter every document, as Go's ?status&q do (TW8)", async () => {
+        const at = (i: number) => ({ toDate: () => new Date(Date.UTC(2026, 9, 1) - i * 60_000) });
+        store.collections.truckAssignment = Array.from({ length: 150 }, (_, i) => ({
+            id: `as-${i}`,
+            data: {
+                truckId: `tr-${i}`, truckPlate: `กข-${1000 + i}`, truckModel: i === 7 ? "FRR Special" : "FRR", driverId: `fs-${i}`,
+                driverName: `Driver ${i}`, status: i % 2 ? "revoked" : "active", adminName: i === 3 ? "Night Desk" : "Admin", createdAt: at(i),
+            },
+        }));
+        const all = renderHook(() => useAssignmentHistory({ status: "", q: "" }), { wrapper });
+        await waitFor(() => expect(all.result.current.rows).toHaveLength(150));
+        expect(all.result.current.rows[0]).toMatchObject({ id: "as-0", truckPlate: "กข-1000", adminLabel: "Admin" });
+        expect(all.result.current.hasNextPage).toBe(false);
+
+        const cases: Array<[{ status: "" | "active" | "revoked"; q: string }, string[]]> = [
+            [{ status: "active", q: "" }, Array.from({ length: 75 }, (_, i) => `as-${i * 2}`)],
+            [{ status: "", q: "กข-1149" }, ["as-149"]],
+            [{ status: "", q: " special " }, ["as-7"]],
+            [{ status: "", q: "NIGHT" }, ["as-3"]],
+            [{ status: "", q: "driver 14" }, ["as-14", ...Array.from({ length: 10 }, (_, i) => `as-${140 + i}`)]],
+            [{ status: "revoked", q: "driver 14" }, ["as-141", "as-143", "as-145", "as-147", "as-149"]],
+        ];
+        for (const [filter, ids] of cases) {
+            const { result } = renderHook(() => useAssignmentHistory(filter), { wrapper });
+            await waitFor(() => expect(result.current.rows.map((r) => r.id)).toEqual(ids));
+        }
     });
 });

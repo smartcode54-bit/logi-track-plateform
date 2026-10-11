@@ -303,7 +303,7 @@ func (h handlers) listAssignments(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	if err := onlyQuery(c, "status", "truckId", "driverId", "limit", "cursor"); err != nil {
+	if err := onlyQuery(c, "status", "truckId", "driverId", "q", "limit", "cursor"); err != nil {
 		return err
 	}
 	limit, err := queryLimit(c)
@@ -311,7 +311,7 @@ func (h handlers) listAssignments(c fiber.Ctx) error {
 		return err
 	}
 	out, next, err := h.s.ListAssignments(c.Context(), p, ListAssignmentsInput{Status: c.Query("status"),
-		TruckID: c.Query("truckId"), DriverID: c.Query("driverId"), Limit: limit, Cursor: c.Query("cursor")})
+		TruckID: c.Query("truckId"), DriverID: c.Query("driverId"), Q: c.Query("q"), Limit: limit, Cursor: c.Query("cursor")})
 	if err != nil {
 		return err
 	}

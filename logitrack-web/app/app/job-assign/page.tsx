@@ -11,6 +11,7 @@ import { useLanguage } from "@/context/language";
 import { useCustomerScope } from "@/hooks/useCustomerScope";
 import { useHubs } from "@/features/hubs/api/useHubs";
 import { selectHubRows, type HubRow } from "@/features/hubs/api/selectors";
+import { HubFilterCombobox } from "@/features/hubs/components/HubFilterCombobox";
 import { PagePermissionGuard } from "@/components/page-permission-guard";
 import { CAPABILITIES } from "@/lib/capabilities";
 import { Button } from "@/components/ui/button";
@@ -425,19 +426,13 @@ export default function JobAssignPage() {
 
                         <div className="flex flex-col gap-2 min-w-[180px] flex-1">
                             <label className="text-sm font-medium">{t("jobAssign.filter.source", "ต้นทาง")}</label>
-                            <Select value={selectedHub} onValueChange={setSelectedHub}>
-                                <SelectTrigger>
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="all">{t("jobAssign.filter.allSources", "ทุกต้นทาง")}</SelectItem>
-                                    {hubs.slice(0, 50).map((hub, idx) => (
-                                        <SelectItem key={idx} value={hub["Hub Code"] || `hub-${idx}`}>
-                                            {hub["Hub Name Th"] || hub["Hub Name"] || hub["Hub Code"]}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                            {/* Every hub of ['hubs'], searchable (TW8: the 50-hub slice is gone). */}
+                            <HubFilterCombobox
+                                hubs={hubRows ?? NO_HUB_ROWS}
+                                value={selectedHub}
+                                onChange={setSelectedHub}
+                                allLabel={t("jobAssign.filter.allSources", "ทุกต้นทาง")}
+                            />
                         </div>
                     </CardContent>
                 </Card>

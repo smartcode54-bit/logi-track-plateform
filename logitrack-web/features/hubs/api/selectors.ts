@@ -126,3 +126,33 @@ export function selectHubOptions(hubs: readonly HubDTO[]): HubOption[] {
         })
         .filter((x) => x.id);
 }
+
+/** One option of the task boards' hub filter (`components/filter-combobox.tsx`). */
+export interface HubFilterOption {
+    /** The hub code the board filters `task.sourceHub` on. */
+    value: string;
+    /** Thai name, else English name, else the code (what the boards' dropdown showed). */
+    label: string;
+    /** The code and the other names, so a search by code or English name finds the hub. */
+    searchText: string;
+}
+
+/**
+ * The hub filter of first-mile, line-haul and job-assign: every hub of `['hubs']` with a code, once per
+ * code (the first row wins, as in `selectHubBySourceId`). Replaces `hubs.slice(0, 50)`, which hid every
+ * hub after the 50th (Appendix E §E.10 row 7). A row without a code is left out: its option could
+ * never match a task (the dropdown gave it the placeholder value `hub-<index>`).
+ */
+export function selectHubFilterOptions(rows: readonly HubRow[]): HubFilterOption[] {
+    const seen = new Set<string>();
+    const out: HubFilterOption[] = [];
+    for (const row of rows) {
+        const code = String(row["Hub Code"] ?? "").trim();
+        if (!code || seen.has(code)) continue;
+        seen.add(code);
+        const th = String(row["Hub Name Th"] ?? "").trim();
+        const en = String(row["Hub Name"] ?? "").trim();
+        out.push({ value: code, label: th || en || code, searchText: [code, en, th].filter(Boolean).join(" ") });
+    }
+    return out;
+}
