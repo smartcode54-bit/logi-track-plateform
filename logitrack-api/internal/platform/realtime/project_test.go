@@ -146,6 +146,89 @@ func TestProjectDispatchRules(t *testing.T) {
 	}
 }
 
+// The party a row has just left (leftPartyIds) gets the envelope only on its dispatch topic: in one 3.x save a task
+// billed to the party moves to another one with a new driver, a trip leaves the party as it is delivered; the parties
+// that hold the row keep their copy, and an unreadable list gives every dispatch topic the envelope (fail closed).
+func TestProjectLeftParty(t *testing.T) {
+	const other = "0199c000-0000-7000-8000-0000000000b2"
+	envelope := map[string]bool{"entity": true, "id": true, "tenantId": true, "at": true, "changed": true}
+	cases := []struct {
+		name, typ, family, data string
+		values                  []string // the thin values the party that holds the row still gets
+	}{
+		{"task reassigned to another party", "task.reassigned", FamilyTasks,
+			`{"entity":"task","id":"k1","tenantId":"` + tid + `","at":"2026-10-11T03:00:00Z","source":"mirror","created":false,` +
+				`"changed":["billingPartyId","driverId","planDate"],"driverId":"0199c000-0000-7000-8000-0000000000c1",` +
+				`"previousDriverId":"0199c000-0000-7000-8000-0000000000c2","planDate":"2026-10-05","status":"assigned",` +
+				`"taskType":"first_mile","leftPartyIds":["` + strings.ToUpper(party) + `"]}`,
+			[]string{"driverId", "previousDriverId", "planDate", "status", "taskType"}},
+		{"trip delivered as it leaves", "trip.delivered", FamilyTrips,
+			`{"entity":"trip","id":"t1","tenantId":"` + tid + `","at":"2026-10-11T03:00:00Z","source":"mirror","created":false,` +
+				`"changed":["billingPartyId","status"],"status":"delivered","tripNo":"TRIP300","taskId":"k1",` +
+				`"leftPartyIds":["` + party + `"]}`,
+			[]string{"status", "tripNo", "taskId"}},
+		{"only a hidden column changed besides the party", "trip.updated", FamilyTrips,
+			`{"entity":"trip","id":"t1","tenantId":"` + tid + `","changed":["billingPartyId","reviewStatus"],"status":"in_transit",` +
+				`"leftPartyIds":["` + party + `"]}`,
+			[]string{"status"}},
+	}
+	for _, c := range cases {
+		out, ok := Project(DispatchTopic(party, c.family), c.typ, json.RawMessage(c.data))
+		if !ok {
+			t.Errorf("%s: the party the row left got nothing", c.name)
+			continue
+		}
+		got := decode(t, out)
+		for k := range got {
+			if !envelope[k] {
+				t.Errorf("%s: the party the row left reads %s: %s", c.name, k, out)
+			}
+		}
+		if ch, _ := got["changed"].([]any); ch == nil || len(ch) != 0 || got["id"] == nil || got["entity"] == nil || got["tenantId"] != tid {
+			t.Errorf("%s: the envelope %s", c.name, out)
+		}
+		held, ok := Project(DispatchTopic(other, c.family), c.typ, json.RawMessage(c.data))
+		if !ok {
+			t.Fatalf("%s: the party that holds the row got nothing", c.name)
+		}
+		g := decode(t, held)
+		for _, k := range c.values {
+			if g[k] == nil {
+				t.Errorf("%s: the party that holds the row lost %s: %s", c.name, k, held)
+			}
+		}
+		if g[LeftPartiesKey] != nil {
+			t.Errorf("%s: %s reached a dispatch topic", c.name, LeftPartiesKey)
+		}
+		tenant, _ := Project(TenantTopic(tid, c.family), c.typ, json.RawMessage(c.data))
+		if g := decode(t, tenant); g[LeftPartiesKey] != nil || g["status"] == nil {
+			t.Errorf("%s: the tenant copy %s", c.name, tenant)
+		}
+	}
+	// A priced event still never reaches the party, and a list the relay cannot read fails closed.
+	if out, ok := Project(dispatchTrips, "trip.priced", json.RawMessage(`{"leftPartyIds":["`+party+`"]}`)); ok {
+		t.Errorf("trip.priced reached the party the row left: %s", out)
+	}
+	for _, bad := range []string{`"` + party + `"`, `[{"id":"` + party + `"}]`, `{}`} {
+		data := `{"entity":"task","id":"k1","changed":["runOrder"],"driverId":"d","status":"assigned","leftPartyIds":` + bad + `}`
+		for _, p := range []string{party, other} {
+			out, ok := Project(DispatchTopic(p, FamilyTasks), "task.updated", json.RawMessage(data))
+			if !ok {
+				t.Errorf("leftPartyIds %s: %s got nothing", bad, p)
+				continue
+			}
+			if g := decode(t, out); g["driverId"] != nil || g["status"] != nil || len(g["changed"].([]any)) != 0 {
+				t.Errorf("leftPartyIds %s: %s reads %s", bad, p, out)
+			}
+		}
+	}
+	// A null list names nobody.
+	out, ok := Project(dispatchTasks, "task.updated", json.RawMessage(`{"changed":["runOrder"],"status":"assigned","leftPartyIds":null}`))
+	if g := decode(t, out); !ok || g["status"] != "assigned" {
+		t.Errorf("a null leftPartyIds: %s %v", out, ok)
+	}
+}
+
 // Events of other domains keep their payload byte for byte on their topics (job.updated carries the whole job), and
 // a value of a thin key that is not a scalar is dropped, never sent.
 func TestProjectLeavesOtherEventsAndRejectsNonScalars(t *testing.T) {

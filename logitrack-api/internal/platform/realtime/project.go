@@ -25,6 +25,11 @@ import (
 //     of the entity (DispatchColumns, camelCase, plus the child markers); an event whose non-empty changed[] names
 //     nothing a dispatcher sees is not sent there at all, unless it names a party column (*PartyId): the row may have
 //     entered or left the dispatcher's scope, so its boards refetch.
+//   - The party a row has just left (named in the payload's leftPartyIds, LeftPartiesKey) gets that one event on its
+//     dispatch topic with the envelope only (entity, id, tenantId, at, version, changed: []), whatever changed[] names:
+//     its boards refetch and drop the row, and its dispatchers read none of the row's new values, which RLS no longer
+//     lets them read (Appendix B §B.4.2). A leftPartyIds the relay cannot read gives every dispatch topic of the event
+//     that copy (fail closed).
 //   - Every other event keeps its payload on every topic but dispatch:{partyId}:*, which carries operational events only.
 
 // thinKeyList are the payload keys an operations event keeps on its realtime topics: the thin envelope of Appendix B
@@ -72,6 +77,15 @@ const (
 	ChildDeliveryStops = "deliveryStops"
 	ChildPhotosOrStops = "photosOrStops"
 )
+
+// LeftPartiesKey is the payload key that names, as a list of uuid strings, the parties a row involved before the change
+// and no longer does (the FS->PG mirror sets it, T33; any producer that moves a row between parties may): their dispatch
+// copy is the envelope only (leftKeys). It is no thin key, so no topic carries it.
+const LeftPartiesKey = "leftPartyIds"
+
+// leftKeys are the keys of the copy a party the row left gets, besides an empty changed[]: the envelope of Appendix B
+// §B.4.1.
+var leftKeys = []string{"entity", "id", "tenantId", "at", "version"}
 
 // partySuffix marks a party column in changed[] (billingPartyId, sourceLinkedPartyId, destinationLinkedPartyId,
 // customerPartyId): the set of dispatch topics of the row may have changed with it.
@@ -155,6 +169,11 @@ func Project(topic, eventType string, data json.RawMessage) (json.RawMessage, bo
 	if err := json.Unmarshal(data, &in); err != nil || in == nil {
 		return nil, false
 	}
+	if dispatch {
+		if left, ok := leftParty(topic, in); left || !ok {
+			return leftCopy(in)
+		}
+	}
 	driver := strings.HasPrefix(topic, "driver:")
 	out := make(map[string]json.RawMessage, len(in))
 	for k, v := range in {
@@ -182,6 +201,41 @@ func Project(topic, eventType string, data json.RawMessage) (json.RawMessage, bo
 			}
 			out[k] = b
 		case scalar(v):
+			out[k] = v
+		}
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return nil, false
+	}
+	return b, true
+}
+
+// leftParty reports whether the payload names the party of a dispatch topic (dispatch:{partyId}:{family}) among the
+// parties the row left; ok is false when it holds a leftPartyIds that is not a list of strings.
+func leftParty(topic string, in map[string]json.RawMessage) (left, ok bool) {
+	v, has := in[LeftPartiesKey]
+	if !has {
+		return false, true
+	}
+	ids, ok := stringList(v)
+	if !ok {
+		return false, false
+	}
+	party, _, _ := strings.Cut(strings.TrimPrefix(topic, "dispatch:"), ":")
+	for _, id := range ids {
+		if strings.EqualFold(id, party) {
+			return true, true
+		}
+	}
+	return false, true
+}
+
+// leftCopy is the copy of an event a party the row left gets: the envelope's scalar values and an empty changed[].
+func leftCopy(in map[string]json.RawMessage) (json.RawMessage, bool) {
+	out := map[string]json.RawMessage{"changed": json.RawMessage("[]")}
+	for _, k := range leftKeys {
+		if v, ok := in[k]; ok && scalar(v) {
 			out[k] = v
 		}
 	}

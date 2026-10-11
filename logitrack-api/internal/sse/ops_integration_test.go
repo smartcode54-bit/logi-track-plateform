@@ -292,6 +292,47 @@ func TestMobileWriteReachesSubscribersWithin5s(t *testing.T) {
 		}
 		t.Logf("task.reassigned reached %s in %v", want[c], took)
 	}
+
+	// A trip of SPX's work moves to CJSF as it is delivered (one 3.x write sets both): SPX's dispatcher still hears of it,
+	// so its board drops the row, but reads none of its new values (the envelope only); the tenant's staff read them.
+	at = time.Now().UTC()
+	start = time.Now()
+	w.fs.Set("trip_records/TRIP-MOVE", map[string]any{"status": "in_transit", "jobType": "first_mile", "driverId": "uid_own",
+		"billingCustomerId": "cust_spx", "createdAt": dump.Timestamp{Time: at}, "updatedAt": dump.Timestamp{Time: at}})
+	moved := ""
+	deadline = time.Now().Add(budget)
+	for moved == "" && time.Now().Before(deadline) {
+		_ = w.etl.QueryRow(context.Background(), `SELECT id::text FROM trip_records WHERE legacy_doc_id = 'TRIP-MOVE'`).Scan(&moved)
+		if moved == "" {
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	if moved == "" {
+		t.Fatal("the listener did not apply the trip within the budget")
+	}
+	await(t, disp, "trip.created", moved, start, check)
+	at = time.Now().UTC()
+	start = time.Now()
+	w.fs.Merge("trip_records/TRIP-MOVE", map[string]any{"billingCustomerId": "cust_cjsf", "status": "delivered",
+		"deliveredTimestamp": dump.Timestamp{Time: at}, "updatedAt": dump.Timestamp{Time: at}})
+	f, took = await(t, disp, "trip.delivered", moved, start, check)
+	_, topic, data := f.envelope(t)
+	if topic != realtime.DispatchTopic(spx, realtime.FamilyTrips) {
+		t.Errorf("the trip that left SPX reached its dispatcher on %s", topic)
+	}
+	for k := range data {
+		if !slices.Contains([]string{"entity", "id", "tenantId", "at", "version", "changed"}, k) {
+			t.Errorf("SPX's dispatcher reads %s=%v of a trip that left its work", k, data[k])
+		}
+	}
+	if ch, _ := data["changed"].([]any); ch == nil || len(ch) != 0 {
+		t.Errorf("the envelope of a trip that left SPX: %v", data)
+	}
+	t.Logf("the trip that left SPX reached its dispatcher in %v", took)
+	f, _ = await(t, staff, "trip.delivered", moved, start, check)
+	if _, _, data := f.envelope(t); data["status"] != "delivered" || data["tripNo"] != "TRIP-MOVE" {
+		t.Errorf("the tenant's staff got %v", data)
+	}
 }
 
 // The changed[] names a dispatch topic keeps are columns of the scope_* projections (Appendix C §C.3.7) and none is a

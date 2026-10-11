@@ -29,8 +29,12 @@ import (
 // The payload is thin (Appendix B §B.4.1): entity, id, tenantId, at (the document's Firestore update time, the moment of
 // the write), legacyDocId, source, created, changed[] and the extras below; the relay keeps only the thin keys on the
 // realtime topics and strips what a dispatcher may not read from dispatch:{partyId}:* (realtime.Project, T33). The
-// dispatch topics are those of every party the row involves after the version and, for an update, before it (T33): a
-// row whose party changed leaves the boards of the parties it no longer involves.
+// dispatch topics are those of every party the row involves after the version and, for an update of the same row,
+// before it (T33): a row whose party changed leaves the boards of the parties it no longer involves. Those parties are
+// named in payload.leftPartyIds (realtime.LeftPartiesKey), and their copy is the envelope only, so their dispatchers
+// refetch and drop the row without reading its new values. A document that makes a row of its own although opsBefore
+// found another one (a trip document whose renamedFromTripId claims another driver's trip, a Q3 copy whose original
+// still exists) is a new row: the other row's parties and number are not its own.
 //
 // What an applied version emits (at most one event per routing key, a row in the quarantine tenant never emits; a
 // row that leaves it counts as created):
@@ -85,7 +89,8 @@ type opsState struct {
 	tenant uuid.UUID
 	row    map[string]json.RawMessage
 	digest string
-	// parties are the billing parties the row involved before the apply (opsBefore only): its dispatch topics.
+	// parties are the billing parties the row involved before the apply (opsBefore only): the dispatch topics of the
+	// parties it may leave.
 	parties []uuid.UUID
 }
 
@@ -212,7 +217,10 @@ func emitOpsEvents(c *docCtx, before opsState) (int, error) {
 	if after.tenant == quarantine {
 		return 0, nil
 	}
-	created := !before.exists() || before.id != after.id || before.tenant == quarantine
+	if before.exists() && before.id != after.id {
+		before = opsState{} // another row (a claim, a Q3 copy): this version created its own
+	}
+	created := !before.exists() || before.tenant == quarantine
 	var changed []string
 	if !created {
 		if changed = changedColumns(t, before, after); len(changed) == 0 {
@@ -227,10 +235,14 @@ func emitOpsEvents(c *docCtx, before opsState) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	parties = unionParties(parties, before.parties)
+	left := leftParties(before.parties, parties)
+	parties = unionParties(parties, left)
 	for _, key := range keys {
 		payload := map[string]any{"entity": t.aggregate, "id": after.id, "tenantId": after.tenant, "legacyDocId": c.doc.ID,
 			"at": c.doc.UpdateTime.UTC(), "source": "mirror", "created": created, "changed": nonNil(changed)}
+		if len(left) > 0 {
+			payload[realtime.LeftPartiesKey] = left
+		}
 		opsPayload(c, payload, before, after)
 		ev := outbox.Event{RoutingKey: key, AggregateType: t.aggregate, AggregateID: after.id.String(), TenantID: &after.tenant,
 			Payload: payload, Topics: opsTopics(key, after, before, parties), Headers: map[string]string{outbox.HeaderOrigin: outbox.OriginMirror}}
@@ -241,9 +253,22 @@ func emitOpsEvents(c *docCtx, before opsState) (int, error) {
 	return len(keys), nil
 }
 
-// unionParties adds the parties of before that after does not hold, sorted like opsParties.
-func unionParties(after, before []uuid.UUID) []uuid.UUID {
+// leftParties are the parties of before that after does not hold (the boards the row leaves), sorted like opsParties;
+// nil when there are none.
+func leftParties(before, after []uuid.UUID) []uuid.UUID {
+	var left []uuid.UUID
 	for _, p := range before {
+		if !slices.Contains(after, p) && !slices.Contains(left, p) {
+			left = append(left, p)
+		}
+	}
+	slices.SortFunc(left, func(a, b uuid.UUID) int { return strings.Compare(a.String(), b.String()) })
+	return left
+}
+
+// unionParties adds the parties of extra that after does not hold, sorted like opsParties.
+func unionParties(after, extra []uuid.UUID) []uuid.UUID {
+	for _, p := range extra {
 		if !slices.Contains(after, p) {
 			after = append(after, p)
 		}
@@ -403,9 +428,9 @@ func opsParties(c *docCtx, coll string, s opsState) ([]uuid.UUID, error) {
 }
 
 // opsTopics are the realtime topics of one event (Appendix B §B.4.2): the tenant's family and the dispatch topic of
-// every party (after and before the version) for the operational events, the drivers' queues for task events; the
-// billing-only keys (trip.delivered_at_changed, standby.customer_assigned) have no topic. What each topic carries of
-// the payload is the relay's projection (realtime.Project).
+// every party (those of the row after the version and those it left) for the operational events, the drivers' queues
+// for task events; the billing-only keys (trip.delivered_at_changed, standby.customer_assigned) have no topic. What
+// each topic carries of the payload is the relay's projection (realtime.Project).
 func opsTopics(key string, after, before opsState, parties []uuid.UUID) []string {
 	tenant := after.tenant.String()
 	var topics []string
