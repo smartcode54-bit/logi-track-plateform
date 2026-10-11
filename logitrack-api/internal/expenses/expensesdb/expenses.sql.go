@@ -12,18 +12,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const ActorLegacyUID = `-- name: ActorLegacyUID :one
-SELECT coalesce(legacy_auth_uid, id::text)::text FROM users WHERE id = $1
-`
-
-// The legacy uid the write-back stamps on createdByUid (Firebase uid of the user, else its uuid).
-func (q *Queries) ActorLegacyUID(ctx context.Context, id uuid.UUID) (string, error) {
-	row := q.db.QueryRow(ctx, ActorLegacyUID, id)
-	var column_1 string
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
 const CountExpensesByStatus = `-- name: CountExpensesByStatus :many
 SELECT e.status, count(*)::bigint AS n
 FROM vehicle_expenses e
@@ -83,20 +71,6 @@ func (q *Queries) CountExpensesByStatus(ctx context.Context, arg CountExpensesBy
 	return items, nil
 }
 
-const DriverLegacyRef = `-- name: DriverLegacyRef :one
-SELECT coalesce(d.legacy_auth_uid, u.legacy_auth_uid, d.legacy_doc_id, d.id::text)::text
-FROM drivers d LEFT JOIN users u ON u.id = d.user_id
-WHERE d.id = $1
-`
-
-// The write-back's driverId of a row's driver (the stored legacy reference wins).
-func (q *Queries) DriverLegacyRef(ctx context.Context, id uuid.UUID) (string, error) {
-	row := q.db.QueryRow(ctx, DriverLegacyRef, id)
-	var column_1 string
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
 const FuelTaxInvoiceTaken = `-- name: FuelTaxInvoiceTaken :one
 SELECT EXISTS (SELECT 1 FROM vehicle_expenses
                WHERE expense_type = 'fuel' AND driver_id = $1 AND tax_inv_id = $2
@@ -118,11 +92,9 @@ func (q *Queries) FuelTaxInvoiceTaken(ctx context.Context, arg FuelTaxInvoiceTak
 }
 
 const GetDriver = `-- name: GetDriver :one
-SELECT d.id, d.tenant_id, d.active_truck_id, a.truck_id AS assignment_truck_id,
-       coalesce(d.legacy_auth_uid, u.legacy_auth_uid, d.legacy_doc_id, d.id::text)::text AS legacy_ref
+SELECT d.id, d.tenant_id, d.active_truck_id, a.truck_id AS assignment_truck_id
 FROM drivers d
 LEFT JOIN truck_assignments a ON a.id = d.current_assignment_id AND a.status = 'active'
-LEFT JOIN users u ON u.id = d.user_id
 WHERE d.id = $1 AND ($2::boolean OR d.tenant_id = ANY ($3::uuid[]))
 `
 
@@ -137,12 +109,10 @@ type GetDriverRow struct {
 	TenantID          uuid.UUID
 	ActiveTruckID     *uuid.UUID
 	AssignmentTruckID *uuid.UUID
-	LegacyRef         string
 }
 
 // The driver of a staff-entered expense, in the caller's reach: its tenant stamps the row (tenant_source 'driver'),
-// its truck defaults the row's truck (the active truck, else the home truck of an active assignment), its legacy uid
-// is the write-back's driverId (main spec §13.8).
+// its truck defaults the row's truck (the active truck, else the home truck of an active assignment).
 func (q *Queries) GetDriver(ctx context.Context, arg GetDriverParams) (GetDriverRow, error) {
 	row := q.db.QueryRow(ctx, GetDriver, arg.ID, arg.AllTenants, arg.TenantIds)
 	var i GetDriverRow
@@ -151,7 +121,6 @@ func (q *Queries) GetDriver(ctx context.Context, arg GetDriverParams) (GetDriver
 		&i.TenantID,
 		&i.ActiveTruckID,
 		&i.AssignmentTruckID,
-		&i.LegacyRef,
 	)
 	return i, err
 }
@@ -238,7 +207,7 @@ func (q *Queries) GetExpenses(ctx context.Context, ids []uuid.UUID) ([]GetExpens
 }
 
 const GetTruck = `-- name: GetTruck :one
-SELECT id, tenant_id, license_plate, coalesce(legacy_doc_id, id::text)::text AS legacy_ref
+SELECT id, tenant_id, license_plate
 FROM trucks
 WHERE id = $1 AND ($2::boolean OR tenant_id = ANY ($3::uuid[]))
 `
@@ -253,43 +222,36 @@ type GetTruckRow struct {
 	ID           uuid.UUID
 	TenantID     uuid.UUID
 	LicensePlate string
-	LegacyRef    string
 }
 
 // A truck an expense names, in the caller's reach: its plate is snapshotted on the row (frozen, never re-resolved).
 func (q *Queries) GetTruck(ctx context.Context, arg GetTruckParams) (GetTruckRow, error) {
 	row := q.db.QueryRow(ctx, GetTruck, arg.ID, arg.AllTenants, arg.TenantIds)
 	var i GetTruckRow
-	err := row.Scan(
-		&i.ID,
-		&i.TenantID,
-		&i.LicensePlate,
-		&i.LegacyRef,
-	)
+	err := row.Scan(&i.ID, &i.TenantID, &i.LicensePlate)
 	return i, err
 }
 
 const InsertExpense = `-- name: InsertExpense :one
-INSERT INTO vehicle_expenses (id, legacy_doc_id, tenant_id, tenant_source, driver_id, truck_id,
+INSERT INTO vehicle_expenses (id, tenant_id, tenant_source, driver_id, truck_id,
                               truck_license_plate_snapshot, expense_type, category, expense_at, amount_thb, status,
                               volume_liters, price_per_liter, odometer_km, station_tax_id, tax_inv_id, refill_lat,
                               refill_lng, receipt_file_id, odometer_file_id, note, description, admin_note, distance_km,
                               toll_import_sequence, toll_location, toll_lane, toll_source_type, created_by_user_id)
-VALUES ($1, $2, $3, $4, $5::uuid,
-        $6::uuid, $7, $8, $9,
-        $10::timestamptz, $11::numeric, $12,
-        $13::numeric, $14::numeric, $15::int,
-        $16, $17, $18::double precision,
-        $19::double precision, $20::uuid, $21::uuid,
-        $22, $23, $24, $25::numeric,
-        $26::int, $27, $28,
-        $29, $30::uuid)
+VALUES ($1, $2, $3, $4::uuid,
+        $5::uuid, $6, $7, $8,
+        $9::timestamptz, $10::numeric, $11,
+        $12::numeric, $13::numeric, $14::int,
+        $15, $16, $17::double precision,
+        $18::double precision, $19::uuid, $20::uuid,
+        $21, $22, $23, $24::numeric,
+        $25::int, $26, $27,
+        $28, $29::uuid)
 RETURNING id, legacy_doc_id, tenant_id, tenant_source, driver_id, legacy_driver_ref, driver_ref_match, truck_id, truck_license_plate_snapshot, expense_type, category, expense_at, expense_date, amount_thb, status, volume_liters, price_per_liter, odometer_km, station_tax_id, tax_inv_id, refill_lat, refill_lng, receipt_file_id, odometer_file_id, note, description, admin_note, distance_km, toll_import_sequence, toll_location, toll_lane, toll_source_type, client_op_id, created_by_user_id, created_at, updated_at
 `
 
 type InsertExpenseParams struct {
 	ID                 uuid.UUID
-	LegacyDocID        *string
 	TenantID           uuid.UUID
 	TenantSource       string
 	DriverID           *uuid.UUID
@@ -321,11 +283,10 @@ type InsertExpenseParams struct {
 }
 
 // Staff-entered rows and toll imports. tenant_id is the driver's (else the truck's), resolved by the service, never
-// taken from the body; legacy_doc_id is the minted Firestore document id while the class C write-back is on (R25).
+// taken from the body. A row born here has no legacy_doc_id (the FS->PG mirror sets it on the rows it loads).
 func (q *Queries) InsertExpense(ctx context.Context, arg InsertExpenseParams) (VehicleExpense, error) {
 	row := q.db.QueryRow(ctx, InsertExpense,
 		arg.ID,
-		arg.LegacyDocID,
 		arg.TenantID,
 		arg.TenantSource,
 		arg.DriverID,
@@ -450,6 +411,9 @@ type ListExpensesRow struct {
 // (main spec §4.7, Appendix C §C.3.8; authz.Principal.TenantReach).
 //
 // Lock order of every expense write: the expense rows (in id order), then the trucks the PM check locks (in id order).
+// A staff entry that runs the PM check locks its truck before it inserts its row (LockTruck): the insert's foreign-key
+// check takes FOR KEY SHARE on the truck, so locking it FOR UPDATE afterwards would deadlock two entries of one truck.
+// A toll import holds the truck's import lock (LockTollImport) for its whole transaction.
 // GET /v1/expenses (W8 server filter, R35): the types the caller may read are a filter of the SQL, never a filter in
 // the client (features/accounting/api/expenses.ts:90-101 read every type); keyset (expense_at, id), newest first.
 // The plate is the row's frozen snapshot; driver_name follows lib/driverName.ts (Thai full name, else first + last).
@@ -616,6 +580,38 @@ func (q *Queries) LockFuelTaxInvoice(ctx context.Context, arg LockFuelTaxInvoice
 	return err
 }
 
+const LockTollImport = `-- name: LockTollImport :exec
+SELECT pg_advisory_xact_lock(hashtextextended('vehicle_expenses_toll:' || $1::uuid::text, 0))
+`
+
+// Serialises the toll imports of one truck in this transaction, so the duplicate check of a row (TollRowExists) and
+// its insert are one step: two imports of one history, overlapping (a double submit, a retry after a proxy timeout),
+// add it once (the second one, waiting here, reads the first one's committed rows).
+func (q *Queries) LockTollImport(ctx context.Context, truckID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, LockTollImport, truckID)
+	return err
+}
+
+const LockTruck = `-- name: LockTruck :exec
+SELECT id FROM trucks
+WHERE id = $1 AND ($2::boolean OR tenant_id = ANY ($3::uuid[]))
+FOR UPDATE
+`
+
+type LockTruckParams struct {
+	ID         uuid.UUID
+	AllTenants bool
+	TenantIds  []uuid.UUID
+}
+
+// The truck of a staff entry that runs the PM check, locked before the row is inserted (the lock order above); the PM
+// check's own lock of the row is then a re-lock. A truck outside the caller's reach locks nothing (the PM check
+// answers truck_not_found).
+func (q *Queries) LockTruck(ctx context.Context, arg LockTruckParams) error {
+	_, err := q.db.Exec(ctx, LockTruck, arg.ID, arg.AllTenants, arg.TenantIds)
+	return err
+}
+
 const SetExpenseStatus = `-- name: SetExpenseStatus :exec
 UPDATE vehicle_expenses
 SET status = $1, admin_note = coalesce($2, admin_note)
@@ -632,21 +628,6 @@ type SetExpenseStatusParams struct {
 // expenses.ts:279-319).
 func (q *Queries) SetExpenseStatus(ctx context.Context, arg SetExpenseStatusParams) error {
 	_, err := q.db.Exec(ctx, SetExpenseStatus, arg.Status, arg.AdminNote, arg.ID)
-	return err
-}
-
-const SetLegacyDocID = `-- name: SetLegacyDocID :exec
-UPDATE vehicle_expenses SET legacy_doc_id = $1 WHERE id = $2 AND legacy_doc_id IS NULL
-`
-
-type SetLegacyDocIDParams struct {
-	LegacyDocID *string
-	ID          uuid.UUID
-}
-
-// A row born in PostgreSQL gets its Firestore document id the first time the write-back writes it (R25).
-func (q *Queries) SetLegacyDocID(ctx context.Context, arg SetLegacyDocIDParams) error {
-	_, err := q.db.Exec(ctx, SetLegacyDocID, arg.LegacyDocID, arg.ID)
 	return err
 }
 

@@ -314,7 +314,9 @@ func pmDue(e expensesdb.VehicleExpense) bool {
 // (driverId; or of a truck alone), stamped with the driver's tenant (else the truck's), created_by the caller, status
 // approved unless the body says otherwise, the legacy admin note when none is given. Without truckId the truck is the
 // driver's active truck, else the home truck of an active assignment; its plate is snapshotted. An approved fuel row
-// with an odometer reading runs the PM check in the same transaction, as an approval does. Outbox expense.created.
+// with an odometer reading runs the PM check in the same transaction, as an approval does; its truck row is locked
+// before the row is inserted (truck first, the lock order of the maintenance writes), so two such entries of one truck
+// queue instead of deadlocking. Outbox expense.created.
 func (s *Service) Create(ctx context.Context, p *authz.Principal, rid string, in Input) (*StatusResult, error) {
 	if err := writeTenant(p); err != nil {
 		return nil, err
@@ -380,7 +382,6 @@ func (s *Service) Create(ctx context.Context, p *authz.Principal, rid string, in
 		all, tenants := p.TenantReach()
 		var tenant uuid.UUID
 		source := "driver"
-		var driverRef *string
 		if driverID != nil {
 			d, err := q.GetDriver(ctx, expensesdb.GetDriverParams{ID: *driverID, AllTenants: all, TenantIds: tenants})
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -389,12 +390,12 @@ func (s *Service) Create(ctx context.Context, p *authz.Principal, rid string, in
 			if err != nil {
 				return err
 			}
-			tenant, driverRef = d.TenantID, &d.LegacyRef
+			tenant = d.TenantID
 			if truckID == nil && !in.TruckID.Set { // the truck the driver holds now, else its home truck
 				truckID = cmp.Or(d.ActiveTruckID, d.AssignmentTruckID)
 			}
 		}
-		var plate, truckLegacy *string
+		var plate *string
 		if truckID != nil {
 			t, err := q.GetTruck(ctx, expensesdb.GetTruckParams{ID: *truckID, AllTenants: all, TenantIds: tenants})
 			switch {
@@ -405,7 +406,7 @@ func (s *Service) Create(ctx context.Context, p *authz.Principal, rid string, in
 			case err != nil:
 				return err
 			default:
-				plate, truckLegacy = &t.LicensePlate, &t.LegacyRef
+				plate = &t.LicensePlate
 				if driverID == nil {
 					tenant, source = t.TenantID, "truck"
 				}
@@ -413,6 +414,14 @@ func (s *Service) Create(ctx context.Context, p *authz.Principal, rid string, in
 		}
 		if driverID == nil && truckID == nil {
 			return httpx.ErrInvalidArgument(violation("driverId", "required"))
+		}
+		// The PM check below locks the truck FOR UPDATE. The insert's foreign-key check takes FOR KEY SHARE on the same
+		// row first; two entries each holding KEY SHARE and waiting for FOR UPDATE would deadlock (40P01), so the truck
+		// is locked before the insert.
+		if status == StatusApproved && typ == TypeFuel && truckID != nil && f.Odometer != nil && *f.Odometer > 0 {
+			if err := q.LockTruck(ctx, expensesdb.LockTruckParams{ID: *truckID, AllTenants: all, TenantIds: tenants}); err != nil {
+				return err
+			}
 		}
 		if err := checkTaxInvoice(ctx, q, typ, driverID, f.TaxInv, nil); err != nil {
 			return err
@@ -428,12 +437,7 @@ func (s *Service) Create(ctx context.Context, p *authz.Principal, rid string, in
 				return err
 			}
 		}
-		var legacy *string
-		if s.wb != nil {
-			v := id.String() // the minted Firestore document id (R25)
-			legacy = &v
-		}
-		row, err := q.InsertExpense(ctx, expensesdb.InsertExpenseParams{ID: id, LegacyDocID: legacy, TenantID: tenant,
+		row, err := q.InsertExpense(ctx, expensesdb.InsertExpenseParams{ID: id, TenantID: tenant,
 			TenantSource: source, DriverID: driverID, TruckID: truckID, PlateSnapshot: plate, ExpenseType: typ,
 			Category: f.Category, ExpenseAt: f.At, AmountThb: f.Amount, Status: status, VolumeLiters: f.Volume,
 			PricePerLiter: f.Price, OdometerKm: f.Odometer, StationTaxID: f.Station, TaxInvID: f.TaxInv, RefillLat: f.Lat,
@@ -451,9 +455,6 @@ func (s *Service) Create(ctx context.Context, p *authz.Principal, rid string, in
 			out.PMCheck = &res
 		}
 		if err := emit(ctx, tx, RouteCreated, row, nil, rid); err != nil {
-			return err
-		}
-		if err := s.writeBack(ctx, q, row, legacyRefs{driver: driverRef, truck: truckLegacy}, nil, true); err != nil {
 			return err
 		}
 		got, err := load(ctx, q, []uuid.UUID{id})
@@ -511,7 +512,6 @@ func (s *Service) Patch(ctx context.Context, p *authz.Principal, rid string, id 
 		}
 		truckID := cur.TruckID
 		plate := cur.TruckLicensePlateSnapshot
-		var truckLegacy *string
 		if t := in.TruckID; t.Set {
 			if t.Null || strings.TrimSpace(t.V) == "" {
 				switch {
@@ -528,7 +528,7 @@ func (s *Service) Patch(ctx context.Context, p *authz.Principal, rid string, id 
 				if err != nil {
 					return err
 				}
-				truckID, plate, truckLegacy = &tid, &tr.LicensePlate, &tr.LegacyRef
+				truckID, plate = &tid, &tr.LicensePlate
 				changed = append(changed, "truckId")
 			}
 		}
@@ -573,13 +573,6 @@ func (s *Service) Patch(ctx context.Context, p *authz.Principal, rid string, id 
 			upd := cur
 			upd.TruckID, upd.TruckLicensePlateSnapshot = truckID, plate
 			if err := emit(ctx, tx, RouteUpdated, upd, map[string]any{"changed": changed}, rid); err != nil {
-				return err
-			}
-			rows, err := q.LockExpenses(ctx, expensesdb.LockExpensesParams{Ids: []uuid.UUID{id}, AllTenants: all, TenantIds: tenants})
-			if err != nil {
-				return err
-			}
-			if err := s.writeBack(ctx, q, rows[0], legacyRefs{truck: truckLegacy}, changed, false); err != nil {
 				return err
 			}
 		}
@@ -754,9 +747,6 @@ func (s *Service) setStatus(ctx context.Context, p *authz.Principal, rid string,
 				}
 			}
 			if err := emit(ctx, tx, key, upd, extra, rid); err != nil {
-				return err
-			}
-			if err := s.writeBack(ctx, q, upd, legacyRefs{}, []string{"status", "adminNote"}, false); err != nil {
 				return err
 			}
 		}

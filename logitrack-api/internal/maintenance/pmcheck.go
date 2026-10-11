@@ -95,9 +95,6 @@ func (s *Service) CheckPMInTx(ctx context.Context, tx pgx.Tx, p *authz.Principal
 		if err := emitRecord(ctx, tx, q, RouteCreated, rec, nil, rid); err != nil {
 			return PMResult{}, err
 		}
-		if err := s.writeBack(ctx, q, rec, t, true); err != nil {
-			return PMResult{}, err
-		}
 	}
 	return res, nil
 }
@@ -140,15 +137,10 @@ func (s *Service) checkPM(ctx context.Context, q *maintenancedb.Queries, t *truc
 	if err != nil {
 		return PMResult{}, err
 	}
-	var legacy *string
-	if s.wb != nil {
-		v := id.String()
-		legacy = &v
-	}
 	user, _ := actor(p)
 	plate, brand, notes := t.LicensePlate, t.Brand, pmNotes(int64(mileage), int64(next))
 	m, nx := mileage, next
-	if _, err := q.InsertRecord(ctx, maintenancedb.InsertRecordParams{ID: id, LegacyDocID: legacy, TenantID: t.TenantID,
+	if _, err := q.InsertRecord(ctx, maintenancedb.InsertRecordParams{ID: id, TenantID: t.TenantID,
 		TruckID: &t.ID, PlateSnapshot: &plate, BrandSnapshot: &brand, MaintenanceType: pmType, ServiceType: pmServiceType,
 		StartDate: s.today(), Status: StatusPMBooking, CurrentMileage: &m, NextServiceMileage: &nx, Notes: &notes,
 		Actor: user}); err != nil {

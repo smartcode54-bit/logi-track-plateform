@@ -10,10 +10,11 @@
 
 -- name: ListMaintenance :many
 -- GET /v1/maintenance, newest first; keyset (created_at, id). The truck columns come from the truck row (the plate
--- snapshot when the truck is not readable); the file keys are aggregated per kind in position order.
+-- and brand snapshots when the truck is not readable, '' when the record has none either: a quarantined ETL record has
+-- no truck, and the ETL snapshots no brand); the file keys are aggregated per kind in position order.
 SELECT m.*,
-       coalesce(t.license_plate, m.truck_license_plate_snapshot)::text AS plate,
-       coalesce(t.brand, m.truck_brand_snapshot)::text AS brand,
+       coalesce(t.license_plate, m.truck_license_plate_snapshot, '')::text AS plate,
+       coalesce(t.brand, m.truck_brand_snapshot, '')::text AS brand,
        t.model AS truck_model, t.ownership_type AS truck_ownership, t.status AS truck_status,
        coalesce((SELECT array_agg(f.object_key ORDER BY mf.position, f.object_key)
                  FROM maintenance_files mf JOIN file_objects f ON f.id = mf.file_id
@@ -63,14 +64,14 @@ SELECT EXISTS (SELECT 1 FROM maintenance_records
                WHERE truck_id = sqlc.arg(truck_id) AND status IN ('pm_booking', 'scheduled'))::boolean AS open;
 
 -- name: InsertRecord :one
--- tenant_id is the truck's (tenant_source 'truck', tenancy.Resolve "maintenance"); legacy_doc_id is the minted
--- Firestore document id while the class C write-back is on (R25), else NULL.
-INSERT INTO maintenance_records (id, legacy_doc_id, tenant_id, tenant_source, truck_id, truck_license_plate_snapshot,
+-- tenant_id is the truck's (tenant_source 'truck', tenancy.Resolve "maintenance"). A record born here has no
+-- legacy_doc_id (the FS->PG mirror sets it on the rows it loads).
+INSERT INTO maintenance_records (id, tenant_id, tenant_source, truck_id, truck_license_plate_snapshot,
                                  truck_brand_snapshot, maintenance_type, service_type, start_date, end_date, status,
                                  appointment_time, pickup_appointment_at, cost_labor_thb, cost_parts_thb, total_cost_thb,
                                  invoice_amount_thb, provider, provider_lat, provider_lng, payment_method, current_mileage,
                                  next_service_mileage, notes, created_by, updated_by)
-VALUES (sqlc.arg(id), sqlc.narg(legacy_doc_id), sqlc.arg(tenant_id), 'truck', sqlc.arg(truck_id),
+VALUES (sqlc.arg(id), sqlc.arg(tenant_id), 'truck', sqlc.arg(truck_id),
         sqlc.narg(plate_snapshot), sqlc.narg(brand_snapshot), sqlc.arg(maintenance_type), sqlc.arg(service_type),
         sqlc.arg(start_date)::date, sqlc.narg(end_date)::date, sqlc.arg(status), sqlc.narg(appointment_time),
         sqlc.narg(pickup_appointment_at)::timestamptz, sqlc.narg(cost_labor_thb)::numeric,
@@ -95,10 +96,6 @@ SET maintenance_type = sqlc.arg(maintenance_type), service_type = sqlc.arg(servi
 WHERE id = sqlc.arg(id)
 RETURNING *;
 
--- name: SetLegacyDocID :exec
--- A record born in PostgreSQL gets its Firestore document id the first time the write-back writes it (R25).
-UPDATE maintenance_records SET legacy_doc_id = sqlc.arg(legacy_doc_id) WHERE id = sqlc.arg(id) AND legacy_doc_id IS NULL;
-
 -- --- files (maintenance_files -> file_objects, main spec §9.3) --------------------------------------------------
 
 -- name: RecordFiles :many
@@ -122,7 +119,7 @@ FROM generate_subscripts(sqlc.arg(file_ids)::uuid[], 1) AS i;
 
 -- name: LockTruck :one
 -- The truck of a maintenance write or a PM check, in the caller's reach (named here and checked by RLS).
-SELECT id, tenant_id, legacy_doc_id, license_plate, brand, model, status, legacy_status, next_service_mileage,
+SELECT id, tenant_id, license_plate, brand, model, status, legacy_status, next_service_mileage,
        current_mileage, last_alert_mileage, last_service_date, active_maintenance_id
 FROM trucks
 WHERE id = sqlc.arg(id) AND (sqlc.arg(all_tenants)::boolean OR tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
@@ -160,7 +157,3 @@ FROM (SELECT a.driver_id FROM truck_assignments a WHERE a.truck_id = sqlc.arg(tr
       UNION ALL
       SELECT d.id FROM drivers d WHERE d.active_truck_id = sqlc.arg(truck_id)) reach
 ORDER BY driver_id;
-
--- name: ActorLegacyUID :one
--- The legacy uid the write-back stamps on createdBy / updatedBy (Firebase uid of the user, else its uuid).
-SELECT coalesce(legacy_auth_uid, id::text)::text FROM users WHERE id = sqlc.arg(id);

@@ -2,13 +2,19 @@ package expenses
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"maps"
+	"net/http"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/expenses/expensesdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/clock"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/xlsx"
 )
 
@@ -255,6 +261,57 @@ func TestLegacyFields(t *testing.T) {
 	for _, k := range []string{"receiptPhotoUrl", "odometerPhotoUrl", "clientOpId"} {
 		if _, ok := f[k]; ok {
 			t.Errorf("%s is the APK's", k)
+		}
+	}
+}
+
+// A staff write of a row touches only what it changed (main spec §12.1, §13.8): a created row writes every staff
+// field with createdAt / createdByUid; an audit decision only status and adminNote (the driver's own fields of a
+// pending row stay the APK's); a PATCH the Firestore fields of its changed JSON fields; a photo key alone nothing.
+func TestLegacyWrite(t *testing.T) {
+	now := time.Date(2026, 10, 11, 3, 0, 0, 0, time.UTC)
+	note, plate := "ตรวจแล้ว", "กข-1234"
+	odo := int32(98500)
+	e := expensesdb.VehicleExpense{ID: uuid.New(), ExpenseType: TypeFuel, Status: StatusApproved, AmountThb: 1500,
+		ExpenseAt: now, AdminNote: &note, OdometerKm: &odo, TruckLicensePlateSnapshot: &plate}
+	refs := LegacyRefs{Driver: "authUid1", Truck: "trk1", CreatedBy: "uidStaff"}
+
+	created := LegacyWrite(e, refs, nil, true, now)
+	if created["driverId"] != "authUid1" || created["status"] != "APPROVED" || created["amount"] != 1500.0 ||
+		created["createdAt"] != now || created["createdByUid"] != "uidStaff" || created["updatedAt"] != now {
+		t.Fatalf("created %v", created)
+	}
+	if _, ok := LegacyWrite(e, LegacyRefs{}, nil, true, now)["createdByUid"]; ok {
+		t.Error("an unknown creator is written")
+	}
+	decision := LegacyWrite(e, LegacyRefs{}, []string{"status", "adminNote"}, false, now)
+	if want := map[string]any{"status": "APPROVED", "adminNote": note, "updatedAt": now}; !maps.Equal(decision, want) {
+		t.Errorf("an audit decision writes %v, want %v", decision, want)
+	}
+	moved := LegacyWrite(e, refs, []string{"truckId", "odometerKm"}, false, now)
+	if want := map[string]any{"truckId": "trk1", "truckLicensePlate": plate, "odometer": int64(98500), "updatedAt": now}; !maps.Equal(moved, want) {
+		t.Errorf("a truck change writes %v, want %v", moved, want)
+	}
+	if w := LegacyWrite(e, refs, []string{"receiptKey"}, false, now); w != nil {
+		t.Errorf("a photo key alone writes %v", w)
+	}
+	all := LegacyFields(e, "authUid1", "trk1")
+	for jsonName, names := range legacyNames {
+		for _, name := range names {
+			if _, ok := all[name]; !ok {
+				t.Errorf("%s -> %s is not a field of the legacy shape", jsonName, name)
+			}
+		}
+	}
+}
+
+// A deadlock or serialization failure rolled the transaction back: 503 unavailable (retryable), never 500.
+func TestMapDBErrorContention(t *testing.T) {
+	for _, code := range []string{"40P01", "40001"} {
+		var he *httpx.Error
+		if err := mapDBError(fmt.Errorf("tx: %w", &pgconn.PgError{Code: code})); !errors.As(err, &he) ||
+			he.Status != http.StatusServiceUnavailable || he.Code != httpx.CodeUnavailable || he.Details["reason"] != "contention" {
+			t.Errorf("%s: %v", code, err)
 		}
 	}
 }

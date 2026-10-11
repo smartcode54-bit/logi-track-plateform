@@ -12,8 +12,8 @@
 // Statuses are the canonical lower_snake vocabulary (pending, approved, rejected; R65); the legacy upper-case literals
 // are accepted on input. The plate of a row is the snapshot taken when its truck was set (frozen, never re-resolved
 // through the driver's current truck). (driver_id, tax_inv_id) of fuel rows is unique (D5): a second one is
-// 409 duplicate_tax_invoice. While the expenses domain is Firestore-owned (class C, main spec §12.1) a configured
-// writeback.Writer receives every staff write in the legacy shape before COMMIT.
+// 409 duplicate_tax_invoice. Staff writes go to PostgreSQL: the class C write-back of a Firestore-owned domain (main
+// spec §11.10, §13.8: Firestore first, then the FS->PG mirror) lands with T31, which encodes a write with LegacyWrite.
 package expenses
 
 import (
@@ -43,7 +43,6 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/outbox"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/realtime"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
-	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/writeback"
 )
 
 // Outbox routing keys of the expenses family (Appendix B §B.5.2), on the realtime topic tenant:{tid}:expenses
@@ -107,13 +106,8 @@ type Deps struct {
 	// Files commits the receipt and odometer photos; optional (without it a key is refused, not_found).
 	Files Files
 	// PM is the PM check of an approval; required.
-	PM PMChecker
-	// WriteBack, when set, receives every staff write in the legacy Firestore shape before COMMIT (class C until
-	// P7b); nil = PostgreSQL only.
-	WriteBack writeback.Writer
-	Log       zerolog.Logger
-	// Now is the clock of the write-back's timestamps (tests pin it); nil = time.Now.
-	Now func() time.Time
+	PM  PMChecker
+	Log zerolog.Logger
 }
 
 // Service serves /v1/expenses*.
@@ -121,9 +115,7 @@ type Service struct {
 	pool  db.Beginner
 	files Files
 	pm    PMChecker
-	wb    writeback.Writer
 	log   zerolog.Logger
-	now   func() time.Time
 }
 
 // New builds the service.
@@ -134,11 +126,7 @@ func New(d Deps) (*Service, error) {
 	if d.PM == nil {
 		return nil, errors.New("expenses: the service needs the PM check")
 	}
-	now := d.Now
-	if now == nil {
-		now = time.Now
-	}
-	return &Service{pool: d.Pool, files: d.Files, pm: d.PM, wb: d.WriteBack, log: d.Log, now: now}, nil
+	return &Service{pool: d.Pool, files: d.Files, pm: d.PM, log: d.Log}, nil
 }
 
 // tx runs fn in a request transaction of p: RLS decides every row it reads or writes.
@@ -382,8 +370,10 @@ func errDuplicateTaxInvoice() *httpx.Error {
 }
 
 // mapDBError turns the database refusals a request can still meet into the API's codes: the D5 fuel tax-invoice index
-// (409 duplicate_tax_invoice), other unique keys (409), checks and foreign keys (422), and RLS (42501: a row outside
-// the caller's write reach, 403); anything else is returned as is (500 for an unknown database error).
+// (409 duplicate_tax_invoice), other unique keys (409), checks and foreign keys (422), RLS (42501: a row outside the
+// caller's write reach, 403) and a deadlock or serialization failure (40P01, 40001: the transaction was rolled back,
+// 503 unavailable with details.reason contention, so the client may retry); anything else is returned as is (500 for
+// an unknown database error).
 func mapDBError(err error) error {
 	var pe *pgconn.PgError
 	if !errors.As(err, &pe) {
@@ -402,6 +392,9 @@ func mapDBError(err error) error {
 		return httpx.ErrInvalidArgument(violation(pe.ConstraintName, "invalid")).Wrap(err)
 	case "42501":
 		return authz.ErrPermissionDenied("row-level security refused the write").Wrap(err)
+	case "40P01", "40001":
+		return httpx.NewError(http.StatusServiceUnavailable, httpx.CodeUnavailable, "the database aborted a conflicting write").
+			WithDetails(map[string]any{"reason": "contention"}).Wrap(err)
 	}
 	return err
 }

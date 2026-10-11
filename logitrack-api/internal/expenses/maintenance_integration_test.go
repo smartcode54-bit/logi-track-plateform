@@ -194,3 +194,29 @@ func TestMaintenanceRecords(t *testing.T) {
 		t.Fatalf("type filter %d", len(r.list()))
 	}
 }
+
+// A record the ETL quarantined (its truck did not resolve: no truck, the plate snapshot only, no brand snapshot) is
+// listed in the platform's read-all view with its snapshot plate and an empty brand, and never in a tenant's list.
+func TestMaintenanceQuarantinedRecord(t *testing.T) {
+	w := newWorld(t)
+	id := w.id(`INSERT INTO maintenance_records (tenant_id, tenant_source, truck_id, truck_license_plate_snapshot,
+		maintenance_type, service_type, start_date, status, legacy_doc_id)
+		VALUES (app_quarantine_tenant_id(), 'quarantine', NULL, 'zz-9999', 'CM', 'เบรก', '2026-09-02', 'in_progress', 'mnt2')
+		RETURNING id::text`)
+	r := w.do(http.MethodGet, "/v1/maintenance", w.login("pa"), nil, "X-Act-On-Tenant", "*")
+	expect(t, r, http.StatusOK, "")
+	var got map[string]any
+	for _, m := range r.list() {
+		if m["id"] == id {
+			got = m
+		}
+	}
+	if got == nil || got["licensePlate"] != "zz-9999" || got["truckBrand"] != "" || got["truckId"] != nil {
+		t.Fatalf("the quarantined record in the read-all list: %s", r.raw)
+	}
+	for _, m := range w.get("/v1/maintenance", w.login("op.o")).list() {
+		if m["id"] == id {
+			t.Fatal("a tenant lists a quarantined record")
+		}
+	}
+}

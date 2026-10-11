@@ -3,8 +3,8 @@
 // Integration tests of T40 (issue #60): vehicle expenses (the W8 server filter, staff entries, the audit with the PM
 // check, the toll import) and maintenance records (transitions with the truck in one transaction, reminders, the PM
 // check route), against PostgreSQL 18 with the full goose chain (pgtest; every request as logitrack_app through
-// db.WithPrincipal, so RLS decides), Redis 7, the real auth service and RBAC, the storage service on the local backend
-// and, where a test asks for it, the class C write-back into an in-memory Firestore stand-in (writeback.Memory).
+// db.WithPrincipal, so RLS decides), Redis 7, the real auth service and RBAC and the storage service on the local
+// backend.
 // Fixture: own fleet O; carrier A working for O; independent carrier C; carrier D, the organisation of a dispatcher
 // over customer X; staff of O (every role), A and C; a platform admin. The maintenance routes are tested here too:
 // one harness serves both packages (an approval books maintenance).
@@ -46,7 +46,6 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/migrate/migratetest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
-	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/writeback"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/migrations"
 )
 
@@ -69,7 +68,6 @@ type world struct {
 	internal string
 	hash     string
 	tokens   map[string]string
-	wb       *writeback.Memory
 
 	O, A, C, D string // tenants
 	// drivers: dO (home truck tO), dO2 (no truck), dA (home truck tA), dC
@@ -77,13 +75,6 @@ type world struct {
 	// trucks: tO (next service at 100,000 km), tO2, tA, tC
 	tO, tO2, tA, tC string
 }
-
-type option func(*options)
-
-type options struct{ wb *writeback.Memory }
-
-// withWriteBack runs the services with the class C write-back into an in-memory Firestore stand-in.
-func withWriteBack(m *writeback.Memory) option { return func(o *options) { o.wb = m } }
 
 func freeAddr(t *testing.T) string {
 	t.Helper()
@@ -96,18 +87,14 @@ func freeAddr(t *testing.T) string {
 	return addr
 }
 
-func newWorld(t *testing.T, opts ...option) *world {
+func newWorld(t *testing.T) *world {
 	t.Helper()
-	var o options
-	for _, f := range opts {
-		f(&o)
-	}
 	ctx := context.Background()
 	d := pgtest.NewDatabase(t)
 	if _, err := migratetest.Runner(t, d, migrations.FS).Up(ctx); err != nil {
 		t.Fatal(err)
 	}
-	w := &world{t: t, pool: d.Pool(t, db.RoleApp), tokens: map[string]string{}, wb: o.wb}
+	w := &world{t: t, pool: d.Pool(t, db.RoleApp), tokens: map[string]string{}}
 	var err error
 	if w.etl, err = pgx.Connect(ctx, d.URL(db.RoleETL)); err != nil {
 		t.Fatal(err)
@@ -165,15 +152,11 @@ func newWorld(t *testing.T, opts ...option) *world {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var wb writeback.Writer
-	if o.wb != nil {
-		wb = o.wb
-	}
-	ms, err := maintenance.New(maintenance.Deps{Pool: w.pool, Files: st, WriteBack: wb, Log: zerolog.Nop(), Now: clock})
+	ms, err := maintenance.New(maintenance.Deps{Pool: w.pool, Files: st, Log: zerolog.Nop(), Now: clock})
 	if err != nil {
 		t.Fatal(err)
 	}
-	es, err := expenses.New(expenses.Deps{Pool: w.pool, Files: st, PM: ms, WriteBack: wb, Log: zerolog.Nop(), Now: clock})
+	es, err := expenses.New(expenses.Deps{Pool: w.pool, Files: st, PM: ms, Log: zerolog.Nop()})
 	if err != nil {
 		t.Fatal(err)
 	}

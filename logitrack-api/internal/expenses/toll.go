@@ -418,8 +418,9 @@ type TollImportResult struct {
 // the truck's plate snapshotted), with the row's sequence, place, lane and source type, in one transaction. Skipped,
 // with their reason: rows that are not tolls or whose date or amount does not parse, a row the file repeats
 // (duplicate_in_file) and a transaction the truck already holds (duplicate: same instant, amount, place and lane, so a
-// re-imported history adds nothing). dryRun answers the counts and writes nothing. One expense.created event
-// (payload count) tells the pages to refetch.
+// re-imported history adds nothing; the imports of one truck hold a transaction-scoped advisory lock, so two
+// overlapping imports of one history add it once). dryRun answers the counts and writes nothing. One expense.created
+// event (payload count) tells the pages to refetch.
 func (s *Service) ImportTolls(ctx context.Context, p *authz.Principal, rid string, in TollImportInput) (*TollImportResult, error) {
 	if err := writeTenant(p); err != nil {
 		return nil, err
@@ -455,6 +456,10 @@ func (s *Service) ImportTolls(ctx context.Context, p *authz.Principal, rid strin
 		}
 		t, err := truckRef(ctx, q, p, truckID)
 		if err != nil {
+			return err
+		}
+		// Imports of one truck run one at a time, so a history two overlapping requests send is added once.
+		if err := q.LockTollImport(ctx, truckID); err != nil {
 			return err
 		}
 		seen := map[string]bool{}
@@ -493,11 +498,6 @@ func (s *Service) ImportTolls(ctx context.Context, p *authz.Principal, rid strin
 			if err != nil {
 				return err
 			}
-			var legacy *string
-			if s.wb != nil {
-				v := id.String()
-				legacy = &v
-			}
 			seq := int32(*r.Sequence)
 			desc := tollDescription(r)
 			opt := func(v string) *string {
@@ -507,7 +507,7 @@ func (s *Service) ImportTolls(ctx context.Context, p *authz.Principal, rid strin
 				return &v
 			}
 			plate := t.LicensePlate
-			row, err := q.InsertExpense(ctx, expensesdb.InsertExpenseParams{ID: id, LegacyDocID: legacy, TenantID: d.TenantID,
+			row, err := q.InsertExpense(ctx, expensesdb.InsertExpenseParams{ID: id, TenantID: d.TenantID,
 				TenantSource: "driver", DriverID: &driverID, TruckID: &truckID, PlateSnapshot: &plate, ExpenseType: TypeOther,
 				Category: &category, ExpenseAt: r.At, AmountThb: r.AmountThb, Status: status, Description: &desc,
 				TollImportSequence: &seq, TollLocation: opt(r.Location), TollLane: opt(r.Lane),
@@ -517,9 +517,6 @@ func (s *Service) ImportTolls(ctx context.Context, p *authz.Principal, rid strin
 			}
 			if first == nil {
 				first = &row
-			}
-			if err := s.writeBack(ctx, q, row, legacyRefs{driver: &d.LegacyRef, truck: &t.LegacyRef}, nil, true); err != nil {
-				return err
 			}
 		}
 		if in.DryRun {

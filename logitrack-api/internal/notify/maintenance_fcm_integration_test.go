@@ -14,7 +14,9 @@ import (
 // maintenance.created / maintenance.reminder_requested (T40): maintenance_scheduled to the drivers of the record's
 // truck, read server-side (the drivers of its active assignments and the driver holding it as the active truck; the
 // legacy callable took the driver id from the browser), with the legacy title and body built from the record, or the
-// staff's text. A PM booking (no appointment yet) and a record closed by the time the message is read push nothing.
+// staff's text. Of the created records only a scheduled one pushes (the legacy page pushed on no creation): a PM
+// booking, and a PM or CM record created in_progress (the form's default), push nothing; nor does a record closed by
+// the time the message is read.
 func TestFCMMaintenancePushes(t *testing.T) {
 	e := newFCMEnv(t)
 	home, uh := e.driver("home@logitrack.test", "fsDriverHome")
@@ -30,24 +32,33 @@ func TestFCMMaintenancePushes(t *testing.T) {
 		VALUES ($1, 'truck', $2, $3, 'active')`, e.tenant, truck, home)
 	e.exec(`UPDATE drivers SET active_truck_id = $2 WHERE id = $1`, active, truck)
 	_ = other
-	record := func(status, legacy string) uuid.UUID {
+	record := func(typ, status, legacy string) uuid.UUID {
 		var leg any
 		if legacy != "" {
 			leg = legacy
 		}
 		return scan[uuid.UUID](e, `INSERT INTO maintenance_records (tenant_id, truck_id, maintenance_type, service_type,
 			start_date, status, appointment_time, provider, legacy_doc_id)
-			VALUES ($1, $2, 'PM', 'เช็คระยะ', '2026-10-12', $3, '09:30', 'อู่ A', $4) RETURNING id`, e.tenant, truck, status, leg)
+			VALUES ($1, $2, $3, 'เช็คระยะ', '2026-10-12', $4, '09:30', 'อู่ A', $5) RETURNING id`, e.tenant, truck, typ, status, leg)
+	}
+	created := func(id uuid.UUID, status string) {
+		e.handle(e.delivery(notify.RouteMaintenanceCreated, map[string]any{"entity": "maintenance", "id": id, "status": status}))
 	}
 
-	booking := record("pm_booking", "")
-	e.handle(e.delivery(notify.RouteMaintenanceCreated, map[string]any{"id": booking}))
+	booking := record("PM", "pm_booking", "")
+	created(booking, "pm_booking")
 	if n := len(e.fcm.Sent()); n != 0 {
 		t.Fatalf("a PM booking pushed %d", n)
 	}
-
-	scheduled := record("scheduled", "fsMnt1")
-	e.handle(e.delivery(notify.RouteMaintenanceCreated, map[string]any{"id": scheduled}))
+	// Records created in_progress (a PM visit, a CM repair already in the shop): no appointment, no push.
+	for _, typ := range []string{"PM", "CM"} {
+		created(record(typ, "in_progress", ""), "in_progress")
+		if n := len(e.fcm.Sent()); n != 0 {
+			t.Fatalf("a %s record created in_progress pushed %d", typ, n)
+		}
+	}
+	scheduled := record("PM", "scheduled", "fsMnt1")
+	e.handle(e.delivery(notify.RouteMaintenanceCreated, map[string]any{"id": scheduled})) // no status: the record's
 	sent := e.fcm.Sent()
 	if len(sent) != 2 || len(e.fcm.SentTo("tok-o")) != 0 {
 		t.Fatalf("%d pushes, want one to each driver of the truck", len(sent))
@@ -84,6 +95,11 @@ func TestFCMMaintenancePushes(t *testing.T) {
 	rows := e.rows()
 	if count(rows, notify.KindMaintenanceScheduled, notify.StatusSent) != 4 {
 		t.Fatalf("delivery rows %+v", rows)
+	}
+	// A record created scheduled and moved on before the message is read: the creation's status decides.
+	created(record("PM", "in_progress", ""), "scheduled")
+	if n := len(e.fcm.Sent()); n != 6 {
+		t.Fatalf("a record created scheduled pushed %d, want one per driver", n-4)
 	}
 	if err := e.consumer.Handle(e.ctx, e.delivery(notify.RouteMaintenanceReminder, map[string]any{"id": uuid.New()})); err == nil {
 		t.Fatal("an unknown record is not an error")

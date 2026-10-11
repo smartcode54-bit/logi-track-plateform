@@ -1,15 +1,23 @@
 package maintenance
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"maps"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/maintenance/maintenancedb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/clock"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/writeback"
 )
 
 // AC "Legacy maintenance statuses normalised to lower_snake": every literal the legacy web and APKs wrote maps onto
@@ -30,13 +38,20 @@ func TestNormalizeStatus(t *testing.T) {
 			t.Errorf("NormalizeStatus(%q) accepted", in)
 		}
 	}
-	for status, legacy := range map[string]string{StatusPMBooking: "PM Booking", StatusScheduled: "Scheduled",
-		StatusInProgress: "In-Progress", StatusCompleted: "completed", StatusCancelled: "cancelled"} {
-		if got := LegacyStatus(status); got != legacy {
-			t.Errorf("LegacyStatus(%s) = %q, want %q", status, got, legacy)
+	for _, tc := range []struct {
+		status    string
+		checkedIn bool
+		legacy    string
+	}{
+		{StatusPMBooking, false, "PM Booking"}, {StatusScheduled, false, "Scheduled"},
+		{StatusInProgress, false, "in_progress"}, {StatusInProgress, true, "In-Progress"},
+		{StatusCompleted, false, "completed"}, {StatusCompleted, true, "completed"}, {StatusCancelled, false, "cancelled"},
+	} {
+		if got := LegacyStatus(tc.status, tc.checkedIn); got != tc.legacy {
+			t.Errorf("LegacyStatus(%s, checked in %v) = %q, want %q", tc.status, tc.checkedIn, got, tc.legacy)
 		}
-		if back, _ := NormalizeStatus(legacy); back != status {
-			t.Errorf("the legacy literal %q does not come back as %s", legacy, status)
+		if back, _ := NormalizeStatus(tc.legacy); back != tc.status {
+			t.Errorf("the legacy literal %q does not come back as %s", tc.legacy, tc.status)
 		}
 	}
 }
@@ -210,10 +225,9 @@ func TestCheckFiles(t *testing.T) {
 	}
 }
 
-// The write-back shape of a record (main spec §13.8): legacy status literal, yyyy-MM-dd days, the admin form's local
-// pickup time, nil for empty fields, createdAt / createdBy only on creation.
+// The legacy shape of a record (main spec §13.8): legacy status literal, yyyy-MM-dd days, the admin form's local
+// pickup time, nil for empty fields, never a driver's field.
 func TestLegacyFields(t *testing.T) {
-	now := time.Date(2026, 10, 11, 3, 0, 0, 0, time.UTC)
 	plate, brand, notes, appt := "กข-1234", "Isuzu", "ระบบอัตโนมัติ", "09:30"
 	pickup := time.Date(2026, 10, 12, 10, 0, 0, 0, time.UTC)
 	mileage := int32(98500)
@@ -223,24 +237,102 @@ func TestLegacyFields(t *testing.T) {
 		TruckBrandSnapshot: &brand, MaintenanceType: "PM", ServiceType: pmServiceType,
 		StartDate: time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC), Status: StatusPMBooking, AppointmentTime: &appt,
 		PickupAppointmentAt: &pickup, TotalCostThb: &cost, CurrentMileage: &mileage, Notes: &notes}
-	f := LegacyFields(r, "trk_legacy", "uid1", now, true)
+	f := LegacyFields(r, "trk_legacy")
 	for k, want := range map[string]any{"truckId": "trk_legacy", "status": "PM Booking", "type": "PM",
 		"startDate": "2026-10-11", "endDate": nil, "pickupAppointment": "2026-10-12T17:00:00", "totalCost": 1500.0,
-		"costLabor": nil, "currentMileage": int64(98500), "notes": notes, "createdBy": "uid1", "updatedBy": "uid1",
-		"truckLicensePlate": plate, "appointmentTime": "09:30"} {
+		"costLabor": nil, "currentMileage": int64(98500), "notes": notes, "truckLicensePlate": plate,
+		"appointmentTime": "09:30"} {
 		if f[k] != want {
 			t.Errorf("%s = %#v, want %#v", k, f[k], want)
 		}
-	}
-	if f["createdAt"] != now || f["updatedAt"] != now {
-		t.Errorf("timestamps %v %v", f["createdAt"], f["updatedAt"])
 	}
 	for _, k := range []string{"driverSubmitted", "checkInAt", "checkOutAt", "images", "receipts", "invoiceUrl"} {
 		if _, ok := f[k]; ok {
 			t.Errorf("%s is the driver's and is never written back", k)
 		}
 	}
-	if _, ok := LegacyFields(r, "", "uid1", now, false)["createdAt"]; ok {
-		t.Error("an update writes createdAt")
+	// in_progress is the web's literal until the driver checks in, then the APK's.
+	r.Status = StatusInProgress
+	if got := LegacyFields(r, "")["status"]; got != "in_progress" {
+		t.Errorf("a staff in_progress before the check-in: %v", got)
+	}
+	checkIn := time.Date(2026, 10, 12, 2, 0, 0, 0, time.UTC)
+	r.CheckInAt = &checkIn
+	if got := LegacyFields(r, "")["status"]; got != "In-Progress" {
+		t.Errorf("in_progress after the check-in: %v", got)
+	}
+}
+
+// A staff write of a record touches only what it changed (main spec §12.1, §13.8: the fields the 3.x app writes on the
+// same document stay the app's): a created record writes every staff field with createdAt / createdBy; a change only
+// the Firestore fields of its changed JSON fields; a files-only change nothing.
+func TestLegacyWrite(t *testing.T) {
+	now := time.Date(2026, 10, 11, 3, 0, 0, 0, time.UTC)
+	truck := uuid.New()
+	notes, invoice := "เปลี่ยนยาง", 1200.0
+	r := maintenancedb.MaintenanceRecord{ID: uuid.New(), TruckID: &truck, MaintenanceType: "CM", ServiceType: "ยาง",
+		StartDate: time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC), Status: StatusInProgress, Notes: &notes,
+		InvoiceAmountThb: &invoice}
+
+	created := LegacyWrite(r, "trk1", "uid1", nil, true, now)
+	if created["status"] != "in_progress" || created["createdAt"] != now || created["createdBy"] != "uid1" ||
+		created["updatedAt"] != now || created["updatedBy"] != "uid1" || created["truckId"] != "trk1" ||
+		created["notes"] != notes {
+		t.Fatalf("created %v", created)
+	}
+
+	// The 3.x app checked in (status "In-Progress", checkInAt) and submitted its receipt (invoiceAmount) on the
+	// document; the staff then edit the notes only.
+	fs := writeback.NewMemory()
+	ctx := context.Background()
+	if err := fs.Merge(ctx, Collection, "fsM", map[string]any{"status": "In-Progress", "checkInAt": now,
+		"invoiceAmount": 1234.0, "driverSubmitted": true, "notes": "เดิม"}); err != nil {
+		t.Fatal(err)
+	}
+	stale := r // PostgreSQL before the mirror applied the check-in: in_progress without check_in_at, no invoice
+	stale.InvoiceAmountThb = nil
+	w := LegacyWrite(stale, "trk1", "uid2", []string{"notes"}, false, now)
+	if want := map[string]any{"notes": notes, "updatedAt": now, "updatedBy": "uid2"}; !maps.Equal(w, want) {
+		t.Fatalf("a notes edit writes %v, want %v", w, want)
+	}
+	if err := fs.Merge(ctx, Collection, "fsM", w); err != nil {
+		t.Fatal(err)
+	}
+	doc, _ := fs.Doc(Collection, "fsM")
+	if doc["status"] != "In-Progress" || doc["invoiceAmount"] != 1234.0 || doc["checkInAt"] != now ||
+		doc["driverSubmitted"] != true || doc["notes"] != notes {
+		t.Fatalf("the notes edit changed the app's fields: %v", doc)
+	}
+
+	// A status change writes the status (and nothing it did not change); the files alone write nothing.
+	done := r
+	done.Status = StatusCompleted
+	if w := LegacyWrite(done, "trk1", "uid2", []string{"status"}, false, now); w["status"] != "completed" || len(w) != 3 {
+		t.Errorf("status write %v", w)
+	}
+	if w := LegacyWrite(r, "trk1", "uid2", []string{"invoiceAmountThb", "pickupAppointmentAt"}, false, now); w["invoiceAmount"] != invoice ||
+		len(w) != 4 || w["pickupAppointment"] != nil {
+		t.Errorf("invoice write %v", w)
+	}
+	if w := LegacyWrite(r, "trk1", "uid2", []string{"files"}, false, now); w != nil {
+		t.Errorf("a files-only change writes %v", w)
+	}
+	// Every JSON field merge reports maps onto a field of the legacy shape (files excepted).
+	all := LegacyFields(r, "trk1")
+	for jsonName, name := range legacyNames {
+		if _, ok := all[name]; !ok {
+			t.Errorf("%s -> %s is not a field of the legacy shape", jsonName, name)
+		}
+	}
+}
+
+// A deadlock or serialization failure rolled the transaction back: 503 unavailable (retryable), never 500.
+func TestMapDBErrorContention(t *testing.T) {
+	for _, code := range []string{"40P01", "40001"} {
+		var he *httpx.Error
+		if err := mapDBError(fmt.Errorf("tx: %w", &pgconn.PgError{Code: code})); !errors.As(err, &he) ||
+			he.Status != http.StatusServiceUnavailable || he.Code != httpx.CodeUnavailable || he.Details["reason"] != "contention" {
+			t.Errorf("%s: %v", code, err)
+		}
 	}
 }

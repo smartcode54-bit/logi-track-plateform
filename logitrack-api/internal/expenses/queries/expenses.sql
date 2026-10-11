@@ -5,6 +5,9 @@
 -- (main spec §4.7, Appendix C §C.3.8; authz.Principal.TenantReach).
 --
 -- Lock order of every expense write: the expense rows (in id order), then the trucks the PM check locks (in id order).
+-- A staff entry that runs the PM check locks its truck before it inserts its row (LockTruck): the insert's foreign-key
+-- check takes FOR KEY SHARE on the truck, so locking it FOR UPDATE afterwards would deadlock two entries of one truck.
+-- A toll import holds the truck's import lock (LockTollImport) for its whole transaction.
 
 -- name: ListExpenses :many
 -- GET /v1/expenses (W8 server filter, R35): the types the caller may read are a filter of the SQL, never a filter in
@@ -68,26 +71,31 @@ FOR UPDATE;
 
 -- name: GetDriver :one
 -- The driver of a staff-entered expense, in the caller's reach: its tenant stamps the row (tenant_source 'driver'),
--- its truck defaults the row's truck (the active truck, else the home truck of an active assignment), its legacy uid
--- is the write-back's driverId (main spec §13.8).
-SELECT d.id, d.tenant_id, d.active_truck_id, a.truck_id AS assignment_truck_id,
-       coalesce(d.legacy_auth_uid, u.legacy_auth_uid, d.legacy_doc_id, d.id::text)::text AS legacy_ref
+-- its truck defaults the row's truck (the active truck, else the home truck of an active assignment).
+SELECT d.id, d.tenant_id, d.active_truck_id, a.truck_id AS assignment_truck_id
 FROM drivers d
 LEFT JOIN truck_assignments a ON a.id = d.current_assignment_id AND a.status = 'active'
-LEFT JOIN users u ON u.id = d.user_id
 WHERE d.id = sqlc.arg(id) AND (sqlc.arg(all_tenants)::boolean OR d.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]));
-
--- name: DriverLegacyRef :one
--- The write-back's driverId of a row's driver (the stored legacy reference wins).
-SELECT coalesce(d.legacy_auth_uid, u.legacy_auth_uid, d.legacy_doc_id, d.id::text)::text
-FROM drivers d LEFT JOIN users u ON u.id = d.user_id
-WHERE d.id = sqlc.arg(id);
 
 -- name: GetTruck :one
 -- A truck an expense names, in the caller's reach: its plate is snapshotted on the row (frozen, never re-resolved).
-SELECT id, tenant_id, license_plate, coalesce(legacy_doc_id, id::text)::text AS legacy_ref
+SELECT id, tenant_id, license_plate
 FROM trucks
 WHERE id = sqlc.arg(id) AND (sqlc.arg(all_tenants)::boolean OR tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]));
+
+-- name: LockTruck :exec
+-- The truck of a staff entry that runs the PM check, locked before the row is inserted (the lock order above); the PM
+-- check's own lock of the row is then a re-lock. A truck outside the caller's reach locks nothing (the PM check
+-- answers truck_not_found).
+SELECT id FROM trucks
+WHERE id = sqlc.arg(id) AND (sqlc.arg(all_tenants)::boolean OR tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
+FOR UPDATE;
+
+-- name: LockTollImport :exec
+-- Serialises the toll imports of one truck in this transaction, so the duplicate check of a row (TollRowExists) and
+-- its insert are one step: two imports of one history, overlapping (a double submit, a retry after a proxy timeout),
+-- add it once (the second one, waiting here, reads the first one's committed rows).
+SELECT pg_advisory_xact_lock(hashtextextended('vehicle_expenses_toll:' || sqlc.arg(truck_id)::uuid::text, 0));
 
 -- name: LockFuelTaxInvoice :exec
 -- Serialises the writers of one driver's fuel tax invoice in this transaction, so the check below and the write are
@@ -103,13 +111,13 @@ SELECT EXISTS (SELECT 1 FROM vehicle_expenses
 
 -- name: InsertExpense :one
 -- Staff-entered rows and toll imports. tenant_id is the driver's (else the truck's), resolved by the service, never
--- taken from the body; legacy_doc_id is the minted Firestore document id while the class C write-back is on (R25).
-INSERT INTO vehicle_expenses (id, legacy_doc_id, tenant_id, tenant_source, driver_id, truck_id,
+-- taken from the body. A row born here has no legacy_doc_id (the FS->PG mirror sets it on the rows it loads).
+INSERT INTO vehicle_expenses (id, tenant_id, tenant_source, driver_id, truck_id,
                               truck_license_plate_snapshot, expense_type, category, expense_at, amount_thb, status,
                               volume_liters, price_per_liter, odometer_km, station_tax_id, tax_inv_id, refill_lat,
                               refill_lng, receipt_file_id, odometer_file_id, note, description, admin_note, distance_km,
                               toll_import_sequence, toll_location, toll_lane, toll_source_type, created_by_user_id)
-VALUES (sqlc.arg(id), sqlc.narg(legacy_doc_id), sqlc.arg(tenant_id), sqlc.arg(tenant_source), sqlc.narg(driver_id)::uuid,
+VALUES (sqlc.arg(id), sqlc.arg(tenant_id), sqlc.arg(tenant_source), sqlc.narg(driver_id)::uuid,
         sqlc.narg(truck_id)::uuid, sqlc.narg(plate_snapshot), sqlc.arg(expense_type), sqlc.narg(category),
         sqlc.arg(expense_at)::timestamptz, sqlc.arg(amount_thb)::numeric, sqlc.arg(status),
         sqlc.narg(volume_liters)::numeric, sqlc.narg(price_per_liter)::numeric, sqlc.narg(odometer_km)::int,
@@ -144,10 +152,6 @@ UPDATE vehicle_expenses
 SET status = sqlc.arg(status), admin_note = coalesce(sqlc.narg(admin_note), admin_note)
 WHERE id = sqlc.arg(id);
 
--- name: SetLegacyDocID :exec
--- A row born in PostgreSQL gets its Firestore document id the first time the write-back writes it (R25).
-UPDATE vehicle_expenses SET legacy_doc_id = sqlc.arg(legacy_doc_id) WHERE id = sqlc.arg(id) AND legacy_doc_id IS NULL;
-
 -- name: TollRowExists :one
 -- A toll row already imported for the truck: same instant, amount, place and lane (a re-imported card history skips
 -- the transactions it already holds).
@@ -156,7 +160,3 @@ SELECT EXISTS (SELECT 1 FROM vehicle_expenses
                  AND expense_at = sqlc.arg(expense_at)::timestamptz AND amount_thb = sqlc.arg(amount_thb)::numeric
                  AND coalesce(toll_location, '') = sqlc.arg(toll_location)::text
                  AND coalesce(toll_lane, '') = sqlc.arg(toll_lane)::text)::boolean AS taken;
-
--- name: ActorLegacyUID :one
--- The legacy uid the write-back stamps on createdByUid (Firebase uid of the user, else its uuid).
-SELECT coalesce(legacy_auth_uid, id::text)::text FROM users WHERE id = sqlc.arg(id);

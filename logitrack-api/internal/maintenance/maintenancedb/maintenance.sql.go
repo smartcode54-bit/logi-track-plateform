@@ -12,18 +12,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const actorLegacyUID = `-- name: ActorLegacyUID :one
-SELECT coalesce(legacy_auth_uid, id::text)::text FROM users WHERE id = $1
-`
-
-// The legacy uid the write-back stamps on createdBy / updatedBy (Firebase uid of the user, else its uuid).
-func (q *Queries) ActorLegacyUID(ctx context.Context, id uuid.UUID) (string, error) {
-	row := q.db.QueryRow(ctx, actorLegacyUID, id)
-	var column_1 string
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
 const countMaintenanceByStatus = `-- name: CountMaintenanceByStatus :many
 SELECT m.status, count(*)::bigint AS n
 FROM maintenance_records m
@@ -87,25 +75,24 @@ func (q *Queries) DeleteRecordFiles(ctx context.Context, arg DeleteRecordFilesPa
 }
 
 const insertRecord = `-- name: InsertRecord :one
-INSERT INTO maintenance_records (id, legacy_doc_id, tenant_id, tenant_source, truck_id, truck_license_plate_snapshot,
+INSERT INTO maintenance_records (id, tenant_id, tenant_source, truck_id, truck_license_plate_snapshot,
                                  truck_brand_snapshot, maintenance_type, service_type, start_date, end_date, status,
                                  appointment_time, pickup_appointment_at, cost_labor_thb, cost_parts_thb, total_cost_thb,
                                  invoice_amount_thb, provider, provider_lat, provider_lng, payment_method, current_mileage,
                                  next_service_mileage, notes, created_by, updated_by)
-VALUES ($1, $2, $3, 'truck', $4,
-        $5, $6, $7, $8,
-        $9::date, $10::date, $11, $12,
-        $13::timestamptz, $14::numeric,
-        $15::numeric, $16::numeric, $17::numeric,
-        $18, $19::double precision, $20::double precision,
-        $21, $22::int, $23::int,
-        $24, $25::uuid, $25::uuid)
+VALUES ($1, $2, 'truck', $3,
+        $4, $5, $6, $7,
+        $8::date, $9::date, $10, $11,
+        $12::timestamptz, $13::numeric,
+        $14::numeric, $15::numeric, $16::numeric,
+        $17, $18::double precision, $19::double precision,
+        $20, $21::int, $22::int,
+        $23, $24::uuid, $24::uuid)
 RETURNING id, legacy_doc_id, tenant_id, tenant_source, truck_id, truck_license_plate_snapshot, truck_brand_snapshot, maintenance_type, service_type, start_date, end_date, status, appointment_time, pickup_appointment_at, cost_labor_thb, cost_parts_thb, total_cost_thb, invoice_amount_thb, provider, provider_lat, provider_lng, payment_method, current_mileage, next_service_mileage, driver_submitted, check_in_at, check_out_at, notes, created_by, updated_by, created_at, updated_at
 `
 
 type InsertRecordParams struct {
 	ID                  uuid.UUID
-	LegacyDocID         *string
 	TenantID            uuid.UUID
 	TruckID             *uuid.UUID
 	PlateSnapshot       *string
@@ -131,12 +118,11 @@ type InsertRecordParams struct {
 	Actor               *uuid.UUID
 }
 
-// tenant_id is the truck's (tenant_source 'truck', tenancy.Resolve "maintenance"); legacy_doc_id is the minted
-// Firestore document id while the class C write-back is on (R25), else NULL.
+// tenant_id is the truck's (tenant_source 'truck', tenancy.Resolve "maintenance"). A record born here has no
+// legacy_doc_id (the FS->PG mirror sets it on the rows it loads).
 func (q *Queries) InsertRecord(ctx context.Context, arg InsertRecordParams) (MaintenanceRecord, error) {
 	row := q.db.QueryRow(ctx, insertRecord,
 		arg.ID,
-		arg.LegacyDocID,
 		arg.TenantID,
 		arg.TruckID,
 		arg.PlateSnapshot,
@@ -262,8 +248,8 @@ func (q *Queries) InsertTruckStatus(ctx context.Context, arg InsertTruckStatusPa
 const listMaintenance = `-- name: ListMaintenance :many
 
 SELECT m.id, m.legacy_doc_id, m.tenant_id, m.tenant_source, m.truck_id, m.truck_license_plate_snapshot, m.truck_brand_snapshot, m.maintenance_type, m.service_type, m.start_date, m.end_date, m.status, m.appointment_time, m.pickup_appointment_at, m.cost_labor_thb, m.cost_parts_thb, m.total_cost_thb, m.invoice_amount_thb, m.provider, m.provider_lat, m.provider_lng, m.payment_method, m.current_mileage, m.next_service_mileage, m.driver_submitted, m.check_in_at, m.check_out_at, m.notes, m.created_by, m.updated_by, m.created_at, m.updated_at,
-       coalesce(t.license_plate, m.truck_license_plate_snapshot)::text AS plate,
-       coalesce(t.brand, m.truck_brand_snapshot)::text AS brand,
+       coalesce(t.license_plate, m.truck_license_plate_snapshot, '')::text AS plate,
+       coalesce(t.brand, m.truck_brand_snapshot, '')::text AS brand,
        t.model AS truck_model, t.ownership_type AS truck_ownership, t.status AS truck_status,
        coalesce((SELECT array_agg(f.object_key ORDER BY mf.position, f.object_key)
                  FROM maintenance_files mf JOIN file_objects f ON f.id = mf.file_id
@@ -352,7 +338,8 @@ type ListMaintenanceRow struct {
 // Lock order of every maintenance write: the truck first (LockTruck), then the record (LockRecord). The PM check locks
 // only the truck, so two writes on one truck serialise and no two of them wait for each other in reverse.
 // GET /v1/maintenance, newest first; keyset (created_at, id). The truck columns come from the truck row (the plate
-// snapshot when the truck is not readable); the file keys are aggregated per kind in position order.
+// and brand snapshots when the truck is not readable, ” when the record has none either: a quarantined ETL record has
+// no truck, and the ETL snapshots no brand); the file keys are aggregated per kind in position order.
 func (q *Queries) ListMaintenance(ctx context.Context, arg ListMaintenanceParams) ([]ListMaintenanceRow, error) {
 	rows, err := q.db.Query(ctx, listMaintenance,
 		arg.AllTenants,
@@ -470,7 +457,7 @@ func (q *Queries) LockRecord(ctx context.Context, id uuid.UUID) (MaintenanceReco
 
 const lockTruck = `-- name: LockTruck :one
 
-SELECT id, tenant_id, legacy_doc_id, license_plate, brand, model, status, legacy_status, next_service_mileage,
+SELECT id, tenant_id, license_plate, brand, model, status, legacy_status, next_service_mileage,
        current_mileage, last_alert_mileage, last_service_date, active_maintenance_id
 FROM trucks
 WHERE id = $1 AND ($2::boolean OR tenant_id = ANY ($3::uuid[]))
@@ -486,7 +473,6 @@ type LockTruckParams struct {
 type LockTruckRow struct {
 	ID                  uuid.UUID
 	TenantID            uuid.UUID
-	LegacyDocID         *string
 	LicensePlate        string
 	Brand               string
 	Model               string
@@ -507,7 +493,6 @@ func (q *Queries) LockTruck(ctx context.Context, arg LockTruckParams) (LockTruck
 	err := row.Scan(
 		&i.ID,
 		&i.TenantID,
-		&i.LegacyDocID,
 		&i.LicensePlate,
 		&i.Brand,
 		&i.Model,
@@ -605,21 +590,6 @@ func (q *Queries) RecordTruck(ctx context.Context, arg RecordTruckParams) (*uuid
 	var truck_id *uuid.UUID
 	err := row.Scan(&truck_id)
 	return truck_id, err
-}
-
-const setLegacyDocID = `-- name: SetLegacyDocID :exec
-UPDATE maintenance_records SET legacy_doc_id = $1 WHERE id = $2 AND legacy_doc_id IS NULL
-`
-
-type SetLegacyDocIDParams struct {
-	LegacyDocID *string
-	ID          uuid.UUID
-}
-
-// A record born in PostgreSQL gets its Firestore document id the first time the write-back writes it (R25).
-func (q *Queries) SetLegacyDocID(ctx context.Context, arg SetLegacyDocIDParams) error {
-	_, err := q.db.Exec(ctx, setLegacyDocID, arg.LegacyDocID, arg.ID)
-	return err
 }
 
 const truckDriverIDs = `-- name: TruckDriverIDs :many

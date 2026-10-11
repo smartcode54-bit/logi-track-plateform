@@ -1,6 +1,7 @@
 package notify
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -97,9 +98,10 @@ const reasonClaimsChanged = "claims_changed"
 //     {first_mile|line_haul}_task_{assigned|unassigned|cancelled} on channel task_assignments;
 //   - task.updated / task.checked_in / task.plan_date_changed: the silent tasks_changed push to the
 //     task's driver and helper, one per driver per 30 s (R21; a suppressed push logs deduplicated);
-//   - maintenance.created (a record created scheduled or in_progress: it has an appointment) and
-//     maintenance.reminder_requested (POST /v1/maintenance/{id}/remind, a PM booking moved to scheduled or
-//     in_progress): maintenance_scheduled to the drivers of the record's truck (T40);
+//   - maintenance.reminder_requested (POST /v1/maintenance/{id}/remind, a PM booking moved to scheduled or
+//     in_progress) and maintenance.created of a record created scheduled (the only created state with an
+//     appointment; the legacy page pushed on no creation): maintenance_scheduled to the drivers of the record's
+//     truck (T40);
 //   - user.sessions_revoked: the silent session_revoked push to the device of each revoked session
 //     (device_tokens.install_id = sessions.install_id, R50, R83, R84); claims_changed sends none.
 //
@@ -758,11 +760,13 @@ func (d *dedupe) decide(ctx context.Context, driverID uuid.UUID) dedupeDecision 
 }
 
 // maintenanceEvent is the payload of maintenance.created and maintenance.reminder_requested (internal/maintenance):
-// the record, and the staff's push text of a reminder. Everything else is re-read from maintenance_records.
+// the record, its status when it was created, and the staff's push text of a reminder. Everything else is re-read
+// from maintenance_records.
 type maintenanceEvent struct {
-	ID    uuid.UUID `json:"id"`
-	Title string    `json:"title"`
-	Body  string    `json:"body"`
+	ID     uuid.UUID `json:"id"`
+	Status string    `json:"status"`
+	Title  string    `json:"title"`
+	Body   string    `json:"body"`
 }
 
 // MaintenanceReminderBody is the legacy reminder text (maintenance.ts:45-52): "รถ {plate} วันที่ {startDate} เวลา
@@ -783,8 +787,11 @@ func MaintenanceReminderBody(plate, startDate, appointmentTime, provider string)
 
 // planMaintenance plans maintenance_scheduled to the drivers of the record's truck (read server-side; the legacy
 // callable took the driver id from the browser, fn:triggers.ts:362-391). maintenance.created pushes only a record
-// created scheduled or in_progress (a PM booking has no appointment yet); a record that is completed or cancelled by
-// the time the message is read pushes nothing. Without staff text the push is the legacy title and body.
+// created scheduled (the event's status, else the record's): the legacy page pushed on no creation, only when a PM
+// booking moved to scheduled or in_progress (maintenance.reminder_requested), and a record created in_progress (the
+// form's default, a repair already in the shop) or as a PM booking has no appointment to announce. A record that is
+// completed or cancelled by the time the message is read pushes nothing. Without staff text the push is the legacy
+// title and body.
 func planMaintenance(ctx context.Context, q *notifydb.Queries, d *mq.Delivery) ([]target, error) {
 	var ev maintenanceEvent
 	if err := d.Decode(&ev); err != nil {
@@ -800,10 +807,11 @@ func planMaintenance(ctx context.Context, q *notifydb.Queries, d *mq.Delivery) (
 	if err != nil {
 		return nil, err
 	}
+	created := cmp.Or(ev.Status, m.Status)
 	switch {
 	case m.TruckID == nil, m.Status == "completed", m.Status == "cancelled":
 		return nil, nil
-	case d.RoutingKey == RouteMaintenanceCreated && m.Status != "scheduled" && m.Status != "in_progress":
+	case d.RoutingKey == RouteMaintenanceCreated && created != "scheduled":
 		return nil, nil
 	}
 	drivers, err := q.TruckDrivers(ctx, *m.TruckID)

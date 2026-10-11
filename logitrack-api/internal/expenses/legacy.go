@@ -1,13 +1,12 @@
 package expenses
 
 import (
-	"context"
-	"slices"
+	"maps"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/expenses/expensesdb"
-	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/writeback"
 )
 
 // Collection is the Firestore collection of vehicle expenses (class C until P7b).
@@ -17,7 +16,8 @@ const Collection = "vehicle_expenses"
 func LegacyStatus(status string) string { return strings.ToUpper(status) }
 
 // legacyNames maps the JSON fields of a staff write onto the Firestore fields they set (the shapes of
-// vehicle_expense.dart toFirestore and expenses.ts updateVehicleExpense).
+// vehicle_expense.dart toFirestore and expenses.ts updateVehicleExpense). The photo keys have none: Go uploads carry no
+// legacy URL (main spec §13.8).
 var legacyNames = map[string][]string{
 	"date": {"date"}, "amountThb": {"amount"}, "category": {"category"}, "volumeLiters": {"volumeLiters"},
 	"pricePerLiter": {"pricePerLiter"}, "odometerKm": {"odometer"}, "stationTaxId": {"stationTaxId"},
@@ -27,12 +27,12 @@ var legacyNames = map[string][]string{
 	"tollSourceType": {"tollSourceType"}, "truckId": {"truckId", "truckLicensePlate"}, "status": {"status"},
 }
 
-// legacyRefs are the Firestore ids of the row's driver (the Firebase uid, main spec §13.8 Q1) and truck (the trucks
-// document id), when the caller already holds them.
-type legacyRefs struct{ driver, truck *string }
+// LegacyRefs are the Firestore ids a legacy write names: the row's driver (the Firebase uid, main spec §13.8 Q1), its
+// truck (the trucks document id) and, for a created row, its creator (createdByUid; empty = left out).
+type LegacyRefs struct{ Driver, Truck, CreatedBy string }
 
 // LegacyFields is the Firestore shape of a row's staff-written fields: driverId and truckId are the Firestore ids,
-// status the upper-case literal, refillLocation "lat,lng", nil for an empty field (the write-back removes it). The
+// status the upper-case literal, refillLocation "lat,lng", nil for an empty field (a write-back removes it). The
 // photos (receiptPhotoUrl, odometerPhotoUrl) are the APK's: Go uploads carry no legacy URL (main spec §13.8).
 func LegacyFields(e expensesdb.VehicleExpense, driverRef, truckRef string) map[string]any {
 	str := func(p *string) any {
@@ -74,54 +74,21 @@ func LegacyFields(e expensesdb.VehicleExpense, driverRef, truckRef string) map[s
 	}
 }
 
-// writeBack writes a staff change of a row to its Firestore document before COMMIT when the write-back is on (class
-// C, main spec §13.8): a new row (created) writes every staff field with createdAt / createdByUid, a change only the
-// Firestore fields of the changed JSON fields (the driver's own fields of a pending row stay the APK's), always with
-// updatedAt. A row born in PostgreSQL gets the minted document id (its uuid, R25) as legacy_doc_id. A failed write
-// rolls the request back (503 unavailable).
-func (s *Service) writeBack(ctx context.Context, q *expensesdb.Queries, e expensesdb.VehicleExpense, refs legacyRefs,
-	changed []string, created bool) error {
-	if s.wb == nil {
-		return nil
-	}
-	doc := e.ID.String()
-	if e.LegacyDocID != nil && *e.LegacyDocID != "" {
-		doc = *e.LegacyDocID
-	} else if err := q.SetLegacyDocID(ctx, expensesdb.SetLegacyDocIDParams{LegacyDocID: &doc, ID: e.ID}); err != nil {
-		return err
-	}
-	driverRef := ""
-	switch {
-	case refs.driver != nil:
-		driverRef = *refs.driver
-	case e.LegacyDriverRef != nil && *e.LegacyDriverRef != "":
-		driverRef = *e.LegacyDriverRef
-	case e.DriverID != nil && (created || slices.Contains(changed, "driverId")):
-		v, err := q.DriverLegacyRef(ctx, *e.DriverID)
-		if err != nil {
-			return err
-		}
-		driverRef = v
-	}
-	truckRef := ""
-	switch {
-	case refs.truck != nil:
-		truckRef = *refs.truck
-	case e.TruckID != nil:
-		truckRef = e.TruckID.String()
-	}
-	all := LegacyFields(e, driverRef, truckRef)
-	now := s.now()
-	fields := map[string]any{"updatedAt": now}
+// LegacyWrite is the Firestore write of one staff write of e: the fields the class C write-back of T31 merges into the
+// row's document (main spec §11.10, §13.8: Firestore first, the FS->PG mirror fills PostgreSQL). A created row (a
+// staff entry, a toll import row) sets every staff field of LegacyFields with createdAt and createdByUid. A change
+// (PATCH: merge's changed list plus truckId; an audit decision: status and adminNote) sets only the Firestore fields of
+// the JSON fields it changed, so the driver's own fields of a pending row and every field the change did not touch
+// keep their Firestore values. Both stamp updatedAt. A change of no Firestore field (a photo key alone) is nil:
+// nothing is written.
+func LegacyWrite(e expensesdb.VehicleExpense, refs LegacyRefs, changed []string, created bool, now time.Time) map[string]any {
+	all := LegacyFields(e, refs.Driver, refs.Truck)
+	fields := map[string]any{}
 	if created {
-		for k, v := range all {
-			fields[k] = v
-		}
+		maps.Copy(fields, all)
 		fields["createdAt"] = now
-		if e.CreatedByUserID != nil {
-			if uid, err := q.ActorLegacyUID(ctx, *e.CreatedByUserID); err == nil {
-				fields["createdByUid"] = uid
-			}
+		if refs.CreatedBy != "" {
+			fields["createdByUid"] = refs.CreatedBy
 		}
 	} else {
 		for _, c := range changed {
@@ -129,9 +96,10 @@ func (s *Service) writeBack(ctx context.Context, q *expensesdb.Queries, e expens
 				fields[name] = all[name]
 			}
 		}
+		if len(fields) == 0 {
+			return nil
+		}
 	}
-	if err := s.wb.Merge(ctx, Collection, doc, fields); err != nil {
-		return writeback.ErrUnavailable(err)
-	}
-	return nil
+	fields["updatedAt"] = now
+	return fields
 }

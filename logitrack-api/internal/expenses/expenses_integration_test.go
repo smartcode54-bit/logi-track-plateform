@@ -327,6 +327,40 @@ func TestApprovalCreatesOnePMBooking(t *testing.T) {
 	}
 }
 
+// Approved staff fuel entries of one truck with odometer readings run the PM check concurrently: each one locks the
+// truck before inserting its row (the insert's foreign-key check takes FOR KEY SHARE on the truck, so locking it FOR
+// UPDATE afterwards deadlocked two entries, 40P01 -> 500); every entry lands and the truck gets one PM booking.
+func TestConcurrentEntriesOfOneTruck(t *testing.T) {
+	w := newWorld(t)
+	ta := w.login("ta.o")
+	var failed []string
+	var mu sync.Mutex
+	for round := range 10 {
+		var wg sync.WaitGroup
+		for i := range 2 {
+			wg.Go(func() {
+				r := w.post("/v1/expenses", ta, map[string]any{"type": "fuel", "driverId": w.dO, "truckId": w.tO,
+					"date": "2026-10-10T08:00", "amountThb": 100, "odometerKm": 97500 + 100*round + i})
+				if r.status != http.StatusCreated {
+					mu.Lock()
+					failed = append(failed, string(r.raw))
+					mu.Unlock()
+				}
+			})
+		}
+		wg.Wait()
+	}
+	if len(failed) > 0 {
+		t.Fatalf("%d entries failed: %v", len(failed), failed)
+	}
+	if n := w.count(`SELECT count(*) FROM vehicle_expenses WHERE truck_id = $1 AND status = 'approved'`, w.tO); n != 20 {
+		t.Fatalf("%d entries, want 20", n)
+	}
+	if n := w.count(`SELECT count(*) FROM maintenance_records WHERE truck_id = $1 AND status = 'pm_booking'`, w.tO); n != 1 {
+		t.Fatalf("%d PM bookings, want exactly one", n)
+	}
+}
+
 // The PM check route (checkMaintenanceAlert, which ran unauthenticated): accounting:audit_expense, a truck of the
 // caller's reach, the legacy outcomes.
 func TestPMCheckRoute(t *testing.T) {

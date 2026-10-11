@@ -1,36 +1,53 @@
 package maintenance
 
 import (
-	"context"
+	"maps"
 	"time"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/maintenance/maintenancedb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/clock"
-	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/writeback"
 )
 
 // Collection is the Firestore collection of maintenance records (class C until P7b).
 const Collection = "maintenance"
 
 // LegacyStatus maps a canonical status onto the literal the installed APKs read (main spec §13.8 status table):
-// pm_booking 'PM Booking', scheduled 'Scheduled', in_progress 'In-Progress'; completed and cancelled as they are.
-func LegacyStatus(status string) string {
+// pm_booking 'PM Booking', scheduled 'Scheduled', completed and cancelled as they are. in_progress has two legacy
+// literals that PostgreSQL folds into one status and tells apart by check_in_at: 'In-Progress' once the driver has
+// checked in (the 3.x app writes it with checkInAt at its check-in, maintenance_repository.dart:78, and shows the
+// completion form for it), the web's 'in_progress' before (the truck is sent to the shop and the driver's check-in step
+// is still ahead: the 3.x app shows that step for 'Scheduled', 'PM Booking' and 'in_progress' only,
+// maintenance_action_page.dart:206-231).
+func LegacyStatus(status string, checkedIn bool) string {
 	switch status {
 	case StatusPMBooking:
 		return "PM Booking"
 	case StatusScheduled:
 		return "Scheduled"
 	case StatusInProgress:
-		return "In-Progress"
+		if checkedIn {
+			return "In-Progress"
+		}
+		return "in_progress"
 	}
 	return status
 }
 
-// LegacyFields is the Firestore shape of the staff-owned fields of a record (validate/maintenanceSchema.ts and the
-// PM booking of fn:triggers.ts:497-509): the fields a staff write sets, nil for an empty one (the write-back removes
-// it). The driver's fields (driverSubmitted, checkInAt, checkOutAt, images, receipts, invoiceUrl) are the APK's and
-// never written back. truckRef is the truck's Firestore id; created adds createdAt / createdBy.
-func LegacyFields(r maintenancedb.MaintenanceRecord, truckRef, actorRef string, now time.Time, created bool) map[string]any {
+// legacyNames maps the JSON fields of a staff write (merge's changed list) onto the Firestore field each one sets
+// (validate/maintenanceSchema.ts). files has none: Go uploads carry no legacy URL (main spec §13.8).
+var legacyNames = map[string]string{
+	"type": "type", "serviceType": "serviceType", "startDate": "startDate", "endDate": "endDate", "status": "status",
+	"appointmentTime": "appointmentTime", "pickupAppointmentAt": "pickupAppointment", "costLaborThb": "costLabor",
+	"costPartsThb": "costParts", "totalCostThb": "totalCost", "invoiceAmountThb": "invoiceAmount",
+	"provider": "provider", "providerLat": "providerLat", "providerLng": "providerLng", "paymentMethod": "paymentMethod",
+	"currentMileage": "currentMileage", "nextServiceMileage": "nextServiceMileage", "notes": "notes",
+}
+
+// LegacyFields is the Firestore shape of the staff fields of a record (validate/maintenanceSchema.ts and the PM booking
+// of fn:triggers.ts:497-509), nil for an empty one (a write-back removes it). The driver's fields (driverSubmitted,
+// checkInAt, checkOutAt, images, receipts, invoiceUrl) are the APK's and never part of it. truckRef is the truck's
+// Firestore id. status is LegacyStatus of the record's check-in.
+func LegacyFields(r maintenancedb.MaintenanceRecord, truckRef string) map[string]any {
 	str := func(p *string) any {
 		if p == nil || *p == "" {
 			return nil
@@ -63,50 +80,42 @@ func LegacyFields(r maintenancedb.MaintenanceRecord, truckRef, actorRef string, 
 	if truckRef != "" {
 		truck = truckRef
 	}
-	f := map[string]any{
+	return map[string]any{
 		"truckId": truck, "truckLicensePlate": str(r.TruckLicensePlateSnapshot), "truckBrand": str(r.TruckBrandSnapshot),
 		"type": r.MaintenanceType, "serviceType": r.ServiceType, "startDate": r.StartDate.Format(time.DateOnly),
-		"endDate": date(r.EndDate), "status": LegacyStatus(r.Status), "appointmentTime": str(r.AppointmentTime),
-		"pickupAppointment": pickup, "costLabor": num(r.CostLaborThb), "costParts": num(r.CostPartsThb),
-		"totalCost": num(r.TotalCostThb), "invoiceAmount": num(r.InvoiceAmountThb), "provider": str(r.Provider),
-		"providerLat": num(r.ProviderLat), "providerLng": num(r.ProviderLng), "paymentMethod": str(r.PaymentMethod),
-		"currentMileage": integer(r.CurrentMileage), "nextServiceMileage": integer(r.NextServiceMileage),
-		"notes": str(r.Notes), "updatedAt": now, "updatedBy": actorRef,
+		"endDate": date(r.EndDate), "status": LegacyStatus(r.Status, r.CheckInAt != nil),
+		"appointmentTime": str(r.AppointmentTime), "pickupAppointment": pickup, "costLabor": num(r.CostLaborThb),
+		"costParts": num(r.CostPartsThb), "totalCost": num(r.TotalCostThb), "invoiceAmount": num(r.InvoiceAmountThb),
+		"provider": str(r.Provider), "providerLat": num(r.ProviderLat), "providerLng": num(r.ProviderLng),
+		"paymentMethod": str(r.PaymentMethod), "currentMileage": integer(r.CurrentMileage),
+		"nextServiceMileage": integer(r.NextServiceMileage), "notes": str(r.Notes),
 	}
-	if created {
-		f["createdAt"], f["createdBy"] = now, actorRef
-	}
-	return f
 }
 
-// writeBack writes a record's staff fields to its Firestore document before COMMIT when the write-back is on (class
-// C, main spec §13.8): a record born in PostgreSQL gets the minted document id (its uuid, R25) as legacy_doc_id. A
-// failed write rolls the request back (503 unavailable).
-func (s *Service) writeBack(ctx context.Context, q *maintenancedb.Queries, r maintenancedb.MaintenanceRecord, t *truckState, created bool) error {
-	if s.wb == nil {
-		return nil
-	}
-	doc := r.ID.String()
-	if r.LegacyDocID != nil && *r.LegacyDocID != "" {
-		doc = *r.LegacyDocID
-	} else if err := q.SetLegacyDocID(ctx, maintenancedb.SetLegacyDocIDParams{LegacyDocID: &doc, ID: r.ID}); err != nil {
-		return err
-	}
-	truckRef := ""
-	switch {
-	case t != nil && t.LegacyDocID != nil && *t.LegacyDocID != "":
-		truckRef = *t.LegacyDocID
-	case r.TruckID != nil:
-		truckRef = r.TruckID.String()
-	}
-	actorRef := "system"
-	if r.UpdatedBy != nil {
-		if v, err := q.ActorLegacyUID(ctx, *r.UpdatedBy); err == nil {
-			actorRef = v
+// LegacyWrite is the Firestore write of one staff write of r: the fields the class C write-back of T31 merges into the
+// record's document (main spec §11.10, §13.8: Firestore first, the FS->PG mirror fills PostgreSQL). A created record
+// (POST, the PM booking) sets every staff field of LegacyFields with createdAt and createdBy. A change sets only the
+// Firestore fields of the JSON fields it changed (changed: merge's list), so the fields the 3.x app writes on the
+// same document (status and checkInAt at its check-in, invoiceAmount and driverSubmitted at its completion) keep
+// their values unless the staff changed them; status is written only by a status change. Both stamp updatedAt and
+// updatedBy (actorRef: the actor's Firebase uid). A change of no Firestore field (files alone) is nil: nothing is
+// written, so the document's updatedAt does not move for it.
+func LegacyWrite(r maintenancedb.MaintenanceRecord, truckRef, actorRef string, changed []string, created bool, now time.Time) map[string]any {
+	all := LegacyFields(r, truckRef)
+	fields := map[string]any{}
+	if created {
+		maps.Copy(fields, all)
+		fields["createdAt"], fields["createdBy"] = now, actorRef
+	} else {
+		for _, c := range changed {
+			if name, ok := legacyNames[c]; ok {
+				fields[name] = all[name]
+			}
+		}
+		if len(fields) == 0 {
+			return nil
 		}
 	}
-	if err := s.wb.Merge(ctx, Collection, doc, LegacyFields(r, truckRef, actorRef, s.now(), created)); err != nil {
-		return writeback.ErrUnavailable(err)
-	}
-	return nil
+	fields["updatedAt"], fields["updatedBy"] = now, actorRef
+	return fields
 }

@@ -12,8 +12,9 @@
 //
 // Statuses are the canonical lower_snake vocabulary of maintenance_records (pm_booking, scheduled, in_progress,
 // completed, cancelled; R65); the legacy literals ('PM Booking', 'Scheduled', 'In-Progress') are accepted on input and
-// normalised (NormalizeStatus), never stored or answered. While the maintenance domain is Firestore-owned (class C,
-// main spec §12.1) a configured writeback.Writer receives every staff write in the legacy shape before COMMIT.
+// normalised (NormalizeStatus), never stored or answered. Staff writes go to PostgreSQL: the class C write-back of a
+// Firestore-owned domain (main spec §11.10, §13.8: Firestore first, then the FS->PG mirror) lands with T31, which
+// encodes a write with LegacyWrite.
 package maintenance
 
 import (
@@ -43,7 +44,6 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/outbox"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/realtime"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
-	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/writeback"
 )
 
 // Outbox routing keys (Appendix B §B.5.2): the maintenance family on tenant:{tid}:fleet and driver:{driverId}
@@ -111,10 +111,7 @@ type Deps struct {
 	Pool db.Beginner
 	// Files commits uploaded keys; optional (without it a new key is refused, not_found).
 	Files Files
-	// WriteBack, when set, receives every staff write in the legacy Firestore shape before COMMIT (class C until
-	// P7b); nil = PostgreSQL only.
-	WriteBack writeback.Writer
-	Log       zerolog.Logger
+	Log   zerolog.Logger
 	// Now is the clock of the PM booking's start date and of status_history (tests pin it); nil = time.Now.
 	Now func() time.Time
 }
@@ -123,7 +120,6 @@ type Deps struct {
 type Service struct {
 	pool  db.Beginner
 	files Files
-	wb    writeback.Writer
 	log   zerolog.Logger
 	now   func() time.Time
 }
@@ -137,7 +133,7 @@ func New(d Deps) (*Service, error) {
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{pool: d.Pool, files: d.Files, wb: d.WriteBack, log: d.Log, now: now}, nil
+	return &Service{pool: d.Pool, files: d.Files, log: d.Log, now: now}, nil
 }
 
 // tx runs fn in a request transaction of p: RLS decides every row it reads or writes.
@@ -324,8 +320,9 @@ func errFailedPrecondition(reason string, details map[string]any) *httpx.Error {
 }
 
 // mapDBError turns the database refusals a request can still meet into the API's codes: checks and foreign keys
-// (422), unique keys (409) and RLS (42501: a row outside the caller's write reach, 403); anything else is returned
-// as is (500 for an unknown database error).
+// (422), unique keys (409), RLS (42501: a row outside the caller's write reach, 403) and a deadlock or serialization
+// failure (40P01, 40001: the transaction was rolled back, 503 unavailable with details.reason contention, so the
+// client may retry); anything else is returned as is (500 for an unknown database error).
 func mapDBError(err error) error {
 	var pe *pgconn.PgError
 	if !errors.As(err, &pe) {
@@ -341,6 +338,9 @@ func mapDBError(err error) error {
 		return httpx.ErrInvalidArgument(violation(pe.ConstraintName, "invalid")).Wrap(err)
 	case "42501":
 		return authz.ErrPermissionDenied("row-level security refused the write").Wrap(err)
+	case "40P01", "40001":
+		return httpx.NewError(http.StatusServiceUnavailable, httpx.CodeUnavailable, "the database aborted a conflicting write").
+			WithDetails(map[string]any{"reason": "contention"}).Wrap(err)
 	}
 	return err
 }

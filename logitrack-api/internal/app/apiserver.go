@@ -260,8 +260,8 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		return nil, nil, err
 	}
 	// Maintenance and vehicle expenses (T40): RLS decides (db.WithPrincipal); an approval runs the PM check in its
-	// transaction. The class C write-back stays off (nil writer): staff writes go to PostgreSQL only, as on a
-	// PostgreSQL-owned domain or a deployment without the FS->PG mirror (main spec §12.1, internal/writeback).
+	// transaction. Staff writes go to PostgreSQL, as a PostgreSQL-owned domain and a deployment without the FS->PG
+	// mirror need; the class C write-back (Firestore first, main spec §11.10) lands with T31 (internal/writeback).
 	maintSvc, err := maintenance.New(maintenance.Deps{Pool: pool, Files: st, Log: log})
 	if err != nil {
 		closeAll()

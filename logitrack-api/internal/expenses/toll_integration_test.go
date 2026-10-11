@@ -5,6 +5,7 @@ package expenses_test
 import (
 	"bytes"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
@@ -120,5 +121,35 @@ func TestTollImport(t *testing.T) {
 	r = w.post("/v1/expenses/toll-import", ta, map[string]any{"rows": []any{}})
 	if r.fields()["driverId"] != "required" || r.fields()["truckId"] != "required" {
 		t.Errorf("required: %s", r.raw)
+	}
+}
+
+// Two overlapping imports of one history (a double submit, a retry after a proxy timeout while the first one still
+// runs) add it once: the imports of one truck hold an advisory lock, so the second one reads the first one's rows.
+func TestTollImportConcurrent(t *testing.T) {
+	w := newWorld(t)
+	ta := w.login("ta.o")
+	const n = 300
+	rows := make([]map[string]any, n)
+	start := time.Date(2026, 4, 1, 6, 0, 0, 0, time.UTC)
+	for i := range rows {
+		rows[i] = map[string]any{"sequence": i + 1, "date": start.Add(time.Duration(i) * time.Minute).Format(time.RFC3339),
+			"amountThb": 45, "location": "ด่านบางนา", "lane": "03", "sourceType": "ผ่านทาง"}
+	}
+	body := map[string]any{"driverId": w.dO, "truckId": w.tO, "rows": rows}
+	var wg sync.WaitGroup
+	results := make([]resp, 3)
+	for i := range results {
+		wg.Go(func() { results[i] = w.post("/v1/expenses/toll-import", ta, body) })
+	}
+	wg.Wait()
+	created := 0
+	for _, r := range results {
+		expect(t, r, http.StatusOK, "")
+		created += int(num(r.data()["created"]))
+	}
+	if created != n || w.count(`SELECT count(*) FROM vehicle_expenses WHERE category = 'toll'`) != n {
+		t.Fatalf("%d created, %d rows; want the history once (%d)", created,
+			w.count(`SELECT count(*) FROM vehicle_expenses WHERE category = 'toll'`), n)
 	}
 }

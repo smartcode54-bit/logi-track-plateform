@@ -1,15 +1,16 @@
-// Package writeback is the class C write-back of the coexistence (developer-spec.md §12.1, §13.8, R25). While a domain
-// is not PostgreSQL-owned (PG_OWNED_DOMAINS), Firestore stays the writer of the collections the installed APKs write
-// (vehicle_expenses, maintenance, tasks, ...): the FS->PG mirror fills PostgreSQL, and a staff write that Go serves is
-// also written to the Firestore document, in the legacy shape, before the PostgreSQL transaction commits, so the mirror
-// applies the same values back and the APK reads the change. A write-back that fails rolls the request back (503
-// unavailable): PostgreSQL never holds a staff change Firestore does not.
+// Package writeback is the port of the class C write-back of the coexistence (developer-spec.md §11.10, §12.1, §13.7,
+// §13.8, R25). While a domain is not PostgreSQL-owned (PG_OWNED_DOMAINS), Firestore stays the only writer of the
+// collections the installed APKs write (vehicle_expenses, maintenance, tasks, ...): a staff or 4.x write Go serves
+// goes to the Firestore document first, in the legacy shape (the domain encoders, e.g. expenses.LegacyWrite and
+// maintenance.LegacyWrite, which name only the fields the write changed), the FS->PG mirror fills PostgreSQL, and the
+// handler waits up to 3 s for the mirror acknowledgement (cache:mirror_ack), else answers 202. PostgreSQL is never a
+// second writer of those rows.
 //
-// Writer is the port the domain services take (nil = write-back off: the staff write goes to PostgreSQL only, as on
-// a PostgreSQL-owned domain or a deployment without the mirror such as the staging VM). Firestore adapts the Firestore
-// REST client of internal/etl/gcp (service-account token, update masks); Memory is the in-memory stand-in of tests.
-// No process wires a Firestore writer yet: switching the write-back on in an environment is an operator decision
-// recorded with the coexistence runbook (T31 builds the shared write-back endpoints and the mirror acknowledgement).
+// Writer is the port; Firestore adapts the Firestore REST client of internal/etl/gcp (service-account token, update
+// masks); Memory is the in-memory stand-in of tests. No service calls it yet: T31 builds the write-back flow and the
+// mirror acknowledgement on it, and switching it on in an environment is an operator decision recorded with the
+// coexistence runbook. Until then staff writes go to PostgreSQL only, which is what a PostgreSQL-owned domain and a
+// deployment without the mirror (the staging VM) need.
 package writeback
 
 import (
@@ -35,8 +36,8 @@ type Writer interface {
 	Merge(ctx context.Context, collection, docID string, fields map[string]any) error
 }
 
-// ErrUnavailable is the API answer to a failed write-back: the request's transaction rolls back and the client may
-// retry (Appendix B §B.1.5 503 unavailable, details.reason write_back).
+// ErrUnavailable is the API answer to a failed write-back: nothing of the request is kept and the client may retry
+// (Appendix B §B.1.5 503 unavailable, details.reason write_back).
 func ErrUnavailable(cause error) error {
 	return httpx.NewError(http.StatusServiceUnavailable, httpx.CodeUnavailable, "the Firestore write-back failed").
 		WithDetails(map[string]any{"reason": "write_back"}).Wrap(cause)

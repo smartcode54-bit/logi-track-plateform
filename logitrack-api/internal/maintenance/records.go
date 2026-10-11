@@ -853,14 +853,9 @@ func (s *Service) Create(ctx context.Context, p *authz.Principal, rid string, in
 			return err
 		}
 		previous := t.Status
-		var legacy *string
-		if s.wb != nil {
-			v := id.String() // the minted Firestore document id (R25)
-			legacy = &v
-		}
 		user, _ := actor(p)
 		plate, brand := t.LicensePlate, t.Brand
-		rec, err := q.InsertRecord(ctx, maintenancedb.InsertRecordParams{ID: id, LegacyDocID: legacy, TenantID: t.TenantID,
+		rec, err := q.InsertRecord(ctx, maintenancedb.InsertRecordParams{ID: id, TenantID: t.TenantID,
 			TruckID: &truckID, PlateSnapshot: &plate, BrandSnapshot: &brand, MaintenanceType: m.Type,
 			ServiceType: m.ServiceType, StartDate: m.StartDate, EndDate: m.EndDate, Status: m.Status,
 			AppointmentTime: m.AppointmentTime, PickupAppointmentAt: m.PickupAppointmentAt, CostLaborThb: m.CostLabor,
@@ -881,10 +876,7 @@ func (s *Service) Create(ctx context.Context, p *authz.Principal, rid string, in
 		if err := s.saveTruck(ctx, tx, q, p, t, previous, rid); err != nil {
 			return err
 		}
-		if err := emitRecord(ctx, tx, q, RouteCreated, rec, nil, rid); err != nil {
-			return err
-		}
-		return s.writeBack(ctx, q, rec, t, true)
+		return emitRecord(ctx, tx, q, RouteCreated, rec, nil, rid)
 	})
 	if err != nil {
 		return nil, err
@@ -1006,7 +998,7 @@ func (s *Service) Patch(ctx context.Context, p *authz.Principal, rid string, id 
 				return err
 			}
 		}
-		return s.writeBack(ctx, q, rec, t, false)
+		return nil
 	})
 	if err != nil {
 		return nil, err
