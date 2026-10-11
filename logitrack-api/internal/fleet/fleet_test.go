@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"fmt"
 	"maps"
 	"slices"
 	"strings"
@@ -9,7 +10,9 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet/fleetdb"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/mq"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/xlsx"
 )
 
@@ -182,14 +185,31 @@ func TestCheckFiles(t *testing.T) {
 	if got := fields(&ck); len(got) != 1 || (got["files.imageFrontLeft"] != "duplicate" && got["files.legacyImage"] != "duplicate") {
 		t.Fatalf("cross-kind duplicate: %v", ck.bad)
 	}
+	// A multi-file kind takes more than MaxFilesPerKind keys here (the truck may already link them: setFiles counts
+	// the new ones); the request as a whole is bounded by MaxFileKeys.
 	ck = checker{}
 	many := make([]string, MaxFilesPerKind+1)
 	for i := range many {
 		many[i] = "k" + strings.Repeat("x", i+1)
 	}
 	checkFiles(&ck, map[string][]string{"legacyImage": many, "documentTax": {"t"}})
-	if f := fields(&ck); f["files.legacyImage"] != "too_many" || len(f) != 1 {
-		t.Fatalf("too many: %v", ck.bad)
+	if len(ck.bad) != 0 {
+		t.Fatalf("a kind with more than %d keys: %v", MaxFilesPerKind, ck.bad)
+	}
+	huge := make([]string, MaxFileKeys+1)
+	for i := range huge {
+		huge[i] = fmt.Sprint("k", i)
+	}
+	checkFiles(&ck, map[string][]string{"other": huge})
+	if f := fields(&ck); f["files"] != "too_many" || len(f) != 1 {
+		t.Fatalf("too many keys: %v", ck.bad)
+	}
+	// The receipts are the financial kinds, and take receipts only.
+	for _, k := range fileKinds {
+		if fin := k.json == "taxReceipt" || k.json == "insuranceReceipt"; k.financial != fin ||
+			(fin && !slices.Equal(k.purposes, []string{"truck_receipt"})) {
+			t.Errorf("financial kind %+v", k)
+		}
 	}
 	for _, k := range fileKinds {
 		if kindByJSON[k.json].db != k.db || kindByDB[k.db].json != k.json || len(k.purposes) == 0 {
@@ -240,6 +260,10 @@ func TestRenewalState(t *testing.T) {
 		{day(31), ptr("completed"), StateOK, ptr(31)},
 		{day(-5), ptr("in_progress"), StateInProgress, ptr(-5)},
 		{nil, ptr("in_progress"), StateInProgress, nil},
+		// Far dates count real days (time.Duration saturates about 292 years away).
+		{date("2567-03-31"), nil, StateOK, ptr(197402)},
+		{date("9999-12-31"), nil, StateOK, ptr(2912159)},
+		{date("1700-01-01"), nil, StateOverdue, ptr(-119352)},
 	}
 	for i, c := range cases {
 		state, days := renewalState(c.expiry, c.status, today)
@@ -289,6 +313,15 @@ func TestValidateRenewal(t *testing.T) {
 		"startDate": "not_available", "documentKeys": "not_available"}
 	if !maps.Equal(got, want) {
 		t.Fatalf("violations\n got %v\nwant %v", got, want)
+	}
+	// Null or blank type-specific fields count as absent on the other type, startDate included (the legacy form
+	// keeps it "" on the tax tab).
+	for _, start := range []Field[string]{{Set: true, Null: true}, set(""), set("  ")} {
+		r, err := s.validateRenewal(&RenewalInput{Type: "tax", Amount: set(1.0), ExpiryDate: set("2027-10-10"),
+			StartDate: start, Provider: Field[string]{Set: true, Null: true}, PolicyNumber: set(""), Coverage: set("")})
+		if err != nil || r.start != nil {
+			t.Fatalf("tax renewal with startDate %+v: %v", start, err)
+		}
 	}
 	// A draft (in_progress) needs neither.
 	if _, err := s.validateRenewal(&RenewalInput{Type: "insurance", Status: set("in_progress")}); err != nil {
@@ -378,5 +411,56 @@ func TestNormHeader(t *testing.T) {
 	}
 	if importColumns["ทะเบียนรถ"] != "licensePlate" || importColumns["maxload"] != "maxLoadWeightKg" {
 		t.Fatal("aliases")
+	}
+}
+
+// date is a yyyy-MM-dd calendar day (midnight UTC, the form pgx gives a date column).
+func date(s string) *time.Time {
+	d, err := time.Parse(time.DateOnly, s)
+	if err != nil {
+		panic(err)
+	}
+	return &d
+}
+
+// Every truck event reaches the PG -> Firestore projection (firestore.shadow re-reads the truck by id whatever the
+// key): a completed renewal changes the truck row but emits truck.renewed only.
+func TestTruckEventsReachTheProjection(t *testing.T) {
+	q, ok := mq.Default.Queue("firestore.shadow")
+	if !ok {
+		t.Fatal("no firestore.shadow queue")
+	}
+	for _, key := range []string{RouteTruckCreated, RouteTruckUpdated, RouteTruckRenewed} {
+		if !slices.Contains(q.Bindings, mq.Binding{Exchange: mq.ExchangeEvents, Key: key}) {
+			t.Errorf("firestore.shadow does not bind %s", key)
+		}
+	}
+}
+
+// Only a steward sets or changes the GPS vehicle id; anyone may send the stored value back or clear it.
+func TestCheckGPS(t *testing.T) {
+	steward, carrier := &authz.Principal{Steward: true}, &authz.Principal{}
+	stored := ptr("CT-1")
+	for _, c := range []struct {
+		p      *authz.Principal
+		f      Field[string]
+		stored *string
+		bad    bool
+	}{
+		{steward, set("CT-9"), stored, false},
+		{steward, set("CT-9"), nil, false},
+		{carrier, set("CT-9"), nil, true},
+		{carrier, set("CT-9"), stored, true},
+		{carrier, set(" CT-1 "), stored, false},
+		{carrier, set(""), stored, false},
+		{carrier, Field[string]{Set: true, Null: true}, stored, false},
+		{carrier, Field[string]{}, nil, false},
+	} {
+		var ck checker
+		in := TruckInput{GPSVehicleID: c.f}
+		checkGPS(&ck, c.p, &in, c.stored)
+		if got := fields(&ck)["gpsVehicleId"] == "not_editable"; got != c.bad || (c.bad && in.GPSVehicleID.Set) {
+			t.Errorf("%+v: refused %v, field left %+v", c, got, in.GPSVehicleID)
+		}
 	}
 }

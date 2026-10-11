@@ -88,7 +88,9 @@ type Renewal struct {
 func renewalState(expiry *time.Time, status *string, today time.Time) (string, *int) {
 	var days *int
 	if expiry != nil {
-		d := int(expiry.Sub(today).Hours() / 24)
+		// Both are midnight UTC: count whole days on the Unix clock, not through time.Duration, which saturates
+		// about 292 years away (a Buddhist-era year typed as Gregorian is 543 years away).
+		d := int((expiry.Unix() - today.Unix()) / 86400)
 		days = &d
 	}
 	switch {
@@ -345,9 +347,10 @@ func (s *Service) validateRenewal(in *RenewalInput) (*renewal, error) {
 	r.policyID = text("policyId", in.PolicyID, 100, nil, true, false)
 	r.policyNumber = text("policyNumber", in.PolicyNumber, 100, nil, true, false)
 	r.coverage = text("coverage", in.Coverage, 2, InsuranceTypes, true, false)
-	if in.StartDate.Set && !insurance {
+	// Like every other field of the other type, a null or blank startDate on a tax renewal is absent.
+	if f := in.StartDate; f.Set && !f.Null && strings.TrimSpace(f.V) != "" && !insurance {
 		ck.add("startDate", "not_available")
-	} else {
+	} else if insurance {
 		r.start = date("startDate", in.StartDate, false)
 	}
 	if f := in.ReceiptKey; f.Set && !f.Null {

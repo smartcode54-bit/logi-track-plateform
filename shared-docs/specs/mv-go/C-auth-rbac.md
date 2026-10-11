@@ -153,7 +153,7 @@ Holder abbreviations: TA tenant_admin, MG manager, OS operation_staff, OP operat
 |---|---|---|---|---|---|
 | 1 | `fleet:view_trucks` | tenant | Truck list and detail (non-financial fields) | TA MG OS OP US | `fleet_view_trucks` (:10) |
 | 2 | `fleet:create_truck` | tenant | Register a truck, Excel truck import | TA MG | `fleet_create_truck` (:11); row `create_truck` (:62) |
-| 3 | `fleet:edit_truck` | tenant | Edit truck master incl. `gps_vehicle_id` / telemetry fields, status history | TA MG | `fleet_edit_truck` (:12); row `edit_telemetry` (:68) |
+| 3 | `fleet:edit_truck` | tenant | Edit truck master, status history; `gps_vehicle_id` / telemetry fields only for a steward (as built T22: the id is unique across tenants and resolves the platform's one Cartrack account, so a carrier may send its truck's stored id back or clear it, never set or change it: `422 not_editable`) | TA MG | `fleet_edit_truck` (:12); row `edit_telemetry` (:68) |
 | 4 | `fleet:view_renewals` | tenant | Tax / insurance renewal state | TA MG OS OP | `fleet_view_renewals` (:13) |
 | 5 | `fleet:manage_renewals` | tenant | Record renewals (writes `trucks` + `transactions`); today admin-only by rules (`firestore.rules:308-311, 421-425`) | TA MG | — (write side split from `fleet_view_renewals`) |
 | 6 | `fleet:manage_maintenance` | tenant | Create / update / transition maintenance records | TA MG OS OP | `fleet_manage_maintenance` (:14); row `maintenance_logs` (:86) staff columns |

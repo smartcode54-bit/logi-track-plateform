@@ -683,6 +683,7 @@ const updateTruck = `-- name: UpdateTruck :exec
 UPDATE trucks
 SET license_plate = $1, province = $2, vin = $3,
     engine_number = $4, gps_vehicle_id = $5, status = $6,
+    legacy_status = CASE WHEN status IS DISTINCT FROM $6 THEN NULL ELSE legacy_status END,
     brand = $7, model = $8, year = $9, color = $10,
     type_raw = $11, vehicle_class = $12, seats = $13::smallint,
     fuel_type = $14, engine_capacity = $15::numeric,
@@ -751,6 +752,8 @@ type UpdateTruckParams struct {
 // PATCH, a renewal and an import update write the merged row (Go merges the request into the locked row);
 // tenant_id and ownership_type never change here (tenant_id is frozen, trg_freeze_tenant_id). The maintenance columns
 // last_alert_mileage and active_maintenance_id belong to the PM check and maintenance flows (P3), not to this write.
+// legacy_status is the raw legacy value of the current status (Appendix A §A.2.2): a write that keeps the status
+// keeps it, a status change clears it (the right-hand status is the old row's value).
 func (q *Queries) UpdateTruck(ctx context.Context, arg UpdateTruckParams) error {
 	_, err := q.db.Exec(ctx, updateTruck,
 		arg.LicensePlate,

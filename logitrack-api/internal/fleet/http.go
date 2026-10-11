@@ -206,6 +206,12 @@ func (h handlers) renew(c fiber.Ctx) error {
 	return httpx.JSON(c, status, out)
 }
 
+// MaxImportColumns bounds the width of an import sheet (the legacy template has 14 columns).
+const MaxImportColumns = 256
+
+// importRetryAfter is the Retry-After (seconds) of an import refused while the process's spreadsheet reads are busy.
+const importRetryAfter = 2
+
 // importBody is the JSON form of POST /v1/trucks/import.
 type importBody struct {
 	TenantID string           `json:"tenantId"`
@@ -214,7 +220,9 @@ type importBody struct {
 }
 
 // importTrucks reads a multipart upload (field file: an XLSX workbook or CSV, first sheet, header row first; form
-// fields tenantId and dryRun) or a JSON body {tenantId?, dryRun?, rows[]}.
+// fields tenantId and dryRun) or a JSON body {tenantId?, dryRun?, rows[]}. The file is read within the bounds of
+// internal/platform/xlsx (size, shared strings, rows, lines, columns); while the process already runs
+// xlsx.MaxConcurrentReads reads the answer is 429 resource_exhausted with Retry-After.
 func (h handlers) importTrucks(c fiber.Ctx) error {
 	p, err := principal(c)
 	if err != nil {
@@ -231,11 +239,19 @@ func (h handlers) importTrucks(c fiber.Ctx) error {
 			return httpx.ErrInvalidArgument(violation("file", "invalid"))
 		}
 		defer func() { _ = f.Close() }()
-		sheet, err := xlsx.Read(f, xlsx.Options{MaxRows: MaxImportRows})
+		sheet, err := xlsx.Read(f, xlsx.Options{MaxRows: MaxImportRows, MaxCols: MaxImportColumns})
 		switch {
+		case errors.Is(err, xlsx.ErrBusy):
+			// Every import of the process shares MaxConcurrentReads reads (each may hold tens of megabytes).
+			c.Set(fiber.HeaderRetryAfter, strconv.Itoa(importRetryAfter))
+			return httpx.NewError(http.StatusTooManyRequests, httpx.CodeResourceExhaust, "too many imports in progress").
+				WithDetails(map[string]any{"retryAfterSeconds": importRetryAfter})
 		case errors.Is(err, xlsx.ErrTooManyRows):
 			return httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "file", Reason: "too_many_rows",
 				Params: map[string]any{"max": MaxImportRows}})
+		case errors.Is(err, xlsx.ErrTooManyColumns):
+			return httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "file", Reason: "too_many_columns",
+				Params: map[string]any{"max": MaxImportColumns}})
 		case errors.Is(err, xlsx.ErrNotSpreadsheet):
 			return httpx.ErrInvalidArgument(violation("file", "invalid"))
 		case err != nil:

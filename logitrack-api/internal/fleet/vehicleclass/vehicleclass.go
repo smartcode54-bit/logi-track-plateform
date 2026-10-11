@@ -8,7 +8,9 @@
 // through the billing fold (compute.FoldVehicleClass, billingCompute.ts normalizeVehicleClass), so a legacy spelling
 // billing already prices ("4WH", "6W", "10W", "pickup") lands on the same class. Anything else, blank included, is
 // no class: nil, never a guess (the legacy engine priced a blank class as 4WJ; a wrong class bills silently against
-// the wrong rate card). Pure: no I/O.
+// the wrong rate card). This is the contract of main spec §6.4 ("Truck → task class"); the web and mobile mappers
+// are narrower (the seven words and exact enum spellings only) until P7, so web P1 screens read vehicleClass from
+// the API instead of re-deriving it. Pure: no I/O.
 package vehicleclass
 
 import (

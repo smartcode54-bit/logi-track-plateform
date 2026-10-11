@@ -291,8 +291,9 @@ func (s *Service) listScopeTrucks(ctx context.Context, p *authz.Principal, arg s
 // --- detail ------------------------------------------------------------------------------------------------
 
 // GetTruck is GET /v1/trucks/{id} (fleet:view_trucks): a truck of the caller's tenant reach (named in the query and
-// checked by RLS), its status history, its current assignments and its files. The file URLs are signed after the
-// transaction: Files.SignedFile takes its own pool connection.
+// checked by RLS), its status history, its current assignments and its files; the tax and insurance receipts only
+// for a caller who also sees the cost fields. The file URLs are signed after the transaction: Files.SignedFile takes
+// its own pool connection.
 func (s *Service) GetTruck(ctx context.Context, p *authz.Principal, id uuid.UUID) (*TruckDetail, error) {
 	var t fleetdb.Truck
 	var hist []fleetdb.TruckStatusHistoryRow
@@ -320,7 +321,8 @@ func (s *Service) GetTruck(ctx context.Context, p *authz.Principal, id uuid.UUID
 	if err != nil {
 		return nil, err
 	}
-	d := &TruckDetail{Truck: truckOf(t, seesCost(p)), StatusHistory: make([]StatusEntry, 0, len(hist)),
+	cost := seesCost(p)
+	d := &TruckDetail{Truck: truckOf(t, cost), StatusHistory: make([]StatusEntry, 0, len(hist)),
 		CurrentAssignments: make([]Assignment, 0, len(asg)), Files: map[string][]TruckFile{}}
 	for _, h := range hist {
 		d.StatusHistory = append(d.StatusHistory, StatusEntry{Status: h.Status, PreviousStatus: h.PreviousStatus,
@@ -337,7 +339,7 @@ func (s *Service) GetTruck(ctx context.Context, p *authz.Principal, id uuid.UUID
 	}
 	for _, f := range files {
 		kind, ok := kindByDB[f.Kind]
-		if !ok || s.files == nil {
+		if !ok || s.files == nil || (kind.financial && !cost) { // receipts follow the cost fields
 			continue
 		}
 		key, url, err := s.files.SignedFile(ctx, f.FileID, 0)
@@ -358,29 +360,36 @@ func (s *Service) GetTruck(ctx context.Context, p *authz.Principal, id uuid.UUID
 
 // --- files ---------------------------------------------------------------------------------------------------
 
-// fileKind is one truck_files.kind: its JSON name, whether it holds at most one file, and the upload purposes it
-// accepts (internal/storage.Purposes).
+// fileKind is one truck_files.kind: its JSON name, whether it holds at most one file, the upload purposes it
+// accepts (internal/storage.Purposes) and whether it is financial: the tax and insurance receipts show the amounts
+// that the cost fields hide, so they follow the same rule (seesCost) in the payload, and they take only the
+// truck_receipt purpose, whose GET /v1/files rule needs fleet:view_renewals.
 type fileKind struct {
-	json, db string
-	single   bool
-	purposes []string
+	json, db  string
+	single    bool
+	purposes  []string
+	financial bool
 }
 
-// MaxFilesPerKind bounds a multi-file kind.
+// MaxFilesPerKind bounds the files one request newly links to a multi-file kind; files the truck already links do
+// not count, so a truck that holds more (renewals append without a cap) still takes its own payload back in a PATCH.
 const MaxFilesPerKind = 20
 
+// MaxFileKeys bounds the keys of one request's files, as a guard on the request's size.
+const MaxFileKeys = 1000
+
 var fileKinds = []fileKind{
-	{"imageFrontRight", "image_front_right", true, []string{"truck_photo"}},
-	{"imageFrontLeft", "image_front_left", true, []string{"truck_photo"}},
-	{"imageBackRight", "image_back_right", true, []string{"truck_photo"}},
-	{"imageBackLeft", "image_back_left", true, []string{"truck_photo"}},
-	{"documentTax", "document_tax", true, []string{"truck_document", "truck_receipt"}},
-	{"documentRegister", "document_register", true, []string{"truck_document"}},
-	{"taxReceipt", "tax_receipt", false, []string{"truck_receipt", "truck_document"}},
-	{"insuranceReceipt", "insurance_receipt", false, []string{"truck_receipt", "insurance_document"}},
-	{"insuranceDocument", "insurance_document", false, []string{"insurance_document", "truck_document"}},
-	{"legacyImage", "legacy_image", false, []string{"truck_photo"}},
-	{"other", "other", false, []string{"truck_photo", "truck_document", "truck_receipt", "insurance_document"}},
+	{"imageFrontRight", "image_front_right", true, []string{"truck_photo"}, false},
+	{"imageFrontLeft", "image_front_left", true, []string{"truck_photo"}, false},
+	{"imageBackRight", "image_back_right", true, []string{"truck_photo"}, false},
+	{"imageBackLeft", "image_back_left", true, []string{"truck_photo"}, false},
+	{"documentTax", "document_tax", true, []string{"truck_document", "truck_receipt"}, false},
+	{"documentRegister", "document_register", true, []string{"truck_document"}, false},
+	{"taxReceipt", "tax_receipt", false, []string{"truck_receipt"}, true},
+	{"insuranceReceipt", "insurance_receipt", false, []string{"truck_receipt"}, true},
+	{"insuranceDocument", "insurance_document", false, []string{"insurance_document", "truck_document"}, false},
+	{"legacyImage", "legacy_image", false, []string{"truck_photo"}, false},
+	{"other", "other", false, []string{"truck_photo", "truck_document", "truck_receipt", "insurance_document"}, false},
 }
 
 var kindByJSON, kindByDB = func() (map[string]fileKind, map[string]fileKind) {
@@ -392,8 +401,13 @@ var kindByJSON, kindByDB = func() (map[string]fileKind, map[string]fileKind) {
 }()
 
 // checkFiles validates the files field of a request: known kinds, at most one file in a single-file kind, at most
-// MaxFilesPerKind otherwise, keys that look like object keys and no key twice.
+// MaxFileKeys keys in all, keys that look like object keys and no key twice. How many files a multi-file kind newly
+// links (MaxFilesPerKind) is checked against the truck's own files, in setFiles.
 func checkFiles(ck *checker, files map[string][]string) {
+	if n := len(fileKeys(files)); n > MaxFileKeys {
+		ck.addParams("files", "too_many", map[string]any{"max": MaxFileKeys})
+		return
+	}
 	seen := map[string]bool{}
 	for name, keys := range files {
 		k, ok := kindByJSON[name]
@@ -404,8 +418,6 @@ func checkFiles(ck *checker, files map[string][]string) {
 			continue
 		case k.single && len(keys) > 1:
 			ck.addParams(field, "too_many", map[string]any{"max": 1})
-		case len(keys) > MaxFilesPerKind:
-			ck.addParams(field, "too_many", map[string]any{"max": MaxFilesPerKind})
 		}
 		for _, key := range keys {
 			key = strings.TrimSpace(key)
@@ -489,6 +501,22 @@ func (s *Service) setFiles(ctx context.Context, tx pgx.Tx, q *fleetdb.Queries, p
 			if f.Kind == k.db {
 				linked[f.FileID] = true
 				before = append(before, linkedFile{f.Kind, f.FileID})
+			}
+		}
+	}
+	// A kind may newly link at most MaxFilesPerKind files per request; the files the truck already links (the
+	// payload sent back) do not count. Checked before any key is committed.
+	for _, src := range []map[string][]string{replace, appendKinds} {
+		for name, keys := range src {
+			fresh := 0
+			for _, key := range keys {
+				if !slices.ContainsFunc(held[strings.TrimSpace(key)], func(id uuid.UUID) bool { return linked[id] }) {
+					fresh++
+				}
+			}
+			if fresh > MaxFilesPerKind {
+				return false, nil, httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "files." + name, Reason: "too_many",
+					Params: map[string]any{"max": MaxFilesPerKind}})
 			}
 		}
 	}
@@ -909,6 +937,25 @@ func note(in Field[string], def string) *string {
 	return &def
 }
 
+// checkGPS applies the steward rule of the GPS vehicle id: it is the key the platform's one Cartrack account resolves
+// vehicles by (trucks_gps is unique across tenants, so cartrack.sync maps each Cartrack vehicle to one truck), so only
+// a steward (own-fleet staff, or a platform admin acting as a tenant) sets or changes it. Anyone else who edits the
+// truck may send its stored value back or clear it; a new or different value is 422 gpsVehicleId not_editable before
+// any write, so the unique index never answers for a truck outside the caller's reach (no probing, no squatting).
+// The field is then dropped from the request so merge does not report it twice.
+func checkGPS(ck *checker, p *authz.Principal, in *TruckInput, stored *string) {
+	f := in.GPSVehicleID
+	if p.Steward || !f.Set || f.Null {
+		return
+	}
+	v := strings.TrimSpace(f.V)
+	if v == "" || (stored != nil && *stored == v) {
+		return
+	}
+	ck.add("gpsVehicleId", "not_editable")
+	in.GPSVehicleID = Field[string]{}
+}
+
 // targetTenant resolves the tenant of a new truck (tenancy.Resolve "trucks": self): the effective tenant, or a
 // carrier of its contractor reach named in tenantId (an own-fleet admin registering a subcontractor's truck, the
 // legacy ownershipType + subcontractorId). Anything else is 422 tenantId not_in_reach: rows never take a tenant the
@@ -985,13 +1032,15 @@ func updateTruck(ctx context.Context, q *fleetdb.Queries, p *authz.Principal, m 
 // CreateTruck is POST /v1/trucks (fleet:create_truck): the truck in the effective tenant or a carrier of its
 // contractor reach (tenantId), ownership from that tenant, the vehicle class from the one mapper (unknown NULL), the
 // first status_history entry, its files and outbox truck.created in one transaction. A plate the tenant already has
-// is 409 already_exists (trucks_plate_per_tenant), as is a GPS vehicle id another truck holds.
+// is 409 already_exists (trucks_plate_per_tenant), as is a GPS vehicle id another truck holds; only a steward sets
+// the GPS vehicle id (checkGPS).
 func (s *Service) CreateTruck(ctx context.Context, p *authz.Principal, rid string, in TruckInput) (*TruckDetail, error) {
 	own, err := writeTenant(p)
 	if err != nil {
 		return nil, err
 	}
 	var ck checker
+	checkGPS(&ck, p, &in, nil)
 	m := newTruck()
 	merge(&ck, &in, &m, true)
 	tenant := targetTenant(&ck, p, own, in.TenantID)
@@ -1055,6 +1104,7 @@ func (s *Service) PatchTruck(ctx context.Context, p *authz.Principal, rid string
 		if f := in.TenantID; f.Set && (f.Null || strings.TrimSpace(f.V) != cur.TenantID.String()) {
 			ck.add("tenantId", "not_editable")
 		}
+		checkGPS(&ck, p, &in, cur.GpsVehicleID)
 		m := rowOf(cur)
 		changed := merge(&ck, &in, &m, false)
 		if err := ck.err(); err != nil {

@@ -408,6 +408,7 @@ func (s *Service) importRow(ctx context.Context, tx pgx.Tx, q *fleetdb.Queries, 
 		if !in.Status.Set {
 			in.Status = Field[string]{Set: true, V: "active"} // the legacy import's default
 		}
+		checkGPS(&ck, p, &in, nil)
 		m := newTruck()
 		merge(&ck, &in, &m, true)
 		if err := ck.err(); err != nil {
@@ -423,6 +424,7 @@ func (s *Service) importRow(ctx context.Context, tx pgx.Tx, q *fleetdb.Queries, 
 	case !canEdit:
 		return "", errAlreadyExists("licensePlate", "taken")
 	}
+	checkGPS(&ck, p, &in, cur.GpsVehicleID)
 	m := rowOf(cur)
 	changed := merge(&ck, &in, &m, false)
 	if err := ck.err(); err != nil {

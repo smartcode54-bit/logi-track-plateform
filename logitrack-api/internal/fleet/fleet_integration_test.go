@@ -234,6 +234,23 @@ func TestTruckPatchAndStatusHistory(t *testing.T) {
 	expect(t, r, http.StatusConflict, "already_exists")
 	expect(t, w.patch("/v1/trucks/"+id, w.login("op.o"), map[string]any{"notes": "z"}), http.StatusForbidden, "permission_denied")
 
+	// legacyStatus is the raw legacy value of the current status (an ETL-loaded 'Available' truck): a write that keeps
+	// the status keeps it, a status change clears it.
+	legacy := w.truck(w.O, "กก-2003", now, "legacy_status", "'Available'")
+	r = w.patch("/v1/trucks/"+legacy, mgO, map[string]any{"notes": "kept"})
+	expect(t, r, http.StatusOK, "")
+	if r.data()["legacyStatus"] != "Available" || r.data()["status"] != "active" {
+		t.Fatalf("legacy status after a notes edit: %s", r.raw)
+	}
+	r = w.patch("/v1/trucks/"+legacy, mgO, map[string]any{"status": "sold"})
+	expect(t, r, http.StatusOK, "")
+	if v, ok := r.data()["legacyStatus"]; !ok || v != nil || r.data()["status"] != "sold" {
+		t.Fatalf("legacy status after a status change: %s", r.raw)
+	}
+	if n := w.count(`SELECT count(*) FROM trucks WHERE id = $1 AND legacy_status IS NULL`, legacy); n != 1 {
+		t.Fatal("legacy_status was not cleared")
+	}
+
 	// AC: UPDATE (and DELETE) on status history is rejected: revoked from the app role (42501) and refused by the
 	// append-only trigger even for a role that could (23000).
 	for _, what := range []string{"update-status-history", "delete-status-history"} {
@@ -260,10 +277,12 @@ func TestTruckPatchAndStatusHistory(t *testing.T) {
 	}
 }
 
-// Cost fields need more than fleet:view_trucks (Appendix C §C.2.3 row 1: non-financial fields).
+// Cost fields need more than fleet:view_trucks (Appendix C §C.2.3 row 1: non-financial fields), and so do the tax and
+// insurance receipts that show the same amounts: in the truck payload and through GET /v1/files.
 func TestTruckCostFields(t *testing.T) {
 	w := newWorld(t)
-	r := w.post("/v1/trucks", w.login("ta.o"), newTruck("กก-3001", map[string]any{"taxExpenseThb": 1000,
+	taO := w.login("ta.o")
+	r := w.post("/v1/trucks", taO, newTruck("กก-3001", map[string]any{"taxExpenseThb": 1000,
 		"insurancePremiumThb": 9000, "paymentMethod": "transfer"}))
 	expect(t, r, http.StatusCreated, "")
 	id := str(r.data()["id"])
@@ -274,6 +293,43 @@ func TestTruckCostFields(t *testing.T) {
 				t.Fatalf("%s sees cost fields %v: %v", name, got, d)
 			}
 		}
+	}
+
+	taxReceipt := w.upload(taO, "truck_receipt", id, "application/pdf", pdf)
+	insReceipt := w.upload(taO, "truck_receipt", id, "application/pdf", pdf)
+	photo := w.upload(taO, "truck_photo", id, "image/png", png)
+	expect(t, w.post("/v1/trucks/"+id+"/renewals", taO, map[string]any{"type": "tax", "amount": 1000,
+		"expiryDate": "2027-10-01", "receiptKey": taxReceipt}), http.StatusCreated, "")
+	expect(t, w.post("/v1/trucks/"+id+"/renewals", taO, map[string]any{"type": "insurance", "amount": 9000,
+		"expiryDate": "2027-10-01", "receiptKey": insReceipt}), http.StatusCreated, "")
+	expect(t, w.patch("/v1/trucks/"+id, taO, map[string]any{"files": map[string]any{"imageFrontRight": []string{photo}}}),
+		http.StatusOK, "")
+	for name, sees := range map[string]bool{"op.o": true, "us.o": false} {
+		files := w.get("/v1/trucks/"+id, w.login(name)).data()["files"].(map[string]any)
+		_, tax := files["taxReceipt"]
+		_, ins := files["insuranceReceipt"]
+		if tax != sees || ins != sees || files["imageFrontRight"] == nil {
+			t.Fatalf("%s sees receipts %v %v: %v", name, tax, ins, files)
+		}
+		for _, key := range []string{taxReceipt, insReceipt} {
+			want := http.StatusOK // followed to the signed URL
+			if !sees {
+				want = http.StatusNotFound
+			}
+			if got := w.get("/v1/files?key="+url.QueryEscape(key), w.login(name)); got.status != want {
+				t.Fatalf("%s GET /v1/files of a receipt: %d, want %d", name, got.status, want)
+			}
+		}
+		if got := w.get("/v1/files?key="+url.QueryEscape(photo), w.login(name)); got.status != http.StatusOK {
+			t.Fatalf("%s GET /v1/files of a photo: %d", name, got.status)
+		}
+	}
+	// The receipt kinds take receipts only (the GET /v1/files rule follows the purpose).
+	doc := w.upload(taO, "truck_document", id, "application/pdf", pdf)
+	r = w.patch("/v1/trucks/"+id, taO, map[string]any{"files": map[string]any{"taxReceipt": []string{doc}}})
+	expect(t, r, http.StatusUnprocessableEntity, "invalid_argument")
+	if r.fields()["files.taxReceipt"] != "purpose_mismatch" {
+		t.Fatalf("a document as a receipt: %v", r.fields())
 	}
 }
 
@@ -585,6 +641,123 @@ func TestRecordRenewal(t *testing.T) {
 		"amount": 1, "expiryDate": "2028-10-01"}), http.StatusNotFound, "not_found")
 }
 
+// A truck may hold more files of a kind than one request may newly link (renewals append without a cap): its own
+// payload goes back in a PATCH, and only the new keys of a request count against MaxFilesPerKind.
+func TestTruckFilesAfterRenewals(t *testing.T) {
+	w := newWorld(t)
+	taO := w.login("ta.o")
+	r := w.post("/v1/trucks", taO, newTruck("กก-7101", nil))
+	expect(t, r, http.StatusCreated, "")
+	id := str(r.data()["id"])
+	docs := func(n int, prefix string) []string {
+		out := make([]string, n)
+		for i := range out {
+			out[i] = w.uploadNamed(taO, "insurance_document", id, "application/pdf", fmt.Sprint(prefix, i), pdf)
+		}
+		return out
+	}
+	held := append(docs(11, "a"), docs(11, "b")...)
+	for _, batch := range [][]string{held[:11], held[11:]} {
+		expect(t, w.post("/v1/trucks/"+id+"/renewals", taO, map[string]any{"type": "insurance", "status": "in_progress",
+			"documentKeys": batch}), http.StatusOK, "")
+	}
+	files := w.get("/v1/trucks/"+id, taO).data()["files"].(map[string]any)
+	if n := len(files["insuranceDocument"].([]any)); n != 22 {
+		t.Fatalf("insurance documents after two renewals: %d", n)
+	}
+	// The truck's own 22 documents go back with an unrelated change: the files are unchanged.
+	events := w.count(`SELECT count(*) FROM outbox_events WHERE aggregate_id = $1`, id)
+	r = w.patch("/v1/trucks/"+id, taO, map[string]any{"notes": "echo", "files": map[string]any{"insuranceDocument": held}})
+	expect(t, r, http.StatusOK, "")
+	if n := w.count(`SELECT count(*) FROM outbox_events WHERE aggregate_id = $1 AND routing_key = 'truck.updated'
+		AND payload->'changed' = '["notes"]'::jsonb`, id); n != 1 || w.count(`SELECT count(*) FROM outbox_events WHERE aggregate_id = $1`, id) != events+1 {
+		t.Fatalf("sending the files back: %d notes-only events", n)
+	}
+	// 21 new keys in one request are too many; 20 are fine, next to the 22 the truck holds.
+	fresh := docs(21, "c")
+	r = w.patch("/v1/trucks/"+id, taO, map[string]any{"files": map[string]any{"insuranceDocument": append(slices.Clone(held), fresh...)}})
+	expect(t, r, http.StatusUnprocessableEntity, "invalid_argument")
+	if r.fields()["files.insuranceDocument"] != "too_many" {
+		t.Fatalf("21 new keys: %v", r.fields())
+	}
+	if n := w.count(`SELECT count(*) FROM truck_files WHERE truck_id = $1`, id); n != 22 {
+		t.Fatalf("a refused PATCH linked files: %d", n)
+	}
+	r = w.patch("/v1/trucks/"+id, taO, map[string]any{"files": map[string]any{"insuranceDocument": append(slices.Clone(held), fresh[:20]...)}})
+	expect(t, r, http.StatusOK, "")
+	if n := len(r.data()["files"].(map[string]any)["insuranceDocument"].([]any)); n != 42 {
+		t.Fatalf("documents after 20 new keys: %d", n)
+	}
+
+	// A null or blank startDate on a tax renewal is absent, like every other insurance-only field.
+	for _, start := range []any{nil, ""} {
+		expect(t, w.post("/v1/trucks/"+id+"/renewals", taO, map[string]any{"type": "tax", "amount": 100,
+			"expiryDate": "2027-10-11", "startDate": start, "provider": nil, "policyNumber": ""}), http.StatusCreated, "")
+	}
+	r = w.post("/v1/trucks/"+id+"/renewals", taO, map[string]any{"type": "tax", "amount": 100, "expiryDate": "2027-10-11",
+		"startDate": "2026-10-11"})
+	expect(t, r, http.StatusUnprocessableEntity, "invalid_argument")
+	if r.fields()["startDate"] != "not_available" {
+		t.Fatalf("a startDate on a tax renewal: %v", r.fields())
+	}
+}
+
+// The GPS vehicle id resolves the platform's Cartrack vehicles across tenants (trucks_gps is global): only a steward
+// sets or changes it, so a carrier can neither learn which ids other tenants hold nor squat one; a carrier still sends
+// its truck's stored id back or clears it.
+func TestGPSVehicleIDIsStewardOnly(t *testing.T) {
+	w := newWorld(t)
+	taO, taC := w.login("ta.o"), w.login("ta.c")
+	expect(t, w.post("/v1/trucks", taO, newTruck("กก-7201", map[string]any{"gpsVehicleId": "CT-OWN-7"})), http.StatusCreated, "")
+	notEditable := func(r resp) {
+		t.Helper()
+		expect(t, r, http.StatusUnprocessableEntity, "invalid_argument")
+		if r.fields()["gpsVehicleId"] != "not_editable" {
+			t.Fatalf("gpsVehicleId: %s", r.raw)
+		}
+	}
+	trucks := w.count(`SELECT count(*) FROM trucks`)
+	notEditable(w.post("/v1/trucks", taC, newTruck("กก-7202", map[string]any{"gpsVehicleId": "CT-OWN-7"}))) // held by O: no 409
+	notEditable(w.post("/v1/trucks", taC, newTruck("กก-7202", map[string]any{"gpsVehicleId": "CT-FREE"})))  // free: no squatting
+	for _, dry := range []bool{true, false} {
+		r := w.post("/v1/trucks/import", taC, map[string]any{"dryRun": dry, "rows": []map[string]any{
+			{"licensePlate": "กก-7203", "province": "x", "type": "Van", "brand": "x", "model": "x", "color": "x", "year": 2020,
+				"gpsVehicleId": "CT-OWN-7"},
+			{"licensePlate": "กก-7204", "province": "x", "type": "Van", "brand": "x", "model": "x", "color": "x", "year": 2020,
+				"gpsVehicleId": "CT-NONE"},
+		}})
+		expect(t, r, http.StatusOK, "")
+		errs := r.data()["errors"].([]any)
+		if len(errs) != 2 || r.data()["created"] != float64(0) {
+			t.Fatalf("import dryRun=%v: %s", dry, r.raw)
+		}
+		for _, e := range errs {
+			f := e.(map[string]any)["fields"].([]any)
+			if len(f) != 1 || f[0].(map[string]any)["field"] != "gpsVehicleId" || f[0].(map[string]any)["reason"] != "not_editable" {
+				t.Fatalf("import row: %v", e)
+			}
+		}
+	}
+	if n := w.count(`SELECT count(*) FROM trucks`); n != trucks {
+		t.Fatalf("refused writes created trucks: %d -> %d", trucks, n)
+	}
+	// The carrier's own truck with a legacy id: sent back unchanged (with another change) or cleared, never changed.
+	own := w.truck(w.C, "กก-7205", now, "gps_vehicle_id", "'CT-C-1'")
+	expect(t, w.patch("/v1/trucks/"+own, taC, map[string]any{"gpsVehicleId": "CT-C-1", "notes": "x"}), http.StatusOK, "")
+	notEditable(w.patch("/v1/trucks/"+own, taC, map[string]any{"gpsVehicleId": "CT-OWN-7"}))
+	r := w.patch("/v1/trucks/"+own, taC, map[string]any{"gpsVehicleId": nil})
+	expect(t, r, http.StatusOK, "")
+	if v, ok := r.data()["gpsVehicleId"]; !ok || v != nil {
+		t.Fatalf("cleared: %s", r.raw)
+	}
+	// A steward keeps the 409 of the global key; and sets the id on a carrier truck of its reach.
+	r = w.post("/v1/trucks", taO, newTruck("กก-7206", map[string]any{"gpsVehicleId": "CT-OWN-7"}))
+	expect(t, r, http.StatusConflict, "already_exists")
+	r = w.post("/v1/trucks", taO, newTruck("1กข-7207", map[string]any{"tenantId": w.A, "gpsVehicleId": "CT-A-1"}))
+	expect(t, r, http.StatusCreated, "")
+	notEditable(w.patch("/v1/trucks/"+str(r.data()["id"]), w.login("ta.a"), map[string]any{"gpsVehicleId": "CT-A-2"}))
+}
+
 // --- import -------------------------------------------------------------------------------------------------
 
 func TestImportJSON(t *testing.T) {
@@ -677,8 +850,9 @@ func TestImportXLSX(t *testing.T) {
 	// The legacy template (TruckImportDialog.tsx downloadTemplate), its sample row deleted.
 	for i, row := range [][]any{
 		{"License Plate", "Province", "Type", "Brand", "Model", "Color", "Year", "VIN", "Engine Number", "Fuel Type",
-			"Ownership", "Status", "Registration Date", "Max Load"},
-		{"กก-9001", "กรุงเทพมหานคร", "10W", "Isuzu", "FXZ360", "White", 2023, "", "", "Diesel", "Company", "Active", reg, 25000},
+			"Ownership", "Status", "Registration Date", "Max Load", "Tax Expiry Date"},
+		{"กก-9001", "กรุงเทพมหานคร", "10W", "Isuzu", "FXZ360", "White", 2023, "", "", "Diesel", "Company", "Active", reg, 25000,
+			time.Date(2567, 3, 31, 0, 0, 0, 0, time.UTC)}, // a date cell typed in the Buddhist era (31/03/2567)
 		{"กก-9002", "นนทบุรี", "Trailer", "Hino", "500", "Blue", "2565", "", "", "Diesel", "Company", "", nil, nil},
 		{},
 		{"9กก-9003", "นนทบุรี", "Van", "Toyota", "Commuter", "", 2020},
@@ -690,6 +864,9 @@ func TestImportXLSX(t *testing.T) {
 	}
 	style, _ := f.NewStyle(&excelize.Style{NumFmt: 14})
 	_ = f.SetCellStyle("Sheet1", "M2", "M2", style)
+	thai := "dd/mm/yyyy"
+	thaiStyle, _ := f.NewStyle(&excelize.Style{CustomNumFmt: &thai})
+	_ = f.SetCellStyle("Sheet1", "O2", "O2", thaiStyle)
 	var buf bytes.Buffer
 	if err := f.Write(&buf); err != nil {
 		t.Fatal(err)
@@ -702,8 +879,19 @@ func TestImportXLSX(t *testing.T) {
 		t.Fatalf("xlsx import: %s", r.raw)
 	}
 	if n := w.count(`SELECT count(*) FROM trucks WHERE license_plate = 'กก-9001' AND vehicle_class = '10WH'
-		AND registration_date = '2023-01-15' AND max_load_weight_kg = 25000 AND fuel_type = 'Diesel'`); n != 1 {
+		AND registration_date = '2023-01-15' AND max_load_weight_kg = 25000 AND fuel_type = 'Diesel'
+		AND tax_expiry_date = '2024-03-31'`); n != 1 {
 		t.Fatal("row 2 of the sheet")
+	}
+	// The Buddhist-era date cell landed on 2024-03-31: overdue in the renewal overview, not 543 years away.
+	var tax map[string]any
+	for _, it := range w.get("/v1/trucks/renewals?due=30", taO).list() {
+		if it["licensePlate"] == "กก-9001" {
+			tax = it["tax"].(map[string]any)
+		}
+	}
+	if tax == nil || tax["state"] != "overdue" || tax["expiryDate"] != "2024-03-31" || tax["daysRemaining"] != float64(-924) {
+		t.Fatalf("renewal of the imported truck: %v", tax)
 	}
 	if n := w.count(`SELECT count(*) FROM trucks WHERE license_plate = 'กก-9002' AND vehicle_class IS NULL AND year = 2022
 		AND status = 'active'`); n != 1 {
@@ -723,6 +911,20 @@ func TestImportXLSX(t *testing.T) {
 	}
 	r = w.multipart("/v1/trucks/import", taO, "x.bin", []byte{0, 1, 2, 3}, nil)
 	expect(t, r, http.StatusUnprocessableEntity, "invalid_argument")
+	// A row reaching column XFD is refused at once (excelize pads it to 16384 cells).
+	wide := excelize.NewFile()
+	_ = wide.SetCellValue("Sheet1", "A1", "licensePlate")
+	_ = wide.SetCellValue("Sheet1", "XFD2", "x")
+	buf.Reset()
+	if err := wide.Write(&buf); err != nil {
+		t.Fatal(err)
+	}
+	_ = wide.Close()
+	r = w.multipart("/v1/trucks/import", taO, "wide.xlsx", buf.Bytes(), nil)
+	expect(t, r, http.StatusUnprocessableEntity, "invalid_argument")
+	if r.fields()["file"] != "too_many_columns" {
+		t.Fatalf("wide sheet: %s", r.raw)
+	}
 	r = w.multipart("/v1/trucks/import", taO, "", nil, map[string]string{"tenantId": w.A})
 	expect(t, r, http.StatusUnprocessableEntity, "invalid_argument")
 	if r.fields()["file"] != "required" {

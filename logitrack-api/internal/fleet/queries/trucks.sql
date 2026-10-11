@@ -69,9 +69,12 @@ RETURNING id;
 -- PATCH, a renewal and an import update write the merged row (Go merges the request into the locked row);
 -- tenant_id and ownership_type never change here (tenant_id is frozen, trg_freeze_tenant_id). The maintenance columns
 -- last_alert_mileage and active_maintenance_id belong to the PM check and maintenance flows (P3), not to this write.
+-- legacy_status is the raw legacy value of the current status (Appendix A §A.2.2): a write that keeps the status
+-- keeps it, a status change clears it (the right-hand status is the old row's value).
 UPDATE trucks
 SET license_plate = sqlc.arg(license_plate), province = sqlc.arg(province), vin = sqlc.narg(vin),
     engine_number = sqlc.narg(engine_number), gps_vehicle_id = sqlc.narg(gps_vehicle_id), status = sqlc.arg(status),
+    legacy_status = CASE WHEN status IS DISTINCT FROM sqlc.arg(status) THEN NULL ELSE legacy_status END,
     brand = sqlc.arg(brand), model = sqlc.arg(model), year = sqlc.arg(year), color = sqlc.arg(color),
     type_raw = sqlc.arg(type_raw), vehicle_class = sqlc.narg(vehicle_class), seats = sqlc.narg(seats)::smallint,
     fuel_type = sqlc.narg(fuel_type), engine_capacity = sqlc.narg(engine_capacity)::numeric,

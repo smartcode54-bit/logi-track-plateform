@@ -468,8 +468,15 @@ func expect(t *testing.T, r resp, status int, code string) {
 // upload presigns purpose for the caller, sends the bytes to the signed local URL and returns the key.
 func (w *world) upload(bearer, purpose, entityID, contentType string, body []byte) string {
 	w.t.Helper()
+	return w.uploadNamed(bearer, purpose, entityID, contentType, "doc", body)
+}
+
+// uploadNamed is upload with a file name (keys carry a millisecond stamp and the name: uploads in a loop name
+// their files apart).
+func (w *world) uploadNamed(bearer, purpose, entityID, contentType, fileName string, body []byte) string {
+	w.t.Helper()
 	r := w.post("/v1/uploads/presign", bearer, map[string]any{"purpose": purpose, "entityId": entityID,
-		"contentType": contentType, "sizeBytes": len(body), "fileName": "doc"})
+		"contentType": contentType, "sizeBytes": len(body), "fileName": fileName})
 	expect(w.t, r, http.StatusOK, "")
 	key, _ := r.data()["key"].(string)
 	u, _ := r.data()["url"].(string)
