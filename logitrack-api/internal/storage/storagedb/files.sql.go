@@ -187,6 +187,52 @@ func (q *Queries) GetFileByKey(ctx context.Context, objectKey string) (FileObjec
 	return i, err
 }
 
+const getFiles = `-- name: GetFiles :many
+SELECT id, bucket, object_key, tenant_id, purpose, owner_kind, owner_id, content_type, size_bytes, sha256, visibility, status, legacy_url, uploaded_by, expires_at, committed_at, created_at, deleted_at, storage_backend FROM file_objects WHERE id = ANY ($1::uuid[]) AND deleted_at IS NULL
+`
+
+// The files of a page of rows the caller already read under its own rights (T30: trip, standby and incident photos):
+// one round trip for every URL of the page.
+func (q *Queries) GetFiles(ctx context.Context, ids []uuid.UUID) ([]FileObject, error) {
+	rows, err := q.db.Query(ctx, getFiles, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []FileObject{}
+	for rows.Next() {
+		var i FileObject
+		if err := rows.Scan(
+			&i.ID,
+			&i.Bucket,
+			&i.ObjectKey,
+			&i.TenantID,
+			&i.Purpose,
+			&i.OwnerKind,
+			&i.OwnerID,
+			&i.ContentType,
+			&i.SizeBytes,
+			&i.Sha256,
+			&i.Visibility,
+			&i.Status,
+			&i.LegacyUrl,
+			&i.UploadedBy,
+			&i.ExpiresAt,
+			&i.CommittedAt,
+			&i.CreatedAt,
+			&i.DeletedAt,
+			&i.StorageBackend,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const insertPending = `-- name: InsertPending :one
 
 INSERT INTO file_objects (bucket, object_key, tenant_id, purpose, content_type, size_bytes, sha256, visibility,

@@ -627,6 +627,44 @@ func (s *Service) SignedFile(ctx context.Context, fileID uuid.UUID, ttl time.Dur
 	return row.ObjectKey, u, err
 }
 
+// Signed is the object key and download URL of one committed file (SignedFiles).
+type Signed struct {
+	Key string
+	URL string
+}
+
+// SignedFiles is SignedFile for the files of a page of rows (T30: trip, standby and incident photos), read in one
+// system transaction: every committed file of ids gets its key and URL; a file that is missing, deleted or not
+// committed is absent from the map (the payload shows it without a URL), never an error. The caller has read the
+// referencing rows under its own rights; like SignedFile it runs on its own pool connection, after the request
+// transaction closed.
+func (s *Service) SignedFiles(ctx context.Context, ids []uuid.UUID, ttl time.Duration) (map[uuid.UUID]Signed, error) {
+	out := map[uuid.UUID]Signed{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var rows []storagedb.FileObject
+	err := db.WithSystem(ctx, s.pool, nil, func(tx pgx.Tx) error {
+		var err error
+		rows, err = storagedb.New(tx).GetFiles(ctx, ids)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		if row.Status != "committed" {
+			continue
+		}
+		u, _, err := s.signGet(ctx, row, s.readTTL(row, ttl), GetOptions{})
+		if err != nil {
+			return nil, err
+		}
+		out[row.ID] = Signed{Key: row.ObjectKey, URL: u}
+	}
+	return out, nil
+}
+
 // FileIDsByKey maps each key to the ids of the live file rows that hold it (one per bucket at most; a key no row
 // holds is absent). It serves an entity PATCH that gets back the key of a file it already links (T20: the payload's
 // keys go back in a PATCH): the caller keeps a file whose id its locked row already references, whoever uploaded it,

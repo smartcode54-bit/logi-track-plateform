@@ -40,12 +40,20 @@ type Querier interface {
 	DriverHasTaskInStatus(ctx context.Context, arg DriverHasTaskInStatusParams) (bool, error)
 	// The driver's own reports (GET /v1/mobile/incidents; incident_reports_driver), optionally of one trip.
 	DriverIncidents(ctx context.Context, arg DriverIncidentsParams) ([]IncidentReport, error)
+	// The names of the drivers and helpers of a page (the boards, standby, incidents: the legacy pages listened to 300
+	// drivers for this, incident-reports/page.tsx:157-169). The caller's RLS decides which rows it reads; an unreadable
+	// driver keeps its id only.
+	DriverNamesOf(ctx context.Context, ids []uuid.UUID) ([]DriverNamesOfRow, error)
 	// The driver's history (GET /v1/mobile/standby, trip_history_page.dart:84-87; standby_records_driver). A driver never
 	// sees the billing columns, so no entry_tenant_id here.
 	DriverStandby(ctx context.Context, arg DriverStandbyParams) ([]StandbyRecord, error)
-	// The driver's queue (GET /v1/mobile/tasks, P7a): own and helper tasks (R28), optionally by status; the queue order
-	// of ADR 0028 is applied by the service (tasks_driver_status + tasks_helper_plan).
-	DriverTasks(ctx context.Context, arg DriverTasksParams) ([]Task, error)
+	// The driver's queue (GET /v1/mobile/tasks, P7a): own and helper tasks (R28), optionally by status, in the queue order
+	// of ADR 0028 (compareTasksForDriverQueue, task_repository.dart:16-70), applied here before the LIMIT: the dispatch
+	// instant queue_at (taskQueueInstant: actual_pickup_at, else the Bangkok plan day at plan_time, 00:00 without one),
+	// then run_order with the tasks that have none first (run_order >= 1, so NULL keys as 0), then created_at, then id.
+	// A keyset page on that key (after_*: the last row of the previous page); the service asks for limit + 1 rows, so a
+	// longer queue gets a next cursor, never a silent cut (TW8). tasks_driver_status + tasks_helper_plan.
+	DriverTasks(ctx context.Context, arg DriverTasksParams) ([]DriverTasksRow, error)
 	// The driver's history (GET /v1/mobile/trips, replaces the take-300 and the dual-id query; trip_records_driver_created).
 	DriverTrips(ctx context.Context, arg DriverTripsParams) ([]TripRecord, error)
 	GetIncident(ctx context.Context, arg GetIncidentParams) (IncidentReport, error)
@@ -166,6 +174,42 @@ type Querier interface {
 	LockTrip(ctx context.Context, id uuid.UUID) (TripRecord, error)
 	// POST /v1/mobile/trips/{id}/resubmit-photos: back into the admin review queue.
 	MarkTripResubmitted(ctx context.Context, arg MarkTripResubmittedParams) (TripRecord, error)
+	// The filter options of the monitor over the date range (and the customer, when given): one row per (facet, key) with
+	// the number of trips it matches, so every option matches a trip and no trip is unreachable by every option
+	// (ADR 0005 §4, ADR 0006 §2): origin, destination (a trip counted once per place it served), plate (ref_id the truck,
+	// else value the raw plate; label a plate of the truck's rows), partner, vehicle_class, status, plus 'incident' (trips
+	// with the incident status or an incident report) and 'total'. An empty value is the none bucket; ref_id is a hub (places) or
+	// a truck (plates).
+	MonitorFacets(ctx context.Context, arg MonitorFacetsParams) ([]MonitorFacetsRow, error)
+	// The driver monitor (GET /v1/trips/monitor, T30, W8; main spec §5.4) and the read joins of the T30 lists: one paged
+	// server join of trip_records with its task (check-in, ADR 0001; the assigned round; the task's truck), the driver's
+	// Thai name, the incident and photo counts and, for accounting:view_income, the stored price preview
+	// (trip_billing_snapshots, never computed on read), replacing useDriverMonitor.ts:443-840 (an unbounded trips listener, three capped side
+	// listeners, a rate-card fan-out and per-row pricing calls). Staff only: a dispatcher or a customer-scope principal
+	// reads the same page from the projections (internal/scope/repo/scope_monitor.sql), with the same keys.
+	//
+	// Filter keys (ADR 0005, ADR 0006; internal/operations/monitor.go maps the API values to these arguments):
+	//   plate         the truck is coalesce(trip.truck_id, task.truck_id) (never drivers.active_truck_*, ADR 0005 §6); a row
+	//                 without one is matched by its plate, coalesce(trip snapshot, task snapshot), trimmed, never normalised;
+	//                 a row with neither is the none bucket;
+	//   vehicle class coalesce(trip.vehicle_class, task.truck_type): the mapped class (unknown = NULL, R15), NULL = none;
+	//   origin        the hub stored at write (origin_hub_id: nameToCode + code pass-through, main spec §13.4), else the
+	//                 SOC key of the raw text (SOCE/SOCN/SOCW and their spellings, normalizeSocIdToKey; trip_records keeps
+	//                 no origin SOC column), else the trimmed raw text as its own bucket (never merged), else none;
+	//   destination   every stop of a multi-drop trip (trip_delivery_stops) or, without stops, the trip's destination
+	//                 (destination_hub_id, else destination_soc_key or the SOC key of the raw text, else the raw text,
+	//                 else none); a trip matches when any of its stops does (ADR 0006 §5).
+	// Trimmed means btrim(x, trim_chars): the caller passes operations.trimChars, the white space JavaScript's trim strips
+	// (the legacy keys of lib/placeFilter.ts and lib/truckPlate.ts: tab, line breaks, NBSP, the Unicode spaces, BOM), the
+	// set the Go side trims row keys and filter values with; a one-argument btrim strips spaces only, so a stored
+	// 'Bangna\t' would be listed under one key and filtered under another. The text inside is kept verbatim (control
+	// characters included): an option is the stored value, and the filter takes it back as it was listed.
+	// Indexes: trip_records_tenant_created (trip_records_created under X-Act-On-Tenant: *) for the page and the options,
+	// tasks_pkey, drivers_pkey, trip_billing_snapshots_pkey, incident_reports_trip, trip_photos (trip_id, photo_type),
+	// trip_delivery_stops (trip_id, stop_index).
+	// One keyset page (created_at, id), newest first; from / to bound created_at, [from, to). statuses with
+	// incident_status: the legacy "incident" status filter also matches a trip that has an incident report.
+	MonitorTrips(ctx context.Context, arg MonitorTripsParams) ([]MonitorTripsRow, error)
 	// max(run_order) + 1 over the driver's tasks the writer can read (tasks_driver_run).
 	NextRunOrder(ctx context.Context, driverID uuid.UUID) (int32, error)
 	// Tasks (Appendix A §A.2.3, 0004_operations): the plan of a job (First Mile / Line Haul), its delivery stops
@@ -233,6 +277,8 @@ type Querier interface {
 	TripIDsBySeal(ctx context.Context, arg TripIDsBySealParams) ([]TripIDsBySealRow, error)
 	// The renames of a trip, oldest first (trip_no_history_trip; staff only, p_parent_read read_staff_only).
 	TripNoHistory(ctx context.Context, tripID uuid.UUID) ([]TripNoHistory, error)
+	// The trip numbers of a page of incidents (the caller's reach).
+	TripNumbersOf(ctx context.Context, arg TripNumbersOfParams) ([]TripNumbersOfRow, error)
 	// Insertion / replace order; the service sorts by the ADR 0018 workflow rank.
 	TripPhotos(ctx context.Context, tripID uuid.UUID) ([]TripPhoto, error)
 	TripPhotosOf(ctx context.Context, tripIds []uuid.UUID) ([]TripPhoto, error)
@@ -243,6 +289,8 @@ type Querier interface {
 	// the same transaction cannot race another submit of the seal (trip_records_seal inside the function).
 	TripSealTaken(ctx context.Context, arg TripSealTakenParams) (bool, error)
 	TripStops(ctx context.Context, tripID uuid.UUID) ([]TripDeliveryStop, error)
+	// The stop progress of a page of trips (the monitor's stops column; one round trip).
+	TripStopsOf(ctx context.Context, tripIds []uuid.UUID) ([]TripDeliveryStop, error)
 	// GET /v1/tasks/{id}/trip and the boards' trip column (first-mile/page.tsx:136-141): the trips of the given tasks,
 	// newest first per task (trip_records_task).
 	TripsOfTasks(ctx context.Context, arg TripsOfTasksParams) ([]TripRecord, error)
