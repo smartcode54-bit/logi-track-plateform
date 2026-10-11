@@ -381,5 +381,3 @@ func (j *SyncJob) release(ctx context.Context, cmd jobs.Command) {
 		j.d.Log.Warn().Err(err).Msg("cartrack.sync: lock release failed; it expires on its own")
 	}
 }
-
-func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }

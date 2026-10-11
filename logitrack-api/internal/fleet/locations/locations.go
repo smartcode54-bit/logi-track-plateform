@@ -14,6 +14,7 @@ package locations
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -205,7 +206,7 @@ func probeResult(j jobs.Job) (ProbeResult, bool) {
 	}
 	out.Done = true
 	var r probeOutcome
-	if len(j.Result) > 0 && jsonUnmarshal(j.Result, &r) == nil {
+	if len(j.Result) > 0 && json.Unmarshal(j.Result, &r) == nil {
 		out.HTTPStatus, out.VehicleCount = r.HTTPStatus, r.VehicleCount
 	}
 	return out, true

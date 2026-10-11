@@ -144,11 +144,7 @@ func (w *world) enqueue(params map[string]any) (uuid.UUID, *mq.Delivery) {
 
 func (w *world) consumer(client cartrack.Client, clock time.Time) *locations.SyncJob {
 	w.t.Helper()
-	var c cartrack.Client
-	if client != nil {
-		c = client
-	}
-	j, err := locations.NewSyncJob(locations.SyncDeps{Pool: w.pool, Cartrack: c, Now: func() time.Time { return clock }, Log: zerolog.Nop()})
+	j, err := locations.NewSyncJob(locations.SyncDeps{Pool: w.pool, Cartrack: client, Now: func() time.Time { return clock }, Log: zerolog.Nop()})
 	if err != nil {
 		w.t.Fatal(err)
 	}
