@@ -32,6 +32,10 @@ const (
 	RouteTaskUpdated    = "task.updated"
 )
 
+// details.reason of the 403 of a reassignment by a dispatcher on a task outside its write reach: one of another
+// carrier that it only reads through the scope of its parties (Appendix C §C.9.2 #12).
+const ReasonTaskNotInReach = "task_not_in_reach"
+
 // details.reason of the 409s of a reassignment.
 const (
 	ReasonTaskHasTrips       = "task_has_trips"
@@ -78,14 +82,20 @@ func NewTaskMover(d TaskMoverDeps) (*TaskMover, error) {
 var _ operations.Reassigner = (*TaskMover)(nil)
 
 // ReassignTask moves task taskID to in.TenantID and, when in.DriverSet, assigns in.DriverID there (nil: no driver), in
-// one system transaction. operations.Service.ReassignTask has authorized the caller as a platform admin (in.Platform)
-// or a dispatcher; a dispatcher must read the task (its own organisation's tasks, or the scope of its parties: RLS
-// decides in a request transaction first; otherwise 404), and the task must not have changed tenant since (409
-// task_changed). Rules, each refusing with nothing written:
+// one system transaction. It is strictly the R13 move: a driver change without a move is the ordinary task update
+// under the caller's RLS (T31), never this system-transaction path. operations.Service.ReassignTask has authorized the
+// caller as a platform admin (in.Platform) or a dispatcher. A dispatcher must read the task (RLS decides in a request
+// transaction first; otherwise 404), the task must not have changed tenant since (409 task_changed), and its tenant
+// must be in the dispatcher's write reach, i.e. its organisation's tenant and that tenant's contractor reach, what
+// its own RLS would let it update (403 permission_denied, details.reason task_not_in_reach): a task of another
+// carrier that the dispatcher only reads through the scope of its parties is never moved, nor its driver changed, by
+// the dispatcher (Appendix C §C.9.2 #12). Rules, each refusing with nothing written:
 //
 //   - the target exists and is not the quarantine tenant (422 tenantId not_found) and is active (409 tenant_inactive);
 //   - the task is open, pending or assigned (409 task_not_open), and no trip record references it (409 task_has_trips:
 //     a trip's tenant is the work's, frozen when it was written);
+//   - the target is the task's tenant: a request that changes nothing answers moved=false and writes nothing, one that
+//     changes the driver is 422 tenantId same_tenant;
 //   - a new driver exists (422 driverId not_found), belongs to the target tenant (422 driverId not_in_tenant), is not
 //     inactive (409 driver_inactive) and is not the task's helper (422 driverId same_as_helper); without driverId the
 //     task's current driver must already belong to the target (409 driver_not_in_tenant: send a driver of the target,
@@ -94,10 +104,10 @@ var _ operations.Reassigner = (*TaskMover)(nil)
 //     either way (409 helper_not_in_tenant, truck_not_in_tenant; the helper rule of Appendix C §C.3.6).
 //
 // Then tenancy.MoveTask (app.tenant_move for that move only; tenant_source 'form'; standby records and files follow),
-// the driver assignment (status pending <-> assigned, the queue position under the driver's run-order lock), one
-// task_tenant_reassigned row (actor the caller, tenant the target; only when the tenant changed) and the outbox event
-// (task.reassigned when the driver changed, else task.updated) on the tasks topics of both tenants, the task's parties
-// and the drivers concerned. A request that changes nothing writes nothing.
+// the driver assignment when the driver changed (status pending <-> assigned, the queue position under the driver's
+// run-order lock), task_tenant_reassigned (actor the caller; one row for the target tenant and one for the source, so
+// the staff of both read it) and the outbox event (task.reassigned when the driver changed, else task.updated) on the
+// tasks topics of both tenants, the task's parties and the drivers concerned.
 func (m *TaskMover) ReassignTask(ctx context.Context, p *authz.Principal, rid string, taskID uuid.UUID, in operations.Reassign) (operations.Reassigned, error) {
 	var seen *uuid.UUID
 	if !in.Platform {
@@ -132,6 +142,10 @@ func (m *TaskMover) ReassignTask(ctx context.Context, p *authz.Principal, rid st
 		if seen != nil && *seen != task.TenantID {
 			return errFailedPrecondition(ReasonTaskChanged, "the task moved meanwhile; reload it and retry")
 		}
+		if !in.Platform && !inWriteReach(p, task.TenantID) {
+			return authz.ErrPermissionDenied("a dispatcher moves only the tasks its organisation may update (its call-outs); " +
+				"another carrier's task stays with that carrier").WithDetails(map[string]any{"reason": ReasonTaskNotInReach})
+		}
 		from, to := task.TenantID, in.TenantID
 		target, err := q.TaskMoveTarget(ctx, to)
 		switch {
@@ -151,46 +165,55 @@ func (m *TaskMover) ReassignTask(ctx context.Context, p *authz.Principal, rid st
 		if in.DriverSet {
 			driver = in.DriverID
 		}
-		if err := m.checkPeople(ctx, q, task, in, driver, to); err != nil {
-			return err
-		}
-		moved := from != to
 		prev := cloneID(task.DriverID)
 		driverChanged := !sameID(driver, prev)
-		if !moved && !driverChanged {
+		if from == to {
+			if driverChanged {
+				// Not a move: the driver of a task that stays in its tenant changes through the ordinary update, under
+				// the caller's RLS (a dispatcher on its own tasks, a platform admin under X-Act-On-Tenant), never here.
+				return errInvalid(violation("tenantId", "same_tenant"))
+			}
 			out = reassigned(task, from, nil, false)
 			return nil
 		}
-		if moved {
-			files, err := tenancy.MoveTask(ctx, tx, taskID, from, to)
-			switch {
-			case errors.Is(err, tenancy.ErrTaskHasTrips):
-				return errFailedPrecondition(ReasonTaskHasTrips, "the task already has a trip record; its tenant is the trip's")
-			case errors.Is(err, tenancy.ErrBadTarget):
-				return errInvalid(violation("tenantId", "not_found"))
-			case err != nil:
-				return err
-			}
-			task.TenantID, task.TenantSource = to, string(tenancy.SourceForm)
-			if err := m.audit(ctx, tx, p, rid, task, from, driver, prev, in.Platform, files); err != nil {
-				return err
-			}
+		if err := m.checkPeople(ctx, q, task, in, driver, to); err != nil {
+			return err
+		}
+		files, err := tenancy.MoveTask(ctx, tx, taskID, from, to)
+		switch {
+		case errors.Is(err, tenancy.ErrTaskHasTrips):
+			return errFailedPrecondition(ReasonTaskHasTrips, "the task already has a trip record; its tenant is the trip's")
+		case errors.Is(err, tenancy.ErrBadTarget):
+			return errInvalid(violation("tenantId", "not_found"))
+		case err != nil:
+			return err
+		}
+		task.TenantID, task.TenantSource = to, string(tenancy.SourceForm)
+		if err := m.audit(ctx, tx, p, rid, task, from, driver, prev, in.Platform, files); err != nil {
+			return err
 		}
 		if driverChanged {
 			if task, err = assignDriver(ctx, ops, task, driver); err != nil {
 				return err
 			}
+		} else {
+			prev = nil // the answer and the event name a previous driver only when the driver changed
 		}
-		if !driverChanged {
-			prev = nil
-		}
-		out = reassigned(task, from, prev, moved)
-		return m.emit(ctx, tx, q, p, rid, task, from, out)
+		out = reassigned(task, from, prev, true)
+		return m.emit(ctx, tx, q, p, rid, task, from, out, driverChanged)
 	})
 	if err != nil {
 		return operations.Reassigned{}, operations.MapError(err)
 	}
 	return out, nil
+}
+
+// inWriteReach reports whether p's own RLS lets it update rows of tenant: its staff tenant and that tenant's contractor
+// reach (authz.Principal.TenantReach, the reach of policy p_tenant_staff). The dispatcher scope (p_scope_read) is a
+// read projection and never counts; nor does the read-only bypass of X-Act-On-Tenant: *.
+func inWriteReach(p *authz.Principal, tenant uuid.UUID) bool {
+	_, reach := p.TenantReach()
+	return slices.Contains(reach, tenant)
 }
 
 // checkPeople applies the driver, helper and truck rules of a reassignment to the target tenant.
@@ -278,8 +301,10 @@ func assignDriver(ctx context.Context, ops *operationsdb.Queries, task operation
 	})
 }
 
-// audit appends task_tenant_reassigned in the move's transaction: actor the caller, tenant the target (the staff of the
-// tenant that now runs the task read it; platform principals read every row).
+// audit appends task_tenant_reassigned in the move's transaction, actor the caller, twice with the same details: once
+// with the target as tenant and once with the source, so the staff of the tenant that now runs the task and of the one
+// that lost it both read the move in their feed (RLS p_staff_read: tenant_id = app_tenant_id()); platform principals
+// read every row.
 func (m *TaskMover) audit(ctx context.Context, tx pgx.Tx, p *authz.Principal, rid string, task operationsdb.Task,
 	from uuid.UUID, driver, prev *uuid.UUID, platform bool, files []tenancy.Moved) error {
 	to, actor := task.TenantID, p.UserID
@@ -293,11 +318,17 @@ func (m *TaskMover) audit(ctx context.Context, tx pgx.Tx, p *authz.Principal, ri
 	}
 	details := map[string]any{"taskId": task.ID, "taskNo": task.TaskNo, "from": from, "to": to, "driverId": driver,
 		"previousDriverId": prev, "by": by(platform), "standbyRecords": nStandby, "files": nFiles}
-	return security.Append(ctx, tx, security.Event{
-		EventType: EventTaskTenantReassigned, Severity: security.SeverityWarning,
-		Summary: "task moved to another tenant", Details: details, ActorUserID: &actor, TenantID: &to, RequestID: rid,
-		OccurredAt: m.now().UTC().Truncate(time.Microsecond),
-	})
+	at := m.now().UTC().Truncate(time.Microsecond)
+	for _, tenant := range []uuid.UUID{to, from} {
+		if err := security.Append(ctx, tx, security.Event{
+			EventType: EventTaskTenantReassigned, Severity: security.SeverityWarning,
+			Summary: "task moved to another tenant", Details: details, ActorUserID: &actor, TenantID: &tenant, RequestID: rid,
+			OccurredAt: at,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // by names the authority the request passed (operations.Service.ReassignTask): platform_admin or dispatcher.
@@ -309,9 +340,12 @@ func by(platform bool) string {
 }
 
 // emit appends the task event of the reassignment: on the tasks topics of the former and the new tenant, of every
-// party of the task (the dispatcher boards) and of the drivers concerned (their queues).
+// party of the task (the dispatcher boards) and of the drivers concerned (their queues). driverChanged picks the
+// route: task.reassigned (notify.fcm tells the previous driver it lost the task and the new one it got it) only when
+// the driver changed; a move that keeps the driver is task.updated (the silent tasks_changed push), so the driver
+// who already held the task is not told it was assigned again.
 func (m *TaskMover) emit(ctx context.Context, tx pgx.Tx, q *iamdb.Queries, p *authz.Principal, rid string,
-	task operationsdb.Task, from uuid.UUID, out operations.Reassigned) error {
+	task operationsdb.Task, from uuid.UUID, out operations.Reassigned, driverChanged bool) error {
 	parties, err := q.TaskPartyIDs(ctx, task.ID)
 	if err != nil {
 		return err
@@ -335,7 +369,7 @@ func (m *TaskMover) emit(ctx context.Context, tx pgx.Tx, q *iamdb.Queries, p *au
 	route := RouteTaskUpdated
 	payload := map[string]any{"entity": "task", "id": task.ID, "tenantId": task.TenantID, "at": m.now().UTC(),
 		"taskType": task.TaskType, "planDate": planDate(task)}
-	if !sameID(out.DriverID, out.PreviousDriverID) {
+	if driverChanged {
 		route = RouteTaskReassigned
 		changed = append(changed, "driverId", "status")
 		payload["driverId"], payload["previousDriverId"] = out.DriverID, out.PreviousDriverID

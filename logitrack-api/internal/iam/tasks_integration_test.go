@@ -47,7 +47,7 @@ type tmWorld struct {
 
 	O, A, B, C, D, S              uuid.UUID
 	partyX, partyY                uuid.UUID
-	dA1, dB1, dB2, dC1, dD1       uuid.UUID // dB2 is inactive
+	dA1, dA2, dB1, dB2, dC1, dD1  uuid.UUID // dB2 is inactive
 	truckB, truckC                uuid.UUID
 	disp, staffA, staffB, pa, paR *authz.Principal
 }
@@ -88,7 +88,8 @@ func newTMWorld(t *testing.T) *tmWorld {
 		return w.id(`INSERT INTO drivers (tenant_id, tenant_source, first_name, last_name, mobile, status) VALUES ($1, 'self', $2, 'T', '0800000000', $3) RETURNING id`,
 			tenant, name, status)
 	}
-	w.dA1, w.dB1, w.dB2 = driver(w.A, "A1", "active"), driver(w.B, "B1", "active"), driver(w.B, "B2", "inactive")
+	w.dA1, w.dA2 = driver(w.A, "A1", "active"), driver(w.A, "A2", "active")
+	w.dB1, w.dB2 = driver(w.B, "B1", "active"), driver(w.B, "B2", "inactive")
 	w.dC1, w.dD1 = driver(w.C, "C1", "active"), driver(w.D, "D1", "active")
 	truck := func(tenant uuid.UUID, plate string) uuid.UUID {
 		return w.id(`INSERT INTO trucks (tenant_id, tenant_source, license_plate, province, status, brand, model, year, color, type_raw, vehicle_class)
@@ -171,6 +172,11 @@ func tmCode(err error) (code, detail string) {
 	return he.Code, ""
 }
 
+func isReason(err error, code, what string) bool {
+	c, w := tmCode(err)
+	return c == code && w == what
+}
+
 func idp(id uuid.UUID) *uuid.UUID { return &id }
 
 // Appendix C §C.9.2 #12 and the issue's acceptance criteria: the dispatcher D cannot update a task of another
@@ -224,18 +230,31 @@ func TestReassignDispatcherCallOut(t *testing.T) {
 		driver == nil || *driver != w.dB1 {
 		t.Fatalf("row %s %s %s %v %v", tenant, source, status, driver, err)
 	}
-	var actor, evTenant uuid.UUID
-	var sev string
-	var details []byte
-	if err := w.etl.QueryRow(ctx, `SELECT actor_user_id, tenant_id, severity, details FROM security_events WHERE event_type = $1`,
-		iam.EventTaskTenantReassigned).Scan(&actor, &evTenant, &sev, &details); err != nil {
-		t.Fatalf("task_tenant_reassigned: %v", err)
+	// task_tenant_reassigned twice in the move's transaction, same actor and details: one row for the tenant that now
+	// runs the task, one for the tenant that lost it, so the staff of both read the move.
+	rows, err := w.etl.Query(ctx, `SELECT actor_user_id, tenant_id, severity, details FROM security_events WHERE event_type = $1
+		ORDER BY tenant_id = $2 DESC`, iam.EventTaskTenantReassigned, w.B)
+	if err != nil {
+		t.Fatal(err)
 	}
-	var det map[string]any
-	_ = json.Unmarshal(details, &det)
-	if actor != w.disp.UserID || evTenant != w.B || sev != "warning" || det["from"] != w.D.String() || det["to"] != w.B.String() ||
-		det["by"] != "dispatcher" || det["driverId"] != w.dB1.String() || det["taskId"] != callOut.ID.String() {
-		t.Fatalf("event actor %s tenant %s %s details %s", actor, evTenant, sev, details)
+	var evTenants []uuid.UUID
+	for rows.Next() {
+		var actor, evTenant uuid.UUID
+		var sev string
+		var details []byte
+		if err := rows.Scan(&actor, &evTenant, &sev, &details); err != nil {
+			t.Fatal(err)
+		}
+		var det map[string]any
+		_ = json.Unmarshal(details, &det)
+		if actor != w.disp.UserID || sev != "warning" || det["from"] != w.D.String() || det["to"] != w.B.String() ||
+			det["by"] != "dispatcher" || det["driverId"] != w.dB1.String() || det["taskId"] != callOut.ID.String() {
+			t.Fatalf("event actor %s tenant %s %s details %s", actor, evTenant, sev, details)
+		}
+		evTenants = append(evTenants, evTenant)
+	}
+	if rows.Err() != nil || !slices.Equal(evTenants, []uuid.UUID{w.B, w.D}) {
+		t.Fatalf("task_tenant_reassigned tenants %v, want the target B and the source D (%v)", evTenants, rows.Err())
 	}
 	var topics []string
 	var payload []byte
@@ -263,6 +282,11 @@ func TestReassignDispatcherCallOut(t *testing.T) {
 		return err
 	}); err != nil {
 		t.Fatal(err)
+	}
+	// Handed to carrier B, the call-out is B's work: the dispatcher reads it but no longer moves it, nor changes its
+	// driver (owner question on #48: may a dispatcher take a call-out back from the carrier?).
+	if _, err := w.reassign(w.disp, callOut.ID, operations.Reassign{TenantID: w.C}); !isReason(err, authz.CodePermissionDenied, iam.ReasonTaskNotInReach) {
+		t.Fatalf("the dispatcher moved B's task on: %v", err)
 	}
 	// AC: an UPDATE ... SET tenant_id outside a move path fails, even for staff of the task's tenant.
 	err = db.WithPrincipal(ctx, w.pool, w.staffB, func(tx pgx.Tx) error {
@@ -296,6 +320,11 @@ func TestReassignRules(t *testing.T) {
 	helperC := w.task(tmTask{tenant: w.D, party: &w.partyX, helper: &w.dC1})
 	truckC := w.task(tmTask{tenant: w.D, party: &w.partyX, truck: &w.truckC})
 	quarantined := w.task(tmTask{tenant: q, source: "quarantine", party: &w.partyX})
+	// Carrier A's own work for party X: the dispatcher reads it through its scope (p_scope_read) but its RLS does not
+	// let it update it (C.9.2 #12), so it neither moves it nor changes its driver.
+	carrierA := w.task(tmTask{tenant: w.A, source: "driver", status: "assigned", driver: &w.dA1, runOrder: ptr(int32(1)),
+		party: &w.partyX})
+	inB := w.task(tmTask{tenant: w.B, party: &w.partyX})
 
 	for name, c := range map[string]struct {
 		p          *authz.Principal
@@ -320,17 +349,41 @@ func TestReassignRules(t *testing.T) {
 		"the current driver stays behind":       {w.disp, keepsDriver, moveTo(w.B), iam.CodeFailedPrecondition, iam.ReasonDriverNotInTenant},
 		"a helper of an unrelated carrier":      {w.disp, helperC, moveTo(w.B), iam.CodeFailedPrecondition, iam.ReasonHelperNotInTenant},
 		"a truck of an unrelated carrier":       {w.disp, truckC, moveTo(w.B), iam.CodeFailedPrecondition, iam.ReasonTruckNotInTenant},
+
+		"a carrier's task taken by the dispatcher":      {w.disp, carrierA, withDriver(w.D, &w.dD1), authz.CodePermissionDenied, iam.ReasonTaskNotInReach},
+		"a carrier's task given to another carrier":     {w.disp, carrierA, withDriver(w.C, nil), authz.CodePermissionDenied, iam.ReasonTaskNotInReach},
+		"a carrier's driver swapped in place":           {w.disp, carrierA, withDriver(w.A, &w.dA2), authz.CodePermissionDenied, iam.ReasonTaskNotInReach},
+		"a carrier's driver removed in place":           {w.disp, carrierA, withDriver(w.A, nil), authz.CodePermissionDenied, iam.ReasonTaskNotInReach},
+		"a carrier's task, nothing to change":           {w.disp, carrierA, moveTo(w.A), authz.CodePermissionDenied, iam.ReasonTaskNotInReach},
+		"a driver change without a move (dispatcher)":   {w.disp, open, withDriver(w.D, &w.dD1), httpx.CodeInvalidArgument, "tenantId same_tenant"},
+		"a driver change without a move (platform)":     {w.pa, carrierA, withDriver(w.A, &w.dA2), httpx.CodeInvalidArgument, "tenantId same_tenant"},
+		"an unassignment without a move (platform)":     {w.pa, carrierA, withDriver(w.A, nil), httpx.CodeInvalidArgument, "tenantId same_tenant"},
+		"a driver given without a move (platform)":      {w.pa, inB, withDriver(w.B, &w.dB1), httpx.CodeInvalidArgument, "tenantId same_tenant"},
+		"an unknown driver without a move (platform)":   {w.pa, inB, withDriver(w.B, idp(uuid.New())), httpx.CodeInvalidArgument, "tenantId same_tenant"},
+		"a driver change of another carrier's call-out": {w.disp, inB, withDriver(w.B, &w.dB1), authz.CodePermissionDenied, iam.ReasonTaskNotInReach},
 	} {
 		_, err := w.reassign(c.p, c.task, c.in)
 		if code, what := tmCode(err); code != c.code || what != c.what {
 			t.Errorf("%s: %v (%s %q), want %s %q", name, err, code, what, c.code, c.what)
 		}
 	}
-	if n := w.count(`SELECT count(*) FROM security_events WHERE event_type = $1`, iam.EventTaskTenantReassigned); n != 0 {
-		t.Fatalf("%d task_tenant_reassigned rows after refusals only", n)
+	if n := w.count(`SELECT count(*) FROM security_events`); n != 0 {
+		t.Fatalf("%d security_events rows after refusals only", n)
 	}
-	if n := w.count(`SELECT count(*) FROM tasks WHERE tenant_id <> $1 AND tenant_id <> $2 AND tenant_id <> $3`, w.D, w.A, q); n != 0 {
+	if n := w.count(`SELECT count(*) FROM outbox_events`); n != 0 {
+		t.Fatalf("%d outbox rows after refusals only", n)
+	}
+	if n := w.count(`SELECT count(*) FROM tasks WHERE tenant_id <> $1 AND tenant_id <> $2 AND tenant_id <> $3 AND id <> $4`,
+		w.D, w.A, q, inB); n != 0 {
 		t.Fatalf("%d tasks moved by refused requests", n)
+	}
+	if n := w.count(`SELECT count(*) FROM tasks WHERE id = $1 AND tenant_id = $2 AND tenant_source = 'driver' AND status = 'assigned'
+		AND driver_id = $3 AND run_order = 1`, carrierA, w.A, w.dA1); n != 1 {
+		t.Fatal("carrier A's task changed under refused requests")
+	}
+	if n := w.count(`SELECT count(*) FROM tasks WHERE id = ANY($1) AND status = 'pending' AND driver_id IS NULL`,
+		[]uuid.UUID{open, inB}); n != 2 {
+		t.Fatal("a refused driver change without a move assigned a driver")
 	}
 
 	t.Run("platform admin unassigns while moving; a helper of a linked tenant stays", func(t *testing.T) {
@@ -349,9 +402,14 @@ func TestReassignRules(t *testing.T) {
 			t.Fatalf("legacy driver ref kept: %v %v", ref, err)
 		}
 		var det []byte
-		if err := w.etl.QueryRow(ctx, `SELECT details FROM security_events WHERE event_type = $1 AND details->>'taskId' = $2`,
-			iam.EventTaskTenantReassigned, ofA.String()).Scan(&det); err != nil {
+		if err := w.etl.QueryRow(ctx, `SELECT details FROM security_events WHERE event_type = $1 AND details->>'taskId' = $2
+			AND tenant_id = $3`, iam.EventTaskTenantReassigned, ofA.String(), w.O).Scan(&det); err != nil {
 			t.Fatal(err)
+		}
+		// carrier A, which lost the task to a platform admin's move, reads it in its own feed too
+		if n := w.count(`SELECT count(*) FROM security_events WHERE event_type = $1 AND details->>'taskId' = $2 AND tenant_id = $3
+			AND actor_user_id = $4`, iam.EventTaskTenantReassigned, ofA.String(), w.A, w.pa.UserID); n != 1 {
+			t.Fatalf("%d task_tenant_reassigned rows for the source tenant A", n)
 		}
 		var m map[string]any
 		_ = json.Unmarshal(det, &m)
@@ -370,26 +428,70 @@ func TestReassignRules(t *testing.T) {
 		}
 	})
 
-	t.Run("nothing to change writes nothing; a driver change without a move is not audited", func(t *testing.T) {
-		inB := w.task(tmTask{tenant: w.B, party: &w.partyX})
-		events := w.count(`SELECT count(*) FROM outbox_events`)
-		out, err := w.reassign(w.pa, inB, moveTo(w.B))
-		if err != nil || out.Moved || out.TenantID != w.B {
-			t.Fatalf("no-op %+v %v", out, err)
+	t.Run("nothing to change writes nothing", func(t *testing.T) {
+		events, audits := w.count(`SELECT count(*) FROM outbox_events`), w.count(`SELECT count(*) FROM security_events`)
+		for name, c := range map[string]struct {
+			p    *authz.Principal
+			task uuid.UUID
+			in   operations.Reassign
+			want uuid.UUID
+		}{
+			"platform admin, tenant only":         {w.pa, inB, moveTo(w.B), w.B},
+			"platform admin, the same driver":     {w.pa, carrierA, withDriver(w.A, &w.dA1), w.A},
+			"dispatcher, its call-out, no driver": {w.disp, open, withDriver(w.D, nil), w.D},
+		} {
+			out, err := w.reassign(c.p, c.task, c.in)
+			if err != nil || out.Moved || out.TenantID != c.want || out.PreviousTenantID != c.want || out.PreviousDriverID != nil {
+				t.Errorf("%s: %+v %v", name, out, err)
+			}
 		}
 		if n := w.count(`SELECT count(*) FROM outbox_events`); n != events {
 			t.Fatalf("a no-op wrote %d outbox rows", n-events)
 		}
-		audits := w.count(`SELECT count(*) FROM security_events`)
-		out, err = w.reassign(w.pa, inB, withDriver(w.B, &w.dB1))
-		if err != nil || out.Moved || out.Status != operations.TaskAssigned || out.DriverID == nil || *out.DriverID != w.dB1 {
-			t.Fatalf("driver change %+v %v", out, err)
-		}
 		if n := w.count(`SELECT count(*) FROM security_events`); n != audits {
-			t.Fatal("a driver change without a tenant move was audited as a reassignment")
+			t.Fatalf("a no-op wrote %d security_events rows", n-audits)
 		}
-		if n := w.count(`SELECT count(*) FROM outbox_events WHERE routing_key = 'task.reassigned' AND aggregate_id = $1`, inB.String()); n != 1 {
-			t.Fatalf("%d task.reassigned for the driver change", n)
+	})
+
+	// A move that keeps the task's driver (a drifted row whose driver now works for the target, R24) changes the
+	// tenant only: task.updated with changed [tenantId], so notify.fcm sends the silent tasks_changed and never a
+	// second "task assigned" to the driver who already held the task; status and queue position stay.
+	t.Run("a move that keeps the driver is task.updated", func(t *testing.T) {
+		for name, c := range map[string]struct {
+			p  *authz.Principal
+			in operations.Reassign
+		}{
+			"platform admin, no driverId":         {w.pa, moveTo(w.B)},
+			"dispatcher, driverId = the same one": {w.disp, withDriver(w.B, &w.dB1)},
+		} {
+			drifted := w.task(tmTask{tenant: w.D, source: "driver", status: "assigned", driver: &w.dB1, runOrder: ptr(int32(1)),
+				party: &w.partyX})
+			out, err := w.reassign(c.p, drifted, c.in)
+			if err != nil || !out.Moved || out.TenantID != w.B || out.Status != operations.TaskAssigned || out.DriverID == nil ||
+				*out.DriverID != w.dB1 || out.PreviousDriverID != nil || out.RunOrder == nil || *out.RunOrder != 1 {
+				t.Fatalf("%s: %+v %v", name, out, err)
+			}
+			if n := w.count(`SELECT count(*) FROM tasks WHERE id = $1 AND tenant_id = $2 AND status = 'assigned' AND driver_id = $3
+				AND run_order = 1`, drifted, w.B, w.dB1); n != 1 {
+				t.Fatalf("%s: the row's driver, status or queue position changed", name)
+			}
+			var routes []string
+			var payload []byte
+			if err := w.etl.QueryRow(ctx, `SELECT array_agg(routing_key), max(payload::text)::jsonb FROM outbox_events WHERE aggregate_id = $1`,
+				drifted.String()).Scan(&routes, &payload); err != nil {
+				t.Fatal(err)
+			}
+			var pl map[string]any
+			_ = json.Unmarshal(payload, &pl)
+			changed, _ := pl["changed"].([]any)
+			_, hasDriver := pl["driverId"]
+			if !slices.Equal(routes, []string{iam.RouteTaskUpdated}) || len(changed) != 1 || changed[0] != "tenantId" || hasDriver {
+				t.Fatalf("%s: outbox %v payload %s", name, routes, payload)
+			}
+			if n := w.count(`SELECT count(*) FROM security_events WHERE event_type = $1 AND details->>'taskId' = $2`,
+				iam.EventTaskTenantReassigned, drifted.String()); n != 2 {
+				t.Fatalf("%s: %d task_tenant_reassigned rows, want 2", name, n)
+			}
 		}
 	})
 
@@ -443,6 +545,7 @@ func TestReassignHTTP(t *testing.T) {
 	}
 	callOut := w.task(tmTask{tenant: w.D, party: &w.partyX})
 	path := "/v1/tasks/" + callOut.String()
+	carrierA := w.task(tmTask{tenant: w.A, source: "driver", status: "assigned", driver: &w.dA1, runOrder: ptr(int32(1)), party: &w.partyX})
 	reason := func(m map[string]any) string {
 		e, _ := m["error"].(map[string]any)
 		d, _ := e["details"].(map[string]any)
@@ -469,6 +572,10 @@ func TestReassignHTTP(t *testing.T) {
 		"not a JSON object": {"disp", path, `[1]`, 400, "bad_request"},
 		"a path id":         {"disp", "/v1/tasks/FM-11102026-001", `{"tenantId":"` + w.B.String() + `"}`, 404, "not_found"},
 		"a query parameter": {"disp", path + "?force=1", `{"tenantId":"` + w.B.String() + `"}`, 400, "bad_request"},
+		"a carrier's task": {"disp", "/v1/tasks/" + carrierA.String(), `{"tenantId":"` + w.A.String() + `","driverId":null}`, 403,
+			iam.ReasonTaskNotInReach},
+		"a driver change without a move": {"disp", path, `{"tenantId":"` + w.D.String() + `","driverId":"` + w.dD1.String() + `"}`, 422,
+			"tenantId same_tenant"},
 	} {
 		status, m := call(c.who, c.path, c.body)
 		if status != c.status || reason(m) != c.reason {

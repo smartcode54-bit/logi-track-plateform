@@ -19,7 +19,7 @@ const TasksPrefix = "/v1/tasks"
 // (T30) and the rest of the write-back (T31) join this group.
 //
 //	PATCH /v1/tasks/{id}   operations:manage_tasks | platform:cross_tenant_write; T28 slice: {tenantId, driverId?},
-//	                       the R13 reassignment by a dispatcher (a task it reads) or a platform admin
+//	                       the R13 move by a dispatcher (a call-out of its organisation) or a platform admin
 func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 	h := taskHandlers{s}
 	need := authz.RequireCap

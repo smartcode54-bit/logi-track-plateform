@@ -15,10 +15,12 @@ import (
 )
 
 // The R13 task reassignment (T28; Appendix C §C.1.7, §C.3.6, Appendix B §B.2.11 PATCH /v1/tasks/{id} with tenantId):
-// a dispatcher moves a call-out of its scope to the carrier that will run it, and may assign that carrier's driver in
-// the same step; a platform admin may do the same for any task. tenant_id never comes from a body except on this path
-// (and the driver move and the quarantine re-home). The move itself runs in a system transaction after Go authorization
-// (the Reassigner: iam.TaskMover), because after it the task is outside the dispatcher's RLS write reach.
+// a dispatcher moves a call-out of its organisation (a task in its own RLS write reach) to the carrier that will run
+// it, and may assign that carrier's driver in the same step; a platform admin may do the same for any task. It is a
+// move only: a driver change of a task that stays in its tenant is the ordinary update (T31). tenant_id never comes
+// from a body except on this path (and the driver move and the quarantine re-home). The move itself runs in a system
+// transaction after Go authorization (the Reassigner: iam.TaskMover), because after it the task is outside the
+// dispatcher's RLS write reach.
 
 // ReasonDispatcherOrPlatform is details.reason of the 403 of a reassignment by anyone but a dispatcher or a platform
 // admin.
@@ -31,12 +33,12 @@ type Reassign struct {
 	DriverSet bool
 	DriverID  *uuid.UUID
 	// Platform tells the Reassigner which authorization the request passed: a platform admin (every task) or a
-	// dispatcher (a task the dispatcher reads).
+	// dispatcher (a task the dispatcher reads and its own RLS lets it update).
 	Platform bool
 }
 
-// Reassigned is the answer of a reassignment: where the task is now and who runs it. Moved is false when the task was
-// already in the target tenant (only the driver may then have changed).
+// Reassigned is the answer of a reassignment: where the task is now and who runs it. Moved is false only for a request
+// that changes nothing (the task already in the target tenant with that driver); nothing is then written.
 type Reassigned struct {
 	ID               uuid.UUID  `json:"id"`
 	TaskNo           *string    `json:"taskNo"`
@@ -128,7 +130,8 @@ func parseID(v json.RawMessage) (uuid.UUID, bool) {
 }
 
 // ReassignTask authorizes a reassignment and hands it to the Reassigner: a dispatcher holding operations:manage_tasks
-// (the task must be one it reads, which the Reassigner checks under its RLS), or a platform admin holding
+// (the task must be one it reads, which the Reassigner checks under its RLS, and one its own RLS lets it update: 403
+// task_not_in_reach for another carrier's task it only reads through its parties' scope), or a platform admin holding
 // platform:cross_tenant_write; anyone else is 403 with details.reason dispatcher_or_platform_only. An API key never
 // reassigns.
 func (s *Service) ReassignTask(ctx context.Context, p *authz.Principal, rid string, taskID uuid.UUID, in Reassign) (Reassigned, error) {
