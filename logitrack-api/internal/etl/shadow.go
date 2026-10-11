@@ -359,8 +359,8 @@ func (p *Projector) write(ctx context.Context, coll string, docs []ExportDoc) (P
 
 // validDocID is a Firestore document id: not empty, no '/', not '.' or '..', not __name__-shaped, at most 1500 bytes.
 func validDocID(id string) bool {
-	return id != "" && id != "." && id != ".." && len(id) <= 1500 && !strings.Contains(id, "/") &&
-		!(strings.HasPrefix(id, "__") && strings.HasSuffix(id, "__"))
+	reserved := strings.HasPrefix(id, "__") && strings.HasSuffix(id, "__")
+	return id != "" && id != "." && id != ".." && len(id) <= 1500 && !strings.Contains(id, "/") && !reserved
 }
 
 // validDocPath is collection/id pairs of valid segments (an id with a '/' would name a collection or a nested document).

@@ -159,8 +159,11 @@ func (e *Engine) mirrorApply(c *docCtx, spec collectionSpec) (*AbortError, error
 				return nil, err
 			}
 			*c = *again
-			if abort == nil && c.outcome != Rejected {
+			switch {
+			case abort == nil && c.outcome != Rejected:
 				c.find(field, ReasonStatusOutOfVocab, "an unknown literal from the mirror: the field keeps PostgreSQL's value", literal)
+			case abort == nil:
+				c.doc, c.f = orig, orig.Fields // rejected for another reason: recorded as Firestore has it
 			}
 		}
 	}

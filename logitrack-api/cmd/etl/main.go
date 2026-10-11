@@ -889,16 +889,27 @@ func cmdMirror(e *env, args []string) int {
 		return e.abortCode(err, "mirror failed")
 	}
 	tw := tabwriter.NewWriter(e.stdout, 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "collection\tmode\tread\tunchanged\tbefore watermark\tapplied")
+	_, _ = fmt.Fprintln(tw, "collection\tmode\tread\tunchanged\tbefore watermark\tapplied\theld")
+	held := 0
 	for _, c := range rep.Collections {
 		n := 0
 		for _, v := range c.Outcomes {
 			n += v
 		}
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t%d\t%d\n", c.Name, c.Mode, c.Total, c.Unchanged, c.BeforeMark, n)
+		held += c.Held
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t%d\t%d\t%d\n", c.Name, c.Mode, c.Total, c.Unchanged, c.BeforeMark, n, c.Held)
 	}
 	_ = tw.Flush()
 	_, _ = fmt.Fprintf(e.stdout, "mirror: %d document(s) applied\n", rep.Applied())
+	if held > 0 {
+		// A billable document the sweep could not apply (R19) is held, the rest committed: name it for the fix at source.
+		for _, d := range rep.Docs {
+			if d.Outcome == etl.Pending && len(d.Findings) > 0 {
+				_, _ = fmt.Fprintf(e.stderr, "etl: held %s (%s): fix it at the source; every sweep retries it\n", d.Path, d.Findings[0].Reason)
+			}
+		}
+		return app.ExitConfigError
+	}
 	return app.ExitOK
 }
 
