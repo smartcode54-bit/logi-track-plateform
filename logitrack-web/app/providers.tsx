@@ -4,7 +4,8 @@
  * The client providers of every page (developer-spec.md §10.6; TW4, T18):
  *
  *   QueryClientProvider > LanguageProvider > AuthProvider (`['me']` + the Firebase bridge, T18)
- *     > RealtimeProvider (the session stream, T18; domain events in TW5) > children + Toaster
+ *     > RealtimeProvider (the tab's event stream: session.revoked, T18; the event -> cache map, TW5)
+ *     > children + Toaster
  *
  * plus, beside them, the runtime that belongs to the cache rather than to any page: `['me']` is
  * fetched at once (in parallel with the language chunk, which the LanguageProvider waits for), the
@@ -21,7 +22,7 @@ import { QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-q
 import { toast } from "sonner";
 import { AuthProvider } from "@/context/auth";
 import { LanguageProvider, useLanguage } from "@/context/language";
-import { RealtimeProvider } from "@/context/realtime";
+import { RealtimeProvider } from "@/lib/realtime/RealtimeProvider";
 import { Toaster } from "@/components/ui/sonner";
 import { apiErrorText } from "@/lib/apiError";
 import { bindQueryClientToSession, getQueryClient, setForbiddenNotifier } from "@/lib/queryClient";

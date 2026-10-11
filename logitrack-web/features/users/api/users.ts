@@ -25,6 +25,7 @@ import { fetchAllPages } from "@/lib/goPages";
 import { goInfiniteQueryFn, goNextPageParam } from "@/lib/goQuery";
 import { isPlatformPrincipal, type MeDTO, type PlatformRole, type TenantRole } from "@/features/auth/api/me";
 import { queryKeys } from "@/lib/queryKeys";
+import { POLL_INTERVAL_MS, pollWhileVisible } from "@/lib/realtime/polling";
 
 export type UserStatus = "active" | "disabled" | "reset_required" | "deleted";
 export type ScopeKind = "customer" | "dispatcher";
@@ -96,7 +97,7 @@ export const USERS_KEY = queryKeys.users.all();
 export const USERS_PATH = "/v1/users";
 export const USERS_PAGE_SIZE = 50;
 /** The list is polled every 60 s while the tab is visible (Appendix E §E.5 row 14). */
-export const USERS_POLL_MS = 60_000;
+export const USERS_POLL_MS = POLL_INTERVAL_MS;
 
 /** The cross-tenant header of a platform principal (Appendix C §C.3.9; the BFF forwards it). */
 export const ACT_ON_TENANT_HEADER = "X-Act-On-Tenant";
@@ -149,7 +150,7 @@ export function useUsers(filter: UsersFilter, enabled = true, reach: UsersReach 
         getNextPageParam: goNextPageParam,
         staleTime: USERS_POLL_MS,
         gcTime: 5 * 60_000,
-        refetchInterval: USERS_POLL_MS,
+        ...pollWhileVisible(USERS_POLL_MS),
         enabled,
     });
 }
