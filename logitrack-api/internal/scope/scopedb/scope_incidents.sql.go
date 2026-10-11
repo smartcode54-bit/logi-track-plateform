@@ -64,3 +64,72 @@ func (q *Queries) ListScopeIncidents(ctx context.Context, arg ListScopeIncidents
 	}
 	return items, nil
 }
+
+const listScopeIncidentsFiltered = `-- name: ListScopeIncidentsFiltered :many
+SELECT id, tenant_id, trip_id, driver_id, delay_cause, description, lat, lng, truck_id, truck_license_plate_snapshot, map_photo_file_id, situation1_photo_file_id, situation2_photo_file_id, reported_by_kind, created_at FROM scope_incidents
+ WHERE ($1::timestamptz IS NULL OR created_at >= $1::timestamptz)
+   AND ($2::timestamptz IS NULL OR created_at < $2::timestamptz)
+   AND ($3::uuid IS NULL OR trip_id = $3::uuid)
+   AND ($4::uuid IS NULL OR driver_id = $4::uuid)
+   AND ($5::timestamptz IS NULL
+        OR (created_at, id) < ($5::timestamptz, $6::uuid))
+ ORDER BY created_at DESC, id DESC
+ LIMIT $7
+`
+
+type ListScopeIncidentsFilteredParams struct {
+	FromAt       *time.Time `json:"fromAt"`
+	ToAt         *time.Time `json:"toAt"`
+	TripID       *uuid.UUID `json:"tripId"`
+	DriverID     *uuid.UUID `json:"driverId"`
+	AfterCreated *time.Time `json:"afterCreated"`
+	AfterID      uuid.UUID  `json:"afterId"`
+	RowLimit     int32      `json:"rowLimit"`
+}
+
+// GET /v1/incidents for a scope principal (T30): newest first, keyset (created_at, id); from / to bound created_at,
+// [from, to). A principal whose parties have no visible trip reads none (p_scope_read: incidents of visible trips;
+// the legacy page showed every incident then, incident-reports/page.tsx:185).
+func (q *Queries) ListScopeIncidentsFiltered(ctx context.Context, arg ListScopeIncidentsFilteredParams) ([]ScopeIncident, error) {
+	rows, err := q.db.Query(ctx, listScopeIncidentsFiltered,
+		arg.FromAt,
+		arg.ToAt,
+		arg.TripID,
+		arg.DriverID,
+		arg.AfterCreated,
+		arg.AfterID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScopeIncident{}
+	for rows.Next() {
+		var i ScopeIncident
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.TripID,
+			&i.DriverID,
+			&i.DelayCause,
+			&i.Description,
+			&i.Lat,
+			&i.Lng,
+			&i.TruckID,
+			&i.TruckLicensePlateSnapshot,
+			&i.MapPhotoFileID,
+			&i.Situation1PhotoFileID,
+			&i.Situation2PhotoFileID,
+			&i.ReportedByKind,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

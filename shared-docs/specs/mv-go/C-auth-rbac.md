@@ -1150,6 +1150,23 @@ CREATE VIEW scope_incidents WITH (security_invoker = true) AS
   SELECT id, tenant_id, trip_id, driver_id, delay_cause, description, lat, lng, truck_id, truck_license_plate_snapshot,
          map_photo_file_id, situation1_photo_file_id, situation2_photo_file_id, reported_by_kind, created_at
     FROM incident_reports;
+-- 0017_scope_operation_children.sql (T30): the child rows the operations reads need; p_parent_read already shows them
+-- to a scope principal (its parent's p_scope_read), so these add columns only, never rows
+CREATE VIEW scope_task_stops WITH (security_invoker = true) AS
+  SELECT id, task_id, stop_index, destination_raw, destination_hub_id, status, delivered_at, delivered_lat, delivered_lng,
+         sequence, added_at, source_id, is_custom
+    FROM task_delivery_stops;         -- hidden: destination_linked_party_id, estimated_rate_thb, drop_fee_thb
+CREATE VIEW scope_trip_stops WITH (security_invoker = true) AS
+  SELECT id, trip_id, stop_index, destination_raw, destination_hub_id, source_id, status, delivered_at, delivered_lat,
+         delivered_lng, completed_seq
+    FROM trip_delivery_stops;
+CREATE VIEW scope_trip_photos WITH (security_invoker = true) AS
+  SELECT id, trip_id, stop_id, photo_type, photo_type_known, file_id, geocode_lat, geocode_lng, geocode_address,
+         geocoded_at, position, created_at
+    FROM trip_photos;
+CREATE VIEW scope_standby_photos WITH (security_invoker = true) AS
+  SELECT id, standby_id, photo_type, file_id, overlay_text, created_at
+    FROM standby_photos;
 -- 0003_master.sql
 CREATE VIEW scope_drivers WITH (security_invoker = true) AS
   SELECT id, tenant_id, full_name_th, first_name, last_name, mobile, status, active_truck_id FROM drivers;
@@ -1160,6 +1177,8 @@ CREATE VIEW scope_trucks WITH (security_invoker = true) AS
 CREATE VIEW scope_tenants WITH (security_invoker = true) AS
   SELECT id, kind, code, name_th, name_en FROM tenants;
 ```
+
+As built (T30, issue #50): the operations reads serve a scope principal from these eleven views only (`GET /v1/tasks*`, `GET /v1/trips*` with the monitor, `GET /v1/standby`, `GET /v1/incidents`; `internal/operations` over `internal/scope/repo/scope_{tasks,trips,standby,incidents,monitor}.sql`); the file of a photo is signed after its row was read through the view, and the place labels come from the hub master (global read). The catalog test (`rls_catalog_test.go`) and `internal/scope` keep the view list and each DTO equal to its view.
 
 Never readable by a scope principal (no `p_scope_read` exists): `payroll_runs`, `payroll_line_items`, `driver_penalties`, `driver_compensation_configs`, `driver_advances`, `vehicle_expenses`, `maintenance_records`, `transactions`, `customer_rate_entries`, `customer_fuel_rate_adjustments`, `customer_service_fees`, `standby_rate_entries`, `trip_billing_snapshots`, `billing_statements` (glossary "Dispatcher" exclusion list).
 

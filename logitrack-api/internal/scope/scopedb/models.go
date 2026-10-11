@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type ScopeDriver struct {
@@ -61,36 +60,61 @@ type ScopeStandby struct {
 	CreatedAt                 time.Time  `json:"createdAt"`
 }
 
+type ScopeStandbyPhoto struct {
+	ID          uuid.UUID `json:"id"`
+	StandbyID   uuid.UUID `json:"standbyId"`
+	PhotoType   string    `json:"photoType"`
+	FileID      uuid.UUID `json:"fileId"`
+	OverlayText *string   `json:"overlayText"`
+	CreatedAt   time.Time `json:"createdAt"`
+}
+
 type ScopeTask struct {
-	ID                         uuid.UUID   `json:"id"`
-	TenantID                   uuid.UUID   `json:"tenantId"`
-	TaskNo                     *string     `json:"taskNo"`
-	TaskType                   string      `json:"taskType"`
-	JobCategory                *string     `json:"jobCategory"`
-	Status                     string      `json:"status"`
-	PlanAt                     time.Time   `json:"planAt"`
-	PlanDate                   pgtype.Date `json:"planDate"`
-	PlanTime                   *string     `json:"planTime"`
-	ActualPickupAt             *time.Time  `json:"actualPickupAt"`
-	SourceHubRaw               string      `json:"sourceHubRaw"`
-	SourceHubID                *uuid.UUID  `json:"sourceHubId"`
-	DestinationRaw             string      `json:"destinationRaw"`
-	DestinationHubID           *uuid.UUID  `json:"destinationHubId"`
-	DestinationSocKey          *string     `json:"destinationSocKey"`
-	TruckID                    *uuid.UUID  `json:"truckId"`
-	TruckType                  *string     `json:"truckType"`
-	LicensePlateSnapshot       *string     `json:"licensePlateSnapshot"`
-	DriverID                   *uuid.UUID  `json:"driverId"`
-	HelperDriverID             *uuid.UUID  `json:"helperDriverId"`
-	RunOrder                   *int32      `json:"runOrder"`
-	CheckInAt                  *time.Time  `json:"checkInAt"`
-	CheckInPhotoFileID         *uuid.UUID  `json:"checkInPhotoFileId"`
-	CheckInAppScreenshotFileID *uuid.UUID  `json:"checkInAppScreenshotFileId"`
-	CheckInLat                 *float64    `json:"checkInLat"`
-	CheckInLng                 *float64    `json:"checkInLng"`
-	IsMultiDelivery            bool        `json:"isMultiDelivery"`
-	CreatedAt                  time.Time   `json:"createdAt"`
-	UpdatedAt                  time.Time   `json:"updatedAt"`
+	ID                         uuid.UUID  `json:"id"`
+	TenantID                   uuid.UUID  `json:"tenantId"`
+	TaskNo                     *string    `json:"taskNo"`
+	TaskType                   string     `json:"taskType"`
+	JobCategory                *string    `json:"jobCategory"`
+	Status                     string     `json:"status"`
+	PlanAt                     time.Time  `json:"planAt"`
+	PlanDate                   *time.Time `json:"planDate"`
+	PlanTime                   *string    `json:"planTime"`
+	ActualPickupAt             *time.Time `json:"actualPickupAt"`
+	SourceHubRaw               string     `json:"sourceHubRaw"`
+	SourceHubID                *uuid.UUID `json:"sourceHubId"`
+	DestinationRaw             string     `json:"destinationRaw"`
+	DestinationHubID           *uuid.UUID `json:"destinationHubId"`
+	DestinationSocKey          *string    `json:"destinationSocKey"`
+	TruckID                    *uuid.UUID `json:"truckId"`
+	TruckType                  *string    `json:"truckType"`
+	LicensePlateSnapshot       *string    `json:"licensePlateSnapshot"`
+	DriverID                   *uuid.UUID `json:"driverId"`
+	HelperDriverID             *uuid.UUID `json:"helperDriverId"`
+	RunOrder                   *int32     `json:"runOrder"`
+	CheckInAt                  *time.Time `json:"checkInAt"`
+	CheckInPhotoFileID         *uuid.UUID `json:"checkInPhotoFileId"`
+	CheckInAppScreenshotFileID *uuid.UUID `json:"checkInAppScreenshotFileId"`
+	CheckInLat                 *float64   `json:"checkInLat"`
+	CheckInLng                 *float64   `json:"checkInLng"`
+	IsMultiDelivery            bool       `json:"isMultiDelivery"`
+	CreatedAt                  time.Time  `json:"createdAt"`
+	UpdatedAt                  time.Time  `json:"updatedAt"`
+}
+
+type ScopeTaskStop struct {
+	ID               uuid.UUID  `json:"id"`
+	TaskID           uuid.UUID  `json:"taskId"`
+	StopIndex        int32      `json:"stopIndex"`
+	DestinationRaw   string     `json:"destinationRaw"`
+	DestinationHubID *uuid.UUID `json:"destinationHubId"`
+	Status           string     `json:"status"`
+	DeliveredAt      *time.Time `json:"deliveredAt"`
+	DeliveredLat     *float64   `json:"deliveredLat"`
+	DeliveredLng     *float64   `json:"deliveredLng"`
+	Sequence         *int32     `json:"sequence"`
+	AddedAt          *time.Time `json:"addedAt"`
+	SourceID         *string    `json:"sourceId"`
+	IsCustom         bool       `json:"isCustom"`
 }
 
 type ScopeTenant struct {
@@ -102,37 +126,66 @@ type ScopeTenant struct {
 }
 
 type ScopeTrip struct {
-	ID                        uuid.UUID      `json:"id"`
-	TenantID                  uuid.UUID      `json:"tenantId"`
-	TripNo                    string         `json:"tripNo"`
-	Status                    string         `json:"status"`
-	JobType                   string         `json:"jobType"`
-	JobCategory               *string        `json:"jobCategory"`
-	TaskID                    *uuid.UUID     `json:"taskId"`
-	DriverID                  *uuid.UUID     `json:"driverId"`
-	OriginRaw                 *string        `json:"originRaw"`
-	OriginHubID               *uuid.UUID     `json:"originHubId"`
-	DestinationRaw            *string        `json:"destinationRaw"`
-	DestinationHubID          *uuid.UUID     `json:"destinationHubId"`
-	DestinationSocKey         *string        `json:"destinationSocKey"`
-	SealCode                  *string        `json:"sealCode"`
-	PartnerCode               *string        `json:"partnerCode"`
-	TruckID                   *uuid.UUID     `json:"truckId"`
-	TruckLicensePlateSnapshot *string        `json:"truckLicensePlateSnapshot"`
-	VehicleClass              *string        `json:"vehicleClass"`
-	ParcelCount               *int32         `json:"parcelCount"`
-	TotalWeightKg             pgtype.Numeric `json:"totalWeightKg"`
-	LoadingLat                *float64       `json:"loadingLat"`
-	LoadingLng                *float64       `json:"loadingLng"`
-	Std                       *time.Time     `json:"std"`
-	Sta                       *time.Time     `json:"sta"`
-	Ata                       *time.Time     `json:"ata"`
-	DeliveredAt               *time.Time     `json:"deliveredAt"`
-	DeliveredLat              *float64       `json:"deliveredLat"`
-	DeliveredLng              *float64       `json:"deliveredLng"`
-	IsMultiDelivery           bool           `json:"isMultiDelivery"`
-	CreatedAt                 time.Time      `json:"createdAt"`
-	UpdatedAt                 time.Time      `json:"updatedAt"`
+	ID                        uuid.UUID  `json:"id"`
+	TenantID                  uuid.UUID  `json:"tenantId"`
+	TripNo                    string     `json:"tripNo"`
+	Status                    string     `json:"status"`
+	JobType                   string     `json:"jobType"`
+	JobCategory               *string    `json:"jobCategory"`
+	TaskID                    *uuid.UUID `json:"taskId"`
+	DriverID                  *uuid.UUID `json:"driverId"`
+	OriginRaw                 *string    `json:"originRaw"`
+	OriginHubID               *uuid.UUID `json:"originHubId"`
+	DestinationRaw            *string    `json:"destinationRaw"`
+	DestinationHubID          *uuid.UUID `json:"destinationHubId"`
+	DestinationSocKey         *string    `json:"destinationSocKey"`
+	SealCode                  *string    `json:"sealCode"`
+	PartnerCode               *string    `json:"partnerCode"`
+	TruckID                   *uuid.UUID `json:"truckId"`
+	TruckLicensePlateSnapshot *string    `json:"truckLicensePlateSnapshot"`
+	VehicleClass              *string    `json:"vehicleClass"`
+	ParcelCount               *int32     `json:"parcelCount"`
+	TotalWeightKg             *float64   `json:"totalWeightKg"`
+	LoadingLat                *float64   `json:"loadingLat"`
+	LoadingLng                *float64   `json:"loadingLng"`
+	Std                       *time.Time `json:"std"`
+	Sta                       *time.Time `json:"sta"`
+	Ata                       *time.Time `json:"ata"`
+	DeliveredAt               *time.Time `json:"deliveredAt"`
+	DeliveredLat              *float64   `json:"deliveredLat"`
+	DeliveredLng              *float64   `json:"deliveredLng"`
+	IsMultiDelivery           bool       `json:"isMultiDelivery"`
+	CreatedAt                 time.Time  `json:"createdAt"`
+	UpdatedAt                 time.Time  `json:"updatedAt"`
+}
+
+type ScopeTripPhoto struct {
+	ID             uuid.UUID  `json:"id"`
+	TripID         uuid.UUID  `json:"tripId"`
+	StopID         *uuid.UUID `json:"stopId"`
+	PhotoType      string     `json:"photoType"`
+	PhotoTypeKnown *bool      `json:"photoTypeKnown"`
+	FileID         uuid.UUID  `json:"fileId"`
+	GeocodeLat     *float64   `json:"geocodeLat"`
+	GeocodeLng     *float64   `json:"geocodeLng"`
+	GeocodeAddress *string    `json:"geocodeAddress"`
+	GeocodedAt     *time.Time `json:"geocodedAt"`
+	Position       int32      `json:"position"`
+	CreatedAt      time.Time  `json:"createdAt"`
+}
+
+type ScopeTripStop struct {
+	ID               uuid.UUID  `json:"id"`
+	TripID           uuid.UUID  `json:"tripId"`
+	StopIndex        int32      `json:"stopIndex"`
+	DestinationRaw   string     `json:"destinationRaw"`
+	DestinationHubID *uuid.UUID `json:"destinationHubId"`
+	SourceID         *string    `json:"sourceId"`
+	Status           string     `json:"status"`
+	DeliveredAt      *time.Time `json:"deliveredAt"`
+	DeliveredLat     *float64   `json:"deliveredLat"`
+	DeliveredLng     *float64   `json:"deliveredLng"`
+	CompletedSeq     *int32     `json:"completedSeq"`
 }
 
 type ScopeTruck struct {

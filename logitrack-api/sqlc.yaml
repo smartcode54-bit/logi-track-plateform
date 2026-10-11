@@ -300,6 +300,23 @@ sql:
             go_type:
               type: string
               pointer: true
+          # T30: calendar days and NUMERIC read as the operations block reads them (the staff and scope payloads of
+          # one route share their builders).
+          - db_type: date
+            go_type: time.Time
+          - db_type: date
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true
+          - db_type: pg_catalog.numeric
+            go_type: float64
+          - db_type: pg_catalog.numeric
+            nullable: true
+            go_type:
+              type: float64
+              pointer: true
   # T11: file_objects (presign, commit, storage.gc) and the evidence tokens of trip_records / standby_records,
   # all under db.WithSystem (internal/storage is on the allow-list of Appendix C §C.3.2).
   - name: storage

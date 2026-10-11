@@ -38,6 +38,11 @@ SELECT * FROM file_objects
 -- name: GetFile :one
 SELECT * FROM file_objects WHERE id = @id AND deleted_at IS NULL;
 
+-- name: GetFiles :many
+-- The files of a page of rows the caller already read under its own rights (T30: trip, standby and incident photos):
+-- one round trip for every URL of the page.
+SELECT * FROM file_objects WHERE id = ANY (@ids::uuid[]) AND deleted_at IS NULL;
+
 -- name: FileIDsByKeys :many
 -- An entity PATCH that gets back keys (T20): the live rows that hold them, so the caller can tell a file its locked
 -- row already links from a new upload.
