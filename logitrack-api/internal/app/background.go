@@ -287,7 +287,7 @@ func workerRegistrations(cfg *WorkerConfig, pool, etlPool *pgxpool.Pool, st *sto
 	// payroll.run (T44): the draft payroll runs of a tenant's period and round (internal/hr), no outside service.
 	payroll, err := hr.NewPayrollJob(hr.JobDeps{Pool: pool, Locks: jobs.NewRedisLocker(rdb, ks), Log: log})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	available[hr.QueuePayroll] = payroll.Registration()
 
