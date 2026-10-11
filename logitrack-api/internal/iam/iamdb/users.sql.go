@@ -217,6 +217,19 @@ func (q *Queries) DriverOfUser(ctx context.Context, userID uuid.UUID) (DriverOfU
 	return i, err
 }
 
+const driverUser = `-- name: DriverUser :one
+SELECT user_id FROM drivers WHERE id = $1
+`
+
+// The login of a driver before the move locks anything: its users row is locked first (lock order users -> drivers,
+// the order of PUT /v1/users/{id}/driver-link).
+func (q *Queries) DriverUser(ctx context.Context, id uuid.UUID) (*uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, driverUser, id)
+	var user_id *uuid.UUID
+	err := row.Scan(&user_id)
+	return user_id, err
+}
+
 const existingParties = `-- name: ExistingParties :many
 SELECT id FROM billing_parties WHERE id = ANY ($1::uuid[])
 `
@@ -953,6 +966,40 @@ func (q *Queries) LockAdminUser(ctx context.Context, id uuid.UUID) (LockAdminUse
 		&i.Status,
 		&i.AuthVersion,
 		&i.LegacyAuthUid,
+	)
+	return i, err
+}
+
+const lockMoveDriver = `-- name: LockMoveDriver :one
+SELECT d.id, d.tenant_id, d.user_id, d.current_assignment_id, d.active_truck_id,
+       EXISTS (SELECT 1 FROM truck_assignments a WHERE a.driver_id = d.id AND a.status = 'active')::boolean
+         AS has_active_assignment
+FROM drivers d
+WHERE d.id = $1
+FOR UPDATE OF d
+`
+
+type LockMoveDriverRow struct {
+	ID                  uuid.UUID
+	TenantID            uuid.UUID
+	UserID              *uuid.UUID
+	CurrentAssignmentID *uuid.UUID
+	ActiveTruckID       *uuid.UUID
+	HasActiveAssignment bool
+}
+
+// PATCH /v1/drivers/{id} {tenantId} (the broker-carrier move, Appendix C §C.1.4, T23): the driver, its login and
+// whether it still holds a truck (a home truck or the truck of a running job), which the move refuses.
+func (q *Queries) LockMoveDriver(ctx context.Context, id uuid.UUID) (LockMoveDriverRow, error) {
+	row := q.db.QueryRow(ctx, lockMoveDriver, id)
+	var i LockMoveDriverRow
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.UserID,
+		&i.CurrentAssignmentID,
+		&i.ActiveTruckID,
+		&i.HasActiveAssignment,
 	)
 	return i, err
 }

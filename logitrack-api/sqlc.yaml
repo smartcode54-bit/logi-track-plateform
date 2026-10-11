@@ -409,7 +409,8 @@ sql:
               type: string
               pointer: true
   # T22: trucks, their status history (status_history, entity 'truck'), truck_files, the active truck_assignments a
-  # detail reads and the renewal ledger (transactions), all under db.WithPrincipal (RLS decides: G-tenant for trucks
+  # detail reads and the renewal ledger (transactions); T23: the truck assignments (truck_assignments with the
+  # driver's current_assignment_id, status and status entry), all under db.WithPrincipal (RLS decides: G-tenant for trucks
   # and transactions, the parent's reach for truck_files and status_history, Appendix C §C.3.0). Dates are calendar
   # days (time.Time at UTC midnight), money and capacities NUMERIC read as float64 (two decimals at most, checked in Go).
   - name: fleet
@@ -455,6 +456,61 @@ sql:
             nullable: true
             go_type:
               type: float64
+              pointer: true
+  # T23: drivers, their status history (status_history, entity 'driver'), driver_customer_codes and the linked login's
+  # users row, all under db.WithPrincipal (RLS decides: G-tenant for drivers, the parent's reach for the codes and the
+  # history, p_staff_read for users, Appendix C §C.3.0). Dates are calendar days (time.Time at UTC midnight); NUMERIC
+  # contract years read as float64.
+  - name: drivers
+    engine: postgresql
+    schema: migrations
+    queries: internal/drivers/queries
+    gen:
+      go:
+        package: driversdb
+        out: internal/drivers/driversdb
+        sql_package: pgx/v5
+        emit_empty_slices: true
+        emit_pointers_for_null_types: true
+        omit_unused_structs: true
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: uuid
+            nullable: true
+            go_type:
+              import: github.com/google/uuid
+              type: UUID
+              pointer: true
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true
+          - db_type: date
+            go_type: time.Time
+          - db_type: date
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true
+          - db_type: pg_catalog.numeric
+            go_type: float64
+          - db_type: pg_catalog.numeric
+            nullable: true
+            go_type:
+              type: float64
+              pointer: true
+          - db_type: citext
+            go_type: string
+          - db_type: citext
+            nullable: true
+            go_type:
+              type: string
               pointer: true
 # sqlc vet rules (make gen-check). scope-views-only (Appendix C §C.3.7): a scope query reads the scope_* views
 # and nothing else, and never writes. It fails on any of the 85 tables of migrations/ named as a whole word

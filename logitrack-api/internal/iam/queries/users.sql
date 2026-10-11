@@ -171,6 +171,21 @@ SELECT id, tenant_id, user_id FROM drivers WHERE id = sqlc.arg(id) FOR UPDATE;
 -- name: DriverOfUser :one
 SELECT id, tenant_id FROM drivers WHERE user_id = sqlc.arg(user_id)::uuid FOR UPDATE;
 
+-- name: DriverUser :one
+-- The login of a driver before the move locks anything: its users row is locked first (lock order users -> drivers,
+-- the order of PUT /v1/users/{id}/driver-link).
+SELECT user_id FROM drivers WHERE id = sqlc.arg(id);
+
+-- name: LockMoveDriver :one
+-- PATCH /v1/drivers/{id} {tenantId} (the broker-carrier move, Appendix C §C.1.4, T23): the driver, its login and
+-- whether it still holds a truck (a home truck or the truck of a running job), which the move refuses.
+SELECT d.id, d.tenant_id, d.user_id, d.current_assignment_id, d.active_truck_id,
+       EXISTS (SELECT 1 FROM truck_assignments a WHERE a.driver_id = d.id AND a.status = 'active')::boolean
+         AS has_active_assignment
+FROM drivers d
+WHERE d.id = sqlc.arg(id)
+FOR UPDATE OF d;
+
 -- name: SetDriverUser :exec
 UPDATE drivers SET user_id = sqlc.narg(user_id) WHERE id = sqlc.arg(id);
 

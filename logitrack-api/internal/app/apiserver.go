@@ -16,6 +16,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/password"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/token"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/drivers"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hubs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
@@ -46,8 +47,11 @@ type APIDeps struct {
 	// Hubs are the hubs, distances and the distances.compute submission of T21: /v1/hubs*, /v1/distances*,
 	// POST /v1/jobs/distances.compute.
 	Hubs *hubs.Service
-	// Fleet is the truck master of T22: /v1/trucks* (renewals, import).
-	Fleet   *fleet.Service
+	// Fleet is the truck master of T22: /v1/trucks* (renewals, import), and the truck assignments of T23:
+	// /v1/truck-assignments*.
+	Fleet *fleet.Service
+	// Drivers are the driver master of T23: /v1/drivers*.
+	Drivers *drivers.Service
 	Jobs    *jobs.Service
 	Storage *storage.Service
 	Events  *sse.Service
@@ -233,8 +237,15 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		closeAll()
 		return nil, nil, err
 	}
+	// Drivers (T23): RLS decides (db.WithPrincipal); a tenant move is the administration's (iam.Admin.MoveDriver).
+	driverSvc, err := drivers.New(drivers.Deps{Pool: pool, Files: st, Mover: admin, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
 	a, err := build(APIDeps{Auth: svc, Admin: admin, APIKeys: apiKeys, Parties: partySvc, Hubs: hubSvc, Fleet: fleetSvc,
-		Jobs: jobSvc, Storage: st, Events: events, Limiter: limiter, RateLimitEnabled: cfg.RateLimit.Enabled})
+		Drivers: driverSvc, Jobs: jobSvc, Storage: st, Events: events, Limiter: limiter,
+		RateLimitEnabled: cfg.RateLimit.Enabled})
 	if err != nil {
 		closeAll()
 		return nil, nil, err
