@@ -23,8 +23,9 @@ import (
 //     mirror applies (activeTruck, fcmToken; the maintenance fields of a truck; a login's last sign-in and tokens) equal
 //     the PostgreSQL columns;
 //   - projection: every row a projected collection writes has its document, and the document's PostgreSQL-owned
-//     fields are equivalent to the row (ExportDoc.Diff over the encoder's mask; ids are computed, never minted);
-//     documents no row projects to are reported (informational: legacy duplicates such as a losing hub document);
+//     fields are equivalent to the row (ExportDoc.Diff over the encoder's mask; ids are computed, never minted), and
+//     no document is held (ExportDoc.Hold); documents no row projects to are reported (informational: legacy
+//     duplicates such as a losing hub document), except in the one-document collections (metadata, settings);
 //   - operations (T29, syncreconcile_ops.go): per document of tasks, trip_records, standby_records and incidentReport,
 //     the columns the boards, the monitor and billing read equal what the load transforms read from the document, and
 //     the rows whose document Firestore no longer has are listed;
@@ -383,6 +384,12 @@ func reconcileProjection(ctx context.Context, tx pgx.Tx, coll string, docs []dum
 			missing = append(missing, w.Path)
 			continue
 		}
+		if w.Hold != nil {
+			if reason := w.Hold(cur.Fields); reason != "" {
+				differ = append(differ, w.Path+" held: "+reason)
+				continue
+			}
+		}
 		if _, mask := w.without(foreign).Diff(cur.Fields); len(mask) > 0 {
 			differ = append(differ, w.Path+" "+strings.Join(mask, "/"))
 		}
@@ -397,6 +404,9 @@ func reconcileProjection(ctx context.Context, tx pgx.Tx, coll string, docs []dum
 		note = "differ: " + listed(differ)
 	}
 	rec.add("projection", coll, rows, rows-len(missing)-len(differ), len(missing)+len(differ) == 0, note)
+	if singleDocument[coll] {
+		return nil // the collection's other documents are settings keys the projection does not own
+	}
 	var orphans []string
 	for _, d := range docs {
 		if !projected[d.Path] {

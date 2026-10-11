@@ -28,7 +28,9 @@ import (
 //     ones whose stored value differs: a legacy spelling that means the same value (a lower-case code, 'RETURN_CENTER'
 //     for SOC, a yyyy-MM-dd string for a date, a download URL with its token) is kept, and a document that already
 //     says what PostgreSQL says is not written at all, so the mirror sees no change from it (no echo loop);
-//   - writes under a precondition on the update time it compared with (a concurrent writer makes it retry);
+//   - writes under a precondition on the update time it compared with (a concurrent writer makes it retry), and
+//     projects a one-document collection (settings/mobile_app, metadata/distances_last_calculated) one projection at
+//     a time, so an older snapshot of it never replaces a newer one (projectOne);
 //   - mints the document id of a row born in PostgreSQL (R25): legacy_doc_id = id::text, or the natural key of a
 //     distance pair ({hub}_{soc}, {soc}_{hub}: the 3.x app reads distances by that id,
 //     hub_soc_distances_repository.dart, minted again when the hub's code changes); the minting transaction commits
@@ -38,7 +40,9 @@ import (
 //   - never writes a path that is not a valid document path (a '/' or a reserved name in a code): the row is skipped;
 //   - skips the rows that are not PostgreSQL's to project: rows in the quarantine tenant (unresolved, Firestore keeps
 //     the original), the hubs drivers created in Firestore (the mirror owns them), and the own fleet unless a
-//     subcontractors document named it.
+//     subcontractors document named it;
+//   - holds a stored document that belongs to another fleet as a whole (ExportDoc.Hold): the settings/mobile_app of a
+//     Firestore project whose flavor is not the gate's (encodeMobileAppSettings).
 
 // ShadowTarget is one projection: rows of Collection by id, the rows that copy something of some hubs, customers or
 // tenants (a distance pair names its hub's code, a hub its linked party's code and name, a driver its customers'
@@ -84,13 +88,22 @@ func nonNilIDs(ids []uuid.UUID) []uuid.UUID {
 	return ids
 }
 
-// The routing keys firestore.shadow binds (Appendix B §B.5.3).
-const settingDistancesLastCalculated = "distances_last_calculated"
+// The settings keys whose settings.changed firestore.shadow projects (Appendix B §B.4.3, §B.5.3).
+const (
+	settingDistancesLastCalculated = "distances_last_calculated"
+	// settingMobileApp is the version gate of the driver app (internal/mobileapp SettingsKey): settings/mobile_app,
+	// which installed 3.x APKs read for the floor and the download link (ADR 0007).
+	settingMobileApp = "mobile_app"
+)
+
+// singleDocument are the projected collections of one document each (a settings key): an All target encodes it once
+// instead of paging through a table, and the reconciliation does not report the collection's other documents.
+var singleDocument = map[string]bool{"metadata": true, "settings": true}
 
 // ShadowTargets maps one firestore.shadow event onto its projections. Payloads are thin (main spec §7.1): the
-// projection re-reads the rows. holidays.changed, broadcast.created, settings.changed of another key, trip.priced and
-// standby.priced belong to later phases (T45, T48, T52, T38) and project nothing yet. A body that does not decode or
-// an unknown routing key is an error the consumer acks as permanent.
+// projection re-reads the rows. holidays.changed, broadcast.created, settings.changed of a key other than the distance
+// matrix and the version gate, trip.priced and standby.priced belong to later phases (T45, T48, T38) and project
+// nothing yet. A body that does not decode or an unknown routing key is an error the consumer acks as permanent.
 func ShadowTargets(routingKey string, body []byte) ([]ShadowTarget, error) {
 	var p struct {
 		IDs      []string `json:"ids"`
@@ -175,11 +188,15 @@ func ShadowTargets(routingKey string, body []byte) ([]ShadowTarget, error) {
 		}
 		return []ShadowTarget{{Collection: "subcontractors", IDs: list}, {Collection: "hubs", Tenants: list}}, nil
 	case "settings.changed":
-		if p.Key != settingDistancesLastCalculated {
-			return nil, nil
+		switch p.Key {
+		case settingDistancesLastCalculated:
+			return []ShadowTarget{{Collection: "hub_soc_distances", All: true}, {Collection: "soc_hub_distances", All: true},
+				{Collection: "metadata", All: true}}, nil
+		case settingMobileApp:
+			// A floor change or a publish (internal/mobileapp): the whole gate document, re-read.
+			return []ShadowTarget{{Collection: "settings", All: true}}, nil
 		}
-		return []ShadowTarget{{Collection: "hub_soc_distances", All: true}, {Collection: "soc_hub_distances", All: true},
-			{Collection: "metadata", All: true}}, nil
+		return nil, nil
 	case "holidays.changed", "broadcast.created", "trip.priced", "standby.priced":
 		return nil, nil
 	}
@@ -195,13 +212,15 @@ var projectors = map[string]encoder{
 	"subcontractors": encodeCarriers, "customers": encodeCustomerDocs, "companies": encodeCompanies,
 	"hubs": encodeHubs, "hub_soc_distances": encodeDistances("hub_to_soc"), "soc_hub_distances": encodeDistances("soc_to_hub"),
 	"metadata": encodeMetadata, "trucks": encodeTrucks, "drivers": encodeDrivers, "truckAssignment": encodeAssignments,
+	"settings": encodeMobileAppSettings,
 }
 
 // ProjectStats count one projection.
 type ProjectStats struct {
 	Written   int `json:"written"`
 	Unchanged int `json:"unchanged"`
-	// Skipped are rows the encoder does not project (quarantined, driver-created hubs) or could not mint.
+	// Skipped are rows the encoder does not project (quarantined, driver-created hubs) or could not mint, and stored
+	// documents a projection holds (ExportDoc.Hold: a version gate of another flavor).
 	Skipped int `json:"skipped"`
 	// NotProjected is a target outside the projection plan (its domain is Firestore-owned, or the pin excludes it).
 	NotProjected int `json:"notProjected"`
@@ -249,7 +268,7 @@ func (p *Projector) Project(ctx context.Context, t ShadowTarget) (ProjectStats, 
 		st.NotProjected++
 		return st, nil
 	}
-	if !t.All || t.Collection == "metadata" { // metadata: one document
+	if !t.All || singleDocument[t.Collection] {
 		sel := t.selection()
 		if sel.empty() {
 			return st, nil
@@ -317,8 +336,12 @@ func (p *Projector) ProjectAll(ctx context.Context) (map[string]ProjectStats, er
 }
 
 // project encodes the selection in one transaction, which mints the document ids of rows born in PostgreSQL and
-// commits, then writes each document that differs: a sweep that reads a projected document finds its row.
+// commits, then writes each document that differs: a sweep that reads a projected document finds its row. A
+// one-document collection is projected by projectOne.
 func (p *Projector) project(ctx context.Context, coll string, enc encoder, sel selection) (ProjectStats, error) {
+	if singleDocument[coll] {
+		return p.projectOne(ctx, coll, enc, sel)
+	}
 	var docs []ExportDoc
 	if err := p.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
@@ -328,6 +351,33 @@ func (p *Projector) project(ctx context.Context, coll string, enc encoder, sel s
 		return ProjectStats{}, err
 	}
 	return p.write(ctx, coll, docs)
+}
+
+// projectOne projects a one-document collection (singleDocument: the version gate settings/mobile_app, the distance
+// matrix's metadata/distances_last_calculated) one projection at a time: a transaction advisory lock on the collection
+// is held over the encode, the Get and the Patch, so every projection encodes after the previous one wrote. Each
+// event rewrites the same document and firestore.shadow runs handlers side by side (prefetch 4; `etl project` too), so
+// without it two quick changes (a floor raised, then removed) could leave the earlier one in Firestore with nothing to
+// follow and correct it: the handler that encoded first could Get the document after the other one wrote it and put
+// its older snapshot back (its precondition starts at its own Get), or Patch after the other one found the document
+// already as PostgreSQL holds it and wrote nothing. The encode mints nothing (the document id is the settings key), so
+// the transaction writes no row a sweep would wait for while it stays open over the two Firestore calls (each bounded
+// by the Firestore client's timeout); a projection waiting for the lock holds its connection meanwhile, which the
+// rarity of these events (a floor change, a publish, a distance-matrix run) keeps to a handful.
+func (p *Projector) projectOne(ctx context.Context, coll string, enc encoder, sel selection) (ProjectStats, error) {
+	var st ProjectStats
+	err := p.Tx(ctx, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('lt-firestore-shadow:' || $1::text, 0))`, coll); err != nil {
+			return fmt.Errorf("etl: project %s: lock: %w", coll, err)
+		}
+		docs, err := enc(ctx, tx, sel, false)
+		if err != nil {
+			return err
+		}
+		st, err = p.write(ctx, coll, docs)
+		return err
+	})
+	return st, err
 }
 
 // write writes each document of docs that differs from Firestore's.
@@ -344,9 +394,14 @@ func (p *Projector) write(ctx context.Context, coll string, docs []ExportDoc) (P
 			p.Log.Debug().Str("path", d.Path).Str("reason", d.Skip).Msg("firestore.shadow: not projected")
 			continue
 		}
-		changed, err := writeDoc(ctx, p.FS, d, foreign)
+		changed, held, err := writeDoc(ctx, p.FS, d, foreign)
 		if err != nil {
 			return st, err
+		}
+		if held != "" {
+			st.Skipped++
+			p.Log.Warn().Str("path", d.Path).Str("reason", held).Msg("firestore.shadow: the stored document is held, not projected")
+			continue
 		}
 		if changed {
 			st.Written++
@@ -378,35 +433,40 @@ func validDocPath(path string) bool {
 }
 
 // writeDoc writes the fields of d that differ from the stored document, under a precondition on its update time
-// (Exists=false when there is none); it reports whether anything was written. A Retired document that does not exist
-// is not created. foreign (ForeignFields) are left out of a stored document, whose other writer owns them; a document
-// created here gets them from PostgreSQL (a truck born in Go starts with its form's status and mileage, which the
-// maintenance flow then keeps).
-func writeDoc(ctx context.Context, fs FirestoreWriter, d ExportDoc, foreign []string) (bool, error) {
+// (Exists=false when there is none); it reports whether anything was written, or why the stored document is held
+// (ExportDoc.Hold: nothing written). A Retired document that does not exist is not created. foreign (ForeignFields)
+// are left out of a stored document, whose other writer owns them; a document created here gets them from
+// PostgreSQL (a truck born in Go starts with its form's status and mileage, which the maintenance flow then keeps).
+func writeDoc(ctx context.Context, fs FirestoreWriter, d ExportDoc, foreign []string) (changed bool, held string, err error) {
 	cur, err := fs.Get(ctx, d.Path)
 	var pre gcp.Precondition
 	var curFields map[string]any
 	switch {
 	case errors.Is(err, gcp.ErrNotFound) && d.Retired:
-		return false, nil
+		return false, "", nil
 	case errors.Is(err, gcp.ErrNotFound):
 		no := false
 		pre.Exists = &no
 	case err != nil:
-		return false, fmt.Errorf("etl: project %s: %w", d.Path, err)
+		return false, "", fmt.Errorf("etl: project %s: %w", d.Path, err)
 	default:
+		if d.Hold != nil {
+			if reason := d.Hold(cur.Fields); reason != "" {
+				return false, reason, nil
+			}
+		}
 		pre.UpdateTime = cur.UpdateTime
 		curFields = cur.Fields
 		d = d.without(foreign)
 	}
 	fields, mask := d.Diff(curFields)
 	if len(mask) == 0 && pre.Exists == nil {
-		return false, nil
+		return false, "", nil
 	}
 	if _, err := fs.Patch(ctx, d.Path, fields, mask, pre); err != nil {
-		return false, fmt.Errorf("etl: project %s: %w", d.Path, err)
+		return false, "", fmt.Errorf("etl: project %s: %w", d.Path, err)
 	}
-	return true, nil
+	return true, "", nil
 }
 
 // without drops fields from the document's mask (ForeignFields: another writer's).
