@@ -53,3 +53,23 @@ VALUES (sqlc.narg(outbox_event_id), @user_id, @install_id, @kind, @payload, @sta
 -- FCM said UNREGISTERED (or INVALID_ARGUMENT naming the token): the row goes, unless the device has
 -- registered another token since.
 DELETE FROM device_tokens WHERE user_id = @user_id AND install_id = @install_id AND token = @token;
+
+-- name: GetMaintenanceForPush :one
+-- maintenance.created / maintenance.reminder_requested (T40): maintenance_ref is the id the app knows (legacy_doc_id,
+-- else the uuid the write-back mints as the document id, R25); the plate, day, time and place build the legacy body.
+SELECT m.id, coalesce(m.legacy_doc_id, m.id::text)::text AS maintenance_ref, m.status, m.truck_id,
+       coalesce(t.license_plate, m.truck_license_plate_snapshot, '')::text AS plate,
+       to_char(m.start_date, 'YYYY-MM-DD')::text AS start_date,
+       coalesce(m.appointment_time, '')::text AS appointment_time, coalesce(m.provider, '')::text AS provider
+FROM maintenance_records m
+LEFT JOIN trucks t ON t.id = m.truck_id
+WHERE m.id = @id;
+
+-- name: TruckDrivers :many
+-- The drivers of a truck's maintenance (the maintenance gate of app_driver_truck_ids()): its active assignments and
+-- the driver who holds it as the active truck (the legacy page pushed to currentAssignments[0], maintenance.ts:36-44).
+SELECT DISTINCT driver_id::uuid AS driver_id
+FROM (SELECT a.driver_id FROM truck_assignments a WHERE a.truck_id = @truck_id AND a.status = 'active'
+      UNION ALL
+      SELECT d.id FROM drivers d WHERE d.active_truck_id = @truck_id) reach
+ORDER BY driver_id;

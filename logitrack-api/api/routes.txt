@@ -53,6 +53,12 @@ GET /v1/drivers/:id internal
 PATCH /v1/drivers/:id internal
 GET /v1/drivers/:id/documents/:kind internal
 GET /v1/events internal
+GET /v1/expenses internal
+POST /v1/expenses internal
+PATCH /v1/expenses/:id internal
+POST /v1/expenses/:id/status internal
+POST /v1/expenses/bulk-status internal
+POST /v1/expenses/toll-import internal
 GET /v1/files internal
 GET /v1/hubs internal
 POST /v1/hubs internal
@@ -62,6 +68,10 @@ GET /v1/hubs/maps internal
 GET /v1/jobs internal
 GET /v1/jobs/:id internal
 POST /v1/jobs/distances.compute internal
+GET /v1/maintenance internal
+POST /v1/maintenance internal
+PATCH /v1/maintenance/:id internal
+POST /v1/maintenance/:id/remind internal
 GET /v1/me internal
 PATCH /v1/me internal
 USE /v1/me internal
@@ -98,6 +108,7 @@ GET /v1/trucks internal
 POST /v1/trucks internal
 GET /v1/trucks/:id internal
 PATCH /v1/trucks/:id internal
+POST /v1/trucks/:id/pm-check internal
 POST /v1/trucks/:id/renewals internal
 POST /v1/trucks/import internal
 GET /v1/trucks/renewals internal
