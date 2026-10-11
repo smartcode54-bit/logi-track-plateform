@@ -43,11 +43,15 @@ jobs:
     timeout-minutes: 5
     outputs:
       go: ${{ steps.diff.outputs.go }}
+      ci_yml: ${{ steps.diff.outputs.ci_yml }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
+      # go-ci-changes.sh and go-ci-web-ci.sh on throwaway repositories and a stub gh.
+      - name: Self-test of go-ci's scripts
+        run: .github/scripts/go-ci-selftest.sh
       - id: diff
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -152,8 +156,9 @@ jobs:
       - run: make test-shard SHARD=${{ matrix.shard }} SHARDS=3 TESTFLAGS=-count=1
       # T16 AC: seed --profile smoke < 5 s. The race detector slows hashing and encoding, so the budget is
       # asserted in this second run of the smoke test without it, at the .env.example Argon2id cost. It
-      # runs in the last shard: testshard puts the heaviest package in shard 1, which ends last anyway.
-      - if: matrix.shard == 3
+      # runs in shard 2, which finished first in CI (shard 1 holds internal/auth, shard 3 internal/iam
+      # and cmd/etl); re-check the choice when weights.txt is refreshed.
+      - if: matrix.shard == 2
         run: make seed-budget
 
   goldens:
@@ -339,38 +344,25 @@ jobs:
 
   # Web CI (ci.yml) keeps its path filter: its main entries stay as they are (R90) and Deploy
   # listens to it. This job waits for the CI run of the same commit and event, when there is one,
-  # so the go-ci check also stands for the web checks.
+  # so the go-ci check also stands for the web checks. CI's pull_request filter cannot list ci.yml,
+  # so a pull request that changes ci.yml and starts no CI run fails here (go-ci-web-ci.sh).
   web-ci:
     name: web-ci
+    needs: changes
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
       actions: read
+      contents: read
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          runs="repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$SHA&event=$GITHUB_EVENT_NAME&per_page=20"
-          id=""
-          # CI starts on the same event as go-ci; when no run appears, its path filter skipped the commit.
-          for _ in $(seq 1 12); do
-            id=$(gh api "$runs" --jq '.workflow_runs | sort_by(.created_at) | last | .id // empty')
-            [ -n "$id" ] && break
-            sleep 10
-          done
-          if [ -z "$id" ]; then
-            echo "::notice title=web-ci::no CI run for ${SHA::12} ($GITHUB_EVENT_NAME): the web paths did not change"
-            exit 0
-          fi
-          while :; do
-            IFS=$'\t' read -r status conclusion url < <(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id" \
-              --jq '[.status, (.conclusion // "-"), .html_url] | @tsv')
-            [ "$status" = completed ] && break
-            sleep 20
-          done
-          echo "CI run $url: $conclusion"
-          test "$conclusion" = success
+          CI_YML: ${{ needs.changes.outputs.ci_yml }}
+        run: .github/scripts/go-ci-web-ci.sh
 
   go-ci:
     name: go-ci
