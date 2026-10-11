@@ -202,7 +202,7 @@ func tripEvent(ctx context.Context, tx pgx.Tx, key string, tr billingdb.LockTrip
 	if carrier != uuid.Nil && carrier != tr.TenantID {
 		topics = append(topics, realtime.TenantTopic(carrier.String(), realtime.FamilyTrips))
 	}
-	p := map[string]any{"id": tr.ID.String(), "tripNo": tr.TripNo, "tenantId": tr.TenantID.String()}
+	p := map[string]any{"entity": "trip", "id": tr.ID.String(), "tripNo": tr.TripNo, "tenantId": tr.TenantID.String()}
 	if tr.TaskID != nil {
 		p["taskId"] = tr.TaskID.String()
 	}

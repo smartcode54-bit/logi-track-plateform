@@ -57,7 +57,7 @@ func standbyEvent(ctx context.Context, tx pgx.Tx, sr billingdb.LockStandbyForPri
 	if carrier != uuid.Nil && carrier != sr.TenantID {
 		topics = append(topics, realtime.TenantTopic(carrier.String(), realtime.FamilyTrips))
 	}
-	p := map[string]any{"id": sr.ID.String(), "tenantId": sr.TenantID.String()}
+	p := map[string]any{"entity": "standby", "id": sr.ID.String(), "tenantId": sr.TenantID.String()}
 	if sr.TaskID != nil {
 		p["taskId"] = sr.TaskID.String()
 	}
