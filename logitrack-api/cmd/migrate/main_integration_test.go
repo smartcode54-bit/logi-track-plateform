@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -122,10 +123,27 @@ func TestEmbeddedChainUp(t *testing.T) {
 	code, _, stderr := cli(t, url, migrations.FS, "up")
 	if code != 0 || !strings.Contains(stderr, `"file":"0001_preamble.sql"`) ||
 		!strings.Contains(stderr, `"file":"0010_d5_unique_constraints.sql"`) ||
-		!strings.Contains(stderr, `"file":"0011_file_objects_storage_backend.sql"`) {
+		!strings.Contains(stderr, `"file":"0011_file_objects_storage_backend.sql"`) ||
+		!strings.Contains(stderr, `"file":"0012_customer_scope_party_read.sql"`) {
 		t.Fatalf("up: exit %d\n%s", code, stderr)
 	}
-	expectVersion(t, url, migrations.FS, "11")
+	expectVersion(t, url, migrations.FS, latestVersion(t, migrations.FS))
+}
+
+// latestVersion is the highest NNNN of the chain's NNNN_name.sql files, without leading zeros (what `migrate
+// version` prints after up), so a later migration does not have to edit this test.
+func latestVersion(t *testing.T, chain fs.FS) string {
+	t.Helper()
+	files, err := fs.Glob(chain, "[0-9][0-9][0-9][0-9]_*.sql")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("chain files: %v %v", files, err)
+	}
+	slices.Sort(files)
+	v := strings.TrimLeft(files[len(files)-1][:4], "0")
+	if v == "" {
+		v = "0"
+	}
+	return v
 }
 
 func TestRefusesOtherLogins(t *testing.T) {

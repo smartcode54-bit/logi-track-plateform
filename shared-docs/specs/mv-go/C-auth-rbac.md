@@ -416,8 +416,8 @@ On tenant tables the uniform `p_driver_read` / `p_driver_insert` / `p_driver_upd
 | `memberships` (0002) | yes | platform-only | G-base, `p_self_read`, `p_staff_read` | iam writes |
 | `role_capability_overrides` (0002) | yes | platform-only | G-base, `p_staff_read` | NULL tenant = platform-wide override |
 | `status_history` (0002) | yes | parent-scoped (polymorphic) | G-base, `p_entity` | append-only (trigger + REVOKE) |
-| `customers`, `customer_driver_id_types` (0003) | yes | global-read-steward-write | G-global | `fleet:manage_customers` |
-| `billing_parties` (0003) | yes | global-read-steward-write | G-global | its `tenant_id` (kind `tenant`) is a reference, not a tenancy stamp; on the catalog test's explicit list |
+| `customers`, `customer_driver_id_types` (0003) | yes | global-read-steward-write | G-global | `fleet:manage_customers`; `p_read` narrowed for the customer role by 0012 (its own parties only, T20) |
+| `billing_parties` (0003) | yes | global-read-steward-write | G-global | its `tenant_id` (kind `tenant`) is a reference, not a tenancy stamp; on the catalog test's explicit list; `p_read` narrowed for the customer role by 0012 (`id = ANY (app_customer_ids())`, T20) |
 | `companies` (0003) | yes | tenant | G-tenant | issuer profiles of the tenant |
 | `user_scopes` (0003) | yes | platform-only | G-base, `p_self_read` | iam writes |
 | `hubs` (0003) | yes | global-read-steward-write | G-global, `p_driver_hub_insert` | `mobile:create_hub` |
@@ -823,6 +823,21 @@ CREATE POLICY p_driver_read ON trucks FOR SELECT                                
   USING (app_role() = 'driver' AND tenant_id = app_tenant_id());                     -- (.vibe-rules.md "Vehicle identity")
 CREATE POLICY p_scope_read  ON trucks FOR SELECT USING (app_is_scope() AND app_recent_work_in_scope(NULL, id));
 
+```
+
+**0012_customer_scope_party_read** (T20). A customer-scope principal (`app.role = 'customer'`) reads only its own billing parties and their customers (Appendix B §B.1.4; T20 acceptance "a customer-scoped user sees only its own billing party"); every other principal keeps the global read of `app_rls_global_table`, and the policy names stay those of C.3.0. Down restores `USING (app_is_authenticated())` on the three tables.
+
+```sql
+ALTER POLICY p_read ON billing_parties
+  USING (app_is_authenticated() AND (app_role() IS DISTINCT FROM 'customer' OR id = ANY (app_customer_ids())));
+ALTER POLICY p_read ON customers
+  USING (app_is_authenticated() AND (app_role() IS DISTINCT FROM 'customer'
+         OR EXISTS (SELECT 1 FROM billing_parties bp
+                     WHERE bp.customer_id = customers.id AND bp.id = ANY (app_customer_ids()))));
+ALTER POLICY p_read ON customer_driver_id_types
+  USING (app_is_authenticated() AND (app_role() IS DISTINCT FROM 'customer'
+         OR EXISTS (SELECT 1 FROM billing_parties bp
+                     WHERE bp.customer_id = customer_driver_id_types.customer_id AND bp.id = ANY (app_customer_ids()))));
 ```
 
 **0004_operations.**
@@ -1703,7 +1718,7 @@ This appendix owns `/v1/auth/*`, `/v1/me*`, `/v1/users*`, `/v1/tenants*`, `/v1/r
 | GET / POST / DELETE | `/v1/api-keys`, `/v1/api-keys/{id}` | internal | `security:manage_api_keys` (tenant keys of the effective tenant, capabilities the caller holds); `platform_admin` (every key; platform keys, incl. scopes `cf_shim` and `release_publisher`); people only | `{name, scope, capabilities[], expiresAt?, tenantId?}` (C.4.11) | `{id, keyPrefix, secret}` (secret once) | P2 (first consumer: the shims, T32); pulled forward to M0 (T32K, owner 2026-10-11) | API-keys page (no backend today) |
 | GET | `/v1/security-events` | internal | `security:view_audit` | `?type=&from=&to=&cursor=` | keyset page | P6 | audit page query (`canReadSecurityEvents`) |
 
-Related routes owned by Appendix B but constrained here: `/v1/subcontractors*` (Appendix B §B.2.10: steward onboarding with `fleet:manage_subcontractors`, contractor = own fleet; profile fields, of which the names may also be set by a platform admin on `PATCH /v1/tenants/{id}`; the structural columns stay on `PATCH /v1/tenants/{id}`, trigger `t_tenant_admin_columns`), `PATCH /v1/tasks/{id}` with `tenantId` (R13 reassignment, `app.tenant_move`), `PATCH /v1/drivers/{id}` with `tenantId` (C.1.4), `GET /v1/drivers?fields=minimal` (driver directory, R33), `GET /v1/config/web-flags` (R35, cached as `['webFlags']`), `GET /v1/mobile/settings` (anonymous version gate, R42), `POST /v1/trips/{id}/evidence/revoke` and `POST /v1/standby/{id}/evidence/revoke` (R47), `PUT /v1/app-releases/floor` (human JWT only) and `POST /v1/app-releases/presign`, `POST /v1/app-releases` (release CLI, R43), and the anonymous internal `POST /v1/waitlist`, `POST /v1/partner-interest` (reached through the unauthenticated BFF route handlers `POST /api/forms/waitlist`, `POST /api/forms/partner-interest`, `RATE_LIMIT_PUBLIC_FORMS`, `WithSystem`, R44, R77). `/public/v1/*` stays empty (reserved for signed third-party postbacks).
+Related routes owned by Appendix B but constrained here: `/v1/subcontractors*` (Appendix B §B.2.10: steward onboarding with `fleet:manage_subcontractors`, contractor = own fleet; profile fields, of which the names may also be set by a platform admin on `PATCH /v1/tenants/{id}`; the structural columns stay on `PATCH /v1/tenants/{id}`, trigger `t_tenant_admin_columns`; as built in T20 (`internal/iam`): the tenant's own `tenant_admin` edits its profile but not `billingDateBasis`, a setting of the global billing party kept for stewards, R60; `tenant_created` / `tenant_updated` carry `details.source = "subcontractors"`), `PATCH /v1/tasks/{id}` with `tenantId` (R13 reassignment, `app.tenant_move`), `PATCH /v1/drivers/{id}` with `tenantId` (C.1.4), `GET /v1/drivers?fields=minimal` (driver directory, R33), `GET /v1/config/web-flags` (R35, cached as `['webFlags']`), `GET /v1/mobile/settings` (anonymous version gate, R42), `POST /v1/trips/{id}/evidence/revoke` and `POST /v1/standby/{id}/evidence/revoke` (R47), `PUT /v1/app-releases/floor` (human JWT only) and `POST /v1/app-releases/presign`, `POST /v1/app-releases` (release CLI, R43), and the anonymous internal `POST /v1/waitlist`, `POST /v1/partner-interest` (reached through the unauthenticated BFF route handlers `POST /api/forms/waitlist`, `POST /api/forms/partner-interest`, `RATE_LIMIT_PUBLIC_FORMS`, `WithSystem`, R44, R77). `/public/v1/*` stays empty (reserved for signed third-party postbacks).
 
 **As built (T19, `internal/iam` `Admin`, `AdminGroups`).** The users and tenants rows above are served on the internal listener behind `RequireAuth` (so `X-Act-On-Tenant` and its audit row apply) and the capability guards of their rows; PostgreSQL is the writer. Every write is one `db.WithSystem` transaction after Go authorization: the rows, then `auth_version++` with `user.sessions_revoked` `claims_changed` through `auth.RevokeInTx` for role, scope, driver-link, platform-role and email changes (the session stays, R50), `auth.SetStatusInTx` for disable / enable and `auth.SetTemporaryPasswordInTx` for the temporary password (sessions end), the Firebase mirror before COMMIT while the bridge mirrors (`MirrorNewUserInTx`, `MirrorEmailInTx`), exactly one security_events row of C.4.13 and the outbox event; a request that changes nothing (the same role again, the same scope set, an already linked driver, an already held platform role) writes nothing. Refinements of the rows above:
 
