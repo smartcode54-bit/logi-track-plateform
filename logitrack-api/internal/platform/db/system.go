@@ -46,3 +46,16 @@ func WithSystem(ctx context.Context, b Beginner, tenantID *uuid.UUID, fn func(pg
 		return fn(tx)
 	})
 }
+
+// WithETL runs fn like WithSystem (no tenant) with app.etl_load on as well: the ETL load path, whose writes the
+// frozen-tenant, driver-link and file-registry triggers accept (Appendix C §C.3.2, §C.3.6). b must be a pool of the
+// logitrack_etl login (ETL_DATABASE_URL, R66): only that login reaches schema etl. Callers are cmd/etl and the
+// etl.sync mirror consumer of the worker (internal/coexist, T24); tools/analyzers/withsystem reports any other.
+func WithETL(ctx context.Context, b Beginner, fn func(pgx.Tx) error) error {
+	return WithSystem(ctx, b, nil, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SELECT set_config('app.etl_load', 'on', true)`); err != nil {
+			return fmt.Errorf("db: set the ETL context: %w", err)
+		}
+		return fn(tx)
+	})
+}

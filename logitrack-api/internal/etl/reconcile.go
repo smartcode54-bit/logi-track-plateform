@@ -35,6 +35,8 @@ type Check struct {
 
 // Reconciliation is one run.
 type Reconciliation struct {
+	// Kind is "sync" for the coexistence reconciliation (ReconcileSync); empty for a dump reconciliation.
+	Kind       string    `json:"kind,omitempty"`
 	Period     string    `json:"period,omitempty"`
 	ExportedAt time.Time `json:"dumpExportedAt"`
 	Match      bool      `json:"match"`
@@ -629,7 +631,11 @@ func (r *Reconciliation) WriteMarkdown(w io.Writer) error {
 	if !r.Match {
 		outcome = "MISMATCH"
 	}
-	fmt.Fprintf(&b, "# ETL reconciliation: %s\n\nDump exported %s", outcome, r.ExportedAt.UTC().Format(time.RFC3339))
+	if r.Kind == "sync" {
+		fmt.Fprintf(&b, "# Coexistence reconciliation: %s\n\nFirestore read %s", outcome, r.ExportedAt.UTC().Format(time.RFC3339))
+	} else {
+		fmt.Fprintf(&b, "# ETL reconciliation: %s\n\nDump exported %s", outcome, r.ExportedAt.UTC().Format(time.RFC3339))
+	}
 	if r.Period != "" {
 		fmt.Fprintf(&b, ", money for %s (Asia/Bangkok)", r.Period)
 	}

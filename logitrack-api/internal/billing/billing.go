@@ -3,8 +3,10 @@
 // their lines and gap-free invoice numbers (/v1/billing/statements*), the period-lock read every pricing transaction
 // makes (PeriodLock), the pricing transaction's rate-table read (PricingTables), and the Bangchak fuel snapshots
 // (/v1/fuel/*, POST /v1/jobs/bangchak.snapshot and the bangchak.snapshot consumer of the worker, R70). The pure engine
-// is internal/billing/compute (T36); compute-on-delivery and the backfills are T38, the read aggregates and documents
-// T39.
+// is internal/billing/compute (T36); compute-on-delivery and the backfills are T38. T39 adds the read aggregates
+// (GET /v1/billing/rows, rows/missing-billing-date, standby-diagnostics, the Shopee Express report; rows.go, shopee.go)
+// and the server-side documents (docs.go: the download and regenerate routes and the documents.render consumer of the
+// worker, which draws them with internal/billing/render).
 //
 // Billing tenant (R61): rate rows, statements and counters carry the billing carrier's tenant, the rate-card owner (the
 // own fleet today), never the tenant that ran a trip. Until the owner decides carrier self-billing (main spec §19 Q13)
@@ -111,6 +113,8 @@ type Deps struct {
 	Jobs Jobs
 	// Bangchak serves GET /v1/fuel/retail; nil when BANGCHAK_API_BASE_URL is unset (the route answers 503).
 	Bangchak bangchak.Client
+	// Files signs the downloads of rendered documents (T39); optional (without it the download routes answer 503).
+	Files Files
 	// Now is the clock of generated_at, imports and voids (default time.Now).
 	Now func() time.Time
 	Log zerolog.Logger
@@ -122,6 +126,7 @@ type Service struct {
 	cache    *cache.Cache
 	jobs     Jobs
 	bangchak bangchak.Client
+	files    Files
 	now      func() time.Time
 	log      zerolog.Logger
 }
@@ -134,7 +139,7 @@ func New(d Deps) (*Service, error) {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
-	return &Service{pool: d.Pool, cache: d.Cache, jobs: d.Jobs, bangchak: d.Bangchak, now: d.Now, log: d.Log}, nil
+	return &Service{pool: d.Pool, cache: d.Cache, jobs: d.Jobs, bangchak: d.Bangchak, files: d.Files, now: d.Now, log: d.Log}, nil
 }
 
 // tx runs fn in a request transaction of p: RLS decides every row it reads or writes.

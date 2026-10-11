@@ -154,6 +154,11 @@ type Deps struct {
 	// Reassigner performs the R13 task reassignment in its system transaction (iam.TaskMover, T28); nil answers
 	// PATCH /v1/tasks/{id} with a 500 (the route is listed but not wired).
 	Reassigner Reassigner
+	// Files signs the photo URLs of the read payloads (storage.Service, T30); nil leaves every URL absent.
+	Files Files
+	// Hubs is the hub master the place keys and labels read (hubs.Service through internal/app, T30); nil leaves every
+	// stored hub as hub:<uuid> and labels the raw text.
+	Hubs Hubs
 }
 
 // Service serves the principal reads of the operations tables and opens the request transactions of their writes.
@@ -162,6 +167,8 @@ type Service struct {
 	log   zerolog.Logger
 	now   func() time.Time
 	mover Reassigner
+	files Files
+	hubs  Hubs
 }
 
 // New builds the service.
@@ -173,7 +180,7 @@ func New(d Deps) (*Service, error) {
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{pool: d.Pool, log: d.Log, now: now, mover: d.Reassigner}, nil
+	return &Service{pool: d.Pool, log: d.Log, now: now, mover: d.Reassigner, files: d.Files, hubs: d.Hubs}, nil
 }
 
 // Now is the service clock.

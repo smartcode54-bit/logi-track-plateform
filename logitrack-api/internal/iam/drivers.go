@@ -172,6 +172,16 @@ func (a *Admin) MoveDriver(ctx context.Context, p *authz.Principal, rid string, 
 	return moved, err
 }
 
+// emitDriverLinkChanged appends driver.updated (changed: userId; topic tenant:{tid}:fleet, Appendix B §B.5.2) for a
+// driver whose login link moved, in the change's transaction: the drivers pages refresh, and firestore.shadow
+// projects the driver again, whose Firestore authId follows the linked login (the installed 3.x app finds its
+// driver by it).
+func emitDriverLinkChanged(c call, tx pgx.Tx, driver, tenant uuid.UUID) error {
+	return emitTopics(c, tx, RouteDriverUpdated, "driver", driver.String(), &tenant,
+		map[string]any{"entity": "driver", "id": driver.String(), "changed": []string{"userId"}},
+		[]string{realtime.TenantTopic(tenant.String(), realtime.FamilyFleet)})
+}
+
 func uuidPtrEqual(a, b *uuid.UUID) bool {
 	if a == nil || b == nil {
 		return a == nil && b == nil

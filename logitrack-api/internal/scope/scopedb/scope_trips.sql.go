@@ -122,3 +122,411 @@ func (q *Queries) ListScopeTrips(ctx context.Context, arg ListScopeTripsParams) 
 	}
 	return items, nil
 }
+
+const listScopeTripsByCreated = `-- name: ListScopeTripsByCreated :many
+SELECT id, tenant_id, trip_no, status, job_type, job_category, task_id, driver_id, origin_raw, origin_hub_id, destination_raw, destination_hub_id, destination_soc_key, seal_code, partner_code, truck_id, truck_license_plate_snapshot, vehicle_class, parcel_count, total_weight_kg, loading_lat, loading_lng, std, sta, ata, delivered_at, delivered_lat, delivered_lng, is_multi_delivery, created_at, updated_at FROM scope_trips
+ WHERE ($1::timestamptz IS NULL OR created_at >= $1::timestamptz)
+   AND ($2::timestamptz IS NULL OR created_at < $2::timestamptz)
+   AND ($3::text[] IS NULL OR status = ANY ($3::text[]))
+   AND ($4::uuid IS NULL OR driver_id = $4::uuid)
+   AND ($5::uuid IS NULL OR truck_id = $5::uuid)
+   AND ($6::timestamptz IS NULL
+        OR (created_at, id) < ($6::timestamptz, $7::uuid))
+ ORDER BY created_at DESC, id DESC
+ LIMIT $8
+`
+
+type ListScopeTripsByCreatedParams struct {
+	FromAt       *time.Time `json:"fromAt"`
+	ToAt         *time.Time `json:"toAt"`
+	Statuses     []string   `json:"statuses"`
+	DriverID     *uuid.UUID `json:"driverId"`
+	TruckID      *uuid.UUID `json:"truckId"`
+	AfterCreated *time.Time `json:"afterCreated"`
+	AfterID      uuid.UUID  `json:"afterId"`
+	RowLimit     int32      `json:"rowLimit"`
+}
+
+// GET /v1/trips?axis=created for a scope principal (T30): newest first, keyset (created_at, id); from / to bound
+// created_at, [from, to).
+func (q *Queries) ListScopeTripsByCreated(ctx context.Context, arg ListScopeTripsByCreatedParams) ([]ScopeTrip, error) {
+	rows, err := q.db.Query(ctx, listScopeTripsByCreated,
+		arg.FromAt,
+		arg.ToAt,
+		arg.Statuses,
+		arg.DriverID,
+		arg.TruckID,
+		arg.AfterCreated,
+		arg.AfterID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScopeTrip{}
+	for rows.Next() {
+		var i ScopeTrip
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.TripNo,
+			&i.Status,
+			&i.JobType,
+			&i.JobCategory,
+			&i.TaskID,
+			&i.DriverID,
+			&i.OriginRaw,
+			&i.OriginHubID,
+			&i.DestinationRaw,
+			&i.DestinationHubID,
+			&i.DestinationSocKey,
+			&i.SealCode,
+			&i.PartnerCode,
+			&i.TruckID,
+			&i.TruckLicensePlateSnapshot,
+			&i.VehicleClass,
+			&i.ParcelCount,
+			&i.TotalWeightKg,
+			&i.LoadingLat,
+			&i.LoadingLng,
+			&i.Std,
+			&i.Sta,
+			&i.Ata,
+			&i.DeliveredAt,
+			&i.DeliveredLat,
+			&i.DeliveredLng,
+			&i.IsMultiDelivery,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listScopeTripsByDelivered = `-- name: ListScopeTripsByDelivered :many
+SELECT id, tenant_id, trip_no, status, job_type, job_category, task_id, driver_id, origin_raw, origin_hub_id, destination_raw, destination_hub_id, destination_soc_key, seal_code, partner_code, truck_id, truck_license_plate_snapshot, vehicle_class, parcel_count, total_weight_kg, loading_lat, loading_lng, std, sta, ata, delivered_at, delivered_lat, delivered_lng, is_multi_delivery, created_at, updated_at FROM scope_trips
+ WHERE status = 'delivered' AND delivered_at IS NOT NULL
+   AND ($1::timestamptz IS NULL OR delivered_at >= $1::timestamptz)
+   AND ($2::timestamptz IS NULL OR delivered_at < $2::timestamptz)
+   AND ($3::uuid IS NULL OR driver_id = $3::uuid)
+   AND ($4::uuid IS NULL OR truck_id = $4::uuid)
+   AND ($5::timestamptz IS NULL
+        OR (delivered_at, id) < ($5::timestamptz, $6::uuid))
+ ORDER BY delivered_at DESC, id DESC
+ LIMIT $7
+`
+
+type ListScopeTripsByDeliveredParams struct {
+	FromAt         *time.Time `json:"fromAt"`
+	ToAt           *time.Time `json:"toAt"`
+	DriverID       *uuid.UUID `json:"driverId"`
+	TruckID        *uuid.UUID `json:"truckId"`
+	AfterDelivered *time.Time `json:"afterDelivered"`
+	AfterID        uuid.UUID  `json:"afterId"`
+	RowLimit       int32      `json:"rowLimit"`
+}
+
+// GET /v1/trips?axis=delivered for a scope principal (T30): delivered trips, latest first, keyset (delivered_at, id).
+func (q *Queries) ListScopeTripsByDelivered(ctx context.Context, arg ListScopeTripsByDeliveredParams) ([]ScopeTrip, error) {
+	rows, err := q.db.Query(ctx, listScopeTripsByDelivered,
+		arg.FromAt,
+		arg.ToAt,
+		arg.DriverID,
+		arg.TruckID,
+		arg.AfterDelivered,
+		arg.AfterID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScopeTrip{}
+	for rows.Next() {
+		var i ScopeTrip
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.TripNo,
+			&i.Status,
+			&i.JobType,
+			&i.JobCategory,
+			&i.TaskID,
+			&i.DriverID,
+			&i.OriginRaw,
+			&i.OriginHubID,
+			&i.DestinationRaw,
+			&i.DestinationHubID,
+			&i.DestinationSocKey,
+			&i.SealCode,
+			&i.PartnerCode,
+			&i.TruckID,
+			&i.TruckLicensePlateSnapshot,
+			&i.VehicleClass,
+			&i.ParcelCount,
+			&i.TotalWeightKg,
+			&i.LoadingLat,
+			&i.LoadingLng,
+			&i.Std,
+			&i.Sta,
+			&i.Ata,
+			&i.DeliveredAt,
+			&i.DeliveredLat,
+			&i.DeliveredLng,
+			&i.IsMultiDelivery,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const scopeTripByNo = `-- name: ScopeTripByNo :one
+SELECT id, tenant_id, trip_no, status, job_type, job_category, task_id, driver_id, origin_raw, origin_hub_id, destination_raw, destination_hub_id, destination_soc_key, seal_code, partner_code, truck_id, truck_license_plate_snapshot, vehicle_class, parcel_count, total_weight_kg, loading_lat, loading_lng, std, sta, ata, delivered_at, delivered_lat, delivered_lng, is_multi_delivery, created_at, updated_at FROM scope_trips WHERE trip_no = $1::text
+`
+
+// GET /v1/trips/by-no/{tripNo} for a scope principal (T30). The rename record is staff only, so a number from before a
+// rename does not resolve here.
+func (q *Queries) ScopeTripByNo(ctx context.Context, tripNo string) (ScopeTrip, error) {
+	row := q.db.QueryRow(ctx, scopeTripByNo, tripNo)
+	var i ScopeTrip
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.TripNo,
+		&i.Status,
+		&i.JobType,
+		&i.JobCategory,
+		&i.TaskID,
+		&i.DriverID,
+		&i.OriginRaw,
+		&i.OriginHubID,
+		&i.DestinationRaw,
+		&i.DestinationHubID,
+		&i.DestinationSocKey,
+		&i.SealCode,
+		&i.PartnerCode,
+		&i.TruckID,
+		&i.TruckLicensePlateSnapshot,
+		&i.VehicleClass,
+		&i.ParcelCount,
+		&i.TotalWeightKg,
+		&i.LoadingLat,
+		&i.LoadingLng,
+		&i.Std,
+		&i.Sta,
+		&i.Ata,
+		&i.DeliveredAt,
+		&i.DeliveredLat,
+		&i.DeliveredLng,
+		&i.IsMultiDelivery,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const scopeTripPhotos = `-- name: ScopeTripPhotos :many
+SELECT id, trip_id, stop_id, photo_type, photo_type_known, file_id, geocode_lat, geocode_lng, geocode_address, geocoded_at, position, created_at FROM scope_trip_photos WHERE trip_id = $1 ORDER BY position, id
+`
+
+// The evidence photos of one trip (scope_trip_photos, 0017); the API sorts them by the ADR 0018 rank and signs the
+// files.
+func (q *Queries) ScopeTripPhotos(ctx context.Context, tripID uuid.UUID) ([]ScopeTripPhoto, error) {
+	rows, err := q.db.Query(ctx, scopeTripPhotos, tripID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScopeTripPhoto{}
+	for rows.Next() {
+		var i ScopeTripPhoto
+		if err := rows.Scan(
+			&i.ID,
+			&i.TripID,
+			&i.StopID,
+			&i.PhotoType,
+			&i.PhotoTypeKnown,
+			&i.FileID,
+			&i.GeocodeLat,
+			&i.GeocodeLng,
+			&i.GeocodeAddress,
+			&i.GeocodedAt,
+			&i.Position,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const scopeTripStopsOf = `-- name: ScopeTripStopsOf :many
+SELECT id, trip_id, stop_index, destination_raw, destination_hub_id, source_id, status, delivered_at, delivered_lat, delivered_lng, completed_seq FROM scope_trip_stops WHERE trip_id = ANY ($1::uuid[]) ORDER BY trip_id, stop_index
+`
+
+// The stop progress of a page of the projection (scope_trip_stops, 0017).
+func (q *Queries) ScopeTripStopsOf(ctx context.Context, tripIds []uuid.UUID) ([]ScopeTripStop, error) {
+	rows, err := q.db.Query(ctx, scopeTripStopsOf, tripIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScopeTripStop{}
+	for rows.Next() {
+		var i ScopeTripStop
+		if err := rows.Scan(
+			&i.ID,
+			&i.TripID,
+			&i.StopIndex,
+			&i.DestinationRaw,
+			&i.DestinationHubID,
+			&i.SourceID,
+			&i.Status,
+			&i.DeliveredAt,
+			&i.DeliveredLat,
+			&i.DeliveredLng,
+			&i.CompletedSeq,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const scopeTripsByID = `-- name: ScopeTripsByID :many
+SELECT id, tenant_id, trip_no, status, job_type, job_category, task_id, driver_id, origin_raw, origin_hub_id, destination_raw, destination_hub_id, destination_soc_key, seal_code, partner_code, truck_id, truck_license_plate_snapshot, vehicle_class, parcel_count, total_weight_kg, loading_lat, loading_lng, std, sta, ata, delivered_at, delivered_lat, delivered_lng, is_multi_delivery, created_at, updated_at FROM scope_trips WHERE id = ANY ($1::uuid[]) ORDER BY id
+`
+
+// The trip numbers of a page of incidents (T30).
+func (q *Queries) ScopeTripsByID(ctx context.Context, ids []uuid.UUID) ([]ScopeTrip, error) {
+	rows, err := q.db.Query(ctx, scopeTripsByID, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScopeTrip{}
+	for rows.Next() {
+		var i ScopeTrip
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.TripNo,
+			&i.Status,
+			&i.JobType,
+			&i.JobCategory,
+			&i.TaskID,
+			&i.DriverID,
+			&i.OriginRaw,
+			&i.OriginHubID,
+			&i.DestinationRaw,
+			&i.DestinationHubID,
+			&i.DestinationSocKey,
+			&i.SealCode,
+			&i.PartnerCode,
+			&i.TruckID,
+			&i.TruckLicensePlateSnapshot,
+			&i.VehicleClass,
+			&i.ParcelCount,
+			&i.TotalWeightKg,
+			&i.LoadingLat,
+			&i.LoadingLng,
+			&i.Std,
+			&i.Sta,
+			&i.Ata,
+			&i.DeliveredAt,
+			&i.DeliveredLat,
+			&i.DeliveredLng,
+			&i.IsMultiDelivery,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const scopeTripsOfTasks = `-- name: ScopeTripsOfTasks :many
+SELECT id, tenant_id, trip_no, status, job_type, job_category, task_id, driver_id, origin_raw, origin_hub_id, destination_raw, destination_hub_id, destination_soc_key, seal_code, partner_code, truck_id, truck_license_plate_snapshot, vehicle_class, parcel_count, total_weight_kg, loading_lat, loading_lng, std, sta, ata, delivered_at, delivered_lat, delivered_lng, is_multi_delivery, created_at, updated_at FROM scope_trips
+ WHERE task_id = ANY ($1::uuid[])
+ ORDER BY task_id, created_at DESC, id DESC
+`
+
+// The newest trip of a task (the boards' trip column) for a scope principal (T30): newest first per task.
+func (q *Queries) ScopeTripsOfTasks(ctx context.Context, taskIds []uuid.UUID) ([]ScopeTrip, error) {
+	rows, err := q.db.Query(ctx, scopeTripsOfTasks, taskIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScopeTrip{}
+	for rows.Next() {
+		var i ScopeTrip
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.TripNo,
+			&i.Status,
+			&i.JobType,
+			&i.JobCategory,
+			&i.TaskID,
+			&i.DriverID,
+			&i.OriginRaw,
+			&i.OriginHubID,
+			&i.DestinationRaw,
+			&i.DestinationHubID,
+			&i.DestinationSocKey,
+			&i.SealCode,
+			&i.PartnerCode,
+			&i.TruckID,
+			&i.TruckLicensePlateSnapshot,
+			&i.VehicleClass,
+			&i.ParcelCount,
+			&i.TotalWeightKg,
+			&i.LoadingLat,
+			&i.LoadingLng,
+			&i.Std,
+			&i.Sta,
+			&i.Ata,
+			&i.DeliveredAt,
+			&i.DeliveredLat,
+			&i.DeliveredLng,
+			&i.IsMultiDelivery,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

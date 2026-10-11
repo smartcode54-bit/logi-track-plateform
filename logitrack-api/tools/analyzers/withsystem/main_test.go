@@ -4,6 +4,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -62,6 +63,39 @@ func TestCheck(t *testing.T) {
 	}
 	if !strings.Contains(findings[0].String(), "db.WithPrincipal") {
 		t.Errorf("message %q does not point at WithPrincipal", findings[0])
+	}
+}
+
+// db.WithETL (the ETL load context, app.etl_load) is reported outside ETLAllowed, even in a package that may call
+// WithSystem: only cmd/etl and the etl.sync mirror consumer load documents (T24).
+func TestWithETL(t *testing.T) {
+	root := write(t, map[string]string{
+		"go.mod":                          "module example\n",
+		"internal/hubs/load.go":           src("", "db.WithETL"), // WithSystem-allowed, not ETL-allowed
+		"internal/fleet/renamed.go":       src("pg", "pg.WithETL"),
+		"internal/notify/dot.go":          src(".", "WithETL"),
+		"internal/coexist/sync.go":        src("", "db.WithETL"),
+		"cmd/etl/main.go":                 src("", "db.WithETL"),
+		"internal/platform/db/system.go":  src("", "db.WithETL"),
+		"internal/fleet/renamed_test.go":  src("", "db.WithETL"),
+		"internal/coexist/shadow.go":      src("", "db.WithSystem"),
+		"internal/coexistence/escape.go":  src("", "db.WithETL"), // a sibling, not a prefix
+		"internal/fleet/unrelated_etl.go": "package fleet\n\ntype s struct{ WithETL int }\n\nfunc g(v s) int { return v.WithETL }\n",
+	})
+	findings, err := Check(root, Allowed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"internal/coexistence/escape.go", "internal/fleet/renamed.go", "internal/hubs/load.go", "internal/notify/dot.go"}
+	got := files(root, findings)
+	slices.Sort(got)
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("findings %v, want %v", got, want)
+	}
+	for _, f := range findings {
+		if strings.Contains(f.What, "WithETL") && !strings.Contains(f.Fix, "etl.sync") {
+			t.Errorf("message %q does not name the allowed callers", f)
+		}
 	}
 }
 

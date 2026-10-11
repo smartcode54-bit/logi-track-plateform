@@ -154,6 +154,7 @@ func TestExplainEveryQueryShapeUsesAnIndex(t *testing.T) {
 	from := time.Date(2026, 7, 31, 17, 0, 0, 0, time.UTC)
 	to := from.AddDate(0, 1, 0)
 	cursorAt := time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)
+	trimSet := " \t\n\r\u00a0\u3000\ufeff" // the monitor's trim argument (operations.trimChars; the value does not change a plan)
 	opID := uuid.Must(uuid.NewV7())
 	ids := []uuid.UUID{task, uuid.Must(uuid.NewV7())}
 	tripIDs := []uuid.UUID{trip, uuid.Must(uuid.NewV7())}
@@ -266,6 +267,11 @@ func TestExplainEveryQueryShapeUsesAnIndex(t *testing.T) {
 		}, []string{"tasks_tenant_type_plan", "tasks_plan_date"}},
 		{"DriverTasks", driver, func(ctx context.Context, q *operationsdb.Queries) error {
 			_, err := q.DriverTasks(ctx, operationsdb.DriverTasksParams{DriverID: drv, Statuses: []string{"assigned", "checked_in", "in_transit"}, RowLimit: 200})
+			return err
+		}, []string{"tasks_driver_status", "tasks_helper_plan", "tasks_driver_plan"}},
+		{"DriverTasks/page", driver, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.DriverTasks(ctx, operationsdb.DriverTasksParams{DriverID: drv, Statuses: []string{"completed", "cancelled"},
+				AfterQueueAt: &cursorAt, AfterRunOrder: 3, AfterCreatedAt: cursorAt, AfterID: task, RowLimit: 501})
 			return err
 		}, []string{"tasks_driver_status", "tasks_helper_plan", "tasks_driver_plan"}},
 		{"DriverHasTaskInStatus", driver, func(ctx context.Context, q *operationsdb.Queries) error {
@@ -430,6 +436,42 @@ func TestExplainEveryQueryShapeUsesAnIndex(t *testing.T) {
 			_, err := q.TripIDsBySeal(ctx, operationsdb.TripIDsBySealParams{SealCode: "SEAL-10", TenantIds: []uuid.UUID{}, ReachDriver: &drv})
 			return err
 		}, []string{"trip_records_seal"}},
+
+		// --- the monitor and the read joins of T30
+		{"MonitorTrips", staff, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.MonitorTrips(ctx, operationsdb.MonitorTripsParams{TrimChars: trimSet, WithPrice: true, TenantIds: reachO, FromAt: from,
+				ToAt: to, OriginHubs: []uuid.UUID{}, DestinationHubs: []uuid.UUID{}, AfterCreated: &cursorAt, AfterID: trip,
+				RowLimit: 201})
+			return err
+		}, []string{"trip_records_tenant_created", "trip_records_created"}},
+		{"MonitorTrips/filters", staff, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.MonitorTrips(ctx, operationsdb.MonitorTripsParams{TrimChars: trimSet, TenantIds: reachO, FromAt: from, ToAt: to,
+				Statuses: []string{"incident"}, IncidentStatus: true, JobType: ptr("first_mile"), PlateRaw: ptr("1กข-10"),
+				VehicleClass: ptr("6WH"), OriginOn: true, OriginHubs: []uuid.UUID{w.hubSrc}, DestinationOn: true,
+				DestinationHubs: []uuid.UUID{}, DestinationSoc: ptr("SOCE"), Q: ptr("TRIP-1"), RowLimit: 201})
+			return err
+		}, []string{"trip_records_tenant_created", "trip_records_created"}},
+		{"MonitorTrips/all", all, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.MonitorTrips(ctx, operationsdb.MonitorTripsParams{TrimChars: trimSet, AllTenants: true, TenantIds: []uuid.UUID{}, FromAt: from,
+				ToAt: to, OriginHubs: []uuid.UUID{}, DestinationHubs: []uuid.UUID{}, RowLimit: 201})
+			return err
+		}, []string{"trip_records_created", "trip_records_tenant_created"}},
+		{"MonitorFacets", staff, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.MonitorFacets(ctx, operationsdb.MonitorFacetsParams{TrimChars: trimSet, TenantIds: reachO, FromAt: from, ToAt: to})
+			return err
+		}, []string{"trip_records_tenant_created", "trip_records_created"}},
+		{"TripStopsOf", staff, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.TripStopsOf(ctx, tripIDs)
+			return err
+		}, []string{"trip_delivery_stops_trip_id_stop_index_key"}},
+		{"DriverNamesOf", staff, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.DriverNamesOf(ctx, []uuid.UUID{drv, w.dO2})
+			return err
+		}, []string{"drivers_pkey"}},
+		{"TripNumbersOf", staff, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.TripNumbersOf(ctx, operationsdb.TripNumbersOfParams{Ids: tripIDs, TenantIds: reachO})
+			return err
+		}, []string{"trip_records_pkey"}},
 
 		// --- standby
 		{"InsertStandby", driver, func(ctx context.Context, q *operationsdb.Queries) error {
