@@ -138,3 +138,65 @@ func TestGCSDownload(t *testing.T) {
 		t.Fatalf("missing object: %v", err)
 	}
 }
+
+// The listeners' query (T29): the documents whose timestamp field is at or after an instant, ordered by it and paged with
+// a (timestamp, name) cursor, all at one read time; a document without the field, or with another type in it, is not
+// returned. DocumentsAt and Lookup read at a given read time, so a delete after it is not seen.
+func TestChangedDocumentsAtAndLookup(t *testing.T) {
+	b := gcptest.New(t, "logitrack-test")
+	base := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	for i := range 700 {
+		b.Set(fmt.Sprintf("tasks/t%03d", i), map[string]any{"updatedAt": dump.Timestamp{Time: base.Add(time.Duration(i%7) * time.Minute)}})
+	}
+	b.Set("tasks/nofield", map[string]any{"x": int64(1)})
+	b.Set("tasks/text", map[string]any{"updatedAt": "2026-10-01"})
+	f := b.Firestore()
+	ctx := context.Background()
+	docs, read, err := f.Changed(ctx, "tasks", "updatedAt", base.Add(3*time.Minute), time.Time{})
+	if err != nil || read.IsZero() {
+		t.Fatal(err, read)
+	}
+	want := 0
+	for i := range 700 {
+		if i%7 >= 3 {
+			want++
+		}
+	}
+	if len(docs) != want || b.RunQueryCalls() < 2 {
+		t.Fatalf("changed: %d docs in %d calls, want %d", len(docs), b.RunQueryCalls(), want)
+	}
+	seen := map[string]bool{}
+	var prev time.Time
+	for _, d := range docs {
+		ts := d.Fields["updatedAt"].(dump.Timestamp).Time
+		if seen[d.Path] || ts.Before(prev) || ts.Before(base.Add(3*time.Minute)) {
+			t.Fatalf("order or repeat at %s (%v after %v)", d.Path, ts, prev)
+		}
+		seen[d.Path], prev = true, ts
+	}
+	// Read at the earlier read time, a later delete is not seen.
+	all, at, err := f.DocumentsAt(ctx, "tasks", false, time.Time{})
+	if err != nil || len(all) != 702 {
+		t.Fatalf("documents %d %v", len(all), err)
+	}
+	b.Delete("tasks/t000")
+	if _, ok, err := f.Lookup(ctx, "tasks/t000", at); !ok || err != nil {
+		t.Fatalf("lookup at the read time: %v %v", ok, err)
+	}
+	if _, ok, err := f.Lookup(ctx, "tasks/t000", time.Time{}); ok || err != nil {
+		t.Fatalf("lookup now: %v %v", ok, err)
+	}
+	again, _, err := f.DocumentsAt(ctx, "tasks", false, at)
+	if err != nil || len(again) != 702 {
+		t.Fatalf("documents at the earlier read time: %d %v", len(again), err)
+	}
+	now, _, err := f.DocumentsAt(ctx, "tasks", false, time.Time{})
+	if err != nil || len(now) != 701 {
+		t.Fatalf("documents now: %d %v", len(now), err)
+	}
+	// Rename: one tick copies and deletes.
+	nd := b.Rename("tasks/t001", "tasks/t001x", map[string]any{"renamedFrom": "t001"})
+	if _, ok := b.Doc("tasks/t001"); ok || nd.Fields["renamedFrom"] != "t001" {
+		t.Fatalf("rename %+v", nd)
+	}
+}

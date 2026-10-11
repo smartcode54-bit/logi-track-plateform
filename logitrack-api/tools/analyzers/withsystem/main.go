@@ -91,6 +91,7 @@ var Allowed = []string{
 	"internal/forms",     // the anonymous waitlist / partner-interest inserts: RLS-exempt tables, no principal exists (T53)
 	// the cartrack.sync consumer of the worker: GPS trucks of every tenant, the latest-only vehicle_locations upsert (T53)
 	"internal/fleet/locations",
+	"internal/hr", // the payroll.run consumer of the worker: draft runs of the job's tenant (T44)
 	"cmd/worker",
 	"cmd/scheduler",
 	"cmd/etl",

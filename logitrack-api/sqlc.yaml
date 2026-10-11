@@ -738,6 +738,23 @@ sql:
         emit_pointers_for_null_types: true
         omit_unused_structs: true
         overrides: *finance_overrides
+  # T44: compensation config versions, penalties and payroll runs (internal/hr) under db.WithPrincipal (RLS G-tenant;
+  # penalty_types, payroll_line_items and payroll_penalty_applications follow their parent), and the payroll.run
+  # consumer's reads and draft writes under db.WithSystem. Same type mapping as expenses (NUMERIC amounts float64:
+  # whole baht for payroll, checked in Go and by the schema).
+  - name: hr
+    engine: postgresql
+    schema: migrations
+    queries: internal/hr/queries
+    gen:
+      go:
+        package: hrdb
+        out: internal/hr/hrdb
+        sql_package: pgx/v5
+        emit_empty_slices: true
+        emit_pointers_for_null_types: true
+        omit_unused_structs: true
+        overrides: *finance_overrides
   # T53: vehicle_locations (GET /v1/vehicle-locations under db.WithPrincipal) and the cartrack.sync consumer's reads of
   # the GPS trucks and its latest-only upsert (system transaction). Same type mapping as expenses.
   - name: locations

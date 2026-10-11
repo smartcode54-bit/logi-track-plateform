@@ -349,7 +349,7 @@ SELECT 'invoice_number', id::text, invoice_number FROM billing_statements
 WHERE invoice_number !~ ('^' || customer_code_snapshot || '-' || period_year || lpad(period_month::text, 2, '0') || '-[0-9]{3,}$');
 ```
 
-**6. Payroll arithmetic and penalty balances.** Run totals equal the sum of their lines; `net = max(0, earnings − deductions)`; approved/paid runs have a ledger row; a non-legacy penalty's balance equals total minus instalments applied by approved/paid runs; `cleared` ⇔ zero balance.
+**6. Payroll arithmetic and penalty balances.** Run totals equal the sum of their lines; `net = max(0, earnings − deductions)`; approved/paid runs have a ledger row; a non-legacy penalty's balance equals total minus instalments applied by approved/paid runs, and its `installments_paid` equals the number of those applications capped at `installments_total` (a balance carried past the last instalment, a shortfall or a rounding remainder, keeps deducting while the count stays at `installments_total`: the schema CHECK, main spec §6.15 as built); `cleared` ⇔ zero balance.
 
 ```sql
 SELECT r.id::text, 'run totals' AS problem
@@ -368,7 +368,7 @@ LEFT JOIN (SELECT a.penalty_id, sum(a.applied_thb) AS applied, count(*) AS n
            FROM payroll_penalty_applications a JOIN payroll_runs r ON r.id = a.payroll_run_id
            WHERE r.status IN ('approved','paid') GROUP BY 1) x ON x.penalty_id = p.id
 WHERE (p.legacy_doc_id IS NULL AND p.status <> 'cancelled'
-       AND (p.remaining_thb <> p.total_thb - COALESCE(x.applied, 0) OR p.installments_paid <> COALESCE(x.n, 0)))
+       AND (p.remaining_thb <> p.total_thb - COALESCE(x.applied, 0) OR p.installments_paid <> LEAST(COALESCE(x.n, 0), p.installments_total)))
    OR (p.status = 'cleared' AND p.remaining_thb <> 0)
    OR (p.status IN ('pending','partially_deducted') AND p.remaining_thb = 0);
 ```

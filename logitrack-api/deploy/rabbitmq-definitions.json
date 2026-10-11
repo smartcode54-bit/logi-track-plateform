@@ -986,6 +986,14 @@
       "arguments": {}
     },
     {
+      "source": "lt.jobs",
+      "vhost": "/",
+      "destination": "etl.sync",
+      "destination_type": "queue",
+      "routing_key": "job.etl.reconcile",
+      "arguments": {}
+    },
+    {
       "source": "lt.requeue",
       "vhost": "/",
       "destination": "etl.sync",

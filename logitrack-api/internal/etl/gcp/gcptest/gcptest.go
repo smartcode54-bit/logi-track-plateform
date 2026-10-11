@@ -1,7 +1,9 @@
 // Package gcptest is an in-process stand-in for the Google endpoints cmd/etl talks to: the OAuth2 token
 // endpoint of the service-account JWT bearer grant (the assertion's signature is verified), the Firestore v1
-// REST methods runQuery, listCollectionIds, get and patch (with preconditions and update masks) over an
-// in-memory document table, and Cloud Storage media downloads. Everything is served through an
+// REST methods runQuery (by name, or the listeners' timestamp filter field >= since ordered by the field and the
+// name, T29), listCollectionIds, get (at a read time too) and patch (with preconditions and update masks) over an
+// in-memory document table with deletes (Delete, and Rename for renameTripRecord's copy-and-delete batch), and Cloud
+// Storage media downloads. Everything is served through an
 // http.RoundTripper, so tests never open a socket or reach Google. Test support only.
 //
 // Time is logical: every Put and accepted patch is one tick after the backend's clock, a runQuery answers with
@@ -67,10 +69,11 @@ type Backend struct {
 	onQuery  func(call int)
 }
 
-// version is a document as one tick left it.
+// version is a document as one tick left it; deleted marks the tick that removed it.
 type version struct {
-	tick int64
-	doc  dump.Doc
+	tick    int64
+	doc     dump.Doc
+	deleted bool
 }
 
 type object struct {
@@ -141,6 +144,68 @@ func (b *Backend) Merge(path string, fields map[string]any) dump.Doc {
 func (b *Backend) store(d dump.Doc) {
 	b.docs[d.Path] = d
 	b.versions[d.Path] = append(b.versions[d.Path], version{tick: b.tick, doc: d})
+}
+
+// Delete removes a document (a client's delete()) as a new tick; a later read at an earlier readTime still sees it.
+func (b *Backend) Delete(path string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.now()
+	b.remove(path)
+}
+
+func (b *Backend) remove(path string) {
+	if _, ok := b.docs[path]; !ok {
+		return
+	}
+	delete(b.docs, path)
+	b.versions[path] = append(b.versions[path], version{tick: b.tick, deleted: true})
+}
+
+// Rename is renameTripRecord's batch (functions/src/renameTripRecord.ts): in one tick the document at oldPath is
+// copied to newPath with the extra fields merged over it, and oldPath is deleted. It returns the new document.
+func (b *Backend) Rename(oldPath, newPath string, extra map[string]any) dump.Doc {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	cur, ok := b.docs[oldPath]
+	if !ok {
+		b.t.Fatalf("gcptest: rename of a missing document %s", oldPath)
+	}
+	now := b.now()
+	fields := maps.Clone(cur.Fields)
+	for k, v := range extra {
+		fields[k] = v
+	}
+	parts := strings.Split(newPath, "/")
+	d := dump.Doc{ID: parts[len(parts)-1], Path: newPath, CreateTime: now, UpdateTime: now, Fields: fields}
+	b.store(d)
+	b.remove(oldPath)
+	return d
+}
+
+// visibleAt is every document as tick at left it (the caller holds the lock).
+func (b *Backend) visibleAt(at int64) map[string]dump.Doc {
+	visible := map[string]dump.Doc{}
+	for path, vs := range b.versions {
+		for i := len(vs) - 1; i >= 0; i-- {
+			if vs[i].tick <= at {
+				if !vs[i].deleted {
+					visible[path] = vs[i].doc
+				}
+				break
+			}
+		}
+	}
+	return visible
+}
+
+// tickOf turns a readTime into the backend's tick (ok false for an unparsable or earlier time).
+func (b *Backend) tickOf(readTime string) (int64, bool) {
+	rt, err := time.Parse(time.RFC3339Nano, readTime)
+	if err != nil || rt.Before(b.clock) {
+		return 0, false
+	}
+	return int64(rt.Sub(b.clock) / time.Microsecond), true
 }
 
 // OnRunQuery calls fn after each runQuery is answered (call counts from 1), outside the backend's lock, so a test
@@ -311,7 +376,7 @@ func (b *Backend) firestore(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if r.Method == http.MethodGet {
-			b.handleGet(w, path)
+			b.handleGet(w, r, path)
 		} else {
 			b.handlePatch(w, r, path)
 		}
@@ -333,6 +398,12 @@ func (b *Backend) restDoc(d dump.Doc) map[string]any {
 		"createTime": d.CreateTime.UTC().Format(time.RFC3339Nano), "updateTime": d.UpdateTime.UTC().Format(time.RFC3339Nano)}
 }
 
+// queryValue is a Firestore REST Value of a filter or a cursor (the kinds the ETL client sends).
+type queryValue struct {
+	ReferenceValue *string `json:"referenceValue"`
+	TimestampValue *string `json:"timestampValue"`
+}
+
 func (b *Backend) handleRunQuery(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ReadTime        string `json:"readTime"`
@@ -341,12 +412,24 @@ func (b *Backend) handleRunQuery(w http.ResponseWriter, r *http.Request) {
 				CollectionID   string `json:"collectionId"`
 				AllDescendants bool   `json:"allDescendants"`
 			} `json:"from"`
+			Where *struct {
+				FieldFilter struct {
+					Field struct {
+						FieldPath string `json:"fieldPath"`
+					} `json:"field"`
+					Op    string     `json:"op"`
+					Value queryValue `json:"value"`
+				} `json:"fieldFilter"`
+			} `json:"where"`
+			OrderBy []struct {
+				Field struct {
+					FieldPath string `json:"fieldPath"`
+				} `json:"field"`
+			} `json:"orderBy"`
 			Limit   int `json:"limit"`
 			StartAt *struct {
-				Values []struct {
-					ReferenceValue string `json:"referenceValue"`
-				} `json:"values"`
-				Before bool `json:"before"`
+				Values []queryValue `json:"values"`
+				Before bool         `json:"before"`
 			} `json:"startAt"`
 		} `json:"structuredQuery"`
 	}
@@ -356,50 +439,93 @@ func (b *Backend) handleRunQuery(w http.ResponseWriter, r *http.Request) {
 	}
 	q := req.StructuredQuery
 	from := q.From[0]
-	after := ""
-	if q.StartAt != nil && len(q.StartAt.Values) == 1 {
-		after = strings.TrimPrefix(q.StartAt.Values[0].ReferenceValue, b.Root()+"/")
+	// A where clause is the listeners' timestamp filter (gcp.Firestore.Changed): field >= since, ordered by the field
+	// and then by name, the cursor (timestamp, name). Without one the query is ordered by name, the cursor a name.
+	field := ""
+	var since time.Time
+	if q.Where != nil {
+		ff := q.Where.FieldFilter
+		field = strings.Trim(ff.Field.FieldPath, "`")
+		if ff.Op != "GREATER_THAN_OR_EQUAL" || ff.Value.TimestampValue == nil || len(q.OrderBy) != 2 ||
+			strings.Trim(q.OrderBy[0].Field.FieldPath, "`") != field || q.OrderBy[1].Field.FieldPath != "__name__" {
+			apiError(w, http.StatusBadRequest, "INVALID_ARGUMENT")
+			return
+		}
+		var err error
+		if since, err = time.Parse(time.RFC3339Nano, *ff.Value.TimestampValue); err != nil {
+			apiError(w, http.StatusBadRequest, "INVALID_ARGUMENT")
+			return
+		}
+	}
+	afterName := ""
+	var afterTS time.Time
+	if q.StartAt != nil {
+		vals := q.StartAt.Values
+		switch {
+		case field == "" && len(vals) == 1 && vals[0].ReferenceValue != nil:
+			afterName = strings.TrimPrefix(*vals[0].ReferenceValue, b.Root()+"/")
+		case field != "" && len(vals) == 2 && vals[0].TimestampValue != nil && vals[1].ReferenceValue != nil:
+			t, err := time.Parse(time.RFC3339Nano, *vals[0].TimestampValue)
+			if err != nil {
+				apiError(w, http.StatusBadRequest, "INVALID_ARGUMENT")
+				return
+			}
+			afterTS, afterName = t, strings.TrimPrefix(*vals[1].ReferenceValue, b.Root()+"/")
+		default:
+			apiError(w, http.StatusBadRequest, "INVALID_ARGUMENT")
+			return
+		}
 	}
 	b.mu.Lock()
 	b.runQuery++
 	call, hook := b.runQuery, b.onQuery
 	at := b.tick
 	if req.ReadTime != "" {
-		rt, err := time.Parse(time.RFC3339Nano, req.ReadTime)
-		if err != nil || rt.Before(b.clock) {
+		var ok bool
+		if at, ok = b.tickOf(req.ReadTime); !ok {
 			b.mu.Unlock()
 			apiError(w, http.StatusBadRequest, "INVALID_ARGUMENT")
 			return
 		}
-		at = int64(rt.Sub(b.clock) / time.Microsecond)
 	}
 	readTime := b.clock.Add(time.Duration(at) * time.Microsecond).Format(time.RFC3339Nano)
-	visible := map[string]dump.Doc{}
-	for path, vs := range b.versions {
-		for i := len(vs) - 1; i >= 0; i-- {
-			if vs[i].tick <= at {
-				visible[path] = vs[i].doc
-				break
-			}
-		}
+	visible := b.visibleAt(at)
+	type hit struct {
+		path string
+		ts   time.Time
 	}
-	var paths []string
+	var hits []hit
 	for path, d := range visible {
 		if d.Collection() != from.CollectionID || (!from.AllDescendants && d.ParentPath() != "") {
 			continue
 		}
-		if after != "" && path <= after {
+		h := hit{path: path}
+		if field != "" {
+			ts, ok := d.Fields[field].(dump.Timestamp)
+			if !ok || ts.Before(since) {
+				continue
+			}
+			h.ts = ts.UTC()
+			if q.StartAt != nil && (h.ts.Before(afterTS) || (h.ts.Equal(afterTS) && path <= afterName)) {
+				continue
+			}
+		} else if afterName != "" && path <= afterName {
 			continue
 		}
-		paths = append(paths, path)
+		hits = append(hits, h)
 	}
-	slices.Sort(paths)
-	if q.Limit > 0 && len(paths) > q.Limit {
-		paths = paths[:q.Limit]
+	slices.SortFunc(hits, func(a, b hit) int {
+		if c := a.ts.Compare(b.ts); c != 0 {
+			return c
+		}
+		return strings.Compare(a.path, b.path)
+	})
+	if q.Limit > 0 && len(hits) > q.Limit {
+		hits = hits[:q.Limit]
 	}
 	out := []any{}
-	for _, path := range paths {
-		out = append(out, map[string]any{"document": b.restDoc(visible[path]), "readTime": readTime})
+	for _, h := range hits {
+		out = append(out, map[string]any{"document": b.restDoc(visible[h.path]), "readTime": readTime})
 	}
 	b.mu.Unlock()
 	if len(out) == 0 {
@@ -430,9 +556,18 @@ func (b *Backend) handleListCollections(w http.ResponseWriter) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"collectionIds": ids})
 }
 
-func (b *Backend) handleGet(w http.ResponseWriter, path string) {
+func (b *Backend) handleGet(w http.ResponseWriter, r *http.Request, path string) {
 	b.mu.Lock()
 	d, ok := b.docs[path]
+	if rt := r.URL.Query().Get("readTime"); rt != "" {
+		at, valid := b.tickOf(rt)
+		if !valid {
+			b.mu.Unlock()
+			apiError(w, http.StatusBadRequest, "INVALID_ARGUMENT")
+			return
+		}
+		d, ok = b.visibleAt(at)[path]
+	}
 	b.mu.Unlock()
 	if !ok {
 		apiError(w, http.StatusNotFound, "NOT_FOUND")

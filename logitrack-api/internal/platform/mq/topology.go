@@ -122,7 +122,7 @@ var Queues = []Queue{
 	{Name: "security.audit", Group: "platform", Prefetch: 8, Bindings: events("security.event")},
 	{Name: "tenancy.orphan-scan", Group: "platform", Prefetch: 1, Bindings: jobs("job.tenancy.orphan-scan")},
 	{Name: "storage.gc", Group: "platform", Prefetch: 1, Bindings: jobs("job.storage.gc")},
-	{Name: "etl.sync", Group: "sync", Prefetch: 1, Bindings: jobs("job.etl.sync")},
+	{Name: "etl.sync", Group: "sync", Prefetch: 1, Bindings: jobs("job.etl.sync", "job.etl.reconcile")},
 	{Name: "firestore.shadow", Group: "sync", Prefetch: 4, Bindings: events(
 		"hubs.changed", "customers.changed", "companies.changed", "truck.created", "truck.updated", "truck.renewed",
 		"assignment.created", "assignment.revoked", "driver.created", "driver.updated", "tenant.created",

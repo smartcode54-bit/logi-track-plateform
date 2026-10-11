@@ -37,6 +37,15 @@ type DocSource interface {
 	Documents(ctx context.Context, collection string, group bool) ([]dump.Doc, error)
 }
 
+// SnapshotSource is a DocSource that reads a collection at a given read time (zero: now) and returns the read time it
+// used (gcp.Firestore.DocumentsAt): a sweep reads every collection at the instant of its first read, so a batch that
+// spans collections (renameTripRecord re-points incident reports in the batch that renames the trip) is seen whole or
+// not at all (T29).
+type SnapshotSource interface {
+	DocSource
+	DocumentsAt(ctx context.Context, collection string, group bool, at time.Time) ([]dump.Doc, time.Time, error)
+}
+
 // DumpSource serves a dump as a DocSource; a collection the dump lacks has no documents.
 type DumpSource struct{ Dump *dump.Dump }
 
@@ -248,20 +257,26 @@ func (e *Engine) Mirror(ctx context.Context, src DocSource, plan MirrorPlan) (*R
 	read := e.cfg.Now().UTC().Truncate(time.Microsecond)
 	docs := make(map[string][]dump.Doc, len(plan.Entries))
 	specs := make([]collectionSpec, len(plan.Entries))
+	var at time.Time
 	for i, m := range plan.Entries {
 		spec, err := mirrorSpec(m)
 		if err != nil {
 			return nil, err
 		}
 		specs[i] = spec
-		ds, err := src.Documents(ctx, m.Name, groupCollections[m.Name])
+		var ds []dump.Doc
+		if ss, ok := src.(SnapshotSource); ok {
+			ds, at, err = ss.DocumentsAt(ctx, m.Name, groupCollections[m.Name], at)
+		} else {
+			ds, err = src.Documents(ctx, m.Name, groupCollections[m.Name])
+		}
 		if err != nil {
 			return nil, fmt.Errorf("etl: mirror: read %s: %w", m.Name, err)
 		}
 		docs[m.Name] = ds
 	}
 	billable := billableFrom(docs["trip_records"])
-	rep := &Report{ExportedAt: read}
+	rep := &Report{ExportedAt: read, ReadAt: at}
 	err := e.cfg.Tx(ctx, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('lt-etl-load'))`); err != nil {
 			return fmt.Errorf("etl: lock: %w", err)
@@ -274,10 +289,16 @@ func (e *Engine) Mirror(ctx context.Context, src DocSource, plan MirrorPlan) (*R
 		}
 		r := e.newRun(ctx, tx, rep)
 		r.owned = plan.Owned
+		r.events, r.mirror = true, true
 		for i, m := range plan.Entries {
 			stats, err := e.loadCollection(ctx, tx, specs[i], docs[m.Name], read, LoadOptions{SinceWatermark: true, Mirror: true}, billable, rep, r)
 			if err != nil {
 				return err
+			}
+			if m.Mode == MirrorFull {
+				if err := e.mirrorRemoved(ctx, r, m.Name, docs[m.Name], at, &stats); err != nil {
+					return err
+				}
 			}
 			stats.Mode = m.Mode
 			rep.Collections = append(rep.Collections, stats)

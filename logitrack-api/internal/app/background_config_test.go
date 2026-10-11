@@ -210,11 +210,22 @@ func TestWorkerConfigCoexistence(t *testing.T) {
 		"WORKER_CONSUMERS=all":         "WORKER_CONSUMERS",
 		"WORKER_CONSUMERS=sync,notify": "WORKER_CONSUMERS",
 		"ETL_SYNC_ENABLED=false":       "ETL_DATABASE_URL",
+		// T29: the listeners poll every ETL_LISTEN_INTERVAL, 500ms to 1m (0 = off).
+		"ETL_LISTEN_INTERVAL=100ms": "ETL_LISTEN_INTERVAL",
+		"ETL_LISTEN_INTERVAL=2m":    "ETL_LISTEN_INTERVAL",
 	} {
 		_, err := config.LoadFrom[app.WorkerConfig](workerEnv(append(on, env)...))
 		if err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), "secret_zz") || strings.Contains(err.Error(), "placeholder") {
 			t.Errorf("%s: %v, want %q", env, err, want)
 		}
+	}
+	if cfg.ETLListenInterval != 2*time.Second {
+		t.Errorf("ETL_LISTEN_INTERVAL default %v", cfg.ETLListenInterval)
+	}
+	if off, err := config.LoadFrom[app.WorkerConfig](workerEnv(append(on, "ETL_LISTEN_INTERVAL=0")...)); err != nil {
+		t.Errorf("listeners off: %v", err)
+	} else if off.ETLListenInterval != 0 {
+		t.Errorf("listeners off: %v", off.ETLListenInterval)
 	}
 	// The projection alone needs no ETL database URL.
 	if _, err := config.LoadFrom[app.WorkerConfig](workerEnv("COMPAT_PROJECTION_ENABLED=true", "ETL_FIRESTORE_PROJECT_ID=logitrack-test",
@@ -231,7 +242,7 @@ func TestWorkerConfigCoexistence(t *testing.T) {
 		t.Errorf("a replica without group sync holding the URL: %v", err)
 	}
 	w := config.Describe[app.WorkerConfig]()
-	for _, n := range []string{"ETL_SYNC_ENABLED", "ETL_DATABASE_URL", "ETL_MIRROR_COLLECTIONS", "COMPAT_PROJECTION_ENABLED",
+	for _, n := range []string{"ETL_SYNC_ENABLED", "ETL_DATABASE_URL", "ETL_MIRROR_COLLECTIONS", "ETL_LISTEN_INTERVAL", "COMPAT_PROJECTION_ENABLED",
 		"COMPAT_PROJECTION_COLLECTIONS", "PG_OWNED_DOMAINS", "ETL_FIRESTORE_PROJECT_ID", "FIRESTORE_DATABASE_ID", "GOOGLE_APPLICATION_CREDENTIALS"} {
 		if _, ok := w[n]; !ok {
 			t.Errorf("worker does not read %s", n)
