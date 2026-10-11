@@ -21,8 +21,9 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 )
 
-// RateEntry is a route rate card (customer_rate_entries): an announcement row, void only (ADR 0009 §1). customerId and
-// billingPartyId are both the billing party's id (billing_parties.id); tenantId is the billing carrier that owns it.
+// RateEntry is a route rate card (customer_rate_entries): an announcement row, void only (ADR 0009 §1). billingPartyId is
+// the billing party (billing_parties.id), customerId the customer or carrier it bills (the id GET /v1/customers and the
+// web's rate-card keys use); tenantId is the billing carrier that owns it.
 type RateEntry struct {
 	ID                   uuid.UUID  `json:"id"`
 	TenantID             uuid.UUID  `json:"tenantId"`
@@ -50,7 +51,7 @@ type RateEntry struct {
 }
 
 func rateEntryOf(r billingdb.GetRateEntryRow) RateEntry {
-	return RateEntry{ID: r.ID, TenantID: r.TenantID, BillingPartyID: r.BillingPartyID, CustomerID: r.BillingPartyID,
+	return RateEntry{ID: r.ID, TenantID: r.TenantID, BillingPartyID: r.BillingPartyID, CustomerID: r.CustomerID,
 		ImportID: r.ImportID, HubID: r.HubCode, RawHubName: r.RawHubName, DestinationCode: r.DestinationCode,
 		VehicleClass: r.VehicleClass, RateTHB: r.RateThb, DistanceKm: r.DistanceKm, JobCategory: r.JobCategory,
 		EffectiveFrom: r.EffectiveFromAt.UTC(), EffectiveFromDateStr: r.EffectiveFromDate.Format(time.DateOnly),
@@ -101,7 +102,7 @@ type FuelBand struct {
 }
 
 func fuelAdjustmentOf(r billingdb.GetFuelAdjustmentRow) FuelAdjustment {
-	a := FuelAdjustment{ID: r.ID, TenantID: r.TenantID, BillingPartyID: r.BillingPartyID, CustomerID: r.BillingPartyID,
+	a := FuelAdjustment{ID: r.ID, TenantID: r.TenantID, BillingPartyID: r.BillingPartyID, CustomerID: r.CustomerID,
 		EffectiveFrom: r.EffectiveFromAt.UTC(), EffectiveFromDateStr: r.EffectiveFromDate.Format(time.DateOnly),
 		RateMultiplier: r.RateMultiplier, AddTHBPerTrip: r.AddThbPerTrip, ReferenceFuelPriceTHBPerLitre: r.ReferenceFuelPriceThb,
 		AnnouncementNote: r.AnnouncementNote, FuelBandEnabled: r.FuelBandEnabled, FuelBandBaselineFuelFloor: r.FuelBandBaselineFloor,
@@ -133,7 +134,7 @@ type ServiceFee struct {
 }
 
 func serviceFeeOf(r billingdb.GetServiceFeeRow) ServiceFee {
-	return ServiceFee{ID: r.ID, TenantID: r.TenantID, BillingPartyID: r.BillingPartyID, CustomerID: r.BillingPartyID,
+	return ServiceFee{ID: r.ID, TenantID: r.TenantID, BillingPartyID: r.BillingPartyID, CustomerID: r.CustomerID,
 		FeeType: r.FeeType, CustomTypeName: r.CustomTypeName, AmountTHB: r.AmountThb, Unit: r.Unit, Note: r.Note,
 		CreatedAt: r.CreatedAt.UTC(), UpdatedAt: r.UpdatedAt.UTC(), LegacyDocID: r.LegacyDocID}
 }
@@ -158,7 +159,7 @@ type StandbyRate struct {
 }
 
 func standbyRateOf(r billingdb.GetStandbyRateRow) StandbyRate {
-	return StandbyRate{ID: r.ID, TenantID: r.TenantID, BillingPartyID: r.BillingPartyID, CustomerID: r.BillingPartyID,
+	return StandbyRate{ID: r.ID, TenantID: r.TenantID, BillingPartyID: r.BillingPartyID, CustomerID: r.CustomerID,
 		RateTHB: r.RateThb, EffectiveFrom: r.EffectiveFromAt.UTC(), EffectiveFromDateStr: r.EffectiveFromDate.Format(time.DateOnly),
 		Note: r.Note, CreatedAt: r.CreatedAt.UTC(), UpdatedAt: r.UpdatedAt.UTC(), Voided: r.VoidedAt != nil,
 		VoidedAt: utc(r.VoidedAt), VoidedBy: r.VoidedBy, VoidedReason: r.VoidedReason, LegacyDocID: r.LegacyDocID}
@@ -446,6 +447,10 @@ func (ck *checker) rateRow(prefix string, r RateRowInput, manual bool, out *rate
 // one import id rc_<ms>, all or nothing (a row that breaks a rule is a 422 naming rows[i].field), the billing tenant
 // the caller's; outbox ratecard.changed.
 func (s *Service) ImportRateEntries(ctx context.Context, p *authz.Principal, rid string, in ImportInput) (ImportResult, error) {
+	tenant, err := billingTenantOf(p)
+	if err != nil {
+		return ImportResult{}, err
+	}
 	var ck checker
 	partyID := ck.party("customerId", in.CustomerID)
 	day := ck.date("effectiveFromDateStr", in.EffectiveFromDateStr)
@@ -466,10 +471,6 @@ func (s *Service) ImportRateEntries(ctx context.Context, p *authz.Principal, rid
 	if err := ck.err(); err != nil {
 		return ImportResult{}, err
 	}
-	tenant, err := tenantOf(p)
-	if err != nil {
-		return ImportResult{}, err
-	}
 	now := s.now().UTC()
 	importID := fmt.Sprintf("rc_%d", now.UnixMilli())
 	var party uuid.UUID
@@ -488,7 +489,7 @@ func (s *Service) ImportRateEntries(ctx context.Context, p *authz.Principal, rid
 			return err
 		}
 		count = len(ids)
-		return rateCardChanged(ctx, tx, tenant, party, TableEntries, rid)
+		return rateCardChanged(ctx, tx, tenant, party, pr.BilledID, TableEntries, rid)
 	})
 	if err != nil {
 		return ImportResult{}, mapDBError(err)
@@ -500,16 +501,16 @@ func (s *Service) ImportRateEntries(ctx context.Context, p *authz.Principal, rid
 // CreateRateEntry is POST /v1/billing/rate-entries (accounting:edit_rate_card): one manual row under import id
 // manual_<ms>.
 func (s *Service) CreateRateEntry(ctx context.Context, p *authz.Principal, rid string, in CreateRateEntryInput) (*RateEntry, error) {
+	tenant, err := billingTenantOf(p)
+	if err != nil {
+		return nil, err
+	}
 	var ck checker
 	partyID := ck.party("customerId", in.CustomerID)
 	day := ck.date("effectiveFromDateStr", in.EffectiveFromDateStr)
 	var rows rateRows
 	ck.rateRow("", in.RateRowInput, true, &rows)
 	if err := ck.err(); err != nil {
-		return nil, err
-	}
-	tenant, err := tenantOf(p)
-	if err != nil {
 		return nil, err
 	}
 	now := s.now().UTC()
@@ -535,7 +536,7 @@ func (s *Service) CreateRateEntry(ctx context.Context, p *authz.Principal, rid s
 			return err
 		}
 		out = rateEntryOf(row)
-		return rateCardChanged(ctx, tx, tenant, pr.ID, TableEntries, rid)
+		return rateCardChanged(ctx, tx, tenant, pr.ID, out.CustomerID, TableEntries, rid)
 	})
 	if err != nil {
 		return nil, mapDBError(err)
@@ -559,6 +560,9 @@ func voidReason(in VoidInput) (string, error) {
 // VoidRateEntry is POST /v1/billing/rate-entries/{id}/void (accounting:edit_rate_card): the only change an
 // announcement row takes (trg_announcement_void_only); a voided row is 409 announcement_immutable (already_voided).
 func (s *Service) VoidRateEntry(ctx context.Context, p *authz.Principal, rid string, id uuid.UUID, in VoidInput) (*RateEntry, error) {
+	if _, err := billingTenantOf(p); err != nil {
+		return nil, err
+	}
 	reason, err := voidReason(in)
 	if err != nil {
 		return nil, err
@@ -588,7 +592,7 @@ func (s *Service) VoidRateEntry(ctx context.Context, p *authz.Principal, rid str
 			return err
 		}
 		out = rateEntryOf(row)
-		return rateCardChanged(ctx, tx, cur.TenantID, cur.BillingPartyID, TableEntries, rid)
+		return rateCardChanged(ctx, tx, cur.TenantID, cur.BillingPartyID, out.CustomerID, TableEntries, rid)
 	})
 	if err != nil {
 		return nil, mapDBError(err)
@@ -743,16 +747,16 @@ func (s *Service) ListFuelAdjustments(ctx context.Context, p *authz.Principal, i
 // CreateFuelAdjustment is POST /v1/billing/fuel-adjustments (accounting:edit_rate_card): always a new row
 // (announcements are immutable, ADR 0009 §1), effective from Bangkok midnight of the day.
 func (s *Service) CreateFuelAdjustment(ctx context.Context, p *authz.Principal, rid string, in FuelAdjustmentInput) (*FuelAdjustment, error) {
+	tenant, err := billingTenantOf(p)
+	if err != nil {
+		return nil, err
+	}
 	var ck checker
 	partyID := ck.party("customerId", in.CustomerID)
 	day := ck.date("effectiveFromDateStr", in.EffectiveFromDateStr)
 	note := ck.text("announcementNote", in.AnnouncementNote, 1000, false)
 	v := ck.fuelRound(in)
 	if err := ck.err(); err != nil {
-		return nil, err
-	}
-	tenant, err := tenantOf(p)
-	if err != nil {
 		return nil, err
 	}
 	var out FuelAdjustment
@@ -773,7 +777,7 @@ func (s *Service) CreateFuelAdjustment(ctx context.Context, p *authz.Principal, 
 			return err
 		}
 		out = fuelAdjustmentOf(row)
-		return rateCardChanged(ctx, tx, tenant, pr.ID, TableFuelAdj, rid)
+		return rateCardChanged(ctx, tx, tenant, pr.ID, out.CustomerID, TableFuelAdj, rid)
 	})
 	if err != nil {
 		return nil, mapDBError(err)
@@ -784,6 +788,9 @@ func (s *Service) CreateFuelAdjustment(ctx context.Context, p *authz.Principal, 
 
 // VoidFuelAdjustment is POST /v1/billing/fuel-adjustments/{id}/void (accounting:edit_rate_card).
 func (s *Service) VoidFuelAdjustment(ctx context.Context, p *authz.Principal, rid string, id uuid.UUID, in VoidInput) (*FuelAdjustment, error) {
+	if _, err := billingTenantOf(p); err != nil {
+		return nil, err
+	}
 	reason, err := voidReason(in)
 	if err != nil {
 		return nil, err
@@ -813,7 +820,7 @@ func (s *Service) VoidFuelAdjustment(ctx context.Context, p *authz.Principal, ri
 			return err
 		}
 		out = fuelAdjustmentOf(row)
-		return rateCardChanged(ctx, tx, cur.TenantID, cur.BillingPartyID, TableFuelAdj, rid)
+		return rateCardChanged(ctx, tx, cur.TenantID, cur.BillingPartyID, out.CustomerID, TableFuelAdj, rid)
 	})
 	if err != nil {
 		return nil, mapDBError(err)
@@ -917,6 +924,10 @@ func (s *Service) ListServiceFees(ctx context.Context, p *authz.Principal, in Li
 // CreateServiceFee is POST /v1/billing/service-fees (accounting:edit_rate_card): one fee per party and type (custom
 // excepted; customer_service_fees_one_per_type, D5): a second is 409 already_exists (field feeType).
 func (s *Service) CreateServiceFee(ctx context.Context, p *authz.Principal, rid string, in ServiceFeeInput) (*ServiceFee, error) {
+	tenant, err := billingTenantOf(p)
+	if err != nil {
+		return nil, err
+	}
 	var ck checker
 	partyID := ck.party("customerId", in.CustomerID)
 	var amount *float64
@@ -926,10 +937,6 @@ func (s *Service) CreateServiceFee(ctx context.Context, p *authz.Principal, rid 
 	v := ck.fee(strings.TrimSpace(in.FeeType.V), strings.TrimSpace(in.Unit.V), amount, fieldText(in.CustomTypeName),
 		fieldText(in.Note))
 	if err := ck.err(); err != nil {
-		return nil, err
-	}
-	tenant, err := tenantOf(p)
-	if err != nil {
 		return nil, err
 	}
 	var out ServiceFee
@@ -948,7 +955,7 @@ func (s *Service) CreateServiceFee(ctx context.Context, p *authz.Principal, rid 
 			return err
 		}
 		out = serviceFeeOf(row)
-		return rateCardChanged(ctx, tx, tenant, pr.ID, TableServiceFees, rid)
+		return rateCardChanged(ctx, tx, tenant, pr.ID, out.CustomerID, TableServiceFees, rid)
 	})
 	if err != nil {
 		return nil, mapDBError(err)
@@ -960,6 +967,9 @@ func (s *Service) CreateServiceFee(ctx context.Context, p *authz.Principal, rid 
 // PatchServiceFee is PATCH /v1/billing/service-fees/{id} (accounting:edit_rate_card): a partial update; priced
 // snapshots keep their amounts. The party of a fee does not change.
 func (s *Service) PatchServiceFee(ctx context.Context, p *authz.Principal, rid string, id uuid.UUID, in ServiceFeeInput) (*ServiceFee, error) {
+	if _, err := billingTenantOf(p); err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(in.CustomerID) != "" {
 		return nil, httpx.ErrInvalidArgument(violation("customerId", "immutable"))
 	}
@@ -1011,7 +1021,7 @@ func (s *Service) PatchServiceFee(ctx context.Context, p *authz.Principal, rid s
 			return err
 		}
 		out = serviceFeeOf(row)
-		return rateCardChanged(ctx, tx, cur.TenantID, cur.BillingPartyID, TableServiceFees, rid)
+		return rateCardChanged(ctx, tx, cur.TenantID, cur.BillingPartyID, out.CustomerID, TableServiceFees, rid)
 	})
 	if err != nil {
 		return nil, mapDBError(err)
@@ -1023,6 +1033,9 @@ func (s *Service) PatchServiceFee(ctx context.Context, p *authz.Principal, rid s
 // DeleteServiceFee is DELETE /v1/billing/service-fees/{id} (accounting:edit_rate_card): 204; priced snapshots keep
 // their amounts.
 func (s *Service) DeleteServiceFee(ctx context.Context, p *authz.Principal, rid string, id uuid.UUID) error {
+	if _, err := billingTenantOf(p); err != nil {
+		return err
+	}
 	var party uuid.UUID
 	err := s.tx(ctx, p, func(tx pgx.Tx, q *billingdb.Queries) error {
 		cur, err := q.LockServiceFee(ctx, id)
@@ -1036,7 +1049,7 @@ func (s *Service) DeleteServiceFee(ctx context.Context, p *authz.Principal, rid 
 		if _, err := q.DeleteServiceFee(ctx, id); err != nil {
 			return err
 		}
-		return rateCardChanged(ctx, tx, cur.TenantID, cur.BillingPartyID, TableServiceFees, rid)
+		return rateCardChanged(ctx, tx, cur.TenantID, cur.BillingPartyID, cur.CustomerID, TableServiceFees, rid)
 	})
 	if err != nil {
 		return mapDBError(err)
@@ -1090,6 +1103,10 @@ func (s *Service) ListStandbyRates(ctx context.Context, p *authz.Principal, in L
 // CreateStandbyRate is POST /v1/billing/standby-rates (accounting:edit_rate_card): effective from Bangkok midnight of
 // the day, server-side (fixes the browser-local midnight, rate-card/page.tsx:1146).
 func (s *Service) CreateStandbyRate(ctx context.Context, p *authz.Principal, rid string, in StandbyRateInput) (*StandbyRate, error) {
+	tenant, err := billingTenantOf(p)
+	if err != nil {
+		return nil, err
+	}
 	var ck checker
 	partyID := ck.party("customerId", in.CustomerID)
 	var rateP *float64
@@ -1105,10 +1122,6 @@ func (s *Service) CreateStandbyRate(ctx context.Context, p *authz.Principal, rid
 		}
 	}
 	if err := ck.err(); err != nil {
-		return nil, err
-	}
-	tenant, err := tenantOf(p)
-	if err != nil {
 		return nil, err
 	}
 	var out StandbyRate
@@ -1127,7 +1140,7 @@ func (s *Service) CreateStandbyRate(ctx context.Context, p *authz.Principal, rid
 			return err
 		}
 		out = standbyRateOf(row)
-		return rateCardChanged(ctx, tx, tenant, pr.ID, TableStandby, rid)
+		return rateCardChanged(ctx, tx, tenant, pr.ID, out.CustomerID, TableStandby, rid)
 	})
 	if err != nil {
 		return nil, mapDBError(err)
@@ -1139,6 +1152,9 @@ func (s *Service) CreateStandbyRate(ctx context.Context, p *authz.Principal, rid
 // PatchStandbyRate is PATCH /v1/billing/standby-rates/{id} (accounting:edit_rate_card): rate, day or note; stored
 // standby prices keep their amounts (only later pricing sees the change). A voided rate is 409 failed_precondition.
 func (s *Service) PatchStandbyRate(ctx context.Context, p *authz.Principal, rid string, id uuid.UUID, in StandbyRateInput) (*StandbyRate, error) {
+	if _, err := billingTenantOf(p); err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(in.CustomerID) != "" {
 		return nil, httpx.ErrInvalidArgument(violation("customerId", "immutable"))
 	}
@@ -1188,7 +1204,7 @@ func (s *Service) PatchStandbyRate(ctx context.Context, p *authz.Principal, rid 
 			return err
 		}
 		out = standbyRateOf(row)
-		return rateCardChanged(ctx, tx, cur.TenantID, cur.BillingPartyID, TableStandby, rid)
+		return rateCardChanged(ctx, tx, cur.TenantID, cur.BillingPartyID, out.CustomerID, TableStandby, rid)
 	})
 	if err != nil {
 		return nil, mapDBError(err)
@@ -1200,6 +1216,9 @@ func (s *Service) PatchStandbyRate(ctx context.Context, p *authz.Principal, rid 
 // VoidStandbyRate is POST /v1/billing/standby-rates/{id}/void (accounting:edit_rate_card): the soft delete of R20
 // (standby_records keep their billing_rate_entry_id); a second void is 409 failed_precondition (already_voided).
 func (s *Service) VoidStandbyRate(ctx context.Context, p *authz.Principal, rid string, id uuid.UUID, in VoidInput) (*StandbyRate, error) {
+	if _, err := billingTenantOf(p); err != nil {
+		return nil, err
+	}
 	reason, err := voidReason(in)
 	if err != nil {
 		return nil, err
@@ -1229,7 +1248,7 @@ func (s *Service) VoidStandbyRate(ctx context.Context, p *authz.Principal, rid s
 			return err
 		}
 		out = standbyRateOf(row)
-		return rateCardChanged(ctx, tx, cur.TenantID, cur.BillingPartyID, TableStandby, rid)
+		return rateCardChanged(ctx, tx, cur.TenantID, cur.BillingPartyID, out.CustomerID, TableStandby, rid)
 	})
 	if err != nil {
 		return nil, mapDBError(err)

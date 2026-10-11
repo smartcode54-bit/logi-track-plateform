@@ -285,12 +285,25 @@ func (w *world) stop(trip string, idx int, dest string, final float64) {
 		VALUES ($1, $2, $3, $4, $4)`, trip, idx, dest, final)
 }
 
-// standby inserts a completed, priced standby record of tenant, priced from rateEntry.
-func (w *world) standby(tenant, party, rateEntry string, endedAt time.Time, estimate float64) string {
+// standby inserts a completed, priced standby record of tenant, priced from rateEntry ("" = a service fee) by
+// billingTenant (R61, 0014; "" = none recorded, as the ETL loads it).
+func (w *world) standby(tenant, party, rateEntry, billingTenant string, endedAt time.Time, estimate float64) string {
+	source := "standby_rate"
+	if rateEntry == "" {
+		source = "service_fee"
+	}
 	return w.id(`INSERT INTO standby_records (tenant_id, tenant_source, customer_party_id, ended_at, started_at, status,
-		billing_estimate_thb, billing_party_id, billing_rate_source, billing_rate_entry_id, billing_computed_at)
-		VALUES ($1, 'driver', $2, $3::timestamptz, $3::timestamptz - interval '2 hours', 'completed', $4, $2, 'standby_rate', $5, $3::timestamptz) RETURNING id::text`,
-		tenant, party, endedAt, estimate, rateEntry)
+		billing_estimate_thb, billing_party_id, billing_rate_source, billing_rate_entry_id, billing_tenant_id, billing_computed_at)
+		VALUES ($1, 'driver', $2, $3::timestamptz, $3::timestamptz - interval '2 hours', 'completed', $4, $2, $5,
+		        nullif($6, '')::uuid, nullif($7, '')::uuid, $3::timestamptz) RETURNING id::text`,
+		tenant, party, endedAt, estimate, source, rateEntry, billingTenant)
+}
+
+// standbyRate inserts a standby rate of tenant for party directly (the ETL path: no API, so no own-fleet check),
+// effective from day, and returns its id.
+func (w *world) standbyRate(tenant, party, day string, rate float64) string {
+	return w.id(`INSERT INTO standby_rate_entries (tenant_id, billing_party_id, rate_thb, effective_from_date, effective_from_at)
+		VALUES ($1, $2, $3, $4::date, bkk_midnight($4::date)) RETURNING id::text`, tenant, party, rate, day)
 }
 
 // --- test routes: SQL in db.WithPrincipal, so only RLS, triggers and grants decide -------------------------
@@ -402,7 +415,8 @@ func (r resp) detail(k string) any {
 	return d[k]
 }
 
-func (w *world) do(method, path, bearer string, body any) resp {
+// do sends a request; headers are name, value pairs (X-Act-On-Tenant).
+func (w *world) do(method, path, bearer string, body any, headers ...string) resp {
 	w.t.Helper()
 	var rd io.Reader
 	if body != nil {
@@ -417,6 +431,9 @@ func (w *world) do(method, path, bearer string, body any) resp {
 		w.t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	for i := 0; i+1 < len(headers); i += 2 {
+		req.Header.Set(headers[i], headers[i+1])
+	}
 	if bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
@@ -440,19 +457,19 @@ func (w *world) get(path, bearer string) resp {
 	return w.do(http.MethodGet, path, bearer, nil)
 }
 
-func (w *world) post(path, bearer string, body any) resp {
+func (w *world) post(path, bearer string, body any, headers ...string) resp {
 	w.t.Helper()
-	return w.do(http.MethodPost, path, bearer, body)
+	return w.do(http.MethodPost, path, bearer, body, headers...)
 }
 
-func (w *world) patch(path, bearer string, body any) resp {
+func (w *world) patch(path, bearer string, body any, headers ...string) resp {
 	w.t.Helper()
-	return w.do(http.MethodPatch, path, bearer, body)
+	return w.do(http.MethodPatch, path, bearer, body, headers...)
 }
 
-func (w *world) del(path, bearer string) resp {
+func (w *world) del(path, bearer string, headers ...string) resp {
 	w.t.Helper()
-	return w.do(http.MethodDelete, path, bearer, nil)
+	return w.do(http.MethodDelete, path, bearer, nil, headers...)
 }
 
 // login signs in through POST /v1/auth/login (once per user) and returns the access token.

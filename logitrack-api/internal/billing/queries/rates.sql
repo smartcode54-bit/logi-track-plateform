@@ -6,14 +6,17 @@
 -- reach (main spec §4.7; authz.Principal.TenantReach). The Party* reads load one party's whole bundle (every tenant,
 -- voided rows too) for cache:ratecard:{partyId} in a READ ONLY system transaction, so every reader caches the same
 -- value; the service then keeps the caller's reach. The Pricing* reads are the pricing transaction's (R17): live rows
--- of one party FOR SHARE, in the R16 order (legacy_doc_id by bytes, NULLs last, then created_at, id; the selector of
--- internal/billing/compute sorts again, so the order is only determinism).
+-- of one party and one billing carrier FOR SHARE (a row of another carrier never prices, whoever wrote it), in the R16
+-- order (legacy_doc_id by bytes, NULLs last, then created_at, id; the selector of internal/billing/compute sorts again,
+-- so the order is only determinism). Rows carry customer_id = the customer or carrier the party bills
+-- (coalesce(billing_parties.customer_id, tenant_id)), the id the web keys its rate-card caches by (Appendix E).
 
 -- name: ResolveParty :one
 -- The billing party a request names: its billing_parties id, or the customer or carrier it bills. Code and name feed
 -- invoice numbers and the statement snapshot (customers.code, else the carrier's code; main spec §6.14).
 SELECT bp.id, bp.kind, bp.billing_date_basis, c.code AS customer_code, c.name AS customer_name,
-       t.code AS tenant_code, t.name_th AS tenant_name, c.payment_terms_days
+       t.code AS tenant_code, t.name_th AS tenant_name, c.payment_terms_days,
+       coalesce(bp.customer_id, bp.tenant_id, bp.id)::uuid AS billed_id
 FROM billing_parties bp
 LEFT JOIN customers c ON c.id = bp.customer_id
 LEFT JOIN tenants t ON t.id = bp.tenant_id
@@ -27,8 +30,9 @@ LIMIT 1;
 SELECT e.id, e.legacy_doc_id, e.tenant_id, e.billing_party_id, e.import_id, e.hub_code, e.raw_hub_name,
        e.destination_code, e.vehicle_class, e.rate_thb, e.distance_km, e.job_category, e.effective_from_date,
        e.effective_from_at, e.imported_at, e.created_by, e.created_at, e.updated_at, e.voided, e.voided_at, e.voided_by,
-       e.voided_reason
+       e.voided_reason, coalesce(bp.customer_id, bp.tenant_id, e.billing_party_id)::uuid AS customer_id
 FROM customer_rate_entries e
+JOIN billing_parties bp ON bp.id = e.billing_party_id
 WHERE (sqlc.arg(all_tenants)::boolean OR e.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
   AND (sqlc.arg(include_voided)::boolean OR NOT e.voided)
   AND (sqlc.narg(after_at)::timestamptz IS NULL
@@ -42,8 +46,9 @@ LIMIT sqlc.arg(row_limit);
 SELECT e.id, e.legacy_doc_id, e.tenant_id, e.billing_party_id, e.import_id, e.hub_code, e.raw_hub_name,
        e.destination_code, e.vehicle_class, e.rate_thb, e.distance_km, e.job_category, e.effective_from_date,
        e.effective_from_at, e.imported_at, e.created_by, e.created_at, e.updated_at, e.voided, e.voided_at, e.voided_by,
-       e.voided_reason
+       e.voided_reason, coalesce(bp.customer_id, bp.tenant_id, e.billing_party_id)::uuid AS customer_id
 FROM customer_rate_entries e
+JOIN billing_parties bp ON bp.id = e.billing_party_id
 WHERE e.billing_party_id = sqlc.arg(party_id)
 ORDER BY e.effective_from_at DESC, e.import_id COLLATE "C" DESC, e.id DESC;
 
@@ -51,8 +56,9 @@ ORDER BY e.effective_from_at DESC, e.import_id COLLATE "C" DESC, e.id DESC;
 SELECT e.id, e.legacy_doc_id, e.tenant_id, e.billing_party_id, e.import_id, e.hub_code, e.raw_hub_name,
        e.destination_code, e.vehicle_class, e.rate_thb, e.distance_km, e.job_category, e.effective_from_date,
        e.effective_from_at, e.imported_at, e.created_by, e.created_at, e.updated_at, e.voided, e.voided_at, e.voided_by,
-       e.voided_reason
+       e.voided_reason, coalesce(bp.customer_id, bp.tenant_id, e.billing_party_id)::uuid AS customer_id
 FROM customer_rate_entries e
+JOIN billing_parties bp ON bp.id = e.billing_party_id
 WHERE e.id = sqlc.arg(id);
 
 -- name: InsertRateEntries :many
@@ -82,11 +88,12 @@ SET voided = true, voided_at = sqlc.arg(voided_at), voided_by = sqlc.arg(voided_
 WHERE id = sqlc.arg(id);
 
 -- name: PricingRateEntries :many
--- Pricing transaction (R17): live rate entries of a party FOR SHARE (a void waits for the price that read the row).
+-- Pricing transaction (R17): live rate entries of a party and billing carrier FOR SHARE (a void waits for the price that
+-- read the row).
 SELECT e.id, e.legacy_doc_id, e.tenant_id, e.billing_party_id, e.import_id, e.hub_code, e.destination_code,
        e.vehicle_class, e.rate_thb, e.job_category, e.effective_from_at, e.created_at
 FROM customer_rate_entries e
-WHERE e.billing_party_id = sqlc.arg(party_id) AND NOT e.voided
+WHERE e.billing_party_id = sqlc.arg(party_id) AND e.tenant_id = sqlc.arg(carrier_id) AND NOT e.voided
 ORDER BY e.legacy_doc_id COLLATE "C" ASC NULLS LAST, e.created_at, e.id
 FOR SHARE;
 
@@ -95,8 +102,9 @@ FOR SHARE;
 SELECT a.id, a.legacy_doc_id, a.tenant_id, a.billing_party_id, a.effective_from_date, a.effective_from_at,
        a.rate_multiplier, a.add_thb_per_trip, a.reference_fuel_price_thb, a.announcement_note, a.fuel_band_enabled,
        a.fuel_band_baseline_floor, a.fuel_band_thb_per_baht, a.created_by, a.created_at, a.updated_at, a.voided,
-       a.voided_at, a.voided_by, a.voided_reason
+       a.voided_at, a.voided_by, a.voided_reason, coalesce(bp.customer_id, bp.tenant_id, a.billing_party_id)::uuid AS customer_id
 FROM customer_fuel_rate_adjustments a
+JOIN billing_parties bp ON bp.id = a.billing_party_id
 WHERE (sqlc.arg(all_tenants)::boolean OR a.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
   AND (sqlc.arg(include_voided)::boolean OR NOT a.voided)
 ORDER BY a.effective_from_at DESC, a.id DESC;
@@ -105,8 +113,9 @@ ORDER BY a.effective_from_at DESC, a.id DESC;
 SELECT a.id, a.legacy_doc_id, a.tenant_id, a.billing_party_id, a.effective_from_date, a.effective_from_at,
        a.rate_multiplier, a.add_thb_per_trip, a.reference_fuel_price_thb, a.announcement_note, a.fuel_band_enabled,
        a.fuel_band_baseline_floor, a.fuel_band_thb_per_baht, a.created_by, a.created_at, a.updated_at, a.voided,
-       a.voided_at, a.voided_by, a.voided_reason
+       a.voided_at, a.voided_by, a.voided_reason, coalesce(bp.customer_id, bp.tenant_id, a.billing_party_id)::uuid AS customer_id
 FROM customer_fuel_rate_adjustments a
+JOIN billing_parties bp ON bp.id = a.billing_party_id
 WHERE a.billing_party_id = sqlc.arg(party_id)
 ORDER BY a.effective_from_at DESC, a.id DESC;
 
@@ -114,8 +123,9 @@ ORDER BY a.effective_from_at DESC, a.id DESC;
 SELECT a.id, a.legacy_doc_id, a.tenant_id, a.billing_party_id, a.effective_from_date, a.effective_from_at,
        a.rate_multiplier, a.add_thb_per_trip, a.reference_fuel_price_thb, a.announcement_note, a.fuel_band_enabled,
        a.fuel_band_baseline_floor, a.fuel_band_thb_per_baht, a.created_by, a.created_at, a.updated_at, a.voided,
-       a.voided_at, a.voided_by, a.voided_reason
+       a.voided_at, a.voided_by, a.voided_reason, coalesce(bp.customer_id, bp.tenant_id, a.billing_party_id)::uuid AS customer_id
 FROM customer_fuel_rate_adjustments a
+JOIN billing_parties bp ON bp.id = a.billing_party_id
 WHERE a.id = sqlc.arg(id);
 
 -- name: InsertFuelAdjustment :one
@@ -140,33 +150,36 @@ SET voided = true, voided_at = sqlc.arg(voided_at), voided_by = sqlc.arg(voided_
 WHERE id = sqlc.arg(id);
 
 -- name: PricingFuelAdjustments :many
--- Pricing transaction (R17): live fuel rounds of a party FOR SHARE, R16 order.
+-- Pricing transaction (R17): live fuel rounds of a party and billing carrier FOR SHARE, R16 order.
 SELECT a.id, a.legacy_doc_id, a.tenant_id, a.billing_party_id, a.effective_from_at, a.rate_multiplier,
        a.add_thb_per_trip, a.reference_fuel_price_thb, a.created_at
 FROM customer_fuel_rate_adjustments a
-WHERE a.billing_party_id = sqlc.arg(party_id) AND NOT a.voided
+WHERE a.billing_party_id = sqlc.arg(party_id) AND a.tenant_id = sqlc.arg(carrier_id) AND NOT a.voided
 ORDER BY a.legacy_doc_id COLLATE "C" ASC NULLS LAST, a.created_at, a.id
 FOR SHARE;
 
 -- name: ListServiceFees :many
 -- GET /v1/billing/service-fees without customerId: newest first (customer_service_fees_party, legacy createdAt desc).
 SELECT f.id, f.legacy_doc_id, f.tenant_id, f.billing_party_id, f.fee_type, f.custom_type_name, f.amount_thb, f.unit,
-       f.note, f.created_at, f.updated_at
+       f.note, f.created_at, f.updated_at, coalesce(bp.customer_id, bp.tenant_id, f.billing_party_id)::uuid AS customer_id
 FROM customer_service_fees f
+JOIN billing_parties bp ON bp.id = f.billing_party_id
 WHERE (sqlc.arg(all_tenants)::boolean OR f.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
 ORDER BY f.created_at DESC, f.id DESC;
 
 -- name: PartyServiceFees :many
 SELECT f.id, f.legacy_doc_id, f.tenant_id, f.billing_party_id, f.fee_type, f.custom_type_name, f.amount_thb, f.unit,
-       f.note, f.created_at, f.updated_at
+       f.note, f.created_at, f.updated_at, coalesce(bp.customer_id, bp.tenant_id, f.billing_party_id)::uuid AS customer_id
 FROM customer_service_fees f
+JOIN billing_parties bp ON bp.id = f.billing_party_id
 WHERE f.billing_party_id = sqlc.arg(party_id)
 ORDER BY f.created_at DESC, f.id DESC;
 
 -- name: GetServiceFee :one
 SELECT f.id, f.legacy_doc_id, f.tenant_id, f.billing_party_id, f.fee_type, f.custom_type_name, f.amount_thb, f.unit,
-       f.note, f.created_at, f.updated_at
+       f.note, f.created_at, f.updated_at, coalesce(bp.customer_id, bp.tenant_id, f.billing_party_id)::uuid AS customer_id
 FROM customer_service_fees f
+JOIN billing_parties bp ON bp.id = f.billing_party_id
 WHERE f.id = sqlc.arg(id);
 
 -- name: InsertServiceFee :one
@@ -178,10 +191,11 @@ RETURNING id;
 
 -- name: LockServiceFee :one
 SELECT f.id, f.legacy_doc_id, f.tenant_id, f.billing_party_id, f.fee_type, f.custom_type_name, f.amount_thb, f.unit,
-       f.note, f.created_at, f.updated_at
+       f.note, f.created_at, f.updated_at, coalesce(bp.customer_id, bp.tenant_id, f.billing_party_id)::uuid AS customer_id
 FROM customer_service_fees f
+JOIN billing_parties bp ON bp.id = f.billing_party_id
 WHERE f.id = sqlc.arg(id)
-FOR UPDATE;
+FOR UPDATE OF f;
 
 -- name: UpdateServiceFee :exec
 UPDATE customer_service_fees
@@ -193,10 +207,11 @@ WHERE id = sqlc.arg(id);
 DELETE FROM customer_service_fees WHERE id = sqlc.arg(id);
 
 -- name: PricingServiceFee :one
--- Pricing transaction (R17): the fee of one type of a party FOR SHARE (unique after D5: customer_service_fees_one_per_type).
+-- Pricing transaction (R17): the fee of one type of a party and billing carrier FOR SHARE (one per party and type
+-- after D5: customer_service_fees_one_per_type).
 SELECT f.id, f.tenant_id, f.amount_thb
 FROM customer_service_fees f
-WHERE f.billing_party_id = sqlc.arg(party_id) AND f.fee_type = sqlc.arg(fee_type)
+WHERE f.billing_party_id = sqlc.arg(party_id) AND f.tenant_id = sqlc.arg(carrier_id) AND f.fee_type = sqlc.arg(fee_type)
 ORDER BY f.created_at, f.id
 LIMIT 1
 FOR SHARE;
@@ -204,23 +219,29 @@ FOR SHARE;
 -- name: ListStandbyRates :many
 -- GET /v1/billing/standby-rates without customerId: newest effective date first.
 SELECT r.id, r.legacy_doc_id, r.tenant_id, r.billing_party_id, r.rate_thb, r.effective_from_date, r.effective_from_at,
-       r.note, r.created_at, r.updated_at, r.voided_at, r.voided_by, r.voided_reason
+       r.note, r.created_at, r.updated_at, r.voided_at, r.voided_by, r.voided_reason,
+       coalesce(bp.customer_id, bp.tenant_id, r.billing_party_id)::uuid AS customer_id
 FROM standby_rate_entries r
+JOIN billing_parties bp ON bp.id = r.billing_party_id
 WHERE (sqlc.arg(all_tenants)::boolean OR r.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
   AND (sqlc.arg(include_voided)::boolean OR r.voided_at IS NULL)
 ORDER BY r.effective_from_at DESC, r.id DESC;
 
 -- name: PartyStandbyRates :many
 SELECT r.id, r.legacy_doc_id, r.tenant_id, r.billing_party_id, r.rate_thb, r.effective_from_date, r.effective_from_at,
-       r.note, r.created_at, r.updated_at, r.voided_at, r.voided_by, r.voided_reason
+       r.note, r.created_at, r.updated_at, r.voided_at, r.voided_by, r.voided_reason,
+       coalesce(bp.customer_id, bp.tenant_id, r.billing_party_id)::uuid AS customer_id
 FROM standby_rate_entries r
+JOIN billing_parties bp ON bp.id = r.billing_party_id
 WHERE r.billing_party_id = sqlc.arg(party_id)
 ORDER BY r.effective_from_at DESC, r.id DESC;
 
 -- name: GetStandbyRate :one
 SELECT r.id, r.legacy_doc_id, r.tenant_id, r.billing_party_id, r.rate_thb, r.effective_from_date, r.effective_from_at,
-       r.note, r.created_at, r.updated_at, r.voided_at, r.voided_by, r.voided_reason
+       r.note, r.created_at, r.updated_at, r.voided_at, r.voided_by, r.voided_reason,
+       coalesce(bp.customer_id, bp.tenant_id, r.billing_party_id)::uuid AS customer_id
 FROM standby_rate_entries r
+JOIN billing_parties bp ON bp.id = r.billing_party_id
 WHERE r.id = sqlc.arg(id);
 
 -- name: InsertStandbyRate :one
@@ -233,10 +254,12 @@ RETURNING id;
 
 -- name: LockStandbyRate :one
 SELECT r.id, r.legacy_doc_id, r.tenant_id, r.billing_party_id, r.rate_thb, r.effective_from_date, r.effective_from_at,
-       r.note, r.created_at, r.updated_at, r.voided_at, r.voided_by, r.voided_reason
+       r.note, r.created_at, r.updated_at, r.voided_at, r.voided_by, r.voided_reason,
+       coalesce(bp.customer_id, bp.tenant_id, r.billing_party_id)::uuid AS customer_id
 FROM standby_rate_entries r
+JOIN billing_parties bp ON bp.id = r.billing_party_id
 WHERE r.id = sqlc.arg(id)
-FOR UPDATE;
+FOR UPDATE OF r;
 
 -- name: UpdateStandbyRate :exec
 -- Edits never reprice a stored standby price (main spec §6.12): standby_records keep their amount.
@@ -251,9 +274,15 @@ SET voided_at = sqlc.arg(voided_at), voided_by = sqlc.arg(voided_by), voided_rea
 WHERE id = sqlc.arg(id);
 
 -- name: PricingStandbyRates :many
--- Pricing transaction (R17): live standby rates of a party FOR SHARE (voided_at IS NULL, R20), R16 order.
+-- Pricing transaction (R17): live standby rates of a party and billing carrier FOR SHARE (voided_at IS NULL, R20), R16
+-- order.
 SELECT r.id, r.legacy_doc_id, r.tenant_id, r.billing_party_id, r.rate_thb, r.effective_from_at, r.created_at
 FROM standby_rate_entries r
-WHERE r.billing_party_id = sqlc.arg(party_id) AND r.voided_at IS NULL
+WHERE r.billing_party_id = sqlc.arg(party_id) AND r.tenant_id = sqlc.arg(carrier_id) AND r.voided_at IS NULL
 ORDER BY r.legacy_doc_id COLLATE "C" ASC NULLS LAST, r.created_at, r.id
 FOR SHARE;
+
+-- name: OwnFleetTenant :one
+-- The billing carrier of every price today (R61: the rate-card owner, the own fleet; main spec §19 Q13): the single
+-- tenants row of kind own_fleet (tenants_one_own_fleet). A pricing transaction (db.WithSystem) reads it.
+SELECT t.id FROM tenants t WHERE t.kind = 'own_fleet';

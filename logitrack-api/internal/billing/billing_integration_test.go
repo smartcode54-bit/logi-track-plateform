@@ -50,7 +50,7 @@ func TestAnnouncementRowsAreVoidOnly(t *testing.T) {
 	byHub := map[string]map[string]any{}
 	for _, e := range rows {
 		byHub[str(e["hubId"])] = e
-		if str(e["tenantId"]) != w.O || str(e["billingPartyId"]) != w.partyX || str(e["customerId"]) != w.partyX ||
+		if str(e["tenantId"]) != w.O || str(e["billingPartyId"]) != w.partyX || str(e["customerId"]) != w.customerX ||
 			str(e["effectiveFrom"]) != "2026-09-30T17:00:00Z" || str(e["effectiveFromDateStr"]) != "2026-10-01" ||
 			str(e["importId"]) != importID || e["voided"] != false {
 			t.Fatalf("row %v", e)
@@ -157,8 +157,8 @@ func TestRateEntryRules(t *testing.T) {
 		t.Fatalf("manual row %s", m.raw)
 	}
 	partyA := scan[string](w, `SELECT id::text FROM billing_parties WHERE tenant_id = $1`, w.A)
-	if str(d["billingPartyId"]) != partyA {
-		t.Fatalf("carrier party %s, want %s", d["billingPartyId"], partyA)
+	if str(d["billingPartyId"]) != partyA || str(d["customerId"]) != w.A { // a carrier party bills the carrier
+		t.Fatalf("carrier party %s / %s, want %s / %s", d["billingPartyId"], d["customerId"], partyA, w.A)
 	}
 
 	// Fuel rounds: the multiplier and add are computed once, here (main spec §6.6).
@@ -260,11 +260,17 @@ func TestPricingTablesFollowR16(t *testing.T) {
 
 	var tables billing.PricingTables
 	if err := db.WithSystem(ctx, w.pool, nil, func(tx pgx.Tx) error {
-		var err error
-		tables, err = billing.LoadPricingTables(ctx, tx, uuid.MustParse(w.partyY))
+		carrier, err := billing.BillingCarrier(ctx, tx)
+		if err != nil {
+			return err
+		}
+		tables, err = billing.LoadPricingTables(ctx, tx, uuid.MustParse(w.partyY), carrier)
 		return err
 	}); err != nil {
 		t.Fatal(err)
+	}
+	if tables.Carrier != uuid.MustParse(w.O) {
+		t.Fatalf("billing carrier %v, want the own fleet", tables.Carrier)
 	}
 	if len(tables.Rates) != 8 || tables.Rates[0].LegacyDocID != "a" || tables.Rates[1].LegacyDocID != "b" {
 		t.Fatalf("pricing order (legacy rows by doc id first): %+v", tables.Rates[:2])
@@ -277,9 +283,6 @@ func TestPricingTablesFollowR16(t *testing.T) {
 			e, ok := compute.SelectRateEntry(w.partyY, hub, "SOCE", "4WJ", bill, rates, compute.Primary)
 			if !ok || e.RateTHB != want {
 				t.Fatalf("%s: picked %+v, want %v", hub, e, want)
-			}
-			if tables.Tenants[e.ID] != uuid.MustParse(w.O) {
-				t.Fatalf("billing carrier of %s: %v", e.ID, tables.Tenants[e.ID])
 			}
 		}
 		fuel := slices.Clone(tables.Fuel)
@@ -302,7 +305,7 @@ func TestPricingTablesFollowR16(t *testing.T) {
 	if _, err := tx.Exec(ctx, `SELECT set_config('app.bypass_tenant', 'on', true)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := billing.LoadPricingTables(ctx, tx, uuid.MustParse(w.partyY)); err != nil {
+	if _, err := billing.LoadPricingTables(ctx, tx, uuid.MustParse(w.partyY), uuid.MustParse(w.O)); err != nil {
 		t.Fatal(err)
 	}
 	winner := ""
@@ -413,11 +416,12 @@ func TestStatementInvoiceSet(t *testing.T) {
 	// Standby: priced from O's rate (in), from A's rate (out), ended in September (out).
 	rO := w.post("/v1/billing/standby-rates", tok, map[string]any{"customerId": w.partyX, "rateThb": 500, "effectiveFromDateStr": "2026-01-01"})
 	expect(t, rO, http.StatusCreated, "")
-	rA := w.post("/v1/billing/standby-rates", w.login("ta.a"), map[string]any{"customerId": w.partyX, "rateThb": 400, "effectiveFromDateStr": "2026-01-01"})
-	expect(t, rA, http.StatusCreated, "")
-	s1 := w.standby(w.O, w.partyX, str(rO.data()["id"]), bkk(2026, 10, 10, 0, 0), 500)
-	w.standby(w.A, w.partyX, str(rA.data()["id"]), bkk(2026, 10, 10, 0, 0), 400)
-	w.standby(w.O, w.partyX, str(rO.data()["id"]), bkk(2026, 9, 30, 23, 0), 500)
+	expect(t, w.post("/v1/billing/standby-rates", w.login("ta.a"), map[string]any{"customerId": w.partyX, "rateThb": 400,
+		"effectiveFromDateStr": "2026-01-01"}), http.StatusForbidden, "permission_denied") // only the own fleet bills (§19 Q13)
+	rA := w.standbyRate(w.A, w.partyX, "2026-01-01", 400) // a carrier's row that bypassed the API (ETL)
+	s1 := w.standby(w.O, w.partyX, str(rO.data()["id"]), w.O, bkk(2026, 10, 10, 0, 0), 500)
+	w.standby(w.A, w.partyX, rA, w.A, bkk(2026, 10, 10, 0, 0), 400)
+	w.standby(w.O, w.partyX, str(rO.data()["id"]), w.O, bkk(2026, 9, 30, 23, 0), 500)
 
 	r := w.statement("ta.o", map[string]any{"customerId": w.partyX, "year": 2026, "month": 10, "note": "October",
 		"categories": []string{"PRIMARY", "unverified"}})
@@ -431,11 +435,37 @@ func TestStatementInvoiceSet(t *testing.T) {
 		str(d["status"]) != "draft" || str(d["tenantId"]) != w.O || str(d["issuerCompanyId"]) != w.companyO ||
 		str(d["customerName"]) != "CJ Super Fresh" || str(d["customerCode"]) != "CJSF" || str(d["note"]) != "October" ||
 		str(d["generatedAt"]) != now.Format(time.RFC3339) || str(d["dueDate"]) != now.Add(30*24*time.Hour).Format(time.RFC3339) ||
-		str(d["generatedBy"]) != w.userTAO {
+		str(d["generatedBy"]) != w.userTAO || str(d["generatedByName"]) != "ta.o@example.test" ||
+		str(d["customerId"]) != w.customerX || str(d["billingPartyId"]) != w.partyX {
 		t.Fatalf("statement %s", r.raw)
 	}
-	if docs, _ := d["documents"].([]any); len(docs) != 0 {
-		t.Fatalf("documents before the render (T39): %v", docs)
+	// documents[] is in the create response and the detail even before the render (T39): an empty list, not a missing key.
+	if docs, ok := d["documents"].([]any); !ok || len(docs) != 0 {
+		t.Fatalf("documents before the render (T39): %s", r.raw)
+	}
+	detail := w.get("/v1/billing/statements/"+str(d["id"]), tok)
+	expect(t, detail, http.StatusOK, "")
+	if docs, ok := detail.data()["documents"].([]any); !ok || len(docs) != 0 {
+		t.Fatalf("detail documents: %s", detail.raw)
+	}
+	if l := w.get("/v1/billing/statements?customerId="+w.customerX, tok).list(); len(l) != 1 ||
+		str(l[0]["generatedByName"]) != "ta.o@example.test" || str(l[0]["customerId"]) != w.customerX {
+		t.Fatalf("list row %v", l)
+	} else if _, has := l[0]["documents"]; has {
+		t.Fatalf("a list row carries documents: %v", l[0])
+	}
+	// The creator's name: the display name, else the email; null without a creator.
+	w.exec(`UPDATE users SET display_name = '  ' WHERE id = $1`, w.userTAO)
+	if r := w.get("/v1/billing/statements/"+str(d["id"]), tok); str(r.data()["generatedByName"]) != "ta.o@example.test" {
+		t.Fatalf("blank display name: %s", r.raw)
+	}
+	w.exec(`UPDATE users SET display_name = 'Ta O' WHERE id = $1`, w.userTAO)
+	if r := w.get("/v1/billing/statements/"+str(d["id"]), tok); str(r.data()["generatedByName"]) != "Ta O" {
+		t.Fatalf("display name: %s", r.raw)
+	}
+	w.exec(`UPDATE billing_statements SET generated_by = NULL WHERE id = $1`, str(d["id"]))
+	if r := w.get("/v1/billing/statements/"+str(d["id"]), tok); r.data()["generatedByName"] != nil || r.data()["generatedBy"] != nil {
+		t.Fatalf("no creator: %s", r.raw)
 	}
 	lines := w.get("/v1/billing/statements/"+str(d["id"])+"/lines", tok)
 	expect(t, lines, http.StatusOK, "")
@@ -572,12 +602,13 @@ func TestBillingTenantOfACarrierTrip(t *testing.T) {
 	}
 	expect(t, w.get("/v1/billing/statements/"+id, tokA), http.StatusNotFound, "not_found")
 	expect(t, w.get("/v1/billing/statements/"+id+"/lines", tokA), http.StatusNotFound, "not_found")
-	// A's own billing (its snapshot) cannot number the month the own fleet numbers already: one counter, one carrier.
+	// The carrier bills nothing itself until the owner decides carrier self-billing (main spec §19 Q13): its statement
+	// and its rate card are refused before they number a month or reach the pricing tables.
 	own := w.trip(w.A, w.partyY, "A-2", bkk(2026, 10, 6, 9, 0), nil, ptr("PRIMARY"))
 	w.snapshot(own, w.A, ptr(99.0), false)
 	r = w.statement("ta.a", map[string]any{"customerId": w.partyY, "year": 2026, "month": 10})
-	expect(t, r, http.StatusConflict, billing.CodeFailedPrecondition)
-	if r.detail("reason") != "counter_owned_by_other_carrier" {
+	expect(t, r, http.StatusForbidden, "permission_denied")
+	if r.detail("reason") != billing.ReasonOwnFleetOnly {
 		t.Fatalf("carrier statement %s", r.raw)
 	}
 	if n := scan[int](w, `SELECT count(*) FROM billing_statements WHERE tenant_id = $1`, w.A); n != 0 {
@@ -586,19 +617,17 @@ func TestBillingTenantOfACarrierTrip(t *testing.T) {
 	if n := scan[int](w, `SELECT last_seq FROM billing_counters WHERE billing_party_id = $1`, w.partyY); n != 1 {
 		t.Fatalf("O's counter moved: %d", n)
 	}
-	// A carrier's own rate card carries its own tenant; the own fleet reaches it (contractor reach), C does not.
-	w.importRows("ta.a", w.partyY, "2026-10-01", rateRow("HUBZ", "SOCE", "4WJ", 1, ""))
-	if l := w.get("/v1/billing/rate-entries?customerId="+w.partyY, tokA).list(); len(l) != 1 || str(l[0]["tenantId"]) != w.A {
-		t.Fatalf("A's rows %v", l)
-	}
-	if l := w.get("/v1/billing/rate-entries?customerId="+w.partyY, tokO).list(); len(l) != 2 {
-		t.Fatalf("O's reach %v", l)
+	r = w.post("/v1/billing/rate-entries/import", tokA, map[string]any{"customerId": w.partyY, "effectiveFromDateStr": "2026-10-01",
+		"rows": []map[string]any{rateRow("HUBZ", "SOCE", "4WJ", 1, "")}})
+	expect(t, r, http.StatusForbidden, "permission_denied")
+	if l := w.get("/v1/billing/rate-entries?customerId="+w.partyY, tokO).list(); len(l) != 1 || str(l[0]["tenantId"]) != w.O {
+		t.Fatalf("O's rows %v", l)
 	}
 	if l := w.get("/v1/billing/rate-entries", w.login("ta.c")).list(); len(l) != 0 {
 		t.Fatalf("C's reach %v", l)
 	}
 	expect(t, w.post("/v1/billing/rate-entries/"+str(w.get("/v1/billing/rate-entries?customerId="+w.partyY, tokO).list()[0]["id"])+"/void",
-		w.login("ta.c"), map[string]any{"reason": "x"}), http.StatusNotFound, "not_found")
+		w.login("ta.c"), map[string]any{"reason": "x"}), http.StatusForbidden, "permission_denied")
 }
 
 // Status machine, the period lock read FOR SHARE and the 409 of a money write into a sent or paid period.
@@ -786,7 +815,7 @@ func TestServiceFeesAndStandbyRates(t *testing.T) {
 		t.Helper()
 		if err := db.WithSystem(ctx, w.pool, nil, func(tx pgx.Tx) error {
 			var err error
-			tables, err = billing.LoadPricingTables(ctx, tx, uuid.MustParse(w.partyX))
+			tables, err = billing.LoadPricingTables(ctx, tx, uuid.MustParse(w.partyX), uuid.MustParse(w.O))
 			return err
 		}); err != nil {
 			t.Fatal(err)
@@ -794,7 +823,7 @@ func TestServiceFeesAndStandbyRates(t *testing.T) {
 	}
 	load()
 	if tables.ExtraStopFeeTHB == nil || *tables.ExtraStopFeeTHB != 350.25 || tables.StandbyFeeTHB == nil || *tables.StandbyFeeTHB != 450 ||
-		len(tables.StandbyRates) != 1 || tables.StandbyRates[0].RateTHB != 650 || *tables.ExtraStopTenant != uuid.MustParse(w.O) {
+		len(tables.StandbyRates) != 1 || tables.StandbyRates[0].RateTHB != 650 || tables.Carrier != uuid.MustParse(w.O) {
 		t.Fatalf("pricing tables %+v", tables)
 	}
 	v := w.post("/v1/billing/standby-rates/"+sid+"/void", tok, map[string]any{"reason": "replaced"})
@@ -839,6 +868,18 @@ func TestServiceFeesAndStandbyRates(t *testing.T) {
 	rows.Close()
 	if counts["serviceFees"] != 6 || counts["standby"] != 3 {
 		t.Fatalf("ratecard.changed per table %v", counts)
+	}
+	// ratecard.changed names the customer the web keys ['rateCard', table, customerId] by, next to the party.
+	if n := scan[int](w, `SELECT count(*) FROM outbox_events WHERE routing_key = 'ratecard.changed' AND payload->>'billingPartyId' = $1
+		AND payload->>'customerId' IS DISTINCT FROM $2`, w.partyX, w.customerX); n != 0 {
+		t.Fatalf("%d ratecard.changed rows without the customer id", n)
+	}
+	for _, path := range []string{"/v1/billing/service-fees?customerId=" + w.customerX, "/v1/billing/standby-rates?includeVoided=true"} {
+		for _, row := range w.get(path, tok).list() {
+			if str(row["customerId"]) != w.customerX || str(row["billingPartyId"]) != w.partyX {
+				t.Fatalf("%s: %v", path, row)
+			}
+		}
 	}
 }
 
@@ -1035,6 +1076,11 @@ func TestBangchakSnapshotJob(t *testing.T) {
 	}
 	expect(t, w.get("/v1/fuel/daily", w.login("us.o")), http.StatusForbidden, "permission_denied")
 	expect(t, w.post("/v1/jobs/bangchak.snapshot", w.login("us.o"), nil), http.StatusForbidden, "permission_denied")
+	// The snapshots are platform-wide and the daily row is insert-only: a carrier's tenant_admin, who holds
+	// accounting:edit_rate_card for its own tenant, may not capture a day (steward rule, R60).
+	for _, user := range []string{"ta.a", "ta.c"} {
+		expect(t, w.post("/v1/jobs/bangchak.snapshot", w.login(user), nil), http.StatusForbidden, "permission_denied")
+	}
 	// Tenant staff holding accounting:edit_rate_card read the job (jobs.TypeCapabilities); another tenant's do not.
 	expect(t, w.get("/v1/jobs/"+id, w.login("ta.a")), http.StatusNotFound, "not_found")
 }

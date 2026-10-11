@@ -7,14 +7,19 @@
 // T39.
 //
 // Billing tenant (R61): rate rows, statements and counters carry the billing carrier's tenant, the rate-card owner (the
-// own fleet today), never the tenant that ran a trip. Writes stamp the request's effective tenant (tenant_source
-// 'form'); RLS G-tenant decides which rows a request reads or writes (staff of the tenant reach), and the reads name the
-// reach (main spec §4.7, authz.Principal.TenantReach).
+// own fleet today), never the tenant that ran a trip. Until the owner decides carrier self-billing (main spec §19 Q13)
+// every billing write comes from the own fleet: its staff, or a platform admin acting on it through X-Act-On-Tenant
+// (billingTenantOf; another tenant is 403 permission_denied, reason own_fleet_only), so a carrier can neither feed nor
+// squat another carrier's rate card, and pricing reads one carrier's rows only (LoadPricingTables). Writes stamp that
+// tenant (tenant_source 'form'); RLS G-tenant decides which rows a request reads or writes (staff of the tenant reach),
+// and the reads name the reach (main spec §4.7, authz.Principal.TenantReach).
 //
-// Transactions (Appendix C §C.3.2): requests run in db.WithPrincipal. Three paths run in db.WithSystem, which puts this
+// Transactions (Appendix C §C.3.2): requests run in db.WithPrincipal. Four paths run in db.WithSystem, which puts this
 // package on the analyzer's allow-list: the load of the rate-card bundle cache:ratecard:{partyId} (READ ONLY, so every
-// reader caches the same value; each response then keeps the caller's reach), the bangchak.snapshot consumer (no request
-// principal; jobs and the RLS-exempt fuel tables), and, from T38, pricing (main spec §6.1).
+// reader caches the same value; each response then keeps the caller's reach), the count of a statement's invoice set
+// outside the caller's RLS (READ ONLY; rows the caller cannot see refuse the statement, rows_outside_reach), the
+// bangchak.snapshot consumer (no request principal; jobs and the RLS-exempt fuel tables), and, from T38, pricing (main
+// spec §6.1).
 //
 // Money (R17, R53): pricing never reads Redis. The rate-table cache serves the list endpoints only, and the period-lock
 // hint cache:period_locks:{partyId} is never consulted by a write; PricingTables and PeriodLock read PostgreSQL in the
@@ -149,11 +154,24 @@ func readShared(ctx context.Context, pool db.Beginner, fn func(q *billingdb.Quer
 	})
 }
 
-// tenantOf is the billing tenant of a write: the request's effective tenant (authz.RequireTenant guards the routes).
-func tenantOf(p *authz.Principal) (uuid.UUID, error) {
+// ReasonOwnFleetOnly is details.reason of the 403 a billing write of another tenant than the own fleet gets.
+const ReasonOwnFleetOnly = "own_fleet_only"
+
+// billingTenantOf is the billing tenant of a write: the request's effective tenant (authz.RequireTenant guards the
+// routes), which must be the own fleet (internal/iam resolved its kind; an X-Act-On-Tenant target keeps its own). The
+// billing carrier is the rate-card owner, the own fleet today (R61); whether a carrier may own rate cards and statements
+// for a party, and how pricing then picks the carrier of a trip, is the open owner decision of main spec §19 Q13. A
+// carrier's tenant_admin holds accounting:edit_rate_card for its own tenant (Appendix C row 36), yet billing parties are
+// a global master and customer_service_fees_one_per_type is per party, so without this check any carrier could write
+// rows the own fleet's pricing reads, or take the own fleet's fee slot of a customer.
+func billingTenantOf(p *authz.Principal) (uuid.UUID, error) {
 	t := p.EffectiveTenant()
 	if t == nil {
 		return uuid.Nil, authz.ErrTenantRequired()
+	}
+	if p.TenantKind != authz.TenantKindOwnFleet {
+		return uuid.Nil, authz.ErrPermissionDenied("billing is maintained by the own fleet (the billing carrier, R61)").
+			WithDetails(map[string]any{"reason": ReasonOwnFleetOnly})
 	}
 	return *t, nil
 }
@@ -196,10 +214,11 @@ func emit(ctx context.Context, tx pgx.Tx, routingKey, aggType, aggID string, ten
 	return err
 }
 
-// rateCardChanged appends ratecard.changed {billingPartyId, customerId, table} (Appendix B §B.4.3).
-func rateCardChanged(ctx context.Context, tx pgx.Tx, tenant, party uuid.UUID, table, rid string) error {
+// rateCardChanged appends ratecard.changed {billingPartyId, customerId, table} (Appendix B §B.4.3): billingPartyId keys
+// the server cache, customerId (the customer or carrier the party bills) the web's ['rateCard', table, customerId].
+func rateCardChanged(ctx context.Context, tx pgx.Tx, tenant, party, customer uuid.UUID, table, rid string) error {
 	return emit(ctx, tx, RouteRateCardChanged, "ratecard", party.String(), tenant,
-		map[string]any{"billingPartyId": party.String(), "customerId": party.String(), "table": table}, rid)
+		map[string]any{"billingPartyId": party.String(), "customerId": customer.String(), "table": table}, rid)
 }
 
 // invalidate drops what a committed event made stale; the relay repeats it, so a Redis failure is only logged.

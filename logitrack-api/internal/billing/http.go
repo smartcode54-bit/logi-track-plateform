@@ -23,34 +23,37 @@ const (
 
 // Groups are the routes of T37 on the internal listener behind requireAuth (auth.Service.RequireAuth, which resolves
 // the principal through iam.RBAC.Authorize). s may be nil while the route table is only listed. Writes stamp the
-// request's effective tenant, the billing carrier (R61), so they also need one (authz.RequireTenant).
+// request's effective tenant, the billing carrier (R61), so they also need one (authz.RequireTenant); every rate-table
+// and statement write (marked *) further needs that tenant to be the own fleet, its staff or a platform admin acting
+// on it (the service refuses another tenant with 403 permission_denied, reason own_fleet_only; main spec §19 Q13). The
+// Bangchak job writes platform-wide snapshots, so it is steward-only (authz.RequireSteward, R60).
 //
 //	GET    /v1/billing/rate-entries                   accounting:view_rate_card (?customerId&includeVoided&limit&cursor)
-//	POST   /v1/billing/rate-entries/import            accounting:edit_rate_card
-//	POST   /v1/billing/rate-entries                   accounting:edit_rate_card
-//	POST   /v1/billing/rate-entries/{id}/void         accounting:edit_rate_card
+//	POST   /v1/billing/rate-entries/import            accounting:edit_rate_card *
+//	POST   /v1/billing/rate-entries                   accounting:edit_rate_card *
+//	POST   /v1/billing/rate-entries/{id}/void         accounting:edit_rate_card *
 //	GET    /v1/billing/fuel-adjustments               accounting:view_rate_card (?customerId&includeVoided)
-//	POST   /v1/billing/fuel-adjustments               accounting:edit_rate_card
-//	POST   /v1/billing/fuel-adjustments/{id}/void     accounting:edit_rate_card
+//	POST   /v1/billing/fuel-adjustments               accounting:edit_rate_card *
+//	POST   /v1/billing/fuel-adjustments/{id}/void     accounting:edit_rate_card *
 //	GET    /v1/billing/service-fees                   accounting:view_rate_card (?customerId)
-//	POST   /v1/billing/service-fees                   accounting:edit_rate_card
-//	PATCH  /v1/billing/service-fees/{id}              accounting:edit_rate_card
-//	DELETE /v1/billing/service-fees/{id}              accounting:edit_rate_card
+//	POST   /v1/billing/service-fees                   accounting:edit_rate_card *
+//	PATCH  /v1/billing/service-fees/{id}              accounting:edit_rate_card *
+//	DELETE /v1/billing/service-fees/{id}              accounting:edit_rate_card *
 //	GET    /v1/billing/standby-rates                  accounting:view_rate_card (?customerId&includeVoided)
-//	POST   /v1/billing/standby-rates                  accounting:edit_rate_card
-//	PATCH  /v1/billing/standby-rates/{id}             accounting:edit_rate_card
-//	POST   /v1/billing/standby-rates/{id}/void        accounting:edit_rate_card
+//	POST   /v1/billing/standby-rates                  accounting:edit_rate_card *
+//	PATCH  /v1/billing/standby-rates/{id}             accounting:edit_rate_card *
+//	POST   /v1/billing/standby-rates/{id}/void        accounting:edit_rate_card *
 //	GET    /v1/billing/statements                     accounting:billing_result (?customerId&status&year&month&limit&cursor)
-//	POST   /v1/billing/statements                     accounting:billing_document
+//	POST   /v1/billing/statements                     accounting:billing_document *
 //	GET    /v1/billing/statements/{id}                accounting:billing_result
 //	GET    /v1/billing/statements/{id}/lines          accounting:billing_result
-//	POST   /v1/billing/statements/{id}/status         accounting:manage_statements
-//	DELETE /v1/billing/statements/{id}                accounting:manage_statements
+//	POST   /v1/billing/statements/{id}/status         accounting:manage_statements *
+//	DELETE /v1/billing/statements/{id}                accounting:manage_statements *
 //	GET    /v1/fuel/daily                             accounting:view_fuel (?from&limit&cursor)
 //	GET    /v1/fuel/daily/{dayKey}                    accounting:view_fuel
 //	GET    /v1/fuel/monthly                           accounting:view_fuel (?limit&cursor)
 //	GET    /v1/fuel/retail                            accounting:view_fuel (?locale=th|en)
-//	POST   /v1/jobs/bangchak.snapshot                 accounting:edit_rate_card
+//	POST   /v1/jobs/bangchak.snapshot                 accounting:edit_rate_card + steward (R60)
 func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 	h := handlers{s}
 	need := authz.RequireCap
@@ -88,7 +91,7 @@ func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 			r.Get("/retail", requireAuth, fuel, h.retail)
 		}},
 		{Prefix: JobPrefix, Mount: func(r fiber.Router) {
-			r.Post("", requireAuth, need(jobs.TypeCapabilities[jobs.TypeBangchakSnapshot]), h.submitBangchak)
+			r.Post("", requireAuth, need(jobs.TypeCapabilities[jobs.TypeBangchakSnapshot]), authz.RequireSteward(), h.submitBangchak)
 		}},
 	}
 }

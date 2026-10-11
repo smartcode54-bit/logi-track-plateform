@@ -41,7 +41,10 @@ var (
 )
 
 // Statement is a billing statement (the invoice registry, billing_statements): totals are exact sums of its lines;
-// withholdingTaxRate is the fraction snapshotted from the issuing company at creation (R18).
+// withholdingTaxRate is the fraction snapshotted from the issuing company at creation (R18). customerId is the customer
+// or carrier the billing party bills; generatedByName the creator's display name, else its email (null when the
+// creator is not visible to the caller or unknown), so the billing-result page needs no per-creator users read
+// (Appendix E). documents is present (possibly empty) on the detail and the create response, absent from list rows.
 type Statement struct {
 	ID                 uuid.UUID     `json:"id"`
 	TenantID           uuid.UUID     `json:"tenantId"`
@@ -71,10 +74,11 @@ type Statement struct {
 	DueDate            *time.Time    `json:"dueDate"`
 	Note               *string       `json:"note"`
 	GeneratedBy        *uuid.UUID    `json:"generatedBy"`
+	GeneratedByName    *string       `json:"generatedByName"`
 	CreatedAt          time.Time     `json:"createdAt"`
 	UpdatedAt          time.Time     `json:"updatedAt"`
 	LegacyDocID        *string       `json:"legacyDocId,omitempty"`
-	Documents          []DocumentRef `json:"documents,omitempty"`
+	Documents          []DocumentRef `json:"documents,omitzero"` // nil (lists) is left out, an empty detail list is []
 }
 
 // Period is a Bangkok billing month.
@@ -94,7 +98,15 @@ type DocumentRef struct {
 }
 
 func statementOf(r billingdb.GetStatementRow) Statement {
-	return Statement{ID: r.ID, TenantID: r.TenantID, BillingPartyID: r.BillingPartyID, CustomerID: r.BillingPartyID,
+	var by *string
+	switch {
+	case r.GeneratedByDisplayName != nil && strings.TrimSpace(*r.GeneratedByDisplayName) != "":
+		n := strings.TrimSpace(*r.GeneratedByDisplayName)
+		by = &n
+	case r.GeneratedByEmail != nil && *r.GeneratedByEmail != "":
+		by = r.GeneratedByEmail
+	}
+	return Statement{ID: r.ID, TenantID: r.TenantID, BillingPartyID: r.BillingPartyID, CustomerID: r.CustomerID,
 		IssuerCompanyID: r.IssuerCompanyID, InvoiceNumber: r.InvoiceNumber, CustomerName: r.CustomerNameSnapshot,
 		CustomerCode: r.CustomerCodeSnapshot, Period: Period{Year: r.PeriodYear, Month: r.PeriodMonth},
 		TotalAmount: r.TotalAmount, WithholdingTaxRate: r.WithholdingTaxRate, WithholdingTax: r.WithholdingTax,
@@ -102,7 +114,8 @@ func statementOf(r billingdb.GetStatementRow) Statement {
 		StandbyCount: r.StandbyCount, StandbySubtotal: r.StandbySubtotal, MultiDropCount: r.MultiDropCount,
 		MultiDropSubtotal: r.MultiDropSubtotal, Status: r.Status, GeneratedAt: r.GeneratedAt.UTC(), SentAt: utc(r.SentAt),
 		PaidAt: utc(r.PaidAt), CancelledAt: utc(r.CancelledAt), DueDate: utc(r.DueDate), Note: r.Note,
-		GeneratedBy: r.GeneratedBy, CreatedAt: r.CreatedAt.UTC(), UpdatedAt: r.UpdatedAt.UTC(), LegacyDocID: r.LegacyDocID}
+		GeneratedBy: r.GeneratedBy, GeneratedByName: by, CreatedAt: r.CreatedAt.UTC(), UpdatedAt: r.UpdatedAt.UTC(),
+		LegacyDocID: r.LegacyDocID}
 }
 
 // StatementInput is the body of POST /v1/billing/statements. Types and categories are the invoice-set toggles
@@ -151,8 +164,16 @@ func invoiceNumber(code string, year, month, seq int) string {
 // is 409 failed_precondition, R61), inserts the draft statement of the billing tenant with the issuing company's
 // withholding rate (R18), its lines from the stored snapshots (never repriced; main spec §6.14) and the exact totals,
 // and appends statement.created (documents.render, T39). Nothing billable is 409 failed_precondition
-// (no_billable_rows). Any failure rolls the counter back with the rest, so the numbering has no gap (§6.18 #14).
+// (no_billable_rows). The lines are read under the caller's RLS; the same invoice set is first counted without it (a
+// READ ONLY system transaction), and a set holding rows the caller cannot see (a trip this carrier priced but run by a
+// tenant outside the caller's reach, or a quarantined one) is 409 failed_precondition (rows_outside_reach,
+// details.hiddenRows) instead of an invoice that silently leaves them out. Any failure rolls the counter back with
+// the rest, so the numbering has no gap (§6.18 #14). Only the own fleet bills (billingTenantOf).
 func (s *Service) CreateStatement(ctx context.Context, p *authz.Principal, rid string, in StatementInput) (*Statement, error) {
+	tenant, err := billingTenantOf(p)
+	if err != nil {
+		return nil, err
+	}
 	var ck checker
 	partyID := ck.party("customerId", in.CustomerID)
 	if in.Year < 2000 || in.Year > 2999 {
@@ -174,12 +195,29 @@ func (s *Service) CreateStatement(ctx context.Context, p *authz.Principal, rid s
 	if err := ck.err(); err != nil {
 		return nil, err
 	}
-	tenant, err := tenantOf(p)
-	if err != nil {
-		return nil, err
-	}
 	now := s.now().UTC().Truncate(time.Microsecond)
 	from, to := bangkokMonth(in.Year, in.Month)
+	// A priced standby record without a recorded carrier (the ETL's) is the own fleet's (0014, R61); billingTenantOf
+	// already made the billing tenant the own fleet.
+	ownFleet := p.TenantKind == authz.TenantKindOwnFleet
+	set := func(party uuid.UUID, planBasis bool) billingdb.StatementInvoiceSetParams {
+		return billingdb.StatementInvoiceSetParams{PartyID: party, TenantID: tenant, PlanBasis: planBasis, PeriodFrom: from,
+			PeriodTo: to, IncludeTrips: slices.Contains(types, TypeTrip), IncludeMultidrop: slices.Contains(types, TypeMultidrop),
+			IncludeStandby: slices.Contains(types, TypeStandby), Categories: categories, OwnFleet: ownFleet}
+	}
+	// The whole invoice set, outside the caller's RLS (billing parties are a global master, so the party resolves the
+	// same way; a party the caller cannot name is refused below).
+	var whole billingdb.StatementInvoiceSetRow
+	if err := readShared(ctx, s.pool, func(q *billingdb.Queries) error {
+		pr, ok, err := resolveParty(ctx, q, partyID)
+		if err != nil || !ok {
+			return err
+		}
+		whole, err = q.StatementInvoiceSet(ctx, set(pr.ID, pr.BillingDateBasis == "plan"))
+		return err
+	}); err != nil {
+		return nil, err
+	}
 	var id, party uuid.UUID
 	err = s.tx(ctx, p, func(tx pgx.Tx, q *billingdb.Queries) error {
 		pr, err := writeParty(ctx, q, partyID)
@@ -222,19 +260,26 @@ func (s *Service) CreateStatement(ctx context.Context, p *authz.Principal, rid s
 			notePtr = &note
 		}
 		codeSnap := code
-		id, err = q.InsertStatement(ctx, billingdb.InsertStatementParams{TenantID: tenant, PartyID: party,
-			IssuerCompanyID: &company.id, InvoiceNumber: invoiceNumber(code, in.Year, in.Month, int(seq)),
+		st, err := q.InsertStatement(ctx, billingdb.InsertStatementParams{TenantID: tenant, PartyID: party,
+			IssuerCompanyID: &company, InvoiceNumber: invoiceNumber(code, in.Year, in.Month, int(seq)),
 			CustomerName: name, CustomerCode: &codeSnap, PeriodYear: int32(in.Year), PeriodMonth: int32(in.Month),
 			GeneratedAt: now, DueDate: due, Note: notePtr, GeneratedBy: actor(p)})
 		if err != nil {
 			return err
 		}
-		n, err := q.InsertStatementLines(ctx, billingdb.InsertStatementLinesParams{StatementID: id, PartyID: party,
-			TenantID: tenant, PlanBasis: pr.BillingDateBasis == "plan", PeriodFrom: from, PeriodTo: to,
-			IncludeTrips: slices.Contains(types, TypeTrip), IncludeMultidrop: slices.Contains(types, TypeMultidrop),
-			IncludeStandby: slices.Contains(types, TypeStandby), Categories: categories})
+		id = st.ID
+		lines := set(party, pr.BillingDateBasis == "plan")
+		n, err := q.InsertStatementLines(ctx, billingdb.InsertStatementLinesParams{StatementID: id, PartyID: lines.PartyID,
+			TenantID: lines.TenantID, PlanBasis: lines.PlanBasis, PeriodFrom: lines.PeriodFrom, PeriodTo: lines.PeriodTo,
+			IncludeTrips: lines.IncludeTrips, IncludeMultidrop: lines.IncludeMultidrop, IncludeStandby: lines.IncludeStandby,
+			Categories: lines.Categories, OwnFleet: lines.OwnFleet})
 		if err != nil {
 			return err
+		}
+		if hidden := int64(whole.LineCount) - n; hidden > 0 {
+			return errPrecondition("rows_outside_reach",
+				"some priced rows of this customer and month belong to a tenant outside your reach; re-home them or bill from a tenant that reaches them").
+				WithDetails(map[string]any{"hiddenRows": hidden})
 		}
 		if n == 0 {
 			return errPrecondition("no_billable_rows", "nothing priced to invoice for this customer and month")
@@ -243,7 +288,8 @@ func (s *Service) CreateStatement(ctx context.Context, p *authz.Principal, rid s
 		if err != nil {
 			return err
 		}
-		wht := compute.WithholdingTHB(totals.Total, company.rate)
+		// The rate InsertStatement stored, not the one read before next_invoice_seq waited on the counter lock (R18).
+		wht := compute.WithholdingTHB(totals.Total, st.WithholdingTaxRate)
 		if err := q.UpdateStatementTotals(ctx, billingdb.UpdateStatementTotalsParams{ID: id,
 			WithholdingTax: decimalText(wht, 2)}); err != nil {
 			return err
@@ -258,33 +304,28 @@ func (s *Service) CreateStatement(ctx context.Context, p *authz.Principal, rid s
 	return s.GetStatement(ctx, p, id)
 }
 
-// issuer is the company a statement is issued by and its withholding rate as a fraction.
-type issuer struct {
-	id   uuid.UUID
-	rate float64
-}
-
 // issuerCompany picks the issuing company of the billing tenant: the one the request names (it must belong to the
-// tenant), else the tenant's owner company, else its only active company; none is 422 issuerCompanyId required.
-func issuerCompany(ctx context.Context, q *billingdb.Queries, tenant, named uuid.UUID) (issuer, error) {
+// tenant), else the tenant's owner company, else its only active company; none is 422 issuerCompanyId required. Its
+// withholding rate is read by InsertStatement, in the same statement that stores it (R18).
+func issuerCompany(ctx context.Context, q *billingdb.Queries, tenant, named uuid.UUID) (uuid.UUID, error) {
 	if named != uuid.Nil {
 		c, err := q.IssuerCompany(ctx, billingdb.IssuerCompanyParams{ID: named, TenantID: tenant})
 		if errors.Is(err, pgx.ErrNoRows) {
-			return issuer{}, httpx.ErrInvalidArgument(violation("issuerCompanyId", "not_found"))
+			return uuid.Nil, httpx.ErrInvalidArgument(violation("issuerCompanyId", "not_found"))
 		}
-		return issuer{id: c.ID, rate: c.WithholdingTaxRate}, err
+		return c.ID, err
 	}
 	cs, err := q.IssuerCompanies(ctx, tenant)
 	if err != nil {
-		return issuer{}, err
+		return uuid.Nil, err
 	}
 	switch {
 	case len(cs) > 0 && cs[0].CompanyType == "owner":
-		return issuer{id: cs[0].ID, rate: cs[0].WithholdingTaxRate}, nil
+		return cs[0].ID, nil
 	case len(cs) == 1:
-		return issuer{id: cs[0].ID, rate: cs[0].WithholdingTaxRate}, nil
+		return cs[0].ID, nil
 	}
-	return issuer{}, httpx.ErrInvalidArgument(violation("issuerCompanyId", "required"))
+	return uuid.Nil, httpx.ErrInvalidArgument(violation("issuerCompanyId", "required"))
 }
 
 // GetStatement is GET /v1/billing/statements/{id} (accounting:billing_result): the statement and its documents.
@@ -447,11 +488,17 @@ var transitions = map[string][]string{
 	StatusSent:  {StatusPaid, StatusCancelled},
 }
 
-// SetStatementStatus is POST /v1/billing/statements/{id}/status (accounting:manage_statements): the statement is
-// locked FOR UPDATE (so the change waits for every pricing transaction that read its period FOR SHARE), the server
-// clock stamps sent_at / paid_at / cancelled_at, and statement.status_changed is appended (paid renders the receipt,
-// T39). sent and paid lock the period (PeriodLock). Any other move is 409 failed_precondition (invalid_transition).
+// SetStatementStatus is POST /v1/billing/statements/{id}/status (accounting:manage_statements): the change takes the
+// period's exclusive advisory lock, then locks the statement FOR UPDATE, so it waits for every pricing transaction that
+// read the period (PeriodLock takes the shared advisory lock, then the statements FOR SHARE: the same order), a
+// statement created after that read included; the server clock stamps sent_at / paid_at / cancelled_at, and
+// statement.status_changed is appended (paid renders the receipt, T39). sent and paid lock the period (PeriodLock).
+// Any other move is 409 failed_precondition (invalid_transition). Only the own fleet changes statements
+// (billingTenantOf).
 func (s *Service) SetStatementStatus(ctx context.Context, p *authz.Principal, rid string, id uuid.UUID, in StatusInput) (*Statement, error) {
+	if _, err := billingTenantOf(p); err != nil {
+		return nil, err
+	}
 	to := strings.TrimSpace(in.Status)
 	if !slices.Contains([]string{StatusSent, StatusPaid, StatusCancelled}, to) {
 		return nil, httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "status", Reason: "invalid",
@@ -459,6 +506,17 @@ func (s *Service) SetStatementStatus(ctx context.Context, p *authz.Principal, ri
 	}
 	var party uuid.UUID
 	err := s.tx(ctx, p, func(tx pgx.Tx, q *billingdb.Queries) error {
+		at, err := q.StatementPeriod(ctx, id)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return httpx.ErrNotFound()
+		}
+		if err != nil {
+			return err
+		}
+		if err := q.PeriodAdvisoryExclusive(ctx, billingdb.PeriodAdvisoryExclusiveParams{PartyID: at.BillingPartyID,
+			Period: at.PeriodYear*100 + at.PeriodMonth}); err != nil {
+			return err
+		}
 		cur, err := q.LockStatement(ctx, id)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return httpx.ErrNotFound()
@@ -489,6 +547,9 @@ func (s *Service) SetStatementStatus(ctx context.Context, p *authz.Principal, ri
 // DeleteStatement is DELETE /v1/billing/statements/{id} (accounting:manage_statements): drafts only (409
 // statement_not_draft otherwise, as trg_billing_statement_draft_only_delete enforces); its number stays unused.
 func (s *Service) DeleteStatement(ctx context.Context, p *authz.Principal, id uuid.UUID) error {
+	if _, err := billingTenantOf(p); err != nil {
+		return err
+	}
 	err := s.tx(ctx, p, func(_ pgx.Tx, q *billingdb.Queries) error {
 		cur, err := q.LockStatement(ctx, id)
 		if errors.Is(err, pgx.ErrNoRows) {

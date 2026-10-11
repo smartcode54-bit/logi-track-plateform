@@ -1,5 +1,6 @@
 -- Billing statements, their lines and invoice numbers (Appendix B §B.2.14, main spec §6.11, §6.14, T37). A statement
--- carries the billing carrier's tenant (R61): the request's effective tenant, which next_invoice_seq() also receives
+-- carries the billing carrier's tenant (R61): the request's effective tenant, the own fleet (the service refuses any
+-- other until main spec §19 Q13 is decided), which next_invoice_seq() also receives
 -- (SECURITY DEFINER, R66: billing_counters is reachable only through it; another carrier's counter returns no row). The
 -- whole creation is one transaction, so a failure leaves no gap in the numbering. Lines are built from stored snapshots
 -- (never repriced) and are immutable; totals are exact NUMERIC sums of the lines; withholding_tax_rate is the issuing
@@ -25,7 +26,9 @@ SELECT coalesce(next_invoice_seq(sqlc.arg(tenant_id)::uuid, sqlc.arg(party_id)::
                                  sqlc.arg(period_month)::int, sqlc.arg(customer_code)::text), 0)::int AS seq;
 
 -- name: InsertStatement :one
--- A draft with zero totals; InsertStatementLines adds the lines and UpdateStatementTotals the sums.
+-- A draft with zero totals; InsertStatementLines adds the lines and UpdateStatementTotals the sums. It returns the rate it
+-- stored, read from the company here, and the withholding is computed from that value: the issuer read before
+-- next_invoice_seq (which may wait on the counter lock) can see an older rate (R18).
 INSERT INTO billing_statements (tenant_id, tenant_source, billing_party_id, issuer_company_id, invoice_number,
                                 customer_name_snapshot, customer_code_snapshot, period_year, period_month,
                                 total_amount, withholding_tax_rate, withholding_tax, net_amount, status, generated_at,
@@ -34,16 +37,21 @@ VALUES (sqlc.arg(tenant_id), 'form', sqlc.arg(party_id), sqlc.arg(issuer_company
         sqlc.narg(customer_name), sqlc.narg(customer_code), sqlc.arg(period_year), sqlc.arg(period_month), 0,
         (SELECT (c.withholding_tax_rate / 100)::numeric(5,4) FROM companies c WHERE c.id = sqlc.arg(issuer_company_id)),
         0, 0, 'draft', sqlc.arg(generated_at), sqlc.narg(due_date), sqlc.narg(note), sqlc.narg(generated_by)::uuid)
-RETURNING id;
+RETURNING id, withholding_tax_rate::float8 AS withholding_tax_rate;
 
 -- name: InsertStatementLines :execrows
 -- The invoice set of a statement (port of fetchBillingTripRows, logitrack-web/features/accounting/api/billing.ts:737-1094,
 -- minus the display joins): delivered trips of the party on its axis (billing_date for a plan-basis party, else
 -- delivered_at) inside the Bangkok month, priced by this billing carrier (trip_billing_snapshots.tenant_id) with an
 -- estimate other than 0; a multi-drop trip with a breakdown becomes one line per stop whose final rate is not 0; completed
--- standby records of the party by ended_at, priced (billing_estimate_thb <> 0) from a standby rate or service fee of this
--- billing carrier. Type toggles (trip, multidrop, standby) and category toggles (PRIMARY, SUPPLEMENTARY, unverified =
--- neither on the trip nor on its task; standby exempt) choose the invoice set (main spec §6.14).
+-- standby records of the party by ended_at, priced (billing_estimate_thb <> 0) by this billing carrier
+-- (standby_records.billing_tenant_id, stamped with the price, 0014: a fee deleted or re-typed later does not move it; a
+-- priced row without one, written by the ETL, is the own fleet's, so own_fleet says whether the billing tenant is it).
+-- Type toggles (trip, multidrop, standby) and category toggles (PRIMARY, SUPPLEMENTARY, unverified = neither on the trip
+-- nor on its task; standby exempt) choose the invoice set (main spec §6.14). The statement transaction runs under the
+-- caller's RLS, so a row outside its tenant reach is not read; StatementInvoiceSet counts the same set without RLS and
+-- the statement is refused when it holds more (rows_outside_reach). The WHERE clauses of the two queries are the same
+-- text: change them together.
 INSERT INTO billing_statement_lines (statement_id, row_type, trip_id, stop_index, standby_id, amount_thb)
 SELECT sqlc.arg(statement_id)::uuid, x.row_type, x.trip_id, x.stop_index, x.standby_id, x.amount
 FROM (
@@ -80,11 +88,52 @@ FROM (
     AND sr.status = 'completed' AND sr.billing_party_id = sqlc.arg(party_id)::uuid
     AND sr.ended_at >= sqlc.arg(period_from)::timestamptz AND sr.ended_at < sqlc.arg(period_to)::timestamptz
     AND sr.billing_estimate_thb IS NOT NULL AND sr.billing_estimate_thb <> 0
-    AND coalesce((SELECT r.tenant_id FROM standby_rate_entries r WHERE r.id = sr.billing_rate_entry_id),
-                 (SELECT f.tenant_id FROM customer_service_fees f
-                   WHERE sr.billing_rate_source = 'service_fee' AND f.billing_party_id = sr.billing_party_id
-                     AND f.fee_type = 'standby'
-                   ORDER BY f.created_at, f.id LIMIT 1)) = sqlc.arg(tenant_id)::uuid
+    AND (sr.billing_tenant_id = sqlc.arg(tenant_id)::uuid
+         OR (sr.billing_tenant_id IS NULL AND sqlc.arg(own_fleet)::boolean))
+) x;
+
+-- name: StatementInvoiceSet :one
+-- The invoice set of InsertStatementLines (the same WHERE clauses, change them together), counted and summed. Run in a
+-- READ ONLY system transaction (db.WithSystem), it sees the rows the caller's RLS may hide: a trip or standby record
+-- this billing carrier priced but run by a tenant outside the caller's reach (a carrier without a contractor link, the
+-- quarantine tenant).
+SELECT count(*)::int AS line_count, coalesce(sum(x.amount), 0)::float8 AS total
+FROM (
+  SELECT 'trip'::text AS row_type, tr.id AS trip_id, NULL::int AS stop_index, NULL::uuid AS standby_id,
+         s.estimate_thb AS amount
+  FROM trip_records tr
+  JOIN trip_billing_snapshots s ON s.trip_id = tr.id
+  LEFT JOIN tasks tk ON tk.id = tr.task_id
+  WHERE sqlc.arg(include_trips)::boolean
+    AND tr.status = 'delivered' AND tr.billing_party_id = sqlc.arg(party_id)::uuid
+    AND s.tenant_id = sqlc.arg(tenant_id)::uuid
+    AND s.estimate_thb IS NOT NULL AND s.estimate_thb <> 0
+    AND CASE WHEN sqlc.arg(plan_basis)::boolean THEN tr.billing_date ELSE tr.delivered_at END >= sqlc.arg(period_from)::timestamptz
+    AND CASE WHEN sqlc.arg(plan_basis)::boolean THEN tr.billing_date ELSE tr.delivered_at END < sqlc.arg(period_to)::timestamptz
+    AND NOT (s.is_multi_delivery AND EXISTS (SELECT 1 FROM trip_billing_stop_breakdown b WHERE b.trip_id = tr.id))
+    AND coalesce(tr.job_category, tk.job_category, 'unverified') = ANY (sqlc.arg(categories)::text[])
+  UNION ALL
+  SELECT 'multidrop_stop'::text, tr.id, b.stop_index, NULL::uuid, b.final_rate_thb
+  FROM trip_records tr
+  JOIN trip_billing_snapshots s ON s.trip_id = tr.id
+  JOIN trip_billing_stop_breakdown b ON b.trip_id = tr.id
+  LEFT JOIN tasks tk ON tk.id = tr.task_id
+  WHERE sqlc.arg(include_multidrop)::boolean
+    AND tr.status = 'delivered' AND tr.billing_party_id = sqlc.arg(party_id)::uuid
+    AND s.tenant_id = sqlc.arg(tenant_id)::uuid
+    AND s.estimate_thb IS NOT NULL AND s.estimate_thb <> 0 AND s.is_multi_delivery AND b.final_rate_thb <> 0
+    AND CASE WHEN sqlc.arg(plan_basis)::boolean THEN tr.billing_date ELSE tr.delivered_at END >= sqlc.arg(period_from)::timestamptz
+    AND CASE WHEN sqlc.arg(plan_basis)::boolean THEN tr.billing_date ELSE tr.delivered_at END < sqlc.arg(period_to)::timestamptz
+    AND coalesce(tr.job_category, tk.job_category, 'unverified') = ANY (sqlc.arg(categories)::text[])
+  UNION ALL
+  SELECT 'standby'::text, NULL::uuid, NULL::int, sr.id, sr.billing_estimate_thb
+  FROM standby_records sr
+  WHERE sqlc.arg(include_standby)::boolean
+    AND sr.status = 'completed' AND sr.billing_party_id = sqlc.arg(party_id)::uuid
+    AND sr.ended_at >= sqlc.arg(period_from)::timestamptz AND sr.ended_at < sqlc.arg(period_to)::timestamptz
+    AND sr.billing_estimate_thb IS NOT NULL AND sr.billing_estimate_thb <> 0
+    AND (sr.billing_tenant_id = sqlc.arg(tenant_id)::uuid
+         OR (sr.billing_tenant_id IS NULL AND sqlc.arg(own_fleet)::boolean))
 ) x;
 
 -- name: StatementTotals :one
@@ -117,12 +166,19 @@ FROM (SELECT count(*)::int AS n,
 WHERE s.id = sqlc.arg(id);
 
 -- name: GetStatement :one
+-- customer_id is the customer or carrier the party bills; the creator's display name and email (both NULL when the
+-- creator is not visible under the caller's RLS or generated_by is NULL) give generatedByName, so the billing-result page
+-- needs no per-creator users read (Appendix E).
 SELECT s.id, s.legacy_doc_id, s.tenant_id, s.billing_party_id, s.issuer_company_id, s.invoice_number,
        s.customer_name_snapshot, s.customer_code_snapshot, s.period_year, s.period_month, s.total_amount,
        s.withholding_tax_rate, s.withholding_tax, s.net_amount, s.trip_count, s.trip_only_count, s.trip_subtotal,
        s.standby_count, s.standby_subtotal, s.multi_drop_count, s.multi_drop_subtotal, s.status, s.generated_at, s.sent_at,
-       s.paid_at, s.cancelled_at, s.due_date, s.note, s.generated_by, s.created_at, s.updated_at
+       s.paid_at, s.cancelled_at, s.due_date, s.note, s.generated_by, s.created_at, s.updated_at,
+       coalesce(bp.customer_id, bp.tenant_id, s.billing_party_id)::uuid AS customer_id,
+       u.display_name AS generated_by_display_name, u.email AS generated_by_email
 FROM billing_statements s
+JOIN billing_parties bp ON bp.id = s.billing_party_id
+LEFT JOIN users u ON u.id = s.generated_by
 WHERE s.id = sqlc.arg(id);
 
 -- name: ListStatements :many
@@ -131,8 +187,12 @@ SELECT s.id, s.legacy_doc_id, s.tenant_id, s.billing_party_id, s.issuer_company_
        s.customer_name_snapshot, s.customer_code_snapshot, s.period_year, s.period_month, s.total_amount,
        s.withholding_tax_rate, s.withholding_tax, s.net_amount, s.trip_count, s.trip_only_count, s.trip_subtotal,
        s.standby_count, s.standby_subtotal, s.multi_drop_count, s.multi_drop_subtotal, s.status, s.generated_at, s.sent_at,
-       s.paid_at, s.cancelled_at, s.due_date, s.note, s.generated_by, s.created_at, s.updated_at
+       s.paid_at, s.cancelled_at, s.due_date, s.note, s.generated_by, s.created_at, s.updated_at,
+       coalesce(bp.customer_id, bp.tenant_id, s.billing_party_id)::uuid AS customer_id,
+       u.display_name AS generated_by_display_name, u.email AS generated_by_email
 FROM billing_statements s
+JOIN billing_parties bp ON bp.id = s.billing_party_id
+LEFT JOIN users u ON u.id = s.generated_by
 WHERE (sqlc.arg(all_tenants)::boolean OR s.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
   AND (sqlc.narg(party_id)::uuid IS NULL OR s.billing_party_id = sqlc.narg(party_id)::uuid)
   AND (sqlc.narg(status)::text IS NULL OR s.status = sqlc.narg(status)::text)
@@ -157,9 +217,25 @@ FROM statement_documents d
 WHERE d.statement_id = sqlc.arg(statement_id)
 ORDER BY d.kind;
 
+-- name: StatementPeriod :one
+-- The party and period of a statement, unlocked (the columns never change): a status change takes the period's
+-- exclusive advisory lock with them before it locks the row.
+SELECT s.billing_party_id, s.period_year, s.period_month FROM billing_statements s WHERE s.id = sqlc.arg(id);
+
+-- name: PeriodAdvisoryShared :exec
+-- The period lock of a pricing transaction (main spec §6.11): shared, per (party, Bangkok month), until the transaction
+-- ends. A status change takes the exclusive twin, so a statement created after the pricing read cannot turn sent while
+-- the price commits either; FOR SHARE on the rows read covers only the statements that existed.
+SELECT pg_advisory_xact_lock_shared(hashtextextended('billing_period:' || sqlc.arg(party_id)::uuid::text || ':'
+                                                    || sqlc.arg(period)::int::text, 0));
+
+-- name: PeriodAdvisoryExclusive :exec
+SELECT pg_advisory_xact_lock(hashtextextended('billing_period:' || sqlc.arg(party_id)::uuid::text || ':'
+                                             || sqlc.arg(period)::int::text, 0));
+
 -- name: LockStatement :one
--- A status change locks the statement FOR UPDATE: it waits for every pricing transaction that read the period FOR
--- SHARE, so a period cannot become sent while a reprice commits (main spec §6.11).
+-- A status change locks the statement FOR UPDATE after the period's exclusive advisory lock: it waits for every pricing
+-- transaction that read the period, so a period cannot become sent while a reprice commits (main spec §6.11).
 SELECT s.id, s.tenant_id, s.billing_party_id, s.invoice_number, s.status, s.period_year, s.period_month
 FROM billing_statements s
 WHERE s.id = sqlc.arg(id)
@@ -179,9 +255,10 @@ WHERE id = sqlc.arg(id);
 DELETE FROM billing_statements WHERE id = sqlc.arg(id);
 
 -- name: PeriodStatements :many
--- The period lock read of a pricing transaction (main spec §6.11, R17): every statement of the party in the Bangkok
--- months asked FOR SHARE, whatever its status, so a draft cannot turn sent (FOR UPDATE) until the price commits; only sent
--- and paid statements lock (compute.NewPeriodLocks keeps those, the latest generated_at supplying the invoice number).
+-- The period lock read of a pricing transaction (main spec §6.11, R17), after PeriodAdvisoryShared of each month: every
+-- statement of the party in the Bangkok months asked FOR SHARE, whatever its status, so a draft cannot turn sent (FOR
+-- UPDATE) until the price commits (the advisory lock covers a statement created after this read); only sent and paid
+-- statements lock (compute.NewPeriodLocks keeps those, the latest generated_at supplying the invoice number).
 SELECT s.id, s.billing_party_id, s.invoice_number, s.status, s.period_year, s.period_month, s.generated_at
 FROM billing_statements s
 WHERE s.billing_party_id = sqlc.arg(party_id)

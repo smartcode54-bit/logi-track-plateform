@@ -31,45 +31,55 @@ SELECT s.id, s.legacy_doc_id, s.tenant_id, s.billing_party_id, s.issuer_company_
        s.customer_name_snapshot, s.customer_code_snapshot, s.period_year, s.period_month, s.total_amount,
        s.withholding_tax_rate, s.withholding_tax, s.net_amount, s.trip_count, s.trip_only_count, s.trip_subtotal,
        s.standby_count, s.standby_subtotal, s.multi_drop_count, s.multi_drop_subtotal, s.status, s.generated_at, s.sent_at,
-       s.paid_at, s.cancelled_at, s.due_date, s.note, s.generated_by, s.created_at, s.updated_at
+       s.paid_at, s.cancelled_at, s.due_date, s.note, s.generated_by, s.created_at, s.updated_at,
+       coalesce(bp.customer_id, bp.tenant_id, s.billing_party_id)::uuid AS customer_id,
+       u.display_name AS generated_by_display_name, u.email AS generated_by_email
 FROM billing_statements s
+JOIN billing_parties bp ON bp.id = s.billing_party_id
+LEFT JOIN users u ON u.id = s.generated_by
 WHERE s.id = $1
 `
 
 type GetStatementRow struct {
-	ID                   uuid.UUID
-	LegacyDocID          *string
-	TenantID             uuid.UUID
-	BillingPartyID       uuid.UUID
-	IssuerCompanyID      *uuid.UUID
-	InvoiceNumber        string
-	CustomerNameSnapshot *string
-	CustomerCodeSnapshot *string
-	PeriodYear           int32
-	PeriodMonth          int32
-	TotalAmount          float64
-	WithholdingTaxRate   float64
-	WithholdingTax       float64
-	NetAmount            float64
-	TripCount            int32
-	TripOnlyCount        int32
-	TripSubtotal         float64
-	StandbyCount         int32
-	StandbySubtotal      float64
-	MultiDropCount       int32
-	MultiDropSubtotal    float64
-	Status               string
-	GeneratedAt          time.Time
-	SentAt               *time.Time
-	PaidAt               *time.Time
-	CancelledAt          *time.Time
-	DueDate              *time.Time
-	Note                 *string
-	GeneratedBy          *uuid.UUID
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
+	ID                     uuid.UUID
+	LegacyDocID            *string
+	TenantID               uuid.UUID
+	BillingPartyID         uuid.UUID
+	IssuerCompanyID        *uuid.UUID
+	InvoiceNumber          string
+	CustomerNameSnapshot   *string
+	CustomerCodeSnapshot   *string
+	PeriodYear             int32
+	PeriodMonth            int32
+	TotalAmount            float64
+	WithholdingTaxRate     float64
+	WithholdingTax         float64
+	NetAmount              float64
+	TripCount              int32
+	TripOnlyCount          int32
+	TripSubtotal           float64
+	StandbyCount           int32
+	StandbySubtotal        float64
+	MultiDropCount         int32
+	MultiDropSubtotal      float64
+	Status                 string
+	GeneratedAt            time.Time
+	SentAt                 *time.Time
+	PaidAt                 *time.Time
+	CancelledAt            *time.Time
+	DueDate                *time.Time
+	Note                   *string
+	GeneratedBy            *uuid.UUID
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+	CustomerID             uuid.UUID
+	GeneratedByDisplayName *string
+	GeneratedByEmail       *string
 }
 
+// customer_id is the customer or carrier the party bills; the creator's display name and email (both NULL when the
+// creator is not visible under the caller's RLS or generated_by is NULL) give generatedByName, so the billing-result page
+// needs no per-creator users read (Appendix E).
 func (q *Queries) GetStatement(ctx context.Context, id uuid.UUID) (GetStatementRow, error) {
 	row := q.db.QueryRow(ctx, getStatement, id)
 	var i GetStatementRow
@@ -105,6 +115,9 @@ func (q *Queries) GetStatement(ctx context.Context, id uuid.UUID) (GetStatementR
 		&i.GeneratedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CustomerID,
+		&i.GeneratedByDisplayName,
+		&i.GeneratedByEmail,
 	)
 	return i, err
 }
@@ -118,7 +131,7 @@ VALUES ($1, 'form', $2, $3, $4,
         $5, $6, $7, $8, 0,
         (SELECT (c.withholding_tax_rate / 100)::numeric(5,4) FROM companies c WHERE c.id = $3),
         0, 0, 'draft', $9, $10, $11, $12::uuid)
-RETURNING id
+RETURNING id, withholding_tax_rate::float8 AS withholding_tax_rate
 `
 
 type InsertStatementParams struct {
@@ -136,8 +149,15 @@ type InsertStatementParams struct {
 	GeneratedBy     *uuid.UUID
 }
 
-// A draft with zero totals; InsertStatementLines adds the lines and UpdateStatementTotals the sums.
-func (q *Queries) InsertStatement(ctx context.Context, arg InsertStatementParams) (uuid.UUID, error) {
+type InsertStatementRow struct {
+	ID                 uuid.UUID
+	WithholdingTaxRate float64
+}
+
+// A draft with zero totals; InsertStatementLines adds the lines and UpdateStatementTotals the sums. It returns the rate it
+// stored, read from the company here, and the withholding is computed from that value: the issuer read before
+// next_invoice_seq (which may wait on the counter lock) can see an older rate (R18).
+func (q *Queries) InsertStatement(ctx context.Context, arg InsertStatementParams) (InsertStatementRow, error) {
 	row := q.db.QueryRow(ctx, insertStatement,
 		arg.TenantID,
 		arg.PartyID,
@@ -152,9 +172,9 @@ func (q *Queries) InsertStatement(ctx context.Context, arg InsertStatementParams
 		arg.Note,
 		arg.GeneratedBy,
 	)
-	var id uuid.UUID
-	err := row.Scan(&id)
-	return id, err
+	var i InsertStatementRow
+	err := row.Scan(&i.ID, &i.WithholdingTaxRate)
+	return i, err
 }
 
 const insertStatementLines = `-- name: InsertStatementLines :execrows
@@ -194,11 +214,8 @@ FROM (
     AND sr.status = 'completed' AND sr.billing_party_id = $3::uuid
     AND sr.ended_at >= $6::timestamptz AND sr.ended_at < $7::timestamptz
     AND sr.billing_estimate_thb IS NOT NULL AND sr.billing_estimate_thb <> 0
-    AND coalesce((SELECT r.tenant_id FROM standby_rate_entries r WHERE r.id = sr.billing_rate_entry_id),
-                 (SELECT f.tenant_id FROM customer_service_fees f
-                   WHERE sr.billing_rate_source = 'service_fee' AND f.billing_party_id = sr.billing_party_id
-                     AND f.fee_type = 'standby'
-                   ORDER BY f.created_at, f.id LIMIT 1)) = $4::uuid
+    AND (sr.billing_tenant_id = $4::uuid
+         OR (sr.billing_tenant_id IS NULL AND $11::boolean))
 ) x
 `
 
@@ -213,15 +230,21 @@ type InsertStatementLinesParams struct {
 	Categories       []string
 	IncludeMultidrop bool
 	IncludeStandby   bool
+	OwnFleet         bool
 }
 
 // The invoice set of a statement (port of fetchBillingTripRows, logitrack-web/features/accounting/api/billing.ts:737-1094,
 // minus the display joins): delivered trips of the party on its axis (billing_date for a plan-basis party, else
 // delivered_at) inside the Bangkok month, priced by this billing carrier (trip_billing_snapshots.tenant_id) with an
 // estimate other than 0; a multi-drop trip with a breakdown becomes one line per stop whose final rate is not 0; completed
-// standby records of the party by ended_at, priced (billing_estimate_thb <> 0) from a standby rate or service fee of this
-// billing carrier. Type toggles (trip, multidrop, standby) and category toggles (PRIMARY, SUPPLEMENTARY, unverified =
-// neither on the trip nor on its task; standby exempt) choose the invoice set (main spec §6.14).
+// standby records of the party by ended_at, priced (billing_estimate_thb <> 0) by this billing carrier
+// (standby_records.billing_tenant_id, stamped with the price, 0014: a fee deleted or re-typed later does not move it; a
+// priced row without one, written by the ETL, is the own fleet's, so own_fleet says whether the billing tenant is it).
+// Type toggles (trip, multidrop, standby) and category toggles (PRIMARY, SUPPLEMENTARY, unverified = neither on the trip
+// nor on its task; standby exempt) choose the invoice set (main spec §6.14). The statement transaction runs under the
+// caller's RLS, so a row outside its tenant reach is not read; StatementInvoiceSet counts the same set without RLS and
+// the statement is refused when it holds more (rows_outside_reach). The WHERE clauses of the two queries are the same
+// text: change them together.
 func (q *Queries) InsertStatementLines(ctx context.Context, arg InsertStatementLinesParams) (int64, error) {
 	result, err := q.db.Exec(ctx, insertStatementLines,
 		arg.StatementID,
@@ -234,6 +257,7 @@ func (q *Queries) InsertStatementLines(ctx context.Context, arg InsertStatementL
 		arg.Categories,
 		arg.IncludeMultidrop,
 		arg.IncludeStandby,
+		arg.OwnFleet,
 	)
 	if err != nil {
 		return 0, err
@@ -258,7 +282,8 @@ type IssuerCompaniesRow struct {
 }
 
 // Billing statements, their lines and invoice numbers (Appendix B §B.2.14, main spec §6.11, §6.14, T37). A statement
-// carries the billing carrier's tenant (R61): the request's effective tenant, which next_invoice_seq() also receives
+// carries the billing carrier's tenant (R61): the request's effective tenant, the own fleet (the service refuses any
+// other until main spec §19 Q13 is decided), which next_invoice_seq() also receives
 // (SECURITY DEFINER, R66: billing_counters is reachable only through it; another carrier's counter returns no row). The
 // whole creation is one transaction, so a failure leaves no gap in the numbering. Lines are built from stored snapshots
 // (never repriced) and are immutable; totals are exact NUMERIC sums of the lines; withholding_tax_rate is the issuing
@@ -324,8 +349,12 @@ SELECT s.id, s.legacy_doc_id, s.tenant_id, s.billing_party_id, s.issuer_company_
        s.customer_name_snapshot, s.customer_code_snapshot, s.period_year, s.period_month, s.total_amount,
        s.withholding_tax_rate, s.withholding_tax, s.net_amount, s.trip_count, s.trip_only_count, s.trip_subtotal,
        s.standby_count, s.standby_subtotal, s.multi_drop_count, s.multi_drop_subtotal, s.status, s.generated_at, s.sent_at,
-       s.paid_at, s.cancelled_at, s.due_date, s.note, s.generated_by, s.created_at, s.updated_at
+       s.paid_at, s.cancelled_at, s.due_date, s.note, s.generated_by, s.created_at, s.updated_at,
+       coalesce(bp.customer_id, bp.tenant_id, s.billing_party_id)::uuid AS customer_id,
+       u.display_name AS generated_by_display_name, u.email AS generated_by_email
 FROM billing_statements s
+JOIN billing_parties bp ON bp.id = s.billing_party_id
+LEFT JOIN users u ON u.id = s.generated_by
 WHERE ($1::boolean OR s.tenant_id = ANY ($2::uuid[]))
   AND ($3::uuid IS NULL OR s.billing_party_id = $3::uuid)
   AND ($4::text IS NULL OR s.status = $4::text)
@@ -350,37 +379,40 @@ type ListStatementsParams struct {
 }
 
 type ListStatementsRow struct {
-	ID                   uuid.UUID
-	LegacyDocID          *string
-	TenantID             uuid.UUID
-	BillingPartyID       uuid.UUID
-	IssuerCompanyID      *uuid.UUID
-	InvoiceNumber        string
-	CustomerNameSnapshot *string
-	CustomerCodeSnapshot *string
-	PeriodYear           int32
-	PeriodMonth          int32
-	TotalAmount          float64
-	WithholdingTaxRate   float64
-	WithholdingTax       float64
-	NetAmount            float64
-	TripCount            int32
-	TripOnlyCount        int32
-	TripSubtotal         float64
-	StandbyCount         int32
-	StandbySubtotal      float64
-	MultiDropCount       int32
-	MultiDropSubtotal    float64
-	Status               string
-	GeneratedAt          time.Time
-	SentAt               *time.Time
-	PaidAt               *time.Time
-	CancelledAt          *time.Time
-	DueDate              *time.Time
-	Note                 *string
-	GeneratedBy          *uuid.UUID
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
+	ID                     uuid.UUID
+	LegacyDocID            *string
+	TenantID               uuid.UUID
+	BillingPartyID         uuid.UUID
+	IssuerCompanyID        *uuid.UUID
+	InvoiceNumber          string
+	CustomerNameSnapshot   *string
+	CustomerCodeSnapshot   *string
+	PeriodYear             int32
+	PeriodMonth            int32
+	TotalAmount            float64
+	WithholdingTaxRate     float64
+	WithholdingTax         float64
+	NetAmount              float64
+	TripCount              int32
+	TripOnlyCount          int32
+	TripSubtotal           float64
+	StandbyCount           int32
+	StandbySubtotal        float64
+	MultiDropCount         int32
+	MultiDropSubtotal      float64
+	Status                 string
+	GeneratedAt            time.Time
+	SentAt                 *time.Time
+	PaidAt                 *time.Time
+	CancelledAt            *time.Time
+	DueDate                *time.Time
+	Note                   *string
+	GeneratedBy            *uuid.UUID
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+	CustomerID             uuid.UUID
+	GeneratedByDisplayName *string
+	GeneratedByEmail       *string
 }
 
 // GET /v1/billing/statements: newest first, keyset (generated_at, id) (billing_statements_tenant_gen).
@@ -435,6 +467,9 @@ func (q *Queries) ListStatements(ctx context.Context, arg ListStatementsParams) 
 			&i.GeneratedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CustomerID,
+			&i.GeneratedByDisplayName,
+			&i.GeneratedByEmail,
 		); err != nil {
 			return nil, err
 		}
@@ -463,8 +498,8 @@ type LockStatementRow struct {
 	PeriodMonth    int32
 }
 
-// A status change locks the statement FOR UPDATE: it waits for every pricing transaction that read the period FOR
-// SHARE, so a period cannot become sent while a reprice commits (main spec §6.11).
+// A status change locks the statement FOR UPDATE after the period's exclusive advisory lock: it waits for every pricing
+// transaction that read the period, so a period cannot become sent while a reprice commits (main spec §6.11).
 func (q *Queries) LockStatement(ctx context.Context, id uuid.UUID) (LockStatementRow, error) {
 	row := q.db.QueryRow(ctx, lockStatement, id)
 	var i LockStatementRow
@@ -508,6 +543,39 @@ func (q *Queries) NextInvoiceSeq(ctx context.Context, arg NextInvoiceSeqParams) 
 	return seq, err
 }
 
+const periodAdvisoryExclusive = `-- name: PeriodAdvisoryExclusive :exec
+SELECT pg_advisory_xact_lock(hashtextextended('billing_period:' || $1::uuid::text || ':'
+                                             || $2::int::text, 0))
+`
+
+type PeriodAdvisoryExclusiveParams struct {
+	PartyID uuid.UUID
+	Period  int32
+}
+
+func (q *Queries) PeriodAdvisoryExclusive(ctx context.Context, arg PeriodAdvisoryExclusiveParams) error {
+	_, err := q.db.Exec(ctx, periodAdvisoryExclusive, arg.PartyID, arg.Period)
+	return err
+}
+
+const periodAdvisoryShared = `-- name: PeriodAdvisoryShared :exec
+SELECT pg_advisory_xact_lock_shared(hashtextextended('billing_period:' || $1::uuid::text || ':'
+                                                    || $2::int::text, 0))
+`
+
+type PeriodAdvisorySharedParams struct {
+	PartyID uuid.UUID
+	Period  int32
+}
+
+// The period lock of a pricing transaction (main spec §6.11): shared, per (party, Bangkok month), until the transaction
+// ends. A status change takes the exclusive twin, so a statement created after the pricing read cannot turn sent while
+// the price commits either; FOR SHARE on the rows read covers only the statements that existed.
+func (q *Queries) PeriodAdvisoryShared(ctx context.Context, arg PeriodAdvisorySharedParams) error {
+	_, err := q.db.Exec(ctx, periodAdvisoryShared, arg.PartyID, arg.Period)
+	return err
+}
+
 const periodStatements = `-- name: PeriodStatements :many
 SELECT s.id, s.billing_party_id, s.invoice_number, s.status, s.period_year, s.period_month, s.generated_at
 FROM billing_statements s
@@ -532,9 +600,10 @@ type PeriodStatementsRow struct {
 	GeneratedAt    time.Time
 }
 
-// The period lock read of a pricing transaction (main spec §6.11, R17): every statement of the party in the Bangkok
-// months asked FOR SHARE, whatever its status, so a draft cannot turn sent (FOR UPDATE) until the price commits; only sent
-// and paid statements lock (compute.NewPeriodLocks keeps those, the latest generated_at supplying the invoice number).
+// The period lock read of a pricing transaction (main spec §6.11, R17), after PeriodAdvisoryShared of each month: every
+// statement of the party in the Bangkok months asked FOR SHARE, whatever its status, so a draft cannot turn sent (FOR
+// UPDATE) until the price commits (the advisory lock covers a statement created after this read); only sent and paid
+// statements lock (compute.NewPeriodLocks keeps those, the latest generated_at supplying the invoice number).
 func (q *Queries) PeriodStatements(ctx context.Context, arg PeriodStatementsParams) ([]PeriodStatementsRow, error) {
 	rows, err := q.db.Query(ctx, periodStatements, arg.PartyID, arg.Periods)
 	if err != nil {
@@ -626,6 +695,87 @@ func (q *Queries) StatementDocuments(ctx context.Context, statementID uuid.UUID)
 	return items, nil
 }
 
+const statementInvoiceSet = `-- name: StatementInvoiceSet :one
+SELECT count(*)::int AS line_count, coalesce(sum(x.amount), 0)::float8 AS total
+FROM (
+  SELECT 'trip'::text AS row_type, tr.id AS trip_id, NULL::int AS stop_index, NULL::uuid AS standby_id,
+         s.estimate_thb AS amount
+  FROM trip_records tr
+  JOIN trip_billing_snapshots s ON s.trip_id = tr.id
+  LEFT JOIN tasks tk ON tk.id = tr.task_id
+  WHERE $1::boolean
+    AND tr.status = 'delivered' AND tr.billing_party_id = $2::uuid
+    AND s.tenant_id = $3::uuid
+    AND s.estimate_thb IS NOT NULL AND s.estimate_thb <> 0
+    AND CASE WHEN $4::boolean THEN tr.billing_date ELSE tr.delivered_at END >= $5::timestamptz
+    AND CASE WHEN $4::boolean THEN tr.billing_date ELSE tr.delivered_at END < $6::timestamptz
+    AND NOT (s.is_multi_delivery AND EXISTS (SELECT 1 FROM trip_billing_stop_breakdown b WHERE b.trip_id = tr.id))
+    AND coalesce(tr.job_category, tk.job_category, 'unverified') = ANY ($7::text[])
+  UNION ALL
+  SELECT 'multidrop_stop'::text, tr.id, b.stop_index, NULL::uuid, b.final_rate_thb
+  FROM trip_records tr
+  JOIN trip_billing_snapshots s ON s.trip_id = tr.id
+  JOIN trip_billing_stop_breakdown b ON b.trip_id = tr.id
+  LEFT JOIN tasks tk ON tk.id = tr.task_id
+  WHERE $8::boolean
+    AND tr.status = 'delivered' AND tr.billing_party_id = $2::uuid
+    AND s.tenant_id = $3::uuid
+    AND s.estimate_thb IS NOT NULL AND s.estimate_thb <> 0 AND s.is_multi_delivery AND b.final_rate_thb <> 0
+    AND CASE WHEN $4::boolean THEN tr.billing_date ELSE tr.delivered_at END >= $5::timestamptz
+    AND CASE WHEN $4::boolean THEN tr.billing_date ELSE tr.delivered_at END < $6::timestamptz
+    AND coalesce(tr.job_category, tk.job_category, 'unverified') = ANY ($7::text[])
+  UNION ALL
+  SELECT 'standby'::text, NULL::uuid, NULL::int, sr.id, sr.billing_estimate_thb
+  FROM standby_records sr
+  WHERE $9::boolean
+    AND sr.status = 'completed' AND sr.billing_party_id = $2::uuid
+    AND sr.ended_at >= $5::timestamptz AND sr.ended_at < $6::timestamptz
+    AND sr.billing_estimate_thb IS NOT NULL AND sr.billing_estimate_thb <> 0
+    AND (sr.billing_tenant_id = $3::uuid
+         OR (sr.billing_tenant_id IS NULL AND $10::boolean))
+) x
+`
+
+type StatementInvoiceSetParams struct {
+	IncludeTrips     bool
+	PartyID          uuid.UUID
+	TenantID         uuid.UUID
+	PlanBasis        bool
+	PeriodFrom       time.Time
+	PeriodTo         time.Time
+	Categories       []string
+	IncludeMultidrop bool
+	IncludeStandby   bool
+	OwnFleet         bool
+}
+
+type StatementInvoiceSetRow struct {
+	LineCount int32
+	Total     float64
+}
+
+// The invoice set of InsertStatementLines (the same WHERE clauses, change them together), counted and summed. Run in a
+// READ ONLY system transaction (db.WithSystem), it sees the rows the caller's RLS may hide: a trip or standby record
+// this billing carrier priced but run by a tenant outside the caller's reach (a carrier without a contractor link, the
+// quarantine tenant).
+func (q *Queries) StatementInvoiceSet(ctx context.Context, arg StatementInvoiceSetParams) (StatementInvoiceSetRow, error) {
+	row := q.db.QueryRow(ctx, statementInvoiceSet,
+		arg.IncludeTrips,
+		arg.PartyID,
+		arg.TenantID,
+		arg.PlanBasis,
+		arg.PeriodFrom,
+		arg.PeriodTo,
+		arg.Categories,
+		arg.IncludeMultidrop,
+		arg.IncludeStandby,
+		arg.OwnFleet,
+	)
+	var i StatementInvoiceSetRow
+	err := row.Scan(&i.LineCount, &i.Total)
+	return i, err
+}
+
 const statementLines = `-- name: StatementLines :many
 SELECT l.id, l.row_type, l.trip_id, l.stop_index, l.standby_id, l.amount_thb, l.created_at,
        tr.trip_no
@@ -673,6 +823,25 @@ func (q *Queries) StatementLines(ctx context.Context, statementID uuid.UUID) ([]
 		return nil, err
 	}
 	return items, nil
+}
+
+const statementPeriod = `-- name: StatementPeriod :one
+SELECT s.billing_party_id, s.period_year, s.period_month FROM billing_statements s WHERE s.id = $1
+`
+
+type StatementPeriodRow struct {
+	BillingPartyID uuid.UUID
+	PeriodYear     int32
+	PeriodMonth    int32
+}
+
+// The party and period of a statement, unlocked (the columns never change): a status change takes the period's
+// exclusive advisory lock with them before it locks the row.
+func (q *Queries) StatementPeriod(ctx context.Context, id uuid.UUID) (StatementPeriodRow, error) {
+	row := q.db.QueryRow(ctx, statementPeriod, id)
+	var i StatementPeriodRow
+	err := row.Scan(&i.BillingPartyID, &i.PeriodYear, &i.PeriodMonth)
+	return i, err
 }
 
 const statementTotals = `-- name: StatementTotals :one

@@ -28,8 +28,9 @@ const getFuelAdjustment = `-- name: GetFuelAdjustment :one
 SELECT a.id, a.legacy_doc_id, a.tenant_id, a.billing_party_id, a.effective_from_date, a.effective_from_at,
        a.rate_multiplier, a.add_thb_per_trip, a.reference_fuel_price_thb, a.announcement_note, a.fuel_band_enabled,
        a.fuel_band_baseline_floor, a.fuel_band_thb_per_baht, a.created_by, a.created_at, a.updated_at, a.voided,
-       a.voided_at, a.voided_by, a.voided_reason
+       a.voided_at, a.voided_by, a.voided_reason, coalesce(bp.customer_id, bp.tenant_id, a.billing_party_id)::uuid AS customer_id
 FROM customer_fuel_rate_adjustments a
+JOIN billing_parties bp ON bp.id = a.billing_party_id
 WHERE a.id = $1
 `
 
@@ -54,6 +55,7 @@ type GetFuelAdjustmentRow struct {
 	VoidedAt              *time.Time
 	VoidedBy              *uuid.UUID
 	VoidedReason          *string
+	CustomerID            uuid.UUID
 }
 
 func (q *Queries) GetFuelAdjustment(ctx context.Context, id uuid.UUID) (GetFuelAdjustmentRow, error) {
@@ -80,6 +82,7 @@ func (q *Queries) GetFuelAdjustment(ctx context.Context, id uuid.UUID) (GetFuelA
 		&i.VoidedAt,
 		&i.VoidedBy,
 		&i.VoidedReason,
+		&i.CustomerID,
 	)
 	return i, err
 }
@@ -88,8 +91,9 @@ const getRateEntry = `-- name: GetRateEntry :one
 SELECT e.id, e.legacy_doc_id, e.tenant_id, e.billing_party_id, e.import_id, e.hub_code, e.raw_hub_name,
        e.destination_code, e.vehicle_class, e.rate_thb, e.distance_km, e.job_category, e.effective_from_date,
        e.effective_from_at, e.imported_at, e.created_by, e.created_at, e.updated_at, e.voided, e.voided_at, e.voided_by,
-       e.voided_reason
+       e.voided_reason, coalesce(bp.customer_id, bp.tenant_id, e.billing_party_id)::uuid AS customer_id
 FROM customer_rate_entries e
+JOIN billing_parties bp ON bp.id = e.billing_party_id
 WHERE e.id = $1
 `
 
@@ -116,6 +120,7 @@ type GetRateEntryRow struct {
 	VoidedAt          *time.Time
 	VoidedBy          *uuid.UUID
 	VoidedReason      *string
+	CustomerID        uuid.UUID
 }
 
 func (q *Queries) GetRateEntry(ctx context.Context, id uuid.UUID) (GetRateEntryRow, error) {
@@ -144,14 +149,16 @@ func (q *Queries) GetRateEntry(ctx context.Context, id uuid.UUID) (GetRateEntryR
 		&i.VoidedAt,
 		&i.VoidedBy,
 		&i.VoidedReason,
+		&i.CustomerID,
 	)
 	return i, err
 }
 
 const getServiceFee = `-- name: GetServiceFee :one
 SELECT f.id, f.legacy_doc_id, f.tenant_id, f.billing_party_id, f.fee_type, f.custom_type_name, f.amount_thb, f.unit,
-       f.note, f.created_at, f.updated_at
+       f.note, f.created_at, f.updated_at, coalesce(bp.customer_id, bp.tenant_id, f.billing_party_id)::uuid AS customer_id
 FROM customer_service_fees f
+JOIN billing_parties bp ON bp.id = f.billing_party_id
 WHERE f.id = $1
 `
 
@@ -167,6 +174,7 @@ type GetServiceFeeRow struct {
 	Note           *string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	CustomerID     uuid.UUID
 }
 
 func (q *Queries) GetServiceFee(ctx context.Context, id uuid.UUID) (GetServiceFeeRow, error) {
@@ -184,14 +192,17 @@ func (q *Queries) GetServiceFee(ctx context.Context, id uuid.UUID) (GetServiceFe
 		&i.Note,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CustomerID,
 	)
 	return i, err
 }
 
 const getStandbyRate = `-- name: GetStandbyRate :one
 SELECT r.id, r.legacy_doc_id, r.tenant_id, r.billing_party_id, r.rate_thb, r.effective_from_date, r.effective_from_at,
-       r.note, r.created_at, r.updated_at, r.voided_at, r.voided_by, r.voided_reason
+       r.note, r.created_at, r.updated_at, r.voided_at, r.voided_by, r.voided_reason,
+       coalesce(bp.customer_id, bp.tenant_id, r.billing_party_id)::uuid AS customer_id
 FROM standby_rate_entries r
+JOIN billing_parties bp ON bp.id = r.billing_party_id
 WHERE r.id = $1
 `
 
@@ -209,6 +220,7 @@ type GetStandbyRateRow struct {
 	VoidedAt          *time.Time
 	VoidedBy          *uuid.UUID
 	VoidedReason      *string
+	CustomerID        uuid.UUID
 }
 
 func (q *Queries) GetStandbyRate(ctx context.Context, id uuid.UUID) (GetStandbyRateRow, error) {
@@ -228,6 +240,7 @@ func (q *Queries) GetStandbyRate(ctx context.Context, id uuid.UUID) (GetStandbyR
 		&i.VoidedAt,
 		&i.VoidedBy,
 		&i.VoidedReason,
+		&i.CustomerID,
 	)
 	return i, err
 }
@@ -414,8 +427,9 @@ const listFuelAdjustments = `-- name: ListFuelAdjustments :many
 SELECT a.id, a.legacy_doc_id, a.tenant_id, a.billing_party_id, a.effective_from_date, a.effective_from_at,
        a.rate_multiplier, a.add_thb_per_trip, a.reference_fuel_price_thb, a.announcement_note, a.fuel_band_enabled,
        a.fuel_band_baseline_floor, a.fuel_band_thb_per_baht, a.created_by, a.created_at, a.updated_at, a.voided,
-       a.voided_at, a.voided_by, a.voided_reason
+       a.voided_at, a.voided_by, a.voided_reason, coalesce(bp.customer_id, bp.tenant_id, a.billing_party_id)::uuid AS customer_id
 FROM customer_fuel_rate_adjustments a
+JOIN billing_parties bp ON bp.id = a.billing_party_id
 WHERE ($1::boolean OR a.tenant_id = ANY ($2::uuid[]))
   AND ($3::boolean OR NOT a.voided)
 ORDER BY a.effective_from_at DESC, a.id DESC
@@ -448,6 +462,7 @@ type ListFuelAdjustmentsRow struct {
 	VoidedAt              *time.Time
 	VoidedBy              *uuid.UUID
 	VoidedReason          *string
+	CustomerID            uuid.UUID
 }
 
 // GET /v1/billing/fuel-adjustments without customerId: newest round first.
@@ -481,6 +496,7 @@ func (q *Queries) ListFuelAdjustments(ctx context.Context, arg ListFuelAdjustmen
 			&i.VoidedAt,
 			&i.VoidedBy,
 			&i.VoidedReason,
+			&i.CustomerID,
 		); err != nil {
 			return nil, err
 		}
@@ -496,8 +512,9 @@ const listRateEntries = `-- name: ListRateEntries :many
 SELECT e.id, e.legacy_doc_id, e.tenant_id, e.billing_party_id, e.import_id, e.hub_code, e.raw_hub_name,
        e.destination_code, e.vehicle_class, e.rate_thb, e.distance_km, e.job_category, e.effective_from_date,
        e.effective_from_at, e.imported_at, e.created_by, e.created_at, e.updated_at, e.voided, e.voided_at, e.voided_by,
-       e.voided_reason
+       e.voided_reason, coalesce(bp.customer_id, bp.tenant_id, e.billing_party_id)::uuid AS customer_id
 FROM customer_rate_entries e
+JOIN billing_parties bp ON bp.id = e.billing_party_id
 WHERE ($1::boolean OR e.tenant_id = ANY ($2::uuid[]))
   AND ($3::boolean OR NOT e.voided)
   AND ($4::timestamptz IS NULL
@@ -540,6 +557,7 @@ type ListRateEntriesRow struct {
 	VoidedAt          *time.Time
 	VoidedBy          *uuid.UUID
 	VoidedReason      *string
+	CustomerID        uuid.UUID
 }
 
 // GET /v1/billing/rate-entries without customerId: keyset (effective_from_at, import_id, id) DESC; import ids compare by
@@ -584,6 +602,7 @@ func (q *Queries) ListRateEntries(ctx context.Context, arg ListRateEntriesParams
 			&i.VoidedAt,
 			&i.VoidedBy,
 			&i.VoidedReason,
+			&i.CustomerID,
 		); err != nil {
 			return nil, err
 		}
@@ -597,8 +616,9 @@ func (q *Queries) ListRateEntries(ctx context.Context, arg ListRateEntriesParams
 
 const listServiceFees = `-- name: ListServiceFees :many
 SELECT f.id, f.legacy_doc_id, f.tenant_id, f.billing_party_id, f.fee_type, f.custom_type_name, f.amount_thb, f.unit,
-       f.note, f.created_at, f.updated_at
+       f.note, f.created_at, f.updated_at, coalesce(bp.customer_id, bp.tenant_id, f.billing_party_id)::uuid AS customer_id
 FROM customer_service_fees f
+JOIN billing_parties bp ON bp.id = f.billing_party_id
 WHERE ($1::boolean OR f.tenant_id = ANY ($2::uuid[]))
 ORDER BY f.created_at DESC, f.id DESC
 `
@@ -620,6 +640,7 @@ type ListServiceFeesRow struct {
 	Note           *string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	CustomerID     uuid.UUID
 }
 
 // GET /v1/billing/service-fees without customerId: newest first (customer_service_fees_party, legacy createdAt desc).
@@ -644,6 +665,7 @@ func (q *Queries) ListServiceFees(ctx context.Context, arg ListServiceFeesParams
 			&i.Note,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CustomerID,
 		); err != nil {
 			return nil, err
 		}
@@ -657,8 +679,10 @@ func (q *Queries) ListServiceFees(ctx context.Context, arg ListServiceFeesParams
 
 const listStandbyRates = `-- name: ListStandbyRates :many
 SELECT r.id, r.legacy_doc_id, r.tenant_id, r.billing_party_id, r.rate_thb, r.effective_from_date, r.effective_from_at,
-       r.note, r.created_at, r.updated_at, r.voided_at, r.voided_by, r.voided_reason
+       r.note, r.created_at, r.updated_at, r.voided_at, r.voided_by, r.voided_reason,
+       coalesce(bp.customer_id, bp.tenant_id, r.billing_party_id)::uuid AS customer_id
 FROM standby_rate_entries r
+JOIN billing_parties bp ON bp.id = r.billing_party_id
 WHERE ($1::boolean OR r.tenant_id = ANY ($2::uuid[]))
   AND ($3::boolean OR r.voided_at IS NULL)
 ORDER BY r.effective_from_at DESC, r.id DESC
@@ -684,6 +708,7 @@ type ListStandbyRatesRow struct {
 	VoidedAt          *time.Time
 	VoidedBy          *uuid.UUID
 	VoidedReason      *string
+	CustomerID        uuid.UUID
 }
 
 // GET /v1/billing/standby-rates without customerId: newest effective date first.
@@ -710,6 +735,7 @@ func (q *Queries) ListStandbyRates(ctx context.Context, arg ListStandbyRatesPara
 			&i.VoidedAt,
 			&i.VoidedBy,
 			&i.VoidedReason,
+			&i.CustomerID,
 		); err != nil {
 			return nil, err
 		}
@@ -769,10 +795,11 @@ func (q *Queries) LockRateEntry(ctx context.Context, id uuid.UUID) (LockRateEntr
 
 const lockServiceFee = `-- name: LockServiceFee :one
 SELECT f.id, f.legacy_doc_id, f.tenant_id, f.billing_party_id, f.fee_type, f.custom_type_name, f.amount_thb, f.unit,
-       f.note, f.created_at, f.updated_at
+       f.note, f.created_at, f.updated_at, coalesce(bp.customer_id, bp.tenant_id, f.billing_party_id)::uuid AS customer_id
 FROM customer_service_fees f
+JOIN billing_parties bp ON bp.id = f.billing_party_id
 WHERE f.id = $1
-FOR UPDATE
+FOR UPDATE OF f
 `
 
 type LockServiceFeeRow struct {
@@ -787,6 +814,7 @@ type LockServiceFeeRow struct {
 	Note           *string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	CustomerID     uuid.UUID
 }
 
 func (q *Queries) LockServiceFee(ctx context.Context, id uuid.UUID) (LockServiceFeeRow, error) {
@@ -804,16 +832,19 @@ func (q *Queries) LockServiceFee(ctx context.Context, id uuid.UUID) (LockService
 		&i.Note,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CustomerID,
 	)
 	return i, err
 }
 
 const lockStandbyRate = `-- name: LockStandbyRate :one
 SELECT r.id, r.legacy_doc_id, r.tenant_id, r.billing_party_id, r.rate_thb, r.effective_from_date, r.effective_from_at,
-       r.note, r.created_at, r.updated_at, r.voided_at, r.voided_by, r.voided_reason
+       r.note, r.created_at, r.updated_at, r.voided_at, r.voided_by, r.voided_reason,
+       coalesce(bp.customer_id, bp.tenant_id, r.billing_party_id)::uuid AS customer_id
 FROM standby_rate_entries r
+JOIN billing_parties bp ON bp.id = r.billing_party_id
 WHERE r.id = $1
-FOR UPDATE
+FOR UPDATE OF r
 `
 
 type LockStandbyRateRow struct {
@@ -830,6 +861,7 @@ type LockStandbyRateRow struct {
 	VoidedAt          *time.Time
 	VoidedBy          *uuid.UUID
 	VoidedReason      *string
+	CustomerID        uuid.UUID
 }
 
 func (q *Queries) LockStandbyRate(ctx context.Context, id uuid.UUID) (LockStandbyRateRow, error) {
@@ -849,16 +881,31 @@ func (q *Queries) LockStandbyRate(ctx context.Context, id uuid.UUID) (LockStandb
 		&i.VoidedAt,
 		&i.VoidedBy,
 		&i.VoidedReason,
+		&i.CustomerID,
 	)
 	return i, err
+}
+
+const ownFleetTenant = `-- name: OwnFleetTenant :one
+SELECT t.id FROM tenants t WHERE t.kind = 'own_fleet'
+`
+
+// The billing carrier of every price today (R61: the rate-card owner, the own fleet; main spec §19 Q13): the single
+// tenants row of kind own_fleet (tenants_one_own_fleet). A pricing transaction (db.WithSystem) reads it.
+func (q *Queries) OwnFleetTenant(ctx context.Context) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, ownFleetTenant)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const partyFuelAdjustments = `-- name: PartyFuelAdjustments :many
 SELECT a.id, a.legacy_doc_id, a.tenant_id, a.billing_party_id, a.effective_from_date, a.effective_from_at,
        a.rate_multiplier, a.add_thb_per_trip, a.reference_fuel_price_thb, a.announcement_note, a.fuel_band_enabled,
        a.fuel_band_baseline_floor, a.fuel_band_thb_per_baht, a.created_by, a.created_at, a.updated_at, a.voided,
-       a.voided_at, a.voided_by, a.voided_reason
+       a.voided_at, a.voided_by, a.voided_reason, coalesce(bp.customer_id, bp.tenant_id, a.billing_party_id)::uuid AS customer_id
 FROM customer_fuel_rate_adjustments a
+JOIN billing_parties bp ON bp.id = a.billing_party_id
 WHERE a.billing_party_id = $1
 ORDER BY a.effective_from_at DESC, a.id DESC
 `
@@ -884,6 +931,7 @@ type PartyFuelAdjustmentsRow struct {
 	VoidedAt              *time.Time
 	VoidedBy              *uuid.UUID
 	VoidedReason          *string
+	CustomerID            uuid.UUID
 }
 
 func (q *Queries) PartyFuelAdjustments(ctx context.Context, partyID uuid.UUID) ([]PartyFuelAdjustmentsRow, error) {
@@ -916,6 +964,7 @@ func (q *Queries) PartyFuelAdjustments(ctx context.Context, partyID uuid.UUID) (
 			&i.VoidedAt,
 			&i.VoidedBy,
 			&i.VoidedReason,
+			&i.CustomerID,
 		); err != nil {
 			return nil, err
 		}
@@ -931,8 +980,9 @@ const partyRateEntries = `-- name: PartyRateEntries :many
 SELECT e.id, e.legacy_doc_id, e.tenant_id, e.billing_party_id, e.import_id, e.hub_code, e.raw_hub_name,
        e.destination_code, e.vehicle_class, e.rate_thb, e.distance_km, e.job_category, e.effective_from_date,
        e.effective_from_at, e.imported_at, e.created_by, e.created_at, e.updated_at, e.voided, e.voided_at, e.voided_by,
-       e.voided_reason
+       e.voided_reason, coalesce(bp.customer_id, bp.tenant_id, e.billing_party_id)::uuid AS customer_id
 FROM customer_rate_entries e
+JOIN billing_parties bp ON bp.id = e.billing_party_id
 WHERE e.billing_party_id = $1
 ORDER BY e.effective_from_at DESC, e.import_id COLLATE "C" DESC, e.id DESC
 `
@@ -960,6 +1010,7 @@ type PartyRateEntriesRow struct {
 	VoidedAt          *time.Time
 	VoidedBy          *uuid.UUID
 	VoidedReason      *string
+	CustomerID        uuid.UUID
 }
 
 // The rate entries of one party for the bundle cache: every tenant, voided rows too.
@@ -995,6 +1046,7 @@ func (q *Queries) PartyRateEntries(ctx context.Context, partyID uuid.UUID) ([]Pa
 			&i.VoidedAt,
 			&i.VoidedBy,
 			&i.VoidedReason,
+			&i.CustomerID,
 		); err != nil {
 			return nil, err
 		}
@@ -1008,8 +1060,9 @@ func (q *Queries) PartyRateEntries(ctx context.Context, partyID uuid.UUID) ([]Pa
 
 const partyServiceFees = `-- name: PartyServiceFees :many
 SELECT f.id, f.legacy_doc_id, f.tenant_id, f.billing_party_id, f.fee_type, f.custom_type_name, f.amount_thb, f.unit,
-       f.note, f.created_at, f.updated_at
+       f.note, f.created_at, f.updated_at, coalesce(bp.customer_id, bp.tenant_id, f.billing_party_id)::uuid AS customer_id
 FROM customer_service_fees f
+JOIN billing_parties bp ON bp.id = f.billing_party_id
 WHERE f.billing_party_id = $1
 ORDER BY f.created_at DESC, f.id DESC
 `
@@ -1026,6 +1079,7 @@ type PartyServiceFeesRow struct {
 	Note           *string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	CustomerID     uuid.UUID
 }
 
 func (q *Queries) PartyServiceFees(ctx context.Context, partyID uuid.UUID) ([]PartyServiceFeesRow, error) {
@@ -1049,6 +1103,7 @@ func (q *Queries) PartyServiceFees(ctx context.Context, partyID uuid.UUID) ([]Pa
 			&i.Note,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CustomerID,
 		); err != nil {
 			return nil, err
 		}
@@ -1062,8 +1117,10 @@ func (q *Queries) PartyServiceFees(ctx context.Context, partyID uuid.UUID) ([]Pa
 
 const partyStandbyRates = `-- name: PartyStandbyRates :many
 SELECT r.id, r.legacy_doc_id, r.tenant_id, r.billing_party_id, r.rate_thb, r.effective_from_date, r.effective_from_at,
-       r.note, r.created_at, r.updated_at, r.voided_at, r.voided_by, r.voided_reason
+       r.note, r.created_at, r.updated_at, r.voided_at, r.voided_by, r.voided_reason,
+       coalesce(bp.customer_id, bp.tenant_id, r.billing_party_id)::uuid AS customer_id
 FROM standby_rate_entries r
+JOIN billing_parties bp ON bp.id = r.billing_party_id
 WHERE r.billing_party_id = $1
 ORDER BY r.effective_from_at DESC, r.id DESC
 `
@@ -1082,6 +1139,7 @@ type PartyStandbyRatesRow struct {
 	VoidedAt          *time.Time
 	VoidedBy          *uuid.UUID
 	VoidedReason      *string
+	CustomerID        uuid.UUID
 }
 
 func (q *Queries) PartyStandbyRates(ctx context.Context, partyID uuid.UUID) ([]PartyStandbyRatesRow, error) {
@@ -1107,6 +1165,7 @@ func (q *Queries) PartyStandbyRates(ctx context.Context, partyID uuid.UUID) ([]P
 			&i.VoidedAt,
 			&i.VoidedBy,
 			&i.VoidedReason,
+			&i.CustomerID,
 		); err != nil {
 			return nil, err
 		}
@@ -1122,10 +1181,15 @@ const pricingFuelAdjustments = `-- name: PricingFuelAdjustments :many
 SELECT a.id, a.legacy_doc_id, a.tenant_id, a.billing_party_id, a.effective_from_at, a.rate_multiplier,
        a.add_thb_per_trip, a.reference_fuel_price_thb, a.created_at
 FROM customer_fuel_rate_adjustments a
-WHERE a.billing_party_id = $1 AND NOT a.voided
+WHERE a.billing_party_id = $1 AND a.tenant_id = $2 AND NOT a.voided
 ORDER BY a.legacy_doc_id COLLATE "C" ASC NULLS LAST, a.created_at, a.id
 FOR SHARE
 `
+
+type PricingFuelAdjustmentsParams struct {
+	PartyID   uuid.UUID
+	CarrierID uuid.UUID
+}
 
 type PricingFuelAdjustmentsRow struct {
 	ID                    uuid.UUID
@@ -1139,9 +1203,9 @@ type PricingFuelAdjustmentsRow struct {
 	CreatedAt             time.Time
 }
 
-// Pricing transaction (R17): live fuel rounds of a party FOR SHARE, R16 order.
-func (q *Queries) PricingFuelAdjustments(ctx context.Context, partyID uuid.UUID) ([]PricingFuelAdjustmentsRow, error) {
-	rows, err := q.db.Query(ctx, pricingFuelAdjustments, partyID)
+// Pricing transaction (R17): live fuel rounds of a party and billing carrier FOR SHARE, R16 order.
+func (q *Queries) PricingFuelAdjustments(ctx context.Context, arg PricingFuelAdjustmentsParams) ([]PricingFuelAdjustmentsRow, error) {
+	rows, err := q.db.Query(ctx, pricingFuelAdjustments, arg.PartyID, arg.CarrierID)
 	if err != nil {
 		return nil, err
 	}
@@ -1174,10 +1238,15 @@ const pricingRateEntries = `-- name: PricingRateEntries :many
 SELECT e.id, e.legacy_doc_id, e.tenant_id, e.billing_party_id, e.import_id, e.hub_code, e.destination_code,
        e.vehicle_class, e.rate_thb, e.job_category, e.effective_from_at, e.created_at
 FROM customer_rate_entries e
-WHERE e.billing_party_id = $1 AND NOT e.voided
+WHERE e.billing_party_id = $1 AND e.tenant_id = $2 AND NOT e.voided
 ORDER BY e.legacy_doc_id COLLATE "C" ASC NULLS LAST, e.created_at, e.id
 FOR SHARE
 `
+
+type PricingRateEntriesParams struct {
+	PartyID   uuid.UUID
+	CarrierID uuid.UUID
+}
 
 type PricingRateEntriesRow struct {
 	ID              uuid.UUID
@@ -1194,9 +1263,10 @@ type PricingRateEntriesRow struct {
 	CreatedAt       time.Time
 }
 
-// Pricing transaction (R17): live rate entries of a party FOR SHARE (a void waits for the price that read the row).
-func (q *Queries) PricingRateEntries(ctx context.Context, partyID uuid.UUID) ([]PricingRateEntriesRow, error) {
-	rows, err := q.db.Query(ctx, pricingRateEntries, partyID)
+// Pricing transaction (R17): live rate entries of a party and billing carrier FOR SHARE (a void waits for the price that
+// read the row).
+func (q *Queries) PricingRateEntries(ctx context.Context, arg PricingRateEntriesParams) ([]PricingRateEntriesRow, error) {
+	rows, err := q.db.Query(ctx, pricingRateEntries, arg.PartyID, arg.CarrierID)
 	if err != nil {
 		return nil, err
 	}
@@ -1231,15 +1301,16 @@ func (q *Queries) PricingRateEntries(ctx context.Context, partyID uuid.UUID) ([]
 const pricingServiceFee = `-- name: PricingServiceFee :one
 SELECT f.id, f.tenant_id, f.amount_thb
 FROM customer_service_fees f
-WHERE f.billing_party_id = $1 AND f.fee_type = $2
+WHERE f.billing_party_id = $1 AND f.tenant_id = $2 AND f.fee_type = $3
 ORDER BY f.created_at, f.id
 LIMIT 1
 FOR SHARE
 `
 
 type PricingServiceFeeParams struct {
-	PartyID uuid.UUID
-	FeeType string
+	PartyID   uuid.UUID
+	CarrierID uuid.UUID
+	FeeType   string
 }
 
 type PricingServiceFeeRow struct {
@@ -1248,9 +1319,10 @@ type PricingServiceFeeRow struct {
 	AmountThb float64
 }
 
-// Pricing transaction (R17): the fee of one type of a party FOR SHARE (unique after D5: customer_service_fees_one_per_type).
+// Pricing transaction (R17): the fee of one type of a party and billing carrier FOR SHARE (one per party and type
+// after D5: customer_service_fees_one_per_type).
 func (q *Queries) PricingServiceFee(ctx context.Context, arg PricingServiceFeeParams) (PricingServiceFeeRow, error) {
-	row := q.db.QueryRow(ctx, pricingServiceFee, arg.PartyID, arg.FeeType)
+	row := q.db.QueryRow(ctx, pricingServiceFee, arg.PartyID, arg.CarrierID, arg.FeeType)
 	var i PricingServiceFeeRow
 	err := row.Scan(&i.ID, &i.TenantID, &i.AmountThb)
 	return i, err
@@ -1259,10 +1331,15 @@ func (q *Queries) PricingServiceFee(ctx context.Context, arg PricingServiceFeePa
 const pricingStandbyRates = `-- name: PricingStandbyRates :many
 SELECT r.id, r.legacy_doc_id, r.tenant_id, r.billing_party_id, r.rate_thb, r.effective_from_at, r.created_at
 FROM standby_rate_entries r
-WHERE r.billing_party_id = $1 AND r.voided_at IS NULL
+WHERE r.billing_party_id = $1 AND r.tenant_id = $2 AND r.voided_at IS NULL
 ORDER BY r.legacy_doc_id COLLATE "C" ASC NULLS LAST, r.created_at, r.id
 FOR SHARE
 `
+
+type PricingStandbyRatesParams struct {
+	PartyID   uuid.UUID
+	CarrierID uuid.UUID
+}
 
 type PricingStandbyRatesRow struct {
 	ID              uuid.UUID
@@ -1274,9 +1351,10 @@ type PricingStandbyRatesRow struct {
 	CreatedAt       time.Time
 }
 
-// Pricing transaction (R17): live standby rates of a party FOR SHARE (voided_at IS NULL, R20), R16 order.
-func (q *Queries) PricingStandbyRates(ctx context.Context, partyID uuid.UUID) ([]PricingStandbyRatesRow, error) {
-	rows, err := q.db.Query(ctx, pricingStandbyRates, partyID)
+// Pricing transaction (R17): live standby rates of a party and billing carrier FOR SHARE (voided_at IS NULL, R20), R16
+// order.
+func (q *Queries) PricingStandbyRates(ctx context.Context, arg PricingStandbyRatesParams) ([]PricingStandbyRatesRow, error) {
+	rows, err := q.db.Query(ctx, pricingStandbyRates, arg.PartyID, arg.CarrierID)
 	if err != nil {
 		return nil, err
 	}
@@ -1306,7 +1384,8 @@ func (q *Queries) PricingStandbyRates(ctx context.Context, partyID uuid.UUID) ([
 const resolveParty = `-- name: ResolveParty :one
 
 SELECT bp.id, bp.kind, bp.billing_date_basis, c.code AS customer_code, c.name AS customer_name,
-       t.code AS tenant_code, t.name_th AS tenant_name, c.payment_terms_days
+       t.code AS tenant_code, t.name_th AS tenant_name, c.payment_terms_days,
+       coalesce(bp.customer_id, bp.tenant_id, bp.id)::uuid AS billed_id
 FROM billing_parties bp
 LEFT JOIN customers c ON c.id = bp.customer_id
 LEFT JOIN tenants t ON t.id = bp.tenant_id
@@ -1324,6 +1403,7 @@ type ResolvePartyRow struct {
 	TenantCode       *string
 	TenantName       *string
 	PaymentTermsDays *int32
+	BilledID         uuid.UUID
 }
 
 // Rate tables (Appendix B §B.2.14, main spec §6.12, T37): route rate cards and fuel adjustments are announcement rows
@@ -1334,8 +1414,10 @@ type ResolvePartyRow struct {
 // reach (main spec §4.7; authz.Principal.TenantReach). The Party* reads load one party's whole bundle (every tenant,
 // voided rows too) for cache:ratecard:{partyId} in a READ ONLY system transaction, so every reader caches the same
 // value; the service then keeps the caller's reach. The Pricing* reads are the pricing transaction's (R17): live rows
-// of one party FOR SHARE, in the R16 order (legacy_doc_id by bytes, NULLs last, then created_at, id; the selector of
-// internal/billing/compute sorts again, so the order is only determinism).
+// of one party and one billing carrier FOR SHARE (a row of another carrier never prices, whoever wrote it), in the R16
+// order (legacy_doc_id by bytes, NULLs last, then created_at, id; the selector of internal/billing/compute sorts again,
+// so the order is only determinism). Rows carry customer_id = the customer or carrier the party bills
+// (coalesce(billing_parties.customer_id, tenant_id)), the id the web keys its rate-card caches by (Appendix E).
 // The billing party a request names: its billing_parties id, or the customer or carrier it bills. Code and name feed
 // invoice numbers and the statement snapshot (customers.code, else the carrier's code; main spec §6.14).
 func (q *Queries) ResolveParty(ctx context.Context, id uuid.UUID) (ResolvePartyRow, error) {
@@ -1350,6 +1432,7 @@ func (q *Queries) ResolveParty(ctx context.Context, id uuid.UUID) (ResolvePartyR
 		&i.TenantCode,
 		&i.TenantName,
 		&i.PaymentTermsDays,
+		&i.BilledID,
 	)
 	return i, err
 }
