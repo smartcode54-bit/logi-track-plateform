@@ -7,7 +7,8 @@
  * (no type = fuel and other in one query), so a status switch reads only that status (the Firestore page
  * re-downloaded every expense on each switch and filtered in the browser, `expenses.ts:270-272`,
  * `audit/page.tsx:106-108`). The tabs' counts are `meta.statusCounts` of the first page. Approve, reject
- * and bulk approve are `POST /v1/expenses/{id}/status` and `POST /v1/expenses/bulk-status`; approving a
+ * and bulk approve are `POST /v1/expenses/{id}/status` and `POST /v1/expenses/bulk-status` (in requests of
+ * at most 500 ids, Go's cap, as the Firestore page chunked its batches); approving a
  * fuel row with an odometer runs the PM check in the same transaction (no `checkMaintenanceAlert`
  * callable). Writes invalidate `['expenses']` and `['badges']`; SSE `expense.*` does it in other tabs.
  */
@@ -31,6 +32,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import {
     bulkExpenseStatus,
+    BulkStatusError,
     EXPENSE_CATEGORIES,
     expenseRows,
     expensesQuery,
@@ -101,7 +103,12 @@ export function ExpenseAuditPage() {
             if (booked > 0) toast.info(t("accounting.go.audit.pmBooked", { count: booked }));
             setSelected(new Set());
         } catch (e) {
-            toast.error(apiErrorText(e, t));
+            if (e instanceof BulkStatusError) {
+                // The requests before the failure are approved: keep only the rest selected.
+                const done = new Set(e.done.map((r) => r.id));
+                setSelected((prev) => new Set([...prev].filter((id) => !done.has(id))));
+                toast.error(`${t("accounting.go.audit.bulkPartial", { done: e.done.length, total: e.total })} ${apiErrorText(e.failure, t)}`);
+            } else toast.error(apiErrorText(e, t));
         } finally {
             setBusy(null);
         }

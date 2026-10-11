@@ -5,8 +5,10 @@
  * §10.10; Appendix B §B.2.15 as built by T40).
  *
  * - The PM bookings and the scheduled appointments are `['maintenance',{status:'pm_booking'}]` and
- *   `['maintenance',{status:'scheduled'}]`; booking one is a `PATCH` to `scheduled` with the date, time,
- *   garage and its map pin (Go validates the transition and asks the driver's app to remind them).
+ *   `['maintenance',{status:'scheduled'}]`, each paged with its own "load more" and "N of M" from
+ *   `meta.statusCounts` (TW8: no queue stops silently at its first 100); booking one is a `PATCH` to
+ *   `scheduled` with the date, time, garage and its map pin (Go validates the transition and asks the
+ *   driver's app to remind them).
  * - The history is `['maintenance',{type,status}]` (`GET /v1/maintenance`, 100 per page, newest first)
  *   through TanStack Table + Virtual (W9): the Firestore page read every record and every truck and
  *   rendered every row (`maintenance.ts:72-104`, `MaintenanceOverview.tsx:515`).
@@ -188,6 +190,27 @@ function PendingQueue() {
                         })}
                     </TableBody>
                 </Table>
+                {[
+                    { q: booking, status: "pm_booking" },
+                    { q: scheduled, status: "scheduled" },
+                ].map(({ q, status }) => {
+                    const loaded = maintenanceRows(q.data?.pages).length;
+                    const total = maintenanceStatusCounts(q.data?.pages)[status] ?? loaded;
+                    return q.hasNextPage ? (
+                        <div key={status} className="space-y-1 border-t p-3" data-testid={`pending-more-${status}`}>
+                            <p className="text-xs font-medium text-amber-900">
+                                {t("maintenance.go.queueLoaded", { status: t(STATUS_KEY[status] ?? "", status), loaded, total })}
+                            </p>
+                            <LoadMore
+                                loaded={loaded}
+                                hasNextPage={q.hasNextPage}
+                                isFetchingNextPage={q.isFetchingNextPage}
+                                error={q.isFetchNextPageError}
+                                onLoadMore={() => void q.fetchNextPage()}
+                            />
+                        </div>
+                    ) : null;
+                })}
             </CardContent>
             <Dialog open={mapFor !== null} onOpenChange={(o) => !o && setMapFor(null)}>
                 <DialogContent className="sm:max-w-2xl">

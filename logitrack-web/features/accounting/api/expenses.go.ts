@@ -15,7 +15,7 @@ import { infiniteQueryOptions, type QueryClient } from "@tanstack/react-query";
 import { goFetch, goPath, goUrl } from "@/lib/goFetch";
 import { goPostForm } from "@/lib/goForm";
 import { goInfiniteQueryFn, goNextPageParam, type GoPage } from "@/lib/goQuery";
-import { uploadToGo } from "@/lib/goUpload";
+import { assertUploadable, PartialCreateError, uploadToGo } from "@/lib/goUpload";
 import { getQueryClient } from "@/lib/queryClient";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
 
@@ -159,22 +159,47 @@ function compact<T extends object>(v: T): T {
     return Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined && x !== "")) as T;
 }
 
+export type ExpenseFiles = { receipt?: File | null; odometer?: File | null };
+
+const expenseUploads = (files: ExpenseFiles) => [
+    { file: files.receipt, purpose: "expense_receipt" as const },
+    { file: files.odometer, purpose: "expense_odometer" as const },
+];
+
 /**
- * Creates an expense, then uploads its photos under the new id (`expense_receipt`, `expense_odometer`)
- * and links them with a `PATCH` (every upload names its entity, developer-spec.md §9.4).
+ * Uploads an existing expense's photos (`expense_receipt`, `expense_odometer`) and links them with one
+ * `PATCH`; with no file it is a no-op that resolves the row unchanged.
  */
-export async function createExpense(
-    input: ExpenseInput,
-    files: { receipt?: File | null; odometer?: File | null } = {},
-    client: QueryClient = getQueryClient()
-): Promise<ExpenseDTO> {
-    let out = await goFetch<ExpenseDTO>(EXPENSES_PATH, { method: "POST", body: compact(input) });
+export async function attachExpenseFiles(expense: ExpenseDTO, files: ExpenseFiles, client: QueryClient = getQueryClient()): Promise<ExpenseDTO> {
+    assertUploadable(expenseUploads(files));
     const patch: ExpensePatch = {};
-    if (files.receipt) patch.receiptKey = await uploadToGo(files.receipt, { purpose: "expense_receipt", entityId: out.id });
-    if (files.odometer) patch.odometerKey = await uploadToGo(files.odometer, { purpose: "expense_odometer", entityId: out.id });
-    if (Object.keys(patch).length > 0) out = await goFetch<ExpenseDTO>(goPath`/v1/expenses/${out.id}`, { method: "PATCH", body: patch });
+    if (files.receipt) patch.receiptKey = await uploadToGo(files.receipt, { purpose: "expense_receipt", entityId: expense.id });
+    if (files.odometer) patch.odometerKey = await uploadToGo(files.odometer, { purpose: "expense_odometer", entityId: expense.id });
+    if (Object.keys(patch).length === 0) return expense;
+    const out = await goFetch<ExpenseDTO>(goPath`/v1/expenses/${expense.id}`, { method: "PATCH", body: patch });
     await invalidateExpenses(client);
     return out;
+}
+
+/**
+ * Creates an expense, then uploads its photos under the new id and links them with a `PATCH` (every upload
+ * names its entity, developer-spec.md §9.4). A photo Go would refuse (type, size) throws
+ * `UploadRefusedError` before the `POST`, so nothing is written. A failure after the row exists throws
+ * `PartialCreateError` carrying the row (the list is refreshed first): the caller retries with
+ * `attachExpenseFiles`, never a second `POST` (an admin entry is approved at once, so a duplicate would be
+ * a second approved expense).
+ */
+export async function createExpense(input: ExpenseInput, files: ExpenseFiles = {}, client: QueryClient = getQueryClient()): Promise<ExpenseDTO> {
+    assertUploadable(expenseUploads(files));
+    const created = await goFetch<ExpenseDTO>(EXPENSES_PATH, { method: "POST", body: compact(input) });
+    try {
+        const out = await attachExpenseFiles(created, files, client);
+        if (out === created) await invalidateExpenses(client);
+        return out;
+    } catch (err) {
+        await invalidateExpenses(client);
+        throw new PartialCreateError(created, err);
+    }
 }
 
 export async function patchExpense(id: string, patch: ExpensePatch, client: QueryClient = getQueryClient()): Promise<ExpenseDTO> {
@@ -197,12 +222,46 @@ export async function setExpenseStatus(id: string, status: ExpenseStatus, adminN
     return out;
 }
 
+/** Go's cap on one `POST /v1/expenses/bulk-status` (internal/expenses `MaxBulk`; more is `422 ids too_many`). */
+export const EXPENSES_BULK_MAX = 500;
+
+/** A bulk status change that stopped part way: `done` rows of `total` were changed before `failure`. */
+export class BulkStatusError extends Error {
+    constructor(
+        readonly done: StatusResult[],
+        readonly total: number,
+        readonly failure: unknown
+    ) {
+        super(`bulk status stopped after ${done.length} of ${total}`);
+        this.name = "BulkStatusError";
+    }
+}
+
+/**
+ * Sets the status of any number of expenses in sequential requests of at most `EXPENSES_BULK_MAX` ids
+ * (each one transaction on the server), results in order. A failed request stops the run with
+ * `BulkStatusError` (the rows of the requests before it are changed, the rest are not); the expense and
+ * maintenance keys are refreshed either way.
+ */
 export async function bulkExpenseStatus(ids: string[], status: ExpenseStatus, adminNote?: string, client: QueryClient = getQueryClient()) {
-    const out = await goFetch<StatusResult[]>(`${EXPENSES_PATH}/bulk-status`, {
-        method: "POST",
-        body: adminNote === undefined ? { ids, status } : { ids, status, adminNote },
-    });
-    await Promise.all([invalidateExpenses(client), client.invalidateQueries({ queryKey: queryKeys.maintenance() })]);
+    const out: StatusResult[] = [];
+    try {
+        for (let i = 0; i < ids.length; i += EXPENSES_BULK_MAX) {
+            const chunk = ids.slice(i, i + EXPENSES_BULK_MAX);
+            try {
+                out.push(
+                    ...(await goFetch<StatusResult[]>(`${EXPENSES_PATH}/bulk-status`, {
+                        method: "POST",
+                        body: adminNote === undefined ? { ids: chunk, status } : { ids: chunk, status, adminNote },
+                    }))
+                );
+            } catch (err) {
+                throw new BulkStatusError(out, ids.length, err);
+            }
+        }
+    } finally {
+        await Promise.all([invalidateExpenses(client), client.invalidateQueries({ queryKey: queryKeys.maintenance() })]);
+    }
     return out;
 }
 

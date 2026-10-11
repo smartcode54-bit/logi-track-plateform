@@ -41,6 +41,20 @@ function wallTime(iso: string | null): string | undefined {
 
 const n = (v: number | null | undefined) => (v == null ? undefined : v);
 
+/**
+ * The form's pickup appointment: the stored instant, else the booked day and time (a PM booked on the
+ * overview stores `startDate` + `appointmentTime` only). The Firestore page's `pickupAppointmentFromRecord`
+ * rule: without it the form shows no appointment and its save sends `appointmentTime: null`, which clears
+ * the booking time.
+ */
+export function pickupAppointmentOf(r: Pick<MaintenanceRecordDTO, "pickupAppointmentAt" | "appointmentTime" | "startDate">): string | undefined {
+    const stored = wallTime(r.pickupAppointmentAt);
+    if (stored) return stored;
+    const time = r.appointmentTime?.trim();
+    if (!time || !r.startDate || !/^\d{2}:\d{2}/.test(time)) return undefined;
+    return `${r.startDate.slice(0, 10)}T${time.slice(0, 5)}`;
+}
+
 export function toMaintenanceData(r: MaintenanceRecordDTO): MaintenanceData {
     const href = (keys: string[] | undefined) => (keys ?? []).map(maintenanceFileHref);
     return {
@@ -52,7 +66,7 @@ export function toMaintenanceData(r: MaintenanceRecordDTO): MaintenanceData {
         endDate: r.endDate ?? undefined,
         status: legacyStatus(r.status),
         appointmentTime: r.appointmentTime ?? undefined,
-        pickupAppointment: wallTime(r.pickupAppointmentAt),
+        pickupAppointment: pickupAppointmentOf(r),
         costLabor: n(r.costLaborThb),
         costParts: n(r.costPartsThb),
         totalCost: n(r.totalCostThb),

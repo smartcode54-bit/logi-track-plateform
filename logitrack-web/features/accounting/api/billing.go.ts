@@ -189,14 +189,23 @@ export const DEFAULT_ROWS_PARAMS: BillingRowsParams = {
     reviewMonth: "",
 };
 
-/** The query of `GET /v1/billing/rows` (an empty toggle list is sent: "none of them"). */
+/**
+ * At least one row type and one job category is ticked. Go answers 422 `required` to an empty `types` or
+ * `categories` list (absent means all; Appendix B §B.2.14), so the rows query never runs without both and
+ * the page asks for a tick instead.
+ */
+export function rowsParamsComplete(p: Pick<BillingRowsParams, "types" | "categories">): boolean {
+    return p.types.length > 0 && p.categories.length > 0;
+}
+
+/** The query of `GET /v1/billing/rows`; only called with both toggle lists non-empty (`rowsParamsComplete`). */
 export function billingRowsQueryParams(customerId: string, year: number, month: number, p: BillingRowsParams): QueryParams {
     return {
         customerId,
         year,
         month,
-        types: p.types.length > 0 ? p.types.join(",") : "",
-        categories: p.categories.length > 0 ? p.categories.join(",") : "",
+        types: p.types.join(","),
+        categories: p.categories.join(","),
         plate: p.plate || undefined,
         vehicleClass: p.vehicleClass || undefined,
         reviewMonth: p.reviewMonth || undefined,
@@ -217,7 +226,7 @@ export function billingRowsQuery(customerId: string, year: number, month: number
             goFetch<BillingRowsDTO>(BILLING_ROWS_PATH, { signal, query: billingRowsQueryParams(customerId, year, month, params) }),
         ...QUERY_POLICY.entity,
         refetchOnWindowFocus: false,
-        enabled: enabled && customerId !== "" && year > 0 && month > 0,
+        enabled: enabled && customerId !== "" && year > 0 && month > 0 && rowsParamsComplete(params),
     });
 }
 
@@ -379,13 +388,32 @@ export const DOCUMENT_POLL_MS = 5_000;
 /** The poll stops this long after the statement was last loaded with a document still rendering. */
 export const DOCUMENT_POLL_LIMIT_MS = 2 * 60_000;
 
-export function documentsPending(s: Pick<StatementDTO, "documents"> | null | undefined): boolean {
-    return (s?.documents ?? []).some((d) => d.status === "pending" || d.status === "rendering");
+/** The kinds a statement is created with (internal/billing `invoiceKinds`); a paid one adds the receipt. */
+const INVOICE_DOCUMENT_KINDS: readonly DocumentKind[] = ["invoice_summary_pdf", "invoice_detail_xlsx", "bundle_zip"];
+
+/** The kinds a statement of this status should hold once Go has rendered them. */
+export function expectedDocumentKinds(status: string | undefined): readonly DocumentKind[] {
+    if (status === "cancelled") return [];
+    return status === "paid" ? [...INVOICE_DOCUMENT_KINDS, "receipt_pdf"] : INVOICE_DOCUMENT_KINDS;
 }
 
 /**
- * `['statements','detail',id]` (30 s stale). While a document renders and the session stream is closed it
- * polls every 5 s, until `DOCUMENT_POLL_LIMIT_MS` after `openedAt` (when the caller started watching).
+ * A document is still to come: one is pending or rendering, or a kind the statement should hold has no row
+ * yet. Go writes the `statement_documents` rows only when the render job starts (`MarkDocumentsRendering`),
+ * so right after `POST /v1/billing/statements` (or marking it paid) the list is empty or lacks the receipt
+ * while the job is queued. A failed kind has its row and is not pending.
+ */
+export function documentsPending(s: { documents?: Pick<DocumentRefDTO, "kind" | "status">[]; status?: string } | null | undefined): boolean {
+    if (!s) return false;
+    const docs = s.documents ?? [];
+    if (docs.some((d) => d.status === "pending" || d.status === "rendering")) return true;
+    return expectedDocumentKinds(s.status).some((k) => !docs.some((d) => d.kind === k));
+}
+
+/**
+ * `['statements','detail',id]` (30 s stale). While a document is still to come (`documentsPending`) and the
+ * session stream is closed it polls every 5 s, until `DOCUMENT_POLL_LIMIT_MS` after `openedAt` (when the
+ * caller started watching); a migrated statement without stored files stops there.
  */
 export function statementQuery(id: string | null, streamOpen: boolean, openedAt: number = Date.now()) {
     return queryOptions({
@@ -423,6 +451,22 @@ export async function createStatement(input: CreateStatementInput, client: Query
         invalidateBillingMonth(input.customerId, input.year, input.month, client),
     ]);
     return out;
+}
+
+/**
+ * The moves Go's statement state machine allows (internal/billing `transitions`: draft → sent | cancelled,
+ * sent → paid | cancelled; paid and cancelled are final). Any other move is `409 failed_precondition`
+ * (`invalid_transition`), so the page offers only these.
+ */
+export const NEXT_STATEMENT_STATUSES: Record<StatementStatus, readonly StatementStatus[]> = {
+    draft: ["sent", "cancelled"],
+    sent: ["paid", "cancelled"],
+    paid: [],
+    cancelled: [],
+};
+
+export function canMoveStatement(from: string, to: StatementStatus): boolean {
+    return (NEXT_STATEMENT_STATUSES[from as StatementStatus] ?? []).includes(to);
 }
 
 export async function setStatementStatus(s: Pick<StatementDTO, "id">, status: StatementStatus, client: QueryClient = getQueryClient()) {

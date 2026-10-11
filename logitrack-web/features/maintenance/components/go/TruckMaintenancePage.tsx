@@ -7,7 +7,9 @@
  * maintenance) or `PATCH /v1/maintenance/{id}` (a validated status transition; completion restores the
  * truck and writes its mileage), with a new photo uploaded as a `maintenance_file` image and linked to the
  * record. The form and the history list are the shared presentational components of the Firestore page,
- * fed through `toMaintenanceData`.
+ * fed through `toMaintenanceData`. A file the upload would refuse is refused before the record is written;
+ * if a new record is written but its photo fails, the form switches to that record, so Save again only
+ * attaches the photo (never a second record for the truck).
  */
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -18,6 +20,7 @@ import { toast } from "sonner";
 import { useLanguage } from "@/context/language";
 import { DEFAULT_PM_INTERVAL_KM } from "@/features/trucks/constants";
 import { apiErrorText } from "@/lib/apiError";
+import { PartialCreateError, uploadAccept, UploadRefusedError } from "@/lib/goUpload";
 import { goFetch, goPath } from "@/lib/goFetch";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
 import { formatLicensePlate } from "@/lib/utils";
@@ -140,7 +143,13 @@ export function TruckMaintenancePage() {
             await truck.refetch();
             setView("list");
         } catch (err) {
-            toast.error(apiErrorText(err, t));
+            if (err instanceof UploadRefusedError) {
+                toast.error(t(err.reason === "too_large" ? "maintenance.go.fileTooLarge" : "maintenance.go.fileType", { name: err.fileName }));
+            } else if (err instanceof PartialCreateError) {
+                // The record exists: further saves update it (and attach the photo) instead of creating another.
+                setSelected(err.entity as MaintenanceRecordDTO);
+                toast.error(`${t("maintenance.go.photoNotAttached")} ${apiErrorText(err.failure, t)}`);
+            } else toast.error(apiErrorText(err, t));
         } finally {
             setSaving(false);
         }
@@ -237,6 +246,7 @@ export function TruckMaintenancePage() {
                     setNextServiceMileage={set("nextServiceMileage")}
                     selectedFile={file}
                     handleFileChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                    fileAccept={uploadAccept("maintenance_file")}
                     notes={form.notes}
                     setNotes={set("notes")}
                     isSubmitting={saving}

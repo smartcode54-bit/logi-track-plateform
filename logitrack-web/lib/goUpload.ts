@@ -63,6 +63,71 @@ export function uploadContentType(file: Pick<File, "type" | "name">): string {
     );
 }
 
+const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
+const DOCUMENT_TYPES = [...IMAGE_TYPES, "application/pdf"] as const;
+
+/**
+ * The content types Go's presign accepts per purpose (internal/storage `Purposes`: `imageTypes`,
+ * `documentTypes`), for the purposes a form checks before it writes its entity. A purpose missing here is
+ * left to the presign.
+ */
+export const UPLOAD_CONTENT_TYPES: Partial<Record<UploadPurpose, readonly string[]>> = {
+    expense_receipt: IMAGE_TYPES,
+    expense_odometer: IMAGE_TYPES,
+    maintenance_file: DOCUMENT_TYPES,
+};
+
+/** `UPLOAD_MAX_BYTES`' default (developer-spec.md §16.1); a server with a lower cap still refuses at presign. */
+export const UPLOAD_MAX_BYTES_DEFAULT = 10 * 1024 * 1024;
+
+/** The `accept` of a file input for a purpose (its content types), or undefined when the purpose is unchecked. */
+export function uploadAccept(purpose: UploadPurpose): string | undefined {
+    return UPLOAD_CONTENT_TYPES[purpose]?.join(",");
+}
+
+/** Why a file cannot be uploaded for a purpose, as the presign would say it; null when it can. */
+export function uploadRefusal(file: Pick<File, "type" | "name" | "size">, purpose: UploadPurpose): "content_type" | "too_large" | null {
+    const types = UPLOAD_CONTENT_TYPES[purpose];
+    if (types && !types.includes(uploadContentType(file))) return "content_type";
+    if (file.size > UPLOAD_MAX_BYTES_DEFAULT) return "too_large";
+    return null;
+}
+
+/** A file refused before any request (the entity is not written, so nothing is left half done). */
+export class UploadRefusedError extends Error {
+    constructor(
+        readonly fileName: string,
+        readonly reason: "content_type" | "too_large"
+    ) {
+        super(`upload refused: ${fileName} (${reason})`);
+        this.name = "UploadRefusedError";
+    }
+}
+
+/** Throws `UploadRefusedError` for the first file a purpose would refuse (call it before writing the entity). */
+export function assertUploadable(files: { file: File | null | undefined; purpose: UploadPurpose }[]): void {
+    for (const { file, purpose } of files) {
+        if (!file) continue;
+        const reason = uploadRefusal(file, purpose);
+        if (reason) throw new UploadRefusedError(file.name, reason);
+    }
+}
+
+/**
+ * The entity was written but a file upload or the `PATCH` linking it failed afterwards: `entity` is the
+ * stored row, so a retry attaches the files to it instead of creating a second one.
+ */
+export class PartialCreateError<T> extends Error {
+    constructor(
+        readonly entity: T,
+        /** The upload or link error (an `ApiError` as a rule). */
+        readonly failure: unknown
+    ) {
+        super("the entity was saved but its files were not attached");
+        this.name = "PartialCreateError";
+    }
+}
+
 /** Where the browser sends the bytes: a Go API path goes through the BFF, an absolute URL as is. */
 export function uploadTarget(url: string): string {
     return url.startsWith("/v1/") ? `${GO_API_PREFIX}${url}` : url;

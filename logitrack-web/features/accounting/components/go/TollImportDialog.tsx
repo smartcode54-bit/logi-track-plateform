@@ -4,7 +4,9 @@
  * Toll import over Go (T42; `POST /v1/expenses/toll-import` as a form upload, Appendix B §B.2.15): the
  * spreadsheet goes to Go as it is, which matches the columns, keeps the `ผ่านทาง` rows and numbers them
  * (`toll_import_sequence`) on the server. "Check" sends it with `dryRun=true` (counts and skipped rows,
- * nothing written), "Import" without. No spreadsheet library loads in the browser.
+ * nothing written), "Import" without. No spreadsheet library loads in the browser, so the formats are the
+ * ones Go reads (`internal/platform/xlsx`: XLSX, UTF-8 CSV): a legacy `.xls` (BIFF8) is refused here with a
+ * hint to save it as `.xlsx`, where the Firestore dialog parsed it with SheetJS.
  */
 import { useState } from "react";
 import { Loader2, Upload } from "lucide-react";
@@ -20,6 +22,17 @@ import { Label } from "@/components/ui/label";
 import { importTolls, type TollImportResult } from "../../api/expenses.go";
 import { SearchPicker, type PickValue } from "./shared";
 
+/** A legacy Excel 97-2003 workbook (`.xls`, an OLE2 container): Go's sheet reader cannot read it. */
+export async function isLegacyXls(file: File): Promise<boolean> {
+    if (/\.xls$/i.test(file.name)) return true;
+    try {
+        const head = new Uint8Array(await file.slice(0, 4).arrayBuffer());
+        return head.length === 4 && head[0] === 0xd0 && head[1] === 0xcf && head[2] === 0x11 && head[3] === 0xe0;
+    } catch {
+        return false;
+    }
+}
+
 export function TollImportDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
     const { t } = useLanguage();
     const [file, setFile] = useState<File | null>(null);
@@ -31,11 +44,13 @@ export function TollImportDialog({ open, onOpenChange }: { open: boolean; onOpen
 
     const reset = () => {
         setFile(null);
+        setXls(false);
         setCheck(null);
         setError(null);
     };
+    const [xls, setXls] = useState(false);
     const run = async (dryRun: boolean) => {
-        if (!file || !truck || !driver) return;
+        if (!file || !truck || !driver || xls) return;
         setBusy(dryRun ? "check" : "import");
         setError(null);
         try {
@@ -80,13 +95,22 @@ export function TollImportDialog({ open, onOpenChange }: { open: boolean; onOpen
                         <Label className="text-xs">{t("accounting.tollImport.clickUpload")}</Label>
                         <Input
                             type="file"
-                            accept=".xlsx,.xls,.csv"
+                            accept=".xlsx,.csv"
                             onChange={(e) => {
-                                setFile(e.target.files?.[0] ?? null);
+                                const f = e.target.files?.[0] ?? null;
+                                setFile(f);
                                 setCheck(null);
+                                setXls(false);
+                                if (f) void isLegacyXls(f).then(setXls);
                             }}
                         />
-                        <p className="text-xs text-muted-foreground">{t("accounting.tollImport.formatsSupported")}</p>
+                        {xls ? (
+                            <p className="text-xs text-destructive" data-testid="toll-xls">
+                                {t("accounting.go.toll.xlsRefused")}
+                            </p>
+                        ) : (
+                            <p className="text-xs text-muted-foreground">{t("accounting.go.toll.formatsSupported")}</p>
+                        )}
                     </div>
                 </div>
                 {error ? <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{apiErrorText(error, t)}</p> : null}
@@ -106,11 +130,11 @@ export function TollImportDialog({ open, onOpenChange }: { open: boolean; onOpen
                     <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy !== null}>
                         {t("accounting.tollImport.cancel")}
                     </Button>
-                    <Button variant="secondary" onClick={() => void run(true)} disabled={!file || !truck || !driver || busy !== null}>
+                    <Button variant="secondary" onClick={() => void run(true)} disabled={!file || xls || !truck || !driver || busy !== null}>
                         {busy === "check" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                         {t("accounting.go.toll.check")}
                     </Button>
-                    <Button onClick={() => void run(false)} disabled={!file || !truck || !driver || !check || check.created === 0 || busy !== null}>
+                    <Button onClick={() => void run(false)} disabled={!file || xls || !truck || !driver || !check || check.created === 0 || busy !== null}>
                         {busy === "import" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
                         {busy === "import" ? t("accounting.tollImport.uploading") : t("accounting.tollImport.upload")}
                     </Button>

@@ -5,8 +5,10 @@
  * Two keyset lists with the date range in the key and in the request, so a trip older than the newest
  * 500 is never silently missing (the Firestore page filtered dates in the browser over that window,
  * `income/page.tsx:336-342,597-621`):
- * - `['income',{from,to,party,kind:'trips'}]`: `GET /v1/trips?axis=delivered&status=delivered&from&to&customerId`
- *   (keyset on `(delivered_at, id)`; every row carries the `billing` block for `accounting:view_income`);
+ * - `['income',{from,to,party,kind:'trips'}]`: `GET /v1/trips?axis=delivered&from&to&customerId`
+ *   (keyset on `(delivered_at, id)`; every row carries the `billing` block for `accounting:view_income`).
+ *   No `status`: Go takes it on the created axis only and answers 422 `status: not_on_axis` on any other
+ *   (Appendix B §B.2.12); the delivered axis already lists delivered trips only;
  * - `['income',{from,to,party,kind:'standby'}]`: `GET /v1/standby?sort=ended&from&to&customerId`.
  * `party` is the billing party id (the trip and standby filters match `billing_party_id`), `all` for none.
  * Writes that reprice invalidate `['income']` (`./billingWrites.go.ts`); SSE `trip.priced`,
@@ -134,7 +136,6 @@ export function incomeTripsQuery(filter: IncomeFilter, enabled = true) {
         queryFn: goInfiniteQueryFn<IncomeTripDTO, IncomeKey>("/v1/trips", {
             query: ([, f]) => ({
                 axis: "delivered",
-                status: "delivered",
                 from: f.from || undefined,
                 to: f.to || undefined,
                 customerId: f.party && f.party !== "all" ? f.party : undefined,
@@ -283,6 +284,11 @@ export function incomeRows(
     if (opts.standby) for (const s of pageItems(standbyPages)) out.push(standbyIncomeRow(s, opts.customerOfParty));
     const typed = opts.recordType === "all" ? out : out.filter((r) => r.recordType === opts.recordType);
     return typed.sort((a, b) => (b.deliveredAt ?? "").localeCompare(a.deliveredAt ?? ""));
+}
+
+/** The rows without a stored price (the missing-billing tab of a user who cannot read `/v1/billing/rows`). */
+export function unpricedIncomeRows(rows: IncomeRow[]): IncomeRow[] {
+    return rows.filter((r) => r.estimateThb == null);
 }
 
 export interface IncomeSummary {

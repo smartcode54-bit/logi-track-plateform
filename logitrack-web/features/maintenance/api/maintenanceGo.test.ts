@@ -5,9 +5,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { getQueryClient } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
-import { fakeWeb, json } from "@/test-utils/fakeWeb";
+import { PartialCreateError, UploadRefusedError } from "@/lib/goUpload";
+import { fakeWeb, goErr, json } from "@/test-utils/fakeWeb";
 
-import { maintenanceInputOf, goStatus, legacyStatus, toMaintenanceData } from "../utils/goRecord";
+import { maintenanceInputOf, goStatus, legacyStatus, pickupAppointmentOf, toMaintenanceData } from "../utils/goRecord";
 import { createMaintenance, maintenanceCostTotals, maintenanceQuery, maintenanceStatusCounts, updateMaintenance, type MaintenanceRecordDTO } from "./maintenance.go";
 
 afterEach(() => {
@@ -137,6 +138,58 @@ describe("maintenance over Go", () => {
             nextServiceMileage: 140000,
             notes: null,
         });
+    });
+
+    it("refuses a file the upload would refuse before the record is written", async () => {
+        const web = fakeWeb();
+        const input = { truckId: "t1", type: "CM" as const, serviceType: "brakes", startDate: "2026-10-02", status: "in_progress" as const };
+        await expect(createMaintenance(input, [new File(["x"], "a.gif", { type: "image/gif" })])).rejects.toBeInstanceOf(UploadRefusedError);
+        expect(web.calls).toHaveLength(0);
+    });
+
+    it("an upload failing after the record exists hands the record back instead of leaving the caller to post again", async () => {
+        const web = fakeWeb();
+        web.on("POST", "/api/go/v1/maintenance", () => json(201, { data: record({ status: "in_progress", files: { images: [], receipts: [], invoices: [] } }) }));
+        web.on("POST", "/api/go/v1/uploads/presign", () => goErr(422, "invalid_argument", { fields: [{ field: "sizeBytes", reason: "out_of_range" }] }));
+        const client = getQueryClient();
+        client.setQueryData(queryKeys.maintenance({}), 1);
+        const input = { truckId: "t1", type: "CM" as const, serviceType: "brakes", startDate: "2026-10-02", status: "in_progress" as const };
+        const err = await createMaintenance(input, [new File(["x"], "a.jpg", { type: "image/jpeg" })], client).catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(PartialCreateError);
+        expect((err as PartialCreateError<MaintenanceRecordDTO>).entity.id).toBe("m1");
+        expect(web.count("POST", "/api/go/v1/maintenance")).toBe(1);
+        expect(client.getQueryState(queryKeys.maintenance({}))?.isInvalidated).toBe(true);
+    });
+
+    it("keeps a booking's time when the record is edited without touching it", () => {
+        // A PM booked on the overview stores the day and the time only.
+        const booked = record({ status: "scheduled", startDate: "2026-10-15", appointmentTime: "09:00", pickupAppointmentAt: null });
+        expect(pickupAppointmentOf(booked)).toBe("2026-10-15T09:00");
+        const d = toMaintenanceData(booked);
+        expect(d.pickupAppointment).toBe("2026-10-15T09:00");
+        const body = maintenanceInputOf(
+            {
+                type: "PM",
+                serviceType: d.serviceType,
+                status: "in_progress",
+                startDate: d.startDate,
+                endDate: "",
+                pickupAppointment: d.pickupAppointment ?? "",
+                costLabor: "",
+                costParts: "",
+                currentMileage: "120000",
+                nextServiceMileage: "",
+                provider: "Garage",
+                providerPos: null,
+                paymentMethod: "cash",
+                notes: "",
+            },
+            "t1",
+            20000
+        );
+        expect(body.appointmentTime).toBe("09:00");
+        expect(body.pickupAppointmentAt).toBe("2026-10-15T09:00:00");
+        expect(pickupAppointmentOf(record({ appointmentTime: null, pickupAppointmentAt: null }))).toBeUndefined();
     });
 
     it("sums PM and CM with the server's display cost", () => {

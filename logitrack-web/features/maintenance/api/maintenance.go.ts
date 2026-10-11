@@ -13,7 +13,7 @@
 import { infiniteQueryOptions, type QueryClient } from "@tanstack/react-query";
 import { goFetch, goPath, goUrl } from "@/lib/goFetch";
 import { goInfiniteQueryFn, goNextPageParam, type GoPage } from "@/lib/goQuery";
-import { uploadToGo } from "@/lib/goUpload";
+import { assertUploadable, PartialCreateError, uploadToGo } from "@/lib/goUpload";
 import { getQueryClient } from "@/lib/queryClient";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
 
@@ -162,6 +162,7 @@ async function invalidateMaintenance(truckId: string | null | undefined, client:
 
 /** Uploads new images under the record and returns their keys (`maintenance_file`, variant `image`). */
 async function uploadImages(recordId: string, files: File[]): Promise<string[]> {
+    assertUploadable(files.map((file) => ({ file, purpose: "maintenance_file" as const })));
     const keys: string[] = [];
     for (const file of files) keys.push(await uploadToGo(file, { purpose: "maintenance_file", entityId: recordId, variant: "image" }));
     return keys;
@@ -169,13 +170,23 @@ async function uploadImages(recordId: string, files: File[]): Promise<string[]> 
 
 /**
  * Creates a record (one transaction also puts the truck under maintenance), then uploads its images and
- * links them with a `PATCH` (every upload names its entity, developer-spec.md §9.4).
+ * links them with a `PATCH` (every upload names its entity, developer-spec.md §9.4). A file Go would
+ * refuse (JPEG, PNG, WebP or PDF up to 10 MiB) throws `UploadRefusedError` before the `POST`; a failure
+ * after the record exists throws `PartialCreateError` with the record (the lists are refreshed first), so
+ * the caller retries with `updateMaintenance` on it instead of creating a second record.
  */
 export async function createMaintenance(input: MaintenanceInput, images: File[] = [], client: QueryClient = getQueryClient()) {
-    let out = await goFetch<MaintenanceRecordDTO>(MAINTENANCE_PATH, { method: "POST", body: input });
-    if (images.length > 0) {
-        const keys = await uploadImages(out.id, images);
-        out = await goFetch<MaintenanceRecordDTO>(goPath`/v1/maintenance/${out.id}`, { method: "PATCH", body: { files: { images: keys } } });
+    assertUploadable(images.map((file) => ({ file, purpose: "maintenance_file" as const })));
+    const created = await goFetch<MaintenanceRecordDTO>(MAINTENANCE_PATH, { method: "POST", body: input });
+    let out = created;
+    try {
+        if (images.length > 0) {
+            const keys = await uploadImages(created.id, images);
+            out = await goFetch<MaintenanceRecordDTO>(goPath`/v1/maintenance/${created.id}`, { method: "PATCH", body: { files: { images: keys } } });
+        }
+    } catch (err) {
+        await invalidateMaintenance(created.truckId, client);
+        throw new PartialCreateError(created, err);
     }
     await invalidateMaintenance(out.truckId, client);
     return out;

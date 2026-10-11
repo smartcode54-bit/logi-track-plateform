@@ -150,4 +150,8 @@ export default {
     "maintenance.go.allStatuses": "All statuses",
     "maintenance.go.pickTruck": "Choose the truck; its maintenance page opens with the form.",
     "maintenance.go.openTruck": "Open",
+    "maintenance.go.fileType": "{name}: only JPEG, PNG, WebP or PDF files can be attached.",
+    "maintenance.go.fileTooLarge": "{name} is larger than 10 MB.",
+    "maintenance.go.photoNotAttached": "The record was saved, but the file was not attached. Save again to attach it.",
+    "maintenance.go.queueLoaded": "{status}: {loaded} of {total} loaded",
 };

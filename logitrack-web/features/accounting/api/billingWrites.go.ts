@@ -12,9 +12,16 @@
  * | plan date | `PATCH /v1/tasks/{id}` `{date}` | T34 (T28 shipped only the tenant reassignment) |
  * | delivered time | `PATCH /v1/trips/{id}` `{deliveredAt}` | T34 |
  *
- * The routes are the catalogue's contracts; until their owners merge they answer `404 not_found`, which
- * the pages show like any Go error. Each write invalidates the keys it changes: the month's billing
- * prefix and `['income']` (R89: never the whole cache).
+ * The routes are the catalogue's contracts. Until their owners merge they fail with a Go error, which the
+ * pages show like any other (measured on mv-go against the mounted route groups):
+ * - plan date: `PATCH /v1/tasks/{id}` exists as T28's reassignment-only route, so `{date}` gets
+ *   `422 invalid_argument` (`date: not_supported`, `tenantId: required`), or `403 permission_denied`
+ *   without `operations:manage_tasks`; it can never reassign a task (unknown fields are refused);
+ * - delivered time and the three billing jobs: `GET /v1/trips/:id` and `GET /v1/jobs/:id` exist, so
+ *   `PATCH /v1/trips/{id}` and `POST /v1/jobs/billing.*` get `405 method_not_allowed` (`Allow: GET, HEAD`);
+ * - trip and standby recompute, manual price, standby customer: `404 not_found`.
+ * Each write invalidates the keys it changes: the month's billing prefix and `['income']` (R89: never the
+ * whole cache).
  */
 import type { QueryClient } from "@tanstack/react-query";
 import { goFetch, goPath } from "@/lib/goFetch";

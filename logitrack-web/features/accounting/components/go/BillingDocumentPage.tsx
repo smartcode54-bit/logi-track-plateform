@@ -46,6 +46,7 @@ import {
     INVOICE_TYPES,
     invalidateBillingMonth,
     missingBillingDateQuery,
+    rowsParamsComplete,
     standbyDiagnosticsQuery,
     type BillingRowDTO,
     type BillingRowsDTO,
@@ -377,12 +378,19 @@ export function BillingDocumentPage() {
     });
     const diag = useQuery(standbyDiagnosticsQuery(loaded?.customerId ?? "", loaded?.year ?? 0, loaded?.month ?? 0, loaded !== null));
     const missing = useQuery(missingBillingDateQuery(loaded?.customerId ?? "", loaded?.year ?? 0, loaded?.month ?? 0, loaded !== null));
-    const data = rows.data;
+    // Go refuses an empty type or category list (422), so with a group unticked the rows query does not run
+    // and the page asks for a tick. The toggle panel stays on screen whenever a period is loaded, its counts
+    // from the last answer (the placeholder while the query is off, nothing after an error), so a failed or
+    // empty selection can always be corrected there.
+    const complete = rowsParamsComplete(params);
+    const data = complete ? rows.data : undefined;
+    const panel = rows.data;
 
     const load = () => {
         const next = { customerId, year, month };
         if (loaded && loaded.customerId === next.customerId && loaded.year === next.year && loaded.month === next.month) {
-            void rows.refetch();
+            // refetch() runs even a disabled query: never with an empty list.
+            if (complete) void rows.refetch();
             void diag.refetch();
             void missing.refetch();
         } else {
@@ -537,7 +545,7 @@ export function BillingDocumentPage() {
         [t, showActualPickup]
     );
 
-    const options = data?.filterOptions ?? {};
+    const options = panel?.filterOptions ?? {};
     const typeLabel: Record<string, string> = {
         trip: t("accounting.billingDocument.types.trip"),
         standby: t("accounting.billingDocument.types.standby"),
@@ -619,8 +627,8 @@ export function BillingDocumentPage() {
                     </Button>
                 </CardContent>
 
-                {data ? (
-                    <CardContent className="flex flex-wrap items-end gap-4 border-t pt-4">
+                {loaded ? (
+                    <CardContent className="flex flex-wrap items-end gap-4 border-t pt-4" data-testid="row-toggles">
                         <div className="space-y-1">
                             <Label>{t("accounting.billingDocument.filters.licensePlate")}</Label>
                             <Select value={params.plate || "__all__"} onValueChange={(v) => setParams((p) => ({ ...p, plate: v === "__all__" ? "" : v }))}>
@@ -703,7 +711,7 @@ export function BillingDocumentPage() {
                                         <span className={`inline-block h-2 w-2 rounded-full ${TYPE_COLORS[ty]}`} />
                                         {typeLabel[ty]}
                                         <Badge variant="secondary" className="px-1.5 py-0 text-xs">
-                                            {data.typeCounts[ty] ?? 0}
+                                            {panel?.typeCounts[ty] ?? 0}
                                         </Badge>
                                     </label>
                                 ))}
@@ -720,7 +728,7 @@ export function BillingDocumentPage() {
                                         />
                                         {categoryLabel[c]}
                                         <Badge variant="secondary" className="px-1.5 py-0 text-xs">
-                                            {data.categoryCounts[c] ?? 0}
+                                            {panel?.categoryCounts[c] ?? 0}
                                         </Badge>
                                     </label>
                                 ))}
@@ -730,7 +738,7 @@ export function BillingDocumentPage() {
                 ) : null}
             </Card>
 
-            <ApiErrorAlert error={rows.error} title={t("accounting.billingDocument.loadError")} />
+            {complete ? <ApiErrorAlert error={rows.error} title={t("accounting.billingDocument.loadError")} /> : null}
             {diag.error ? <ApiErrorAlert error={diag.error} title={t("accounting.billingDocument.standbyIssues.queryFailedTitle")} /> : null}
 
             {loaded && diag.data ? (
@@ -867,6 +875,12 @@ export function BillingDocumentPage() {
                             resetScrollKey={JSON.stringify([loaded, params])}
                             maxHeight={640}
                         />
+                    </CardContent>
+                </Card>
+            ) : loaded && !complete ? (
+                <Card>
+                    <CardContent className="pt-6 text-center text-sm text-amber-600" data-testid="toggles-incomplete">
+                        {t("accounting.go.billingDocument.tickOne")}
                     </CardContent>
                 </Card>
             ) : !rows.isFetching ? (

@@ -150,4 +150,8 @@ export default {
     "maintenance.go.allStatuses": "ทุกสถานะ",
     "maintenance.go.pickTruck": "เลือกรถ แล้วหน้าซ่อมบำรุงของรถคันนั้นจะเปิดพร้อมฟอร์ม",
     "maintenance.go.openTruck": "เปิด",
+    "maintenance.go.fileType": "{name}: แนบได้เฉพาะไฟล์ JPEG, PNG, WebP หรือ PDF",
+    "maintenance.go.fileTooLarge": "{name} มีขนาดเกิน 10 MB",
+    "maintenance.go.photoNotAttached": "บันทึกรายการแล้ว แต่ยังแนบไฟล์ไม่สำเร็จ กดบันทึกอีกครั้งเพื่อแนบ",
+    "maintenance.go.queueLoaded": "{status}: โหลดแล้ว {loaded} จาก {total}",
 };

@@ -10,7 +10,22 @@ import { queryKeys } from "@/lib/queryKeys";
 import { fakeWeb, goErr, json } from "@/test-utils/fakeWeb";
 import { probeGoDownload } from "@/lib/goDownload";
 
-import { billingRowsQuery, billingRowsQueryParams, createStatement, DEFAULT_ROWS_PARAMS, DOCUMENT_POLL_LIMIT_MS, DOCUMENT_POLL_MS, documentPath, statementQuery, statementsQuery } from "./billing.go";
+import {
+    billingRowsQuery,
+    canMoveStatement,
+    createStatement,
+    DEFAULT_ROWS_PARAMS,
+    DOCUMENT_POLL_LIMIT_MS,
+    DOCUMENT_POLL_MS,
+    documentPath,
+    documentsPending,
+    rowsParamsComplete,
+    statementQuery,
+    statementsQuery,
+} from "./billing.go";
+import { PartialCreateError, UploadRefusedError } from "@/lib/goUpload";
+import { walkComplete } from "../components/go/IncomePage";
+import { isLegacyXls } from "../components/go/TollImportDialog";
 import { computeTripBilling, startBillingJob } from "./billingWrites.go";
 import { expensePatchOf } from "../components/go/ExpenseDetailDialog";
 import { auditFilter } from "../components/go/ExpenseAuditPage";
@@ -18,6 +33,11 @@ import { effectiveStatus, statementStats } from "../components/go/BillingResultP
 import { fuelAdjustmentInput } from "../components/go/rateCard/FuelAdjustmentsTab";
 import { parseRateSheet } from "../components/go/rateCard/RateImportDialog";
 import {
+    attachExpenseFiles,
+    bulkExpenseStatus,
+    BulkStatusError,
+    createExpense,
+    EXPENSES_BULK_MAX,
     expensesQuery,
     fuelEfficiency,
     importTolls,
@@ -27,7 +47,7 @@ import {
     type ExpenseDTO,
 } from "./expenses.go";
 import { fuelHistoryTable, matchesFuelType, type FuelSnapshotDTO } from "./fuel.go";
-import { incomeRows, incomeStandbyQuery, incomeSummary, incomeTripsQuery, standbyIncomeRow, tripIncomeRow, type IncomeTripDTO } from "./income.go";
+import { incomeRows, incomeStandbyQuery, incomeSummary, incomeTripsQuery, standbyIncomeRow, tripIncomeRow, unpricedIncomeRows, type IncomeTripDTO } from "./income.go";
 import { filterRateEntries, rateEntriesQuery, voidRateEntry, type RateEntryDTO } from "./rateCard.go";
 import { rateCardChangedKeys } from "./rateCardKeys";
 
@@ -130,13 +150,21 @@ describe("rate card: one key per table, a write invalidates only what it touched
 describe("income: the date range is a server filter (AC 2)", () => {
     it("asks Go for the delivered axis of the range, by billing party, 200 per page", async () => {
         const web = fakeWeb();
-        web.on("GET", "/api/go/v1/trips", () => json(200, { data: [] }));
+        // Mirrors Go's ListTrips: `status` is a created-axis filter, any other axis answers 422
+        // (internal/operations/trips.go `not_on_axis`; Appendix B §B.2.12).
+        web.on("GET", "/api/go/v1/trips", (c) => {
+            const q = Object.fromEntries(query(c.url));
+            if (q.status !== undefined && (q.axis ?? "created") !== "created") {
+                return goErr(422, "invalid_argument", { fields: [{ field: "status", reason: "not_on_axis" }] });
+            }
+            return json(200, { data: [] });
+        });
         web.on("GET", "/api/go/v1/standby", () => json(200, { data: [] }));
         await runQueryFn(incomeTripsQuery({ from: "2026-01-01", to: "2026-03-31", party: "p1" }));
         await runQueryFn(incomeStandbyQuery({ from: "2026-01-01", to: "2026-03-31", party: "all" }));
+        // toEqual: no `status` rides along on the delivered axis.
         expect(Object.fromEntries(query(web.calls[0].url))).toEqual({
             axis: "delivered",
-            status: "delivered",
             from: "2026-01-01",
             to: "2026-03-31",
             customerId: "p1",
@@ -181,6 +209,22 @@ describe("income: the date range is a server filter (AC 2)", () => {
             { customerId: "c1", count: 2, total: 1500 },
             { customerId: "c2", count: 1, total: 300 },
         ]);
+    });
+});
+
+describe("income: the export and the missing-billing fallback", () => {
+    it("writes only a range walked to its end without an error", () => {
+        const done = { status: "success", isError: false, hasNextPage: false };
+        expect(walkComplete(done, true)).toBe(true);
+        expect(walkComplete({ ...done, hasNextPage: true }, true)).toBe(false); // the walk's bound
+        expect(walkComplete({ status: "error", isError: true, hasNextPage: true }, true)).toBe(false); // a page failed
+        expect(walkComplete({ status: "pending", isError: false, hasNextPage: false }, true)).toBe(false);
+        expect(walkComplete({ status: "pending", isError: false, hasNextPage: false }, false)).toBe(true); // not wanted
+    });
+
+    it("lists the loaded rows without a price for a user who cannot read the billing rows", () => {
+        const rows = [{ id: "a", estimateThb: 100 }, { id: "b", estimateThb: null, unpricedReason: "no_rate" }] as never[];
+        expect(unpricedIncomeRows(rows).map((r: { id: string }) => r.id)).toEqual(["b"]);
     });
 });
 
@@ -267,6 +311,84 @@ describe("expenses: type and status are server filters (AC 3)", () => {
     });
 });
 
+describe("expenses: photos and bulk approval", () => {
+    const image = (name: string, type: string, size = 10) => new File([new Uint8Array(size)], name, { type });
+    const row = { id: "x1", type: "fuel", status: "approved", date: "2026-10-01T03:00:00Z", amountThb: 3000 } as ExpenseDTO;
+
+    it("refuses a photo Go would refuse before anything is written", async () => {
+        const web = fakeWeb();
+        await expect(createExpense({ type: "fuel", driverId: "d1", date: "2026-10-01", amountThb: 3000 }, { receipt: image("r.heic", "image/heic") })).rejects.toBeInstanceOf(
+            UploadRefusedError
+        );
+        await expect(
+            createExpense({ type: "fuel", driverId: "d1", date: "2026-10-01", amountThb: 3000 }, { odometer: image("o.jpg", "image/jpeg", 10 * 1024 * 1024 + 1) })
+        ).rejects.toMatchObject({ reason: "too_large" });
+        expect(web.calls).toHaveLength(0);
+    });
+
+    it("a photo failing after the row exists hands the row back; the retry attaches to it and never posts again", async () => {
+        const web = fakeWeb();
+        web.on("POST", "/api/go/v1/expenses", () => json(201, { data: row }));
+        let presigns = 0;
+        web.on("POST", "/api/go/v1/uploads/presign", () => {
+            presigns += 1;
+            return presigns === 1 ? goErr(503, "unavailable") : json(200, { data: { key: "expenses/x1/receipt-1.jpg", url: "https://s3.test/put", method: "PUT" } });
+        });
+        web.on("PUT", "https://s3.test/put", () => new Response(null, { status: 200 }));
+        web.on("PATCH", "/api/go/v1/expenses/x1", () => json(200, { data: { ...row, receiptKey: "expenses/x1/receipt-1.jpg" } }));
+        const client = getQueryClient();
+        client.setQueryData(queryKeys.expenses({}), 1);
+        let err: unknown;
+        try {
+            await createExpense({ type: "fuel", driverId: "d1", date: "2026-10-01", amountThb: 3000 }, { receipt: image("r.jpg", "image/jpeg") }, client);
+        } catch (e) {
+            err = e;
+        }
+        expect(err).toBeInstanceOf(PartialCreateError);
+        expect((err as PartialCreateError<ExpenseDTO>).entity.id).toBe("x1");
+        // The list shows the saved row even though its photo failed.
+        expect(client.getQueryState(queryKeys.expenses({}))?.isInvalidated).toBe(true);
+        const out = await attachExpenseFiles((err as PartialCreateError<ExpenseDTO>).entity, { receipt: image("r.jpg", "image/jpeg") }, client);
+        expect(out.receiptKey).toBe("expenses/x1/receipt-1.jpg");
+        expect(web.count("POST", "/api/go/v1/expenses")).toBe(1);
+        expect(web.calls.find((c) => c.method === "PATCH")!.body).toEqual({ receiptKey: "expenses/x1/receipt-1.jpg" });
+    });
+
+    it("approves any number of rows in requests of at most 500 ids, in order", async () => {
+        const web = fakeWeb();
+        web.on("POST", "/api/go/v1/expenses/bulk-status", (c) => json(200, { data: (c.body as { ids: string[] }).ids.map((id) => ({ id, pmCheck: null })) }));
+        const ids = Array.from({ length: 1200 }, (_, i) => `e${i}`);
+        const out = await bulkExpenseStatus(ids, "approved");
+        const sizes = web.calls.map((c) => (c.body as { ids: string[] }).ids.length);
+        expect(sizes).toEqual([EXPENSES_BULK_MAX, EXPENSES_BULK_MAX, 200]);
+        expect(out.map((r) => r.id)).toEqual(ids);
+    });
+
+    it("a failed request stops the run and says how many were approved", async () => {
+        const web = fakeWeb();
+        let n = 0;
+        web.on("POST", "/api/go/v1/expenses/bulk-status", (c) => {
+            n += 1;
+            return n === 2 ? goErr(409, "failed_precondition") : json(200, { data: (c.body as { ids: string[] }).ids.map((id) => ({ id, pmCheck: null })) });
+        });
+        const client = getQueryClient();
+        client.setQueryData(queryKeys.expenses({}), 1);
+        const err = await bulkExpenseStatus(Array.from({ length: 1200 }, (_, i) => `e${i}`), "approved", undefined, client).catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(BulkStatusError);
+        expect((err as BulkStatusError).done).toHaveLength(500);
+        expect((err as BulkStatusError).total).toBe(1200);
+        expect(web.calls).toHaveLength(2);
+        expect(client.getQueryState(queryKeys.expenses({}))?.isInvalidated).toBe(true);
+    });
+
+    it("recognises a legacy .xls workbook by name or by its OLE2 header", async () => {
+        expect(await isLegacyXls(new File(["x"], "statement.XLS"))).toBe(true);
+        expect(await isLegacyXls(new File([new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0xa1])], "statement.xlsx"))).toBe(true);
+        expect(await isLegacyXls(new File([new Uint8Array([0x50, 0x4b, 0x03, 0x04])], "statement.xlsx"))).toBe(false);
+        expect(await isLegacyXls(new File(["a,b\n1,2"], "statement.csv", { type: "text/csv" }))).toBe(false);
+    });
+});
+
 describe("billing aggregates and statements", () => {
     it("puts every parameter that changes the answer in the rows key and the request", async () => {
         const web = fakeWeb();
@@ -289,8 +411,15 @@ describe("billing aggregates and statements", () => {
             categories: "PRIMARY,SUPPLEMENTARY,unverified",
             plate: "70-1",
         });
-        // No toggle ticked is sent as an empty list ("none"), never left out ("all").
-        expect(billingRowsQueryParams("c1", 2026, 9, { ...DEFAULT_ROWS_PARAMS, types: [] }).types).toBe("");
+    });
+
+    it("never asks Go for an empty type or category list (Go answers 422 required; absent means all)", () => {
+        expect(rowsParamsComplete(DEFAULT_ROWS_PARAMS)).toBe(true);
+        expect(rowsParamsComplete({ types: [], categories: ["PRIMARY"] })).toBe(false);
+        expect(rowsParamsComplete({ types: ["trip"], categories: [] })).toBe(false);
+        expect(billingRowsQuery("c1", 2026, 9, { ...DEFAULT_ROWS_PARAMS, types: [] }).enabled).toBe(false);
+        expect(billingRowsQuery("c1", 2026, 9, { ...DEFAULT_ROWS_PARAMS, categories: [] }).enabled).toBe(false);
+        expect(billingRowsQuery("c1", 2026, 9, { ...DEFAULT_ROWS_PARAMS, types: ["standby"] }).enabled).toBe(true);
     });
 
     it("a new statement invalidates the statements and the month's billing keys only", async () => {
@@ -317,14 +446,31 @@ describe("billing aggregates and statements", () => {
         expect(Object.fromEntries(query(web.calls[1].url))).toEqual({ status: "paid", limit: "50" });
     });
 
-    it("polls a statement every 5 s while a document renders and the stream is closed, for at most 2 min", () => {
-        const interval = (streamOpen: boolean, openedAt: number, documents: { status: string }[]) =>
-            (statementQuery("s1", streamOpen, openedAt).refetchInterval as (q: unknown) => number | false)({ state: { data: { documents } } });
+    it("polls a statement every 5 s while a document is still to come and the stream is closed, for at most 2 min", () => {
+        const ready = (kind: string) => ({ kind, status: "ready" });
+        const invoiceSet = [ready("bundle_zip"), ready("invoice_summary_pdf"), ready("invoice_detail_xlsx")];
+        const interval = (streamOpen: boolean, openedAt: number, documents: { kind?: string; status: string }[], status = "draft") =>
+            (statementQuery("s1", streamOpen, openedAt).refetchInterval as (q: unknown) => number | false)({ state: { data: { status, documents } } });
         const now = Date.now();
-        expect(interval(false, now, [{ status: "rendering" }])).toBe(DOCUMENT_POLL_MS);
-        expect(interval(true, now, [{ status: "rendering" }])).toBe(false);
-        expect(interval(false, now, [{ status: "ready" }])).toBe(false);
-        expect(interval(false, now - DOCUMENT_POLL_LIMIT_MS - 1, [{ status: "pending" }])).toBe(false);
+        expect(interval(false, now, [{ kind: "bundle_zip", status: "rendering" }])).toBe(DOCUMENT_POLL_MS);
+        expect(interval(true, now, [{ kind: "bundle_zip", status: "rendering" }])).toBe(false);
+        expect(interval(false, now, invoiceSet)).toBe(false);
+        expect(interval(false, now - DOCUMENT_POLL_LIMIT_MS - 1, [{ kind: "bundle_zip", status: "pending" }])).toBe(false);
+        // Go writes the document rows only when the render job starts: a new statement answers `documents: []`.
+        expect(interval(false, now, [])).toBe(DOCUMENT_POLL_MS);
+        // Marked paid: the receipt is still to come; a failed kind has its row and is not waited for.
+        expect(interval(false, now, invoiceSet, "paid")).toBe(DOCUMENT_POLL_MS);
+        expect(interval(false, now, [...invoiceSet, { kind: "receipt_pdf", status: "failed" }], "paid")).toBe(false);
+        expect(documentsPending({ status: "cancelled", documents: [] })).toBe(false);
+    });
+
+    it("offers only the statement moves Go's state machine allows", () => {
+        expect(canMoveStatement("draft", "sent")).toBe(true);
+        expect(canMoveStatement("draft", "paid")).toBe(false);
+        expect(canMoveStatement("sent", "paid")).toBe(true);
+        expect(canMoveStatement("sent", "cancelled")).toBe(true);
+        expect(canMoveStatement("paid", "cancelled")).toBe(false);
+        expect(canMoveStatement("cancelled", "sent")).toBe(false);
     });
 
     it("counts the loaded statements without the cancelled ones and marks the overdue", () => {

@@ -35,6 +35,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 import {
+    canMoveStatement,
     deleteStatement,
     setStatementStatus,
     statementRows,
@@ -328,17 +329,17 @@ export function BillingResultPage() {
                                                             </DropdownMenuTrigger>
                                                             <DropdownMenuContent align="end">
                                                                 <DropdownMenuItem onClick={() => setDocsFor(s)}>{t("accounting.billingResult.documents.open")}</DropdownMenuItem>
-                                                                {canManage && s.status === "draft" ? (
+                                                                {canManage && canMoveStatement(s.status, "sent") ? (
                                                                     <DropdownMenuItem onClick={() => void changeStatus(s, "sent")}>
                                                                         {t("accounting.billingResult.action.markSent")}
                                                                     </DropdownMenuItem>
                                                                 ) : null}
-                                                                {canManage && (s.status === "draft" || s.status === "sent") ? (
+                                                                {canManage && canMoveStatement(s.status, "paid") ? (
                                                                     <DropdownMenuItem onClick={() => void changeStatus(s, "paid")}>
                                                                         {t("accounting.billingResult.action.markPaid")}
                                                                     </DropdownMenuItem>
                                                                 ) : null}
-                                                                {canManage && s.status !== "cancelled" && s.status !== "paid" ? (
+                                                                {canManage && canMoveStatement(s.status, "cancelled") ? (
                                                                     <DropdownMenuItem className="text-destructive" onClick={() => void changeStatus(s, "cancelled")}>
                                                                         {t("accounting.billingResult.action.cancel")}
                                                                     </DropdownMenuItem>

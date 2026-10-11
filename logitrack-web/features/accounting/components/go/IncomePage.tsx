@@ -9,8 +9,11 @@
  * browser, so older trips of a range were silently missing (`income/page.tsx:336-342,597-621`). Prices
  * are the stored snapshots the server wrote (the `billing` block, `accounting:view_income`), never
  * computed here. The missing-billing tab is `GET /v1/billing/rows?customerId=all&year&month` (unpriced
- * rows with their reason). Totals cover the loaded rows; "Load all" and the export walk every page of the
- * range (xlsx loads on the export click).
+ * rows with their reason) for `accounting:billing_document` holders, the route's capability; a user with
+ * `accounting:view_income` only (the default operation_staff) gets the unpriced rows of the loaded range
+ * instead, as the Firestore page did, never a 403. Totals cover the loaded rows; "Load all" and the export
+ * walk every page of the range (xlsx loads on the export click), and the export stops rather than write a
+ * partial range.
  *
  * Writes call Go and invalidate `['income']` and the month's billing keys: recompute and manual price
  * (T38 routes), the plan date (`PATCH /v1/tasks/{id}`) and the delivered time (`PATCH /v1/trips/{id}`)
@@ -47,6 +50,7 @@ import {
     incomeSummary,
     incomeRows,
     incomeTripsQuery,
+    unpricedIncomeRows,
     type IncomeRecordType,
     type IncomeRow,
 } from "../../api/income.go";
@@ -56,6 +60,11 @@ import { JobCategoryBadge } from "./badges";
 import { ApiErrorAlert, CustomerSelect, formatDateTime, formatDay, formatThb, MONTHS, monthName, useCustomerPicks, yearOptions } from "./shared";
 
 const col = createColumnHelper<IncomeRow>();
+
+/** A list the export may write: not wanted, or loaded to its last page without an error. */
+export function walkComplete(q: { status: string; isError: boolean; hasNextPage: boolean }, wanted: boolean): boolean {
+    return !wanted || (q.status === "success" && !q.isError && !q.hasNextPage);
+}
 
 function ManualPriceDialog({ row, onClose }: { row: IncomeRow; onClose: () => void }) {
     const { t } = useLanguage();
@@ -149,13 +158,73 @@ function DateCellEditor({ initial, kind, onSave, onCancel }: { initial: string; 
     );
 }
 
+/**
+ * The missing-billing tab of a user without `accounting:billing_document` (`GET /v1/billing/rows` needs
+ * it): the loaded income rows that carry no price, with the reason stored on them. The rows come from the
+ * trips and standby lists `accounting:view_income` already reads, so the tab never calls a route the role
+ * cannot use.
+ */
+function LoadedMissingBillingTab({ rows, hasMore, customerName }: { rows: IncomeRow[]; hasMore: boolean; customerName: (id: string | null) => string }) {
+    const { t } = useLanguage();
+    const unpriced = useMemo(() => unpricedIncomeRows(rows), [rows]);
+    return (
+        <div className="space-y-4" data-testid="missing-billing-loaded">
+            <p className="text-sm text-muted-foreground">{t("accounting.go.income.missingLoadedHint")}</p>
+            {hasMore ? <p className="text-xs text-amber-600">{t("accounting.go.statsOfLoaded")}</p> : null}
+            {unpriced.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">{t("accounting.income.missing.noMissing")}</p>
+            ) : (
+                <div className="max-h-[600px] overflow-auto rounded-md border">
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>{t("accounting.income.table.tripId")}</TableHead>
+                                <TableHead>{t("accounting.income.missing.table.customer")}</TableHead>
+                                <TableHead>{t("accounting.income.table.origin")}</TableHead>
+                                <TableHead>{t("accounting.income.table.destination")}</TableHead>
+                                <TableHead>{t("accounting.income.missing.table.vehicleClass")}</TableHead>
+                                <TableHead>{t("accounting.income.table.deliveredAt")}</TableHead>
+                                <TableHead>{t("accounting.income.missing.table.reason")}</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {unpriced.map((r) => (
+                                <TableRow key={r.id}>
+                                    <TableCell className="font-mono text-xs">
+                                        {r.label}
+                                        {r.recordType === "standby" ? (
+                                            <Badge variant="outline" className="ml-1 px-1 py-0 text-[10px]">
+                                                STANDBY
+                                            </Badge>
+                                        ) : null}
+                                    </TableCell>
+                                    <TableCell className="text-xs">{customerName(r.customerId)}</TableCell>
+                                    <TableCell className="text-xs">{r.origin || "—"}</TableCell>
+                                    <TableCell className="text-xs">{r.destination || "—"}</TableCell>
+                                    <TableCell className="text-xs">{r.vehicleClass ?? "—"}</TableCell>
+                                    <TableCell className="text-xs">{formatDateTime(r.deliveredAt)}</TableCell>
+                                    <TableCell className="text-xs">
+                                        {t(`accounting.billingDocument.unpriced.reason.${r.unpricedReason ?? "not_computed"}`, r.unpricedReason ?? "not_computed")}
+                                    </TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                </div>
+            )}
+        </div>
+    );
+}
+
 function MissingBillingTab({ canRecompute, customerName }: { canRecompute: boolean; customerName: (id: string | null) => string }) {
     const { t, language } = useLanguage();
     const now = new Date();
     const [year, setYear] = useState(now.getFullYear());
     const [month, setMonth] = useState(now.getMonth() + 1);
     const [busy, setBusy] = useState<string | null>(null);
-    const rows = useQuery(billingRowsQuery(ALL_PARTIES, year, month, DEFAULT_ROWS_PARAMS));
+    // Rendered only for `accounting:billing_document` holders (the route's capability); W5 gate kept here too.
+    const canRows = useCan("accounting:billing_document").allowed;
+    const rows = useQuery(billingRowsQuery(ALL_PARTIES, year, month, DEFAULT_ROWS_PARAMS, canRows));
     const unpriced = rows.data?.unpriced ?? [];
     const recompute = async (u: UnpricedRowDTO) => {
         if (!u.tripId) return;
@@ -274,6 +343,7 @@ export function IncomePage() {
     const canOverride = useCan("accounting:override_price").allowed;
     const canEditTrips = useCan("operations:edit_trip_details").allowed;
     const canEditTasks = useCan("operations:manage_tasks").allowed;
+    const canBillingRows = useCan("accounting:billing_document").allowed;
     const customers = useCustomerPicks();
     const maps = useMemo(() => customerMaps(customers.list), [customers.list]);
     const now = new Date();
@@ -323,7 +393,11 @@ export function IncomePage() {
         },
     };
 
-    /** Walks every remaining page of the range (the totals and the export need them all); resolves the pages. */
+    /**
+     * Walks every remaining page of the range (the totals and the export need them all); resolves the pages
+     * and whether the walk reached the end of every wanted list (`fetchNextPage` resolves on an error, it
+     * does not throw, so the result says it).
+     */
     const loadAll = async () => {
         setWalking(true);
         let tr = trips;
@@ -343,7 +417,11 @@ export function IncomePage() {
         } finally {
             setWalking(false);
         }
-        return { trips: tr.data?.pages, standby: sb.data?.pages };
+        return {
+            trips: tr.data?.pages,
+            standby: sb.data?.pages,
+            complete: walkComplete(tr, wantTrips) && walkComplete(sb, wantStandby),
+        };
     };
 
     const exportExcel = async () => {
@@ -351,6 +429,11 @@ export function IncomePage() {
         try {
             // The rows of the whole range, from the pages the walk returned (this render's rows are stale).
             const pages = await loadAll();
+            // A failed page, a list still loading or the walk's bound: never write a partial range silently.
+            if (!pages.complete) {
+                toast.error(t("accounting.go.income.exportIncomplete"));
+                return;
+            }
             const all = incomeRows(pages.trips, pages.standby, rowOpts);
             const XLSX = await import("xlsx");
             const sheet = XLSX.utils.json_to_sheet(
@@ -670,7 +753,7 @@ export function IncomePage() {
                                     {rows.length}
                                 </Badge>
                             </TabsTrigger>
-                            <TabsTrigger value="missing-billing" className="gap-2">
+                            <TabsTrigger value="missing-billing" className="gap-2" data-testid="missing-billing-tab">
                                 <AlertTriangle className="h-4 w-4 text-amber-500" />
                                 {t("accounting.income.tabs.missingBilling")}
                             </TabsTrigger>
@@ -758,7 +841,11 @@ export function IncomePage() {
                             />
                         </TabsContent>
                         <TabsContent value="missing-billing" className="mt-4">
-                            <MissingBillingTab canRecompute={canRecompute} customerName={customerName} />
+                            {canBillingRows ? (
+                                <MissingBillingTab canRecompute={canRecompute} customerName={customerName} />
+                            ) : (
+                                <LoadedMissingBillingTab rows={rows} hasMore={Boolean(hasMore)} customerName={customerName} />
+                            )}
                         </TabsContent>
                     </Tabs>
                 </CardContent>
