@@ -28,17 +28,17 @@ func TestNormalizeEmail(t *testing.T) {
 func TestEmailSubjectHashesTheLowerCasedAddress(t *testing.T) {
 	sum := sha256.Sum256([]byte("someone@example.test"))
 	want := hex.EncodeToString(sum[:])
-	for _, body := range []string{`{"email":"Someone@Example.Test"}`, `{"email":" someone@example.test ","name":"x"}`} {
-		if got := EmailSubject([]byte(body)); got != want {
-			t.Fatalf("%s: %q", body, got)
+	for _, email := range []string{"Someone@Example.Test", " someone@example.test "} {
+		if got := EmailSubject(email); got != want {
+			t.Fatalf("%q: %q", email, got)
 		}
 	}
-	for _, body := range []string{`{"email":"nope"}`, `not json`, `{}`, `{"email":3}`} {
-		if got := EmailSubject([]byte(body)); got != "" {
-			t.Fatalf("%s: %q, want the rule skipped", body, got)
+	for _, email := range []string{"nope", "", "Name <someone@example.test>"} {
+		if got := EmailSubject(email); got != "" {
+			t.Fatalf("%q: %q, want no subject", email, got)
 		}
 	}
-	if strings.Contains(EmailSubject([]byte(`{"email":"someone@example.test"}`)), "@") {
+	if strings.Contains(EmailSubject("someone@example.test"), "@") {
 		t.Fatal("the subject must not hold the address")
 	}
 }

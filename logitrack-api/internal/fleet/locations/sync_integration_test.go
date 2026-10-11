@@ -327,6 +327,17 @@ func TestProbeRunWritesNothing(t *testing.T) {
 	if status, res, _ := w.job(id); status != "succeeded" || res["httpStatus"] != 401.0 || res["vehicleCount"] != 0.0 {
 		t.Fatalf("probe 401 %s %v", status, res)
 	}
+	// A 2xx answer that cannot be read (an HTML page, a cut-off body) fails the probe as it would fail every sync; the
+	// status is kept and no vehicle count is reported.
+	f = &fake{status: cartrack.Status{HTTPStatus: 200}, err: errors.New("cartrack: response is not JSON")}
+	id, d = w.enqueue(map[string]any{"probe": true})
+	if err := w.consumer(f, now).Handle(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	if status, res, cause := w.job(id); status != "failed" || res["httpStatus"] != 200.0 || res["vehicleCount"] != nil ||
+		cause != "cartrack: response is not JSON" {
+		t.Fatalf("probe unreadable 2xx %s %v %q", status, res, cause)
+	}
 	id, d = w.enqueue(map[string]any{"probe": true})
 	if err := w.consumer(nil, now).Handle(ctx, d); err != nil {
 		t.Fatal(err)
@@ -336,5 +347,69 @@ func TestProbeRunWritesNothing(t *testing.T) {
 	}
 	if n := scan[int](w, `SELECT count(*) FROM vehicle_locations`); n != 0 {
 		t.Fatalf("a probe wrote %d positions", n)
+	}
+}
+
+// A truck whose GPS id was cleared or moved to another truck drops its old position at the next sync: the list holds
+// one row per truck that holds its GPS id, as the legacy document keyed by the GPS id followed its tracker.
+func TestSyncRemovesPositionsOfMovedOrClearedGPSIDs(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	f := &fake{status: cartrack.Status{HTTPStatus: 200, Vehicles: []cartrack.Vehicle{
+		vehicle("1001", 13.75, 100.50, "2026-10-11T02:55:00Z"), vehicle("2002", 13.60, 100.70, "2026-10-11T02:58:00Z")}}}
+	_, d := w.enqueue(map[string]any{"scheduledFor": now.Format(time.RFC3339)})
+	if err := w.consumer(f, now).Handle(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	if n := scan[int](w, `SELECT count(*) FROM vehicle_locations`); n != 2 {
+		t.Fatalf("%d rows after the first sync", n)
+	}
+	// A steward moves tracker 1001 from truck O to truck Y and clears truck A's id (as PATCH /v1/trucks/{id} would).
+	if _, err := w.etl.Exec(ctx, `UPDATE trucks SET gps_vehicle_id = NULL WHERE id IN ($1, $2)`, w.truckO, w.truckA); err != nil {
+		t.Fatal(err)
+	}
+	truckY := w.truck(w.O, "1กข-1004", "1001")
+	f.status.Vehicles = []cartrack.Vehicle{vehicle("1001", 14.10, 100.60, "2026-10-11T03:01:00Z"),
+		vehicle("2002", 13.61, 100.71, "2026-10-11T03:01:00Z")}
+	id, d := w.enqueue(map[string]any{"scheduledFor": now.Add(3 * time.Minute).Format(time.RFC3339)})
+	if err := w.consumer(f, now.Add(3*time.Minute)).Handle(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	if status, res, _ := w.job(id); status != "succeeded" || res["removed"] != 2.0 || res["updated"] != 1.0 || res["unmatched"] != 1.0 {
+		t.Fatalf("second sync %s %v", status, res)
+	}
+	if n := scan[int](w, `SELECT count(*) FROM vehicle_locations`); n != 1 {
+		t.Fatalf("%d rows, want only the truck that holds 1001 now", n)
+	}
+	if truck := scan[uuid.UUID](w, `SELECT truck_id FROM vehicle_locations WHERE gps_vehicle_id = '1001'`); truck != truckY {
+		t.Fatalf("1001 is on %s, want %s", truck, truckY)
+	}
+	// A run where nothing moved removes nothing.
+	id, d = w.enqueue(map[string]any{"scheduledFor": now.Add(6 * time.Minute).Format(time.RFC3339)})
+	if err := w.consumer(f, now.Add(6*time.Minute)).Handle(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	if _, res, _ := w.job(id); res["removed"] != 0.0 {
+		t.Fatalf("third sync %v", res)
+	}
+}
+
+// A NUL in a Cartrack text value (PostgreSQL text refuses it, SQLSTATE 22021) is dropped before the write, so one
+// vehicle cannot fail the sync of the whole fleet.
+func TestSyncStoresTextWithoutNUL(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	v := vehicle("1001", 13.75, 100.50, "2026-10-11T02:55:00Z")
+	v.PositionDescription, v.DriverName = "Rama IV\x00", "Som\x00chai"
+	f := &fake{status: cartrack.Status{HTTPStatus: 200, Vehicles: []cartrack.Vehicle{v, vehicle("2002", 13.60, 100.70, "2026-10-11T02:58:00Z")}}}
+	id, d := w.enqueue(map[string]any{"scheduledFor": now.Format(time.RFC3339)})
+	if err := w.consumer(f, now).Handle(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	if status, res, cause := w.job(id); status != "succeeded" || res["updated"] != 2.0 || res["tenants"] != 2.0 {
+		t.Fatalf("job %s %v %q", status, res, cause)
+	}
+	if got := scan[string](w, `SELECT position_description || '|' || driver_name_raw FROM vehicle_locations WHERE truck_id = $1`, w.truckO); got != "Rama IV|Somchai" {
+		t.Fatalf("stored %q", got)
 	}
 }

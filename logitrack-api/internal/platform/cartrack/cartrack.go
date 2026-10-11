@@ -254,6 +254,23 @@ func boolean(v any) *bool {
 
 func text(v any) string {
 	s, _ := v.(string)
+	return CleanText(s)
+}
+
+// CleanText is a Cartrack string as the sync stores it: NUL removed (PostgreSQL text holds none, SQLSTATE 22021, and
+// one such value would fail the whole sync transaction for every truck), every other C0 control and DEL replaced by a
+// space, then trimmed. JSON decoding already replaced invalid UTF-8 by U+FFFD, so NUL is the one byte PostgreSQL would
+// refuse.
+func CleanText(s string) string {
+	s = strings.Map(func(r rune) rune {
+		switch {
+		case r == 0:
+			return -1
+		case r < 0x20 || r == 0x7f:
+			return ' '
+		}
+		return r
+	}, s)
 	return strings.TrimSpace(s)
 }
 

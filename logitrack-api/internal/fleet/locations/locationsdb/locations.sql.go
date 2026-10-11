@@ -84,8 +84,10 @@ type ListVehicleLocationsRow struct {
 // Vehicle locations (T53, Appendix A §A.2.3, Appendix B §B.2.8): the latest Cartrack position per truck. The reads run
 // under db.WithPrincipal (RLS: G-tenant for staff, p_dispatch_read for dispatchers); the cartrack.sync consumer writes
 // in its system transaction.
-// GET /v1/vehicle-locations: every position the caller's RLS admits, or only those of the given trucks (vehicle_locations
-// holds one row per truck with a GPS id, so the list is bounded by the fleet; no page is needed).
+// GET /v1/vehicle-locations (staff): every position the caller's RLS admits, or only those of the given trucks
+// (vehicle_locations holds one row per truck that holds its GPS id, PruneVehicleLocations, so the list is bounded by the
+// fleet; no page is needed). A dispatcher or a customer-scope principal reads scope_vehicle_locations instead
+// (internal/scope/repo/scope_locations.sql, Appendix C §C.3.7).
 func (q *Queries) ListVehicleLocations(ctx context.Context, truckIds []uuid.UUID) ([]ListVehicleLocationsRow, error) {
 	rows, err := q.db.Query(ctx, listVehicleLocations, truckIds)
 	if err != nil {
@@ -121,6 +123,23 @@ func (q *Queries) ListVehicleLocations(ctx context.Context, truckIds []uuid.UUID
 		return nil, err
 	}
 	return items, nil
+}
+
+const pruneVehicleLocations = `-- name: PruneVehicleLocations :execrows
+DELETE FROM vehicle_locations v
+ WHERE v.truck_id::text || '/' || v.gps_vehicle_id <> ALL ($1::text[])
+`
+
+// The positions of trucks that no longer hold the GPS id they were written with (the id was cleared, moved to another
+// truck, or the truck moved into the quarantine tenant): removed in the sync transaction before the upserts, as the
+// legacy document keyed by GPSVehicleId followed its tracker (fn:cartrack.ts:166-185). keep holds "{truck_id}/{gps id}"
+// of every truck GPSTrucks returned in the same transaction, the GPS id trimmed as the sync maps it (keepKey in sync.go).
+func (q *Queries) PruneVehicleLocations(ctx context.Context, keep []string) (int64, error) {
+	result, err := q.db.Exec(ctx, pruneVehicleLocations, keep)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const upsertVehicleLocation = `-- name: UpsertVehicleLocation :one

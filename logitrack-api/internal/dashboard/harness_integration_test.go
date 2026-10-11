@@ -64,6 +64,7 @@ func TestMain(m *testing.M) {
 
 type world struct {
 	t        *testing.T
+	db       *pgtest.Database
 	pool     *pgxpool.Pool
 	etl      *pgx.Conn
 	rdb      redis.UniversalClient
@@ -92,7 +93,7 @@ func newWorld(t *testing.T, o worldOpts) *world {
 	if _, err := migratetest.Runner(t, d, migrations.FS).Up(ctx); err != nil {
 		t.Fatal(err)
 	}
-	w := &world{t: t, pool: d.Pool(t, db.RoleApp), tokens: map[string]string{}}
+	w := &world{t: t, db: d, pool: d.Pool(t, db.RoleApp), tokens: map[string]string{}}
 	var err error
 	if w.etl, err = pgx.Connect(ctx, d.URL(db.RoleETL)); err != nil {
 		t.Fatal(err)
@@ -343,14 +344,18 @@ func (r resp) list() []any {
 	return l
 }
 
-// call sends a request; bearer may be ""; headers are name/value pairs.
+// call sends a request; bearer may be ""; body is sent as JSON, or as it is when it is a []byte; headers are name/value
+// pairs.
 func (w *world) call(base, method, path, bearer string, body any, headers ...string) resp {
 	w.t.Helper()
 	var rd io.Reader
 	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
-			w.t.Fatal(err)
+		b, raw := body.([]byte)
+		if !raw {
+			var err error
+			if b, err = json.Marshal(body); err != nil {
+				w.t.Fatal(err)
+			}
 		}
 		rd = bytes.NewReader(b)
 	}

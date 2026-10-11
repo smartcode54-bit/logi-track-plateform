@@ -1,7 +1,7 @@
 package app
 
 import (
-	"github.com/gofiber/fiber/v3"
+	"context"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/dashboard"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet/locations"
@@ -16,10 +16,12 @@ import (
 // /v1/waitlist, DELETE /v1/waitlist/{id} (internal/forms). None is public: the form routes are reached only through
 // the BFF's unauthenticated POST /api/forms/* handlers (R44, R77), so the public listener answers 404 for them.
 //
-// The forms' rate limit (Appendix B §B.6.3): public_form_ip per client address (RATE_LIMIT_PUBLIC_FORMS, 5/h), then
-// public_form_email per email of the body (1/day, a code constant). The client address is the visitor's: the BFF
-// forwards X-Forwarded-For from an address of TRUSTED_PROXY_CIDRS (as for login_ip). Both forms spend the same two
-// buckets.
+// The forms' rate limit (Appendix B §B.6.3): public_form_ip per client address (RATE_LIMIT_PUBLIC_FORMS, 5/h) in the
+// route middleware, counting every post; then public_form_email per email (1/day, a code constant), spent by the forms
+// service only for a post that passed validation, in the transaction that stores it (forms.EmailLimit over
+// Limiter.Check: a 422 or a failed insert does not lock the visitor out for a day). The client address is the
+// visitor's: the BFF forwards X-Forwarded-For from an address of TRUSTED_PROXY_CIDRS (as for login_ip). Both forms
+// spend the same two buckets.
 func DashboardGroups(d APIDeps) []ingress.Group {
 	auth := d.Auth.RequireAuth()
 	groups := locations.Groups(d.Locations, auth)
@@ -30,9 +32,11 @@ func DashboardGroups(d APIDeps) []ingress.Group {
 		if !ip.Valid() {
 			ip = ratelimit.PublicFormIP.Default
 		}
-		o.FormLimit = d.Limiter.Middleware(d.RateLimitEnabled,
-			ratelimit.Rule{Bucket: ratelimit.PublicFormIP, Limit: ip, By: ratelimit.ByIP},
-			ratelimit.Rule{Bucket: ratelimit.PublicFormEmail, By: func(c fiber.Ctx) string { return forms.EmailSubject(c.Body()) }})
+		o.FormLimit = d.Limiter.Middleware(d.RateLimitEnabled, ratelimit.Rule{Bucket: ratelimit.PublicFormIP, Limit: ip, By: ratelimit.ByIP})
+		limiter, enabled := d.Limiter, d.RateLimitEnabled
+		o.EmailLimit = func(ctx context.Context, email string) error {
+			return limiter.Check(ctx, enabled, ratelimit.PublicFormEmail, ratelimit.Limit{}, forms.EmailSubject(email))
+		}
 	}
 	return append(groups, forms.Groups(d.Forms, o)...)
 }

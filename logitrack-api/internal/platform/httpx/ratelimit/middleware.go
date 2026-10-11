@@ -1,6 +1,8 @@
 package ratelimit
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/netip"
@@ -86,12 +88,58 @@ func (l *Limiter) Middleware(enabled bool, rules ...Rule) fiber.Handler {
 				continue
 			}
 			if !d.Allowed {
-				secs := d.RetryAfterSeconds()
-				c.Set(fiber.HeaderRetryAfter, strconv.Itoa(secs))
-				return httpx.NewError(http.StatusTooManyRequests, httpx.CodeResourceExhaust, "too many requests").
-					WithDetails(map[string]any{"bucket": r.Bucket.Name, "retryAfterSeconds": secs})
+				return RetryAfter(c, Denied(r.Bucket.Name, d))
 			}
 		}
 		return c.Next()
 	}
+}
+
+// Denied is the answer of a denied bucket (Appendix B §B.6.3): 429 resource_exhausted with details.bucket and
+// details.retryAfterSeconds. Middleware answers it with Retry-After; a handler that spends a bucket itself (Check) sets
+// the header through RetryAfter.
+func Denied(bucket string, d Decision) *httpx.Error {
+	return httpx.NewError(http.StatusTooManyRequests, httpx.CodeResourceExhaust, "too many requests").
+		WithDetails(map[string]any{"bucket": bucket, "retryAfterSeconds": d.RetryAfterSeconds()})
+}
+
+// RetryAfter sets Retry-After on c when err is a Denied answer (Appendix B §B.1.5) and returns err unchanged.
+func RetryAfter(c fiber.Ctx, err error) error {
+	var he *httpx.Error
+	if errors.As(err, &he) && he.Status == http.StatusTooManyRequests {
+		if secs, ok := he.Details["retryAfterSeconds"].(int); ok {
+			c.Set(fiber.HeaderRetryAfter, strconv.Itoa(secs))
+		}
+	}
+	return err
+}
+
+// Check spends one request of bucket b for subject where Middleware cannot: the subject or the moment to count is known
+// only inside the handler (public_form_email: the email of a body that passed validation, spent in the transaction
+// that stores it). lim zero is the bucket's default. It answers nil when the request is allowed, when enabled is false,
+// when subject is "" and when Redis cannot answer (fail open, logged, as Middleware); a denial is Denied (the caller
+// sets Retry-After through RetryAfter); an unusable limit is ErrInvalidLimit, a bug never treated as an outage.
+func (l *Limiter) Check(ctx context.Context, enabled bool, b Bucket, lim Limit, subject string) error {
+	if !enabled || subject == "" {
+		return nil
+	}
+	if lim == (Limit{}) {
+		lim = b.Default
+	}
+	d, err := l.AllowN(ctx, b.Name, subject, lim, 1)
+	if errors.Is(err, ErrInvalidLimit) {
+		return err
+	}
+	if err != nil {
+		log := zerolog.Ctx(ctx)
+		if log.GetLevel() == zerolog.Disabled {
+			log = &l.log
+		}
+		log.Warn().Err(err).Str("component", "ratelimit").Str("bucket", b.Name).Msg("rate limit unavailable, request allowed")
+		return nil
+	}
+	if !d.Allowed {
+		return Denied(b.Name, d)
+	}
+	return nil
 }

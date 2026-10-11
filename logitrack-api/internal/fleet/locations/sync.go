@@ -59,6 +59,7 @@ type SyncResult struct {
 	Unmatched      int    `json:"unmatched"`      // vehicles of no truck ("not one of our trucks")
 	BadCoordinates int    `json:"badCoordinates"` // no numeric position, outside the globe, or 0,0
 	Stale          int    `json:"stale"`          // a fix older than the stored one (latest only)
+	Removed        int    `json:"removed"`        // positions of trucks that no longer hold the GPS id they were written with
 	Tenants        int    `json:"tenants"`        // tenants that got a vehicle_locations.updated event
 	Skipped        string `json:"skipped,omitempty"`
 	ScheduledFor   string `json:"scheduledFor,omitempty"`
@@ -121,11 +122,13 @@ func (j *SyncJob) Registration() mq.Registration {
 }
 
 // Handle runs one job.cartrack.sync command: the jobs row goes running, the status of every vehicle is fetched once
-// (20 s), and in one transaction each position of a known truck is upserted latest-only, one vehicle_locations.updated
-// event per tenant is appended (realtime only) and the job succeeds. A failed fetch (no answer, a non-2xx status, a body
+// (20 s), and in one transaction the positions of trucks that no longer hold the GPS id they were written with are
+// removed, each position of a known truck is upserted latest-only, one vehicle_locations.updated event per tenant is
+// appended (realtime only) and the job succeeds. A failed fetch (no answer, a non-2xx status, a body
 // that is not JSON) or the client off ends the job failed and writes nothing, so every truck keeps its last position
 // (the legacy sync logged and returned, fn:cartrack.ts:141-146). A probe command fetches the same way and records only
-// the HTTP status and the vehicle count. A database failure is retried by the ladder.
+// the HTTP status and the vehicle count (a 2xx answer it cannot read fails it, as it would fail the sync). A database
+// failure is retried by the ladder.
 func (j *SyncJob) Handle(ctx context.Context, d *mq.Delivery) error {
 	if d.RoutingKey != RouteCartrackJob {
 		return mq.Permanent(fmt.Errorf("cartrack.sync: unexpected routing key %s", d.RoutingKey))
@@ -193,8 +196,16 @@ func (j *SyncJob) probe(ctx context.Context, job jobs.Job) error {
 		}
 		return j.fail(ctx, job, cause, out)
 	}
-	code, n := st.HTTPStatus, len(st.Vehicles)
-	out.HTTPStatus, out.VehicleCount = &code, &n
+	code := st.HTTPStatus
+	out.HTTPStatus = &code
+	var he *cartrack.HTTPError
+	if err != nil && !errors.As(err, &he) {
+		// A 2xx answer that could not be read (not JSON, too large, cut short): every sync would fail the same way, so the
+		// probe fails with the cause and keeps the status; a non-2xx answer (a 401) is still an answer and succeeds.
+		return j.fail(ctx, job, err.Error(), out)
+	}
+	n := len(st.Vehicles)
+	out.VehicleCount = &n
 	j.d.Log.Info().Str("job_id", job.ID.String()).Int("http_status", code).Int("vehicles", n).Msg("cartrack.sync probe")
 	return db.WithSystem(ctx, j.d.Pool, nil, func(tx pgx.Tx) error {
 		_, err := jobs.Succeed(ctx, tx, job.ID, out)
@@ -225,7 +236,8 @@ func (j *SyncJob) sync(ctx context.Context, job jobs.Job, now time.Time) error {
 	})
 	if err == nil {
 		j.d.Log.Info().Str("job_id", job.ID.String()).Int("vehicles", res.Vehicles).Int("updated", res.Updated).
-			Int("unmatched", res.Unmatched).Int("bad_coordinates", res.BadCoordinates).Int("stale", res.Stale).Msg("cartrack.sync")
+			Int("unmatched", res.Unmatched).Int("bad_coordinates", res.BadCoordinates).Int("stale", res.Stale).
+			Int("removed", res.Removed).Msg("cartrack.sync")
 	}
 	return err
 }
@@ -239,9 +251,20 @@ func (j *SyncJob) write(ctx context.Context, tx pgx.Tx, vehicles []cartrack.Vehi
 	}
 	res.Trucks = len(trucks)
 	byGPS := make(map[string]locationsdb.GPSTrucksRow, len(trucks))
+	keep := make([]string, 0, len(trucks))
 	for _, t := range trucks {
-		byGPS[strings.TrimSpace(t.GpsVehicleID)] = t
+		gps := strings.TrimSpace(t.GpsVehicleID)
+		byGPS[gps] = t
+		keep = append(keep, keepKey(t.ID, gps))
 	}
+	// A truck whose GPS id was cleared or moved to another truck (or that moved into the quarantine tenant) drops its old
+	// position: the list holds one row per truck that holds its GPS id, as the legacy document keyed by the GPS id
+	// followed its tracker. An open map drops the row at its next refetch (the realtime batch carries positions only).
+	removed, err := q.PruneVehicleLocations(ctx, keep)
+	if err != nil {
+		return fmt.Errorf("cartrack.sync: prune: %w", err)
+	}
+	res.Removed = int(removed)
 	// One fix per truck: the newest when the answer lists a vehicle twice.
 	type pick struct {
 		truck locationsdb.GPSTrucksRow
@@ -313,6 +336,9 @@ func (j *SyncJob) write(ctx context.Context, tx pgx.Tx, vehicles []cartrack.Vehi
 	return nil
 }
 
+// keepKey is the PruneVehicleLocations key of a truck and the GPS id it holds ("{truck_id}/{gps id}").
+func keepKey(truck uuid.UUID, gps string) string { return truck.String() + "/" + gps }
+
 // coordinates are the position of a vehicle: numeric, on the globe, and not 0,0 (a tracker without a fix); anything
 // else is a bad coordinate the sync skips (the legacy sync skipped non-numbers, fn:cartrack.ts:158-160).
 func coordinates(v cartrack.Vehicle) (float64, float64, bool) {
@@ -348,8 +374,10 @@ func within(v *float64, lo, hi float64) *float64 {
 	return v
 }
 
+// textOrNil is a stored text value: cleaned as cartrack.Parse cleans it (a client other than Parse may hand over a NUL,
+// which PostgreSQL text refuses), nil when blank.
 func textOrNil(s string) *string {
-	s = strings.TrimSpace(s)
+	s = cartrack.CleanText(s)
 	if s == "" {
 		return nil
 	}

@@ -197,3 +197,15 @@ type ScopeTruck struct {
 	TypeRaw      string    `json:"typeRaw"`
 	Status       string    `json:"status"`
 }
+
+type ScopeVehicleLocation struct {
+	TruckID      uuid.UUID  `json:"truckId"`
+	TenantID     uuid.UUID  `json:"tenantId"`
+	LicensePlate *string    `json:"licensePlate"`
+	Lat          float64    `json:"lat"`
+	Lng          float64    `json:"lng"`
+	SpeedKmh     *float64   `json:"speedKmh"`
+	Heading      *float64   `json:"heading"`
+	LastGpsAt    *time.Time `json:"lastGpsAt"`
+	UpdatedAt    time.Time  `json:"updatedAt"`
+}

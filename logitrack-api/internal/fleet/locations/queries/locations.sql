@@ -3,8 +3,10 @@
 -- in its system transaction.
 
 -- name: ListVehicleLocations :many
--- GET /v1/vehicle-locations: every position the caller's RLS admits, or only those of the given trucks (vehicle_locations
--- holds one row per truck with a GPS id, so the list is bounded by the fleet; no page is needed).
+-- GET /v1/vehicle-locations (staff): every position the caller's RLS admits, or only those of the given trucks
+-- (vehicle_locations holds one row per truck that holds its GPS id, PruneVehicleLocations, so the list is bounded by the
+-- fleet; no page is needed). A dispatcher or a customer-scope principal reads scope_vehicle_locations instead
+-- (internal/scope/repo/scope_locations.sql, Appendix C §C.3.7).
 SELECT truck_id, tenant_id, gps_vehicle_id, license_plate, lat, lng, speed_kmh, heading, engine_on, position_description,
        driver_name_raw, last_gps_at, odometer_km, fuel_level, fuel_percentage, updated_at
   FROM vehicle_locations
@@ -18,6 +20,14 @@ SELECT t.id, t.tenant_id, t.gps_vehicle_id::text AS gps_vehicle_id, t.license_pl
   FROM trucks t
   JOIN tenants te ON te.id = t.tenant_id
  WHERE t.gps_vehicle_id IS NOT NULL AND btrim(t.gps_vehicle_id) <> '' AND te.kind <> 'quarantine';
+
+-- name: PruneVehicleLocations :execrows
+-- The positions of trucks that no longer hold the GPS id they were written with (the id was cleared, moved to another
+-- truck, or the truck moved into the quarantine tenant): removed in the sync transaction before the upserts, as the
+-- legacy document keyed by GPSVehicleId followed its tracker (fn:cartrack.ts:166-185). keep holds "{truck_id}/{gps id}"
+-- of every truck GPSTrucks returned in the same transaction, the GPS id trimmed as the sync maps it (keepKey in sync.go).
+DELETE FROM vehicle_locations v
+ WHERE v.truck_id::text || '/' || v.gps_vehicle_id <> ALL (sqlc.arg(keep)::text[]);
 
 -- name: UpsertVehicleLocation :one
 -- Latest only: one row per truck, replaced by a fix at least as new as the stored one (a fix without a GPS time is

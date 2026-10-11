@@ -7,8 +7,11 @@
 // The two form routes are on the internal listener only (404 on the public one): the browser posts to the
 // unauthenticated BFF route handlers POST /api/forms/waitlist and POST /api/forms/partner-interest (T54), which check
 // the Origin, read no cookie, send no Authorization and forward the visitor's address in X-Forwarded-For, so the
-// per-IP bucket public_form_ip (RATE_LIMIT_PUBLIC_FORMS, 5/h) and the per-email bucket public_form_email (1/day) see the
-// visitor (internal/app wires both). /public/v1/* stays empty: it is reserved for signed third-party postbacks.
+// per-IP bucket public_form_ip (RATE_LIMIT_PUBLIC_FORMS, 5/h) sees the visitor; it counts every post, in the route's
+// middleware. The per-email bucket public_form_email (1/day) is spent by the service (EmailLimit) only for a post that
+// passed validation, inside the transaction that stores it: a refused body or a failed insert spends nothing, so the
+// visitor's corrected post goes through, and the limited email is exactly the stored one (internal/app wires both).
+// /public/v1/* stays empty: it is reserved for signed third-party postbacks.
 //
 // waitlist and partner_interest are exempt from RLS (Appendix C §C.3.0) and this service is their only access path:
 // the anonymous inserts run in a system transaction (no principal exists; tools/analyzers/withsystem allow-list), the
@@ -126,22 +129,29 @@ func NormalizeEmail(raw string) string {
 	return s
 }
 
-// EmailSubject is the public_form_email rate-limit subject of a form body: the hex SHA-256 of its email, lower-cased
-// (the Redis key never holds the address, as rl:login_fail does not), or "" (the rule is skipped and the handler
-// refuses the body) when the body has no valid email.
-func EmailSubject(body []byte) string {
-	var in struct {
-		Email string `json:"email"`
-	}
-	if json.Unmarshal(body, &in) != nil {
-		return ""
-	}
-	email := strings.ToLower(NormalizeEmail(in.Email))
+// EmailSubject is the public_form_email rate-limit subject of an email: the hex SHA-256 of its normalized form,
+// lower-cased (waitlist.email is citext; the Redis key never holds the address, as rl:login_fail does not), or "" when
+// it is not a valid email (the service never spends the bucket for one: validation refuses it first).
+func EmailSubject(email string) string {
+	email = strings.ToLower(NormalizeEmail(email))
 	if email == "" {
 		return ""
 	}
 	sum := sha256.Sum256([]byte(email))
 	return hex.EncodeToString(sum[:])
+}
+
+// EmailLimit spends the public_form_email budget of a normalized email (Appendix B §B.6.3): nil when the post may be
+// stored, else the 429 resource_exhausted answer of the bucket (ratelimit.Denied). internal/app wires it to
+// ratelimit.Limiter.Check, which is a no-op with RATE_LIMIT_ENABLED off and fails open when Redis cannot answer. A nil
+// EmailLimit spends nothing.
+type EmailLimit func(ctx context.Context, email string) error
+
+func (l EmailLimit) spend(ctx context.Context, email string) error {
+	if l == nil {
+		return nil
+	}
+	return l(ctx, email)
 }
 
 func violation(field, reason string) httpx.FieldViolation {
@@ -168,8 +178,11 @@ type Received struct {
 }
 
 // JoinWaitlist is POST /v1/waitlist: email and name required (as the landing form requires them), countryCode
-// defaults to +66, phone optional. A filled honeypot is answered as received and stores nothing.
-func (s *Service) JoinWaitlist(ctx context.Context, in WaitlistInput) (Received, error) {
+// defaults to +66, phone optional. A filled honeypot is answered as received and stores nothing. limit spends the
+// email's public_form_email budget only once the post passed validation: last inside the transaction that stores it
+// (a failed insert spends nothing; a denied post rolls its row and event back, so concurrent duplicates serialize on
+// the bucket), and for a filled honeypot as for a stored post.
+func (s *Service) JoinWaitlist(ctx context.Context, in WaitlistInput, limit EmailLimit) (Received, error) {
 	var bad []httpx.FieldViolation
 	email := NormalizeEmail(in.Email)
 	if email == "" {
@@ -190,6 +203,9 @@ func (s *Service) JoinWaitlist(ctx context.Context, in WaitlistInput) (Received,
 		return Received{}, httpx.ErrInvalidArgument(bad...)
 	}
 	if strings.TrimSpace(in.Website) != "" {
+		if err := limit.spend(ctx, email); err != nil {
+			return Received{}, err
+		}
 		s.log.Info().Str("form", "waitlist").Msg("honeypot filled: not stored")
 		return Received{Received: true}, nil
 	}
@@ -203,9 +219,11 @@ func (s *Service) JoinWaitlist(ctx context.Context, in WaitlistInput) (Received,
 		if err != nil {
 			return err
 		}
-		_, err = outbox.Append(ctx, tx, outbox.Event{RoutingKey: RouteWaitlistCreated, AggregateType: "waitlist",
-			AggregateID: row.ID.String(), Payload: map[string]any{"id": row.ID}, Topics: []string{realtime.TopicPlatformSecurity}})
-		return err
+		if _, err = outbox.Append(ctx, tx, outbox.Event{RoutingKey: RouteWaitlistCreated, AggregateType: "waitlist",
+			AggregateID: row.ID.String(), Payload: map[string]any{"id": row.ID}, Topics: []string{realtime.TopicPlatformSecurity}}); err != nil {
+			return err
+		}
+		return limit.spend(ctx, email)
 	})
 	if err != nil {
 		return Received{}, err
@@ -214,8 +232,9 @@ func (s *Service) JoinWaitlist(ctx context.Context, in WaitlistInput) (Received,
 }
 
 // SubmitPartnerInterest is POST /v1/partner-interest: companyName, contactName and email required, the other fields
-// optional; stored as partner_interest.payload with status "new" (the legacy document's fields).
-func (s *Service) SubmitPartnerInterest(ctx context.Context, in PartnerInterestInput) (Received, error) {
+// optional; stored as partner_interest.payload with status "new" (the legacy document's fields). limit spends the
+// public_form_email budget as in JoinWaitlist (both forms share the bucket).
+func (s *Service) SubmitPartnerInterest(ctx context.Context, in PartnerInterestInput, limit EmailLimit) (Received, error) {
 	var bad []httpx.FieldViolation
 	email := NormalizeEmail(in.Email)
 	if email == "" {
@@ -235,6 +254,9 @@ func (s *Service) SubmitPartnerInterest(ctx context.Context, in PartnerInterestI
 		return Received{}, httpx.ErrInvalidArgument(bad...)
 	}
 	if strings.TrimSpace(in.Website) != "" {
+		if err := limit.spend(ctx, email); err != nil {
+			return Received{}, err
+		}
 		s.log.Info().Str("form", "partner-interest").Msg("honeypot filled: not stored")
 		return Received{Received: true}, nil
 	}
@@ -243,8 +265,10 @@ func (s *Service) SubmitPartnerInterest(ctx context.Context, in PartnerInterestI
 		return Received{}, err
 	}
 	err = db.WithSystem(ctx, s.pool, nil, func(tx pgx.Tx) error {
-		_, err := formsdb.New(tx).InsertPartnerInterest(ctx, b)
-		return err
+		if _, err := formsdb.New(tx).InsertPartnerInterest(ctx, b); err != nil {
+			return err
+		}
+		return limit.spend(ctx, email)
 	})
 	if err != nil {
 		return Received{}, err

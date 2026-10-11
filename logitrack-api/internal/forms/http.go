@@ -9,6 +9,7 @@ import (
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
 )
 
@@ -18,21 +19,26 @@ const (
 	PartnerInterestPrefix = "/v1/partner-interest"
 )
 
-// Options wire the routes: Auth is auth.Service.RequireAuth() for the staff reads; FormLimit is the rate limit of the
-// two anonymous posts (public_form_ip, then public_form_email; nil = none, for the route table).
+// Options wire the routes: Auth is auth.Service.RequireAuth() for the staff reads; FormLimit is the route middleware of
+// the two anonymous posts (public_form_ip, counting every post; nil = none, for the route table); EmailLimit spends
+// public_form_email for a post that passed validation (nil = none).
 type Options struct {
-	Auth      fiber.Handler
-	FormLimit fiber.Handler
+	Auth       fiber.Handler
+	FormLimit  fiber.Handler
+	EmailLimit EmailLimit
 }
 
 // Groups are the routes of T53's forms. s may be nil while the route table is only listed.
 //
 //	POST   /v1/waitlist            anonymous (through the BFF's POST /api/forms/waitlist), rate-limited
 //	POST   /v1/partner-interest    anonymous (through the BFF's POST /api/forms/partner-interest), rate-limited
+//
+// Both posts take public_form_ip in FormLimit (every post) and public_form_email in the service (a valid post only).
+//
 //	GET    /v1/waitlist            waitlist:view (steward key)
 //	DELETE /v1/waitlist/{id}       waitlist:view
 func Groups(s *Service, o Options) []ingress.Group {
-	h := handlers{s}
+	h := handlers{s: s, emailLimit: o.EmailLimit}
 	post := func(handler fiber.Handler) []any {
 		if o.FormLimit != nil {
 			return []any{o.FormLimit, handler}
@@ -54,16 +60,19 @@ func Groups(s *Service, o Options) []ingress.Group {
 	}
 }
 
-type handlers struct{ s *Service }
+type handlers struct {
+	s          *Service
+	emailLimit EmailLimit
+}
 
 func (h handlers) joinWaitlist(c fiber.Ctx) error {
 	var in WaitlistInput
 	if err := httpx.DecodeJSON(c, &in); err != nil {
 		return err
 	}
-	out, err := h.s.JoinWaitlist(c.Context(), in)
+	out, err := h.s.JoinWaitlist(c.Context(), in, h.emailLimit)
 	if err != nil {
-		return err
+		return ratelimit.RetryAfter(c, err)
 	}
 	c.Set(fiber.HeaderCacheControl, "no-store")
 	return httpx.JSON(c, http.StatusCreated, out)
@@ -74,9 +83,9 @@ func (h handlers) partnerInterest(c fiber.Ctx) error {
 	if err := httpx.DecodeJSON(c, &in); err != nil {
 		return err
 	}
-	out, err := h.s.SubmitPartnerInterest(c.Context(), in)
+	out, err := h.s.SubmitPartnerInterest(c.Context(), in, h.emailLimit)
 	if err != nil {
-		return err
+		return ratelimit.RetryAfter(c, err)
 	}
 	c.Set(fiber.HeaderCacheControl, "no-store")
 	return httpx.JSON(c, http.StatusCreated, out)

@@ -7,7 +7,8 @@
 // The Cartrack credentials live in the worker only (main spec §16.1): the api never holds them, so the probe is a
 // cartrack.sync job in probe mode ({"probe": true}) that the worker runs, and the route waits for its outcome.
 //
-// The reads run in db.WithPrincipal (RLS decides: G-tenant for staff, p_dispatch_read for a dispatcher's recent work);
+// The reads run in db.WithPrincipal (RLS decides: G-tenant for staff, p_dispatch_read for a dispatcher's recent work; a
+// dispatcher reads the scope_vehicle_locations projection, Appendix C §C.3.7);
 // the consumer writes in its own system transaction, the only process without a request principal that touches
 // vehicle_locations (tools/analyzers/withsystem allow-list).
 package locations
@@ -29,6 +30,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs/jobsdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/scope/scopedb"
 )
 
 // Queue, routing keys and the realtime event (Appendix B §B.5.2, §B.5.3, §B.4.3).
@@ -100,30 +102,48 @@ func New(d Deps) (*Service, error) {
 	return &Service{pool: d.Pool, jobs: d.Jobs, log: d.Log, probeWait: d.ProbeWait, probePoll: d.ProbePoll}, nil
 }
 
-// Location is one row of GET /v1/vehicle-locations: the latest Cartrack position of a truck.
-type Location struct {
-	TruckID             uuid.UUID  `json:"truckId"`
-	TenantID            uuid.UUID  `json:"tenantId"`
-	GPSVehicleID        string     `json:"gpsVehicleId"`
-	LicensePlate        *string    `json:"licensePlate"`
-	Lat                 float64    `json:"lat"`
-	Lng                 float64    `json:"lng"`
-	SpeedKmh            *float64   `json:"speedKmh"`
-	Heading             *float64   `json:"heading"`
-	EngineOn            *bool      `json:"engineOn"`
-	PositionDescription *string    `json:"positionDescription"`
-	DriverName          *string    `json:"driverName"`
-	LastGPSAt           *time.Time `json:"lastGpsAt"`
-	OdometerKm          *float64   `json:"odometerKm"`
-	FuelLevel           *float64   `json:"fuelLevel"`
-	FuelPercentage      *float64   `json:"fuelPercentage"`
-	UpdatedAt           time.Time  `json:"updatedAt"`
+// LocationScope is one row of GET /v1/vehicle-locations as a dispatcher reads it: the scope_vehicle_locations
+// projection (Appendix C §C.3.7), the position of a truck without the carrier's own telemetry.
+type LocationScope struct {
+	TruckID      uuid.UUID  `json:"truckId"`
+	TenantID     uuid.UUID  `json:"tenantId"`
+	LicensePlate *string    `json:"licensePlate"`
+	Lat          float64    `json:"lat"`
+	Lng          float64    `json:"lng"`
+	SpeedKmh     *float64   `json:"speedKmh"`
+	Heading      *float64   `json:"heading"`
+	LastGPSAt    *time.Time `json:"lastGpsAt"`
+	UpdatedAt    time.Time  `json:"updatedAt"`
 }
 
-// List is GET /v1/vehicle-locations: the positions p's RLS admits, or only those of truckIDs.
-func (s *Service) List(ctx context.Context, p *authz.Principal, truckIDs []uuid.UUID) ([]Location, error) {
+// Location is one row of GET /v1/vehicle-locations as staff read it: the latest Cartrack position of a truck with the
+// Cartrack unit id, the raw driver name and the engine, odometer and fuel readings.
+type Location struct {
+	LocationScope
+	GPSVehicleID        string   `json:"gpsVehicleId"`
+	EngineOn            *bool    `json:"engineOn"`
+	PositionDescription *string  `json:"positionDescription"`
+	DriverName          *string  `json:"driverName"`
+	OdometerKm          *float64 `json:"odometerKm"`
+	FuelLevel           *float64 `json:"fuelLevel"`
+	FuelPercentage      *float64 `json:"fuelPercentage"`
+}
+
+// scoped reports whether p reads the scope_* projections: a dispatcher or a customer-scope principal (never under
+// X-Act-On-Tenant: *, which reads as staff). The route admits no customer-scope principal; a dispatcher reads
+// scope_vehicle_locations (Appendix C §C.3.7, R85).
+func scoped(p *authz.Principal) bool {
+	return (p.IsCustomerScope() || p.Dispatcher) && !p.ActOnAll
+}
+
+// List is GET /v1/vehicle-locations: the positions p's RLS admits, or only those of truckIDs. Staff get []Location from
+// vehicle_locations, a dispatcher []LocationScope from the scope_vehicle_locations projection.
+func (s *Service) List(ctx context.Context, p *authz.Principal, truckIDs []uuid.UUID) (any, error) {
 	if truckIDs == nil {
 		truckIDs = []uuid.UUID{}
+	}
+	if scoped(p) {
+		return s.listScope(ctx, p, truckIDs)
 	}
 	var rows []locationsdb.ListVehicleLocationsRow
 	err := db.WithPrincipal(ctx, s.pool, p, func(tx pgx.Tx) error {
@@ -136,10 +156,29 @@ func (s *Service) List(ctx context.Context, p *authz.Principal, truckIDs []uuid.
 	}
 	out := make([]Location, len(rows))
 	for i, r := range rows {
-		out[i] = Location{TruckID: r.TruckID, TenantID: r.TenantID, GPSVehicleID: r.GpsVehicleID, LicensePlate: r.LicensePlate,
-			Lat: r.Lat, Lng: r.Lng, SpeedKmh: r.SpeedKmh, Heading: r.Heading, EngineOn: r.EngineOn,
-			PositionDescription: r.PositionDescription, DriverName: r.DriverNameRaw, LastGPSAt: utc(r.LastGpsAt),
-			OdometerKm: r.OdometerKm, FuelLevel: r.FuelLevel, FuelPercentage: r.FuelPercentage, UpdatedAt: r.UpdatedAt.UTC()}
+		out[i] = Location{LocationScope: LocationScope{TruckID: r.TruckID, TenantID: r.TenantID, LicensePlate: r.LicensePlate,
+			Lat: r.Lat, Lng: r.Lng, SpeedKmh: r.SpeedKmh, Heading: r.Heading, LastGPSAt: utc(r.LastGpsAt), UpdatedAt: r.UpdatedAt.UTC()},
+			GPSVehicleID: r.GpsVehicleID, EngineOn: r.EngineOn, PositionDescription: r.PositionDescription, DriverName: r.DriverNameRaw,
+			OdometerKm: r.OdometerKm, FuelLevel: r.FuelLevel, FuelPercentage: r.FuelPercentage}
+	}
+	return out, nil
+}
+
+// listScope is the dispatcher's list: the scope_vehicle_locations projection under the caller's RLS (p_dispatch_read).
+func (s *Service) listScope(ctx context.Context, p *authz.Principal, truckIDs []uuid.UUID) ([]LocationScope, error) {
+	var rows []scopedb.ScopeVehicleLocation
+	err := db.WithPrincipal(ctx, s.pool, p, func(tx pgx.Tx) error {
+		var err error
+		rows, err = scopedb.New(tx).ListScopeVehicleLocations(ctx, truckIDs)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]LocationScope, len(rows))
+	for i, r := range rows {
+		out[i] = LocationScope{TruckID: r.TruckID, TenantID: r.TenantID, LicensePlate: r.LicensePlate, Lat: r.Lat, Lng: r.Lng,
+			SpeedKmh: r.SpeedKmh, Heading: r.Heading, LastGPSAt: utc(r.LastGpsAt), UpdatedAt: r.UpdatedAt.UTC()}
 	}
 	return out, nil
 }

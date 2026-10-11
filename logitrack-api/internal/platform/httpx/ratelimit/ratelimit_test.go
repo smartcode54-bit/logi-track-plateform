@@ -149,6 +149,38 @@ func TestInvalidLimitIsAnErrorNotARedisFailure(t *testing.T) {
 	}
 }
 
+func TestCheckSkipsAndRefusesUnusableLimits(t *testing.T) {
+	l := New(nil, cache.Keyspace{}, zerolog.Nop()) // never reaches Redis
+	ctx := context.Background()
+	if err := l.Check(ctx, false, PublicFormEmail, Limit{}, "s"); err != nil {
+		t.Errorf("disabled: %v", err)
+	}
+	if err := l.Check(ctx, true, PublicFormEmail, Limit{}, ""); err != nil {
+		t.Errorf("no subject: %v", err)
+	}
+	if err := l.Check(ctx, true, Webhook, Limit{}, "s"); !errors.Is(err, ErrInvalidLimit) {
+		t.Errorf("webhook without a limit: %v, want ErrInvalidLimit", err)
+	}
+}
+
+func TestRetryAfterSetsTheHeaderOfADenial(t *testing.T) {
+	app := fiber.New(fiber.Config{ErrorHandler: httpx.ErrorHandler(zerolog.Nop())})
+	app.Get("/denied", func(c fiber.Ctx) error {
+		return RetryAfter(c, Denied(PublicFormEmail.Name, Decision{RetryAfter: 2500 * time.Millisecond}))
+	})
+	app.Get("/other", func(c fiber.Ctx) error { return RetryAfter(c, httpx.ErrBadRequest("x")) })
+	for path, want := range map[string]string{"/denied": "3", "/other": ""} {
+		resp, err := app.Test(httptest.NewRequest("GET", path, nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if got := resp.Header.Get("Retry-After"); got != want {
+			t.Errorf("%s: Retry-After %q, want %q", path, got, want)
+		}
+	}
+}
+
 func TestMiddlewareRejectsUnusableRulesWhenBuilt(t *testing.T) {
 	l := New(nil, cache.Keyspace{}, zerolog.Nop())
 	panics := func(name string, rules ...Rule) {

@@ -52,6 +52,23 @@ func TestParse(t *testing.T) {
 	}
 }
 
+// A NUL or another control character in a Cartrack string never reaches PostgreSQL (text refuses NUL, SQLSTATE 22021).
+func TestParseCleansControlCharacters(t *testing.T) {
+	got, err := Parse([]byte(`[{"vehicle_id":1,"location":{"latitude":13.7,"longitude":100.5,"position_description":"Rama IV\u0000"},
+		"driver":{"first_name":"Som\u0000chai","last_name":"J\tK\u007f"},"registration":"\u0000"}]`))
+	if err != nil || len(got) != 1 {
+		t.Fatalf("parse %v %+v", err, got)
+	}
+	if v := got[0]; v.PositionDescription != "Rama IV" || v.DriverName != "Somchai J K" || v.Registration != "" {
+		t.Fatalf("cleaned %+v", v)
+	}
+	for in, want := range map[string]string{"": "", " a\x00b ": "ab", "a\nb": "a b", "\x00\x00": "", "ถนน\x01พระราม": "ถนน พระราม"} {
+		if got := CleanText(in); got != want {
+			t.Fatalf("CleanText(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestParseShapes(t *testing.T) {
 	for body, n := range map[string]int{
 		`[{"vehicle_id":1},{"vehicle_id":2}]`: 2, // the bare array
