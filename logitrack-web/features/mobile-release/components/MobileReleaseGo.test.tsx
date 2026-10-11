@@ -1,0 +1,205 @@
+// T54S (issue #74, security-center slice): mobile-clients and mobile-release over Go (T52S routes). No
+// Firebase on these pages; the ADR 0007 guards are kept (no floor without a download link, none above
+// the latest release, a typed confirmation with the impact before a floor that blocks more drivers).
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import React from "react";
+import { screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+
+vi.mock("@/firebase/client", () => {
+    throw new Error("the Go mobile pages must not load the Firebase client");
+});
+vi.mock("firebase/firestore", () => {
+    throw new Error("the Go mobile pages must not import Firestore");
+});
+
+import { configureFirebaseBridge } from "@/lib/firebaseBridge";
+import { fakeWeb, goErr, json, makeMe } from "@/test-utils/fakeWeb";
+import { renderWithProviders } from "@/test-utils/renderWithProviders";
+import type { MeDTO } from "@/features/auth/api/me";
+import { MobileClientsPage } from "./MobileClientsPage";
+import { floorBlockedReason, MobileReleasePage, raisesFloor } from "./MobileReleasePage";
+import type { GateViewDTO } from "../api/releases";
+
+beforeAll(() => {
+    Element.prototype.hasPointerCapture ??= () => false;
+    Element.prototype.releasePointerCapture ??= () => undefined;
+    Element.prototype.scrollIntoView ??= () => undefined;
+    globalThis.ResizeObserver ??= class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+    } as unknown as typeof ResizeObserver;
+});
+beforeEach(() => {
+    window.history.replaceState(null, "", "/app/security-center/mobile-release");
+    configureFirebaseBridge(async () => {
+        throw new Error("no Firebase SDK here");
+    });
+});
+afterEach(() => {
+    vi.unstubAllGlobals();
+    configureFirebaseBridge(undefined);
+});
+
+function setup(meOver: Partial<MeDTO> = {}) {
+    const web = fakeWeb();
+    const me = makeMe({
+        id: "u-self",
+        legacyAuthUid: undefined,
+        capabilities: ["security:view_mobile_clients", "security:manage_mobile_release"],
+        ...meOver,
+    });
+    web.on("GET", "/api/go/v1/me", () => json(200, { data: me }));
+    web.on("POST", "/api/auth/firebase-token", () => goErr(403, "permission_denied"));
+    return web;
+}
+
+const GATE: GateViewDTO = {
+    flavor: "prod",
+    minAllowedVersion: "3.1.0",
+    latestVersion: "3.2.0",
+    latestBuildNumber: "12",
+    apkDownloadUrl: "https://media.test/app_releases/prod/3.2.0.apk",
+    apkSha256: "ab".repeat(32),
+    apkSizeBytes: 31_457_280,
+    releaseNotes: "Fixes",
+    releasedAt: "2026-10-10T02:00:00Z",
+    minAllowedVersionSetAt: "2026-10-01T02:00:00Z",
+    minAllowedVersionSetBy: "admin@own.test",
+    releasedBy: "cmd/release",
+    updatedAt: "2026-10-10T02:00:00Z",
+};
+
+const t = (key: string, params?: Record<string, string | number>) => (params ? `${key} ${JSON.stringify(params)}` : key);
+
+describe("floor rules (ADR 0007)", () => {
+    it("refuses a floor without a download link, above the latest release, malformed or unchanged", () => {
+        expect(floorBlockedReason(GATE, "3.2.0", t)).toBeNull();
+        expect(floorBlockedReason({ ...GATE, apkDownloadUrl: null }, "3.2.0", t)).toBe("securityCenter.mobileRelease.forceDisabledNoUrl");
+        expect(floorBlockedReason({ ...GATE, apkDownloadUrl: " " }, "3.2.0", t)).toBe("securityCenter.mobileRelease.forceDisabledNoUrl");
+        expect(floorBlockedReason(GATE, "3.3.0", t)).toContain("securityCenter.mobileRelease.aboveLatest");
+        expect(floorBlockedReason(GATE, "3.2", t)).toBe("securityCenter.mobileRelease.invalidVersion");
+        expect(floorBlockedReason(GATE, "3.1.0", t)).toBe("securityCenter.mobileRelease.sameFloor");
+        // Lifting the floor is always possible while there is one.
+        expect(floorBlockedReason({ ...GATE, apkDownloadUrl: null }, null, t)).toBeNull();
+        expect(floorBlockedReason({ ...GATE, minAllowedVersion: null }, null, t)).toBe("securityCenter.mobileRelease.noFloorToRemove");
+    });
+
+    it("asks for the typed confirmation only when the floor blocks more", () => {
+        expect(raisesFloor("3.1.0", "3.2.0")).toBe(true);
+        expect(raisesFloor(null, "3.0.0")).toBe(true);
+        expect(raisesFloor("3.1.0", "3.0.0")).toBe(false);
+        expect(raisesFloor("3.1.0", null)).toBe(false);
+    });
+});
+
+describe("Mobile release (Go)", () => {
+    function routes(web: ReturnType<typeof setup>, gate: GateViewDTO = GATE) {
+        web.on("GET", "/api/go/v1/app-releases", () =>
+            json(200, {
+                data: [
+                    { id: "r-2", flavor: "prod", version: "3.2.0", buildNumber: "12", apkKey: "k", apkUrl: gate.apkDownloadUrl, apkSizeBytes: 1, apkSha256: "x", releaseNotes: null, releasedAt: "2026-10-10T02:00:00Z", releasedBy: "cmd/release", storageBackend: "local", latest: true },
+                    { id: "r-1", flavor: "prod", version: "3.1.0", buildNumber: "11", apkKey: "k", apkUrl: null, apkSizeBytes: 1, apkSha256: "y", releaseNotes: null, releasedAt: "2026-09-10T02:00:00Z", releasedBy: "cmd/release", storageBackend: "local", latest: false },
+                ],
+                meta: { settings: gate },
+            })
+        );
+        web.on("GET", "/api/go/v1/app-installations/stats", (c) => {
+            const below = new URL(c.url, "http://web.test").searchParams.get("belowVersion");
+            return json(200, {
+                data: {
+                    since: "2026-10-04T00:00:00Z",
+                    total: 30,
+                    byStatus: { current: 20, outdated: 6, blocked: 2, ahead: 0, unknown: 2 },
+                    byFlavor: { prod: 30, dev: 0 },
+                    byPlatform: { android: 30, ios: 0, other: 0 },
+                    belowVersion: below ? { version: below, count: 8 } : null,
+                    flavor: "prod",
+                    minAllowedVersion: gate.minAllowedVersion,
+                    latestVersion: gate.latestVersion,
+                },
+            });
+        });
+    }
+
+    it("shows the published build read-only and forces the floor to the latest after a typed confirmation", async () => {
+        const web = setup();
+        routes(web);
+        web.on("PUT", "/api/go/v1/app-releases/floor", () =>
+            json(200, { data: { ...GATE, minAllowedVersion: "3.2.0" }, meta: { changed: true, blocked7d: 8 } })
+        );
+        renderWithProviders(<MobileReleasePage />);
+        const u = userEvent.setup();
+        expect(await screen.findByTestId("published-build")).toHaveTextContent("3.2.0");
+        expect(screen.getAllByTestId("release-row")).toHaveLength(2);
+        expect(screen.getByTestId("current-floor")).toHaveTextContent("3.1.0");
+        // No form writes the release half any more (ADR 0007: cmd/release owns it).
+        expect(screen.queryByLabelText("APK download URL")).toBeNull();
+
+        await u.click(screen.getByRole("button", { name: "Force all drivers to 3.2.0" }));
+        const dialog = await screen.findByRole("dialog");
+        expect(await within(dialog).findByTestId("floor-impact")).toHaveTextContent("This will block 8 of 30 installations");
+        const stats = web.calls.find((c) => c.url.startsWith("/api/go/v1/app-installations/stats"));
+        expect(new URL(stats!.url, "http://web.test").searchParams.get("belowVersion")).toBe("3.2.0");
+        const confirm = within(dialog).getByRole("button", { name: "Force update" });
+        expect(confirm).toBeDisabled();
+        await u.type(within(dialog).getByLabelText("Type 3.2.0 to confirm"), "3.2.0");
+        await u.click(confirm);
+        await waitFor(() => expect(web.count("PUT", "/api/go/v1/app-releases/floor")).toBe(1));
+        expect(web.calls.find((c) => c.method === "PUT")?.body).toEqual({ minAllowedVersion: "3.2.0" });
+        // The floor write invalidates the release list (and the gate and installations).
+        await waitFor(() => expect(web.count("GET", "/api/go/v1/app-releases")).toBe(2));
+        expect(web.calls.every((c) => c.url.startsWith("/api/go/") || c.url.startsWith("/api/auth/"))).toBe(true);
+    });
+
+    it("cannot force or set a floor while the gate has no download link, but can lift the floor", async () => {
+        const web = setup();
+        routes(web, { ...GATE, apkDownloadUrl: null });
+        web.on("PUT", "/api/go/v1/app-releases/floor", () => json(200, { data: { ...GATE, minAllowedVersion: null }, meta: { changed: true, blocked7d: 0 } }));
+        renderWithProviders(<MobileReleasePage />);
+        const u = userEvent.setup();
+        expect(await screen.findByTestId("force-blocked")).toHaveTextContent("Set the APK download URL first");
+        expect(screen.getByRole("button", { name: "Force all drivers to 3.2.0" })).toBeDisabled();
+        await u.type(screen.getByLabelText("New minimum version"), "3.0.0");
+        expect(screen.getByRole("button", { name: "Set minimum" })).toBeDisabled();
+
+        await u.click(screen.getByRole("button", { name: "Remove minimum" }));
+        const dialog = await screen.findByRole("dialog");
+        await u.click(within(dialog).getByRole("button", { name: "Remove minimum" }));
+        await waitFor(() => expect(web.count("PUT", "/api/go/v1/app-releases/floor")).toBe(1));
+        expect(web.calls.find((c) => c.method === "PUT")?.body).toEqual({ minAllowedVersion: null });
+    });
+});
+
+describe("Mobile clients (Go)", () => {
+    it("lists installations with Go's version status and the 7-day summary; a platform principal reads every tenant", async () => {
+        const web = setup({ tenant: null, tenants: [], platformRoles: ["platform_admin"] });
+        web.on("GET", "/api/go/v1/app-installations", () =>
+            json(200, {
+                data: [
+                    { driverId: "d-1", driverName: "สมชาย", installId: "i-1", tenantId: "t-car", tenantName: "Carrier One", platform: "android", appVersion: "3.0.0", buildNumber: "9", flavor: "prod", firstSeenAt: "2026-01-01T00:00:00Z", lastSeenAt: "2026-10-10T00:00:00Z", versionStatus: "blocked" },
+                    { driverId: "d-2", driverName: null, installId: "i-2", tenantId: "t-own", tenantName: "Own fleet", platform: "android", appVersion: "3.2.0", buildNumber: "12", flavor: "dev", firstSeenAt: "2026-01-01T00:00:00Z", lastSeenAt: "2026-10-09T00:00:00Z", versionStatus: "current" },
+                ],
+                nextCursor: "c-2",
+                meta: { flavor: "prod", minAllowedVersion: "3.1.0", latestVersion: "3.2.0" },
+            })
+        );
+        web.on("GET", "/api/go/v1/app-installations/stats", () =>
+            json(200, {
+                data: { since: "x", total: 30, byStatus: { current: 20, outdated: 6, blocked: 2, ahead: 0, unknown: 2 }, byFlavor: {}, byPlatform: {}, belowVersion: null, flavor: "prod", minAllowedVersion: "3.1.0", latestVersion: "3.2.0" },
+            })
+        );
+        renderWithProviders(<MobileClientsPage />);
+        const rows = await screen.findAllByTestId("installation-row");
+        expect(rows).toHaveLength(2);
+        expect(within(rows[0]).getByText("Blocked")).toBeInTheDocument();
+        expect(within(rows[0]).getByText("Carrier One")).toBeInTheDocument();
+        expect(within(rows[1]).getByText("Dev build")).toBeInTheDocument();
+        expect(await screen.findByTestId("mobile-summary")).toHaveTextContent("30 installations · 2 blocked · 6 outdated · 20 on the latest build");
+        expect(screen.getByRole("button", { name: "Load more" })).toBeInTheDocument();
+        const list = web.calls.find((c) => c.url.startsWith("/api/go/v1/app-installations?"));
+        expect(list?.url).toBe("/api/go/v1/app-installations?limit=100");
+        expect(web.calls.filter((c) => c.url.startsWith("/api/go/v1/app-installations")).every((c) => c.headers["x-act-on-tenant"] === "*")).toBe(true);
+    });
+});

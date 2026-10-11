@@ -14,10 +14,10 @@
  *   `claims_changed` invalidates it (lib/queryClient.ts `bindQueryClientToSession`) and the
  *   AuthProvider awaits that refetch (`refetchMe`) before it mints the bridge token again; a
  *   `session.revoked` for another session of the user checks it (`refetchMe`,
- *   lib/realtime/RealtimeProvider.tsx). A logout or a session end sets it to `null`. Planned, not
- *   wired yet: the role-matrix save (`useSaveRoleMatrix`, T51/P6) and the realtime `roles.changed`
- *   event (its row of lib/realtime/eventMap.ts comes with T51, M6). The Role Matrix page still saves
- *   to Firestore `permissions_config`, which Go does not read in P0.
+ *   lib/realtime/RealtimeProvider.tsx). A logout or a session end sets it to `null`. The role-matrix
+ *   save over Go (`PUT /v1/roles/matrix`, T54S) and the realtime `roles.changed` event
+ *   (lib/realtime/eventMap.ts) invalidate it too. While the `security` web flag is off, the Role
+ *   Matrix page still saves to Firestore `permissions_config`, which Go never reads.
  * - `['me','tenants']` (`GET /v1/me/tenants`, the tenant switcher) sits under the `['me']` prefix.
  *
  * Every read of `GET /v1/me` goes through `parseMe`, so a body without an id or a capability list is a

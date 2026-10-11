@@ -1,33 +1,15 @@
 "use client";
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Key } from "lucide-react";
-import { useLanguage } from "@/context/language";
+// API keys: `GET`/`POST`/`DELETE /v1/api-keys` over Go (the secret is shown once) while the `security` web
+// flag is on; the Firestore page otherwise (T54S, pulled forward at the owner's request; developer-spec.md
+// §10.13, §12.2). Each source is its own chunk.
+import dynamic from "next/dynamic";
 
-export default function ApiKeysPage() {
-    const { t } = useLanguage();
-    return (
-        <div className="p-6 space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold tracking-tight">{t("securityCenter.apiKeys.title")}</h1>
-                <p className="text-muted-foreground mt-1">
-                    {t("securityCenter.apiKeys.subtitle")}
-                </p>
-            </div>
-            <Card>
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <Key className="h-5 w-5" />
-                        {t("securityCenter.apiKeys.management")}
-                    </CardTitle>
-                    <CardDescription>{t("securityCenter.apiKeys.comingSoon")}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <p className="text-sm text-muted-foreground">
-                        {t("securityCenter.apiKeys.description")}
-                    </p>
-                </CardContent>
-            </Card>
-        </div>
-    );
+import { DomainPage, PageLoading } from "@/features/platform/components/DomainPage";
+
+const GoPage = dynamic(() => import("@/features/security-center/components/ApiKeysPage").then((m) => m.ApiKeysPage), { loading: () => <PageLoading /> });
+const FirestorePage = dynamic(() => import("@/features/security-center/legacy/LegacyApiKeysPage"), { loading: () => <PageLoading /> });
+
+export default function ApiKeysRoute() {
+    return <DomainPage domain="security" go={GoPage} firestore={FirestorePage} />;
 }
