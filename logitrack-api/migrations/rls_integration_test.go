@@ -181,3 +181,71 @@ func TestFileObjectsUpdateOnlyCommits(t *testing.T) {
 		t.Fatalf("WithSystem missing_at_source: %d rows", n)
 	}
 }
+
+// The SECURITY DEFINER helpers of 0013 bypass RLS, so they check their caller themselves (T23 review):
+// driver_active_assignment answers only staff that reach the driver (then the driver's active row of any tenant
+// counts), assignment_release_driver acts only on a revoked row of the caller's reach, with the caller as the status
+// entry's user, and releases a driver the caller cannot read.
+func TestDriverAssignmentHelpersCheckTheirCaller(t *testing.T) {
+	d, _ := migrated(t)
+	etl := connect(t, d, db.RoleETL)
+	o := scalar[string](t, etl, `INSERT INTO tenants (kind, name_th) VALUES ('own_fleet', 'O') RETURNING id::text`)
+	a := scalar[string](t, etl, `INSERT INTO tenants (kind, name_th, legal_type, contractor_tenant_id)
+		VALUES ('carrier', 'A', 'company', $1) RETURNING id::text`, o)
+	c := scalar[string](t, etl, `INSERT INTO tenants (kind, name_th, legal_type) VALUES ('carrier', 'C', 'company') RETURNING id::text`)
+	truck := func(tenant, plate string) string {
+		return scalar[string](t, etl, `INSERT INTO trucks (tenant_id, tenant_source, license_plate, province, status, brand,
+			model, year, color, type_raw) VALUES ($1, 'self', $2, 'BKK', 'active', 'Isuzu', 'X', 2020, 'white', '6 Wheels')
+			RETURNING id::text`, tenant, plate)
+	}
+	driver := func(tenant string) string {
+		return scalar[string](t, etl, `INSERT INTO drivers (tenant_id, tenant_source, first_name, last_name, mobile, status)
+			VALUES ($1, 'self', 'สมชาย', 'ใจดี', '0800000000', 'on_duty') RETURNING id::text`, tenant)
+	}
+	user := func(email string) string {
+		return scalar[string](t, etl, `INSERT INTO users (email, display_name) VALUES ($1::text, $1::text) RETURNING id::text`, email)
+	}
+	tO, dA := truck(o, "71-0001"), driver(a)
+	rowO := scalar[string](t, etl, `INSERT INTO truck_assignments (tenant_id, tenant_source, truck_id, driver_id, status)
+		VALUES ($1, 'truck', $2, $3, 'active') RETURNING id::text`, o, tO, dA)
+	exec(t, etl, `UPDATE drivers SET current_assignment_id = $1 WHERE id = $2`, rowO, dA)
+	uO, uA := user("o@example.test"), user("a@example.test")
+	staffO := principal(t, d, uO, o, "tenant_admin", "app.subtenant_ids", a)
+	staffA := principal(t, d, uA, a, "operator")
+	staffC := principal(t, d, user("c@example.test"), c, "tenant_admin")
+	drvA := principal(t, d, user("d@example.test"), a, "driver", "app.driver_id", dA)
+
+	if n := scalar[int64](t, staffA, `SELECT count(*) FROM truck_assignments WHERE id = $1`, rowO); n != 0 {
+		t.Fatalf("carrier A reads the own fleet's row (%d)", n)
+	}
+	if got := scalar[*string](t, staffA, `SELECT driver_active_assignment($1)::text`, dA); got == nil || *got != rowO {
+		t.Fatalf("driver_active_assignment for A's staff = %v, want %s", got, rowO)
+	}
+	for name, cn := range map[string]*pgx.Conn{"staff of C": staffC, "the driver": drvA} {
+		if got := scalar[*string](t, cn, `SELECT driver_active_assignment($1)::text`, dA); got != nil {
+			t.Errorf("driver_active_assignment for %s = %s, want NULL", name, *got)
+		}
+	}
+
+	const release = `SELECT assignment_release_driver($1, $2, NULL, 'truck assignment revoked', now())::text`
+	wantSQLState(t, staffO, "55000", "still active", release, rowO, uO)
+	exec(t, etl, `UPDATE truck_assignments SET status = 'revoked', revoked_at = now() WHERE id = $1`, rowO)
+	wantSQLState(t, staffA, "42501", "outside the caller's reach", release, rowO, uA)
+	wantSQLState(t, staffC, "42501", "outside the caller's reach", release, rowO, nil)
+	wantSQLState(t, drvA, "42501", "outside the caller's reach", release, rowO, nil)
+	wantSQLState(t, staffO, "42501", "must name the caller", release, rowO, uA)
+	wantSQLState(t, staffO, "42501", "outside the caller's reach", release, "0199c000-0000-7000-8000-0000000000ff", uO)
+	if got := scalar[string](t, staffO, release, rowO, uO); got != a {
+		t.Fatalf("assignment_release_driver returned %s, want the driver's tenant %s", got, a)
+	}
+	var status string
+	var current *string
+	if err := etl.QueryRow(context.Background(), `SELECT status, current_assignment_id::text FROM drivers WHERE id = $1`, dA).
+		Scan(&status, &current); err != nil || status != "active" || current != nil {
+		t.Fatalf("driver after the release: %s %v (%v)", status, current, err)
+	}
+	if n := scalar[int64](t, etl, `SELECT count(*) FROM status_history WHERE entity_type = 'driver' AND entity_id = $1
+		AND status = 'active' AND previous_status = 'on_duty' AND changed_by_user_id = $2`, dA, uO); n != 1 {
+		t.Errorf("status entries of the release: %d", n)
+	}
+}

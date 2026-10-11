@@ -1,13 +1,15 @@
 // Package fleet is the truck master of T22 (Appendix B §B.2.8): trucks with their append-only status history
 // (status_history, entity 'truck'), files (truck_files -> file_objects), tax and insurance renewals with their ledger
-// rows (transactions), the renewal overview and the spreadsheet import. Truck assignments (T23), the PM check (P3)
+// rows (transactions), the renewal overview and the spreadsheet import, and the truck assignments of T23 (the
+// driver's home truck, truck_assignments with drivers.current_assignment_id, in one transaction). The PM check (P3)
 // and vehicle locations (P6) join this package later.
 //
 // Every statement runs in db.WithPrincipal, so RLS decides (Appendix C §C.3.0): trucks and transactions are tenant
 // rows of the caller's reach (own tenant plus the carriers working for it, R60); truck_files and status_history follow
 // their truck. Capabilities decide the verbs first (fleet:view_trucks, fleet:create_truck, fleet:edit_truck,
-// fleet:view_renewals, fleet:manage_renewals; dispatch:view_operations reads the scope_trucks projection), and the
-// list queries still name the reach (main spec §4.7, Appendix C §C.3.8: authz.Principal.TenantReach).
+// fleet:view_renewals, fleet:manage_renewals, fleet:view_assignments, fleet:manage_assignments;
+// dispatch:view_operations reads the scope_trucks projection), and the list queries still name the reach (main spec
+// §4.7, Appendix C §C.3.8: authz.Principal.TenantReach).
 //
 // The vehicle class of a truck is derived once, from its master type, by the one mapper (internal/fleet/
 // vehicleclass): unknown is NULL, never a guess (R15). A plate is a display string, unique per tenant

@@ -47,6 +47,11 @@ PATCH /v1/customers/:id internal
 GET /v1/distances internal
 GET /v1/distances/:originId/:destinationId internal
 GET /v1/distances/meta internal
+GET /v1/drivers internal
+POST /v1/drivers internal
+GET /v1/drivers/:id internal
+PATCH /v1/drivers/:id internal
+GET /v1/drivers/:id/documents/:kind internal
 GET /v1/events internal
 GET /v1/files internal
 GET /v1/hubs internal
@@ -86,6 +91,9 @@ PATCH /v1/tenants/:id internal
 GET /v1/tenants/:id/members internal
 DELETE /v1/tenants/:id/members/:userId internal
 PUT /v1/tenants/:id/members/:userId internal
+GET /v1/truck-assignments internal
+POST /v1/truck-assignments internal
+POST /v1/truck-assignments/:id/revoke internal
 GET /v1/trucks internal
 POST /v1/trucks internal
 GET /v1/trucks/:id internal

@@ -11,6 +11,49 @@ import (
 	"github.com/google/uuid"
 )
 
+const countScopeDriversByStatus = `-- name: CountScopeDriversByStatus :many
+SELECT status, count(*)::int AS n
+FROM scope_drivers
+WHERE ($1::uuid IS NULL OR tenant_id = $1::uuid)
+  AND ($2::text IS NULL
+       OR strpos(lower(coalesce(full_name_th, '')), lower($2::text)) > 0
+       OR strpos(lower(first_name || ' ' || last_name), lower($2::text)) > 0
+       OR strpos(lower(mobile), lower($2::text)) > 0)
+GROUP BY status
+ORDER BY status
+`
+
+type CountScopeDriversByStatusParams struct {
+	TenantID *uuid.UUID `json:"tenantId"`
+	Q        *string    `json:"q"`
+}
+
+type CountScopeDriversByStatusRow struct {
+	Status string `json:"status"`
+	N      int32  `json:"n"`
+}
+
+// meta.statusCounts of a dispatcher's driver list: every projected row matching the other filters.
+func (q *Queries) CountScopeDriversByStatus(ctx context.Context, arg CountScopeDriversByStatusParams) ([]CountScopeDriversByStatusRow, error) {
+	rows, err := q.db.Query(ctx, countScopeDriversByStatus, arg.TenantID, arg.Q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CountScopeDriversByStatusRow{}
+	for rows.Next() {
+		var i CountScopeDriversByStatusRow
+		if err := rows.Scan(&i.Status, &i.N); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listScopeCarriers = `-- name: ListScopeCarriers :many
 SELECT id, kind, code, name_th, name_en FROM scope_tenants
 WHERE kind = 'carrier'
@@ -51,6 +94,69 @@ func (q *Queries) ListScopeCarriers(ctx context.Context, arg ListScopeCarriersPa
 			&i.Code,
 			&i.NameTh,
 			&i.NameEn,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listScopeDrivers = `-- name: ListScopeDrivers :many
+SELECT id, tenant_id, full_name_th, first_name, last_name, mobile, status, active_truck_id
+FROM scope_drivers
+WHERE ($1::uuid IS NULL OR tenant_id = $1::uuid)
+  AND ($2::text IS NULL OR status = $2::text)
+  AND ($3::text IS NULL
+       OR strpos(lower(coalesce(full_name_th, '')), lower($3::text)) > 0
+       OR strpos(lower(first_name || ' ' || last_name), lower($3::text)) > 0
+       OR strpos(lower(mobile), lower($3::text)) > 0)
+  AND ($4::text IS NULL
+       OR (coalesce(nullif(btrim(full_name_th), ''), btrim(first_name || ' ' || last_name)), id)
+          > ($4::text, $5::uuid))
+ORDER BY coalesce(nullif(btrim(full_name_th), ''), btrim(first_name || ' ' || last_name)), id
+LIMIT $6
+`
+
+type ListScopeDriversParams struct {
+	TenantID  *uuid.UUID `json:"tenantId"`
+	Status    *string    `json:"status"`
+	Q         *string    `json:"q"`
+	AfterName *string    `json:"afterName"`
+	AfterID   uuid.UUID  `json:"afterId"`
+	RowLimit  int32      `json:"rowLimit"`
+}
+
+// The driver list of a dispatcher (T23): the projection only, by display name (the Thai full name, else first and
+// last name); q matches the names and the mobile.
+func (q *Queries) ListScopeDrivers(ctx context.Context, arg ListScopeDriversParams) ([]ScopeDriver, error) {
+	rows, err := q.db.Query(ctx, listScopeDrivers,
+		arg.TenantID,
+		arg.Status,
+		arg.Q,
+		arg.AfterName,
+		arg.AfterID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScopeDriver{}
+	for rows.Next() {
+		var i ScopeDriver
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.FullNameTh,
+			&i.FirstName,
+			&i.LastName,
+			&i.Mobile,
+			&i.Status,
+			&i.ActiveTruckID,
 		); err != nil {
 			return nil, err
 		}
