@@ -2,6 +2,9 @@
 -- (tenant_source 'self'); RLS G-tenant decides: staff read and write the companies of their tenant reach (own tenant
 -- and the carriers working for it), never the quarantine tenant's. withholding_tax_rate is NUMERIC(5,2), a percent
 -- (R18: statements snapshot it as a fraction); it crosses the boundary as float8, Go keeps at most two decimals.
+-- The reads name the caller's reach (main spec §4.7, Appendix C §C.3.8; authz.Principal.TenantReach): all_tenants
+-- under X-Act-On-Tenant: *, else tenant_ids = the effective tenant of a staff principal and its contractor reach; RLS
+-- then re-checks every row.
 
 -- name: ListCompanies :many
 -- GET /v1/companies, newest first.
@@ -10,7 +13,8 @@ SELECT id, tenant_id, name_th, name_en, short_name, tax_id, branch_type, branch_
        withholding_tax_rate::float8 AS withholding_tax_rate, company_type, is_active, max_trucks, max_drivers,
        legacy_doc_id, created_at, updated_at
 FROM companies
-WHERE (sqlc.narg(company_type)::text IS NULL OR company_type = sqlc.narg(company_type))
+WHERE (sqlc.arg(all_tenants)::boolean OR tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
+  AND (sqlc.narg(company_type)::text IS NULL OR company_type = sqlc.narg(company_type))
   AND (sqlc.narg(q)::text IS NULL
        OR strpos(lower(name_th), lower(sqlc.narg(q)::text)) > 0
        OR strpos(lower(coalesce(name_en, '')), lower(sqlc.narg(q)::text)) > 0
@@ -28,7 +32,8 @@ SELECT id, tenant_id, name_th, name_en, short_name, tax_id, branch_type, branch_
        withholding_tax_rate::float8 AS withholding_tax_rate, company_type, is_active, max_trucks, max_drivers,
        legacy_doc_id, created_at, updated_at
 FROM companies
-WHERE company_type = 'owner'
+WHERE (sqlc.arg(all_tenants)::boolean OR tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
+  AND company_type = 'owner'
 ORDER BY created_at, id
 LIMIT 1;
 

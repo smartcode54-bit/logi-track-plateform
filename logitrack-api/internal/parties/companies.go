@@ -68,6 +68,7 @@ var companyAssets = []struct{ field, purpose string }{
 	{"logoKey", "company_logo"}, {"stampKey", "company_stamp"}, {"signatureKey", "company_signature"},
 }
 
+// companyOf builds the payload; it signs the asset URLs (Files.SignedFile), so it runs after s.tx returns.
 func (s *Service) companyOf(ctx context.Context, r partiesdb.GetCompanyRow) Company {
 	c := Company{ID: r.ID, TenantID: r.TenantID, NameTh: r.NameTh, NameEn: r.NameEn, ShortName: r.ShortName,
 		TaxID: r.TaxID, BranchType: r.BranchType, BranchNumber: r.BranchNumber, Address: r.Address, Phone: r.Phone,
@@ -87,7 +88,8 @@ type ListCompaniesInput struct {
 	Cursor  string
 }
 
-// ListCompanies is GET /v1/companies (company:view): the companies of the caller's tenant reach (RLS), newest first.
+// ListCompanies is GET /v1/companies (company:view): the companies of the caller's tenant reach, newest first; the
+// query names the reach (authz.Principal.TenantReach) and RLS re-checks every row.
 func (s *Service) ListCompanies(ctx context.Context, p *authz.Principal, in ListCompaniesInput) ([]Company, string, error) {
 	var ck checker
 	var typ, q *string
@@ -120,12 +122,13 @@ func (s *Service) ListCompanies(ctx context.Context, p *authz.Principal, in List
 	if err := ck.err(); err != nil {
 		return nil, "", err
 	}
+	all, tenants := p.TenantReach()
 	var rows []partiesdb.ListCompaniesRow
 	more := false
 	err := s.tx(ctx, p, func(_ pgx.Tx, qq *partiesdb.Queries) error {
 		var err error
-		rows, err = qq.ListCompanies(ctx, partiesdb.ListCompaniesParams{CompanyType: typ, Q: q, AfterCreated: after.T,
-			AfterID: after.ID, RowLimit: int32(limit) + 1})
+		rows, err = qq.ListCompanies(ctx, partiesdb.ListCompaniesParams{AllTenants: all, TenantIds: tenants, CompanyType: typ,
+			Q: q, AfterCreated: after.T, AfterID: after.ID, RowLimit: int32(limit) + 1})
 		if len(rows) > limit {
 			rows, more = rows[:limit], true
 		}
@@ -150,10 +153,11 @@ func (s *Service) ListCompanies(ctx context.Context, p *authz.Principal, in List
 // OwnerCompany is GET /v1/companies/owner (company:view): the owner company (the header of invoices and receipts)
 // when the caller's reach holds it; 404 otherwise.
 func (s *Service) OwnerCompany(ctx context.Context, p *authz.Principal) (*Company, error) {
+	all, tenants := p.TenantReach()
 	var row partiesdb.GetOwnerCompanyRow
 	err := s.tx(ctx, p, func(_ pgx.Tx, q *partiesdb.Queries) error {
 		var err error
-		row, err = q.GetOwnerCompany(ctx)
+		row, err = q.GetOwnerCompany(ctx, partiesdb.GetOwnerCompanyParams{AllTenants: all, TenantIds: tenants})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return httpx.ErrNotFound()
 		}
@@ -373,12 +377,17 @@ func (s *Service) CreateCompany(ctx context.Context, p *authz.Principal, rid str
 }
 
 // PatchCompany is PATCH /v1/companies/{id} (company:manage): partial, on a company of the caller's reach (RLS); outbox
-// companies.changed. A request that changes nothing writes nothing.
+// companies.changed. A request that changes nothing writes nothing; an asset key the company already links in that
+// slot (the payload sent back) stays linked as it is, whoever uploaded it.
 func (s *Service) PatchCompany(ctx context.Context, p *authz.Principal, rid string, id uuid.UUID, in CompanyInput) (*Company, error) {
 	if err := in.validate(false); err != nil {
 		return nil, err
 	}
-	err := s.tx(ctx, p, func(tx pgx.Tx, q *partiesdb.Queries) error {
+	held, err := s.heldKeys(ctx, in.keys()...)
+	if err != nil {
+		return nil, err
+	}
+	err = s.tx(ctx, p, func(tx pgx.Tx, q *partiesdb.Queries) error {
 		cur, err := q.LockCompany(ctx, id)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return httpx.ErrNotFound()
@@ -459,13 +468,9 @@ func (s *Service) PatchCompany(ctx context.Context, p *authz.Principal, rid stri
 			if !k.Set {
 				continue
 			}
-			var fid *uuid.UUID
-			if v := textOf(k); v != nil {
-				f, err := s.commit(ctx, tx, p, *v, companyAssets[i].field, companyAssets[i].purpose, id)
-				if err != nil {
-					return err
-				}
-				fid = &f
+			fid, err := s.assetFile(ctx, tx, p, k, *dsts[i], held, companyAssets[i].field, companyAssets[i].purpose, id)
+			if err != nil {
+				return err
 			}
 			if !eq(*dsts[i], fid) {
 				*dsts[i], changed = fid, true

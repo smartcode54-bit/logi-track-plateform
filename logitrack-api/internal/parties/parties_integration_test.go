@@ -15,6 +15,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -22,6 +23,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -41,6 +43,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/parties"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/parties/partiesdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache/cachetest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
@@ -72,7 +75,10 @@ func TestMain(m *testing.M) {
 
 type world struct {
 	t        *testing.T
+	db       *pgtest.Database
 	pool     *pgxpool.Pool
+	local    *storage.Local
+	stCfg    storage.Config
 	etl      *pgx.Conn
 	rdb      *redis.Client
 	ks       cache.Keyspace
@@ -106,7 +112,7 @@ func newWorld(t *testing.T) *world {
 	if _, err := migratetest.Runner(t, d, migrations.FS).Up(ctx); err != nil {
 		t.Fatal(err)
 	}
-	w := &world{t: t, pool: d.Pool(t, db.RoleApp), tokens: map[string]string{}}
+	w := &world{t: t, db: d, pool: d.Pool(t, db.RoleApp), tokens: map[string]string{}}
 	var err error
 	if w.etl, err = pgx.Connect(ctx, d.URL(db.RoleETL)); err != nil {
 		t.Fatal(err)
@@ -136,8 +142,10 @@ func newWorld(t *testing.T) *world {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = local.Close() })
-	st, err := storage.New(w.pool, storage.Config{Active: storage.BackendLocal, Bucket: "logitrack", PublicBucket: "logitrack-public",
-		PresignPutTTL: 15 * time.Minute, PresignGetTTL: time.Hour, UploadMaxBytes: 1 << 20}, zerolog.Nop(), local)
+	w.local = local
+	w.stCfg = storage.Config{Active: storage.BackendLocal, Bucket: "logitrack", PublicBucket: "logitrack-public",
+		PresignPutTTL: 15 * time.Minute, PresignGetTTL: time.Hour, UploadMaxBytes: 1 << 20}
+	st, err := storage.New(w.pool, w.stCfg, zerolog.Nop(), local)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -802,8 +810,8 @@ func TestCompaniesReachAndOwner(t *testing.T) {
 	if r.data()["tenantId"] != w.A {
 		t.Fatalf("a company is stamped with the caller's tenant: %s", r.raw)
 	}
-	ids := func(tok string) []string {
-		r := w.get("/v1/companies", tok)
+	ids := func(tok string, headers ...string) []string {
+		r := w.get("/v1/companies", tok, headers...)
 		expect(t, r, http.StatusOK, "")
 		var out []string
 		for _, it := range r.list() {
@@ -850,6 +858,265 @@ func TestCompaniesReachAndOwner(t *testing.T) {
 	expect(t, w.get("/v1/companies", pa), http.StatusForbidden, "permission_denied")
 	if r := w.get("/v1/companies", pa, authz.HeaderActOnTenant, w.A); r.status != http.StatusOK || len(r.list()) != 1 {
 		t.Fatalf("platform acting as A: %d %s", r.status, r.raw)
+	}
+
+	// X-Act-On-Tenant: * reads every tenant's companies and the owner company (the read-only bypass).
+	r = w.post("/v1/companies", w.login("ta.c"), company(map[string]any{"nameTh": "บริษัท ซี"}))
+	expect(t, r, http.StatusCreated, "")
+	all := []string{owner, sub, str(r.data()["id"])}
+	slices.Sort(all)
+	if got := ids(pa, authz.HeaderActOnTenant, "*"); !slices.Equal(got, all) {
+		t.Errorf("X-Act-On-Tenant: * lists %v, want %v", got, all)
+	}
+	if r := w.get("/v1/companies/owner", pa, authz.HeaderActOnTenant, "*"); r.status != http.StatusOK || r.data()["id"] != owner {
+		t.Fatalf("owner under X-Act-On-Tenant: *: %d %s", r.status, r.raw)
+	}
+	if got := ids(taO); !slices.Equal(got, both) {
+		t.Errorf("own fleet after C's company: %v", got)
+	}
+	// The queries name the reach themselves (main spec §4.7, Appendix C §C.3.8): run without RLS (logitrack_etl is
+	// BYPASSRLS), they still return only the tenants they are given.
+	ctx := context.Background()
+	q := partiesdb.New(w.etl)
+	rows, err := q.ListCompanies(ctx, partiesdb.ListCompaniesParams{TenantIds: []uuid.UUID{uuid.MustParse(w.A)}, RowLimit: 10})
+	if err != nil || len(rows) != 1 || rows[0].ID.String() != sub {
+		t.Fatalf("ListCompanies names the reach: %v %+v", err, rows)
+	}
+	if rows, err = q.ListCompanies(ctx, partiesdb.ListCompaniesParams{TenantIds: []uuid.UUID{}, RowLimit: 10}); err != nil || len(rows) != 0 {
+		t.Fatalf("an empty reach reads nothing: %v %d", err, len(rows))
+	}
+	if rows, err = q.ListCompanies(ctx, partiesdb.ListCompaniesParams{AllTenants: true, TenantIds: []uuid.UUID{}, RowLimit: 10}); err != nil || len(rows) != 3 {
+		t.Fatalf("all_tenants: %v %d", err, len(rows))
+	}
+	if _, err := q.GetOwnerCompany(ctx, partiesdb.GetOwnerCompanyParams{TenantIds: []uuid.UUID{uuid.MustParse(w.A)}}); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("GetOwnerCompany outside the reach: %v", err)
+	}
+}
+
+// Review of PR #121: a PATCH may send back the record it loaded. An asset key the company already links in that
+// slot stays linked without a new commit, whoever uploaded it, so own-fleet staff (contractor reach) and a platform
+// admin acting as another tenant can save a carrier's company; a key the company does not link still follows the
+// commit rule (an upload of the caller or of its tenant).
+func TestCompanyPatchKeepsLinkedKeys(t *testing.T) {
+	w := newWorld(t)
+	taA, taO, pa := w.login("ta.a"), w.login("ta.o"), w.login("pa")
+	pending := uuid.NewString()
+	keys := map[string]any{
+		"logoKey":      w.upload(taA, "company_logo", pending, "", "image/png", png),
+		"stampKey":     w.upload(taA, "company_stamp", pending, "", "image/png", png),
+		"signatureKey": w.upload(taA, "company_signature", pending, "", "image/png", png),
+	}
+	r := w.post("/v1/companies", taA, company(keys))
+	expect(t, r, http.StatusCreated, "")
+	id := str(r.data()["id"])
+	with := func(extra map[string]any) map[string]any {
+		out := map[string]any{}
+		for k, v := range keys {
+			out[k] = v
+		}
+		for k, v := range extra {
+			out[k] = v
+		}
+		return out
+	}
+	files := func() string {
+		return w.id(`SELECT concat_ws(',', logo_file_id, stamp_file_id, signature_file_id) FROM companies WHERE id = $1`, id)
+	}
+	events := func() int {
+		return w.count(`SELECT count(*) FROM outbox_events WHERE routing_key = 'companies.changed' AND aggregate_id = $1`, id)
+	}
+	linked, n := files(), events()
+
+	// The own fleet loads A's company through contractor reach and sends it back with its keys.
+	r = w.get("/v1/companies", taO)
+	expect(t, r, http.StatusOK, "")
+	var loaded map[string]any
+	for _, it := range r.list() {
+		if it["id"] == id {
+			loaded = it
+		}
+	}
+	if loaded == nil || loaded["logoKey"] != keys["logoKey"] || loaded["signatureKey"] != keys["signatureKey"] {
+		t.Fatalf("own fleet's view of A's company: %s", r.raw)
+	}
+	for _, who := range []struct {
+		name, tok string
+		headers   []string
+	}{{"ta.o", taO, nil}, {"pa as O", pa, []string{authz.HeaderActOnTenant, w.O}}, {"ta.a", taA, nil}} {
+		r = w.patch("/v1/companies/"+id, who.tok, with(nil), who.headers...)
+		expect(t, r, http.StatusOK, "")
+		if r.data()["logoKey"] != keys["logoKey"] || r.data()["stampKey"] != keys["stampKey"] || r.data()["signatureKey"] != keys["signatureKey"] {
+			t.Fatalf("%s: %s", who.name, r.raw)
+		}
+	}
+	if files() != linked || events() != n {
+		t.Fatalf("sending the loaded keys back wrote (files %s -> %s, events %d -> %d)", linked, files(), n, events())
+	}
+	// With another change, the keys still pass and only the change lands.
+	r = w.patch("/v1/companies/"+id, taO, with(map[string]any{"bankName": "SCB"}))
+	expect(t, r, http.StatusOK, "")
+	if r.data()["bankName"] != "SCB" || files() != linked || events() != n+1 {
+		t.Fatalf("change with the keys sent back: %s", r.raw)
+	}
+	// A key the company does not link is committed as before: A's other upload is not the own fleet's to commit.
+	other := w.upload(taA, "company_logo", pending, "", "image/png", png)
+	r = w.patch("/v1/companies/"+id, taO, with(map[string]any{"logoKey": other}))
+	expect(t, r, http.StatusUnprocessableEntity, "invalid_argument")
+	if r.fields()["logoKey"] != "not_found" {
+		t.Fatalf("foreign new key: %v", r.fields())
+	}
+	// The own fleet replaces the logo with its own upload; A's admin then sends the new key back.
+	keys["logoKey"] = w.upload(taO, "company_logo", id, "", "image/png", png)
+	r = w.patch("/v1/companies/"+id, taO, map[string]any{"logoKey": keys["logoKey"]})
+	expect(t, r, http.StatusOK, "")
+	if r.data()["logoKey"] != keys["logoKey"] {
+		t.Fatalf("replace: %s", r.raw)
+	}
+	linked, n = files(), events()
+	r = w.patch("/v1/companies/"+id, taA, with(nil))
+	expect(t, r, http.StatusOK, "")
+	if files() != linked || events() != n {
+		t.Fatal("A's echo of the own fleet's logo wrote")
+	}
+	r = w.patch("/v1/companies/"+id, taA, with(map[string]any{"accountName": "บริษัท เอ จำกัด"}))
+	expect(t, r, http.StatusOK, "")
+	if r.data()["accountName"] != "บริษัท เอ จำกัด" || files() != linked {
+		t.Fatalf("A's change with the keys sent back: %s", r.raw)
+	}
+}
+
+// Review of PR #121: the same for a customer's logo: a steward acting as another tenant than the uploader's, and an
+// ETL logo (no tenant, no uploader; RLS hides its row from every principal) sent back by the own fleet.
+func TestCustomerPatchKeepsLinkedLogo(t *testing.T) {
+	w := newWorld(t)
+	mgO, pa := w.login("mg.o"), w.login("pa")
+	logo := w.upload(mgO, "customer_logo", w.custY, "", "image/png", png)
+	expect(t, w.patch("/v1/customers/"+w.custY, mgO, map[string]any{"logoKey": logo}), http.StatusOK, "")
+	events := func(id string) int {
+		return w.count(`SELECT count(*) FROM outbox_events WHERE routing_key = 'customers.changed' AND aggregate_id = $1`, id)
+	}
+	n := events(w.custY)
+	actA := []string{authz.HeaderActOnTenant, w.A}
+	r := w.patch("/v1/customers/"+w.custY, pa, map[string]any{"name": "Y Co.", "logoKey": logo}, actA...)
+	expect(t, r, http.StatusOK, "")
+	if r.data()["logoKey"] != logo || events(w.custY) != n {
+		t.Fatalf("pa as A sending Y back: %s (events %d -> %d)", r.raw, n, events(w.custY))
+	}
+	r = w.patch("/v1/customers/"+w.custY, pa, map[string]any{"name": "Y Holdings", "logoKey": logo}, actA...)
+	expect(t, r, http.StatusOK, "")
+	if r.data()["name"] != "Y Holdings" || r.data()["logoKey"] != logo || events(w.custY) != n+1 {
+		t.Fatalf("pa as A changing Y: %s", r.raw)
+	}
+
+	const etlKey = "customers/legacy-x/logo.png"
+	fid := w.id(`INSERT INTO file_objects (bucket, object_key, purpose, owner_kind, owner_id, visibility, status, storage_backend)
+		VALUES ('logitrack', $1, 'customer_logo', 'customer', $2, 'private', 'missing_at_source', 's3') RETURNING id::text`, etlKey, w.custX)
+	w.exec(`UPDATE customers SET logo_file_id = $1 WHERE id = $2`, fid, w.custX)
+	r = w.get("/v1/customers/"+w.custX, mgO)
+	expect(t, r, http.StatusOK, "")
+	if r.data()["logoKey"] != etlKey || r.data()["logoUrl"] != nil {
+		t.Fatalf("ETL logo: %s", r.raw)
+	}
+	n = events(w.custX)
+	r = w.patch("/v1/customers/"+w.custX, mgO, map[string]any{"name": "X Co.", "logoKey": etlKey})
+	expect(t, r, http.StatusOK, "")
+	if r.data()["logoKey"] != etlKey || events(w.custX) != n {
+		t.Fatalf("own fleet sending the ETL logo back: %s", r.raw)
+	}
+	if got := w.id(`SELECT logo_file_id::text FROM customers WHERE id = $1`, w.custX); got != fid {
+		t.Fatalf("logo_file_id %s, want %s", got, fid)
+	}
+}
+
+// Review of PR #121: GetCustomer signed the logo inside its request transaction, and SignedFile opens its own system
+// transaction on the same pool, so each customer read or write with a logo held one connection while it waited for a
+// second; with as many such requests as connections the pool, and every route with it, hung for good. Every parties
+// call now finishes on a one-connection pool, and many concurrent ones on a two-connection pool.
+func TestPartiesNeverNestPoolConnections(t *testing.T) {
+	w := newWorld(t)
+	mgO, taO := w.login("mg.o"), w.login("ta.o")
+	logo := w.upload(mgO, "customer_logo", w.custY, "", "image/png", png)
+	expect(t, w.patch("/v1/customers/"+w.custY, mgO, map[string]any{"logoKey": logo}), http.StatusOK, "")
+	pending := uuid.NewString()
+	assets := map[string]any{"logoKey": w.upload(taO, "company_logo", pending, "", "image/png", png),
+		"stampKey": w.upload(taO, "company_stamp", pending, "", "image/png", png)}
+	r := w.post("/v1/companies", taO, company(map[string]any{"companyType": "owner", "logoKey": assets["logoKey"],
+		"stampKey": assets["stampKey"]}))
+	expect(t, r, http.StatusCreated, "")
+	companyID := uuid.MustParse(str(r.data()["id"]))
+	y := uuid.MustParse(w.custY)
+
+	services := func(maxConns int32) *parties.Service {
+		pool, err := db.NewPool(context.Background(), w.db.URL(db.RoleApp), "pgtest-small", db.Options{MaxConns: maxConns})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(pool.Close)
+		st, err := storage.New(pool, w.stCfg, zerolog.Nop(), w.local)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ps, err := parties.New(parties.Deps{Pool: pool, Files: st, Log: zerolog.Nop()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ps
+	}
+	// mg.o as iam.RBAC.Resolve completes it: own-fleet staff are stewards (R60).
+	o := uuid.MustParse(w.O)
+	p := &authz.Principal{UserID: uuid.MustParse(w.id(`SELECT id::text FROM users WHERE email = 'mg.o@example.test'`)),
+		TenantID: &o, TenantRole: authz.Manager, TenantKind: authz.TenantKindOwnFleet, Steward: true,
+		Caps: authz.NewCapSet(authz.FleetManageCustomers, authz.CompanyView, authz.CompanyManage)}
+
+	ps := services(1)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	c, err := ps.GetCustomer(ctx, p, y)
+	if err != nil || c.LogoKey == nil || *c.LogoKey != logo || c.LogoURL == nil {
+		t.Fatalf("GetCustomer on one connection: %v %+v", err, c)
+	}
+	if _, err := ps.PatchCustomer(ctx, p, "", y, parties.CustomerInput{Name: parties.Field[string]{Set: true, V: "Y Logistics"},
+		LogoKey: parties.Field[string]{Set: true, V: logo}}); err != nil {
+		t.Fatalf("PatchCustomer on one connection: %v", err)
+	}
+	if _, _, err := ps.ListCustomers(ctx, p, parties.ListCustomersInput{}); err != nil {
+		t.Fatalf("ListCustomers on one connection: %v", err)
+	}
+	if _, _, err := ps.ListCompanies(ctx, p, parties.ListCompaniesInput{}); err != nil {
+		t.Fatalf("ListCompanies on one connection: %v", err)
+	}
+	if _, err := ps.OwnerCompany(ctx, p); err != nil {
+		t.Fatalf("OwnerCompany on one connection: %v", err)
+	}
+	if _, err := ps.PatchCompany(ctx, p, "", companyID, parties.CompanyInput{BankName: parties.Field[string]{Set: true, V: "KBank"},
+		LogoKey: parties.Field[string]{Set: true, V: str(assets["logoKey"])}, StampKey: parties.Field[string]{Set: true, V: str(assets["stampKey"])}}); err != nil {
+		t.Fatalf("PatchCompany on one connection: %v", err)
+	}
+
+	ps = services(2)
+	const callers = 8
+	errs := make(chan error, 2*callers)
+	var wg sync.WaitGroup
+	for i := range callers {
+		wg.Go(func() {
+			c, err := ps.GetCustomer(ctx, p, y)
+			if err == nil && c.LogoURL == nil {
+				err = errors.New("no logo URL")
+			}
+			errs <- err
+		})
+		wg.Go(func() {
+			_, err := ps.PatchCustomer(ctx, p, "", y, parties.CustomerInput{ContactName: parties.Field[string]{Set: true, V: fmt.Sprint("contact ", i)},
+				LogoKey: parties.Field[string]{Set: true, V: logo}})
+			errs <- err
+		})
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent customer calls on two connections: %v", err)
+		}
 	}
 }
 

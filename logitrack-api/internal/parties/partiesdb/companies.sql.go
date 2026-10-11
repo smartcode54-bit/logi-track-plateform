@@ -90,10 +90,16 @@ SELECT id, tenant_id, name_th, name_en, short_name, tax_id, branch_type, branch_
        withholding_tax_rate::float8 AS withholding_tax_rate, company_type, is_active, max_trucks, max_drivers,
        legacy_doc_id, created_at, updated_at
 FROM companies
-WHERE company_type = 'owner'
+WHERE ($1::boolean OR tenant_id = ANY ($2::uuid[]))
+  AND company_type = 'owner'
 ORDER BY created_at, id
 LIMIT 1
 `
+
+type GetOwnerCompanyParams struct {
+	AllTenants bool
+	TenantIds  []uuid.UUID
+}
 
 type GetOwnerCompanyRow struct {
 	ID                 uuid.UUID
@@ -125,8 +131,8 @@ type GetOwnerCompanyRow struct {
 }
 
 // GET /v1/companies/owner: the one company of type owner (companies_owner_one), when the caller's reach holds it.
-func (q *Queries) GetOwnerCompany(ctx context.Context) (GetOwnerCompanyRow, error) {
-	row := q.db.QueryRow(ctx, getOwnerCompany)
+func (q *Queries) GetOwnerCompany(ctx context.Context, arg GetOwnerCompanyParams) (GetOwnerCompanyRow, error) {
+	row := q.db.QueryRow(ctx, getOwnerCompany, arg.AllTenants, arg.TenantIds)
 	var i GetOwnerCompanyRow
 	err := row.Scan(
 		&i.ID,
@@ -228,19 +234,22 @@ SELECT id, tenant_id, name_th, name_en, short_name, tax_id, branch_type, branch_
        withholding_tax_rate::float8 AS withholding_tax_rate, company_type, is_active, max_trucks, max_drivers,
        legacy_doc_id, created_at, updated_at
 FROM companies
-WHERE ($1::text IS NULL OR company_type = $1)
-  AND ($2::text IS NULL
-       OR strpos(lower(name_th), lower($2::text)) > 0
-       OR strpos(lower(coalesce(name_en, '')), lower($2::text)) > 0
-       OR strpos(lower(coalesce(short_name, '')), lower($2::text)) > 0
-       OR tax_id = $2::text)
-  AND ($3::timestamptz IS NULL
-       OR (created_at, id) < ($3::timestamptz, $4::uuid))
+WHERE ($1::boolean OR tenant_id = ANY ($2::uuid[]))
+  AND ($3::text IS NULL OR company_type = $3)
+  AND ($4::text IS NULL
+       OR strpos(lower(name_th), lower($4::text)) > 0
+       OR strpos(lower(coalesce(name_en, '')), lower($4::text)) > 0
+       OR strpos(lower(coalesce(short_name, '')), lower($4::text)) > 0
+       OR tax_id = $4::text)
+  AND ($5::timestamptz IS NULL
+       OR (created_at, id) < ($5::timestamptz, $6::uuid))
 ORDER BY created_at DESC, id DESC
-LIMIT $5
+LIMIT $7
 `
 
 type ListCompaniesParams struct {
+	AllTenants   bool
+	TenantIds    []uuid.UUID
 	CompanyType  *string
 	Q            *string
 	AfterCreated *time.Time
@@ -281,9 +290,14 @@ type ListCompaniesRow struct {
 // (tenant_source 'self'); RLS G-tenant decides: staff read and write the companies of their tenant reach (own tenant
 // and the carriers working for it), never the quarantine tenant's. withholding_tax_rate is NUMERIC(5,2), a percent
 // (R18: statements snapshot it as a fraction); it crosses the boundary as float8, Go keeps at most two decimals.
+// The reads name the caller's reach (main spec §4.7, Appendix C §C.3.8; authz.Principal.TenantReach): all_tenants
+// under X-Act-On-Tenant: *, else tenant_ids = the effective tenant of a staff principal and its contractor reach; RLS
+// then re-checks every row.
 // GET /v1/companies, newest first.
 func (q *Queries) ListCompanies(ctx context.Context, arg ListCompaniesParams) ([]ListCompaniesRow, error) {
 	rows, err := q.db.Query(ctx, listCompanies,
+		arg.AllTenants,
+		arg.TenantIds,
 		arg.CompanyType,
 		arg.Q,
 		arg.AfterCreated,

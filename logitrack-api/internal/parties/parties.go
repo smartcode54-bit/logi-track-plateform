@@ -7,10 +7,13 @@
 // customer_driver_id_types are global-read-steward-write (R60: only own-fleet staff or a platform admin acting as a
 // tenant write them; a customer-scope principal reads only its own parties, 0012); companies are tenant rows of
 // the caller's reach. Capabilities decide the verbs first (fleet:manage_customers, company:view, company:manage),
-// and the repositories still name the scope reach (main spec §4.7: two layers).
+// and the list queries still name the reach (main spec §4.7: two layers; Appendix C §C.3.8): the company reads pass
+// authz.Principal.TenantReach, the customer list a customer-scope principal's parties; single-row reads and writes
+// name the id.
 //
 // Files go through internal/storage: a key from POST /v1/uploads/presign is committed in the entity transaction
-// (Stat, size, type) and the payload carries a short-lived presigned URL; the objects themselves are private.
+// (Stat, size, type) and the payload carries a short-lived presigned URL, signed after the transaction closes; a
+// PATCH that sends back a key the entity already links keeps that file; the objects themselves are private.
 package parties
 
 import (
@@ -21,6 +24,7 @@ import (
 	"net/http"
 	"net/mail"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -56,10 +60,13 @@ const (
 	MaxLimit     = 500
 )
 
-// Files is the storage service as this package uses it (internal/storage implements it).
+// Files is the storage service as this package uses it (internal/storage implements it). Commit runs in the request
+// transaction; SignedFile and FileIDsByKey take their own pool connection, so they run before or after s.tx, never
+// inside it (a request that holds one connection while it waits for a second deadlocks the pool under load).
 type Files interface {
 	Commit(ctx context.Context, tx pgx.Tx, in storage.CommitInput) (storage.Committed, error)
 	SignedFile(ctx context.Context, fileID uuid.UUID, ttl time.Duration) (key, url string, err error)
+	FileIDsByKey(ctx context.Context, keys []string) (map[string][]uuid.UUID, error)
 }
 
 // Invalidator drops the cache: keys an outbox event makes stale (cache.Cache implements it); the relay does the same
@@ -125,6 +132,7 @@ func (s *Service) invalidate(ctx context.Context, routingKey string, id uuid.UUI
 }
 
 // signed returns the key and a presigned GET of a committed file (nil, nil without a file or a storage service).
+// Files.SignedFile takes its own pool connection: call it (and companyOf, customerOf) after s.tx returns.
 func (s *Service) signed(ctx context.Context, fileID *uuid.UUID) (key, url *string) {
 	if fileID == nil || s.files == nil {
 		return nil, nil
@@ -153,6 +161,43 @@ func (s *Service) commit(ctx context.Context, tx pgx.Tx, p *authz.Principal, key
 		return uuid.Nil, err
 	}
 	return f.ID, nil
+}
+
+// heldKeys looks up the file rows that hold the asset keys a PATCH carries, before its transaction (Files.FileIDsByKey
+// takes its own pool connection). nil without keys or a storage service: then every key is committed.
+func (s *Service) heldKeys(ctx context.Context, fields ...Field[string]) (map[string][]uuid.UUID, error) {
+	var keys []string
+	for _, f := range fields {
+		if v := textOf(f); f.Set && v != nil {
+			keys = append(keys, *v)
+		}
+	}
+	if len(keys) == 0 || s.files == nil {
+		return nil, nil
+	}
+	return s.files.FileIDsByKey(ctx, keys)
+}
+
+// assetFile is the file a PATCH asset field that is set resolves to in the request transaction: nil for null or
+// blank (unlink; the object stays, main spec §9.3); the file the locked row already links in that slot when the key
+// is that file's (kept as it is, whoever uploaded it: the payload's keys go back in a PATCH, and an editor in
+// contractor reach or a steward acting as another tenant is neither the uploader nor in its tenant, the rule of
+// storage.Commit); else the key committed to owner. held is heldKeys of the request.
+func (s *Service) assetFile(ctx context.Context, tx pgx.Tx, p *authz.Principal, f Field[string], linked *uuid.UUID,
+	held map[string][]uuid.UUID, field, purpose string, owner uuid.UUID) (*uuid.UUID, error) {
+	v := textOf(f)
+	if v == nil {
+		return nil, nil
+	}
+	if linked != nil && slices.Contains(held[*v], *linked) {
+		id := *linked
+		return &id, nil
+	}
+	id, err := s.commit(ctx, tx, p, *v, field, purpose, owner)
+	if err != nil {
+		return nil, err
+	}
+	return &id, nil
 }
 
 // --- request helpers ---------------------------------------------------------------------------------------

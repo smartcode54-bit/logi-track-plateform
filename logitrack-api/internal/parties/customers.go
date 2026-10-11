@@ -182,6 +182,7 @@ func driverIDTypes(ctx context.Context, q *partiesdb.Queries, ids []uuid.UUID) (
 	return out, nil
 }
 
+// customerOf builds the payload; it signs the logo URL (Files.SignedFile), so it runs after s.tx returns.
 func (s *Service) customerOf(ctx context.Context, c partiesdb.Customer, party *uuid.UUID, basis *string, types []DriverIDType) Customer {
 	if types == nil {
 		types = []DriverIDType{}
@@ -198,26 +199,28 @@ func (s *Service) customerOf(ctx context.Context, c partiesdb.Customer, party *u
 		LineGroupID: c.LineGroupID, BillingDateBasis: b, DriverIDTypes: types, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt}
 }
 
-// GetCustomer is GET /v1/customers/{id} (fleet:manage_customers): the full record.
+// GetCustomer is GET /v1/customers/{id} (fleet:manage_customers): the full record. The logo is signed after the
+// transaction: Files.SignedFile takes its own pool connection.
 func (s *Service) GetCustomer(ctx context.Context, p *authz.Principal, id uuid.UUID) (*Customer, error) {
-	var out *Customer
+	var r partiesdb.GetCustomerRow
+	var types map[uuid.UUID][]DriverIDType
 	err := s.tx(ctx, p, func(_ pgx.Tx, q *partiesdb.Queries) error {
-		r, err := q.GetCustomer(ctx, id)
+		var err error
+		r, err = q.GetCustomer(ctx, id)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return httpx.ErrNotFound()
 		}
 		if err != nil {
 			return err
 		}
-		types, err := driverIDTypes(ctx, q, []uuid.UUID{id})
-		if err != nil {
-			return err
-		}
-		c := s.customerOf(ctx, r.Customer, r.BillingPartyID, r.BillingDateBasis, types[id])
-		out = &c
-		return nil
+		types, err = driverIDTypes(ctx, q, []uuid.UUID{id})
+		return err
 	})
-	return out, err
+	if err != nil {
+		return nil, err
+	}
+	c := s.customerOf(ctx, r.Customer, r.BillingPartyID, r.BillingDateBasis, types[id])
+	return &c, nil
 }
 
 // CustomerInput is the body of POST /v1/customers and PATCH /v1/customers/{id} (customerSchema of the web): on
@@ -395,13 +398,17 @@ func (s *Service) CreateCustomer(ctx context.Context, p *authz.Principal, rid st
 
 // PatchCustomer is PATCH /v1/customers/{id} (fleet:manage_customers): the merged record, the billing party's basis,
 // driverIdTypes and logo in one transaction with outbox customers.changed; a request that changes nothing writes
-// nothing.
+// nothing, and a logoKey the customer already links (the payload sent back) stays linked, whoever uploaded it.
 func (s *Service) PatchCustomer(ctx context.Context, p *authz.Principal, rid string, id uuid.UUID, in CustomerInput) (*Customer, error) {
 	if err := in.validate(false); err != nil {
 		return nil, err
 	}
+	held, err := s.heldKeys(ctx, in.LogoKey)
+	if err != nil {
+		return nil, err
+	}
 	changed := false
-	err := s.tx(ctx, p, func(tx pgx.Tx, q *partiesdb.Queries) error {
+	err = s.tx(ctx, p, func(tx pgx.Tx, q *partiesdb.Queries) error {
 		cur, err := q.LockCustomer(ctx, id)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return httpx.ErrNotFound()
@@ -458,13 +465,9 @@ func (s *Service) PatchCustomer(ctx context.Context, p *authz.Principal, rid str
 			return err
 		}
 		if in.LogoKey.Set {
-			var fid *uuid.UUID
-			if v := textOf(in.LogoKey); v != nil {
-				f, err := s.commit(ctx, tx, p, *v, "logoKey", "customer_logo", id)
-				if err != nil {
-					return err
-				}
-				fid = &f
+			fid, err := s.assetFile(ctx, tx, p, in.LogoKey, c.LogoFileID, held, "logoKey", "customer_logo", id)
+			if err != nil {
+				return err
 			}
 			if !eq(m.LogoFileID, fid) {
 				m.LogoFileID, changed = fid, true
