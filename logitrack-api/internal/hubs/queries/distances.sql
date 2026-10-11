@@ -1,0 +1,84 @@
+-- Hub <-> SOC distances (Appendix B §B.2.9, R14): hub_soc_distances + soc_hub_distances in one table with direction,
+-- unique per (hub_id, soc_key, direction). Reads run in db.WithPrincipal (global read); the distances.compute consumer
+-- writes in db.WithSystem (Appendix C §C.3.0: "distance job writes under WithSystem").
+
+-- name: FindHubsByRef :many
+-- The hubs that path or query references name: a uuid (hubs.id) or a code (hubs.source_id, case-insensitive).
+SELECT h.id, h.source_id::text AS source_id, h.station_type, h.network
+FROM hubs h
+WHERE h.id = ANY (sqlc.arg(ids)::uuid[]) OR h.source_id = ANY (sqlc.arg(codes)::text[]::citext[]);
+
+-- name: ListSocs :many
+-- Every SOC: a reference such as SOCE resolves to the SOC whose normalised key it is (normalizeSocIdToKey).
+SELECT h.id, h.source_id::text AS source_id, h.station_type, h.network
+FROM hubs h
+WHERE h.station_type = 'SOC'
+ORDER BY h.source_id, h.id;
+
+-- name: ListDistances :many
+-- GET /v1/distances: keyset on id (uuidv7); hub_id narrows to one hub, soc_key to one SOC, direction to one direction.
+SELECT d.id, d.hub_id, h.source_id::text AS hub_source_id, d.soc_key, d.direction, d.network, d.distance_m,
+       d.distance_km::float8 AS distance_km, d.duration_s, d.duration_min::float8 AS duration_min, d.hub_lat, d.hub_lng,
+       d.soc_lat, d.soc_lng, d.updated_at
+FROM hub_soc_distances d
+JOIN hubs h ON h.id = d.hub_id
+WHERE (sqlc.narg(hub_id)::uuid IS NULL OR d.hub_id = sqlc.narg(hub_id)::uuid)
+  AND (sqlc.narg(soc_key)::text IS NULL OR d.soc_key = sqlc.narg(soc_key)::text)
+  AND (sqlc.narg(direction)::text IS NULL OR d.direction = sqlc.narg(direction)::text)
+  AND (sqlc.narg(after_id)::uuid IS NULL OR d.id > sqlc.narg(after_id)::uuid)
+ORDER BY d.id
+LIMIT sqlc.arg(row_limit);
+
+-- name: GetDistance :one
+-- GET /v1/distances/{originId}/{destinationId}: one pair in one direction.
+SELECT d.id, d.hub_id, h.source_id::text AS hub_source_id, d.soc_key, d.direction, d.network, d.distance_m,
+       d.distance_km::float8 AS distance_km, d.duration_s, d.duration_min::float8 AS duration_min, d.hub_lat, d.hub_lng,
+       d.soc_lat, d.soc_lng, d.updated_at
+FROM hub_soc_distances d
+JOIN hubs h ON h.id = d.hub_id
+WHERE d.hub_id = sqlc.arg(hub_id) AND d.soc_key = sqlc.arg(soc_key) AND d.direction = sqlc.arg(direction);
+
+-- name: ListDistancePoints :many
+-- The job input (getHubsAndSocs, fn:distances.ts): hubs and SOCs with coordinates, in the legacy document order
+-- (Firestore doc ids, byte order) so the first SOC of a duplicated key wins as it did; rows created in Go follow.
+SELECT h.id, h.source_id::text AS source_id, h.station_type, h.network, h.latitude::float8 AS latitude,
+       h.longitude::float8 AS longitude
+FROM hubs h
+WHERE h.latitude IS NOT NULL AND h.longitude IS NOT NULL
+ORDER BY h.legacy_doc_id COLLATE "C" NULLS LAST, h.created_at, h.id;
+
+-- name: UpsertDistances :execrows
+-- The job's rows: one per (hub, SOC key, direction); a pair computed again is updated in place (created_by kept,
+-- updated_by the job owner), pairs the run did not compute stay as they are (stale pairs kept, Appendix B §B.5.3).
+INSERT INTO hub_soc_distances (hub_id, soc_key, direction, network, distance_m, distance_km, duration_s, duration_min,
+                               hub_lat, hub_lng, soc_lat, soc_lng, created_by, updated_by)
+SELECT (sqlc.arg(hub_ids)::uuid[])[i], (sqlc.arg(soc_keys)::text[])[i], (sqlc.arg(directions)::text[])[i],
+       (sqlc.arg(networks)::text[])[i], (sqlc.arg(distance_m)::int[])[i],
+       ((sqlc.arg(distance_km)::float8[])[i])::numeric(9,2), (sqlc.arg(duration_s)::int[])[i],
+       ((sqlc.arg(duration_min)::float8[])[i])::numeric(9,2), (sqlc.arg(hub_lat)::float8[])[i],
+       (sqlc.arg(hub_lng)::float8[])[i], (sqlc.arg(soc_lat)::float8[])[i], (sqlc.arg(soc_lng)::float8[])[i],
+       sqlc.narg(actor)::uuid, sqlc.narg(actor)::uuid
+FROM generate_subscripts(sqlc.arg(hub_ids)::uuid[], 1) AS i
+ON CONFLICT (hub_id, soc_key, direction) DO UPDATE
+SET network = EXCLUDED.network, distance_m = EXCLUDED.distance_m, distance_km = EXCLUDED.distance_km,
+    duration_s = EXCLUDED.duration_s, duration_min = EXCLUDED.duration_min, hub_lat = EXCLUDED.hub_lat,
+    hub_lng = EXCLUDED.hub_lng, soc_lat = EXCLUDED.soc_lat, soc_lng = EXCLUDED.soc_lng,
+    updated_by = EXCLUDED.updated_by;
+
+-- name: GetSetting :one
+-- settings (RLS-exempt, service layer only): distances_last_calculated for GET /v1/distances/meta.
+SELECT value, updated_at FROM settings WHERE key = sqlc.arg(key);
+
+-- name: UpsertSetting :exec
+INSERT INTO settings (key, value, updated_by) VALUES (sqlc.arg(key), sqlc.arg(value), sqlc.narg(updated_by)::uuid)
+ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by;
+
+-- name: CountDistanceRuns :one
+-- The distances.compute runs since the start of a Bangkok month that count against the monthly cap (.vibe-rules.md
+-- Hub-SOC Distance section: at most 4 runs a month): queued, running or succeeded, and a failed run that completed at
+-- least one (billed) request (progress.done > 0); a run refused on its first request is free (jobs is RLS-exempt, R67).
+SELECT count(*)::int AS runs
+FROM jobs
+WHERE type = 'distances.compute'
+  AND (status IN ('queued', 'running', 'succeeded') OR coalesce((progress->>'done')::int, 0) > 0)
+  AND created_at >= sqlc.arg(since)::timestamptz;

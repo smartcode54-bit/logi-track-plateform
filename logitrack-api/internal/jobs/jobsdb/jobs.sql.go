@@ -147,26 +147,33 @@ func (q *Queries) InsertJob(ctx context.Context, arg InsertJobParams) (Job, erro
 
 const listJobs = `-- name: ListJobs :many
 SELECT id, type, status, owner_user_id, tenant_id, params, progress, result, error, created_at, started_at, finished_at FROM jobs
- WHERE ($1::uuid IS NULL OR owner_user_id = $1::uuid)
-   AND ($2::text IS NULL OR type = $2::text)
-   AND ($3::timestamptz IS NULL
-        OR (created_at, id) < ($3::timestamptz, $4::uuid))
+ WHERE ($1::uuid IS NULL OR owner_user_id = $1::uuid
+        OR (tenant_id = $2::uuid AND type = ANY ($3::text[])))
+   AND ($4::text IS NULL OR type = $4::text)
+   AND ($5::timestamptz IS NULL
+        OR (created_at, id) < ($5::timestamptz, $6::uuid))
  ORDER BY created_at DESC, id DESC
- LIMIT $5::int
+ LIMIT $7::int
 `
 
 type ListJobsParams struct {
 	OwnerUserID     *uuid.UUID
+	ReaderTenantID  *uuid.UUID
+	ReaderTypes     []string
 	JobType         *string
 	BeforeCreatedAt *time.Time
 	BeforeID        *uuid.UUID
 	RowLimit        int32
 }
 
-// GET /v1/jobs: keyset on (created_at DESC, id DESC); owner NULL = every job (platform callers).
+// GET /v1/jobs: keyset on (created_at DESC, id DESC); owner NULL = every job (platform callers). Otherwise the
+// caller's own jobs and, as a staff reader, the jobs of its tenant (reader_tenant_id) whose type's capability it holds
+// (reader_types, jobs.TypeCapabilities; developer-spec.md §7.5).
 func (q *Queries) ListJobs(ctx context.Context, arg ListJobsParams) ([]Job, error) {
 	rows, err := q.db.Query(ctx, listJobs,
 		arg.OwnerUserID,
+		arg.ReaderTenantID,
+		arg.ReaderTypes,
 		arg.JobType,
 		arg.BeforeCreatedAt,
 		arg.BeforeID,

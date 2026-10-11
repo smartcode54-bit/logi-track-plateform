@@ -62,6 +62,68 @@ func (q *Queries) ListScopeCarriers(ctx context.Context, arg ListScopeCarriersPa
 	return items, nil
 }
 
+const listScopeTrucks = `-- name: ListScopeTrucks :many
+SELECT id, tenant_id, license_plate, province, vehicle_class, type_raw, status FROM scope_trucks
+WHERE ($1::uuid IS NULL OR tenant_id = $1::uuid)
+  AND ($2::text IS NULL OR status = $2::text)
+  AND ($3::text IS NULL OR vehicle_class = upper($3::text)
+       OR lower(type_raw) = lower($3::text))
+  AND ($4::text IS NULL
+       OR strpos(lower(license_plate), lower($4::text)) > 0
+       OR strpos(lower(province), lower($4::text)) > 0)
+  AND ($5::text IS NULL
+       OR (license_plate, id) > ($5::text, $6::uuid))
+ORDER BY license_plate, id
+LIMIT $7
+`
+
+type ListScopeTrucksParams struct {
+	TenantID   *uuid.UUID `json:"tenantId"`
+	Status     *string    `json:"status"`
+	TruckType  *string    `json:"truckType"`
+	Q          *string    `json:"q"`
+	AfterPlate *string    `json:"afterPlate"`
+	AfterID    uuid.UUID  `json:"afterId"`
+	RowLimit   int32      `json:"rowLimit"`
+}
+
+// The truck list of a dispatcher (T22): the projection only, by plate; type matches the class or the master word.
+func (q *Queries) ListScopeTrucks(ctx context.Context, arg ListScopeTrucksParams) ([]ScopeTruck, error) {
+	rows, err := q.db.Query(ctx, listScopeTrucks,
+		arg.TenantID,
+		arg.Status,
+		arg.TruckType,
+		arg.Q,
+		arg.AfterPlate,
+		arg.AfterID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScopeTruck{}
+	for rows.Next() {
+		var i ScopeTruck
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.LicensePlate,
+			&i.Province,
+			&i.VehicleClass,
+			&i.TypeRaw,
+			&i.Status,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const scopeDriversByID = `-- name: ScopeDriversByID :many
 
 SELECT id, tenant_id, full_name_th, first_name, last_name, mobile, status, active_truck_id FROM scope_drivers WHERE id = ANY ($1::uuid[]) ORDER BY id

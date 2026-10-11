@@ -16,6 +16,8 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/password"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/token"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hubs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/mobileapp"
@@ -42,6 +44,11 @@ type APIDeps struct {
 	APIKeys *iam.APIKeys
 	// Parties are the customers and companies of T20: /v1/customers*, /v1/companies*.
 	Parties *parties.Service
+	// Hubs are the hubs, distances and the distances.compute submission of T21: /v1/hubs*, /v1/distances*,
+	// POST /v1/jobs/distances.compute.
+	Hubs *hubs.Service
+	// Fleet is the truck master of T22: /v1/trucks* (renewals, import).
+	Fleet   *fleet.Service
 	Jobs    *jobs.Service
 	Storage *storage.Service
 	Events  *sse.Service
@@ -70,8 +77,9 @@ func EventGroups(d APIDeps) []ingress.Group {
 func SSELease(ping time.Duration) time.Duration { return 3 * ping }
 
 // JobGroups are GET /v1/jobs, GET /v1/jobs/{id} and POST /v1/admin/queues/{queue}/replay (T10) behind
-// auth.RequireAuth: owners read their jobs, platform_admin and support read all, platform_admin
-// replays (Appendix B §B.2.20).
+// auth.RequireAuth: owners read their jobs, platform_admin and support read all, staff of a job's tenant
+// read the jobs whose type's capability they hold (jobs.TypeCapabilities, T21), platform_admin replays
+// (Appendix B §B.2.20).
 func JobGroups(d APIDeps) []ingress.Group {
 	return d.Jobs.Groups(jobs.HTTPOptions{
 		Auth: d.Auth.RequireAuth(),
@@ -81,7 +89,7 @@ func JobGroups(d APIDeps) []ingress.Group {
 				return jobs.Caller{}, false
 			}
 			return jobs.Caller{UserID: p.UserID, PlatformAdmin: p.HasPlatform(authz.PlatformAdmin),
-				PlatformSupport: p.HasPlatform(authz.Support)}, true
+				PlatformSupport: p.HasPlatform(authz.Support), TenantID: p.EffectiveTenant(), Can: p.Can}, true
 		},
 	})
 }
@@ -221,6 +229,20 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		closeAll()
 		return nil, nil, err
 	}
+	jobSvc := jobs.NewService(pool, jobs.NewRedisLocker(rdb, ks))
+	// Hubs and distances (T21): writes in db.WithPrincipal, the shared hub caches loaded read only, hub writes drop
+	// cache:hubs:*; POST /v1/jobs/distances.compute submits through the jobs service (the worker runs it).
+	hubSvc, err := hubs.New(hubs.Deps{Pool: pool, Cache: caches, Jobs: jobSvc, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
+	// Trucks, renewals and the truck import (T22): RLS decides (db.WithPrincipal).
+	fleetSvc, err := fleet.New(fleet.Deps{Pool: pool, Files: st, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
 	// The driver app's fleet (T52): installations under RLS, the version gate through cache:settings:mobile_app, the
 	// APKs in the public bucket through the storage service.
 	mobile, err := mobileapp.New(mobileapp.Deps{Pool: pool, Storage: st, Cache: caches, Log: log})
@@ -228,8 +250,8 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		closeAll()
 		return nil, nil, err
 	}
-	a, err := build(APIDeps{Auth: svc, Admin: admin, APIKeys: apiKeys, Parties: partySvc, Jobs: jobs.NewService(pool, jobs.NewRedisLocker(rdb, ks)), Storage: st,
-		Events: events, Mobile: mobile, Limiter: limiter, RateLimitEnabled: cfg.RateLimit.Enabled})
+	a, err := build(APIDeps{Auth: svc, Admin: admin, APIKeys: apiKeys, Parties: partySvc, Hubs: hubSvc, Fleet: fleetSvc,
+		Jobs: jobSvc, Storage: st, Events: events, Mobile: mobile, Limiter: limiter, RateLimitEnabled: cfg.RateLimit.Enabled})
 	if err != nil {
 		closeAll()
 		return nil, nil, err

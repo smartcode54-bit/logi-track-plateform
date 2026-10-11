@@ -124,7 +124,7 @@ var Queues = []Queue{
 	{Name: "storage.gc", Group: "platform", Prefetch: 1, Bindings: jobs("job.storage.gc")},
 	{Name: "etl.sync", Group: "sync", Prefetch: 1, Bindings: jobs("job.etl.sync")},
 	{Name: "firestore.shadow", Group: "sync", Prefetch: 4, Bindings: events(
-		"hubs.changed", "customers.changed", "companies.changed", "truck.created", "truck.updated",
+		"hubs.changed", "customers.changed", "companies.changed", "truck.created", "truck.updated", "truck.renewed",
 		"assignment.created", "assignment.revoked", "driver.created", "driver.updated", "tenant.created",
 		"tenant.updated", "holidays.changed", "broadcast.created", "settings.changed", "trip.priced", "standby.priced")},
 }

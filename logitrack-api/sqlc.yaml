@@ -369,6 +369,93 @@ sql:
             go_type:
               type: string
               pointer: true
+  # T21: hubs, hub_name_aliases, hub_soc_distances and the settings row distances_last_calculated. Requests run in
+  # db.WithPrincipal (RLS global-read-steward-write, the driver hub insert); the shared hub caches load READ ONLY and the
+  # distances.compute consumer writes in db.WithSystem (Appendix C §C.3.2).
+  - name: hubs
+    engine: postgresql
+    schema: migrations
+    queries: internal/hubs/queries
+    gen:
+      go:
+        package: hubsdb
+        out: internal/hubs/hubsdb
+        sql_package: pgx/v5
+        emit_empty_slices: true
+        emit_pointers_for_null_types: true
+        omit_unused_structs: true
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: uuid
+            nullable: true
+            go_type:
+              import: github.com/google/uuid
+              type: UUID
+              pointer: true
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true
+          - db_type: citext
+            go_type: string
+          - db_type: citext
+            nullable: true
+            go_type:
+              type: string
+              pointer: true
+  # T22: trucks, their status history (status_history, entity 'truck'), truck_files, the active truck_assignments a
+  # detail reads and the renewal ledger (transactions), all under db.WithPrincipal (RLS decides: G-tenant for trucks
+  # and transactions, the parent's reach for truck_files and status_history, Appendix C §C.3.0). Dates are calendar
+  # days (time.Time at UTC midnight), money and capacities NUMERIC read as float64 (two decimals at most, checked in Go).
+  - name: fleet
+    engine: postgresql
+    schema: migrations
+    queries: internal/fleet/queries
+    gen:
+      go:
+        package: fleetdb
+        out: internal/fleet/fleetdb
+        sql_package: pgx/v5
+        emit_empty_slices: true
+        emit_pointers_for_null_types: true
+        omit_unused_structs: true
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: uuid
+            nullable: true
+            go_type:
+              import: github.com/google/uuid
+              type: UUID
+              pointer: true
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true
+          - db_type: date
+            go_type: time.Time
+          - db_type: date
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true
+          - db_type: pg_catalog.numeric
+            go_type: float64
+          - db_type: pg_catalog.numeric
+            nullable: true
+            go_type:
+              type: float64
+              pointer: true
   # T52 (security-center slice): the version gate settings('mobile_app'), mobile_app_releases (exempt, WithSystem after
   # Go authorisation) and mobile_installations (tenant table: the heartbeat and staff reads under db.WithPrincipal).
   - name: mobileapp

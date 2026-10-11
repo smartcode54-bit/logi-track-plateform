@@ -1046,6 +1046,14 @@
       "vhost": "/",
       "destination": "firestore.shadow",
       "destination_type": "queue",
+      "routing_key": "truck.renewed",
+      "arguments": {}
+    },
+    {
+      "source": "lt.events",
+      "vhost": "/",
+      "destination": "firestore.shadow",
+      "destination_type": "queue",
       "routing_key": "assignment.created",
       "arguments": {}
     },
