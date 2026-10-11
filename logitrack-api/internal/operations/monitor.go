@@ -219,16 +219,16 @@ func (d directory) monitorQuery(p *authz.Principal, in MonitorInput) (monitorQue
 	if m.partyID != nil && scoped(p) {
 		notAvailable(&ck, "customerId")
 	}
-	switch v := strings.TrimSpace(in.Partner); {
+	switch v := trimText(in.Partner); {
 	case v == "" || v == "all":
 	case v == BucketNone:
 		m.partnerNone = true
-	case !validText(v) || len([]rune(v)) > 100:
+	case !echoText(v):
 		ck.add("partner", "invalid")
 	default:
 		m.partner = &v
 	}
-	switch v := strings.TrimSpace(in.Plate); {
+	switch v := trimText(in.Plate); {
 	case v == "" || v == "all":
 	case v == BucketNone:
 		m.plateNone = true
@@ -239,8 +239,8 @@ func (d directory) monitorQuery(p *authz.Principal, in MonitorInput) (monitorQue
 		}
 		m.plateTruck = &id
 	case strings.HasPrefix(v, plateText):
-		raw := strings.TrimSpace(strings.TrimPrefix(v, plateText))
-		if raw == "" || !validText(raw) {
+		raw := trimText(strings.TrimPrefix(v, plateText))
+		if !echoText(raw) {
 			ck.add("plate", "invalid")
 		}
 		m.plateRaw = &raw
@@ -324,7 +324,7 @@ func (s *Service) staffMonitor(ctx context.Context, p *authz.Principal, d direct
 	)
 	err := s.read(ctx, p, func(q *operationsdb.Queries) error {
 		var err error
-		rows, err = q.MonitorTrips(ctx, operationsdb.MonitorTripsParams{WithPrice: income, AllTenants: r.All,
+		rows, err = q.MonitorTrips(ctx, operationsdb.MonitorTripsParams{TrimChars: trimChars, WithPrice: income, AllTenants: r.All,
 			TenantIds: r.tenants(), FromAt: m.from, ToAt: m.to, Statuses: m.statuses, IncidentStatus: m.incident,
 			JobType: m.jobType, DriverID: m.driverID, BillingPartyID: m.partyID, Partner: m.partner,
 			PartnerNone: m.partnerNone, PlateTruck: m.plateTruck, PlateRaw: m.plateRaw, PlateNone: m.plateNone,
@@ -347,7 +347,7 @@ func (s *Service) staffMonitor(ctx context.Context, p *authz.Principal, d direct
 			}
 		}
 		if m.facets {
-			facets, err = q.MonitorFacets(ctx, operationsdb.MonitorFacetsParams{AllTenants: r.All, TenantIds: r.tenants(),
+			facets, err = q.MonitorFacets(ctx, operationsdb.MonitorFacetsParams{TrimChars: trimChars, AllTenants: r.All, TenantIds: r.tenants(),
 				FromAt: m.from, ToAt: m.to, BillingPartyID: m.partyID})
 		}
 		return err
@@ -399,7 +399,7 @@ func (s *Service) scopeMonitor(ctx context.Context, p *authz.Principal, d direct
 	)
 	err := s.scopeRead(ctx, p, func(q *scopedb.Queries) error {
 		var err error
-		rows, err = q.ScopeMonitorTrips(ctx, scopedb.ScopeMonitorTripsParams{FromAt: m.from, ToAt: m.to,
+		rows, err = q.ScopeMonitorTrips(ctx, scopedb.ScopeMonitorTripsParams{TrimChars: trimChars, FromAt: m.from, ToAt: m.to,
 			Statuses: m.statuses, IncidentStatus: m.incident, JobType: m.jobType, DriverID: m.driverID, Partner: m.partner,
 			PartnerNone: m.partnerNone, PlateTruck: m.plateTruck, PlateRaw: m.plateRaw, PlateNone: m.plateNone,
 			VehicleClass: m.vehicleClass, VehicleClassNone: m.vehicleClassNone, OriginOn: m.origin.on,
@@ -420,7 +420,7 @@ func (s *Service) scopeMonitor(ctx context.Context, p *authz.Principal, d direct
 			}
 		}
 		if m.facets {
-			facets, err = q.ScopeMonitorFacets(ctx, scopedb.ScopeMonitorFacetsParams{FromAt: m.from, ToAt: m.to})
+			facets, err = q.ScopeMonitorFacets(ctx, scopedb.ScopeMonitorFacetsParams{TrimChars: trimChars, FromAt: m.from, ToAt: m.to})
 		}
 		return err
 	})
@@ -482,7 +482,7 @@ func trimmedPtr(s *string) *string {
 	if s == nil {
 		return nil
 	}
-	v := strings.TrimSpace(*s)
+	v := trimText(*s)
 	if v == "" {
 		return nil
 	}

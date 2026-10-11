@@ -12,54 +12,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const billingPreviewsOf = `-- name: BillingPreviewsOf :many
-SELECT s.trip_id, s.estimate_thb, s.unpriced_reason, s.manual_override, s.job_category_at_pricing, s.is_multi_delivery,
-       s.computed_at
-FROM trip_billing_snapshots s
-WHERE s.trip_id = ANY ($1::uuid[])
-ORDER BY s.trip_id
-`
-
-type BillingPreviewsOfRow struct {
-	TripID               uuid.UUID
-	EstimateThb          *float64
-	UnpricedReason       *string
-	ManualOverride       bool
-	JobCategoryAtPricing *string
-	IsMultiDelivery      bool
-	ComputedAt           time.Time
-}
-
-// The stored price of a page of trips (accounting:view_income only; trip_billing_snapshots, written by the billing
-// service, never computed on read).
-func (q *Queries) BillingPreviewsOf(ctx context.Context, tripIds []uuid.UUID) ([]BillingPreviewsOfRow, error) {
-	rows, err := q.db.Query(ctx, billingPreviewsOf, tripIds)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []BillingPreviewsOfRow{}
-	for rows.Next() {
-		var i BillingPreviewsOfRow
-		if err := rows.Scan(
-			&i.TripID,
-			&i.EstimateThb,
-			&i.UnpricedReason,
-			&i.ManualOverride,
-			&i.JobCategoryAtPricing,
-			&i.IsMultiDelivery,
-			&i.ComputedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const driverNamesOf = `-- name: DriverNamesOf :many
 SELECT d.id, d.full_name_th, d.first_name, d.last_name FROM drivers d WHERE d.id = ANY ($1::uuid[]) ORDER BY d.id
 `
@@ -102,29 +54,29 @@ func (q *Queries) DriverNamesOf(ctx context.Context, ids []uuid.UUID) ([]DriverN
 const monitorFacets = `-- name: MonitorFacets :many
 WITH base AS (
   SELECT t.id, t.status, t.origin_hub_id,
-         CASE WHEN t.origin_hub_id IS NULL AND upper(btrim(t.origin_raw)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
-              THEN left(upper(btrim(t.origin_raw)), 4)
-              WHEN t.origin_hub_id IS NULL THEN coalesce(btrim(t.origin_raw), '') END AS origin_value,
+         CASE WHEN t.origin_hub_id IS NULL AND upper(btrim(t.origin_raw, $1::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+              THEN left(upper(btrim(t.origin_raw, $1::text)), 4)
+              WHEN t.origin_hub_id IS NULL THEN coalesce(btrim(t.origin_raw, $1::text), '') END AS origin_value,
          t.destination_hub_id,
          CASE WHEN t.destination_hub_id IS NULL AND t.destination_soc_key IS NOT NULL THEN t.destination_soc_key
-              WHEN t.destination_hub_id IS NULL AND upper(btrim(t.destination_raw)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
-              THEN left(upper(btrim(t.destination_raw)), 4)
-              WHEN t.destination_hub_id IS NULL THEN coalesce(btrim(t.destination_raw), '') END AS destination_value,
+              WHEN t.destination_hub_id IS NULL AND upper(btrim(t.destination_raw, $1::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+              THEN left(upper(btrim(t.destination_raw, $1::text)), 4)
+              WHEN t.destination_hub_id IS NULL THEN coalesce(btrim(t.destination_raw, $1::text), '') END AS destination_value,
          coalesce(t.truck_id, tk.truck_id) AS truck_id,
-         coalesce(nullif(btrim(t.truck_license_plate_snapshot), ''), nullif(btrim(tk.license_plate_snapshot), '')) AS plate,
-         coalesce(btrim(t.partner_code), '') AS partner,
+         coalesce(nullif(btrim(t.truck_license_plate_snapshot, $1::text), ''), nullif(btrim(tk.license_plate_snapshot, $1::text), '')) AS plate,
+         coalesce(btrim(t.partner_code, $1::text), '') AS partner,
          coalesce(t.vehicle_class, tk.truck_type, '') AS vehicle_class
   FROM trip_records t
   LEFT JOIN tasks tk ON tk.id = t.task_id
-  WHERE ($1::boolean OR t.tenant_id = ANY ($2::uuid[]))
-    AND t.created_at >= $3::timestamptz AND t.created_at < $4::timestamptz
-    AND ($5::uuid IS NULL OR t.billing_party_id = $5::uuid)
+  WHERE ($2::boolean OR t.tenant_id = ANY ($3::uuid[]))
+    AND t.created_at >= $4::timestamptz AND t.created_at < $5::timestamptz
+    AND ($6::uuid IS NULL OR t.billing_party_id = $6::uuid)
 ),
 places AS (
   SELECT b.id, st.destination_hub_id AS hub_id,
-         CASE WHEN st.destination_hub_id IS NULL AND upper(btrim(st.destination_raw)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
-              THEN left(upper(btrim(st.destination_raw)), 4)
-              WHEN st.destination_hub_id IS NULL THEN btrim(st.destination_raw) END AS value
+         CASE WHEN st.destination_hub_id IS NULL AND upper(btrim(st.destination_raw, $1::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+              THEN left(upper(btrim(st.destination_raw, $1::text)), 4)
+              WHEN st.destination_hub_id IS NULL THEN btrim(st.destination_raw, $1::text) END AS value
   FROM base b
   JOIN trip_delivery_stops st ON st.trip_id = b.id
   UNION
@@ -159,6 +111,7 @@ SELECT 'total', NULL::uuid, '', '', count(*)::int FROM base b
 `
 
 type MonitorFacetsParams struct {
+	TrimChars      string
 	AllTenants     bool
 	TenantIds      []uuid.UUID
 	FromAt         time.Time
@@ -182,6 +135,7 @@ type MonitorFacetsRow struct {
 // a truck (plates).
 func (q *Queries) MonitorFacets(ctx context.Context, arg MonitorFacetsParams) ([]MonitorFacetsRow, error) {
 	rows, err := q.db.Query(ctx, monitorFacets,
+		arg.TrimChars,
 		arg.AllTenants,
 		arg.TenantIds,
 		arg.FromAt,
@@ -235,54 +189,54 @@ WHERE ($2::boolean OR t.tenant_id = ANY ($3::uuid[]))
   AND ($8::text IS NULL OR t.job_type = $8::text)
   AND ($9::uuid IS NULL OR t.driver_id = $9::uuid)
   AND ($10::uuid IS NULL OR t.billing_party_id = $10::uuid)
-  AND ($11::text IS NULL OR btrim(t.partner_code) = $11::text)
-  AND (NOT $12::boolean OR coalesce(btrim(t.partner_code), '') = '')
-  AND ($13::uuid IS NULL OR coalesce(t.truck_id, tk.truck_id) = $13::uuid)
-  AND ($14::text IS NULL
+  AND ($11::text IS NULL OR btrim(t.partner_code, $12::text) = $11::text)
+  AND (NOT $13::boolean OR coalesce(btrim(t.partner_code, $12::text), '') = '')
+  AND ($14::uuid IS NULL OR coalesce(t.truck_id, tk.truck_id) = $14::uuid)
+  AND ($15::text IS NULL
        OR (coalesce(t.truck_id, tk.truck_id) IS NULL
-           AND coalesce(nullif(btrim(t.truck_license_plate_snapshot), ''), nullif(btrim(tk.license_plate_snapshot), ''))
-               = $14::text))
-  AND (NOT $15::boolean
+           AND coalesce(nullif(btrim(t.truck_license_plate_snapshot, $12::text), ''), nullif(btrim(tk.license_plate_snapshot, $12::text), ''))
+               = $15::text))
+  AND (NOT $16::boolean
        OR (coalesce(t.truck_id, tk.truck_id) IS NULL
-           AND coalesce(nullif(btrim(t.truck_license_plate_snapshot), ''), nullif(btrim(tk.license_plate_snapshot), '')) IS NULL))
-  AND ($16::text IS NULL OR coalesce(t.vehicle_class, tk.truck_type) = $16::text)
-  AND (NOT $17::boolean OR coalesce(t.vehicle_class, tk.truck_type) IS NULL)
-  AND (NOT $18::boolean
-       OR t.origin_hub_id = ANY ($19::uuid[])
+           AND coalesce(nullif(btrim(t.truck_license_plate_snapshot, $12::text), ''), nullif(btrim(tk.license_plate_snapshot, $12::text), '')) IS NULL))
+  AND ($17::text IS NULL OR coalesce(t.vehicle_class, tk.truck_type) = $17::text)
+  AND (NOT $18::boolean OR coalesce(t.vehicle_class, tk.truck_type) IS NULL)
+  AND (NOT $19::boolean
+       OR t.origin_hub_id = ANY ($20::uuid[])
        OR (t.origin_hub_id IS NULL
-           AND CASE WHEN upper(btrim(t.origin_raw)) ~ '^(SOCE|SOCN|SOCW)($|[ (])' THEN left(upper(btrim(t.origin_raw)), 4) END
-               = $20::text)
-       OR (t.origin_hub_id IS NULL AND upper(btrim(t.origin_raw)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
-           AND btrim(t.origin_raw) = $21::text)
-       OR ($22::boolean AND t.origin_hub_id IS NULL AND coalesce(btrim(t.origin_raw), '') = ''))
-  AND (NOT $23::boolean
+           AND CASE WHEN upper(btrim(t.origin_raw, $12::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])' THEN left(upper(btrim(t.origin_raw, $12::text)), 4) END
+               = $21::text)
+       OR (t.origin_hub_id IS NULL AND upper(btrim(t.origin_raw, $12::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+           AND btrim(t.origin_raw, $12::text) = $22::text)
+       OR ($23::boolean AND t.origin_hub_id IS NULL AND coalesce(btrim(t.origin_raw, $12::text), '') = ''))
+  AND (NOT $24::boolean
        OR EXISTS (SELECT 1 FROM trip_delivery_stops st WHERE st.trip_id = t.id
-                  AND (st.destination_hub_id = ANY ($24::uuid[])
+                  AND (st.destination_hub_id = ANY ($25::uuid[])
                        OR (st.destination_hub_id IS NULL
-                           AND CASE WHEN upper(btrim(st.destination_raw)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
-                                    THEN left(upper(btrim(st.destination_raw)), 4) END = $25::text)
-                       OR (st.destination_hub_id IS NULL AND upper(btrim(st.destination_raw)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
-                           AND btrim(st.destination_raw) = $26::text)
-                       OR ($27::boolean AND st.destination_hub_id IS NULL
-                           AND btrim(st.destination_raw) = '')))
+                           AND CASE WHEN upper(btrim(st.destination_raw, $12::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                                    THEN left(upper(btrim(st.destination_raw, $12::text)), 4) END = $26::text)
+                       OR (st.destination_hub_id IS NULL AND upper(btrim(st.destination_raw, $12::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                           AND btrim(st.destination_raw, $12::text) = $27::text)
+                       OR ($28::boolean AND st.destination_hub_id IS NULL
+                           AND btrim(st.destination_raw, $12::text) = '')))
        OR (NOT EXISTS (SELECT 1 FROM trip_delivery_stops st WHERE st.trip_id = t.id)
-           AND (t.destination_hub_id = ANY ($24::uuid[])
+           AND (t.destination_hub_id = ANY ($25::uuid[])
                 OR (t.destination_hub_id IS NULL
                     AND coalesce(t.destination_soc_key,
-                                 CASE WHEN upper(btrim(t.destination_raw)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
-                                      THEN left(upper(btrim(t.destination_raw)), 4) END) = $25::text)
+                                 CASE WHEN upper(btrim(t.destination_raw, $12::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                                      THEN left(upper(btrim(t.destination_raw, $12::text)), 4) END) = $26::text)
                 OR (t.destination_hub_id IS NULL AND t.destination_soc_key IS NULL
-                    AND upper(btrim(t.destination_raw)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
-                    AND btrim(t.destination_raw) = $26::text)
-                OR ($27::boolean AND t.destination_hub_id IS NULL AND t.destination_soc_key IS NULL
-                    AND coalesce(btrim(t.destination_raw), '') = ''))))
-  AND ($28::text IS NULL
+                    AND upper(btrim(t.destination_raw, $12::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                    AND btrim(t.destination_raw, $12::text) = $27::text)
+                OR ($28::boolean AND t.destination_hub_id IS NULL AND t.destination_soc_key IS NULL
+                    AND coalesce(btrim(t.destination_raw, $12::text), '') = ''))))
+  AND ($29::text IS NULL
        OR strpos(lower(concat_ws(' ', t.trip_no, tk.task_no, d.full_name_th, d.first_name, d.last_name)),
-                 lower($28::text)) > 0)
-  AND ($29::timestamptz IS NULL
-       OR (t.created_at, t.id) < ($29::timestamptz, $30::uuid))
+                 lower($29::text)) > 0)
+  AND ($30::timestamptz IS NULL
+       OR (t.created_at, t.id) < ($30::timestamptz, $31::uuid))
 ORDER BY t.created_at DESC, t.id DESC
-LIMIT $31
+LIMIT $32
 `
 
 type MonitorTripsParams struct {
@@ -297,6 +251,7 @@ type MonitorTripsParams struct {
 	DriverID         *uuid.UUID
 	BillingPartyID   *uuid.UUID
 	Partner          *string
+	TrimChars        string
 	PartnerNone      bool
 	PlateTruck       *uuid.UUID
 	PlateRaw         *string
@@ -362,6 +317,11 @@ type MonitorTripsRow struct {
 //	              (destination_hub_id, else destination_soc_key or the SOC key of the raw text, else the raw text,
 //	              else none); a trip matches when any of its stops does (ADR 0006 §5).
 //
+// Trimmed means btrim(x, trim_chars): the caller passes operations.trimChars, the white space JavaScript's trim strips
+// (the legacy keys of lib/placeFilter.ts and lib/truckPlate.ts: tab, line breaks, NBSP, the Unicode spaces, BOM), the
+// set the Go side trims row keys and filter values with; a one-argument btrim strips spaces only, so a stored
+// 'Bangna\t' would be listed under one key and filtered under another. The text inside is kept verbatim (control
+// characters included): an option is the stored value, and the filter takes it back as it was listed.
 // Indexes: trip_records_tenant_created (trip_records_created under X-Act-On-Tenant: *) for the page and the options,
 // tasks_pkey, drivers_pkey, trip_billing_snapshots_pkey, incident_reports_trip, trip_photos (trip_id, photo_type),
 // trip_delivery_stops (trip_id, stop_index).
@@ -380,6 +340,7 @@ func (q *Queries) MonitorTrips(ctx context.Context, arg MonitorTripsParams) ([]M
 		arg.DriverID,
 		arg.BillingPartyID,
 		arg.Partner,
+		arg.TrimChars,
 		arg.PartnerNone,
 		arg.PlateTruck,
 		arg.PlateRaw,

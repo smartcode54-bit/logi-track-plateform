@@ -13,9 +13,6 @@ import (
 type Querier interface {
 	// The "On run" badges (taskService.ts:50-55; tasks_active_status): drivers with a checked-in or in-transit task.
 	ActiveTaskDrivers(ctx context.Context, arg ActiveTaskDriversParams) ([]ActiveTaskDriversRow, error)
-	// The stored price of a page of trips (accounting:view_income only; trip_billing_snapshots, written by the billing
-	// service, never computed on read).
-	BillingPreviewsOf(ctx context.Context, tripIds []uuid.UUID) ([]BillingPreviewsOfRow, error)
 	// A task that keeps a canonical number of record (FM|LH-ddMMyyyy-NNN, padded: a legacy or mirrored number, CreateTask)
 	// moves the counter of the (task_type, plan_date) the number names up to its sequence, never down
 	// (bump_task_seq(), SECURITY DEFINER, 0014), so NextTaskSeq never mints that number again. It locks the counter row
@@ -50,9 +47,13 @@ type Querier interface {
 	// The driver's history (GET /v1/mobile/standby, trip_history_page.dart:84-87; standby_records_driver). A driver never
 	// sees the billing columns, so no entry_tenant_id here.
 	DriverStandby(ctx context.Context, arg DriverStandbyParams) ([]StandbyRecord, error)
-	// The driver's queue (GET /v1/mobile/tasks, P7a): own and helper tasks (R28), optionally by status; the queue order
-	// of ADR 0028 is applied by the service (tasks_driver_status + tasks_helper_plan).
-	DriverTasks(ctx context.Context, arg DriverTasksParams) ([]Task, error)
+	// The driver's queue (GET /v1/mobile/tasks, P7a): own and helper tasks (R28), optionally by status, in the queue order
+	// of ADR 0028 (compareTasksForDriverQueue, task_repository.dart:16-70), applied here before the LIMIT: the dispatch
+	// instant queue_at (taskQueueInstant: actual_pickup_at, else the Bangkok plan day at plan_time, 00:00 without one),
+	// then run_order with the tasks that have none first (run_order >= 1, so NULL keys as 0), then created_at, then id.
+	// A keyset page on that key (after_*: the last row of the previous page); the service asks for limit + 1 rows, so a
+	// longer queue gets a next cursor, never a silent cut (TW8). tasks_driver_status + tasks_helper_plan.
+	DriverTasks(ctx context.Context, arg DriverTasksParams) ([]DriverTasksRow, error)
 	// The driver's history (GET /v1/mobile/trips, replaces the take-300 and the dual-id query; trip_records_driver_created).
 	DriverTrips(ctx context.Context, arg DriverTripsParams) ([]TripRecord, error)
 	GetIncident(ctx context.Context, arg GetIncidentParams) (IncidentReport, error)
@@ -198,6 +199,11 @@ type Querier interface {
 	//   destination   every stop of a multi-drop trip (trip_delivery_stops) or, without stops, the trip's destination
 	//                 (destination_hub_id, else destination_soc_key or the SOC key of the raw text, else the raw text,
 	//                 else none); a trip matches when any of its stops does (ADR 0006 §5).
+	// Trimmed means btrim(x, trim_chars): the caller passes operations.trimChars, the white space JavaScript's trim strips
+	// (the legacy keys of lib/placeFilter.ts and lib/truckPlate.ts: tab, line breaks, NBSP, the Unicode spaces, BOM), the
+	// set the Go side trims row keys and filter values with; a one-argument btrim strips spaces only, so a stored
+	// 'Bangna\t' would be listed under one key and filtered under another. The text inside is kept verbatim (control
+	// characters included): an option is the stored value, and the filter takes it back as it was listed.
 	// Indexes: trip_records_tenant_created (trip_records_created under X-Act-On-Tenant: *) for the page and the options,
 	// tasks_pkey, drivers_pkey, trip_billing_snapshots_pkey, incident_reports_trip, trip_photos (trip_id, photo_type),
 	// trip_delivery_stops (trip_id, stop_index).

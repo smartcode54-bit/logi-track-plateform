@@ -16,6 +16,11 @@
 --   destination   every stop of a multi-drop trip (trip_delivery_stops) or, without stops, the trip's destination
 --                 (destination_hub_id, else destination_soc_key or the SOC key of the raw text, else the raw text,
 --                 else none); a trip matches when any of its stops does (ADR 0006 §5).
+-- Trimmed means btrim(x, trim_chars): the caller passes operations.trimChars, the white space JavaScript's trim strips
+-- (the legacy keys of lib/placeFilter.ts and lib/truckPlate.ts: tab, line breaks, NBSP, the Unicode spaces, BOM), the
+-- set the Go side trims row keys and filter values with; a one-argument btrim strips spaces only, so a stored
+-- 'Bangna\t' would be listed under one key and filtered under another. The text inside is kept verbatim (control
+-- characters included): an option is the stored value, and the filter takes it back as it was listed.
 -- Indexes: trip_records_tenant_created (trip_records_created under X-Act-On-Tenant: *) for the page and the options,
 -- tasks_pkey, drivers_pkey, trip_billing_snapshots_pkey, incident_reports_trip, trip_photos (trip_id, photo_type),
 -- trip_delivery_stops (trip_id, stop_index).
@@ -44,47 +49,47 @@ WHERE (sqlc.arg(all_tenants)::boolean OR t.tenant_id = ANY (sqlc.arg(tenant_ids)
   AND (sqlc.narg(job_type)::text IS NULL OR t.job_type = sqlc.narg(job_type)::text)
   AND (sqlc.narg(driver_id)::uuid IS NULL OR t.driver_id = sqlc.narg(driver_id)::uuid)
   AND (sqlc.narg(billing_party_id)::uuid IS NULL OR t.billing_party_id = sqlc.narg(billing_party_id)::uuid)
-  AND (sqlc.narg(partner)::text IS NULL OR btrim(t.partner_code) = sqlc.narg(partner)::text)
-  AND (NOT sqlc.arg(partner_none)::boolean OR coalesce(btrim(t.partner_code), '') = '')
+  AND (sqlc.narg(partner)::text IS NULL OR btrim(t.partner_code, sqlc.arg(trim_chars)::text) = sqlc.narg(partner)::text)
+  AND (NOT sqlc.arg(partner_none)::boolean OR coalesce(btrim(t.partner_code, sqlc.arg(trim_chars)::text), '') = '')
   AND (sqlc.narg(plate_truck)::uuid IS NULL OR coalesce(t.truck_id, tk.truck_id) = sqlc.narg(plate_truck)::uuid)
   AND (sqlc.narg(plate_raw)::text IS NULL
        OR (coalesce(t.truck_id, tk.truck_id) IS NULL
-           AND coalesce(nullif(btrim(t.truck_license_plate_snapshot), ''), nullif(btrim(tk.license_plate_snapshot), ''))
+           AND coalesce(nullif(btrim(t.truck_license_plate_snapshot, sqlc.arg(trim_chars)::text), ''), nullif(btrim(tk.license_plate_snapshot, sqlc.arg(trim_chars)::text), ''))
                = sqlc.narg(plate_raw)::text))
   AND (NOT sqlc.arg(plate_none)::boolean
        OR (coalesce(t.truck_id, tk.truck_id) IS NULL
-           AND coalesce(nullif(btrim(t.truck_license_plate_snapshot), ''), nullif(btrim(tk.license_plate_snapshot), '')) IS NULL))
+           AND coalesce(nullif(btrim(t.truck_license_plate_snapshot, sqlc.arg(trim_chars)::text), ''), nullif(btrim(tk.license_plate_snapshot, sqlc.arg(trim_chars)::text), '')) IS NULL))
   AND (sqlc.narg(vehicle_class)::text IS NULL OR coalesce(t.vehicle_class, tk.truck_type) = sqlc.narg(vehicle_class)::text)
   AND (NOT sqlc.arg(vehicle_class_none)::boolean OR coalesce(t.vehicle_class, tk.truck_type) IS NULL)
   AND (NOT sqlc.arg(origin_on)::boolean
        OR t.origin_hub_id = ANY (sqlc.arg(origin_hubs)::uuid[])
        OR (t.origin_hub_id IS NULL
-           AND CASE WHEN upper(btrim(t.origin_raw)) ~ '^(SOCE|SOCN|SOCW)($|[ (])' THEN left(upper(btrim(t.origin_raw)), 4) END
+           AND CASE WHEN upper(btrim(t.origin_raw, sqlc.arg(trim_chars)::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])' THEN left(upper(btrim(t.origin_raw, sqlc.arg(trim_chars)::text)), 4) END
                = sqlc.narg(origin_soc)::text)
-       OR (t.origin_hub_id IS NULL AND upper(btrim(t.origin_raw)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
-           AND btrim(t.origin_raw) = sqlc.narg(origin_raw)::text)
-       OR (sqlc.arg(origin_none)::boolean AND t.origin_hub_id IS NULL AND coalesce(btrim(t.origin_raw), '') = ''))
+       OR (t.origin_hub_id IS NULL AND upper(btrim(t.origin_raw, sqlc.arg(trim_chars)::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+           AND btrim(t.origin_raw, sqlc.arg(trim_chars)::text) = sqlc.narg(origin_raw)::text)
+       OR (sqlc.arg(origin_none)::boolean AND t.origin_hub_id IS NULL AND coalesce(btrim(t.origin_raw, sqlc.arg(trim_chars)::text), '') = ''))
   AND (NOT sqlc.arg(destination_on)::boolean
        OR EXISTS (SELECT 1 FROM trip_delivery_stops st WHERE st.trip_id = t.id
                   AND (st.destination_hub_id = ANY (sqlc.arg(destination_hubs)::uuid[])
                        OR (st.destination_hub_id IS NULL
-                           AND CASE WHEN upper(btrim(st.destination_raw)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
-                                    THEN left(upper(btrim(st.destination_raw)), 4) END = sqlc.narg(destination_soc)::text)
-                       OR (st.destination_hub_id IS NULL AND upper(btrim(st.destination_raw)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
-                           AND btrim(st.destination_raw) = sqlc.narg(destination_raw)::text)
+                           AND CASE WHEN upper(btrim(st.destination_raw, sqlc.arg(trim_chars)::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                                    THEN left(upper(btrim(st.destination_raw, sqlc.arg(trim_chars)::text)), 4) END = sqlc.narg(destination_soc)::text)
+                       OR (st.destination_hub_id IS NULL AND upper(btrim(st.destination_raw, sqlc.arg(trim_chars)::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                           AND btrim(st.destination_raw, sqlc.arg(trim_chars)::text) = sqlc.narg(destination_raw)::text)
                        OR (sqlc.arg(destination_none)::boolean AND st.destination_hub_id IS NULL
-                           AND btrim(st.destination_raw) = '')))
+                           AND btrim(st.destination_raw, sqlc.arg(trim_chars)::text) = '')))
        OR (NOT EXISTS (SELECT 1 FROM trip_delivery_stops st WHERE st.trip_id = t.id)
            AND (t.destination_hub_id = ANY (sqlc.arg(destination_hubs)::uuid[])
                 OR (t.destination_hub_id IS NULL
                     AND coalesce(t.destination_soc_key,
-                                 CASE WHEN upper(btrim(t.destination_raw)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
-                                      THEN left(upper(btrim(t.destination_raw)), 4) END) = sqlc.narg(destination_soc)::text)
+                                 CASE WHEN upper(btrim(t.destination_raw, sqlc.arg(trim_chars)::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                                      THEN left(upper(btrim(t.destination_raw, sqlc.arg(trim_chars)::text)), 4) END) = sqlc.narg(destination_soc)::text)
                 OR (t.destination_hub_id IS NULL AND t.destination_soc_key IS NULL
-                    AND upper(btrim(t.destination_raw)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
-                    AND btrim(t.destination_raw) = sqlc.narg(destination_raw)::text)
+                    AND upper(btrim(t.destination_raw, sqlc.arg(trim_chars)::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                    AND btrim(t.destination_raw, sqlc.arg(trim_chars)::text) = sqlc.narg(destination_raw)::text)
                 OR (sqlc.arg(destination_none)::boolean AND t.destination_hub_id IS NULL AND t.destination_soc_key IS NULL
-                    AND coalesce(btrim(t.destination_raw), '') = ''))))
+                    AND coalesce(btrim(t.destination_raw, sqlc.arg(trim_chars)::text), '') = ''))))
   AND (sqlc.narg(q)::text IS NULL
        OR strpos(lower(concat_ws(' ', t.trip_no, tk.task_no, d.full_name_th, d.first_name, d.last_name)),
                  lower(sqlc.narg(q)::text)) > 0)
@@ -102,17 +107,17 @@ LIMIT sqlc.arg(row_limit);
 -- a truck (plates).
 WITH base AS (
   SELECT t.id, t.status, t.origin_hub_id,
-         CASE WHEN t.origin_hub_id IS NULL AND upper(btrim(t.origin_raw)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
-              THEN left(upper(btrim(t.origin_raw)), 4)
-              WHEN t.origin_hub_id IS NULL THEN coalesce(btrim(t.origin_raw), '') END AS origin_value,
+         CASE WHEN t.origin_hub_id IS NULL AND upper(btrim(t.origin_raw, sqlc.arg(trim_chars)::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+              THEN left(upper(btrim(t.origin_raw, sqlc.arg(trim_chars)::text)), 4)
+              WHEN t.origin_hub_id IS NULL THEN coalesce(btrim(t.origin_raw, sqlc.arg(trim_chars)::text), '') END AS origin_value,
          t.destination_hub_id,
          CASE WHEN t.destination_hub_id IS NULL AND t.destination_soc_key IS NOT NULL THEN t.destination_soc_key
-              WHEN t.destination_hub_id IS NULL AND upper(btrim(t.destination_raw)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
-              THEN left(upper(btrim(t.destination_raw)), 4)
-              WHEN t.destination_hub_id IS NULL THEN coalesce(btrim(t.destination_raw), '') END AS destination_value,
+              WHEN t.destination_hub_id IS NULL AND upper(btrim(t.destination_raw, sqlc.arg(trim_chars)::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+              THEN left(upper(btrim(t.destination_raw, sqlc.arg(trim_chars)::text)), 4)
+              WHEN t.destination_hub_id IS NULL THEN coalesce(btrim(t.destination_raw, sqlc.arg(trim_chars)::text), '') END AS destination_value,
          coalesce(t.truck_id, tk.truck_id) AS truck_id,
-         coalesce(nullif(btrim(t.truck_license_plate_snapshot), ''), nullif(btrim(tk.license_plate_snapshot), '')) AS plate,
-         coalesce(btrim(t.partner_code), '') AS partner,
+         coalesce(nullif(btrim(t.truck_license_plate_snapshot, sqlc.arg(trim_chars)::text), ''), nullif(btrim(tk.license_plate_snapshot, sqlc.arg(trim_chars)::text), '')) AS plate,
+         coalesce(btrim(t.partner_code, sqlc.arg(trim_chars)::text), '') AS partner,
          coalesce(t.vehicle_class, tk.truck_type, '') AS vehicle_class
   FROM trip_records t
   LEFT JOIN tasks tk ON tk.id = t.task_id
@@ -122,9 +127,9 @@ WITH base AS (
 ),
 places AS (
   SELECT b.id, st.destination_hub_id AS hub_id,
-         CASE WHEN st.destination_hub_id IS NULL AND upper(btrim(st.destination_raw)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
-              THEN left(upper(btrim(st.destination_raw)), 4)
-              WHEN st.destination_hub_id IS NULL THEN btrim(st.destination_raw) END AS value
+         CASE WHEN st.destination_hub_id IS NULL AND upper(btrim(st.destination_raw, sqlc.arg(trim_chars)::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+              THEN left(upper(btrim(st.destination_raw, sqlc.arg(trim_chars)::text)), 4)
+              WHEN st.destination_hub_id IS NULL THEN btrim(st.destination_raw, sqlc.arg(trim_chars)::text) END AS value
   FROM base b
   JOIN trip_delivery_stops st ON st.trip_id = b.id
   UNION
@@ -173,12 +178,3 @@ SELECT t.id, t.trip_no FROM trip_records t
 WHERE t.id = ANY (sqlc.arg(ids)::uuid[])
   AND (sqlc.arg(all_tenants)::boolean OR t.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
 ORDER BY t.id;
-
--- name: BillingPreviewsOf :many
--- The stored price of a page of trips (accounting:view_income only; trip_billing_snapshots, written by the billing
--- service, never computed on read).
-SELECT s.trip_id, s.estimate_thb, s.unpriced_reason, s.manual_override, s.job_category_at_pricing, s.is_multi_delivery,
-       s.computed_at
-FROM trip_billing_snapshots s
-WHERE s.trip_id = ANY (sqlc.arg(trip_ids)::uuid[])
-ORDER BY s.trip_id;

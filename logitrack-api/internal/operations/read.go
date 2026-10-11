@@ -5,11 +5,13 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations/operationsdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/clock"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/scope/scopedb"
@@ -60,10 +62,11 @@ func driverPrincipal(p *authz.Principal) bool {
 	return p.EffectiveRole() == authz.Driver && p.DriverID != nil
 }
 
-// viewIncome reports whether the billing columns of a trip reach p's payload: accounting:view_income, never a scope
-// principal (Appendix B §B.2.12).
+// viewIncome reports whether the billing columns of a trip reach p's payload: billing.IncomeBillingVisible
+// (accounting:view_income, never a dispatcher, Appendix B §B.2.12; the rule of the Income projection, T39), and never a
+// scope principal.
 func viewIncome(p *authz.Principal) bool {
-	return p.Can(authz.AccountingViewIncome) && !scoped(p)
+	return billing.IncomeBillingVisible(p) && !scoped(p)
 }
 
 // taskTypesFor are the task types p may list: first_mile with operations:view_first_mile, line_haul with
@@ -177,6 +180,21 @@ func validText(v string) bool {
 	}
 	return true
 }
+
+// trimChars is the white space JavaScript's String.prototype.trim strips (ECMAScript WhiteSpace and LineTerminator:
+// tab, LF, VT, FF, CR, space, NBSP, the Zs spaces, LS, PS, BOM), the trim of the legacy place and plate keys
+// (lib/placeFilter.ts clean, lib/truckPlate.ts clean). The monitor queries trim with the same set (btrim(x,
+// trim_chars)), so a stored value, its row key, its facet option and the filter value sent back are one string.
+const trimChars = "\t\n\v\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a" +
+	"\u2028\u2029\u202f\u205f\u3000\ufeff"
+
+// trimText trims trimChars from both ends of s (strings.TrimSpace differs: it also strips U+0085 and keeps U+FEFF).
+func trimText(s string) string { return strings.Trim(s, trimChars) }
+
+// echoText checks a filter value the facets may have listed (a raw place, an orphan plate, a partner code): the stored
+// text verbatim, so control characters inside it are accepted; only what PostgreSQL text can never hold is refused
+// (invalid UTF-8, NUL). There is no length bound beyond the request line's: a longer value is listed and must filter.
+func echoText(v string) bool { return v != "" && utf8.ValidString(v) && !strings.ContainsRune(v, 0) }
 
 // statusList checks a status filter against vocab; an empty list is no filter (nil).
 func statusList(ck *checker, field string, in []string, vocab []string) []string {
@@ -297,7 +315,7 @@ var socLabels = map[string]string{"SOCE": "SOCE (บัวโรย)", "SOCN": "
 // socKey is the SOC key of a raw place: normalizeSocIdToKey (validate/taskSchema.ts) restricted to SOCE, SOCN and
 // SOCW (the key itself, or followed by a space or "("), the rule the monitor queries apply in SQL; else "".
 func socKey(raw string) string {
-	u := strings.ToUpper(strings.TrimSpace(raw))
+	u := strings.ToUpper(trimText(raw))
 	for _, k := range []string{"SOCE", "SOCN", "SOCW"} {
 		if u == k || strings.HasPrefix(u, k+" ") || strings.HasPrefix(u, k+"(") {
 			return k
@@ -323,7 +341,7 @@ func (s *Service) directory(ctx context.Context, p *authz.Principal) (directory,
 	}
 	for _, h := range list {
 		d.byID[h.ID] = h
-		code := strings.ToUpper(strings.TrimSpace(h.Code))
+		code := strings.ToUpper(trimText(h.Code))
 		d.byCode[code] = append(d.byCode[code], h.ID)
 	}
 	return d, nil
@@ -365,12 +383,12 @@ func (d directory) place(raw *string, hubID *uuid.UUID, soc *string) Place {
 	out := Place{Raw: raw}
 	text := ""
 	if raw != nil {
-		text = strings.TrimSpace(*raw)
+		text = trimText(*raw)
 	}
 	switch {
 	case hubID != nil:
 		if h, ok := d.byID[*hubID]; ok {
-			code := strings.TrimSpace(h.Code)
+			code := trimText(h.Code)
 			out.Key, out.Label, out.Resolved = placeCode+code, d.label(code), true
 		} else {
 			out.Key, out.Label, out.Resolved = placeHub+hubID.String(), text, true
@@ -400,14 +418,14 @@ type placeFilter struct {
 // parsePlace reads a place filter value: code:<CODE> (the hubs of that code and, for SOCE/SOCN/SOCW, the SOC key),
 // hub:<uuid>, raw:<text>, __none__; "" or all is no filter. A code no hub or SOC carries matches nothing.
 func (d directory) parsePlace(ck *checker, field, v string) placeFilter {
-	v = strings.TrimSpace(v)
+	v = trimText(v)
 	switch {
 	case v == "" || v == "all":
 		return placeFilter{}
 	case v == PlaceNone:
 		return placeFilter{on: true, hubs: []uuid.UUID{}, none: true}
 	case strings.HasPrefix(v, placeCode):
-		code := strings.ToUpper(strings.TrimSpace(strings.TrimPrefix(v, placeCode)))
+		code := strings.ToUpper(trimText(strings.TrimPrefix(v, placeCode)))
 		if code == "" {
 			break
 		}
@@ -426,8 +444,8 @@ func (d directory) parsePlace(ck *checker, field, v string) placeFilter {
 		}
 		return placeFilter{on: true, hubs: []uuid.UUID{id}}
 	case strings.HasPrefix(v, placeRaw):
-		raw := strings.TrimSpace(strings.TrimPrefix(v, placeRaw))
-		if raw == "" || !validText(raw) {
+		raw := trimText(strings.TrimPrefix(v, placeRaw))
+		if !echoText(raw) {
 			break
 		}
 		return placeFilter{on: true, hubs: []uuid.UUID{}, raw: &raw}

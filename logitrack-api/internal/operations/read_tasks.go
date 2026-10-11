@@ -2,6 +2,8 @@ package operations
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"slices"
 	"strings"
 	"time"
@@ -520,42 +522,123 @@ func (s *Service) TaskTripView(ctx context.Context, p *authz.Principal, id uuid.
 	return s.GetTripView(ctx, p, tripID)
 }
 
-// DriverQueue is the driver's own queue (own and helper tasks, R28) in plan order, optionally by status: the service
-// the driver route GET /v1/mobile/tasks (P7a, T57) answers with. limit 0 is MaxLimit.
-func (s *Service) DriverQueue(ctx context.Context, p *authz.Principal, statuses []string, limit int) ([]TaskBase, error) {
+// OpenTaskStatuses are the statuses of a task still in a driver's queue: the ones that can block a successor at
+// check-in (taskBlocksSuccessorInQueue, task_repository.dart:76-97). Completed and cancelled tasks never do.
+var OpenTaskStatuses = []string{TaskPending, TaskAssigned, TaskCheckedIn, TaskInTransit}
+
+// QueueTask is one task of a driver's queue with the instant it is queued at (ADR 0028: the actual pickup, else the
+// plan day at its plan time).
+type QueueTask struct {
+	TaskBase
+	QueueAt time.Time `json:"queueAt"`
+}
+
+// DriverQueueInput is the query of a driver's queue: statuses (none = OpenTaskStatuses), a page size (0 = MaxLimit)
+// and the cursor of the previous page.
+type DriverQueueInput struct {
+	Statuses []string
+	Limit    int
+	Cursor   string
+}
+
+// queueCursor is the keyset position of a driver's queue: the ADR 0028 key of the last row of a page (queue instant,
+// run order with none as 0, created_at, id).
+type queueCursor struct {
+	Axis    string    `json:"a"`
+	At      time.Time `json:"t"`
+	Run     int32     `json:"r"`
+	Created time.Time `json:"c"`
+	ID      uuid.UUID `json:"id"`
+}
+
+const axisQueue = "q"
+
+func (c queueCursor) encode() string {
+	b, _ := json.Marshal(c)
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// decodeQueueCursor reads a queue cursor; "" is the first page. A cursor of another list is refused.
+func decodeQueueCursor(s string) (*queueCursor, bool) {
+	if s == "" {
+		return nil, true
+	}
+	b, err := base64.RawURLEncoding.DecodeString(s)
+	if err != nil {
+		return nil, false
+	}
+	var c queueCursor
+	if json.Unmarshal(b, &c) != nil || c.Axis != axisQueue || c.ID == uuid.Nil || c.At.IsZero() || c.Created.IsZero() ||
+		c.Run < 0 {
+		return nil, false
+	}
+	return &c, true
+}
+
+// DriverQueue is the driver's own queue (own and helper tasks, R28) in the queue order of ADR 0028, the service the
+// driver route GET /v1/mobile/tasks (P7a, T57) answers with. Without statuses it is the open queue (OpenTaskStatuses:
+// the tasks the check-in gate walks, all of them on one page up to MaxLimit); explicit statuses (history included)
+// page in the same order. A keyset page: a longer queue gets NextCursor, never a silent cut (TW8).
+func (s *Service) DriverQueue(ctx context.Context, p *authz.Principal, in DriverQueueInput) (Page[QueueTask], error) {
 	if !driverPrincipal(p) {
-		return nil, authz.ErrPermissionDenied("driver only")
+		return Page[QueueTask]{}, authz.ErrPermissionDenied("driver only")
 	}
 	var ck checker
-	st := statusList(&ck, "status", statuses, TaskStatuses)
+	st := statusList(&ck, "status", in.Statuses, TaskStatuses)
+	if len(st) == 0 {
+		st = OpenTaskStatuses
+	}
+	limit := in.Limit
 	if limit == 0 {
 		limit = MaxLimit
 	} else if limit < 1 || limit > MaxLimit {
 		ck.add("limit", "out_of_range")
 	}
-	if err := ck.err(); err != nil {
-		return nil, err
+	after, ok := decodeQueueCursor(in.Cursor)
+	if !ok {
+		ck.add("cursor", "invalid")
 	}
-	var rows []Task
+	if err := ck.err(); err != nil {
+		return Page[QueueTask]{}, err
+	}
+	arg := operationsdb.DriverTasksParams{DriverID: *p.DriverID, Statuses: st, RowLimit: int32(limit + 1)}
+	if after != nil {
+		arg.AfterQueueAt, arg.AfterRunOrder, arg.AfterCreatedAt, arg.AfterID = &after.At, after.Run, after.Created, after.ID
+	}
+	var rows []operationsdb.DriverTasksRow
 	err := s.read(ctx, p, func(q *operationsdb.Queries) error {
 		var err error
-		rows, err = q.DriverTasks(ctx, operationsdb.DriverTasksParams{DriverID: *p.DriverID, Statuses: st, RowLimit: int32(limit)})
+		rows, err = q.DriverTasks(ctx, arg)
 		return err
 	})
 	if err != nil {
-		return nil, err
+		return Page[QueueTask]{}, err
+	}
+	next := ""
+	if len(rows) > limit {
+		rows = rows[:limit]
+		last := rows[limit-1]
+		c := queueCursor{Axis: axisQueue, At: last.QueueAt, Created: last.Task.CreatedAt, ID: last.Task.ID}
+		if last.Task.RunOrder != nil {
+			c.Run = *last.Task.RunOrder
+		}
+		next = c.encode()
+	}
+	tasks := make([]Task, len(rows))
+	for i, r := range rows {
+		tasks[i] = r.Task
 	}
 	d, err := s.directory(ctx, p)
 	if err != nil {
-		return nil, err
+		return Page[QueueTask]{}, err
 	}
-	views, err := s.staffTaskViews(ctx, p, d, rows)
+	views, err := s.staffTaskViews(ctx, p, d, tasks)
 	if err != nil {
-		return nil, err
+		return Page[QueueTask]{}, err
 	}
-	out := make([]TaskBase, len(views))
+	out := make([]QueueTask, len(views))
 	for i, v := range views {
-		out[i] = v.TaskBase
+		out[i] = QueueTask{TaskBase: v.TaskBase, QueueAt: rows[i].QueueAt}
 	}
-	return out, nil
+	return Page[QueueTask]{Items: out, NextCursor: next}, nil
 }

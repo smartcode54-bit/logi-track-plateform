@@ -297,74 +297,105 @@ func (q *Queries) DriverHasTaskInStatus(ctx context.Context, arg DriverHasTaskIn
 }
 
 const driverTasks = `-- name: DriverTasks :many
-SELECT id, legacy_doc_id, tenant_id, tenant_source, task_no, task_type, job_category, status, plan_at, plan_date, plan_time, legacy_date_str, actual_pickup_at, source_hub_raw, source_hub_id, source_linked_party_id, destination_raw, destination_hub_id, destination_soc_key, destination_linked_party_id, billing_party_id, truck_id, truck_type, legacy_truck_type, license_plate_snapshot, driver_id, legacy_driver_ref, driver_ref_match, helper_driver_id, run_order, check_in_at, check_in_photo_file_id, check_in_app_screenshot_file_id, check_in_lat, check_in_lng, is_multi_delivery, line_checkin_notified_at, cancelled_at, cancel_reason, client_op_id, created_by, created_at, updated_at FROM tasks t
+SELECT t.id, t.legacy_doc_id, t.tenant_id, t.tenant_source, t.task_no, t.task_type, t.job_category, t.status, t.plan_at, t.plan_date, t.plan_time, t.legacy_date_str, t.actual_pickup_at, t.source_hub_raw, t.source_hub_id, t.source_linked_party_id, t.destination_raw, t.destination_hub_id, t.destination_soc_key, t.destination_linked_party_id, t.billing_party_id, t.truck_id, t.truck_type, t.legacy_truck_type, t.license_plate_snapshot, t.driver_id, t.legacy_driver_ref, t.driver_ref_match, t.helper_driver_id, t.run_order, t.check_in_at, t.check_in_photo_file_id, t.check_in_app_screenshot_file_id, t.check_in_lat, t.check_in_lng, t.is_multi_delivery, t.line_checkin_notified_at, t.cancelled_at, t.cancel_reason, t.client_op_id, t.created_by, t.created_at, t.updated_at, k.queue_at::timestamptz AS queue_at
+FROM tasks t
+CROSS JOIN LATERAL (VALUES (coalesce(t.actual_pickup_at,
+                                     bkk_midnight(t.plan_date)
+                                     + coalesce(split_part(t.plan_time, ':', 1)::int, 0) * interval '1 hour'
+                                     + coalesce(split_part(t.plan_time, ':', 2)::int, 0) * interval '1 minute'))) AS k(queue_at)
 WHERE (t.driver_id = $1::uuid OR t.helper_driver_id = $1::uuid)
   AND ($2::text[] IS NULL OR t.status = ANY ($2::text[]))
-ORDER BY t.plan_at, t.id
-LIMIT $3
+  AND ($3::timestamptz IS NULL
+       OR (k.queue_at, coalesce(t.run_order, 0), t.created_at, t.id)
+          > ($3::timestamptz, $4::int, $5::timestamptz,
+             $6::uuid))
+ORDER BY k.queue_at, coalesce(t.run_order, 0), t.created_at, t.id
+LIMIT $7
 `
 
 type DriverTasksParams struct {
-	DriverID uuid.UUID
-	Statuses []string
-	RowLimit int32
+	DriverID       uuid.UUID
+	Statuses       []string
+	AfterQueueAt   *time.Time
+	AfterRunOrder  int32
+	AfterCreatedAt time.Time
+	AfterID        uuid.UUID
+	RowLimit       int32
 }
 
-// The driver's queue (GET /v1/mobile/tasks, P7a): own and helper tasks (R28), optionally by status; the queue order
-// of ADR 0028 is applied by the service (tasks_driver_status + tasks_helper_plan).
-func (q *Queries) DriverTasks(ctx context.Context, arg DriverTasksParams) ([]Task, error) {
-	rows, err := q.db.Query(ctx, driverTasks, arg.DriverID, arg.Statuses, arg.RowLimit)
+type DriverTasksRow struct {
+	Task    Task
+	QueueAt time.Time
+}
+
+// The driver's queue (GET /v1/mobile/tasks, P7a): own and helper tasks (R28), optionally by status, in the queue order
+// of ADR 0028 (compareTasksForDriverQueue, task_repository.dart:16-70), applied here before the LIMIT: the dispatch
+// instant queue_at (taskQueueInstant: actual_pickup_at, else the Bangkok plan day at plan_time, 00:00 without one),
+// then run_order with the tasks that have none first (run_order >= 1, so NULL keys as 0), then created_at, then id.
+// A keyset page on that key (after_*: the last row of the previous page); the service asks for limit + 1 rows, so a
+// longer queue gets a next cursor, never a silent cut (TW8). tasks_driver_status + tasks_helper_plan.
+func (q *Queries) DriverTasks(ctx context.Context, arg DriverTasksParams) ([]DriverTasksRow, error) {
+	rows, err := q.db.Query(ctx, driverTasks,
+		arg.DriverID,
+		arg.Statuses,
+		arg.AfterQueueAt,
+		arg.AfterRunOrder,
+		arg.AfterCreatedAt,
+		arg.AfterID,
+		arg.RowLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Task{}
+	items := []DriverTasksRow{}
 	for rows.Next() {
-		var i Task
+		var i DriverTasksRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.LegacyDocID,
-			&i.TenantID,
-			&i.TenantSource,
-			&i.TaskNo,
-			&i.TaskType,
-			&i.JobCategory,
-			&i.Status,
-			&i.PlanAt,
-			&i.PlanDate,
-			&i.PlanTime,
-			&i.LegacyDateStr,
-			&i.ActualPickupAt,
-			&i.SourceHubRaw,
-			&i.SourceHubID,
-			&i.SourceLinkedPartyID,
-			&i.DestinationRaw,
-			&i.DestinationHubID,
-			&i.DestinationSocKey,
-			&i.DestinationLinkedPartyID,
-			&i.BillingPartyID,
-			&i.TruckID,
-			&i.TruckType,
-			&i.LegacyTruckType,
-			&i.LicensePlateSnapshot,
-			&i.DriverID,
-			&i.LegacyDriverRef,
-			&i.DriverRefMatch,
-			&i.HelperDriverID,
-			&i.RunOrder,
-			&i.CheckInAt,
-			&i.CheckInPhotoFileID,
-			&i.CheckInAppScreenshotFileID,
-			&i.CheckInLat,
-			&i.CheckInLng,
-			&i.IsMultiDelivery,
-			&i.LineCheckinNotifiedAt,
-			&i.CancelledAt,
-			&i.CancelReason,
-			&i.ClientOpID,
-			&i.CreatedBy,
-			&i.CreatedAt,
-			&i.UpdatedAt,
+			&i.Task.ID,
+			&i.Task.LegacyDocID,
+			&i.Task.TenantID,
+			&i.Task.TenantSource,
+			&i.Task.TaskNo,
+			&i.Task.TaskType,
+			&i.Task.JobCategory,
+			&i.Task.Status,
+			&i.Task.PlanAt,
+			&i.Task.PlanDate,
+			&i.Task.PlanTime,
+			&i.Task.LegacyDateStr,
+			&i.Task.ActualPickupAt,
+			&i.Task.SourceHubRaw,
+			&i.Task.SourceHubID,
+			&i.Task.SourceLinkedPartyID,
+			&i.Task.DestinationRaw,
+			&i.Task.DestinationHubID,
+			&i.Task.DestinationSocKey,
+			&i.Task.DestinationLinkedPartyID,
+			&i.Task.BillingPartyID,
+			&i.Task.TruckID,
+			&i.Task.TruckType,
+			&i.Task.LegacyTruckType,
+			&i.Task.LicensePlateSnapshot,
+			&i.Task.DriverID,
+			&i.Task.LegacyDriverRef,
+			&i.Task.DriverRefMatch,
+			&i.Task.HelperDriverID,
+			&i.Task.RunOrder,
+			&i.Task.CheckInAt,
+			&i.Task.CheckInPhotoFileID,
+			&i.Task.CheckInAppScreenshotFileID,
+			&i.Task.CheckInLat,
+			&i.Task.CheckInLng,
+			&i.Task.IsMultiDelivery,
+			&i.Task.LineCheckinNotifiedAt,
+			&i.Task.CancelledAt,
+			&i.Task.CancelReason,
+			&i.Task.ClientOpID,
+			&i.Task.CreatedBy,
+			&i.Task.CreatedAt,
+			&i.Task.UpdatedAt,
+			&i.QueueAt,
 		); err != nil {
 			return nil, err
 		}

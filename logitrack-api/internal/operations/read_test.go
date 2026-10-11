@@ -97,7 +97,11 @@ func TestParsePlace(t *testing.T) {
 		{"SOCE", placeFilter{}, true},
 		{"code:", placeFilter{}, true},
 		{"raw:", placeFilter{}, true},
-		{"raw:a\x01", placeFilter{}, true},
+		{"raw:a\x01\nb", placeFilter{on: true, hubs: []uuid.UUID{}, raw: sp("a\x01\nb")}, false},     // stored text, listed as is
+		{"raw:\tBangna\u00a0", placeFilter{on: true, hubs: []uuid.UUID{}, raw: sp("Bangna")}, false}, // the JavaScript trim
+		{"raw:a\x00", placeFilter{}, true}, // PostgreSQL text holds no NUL
+		{"raw:\xff", placeFilter{}, true},  // nor invalid UTF-8
+		{"raw:\u00a0\u3000", placeFilter{}, true},
 		{"hub:x", placeFilter{}, true},
 	} {
 		var ck checker

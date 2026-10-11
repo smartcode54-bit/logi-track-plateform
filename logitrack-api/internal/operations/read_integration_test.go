@@ -486,6 +486,112 @@ func TestMonitorBucketsAndFilters(t *testing.T) {
 	}
 }
 
+// ADR 0005 §4, ADR 0006 §2: dirty legacy text (a tab, a line break, NBSP, an ideographic space or a BOM around a value,
+// control characters inside it, a partner code longer than the free-text bound) is listed, keyed and filtered under one
+// string: the facets and the filters trim the same set as JavaScript's trim on both sides (operations.trimChars), and
+// the filter takes back any value the facets list. Every option filters to exactly the trips it counts and every row
+// key selects its row, for staff and for a dispatcher reading the projections.
+func TestMonitorDirtyTextRoundTrips(t *testing.T) {
+	r := newReadWorld(t)
+	at := func(h int) time.Time { return time.Date(2026, 10, 1, h, 0, 0, 0, time.UTC) }
+	s := func(v string) *string { return &v }
+	longPartner := strings.Repeat("ก", 150)
+	r.trip(tripRow{tenant: r.O, no: "W-1", originRaw: s("Bangna\t"), destinationRaw: s("SOCE\n"), plate: s("ZZ-999\u00a0"),
+		partner: s("SPX\t"), party: &r.partyX, createdAt: at(1)})
+	r.trip(tripRow{tenant: r.O, no: "W-2", originRaw: s("Bangna"), destinationRaw: s("ปลายทาง\t"), plate: s("\tCD-34"),
+		partner: s("\tJT"), party: &r.partyX, createdAt: at(2)})
+	r.trip(tripRow{tenant: r.O, no: "W-3", originRaw: s("คลัง\nบางนา"), destinationRaw: s("ร้าน\r\nABC"), plate: s("AB\t12"),
+		partner: s("SP\nX"), party: &r.partyX, createdAt: at(3)})
+	multi := r.trip(tripRow{tenant: r.O, no: "W-4", originRaw: s("\ufeffBOM-HUB"), destinationRaw: s("X"), plate: s("\u3000"),
+		partner: s(longPartner), multi: true, party: &r.partyX, createdAt: at(4)})
+	r.exec(`INSERT INTO trip_delivery_stops (trip_id, stop_index, destination_raw)
+		VALUES ($1, 1, $2), ($1, 2, $3), ($1, 3, $4)`, multi, "\u00a0ร้าน DEF\u3000", "SOCN\t(วังน้อย)", "soce\r\n")
+	r.trip(tripRow{tenant: r.O, no: "W-5", originRaw: s("\u00a0\t"), destinationRaw: s("\n"), plate: s("  "), party: &r.partyX,
+		createdAt: at(5)})
+
+	base := "/v1/trips/monitor?from=2026-10-01&to=2026-10-01"
+	q := url.QueryEscape
+	for _, who := range []string{"staffO", "dispatcher"} {
+		_, _, meta := r.ok(who, base)
+		f := meta["facets"].(map[string]any)
+		options := func(name string) map[string]float64 {
+			out := map[string]float64{}
+			for _, o := range rows(f[name]) {
+				out[o["value"].(string)] = o["count"].(float64)
+			}
+			return out
+		}
+		for _, c := range []struct {
+			facet string
+			want  map[string]float64
+		}{
+			{"origins", map[string]float64{"raw:Bangna": 2, "raw:คลัง\nบางนา": 1, "raw:BOM-HUB": 1, "__none__": 1}},
+			// The multi-drop trip counts once per place it served: SOCE (spelled soce with CR LF) once.
+			{"destinations", map[string]float64{"code:SOCE": 2, "raw:ปลายทาง": 1, "raw:ร้าน\r\nABC": 1, "raw:ร้าน DEF": 1,
+				"raw:SOCN\t(วังน้อย)": 1, "__none__": 1}},
+			{"plates", map[string]float64{"plate:ZZ-999": 1, "plate:CD-34": 1, "plate:AB\t12": 1, "__none__": 2}},
+			{"partners", map[string]float64{"SPX": 1, "JT": 1, "SP\nX": 1, longPartner: 1, "__none__": 1}},
+		} {
+			if got := options(c.facet); !mapsEqual(got, c.want) {
+				t.Errorf("%s %s %#v, want %#v", who, c.facet, got, c.want)
+			}
+		}
+		filter := func(query string) []map[string]any {
+			t.Helper()
+			status, m := r.get(who, base+"&facets=false&"+query)
+			if status != 200 {
+				t.Fatalf("%s %s: %d %s", who, query, status, respCode(m))
+			}
+			return rows(m["data"])
+		}
+		// Every option filters to exactly the trips it counts.
+		for facet, param := range map[string]string{"origins": "origin", "destinations": "destination", "plates": "plate",
+			"partners": "partner", "vehicleClasses": "vehicleClass"} {
+			for value, n := range options(facet) {
+				if got := filter(param + "=" + q(value)); float64(len(got)) != n || n == 0 {
+					t.Errorf("%s %s=%q: %d trips, the option counts %v", who, param, value, len(got), n)
+				}
+			}
+		}
+		// Every row key (and the stored partner code as the row shows it) selects its row.
+		all := filter("")
+		if len(all) != 5 {
+			t.Fatalf("%s: %d trips", who, len(all))
+		}
+		for _, row := range all {
+			id := row["id"].(string)
+			keysOf := map[string][]string{
+				"origin":      {row["origin"].(map[string]any)["key"].(string)},
+				"destination": {},
+				"plate":       {row["truck"].(map[string]any)["key"].(string)},
+			}
+			if stops := rows(row["stops"]); len(stops) > 0 {
+				for _, st := range stops {
+					keysOf["destination"] = append(keysOf["destination"], st["place"].(map[string]any)["key"].(string))
+				}
+			} else {
+				keysOf["destination"] = append(keysOf["destination"], row["destination"].(map[string]any)["key"].(string))
+			}
+			if p, ok := row["partnerCode"].(string); ok {
+				keysOf["partner"] = []string{p}
+			}
+			for param, list := range keysOf {
+				for _, key := range list {
+					if !slices.Contains(ids(filter(param+"="+q(key))), id) {
+						t.Errorf("%s: %s=%q does not select trip %s (%s)", who, param, key, row["tripNo"], id)
+					}
+				}
+			}
+		}
+	}
+	// What PostgreSQL text can never hold is refused; a control character is not.
+	for _, query := range []string{"origin=" + q("raw:a\x00b"), "plate=" + q("plate:\xff"), "partner=" + q("a\x00")} {
+		if status, m := r.get("staffO", base+"&"+query); status != 422 {
+			t.Errorf("%s: %d %v, want 422", query, status, m)
+		}
+	}
+}
+
 func mapsEqual(a, b map[string]float64) bool {
 	if len(a) != len(b) {
 		return false
@@ -505,12 +611,20 @@ func TestDispatcherPayloadHasNoBillingOrHRFields(t *testing.T) {
 	// scope_drivers shows a driver through work of the last 180 days (app_recent_work_in_scope): dates relative to now.
 	planAt := time.Now().UTC().Add(-48 * time.Hour).Truncate(time.Hour)
 	rng := "from=" + clock.DateString(planAt.Add(-24*time.Hour)) + "&to=" + clock.DateString(planAt.Add(48*time.Hour))
+	deliveredX := planAt.Add(3 * time.Hour)
 	taskX := r.task(r.O, operations.FirstMile, &r.dO1, &r.partyX, planAt)
 	tripX := r.trip(tripRow{tenant: r.O, no: "X-1", status: "delivered", task: &taskX, driver: &r.dO1, party: &r.partyX,
 		createdAt: planAt.Add(time.Hour)})
 	r.exec(`UPDATE trip_records SET review_status = 'pending_review', needs_admin_review = true, evidence_token = 'ev-x',
-		ocr_data = '{"partnerCode":"P"}' WHERE id = $1`, tripX)
-	r.exec(`INSERT INTO trip_billing_snapshots (trip_id, tenant_id, estimate_thb, computed_by) VALUES ($1, $2, 1234.5, 'etl')`, tripX, r.O)
+		ocr_data = '{"partnerCode":"P"}', delivered_at = $2, is_multi_delivery = true WHERE id = $1`, tripX, deliveredX)
+	// A multi-drop price with its provenance and stop breakdown, as the billing service stores it.
+	r.exec(`INSERT INTO trip_billing_snapshots (trip_id, tenant_id, estimate_thb, base_rate_thb, stop_charge_thb,
+			rate_import_id, lookup_hub_code, lookup_destination_code, rate_multiplier, add_thb_per_trip,
+			fuel_effective_from_date, is_multi_delivery, job_category_at_pricing, computed_by)
+		VALUES ($1, $2, 1234.5, 1000, 234.5, 'manual', 'ALANG-A', 'SOCE', 1.05, 10, '2026-09-01', true, 'PRIMARY', 'etl')`,
+		tripX, r.O)
+	r.exec(`INSERT INTO trip_billing_stop_breakdown (trip_id, stop_index, destination_code, base_rate_thb, final_rate_thb)
+		VALUES ($1, 1, 'SOCE', 1000, 1000), ($1, 2, 'SPK', 200, 234.5)`, tripX)
 	r.exec(`INSERT INTO trip_photos (trip_id, photo_type, file_id) VALUES ($1, 'seal', $2)`, tripX, r.files[0])
 	r.exec(`INSERT INTO incident_reports (tenant_id, tenant_source, trip_id, driver_id, reported_by_kind, map_photo_file_id)
 		VALUES ($1, 'trip', $2, $3, 'driver', $4)`, r.O, tripX, r.dO1, r.files[1])
@@ -535,7 +649,9 @@ func TestDispatcherPayloadHasNoBillingOrHRFields(t *testing.T) {
 	}
 	forbidden := []string{"billing", "price", "billingPartyId", "customerPartyId", "sourceLinkedPartyId",
 		"destinationLinkedPartyId", "reviewStatus", "needsAdminReview", "ocrData", "evidenceToken", "tenantSource",
-		"estimateThb", "renames", "legacyTripRef", "reportedByUserId"}
+		"estimateThb", "renames", "legacyTripRef", "reportedByUserId", "customerId", "baseRateThb", "stopChargeThb",
+		"rateEntryId", "rateImportId", "lookupHubCode", "lookupDestinationCode", "fuelAdjustmentId", "rateMultiplier",
+		"addThbPerTrip", "fuelEffectiveFromDate", "roundEffectiveFromDate", "billingAxisDate", "computedBy"}
 	for _, path := range routes {
 		data, _, meta := r.ok("dispatcher", path)
 		got := map[string]bool{}
@@ -560,6 +676,27 @@ func TestDispatcherPayloadHasNoBillingOrHRFields(t *testing.T) {
 	if d["billing"] == nil || d["reviewStatus"] != "pending_review" || len(rows(d["photos"])) != 1 ||
 		rows(d["photos"])[0]["url"] == nil {
 		t.Errorf("staff trip detail %v", d)
+	}
+	// The Income page's source (GET /v1/trips?axis=delivered, and the trip detail): billing.TripBillingOf's projection,
+	// with the base rate, the lookup codes, the fuel round and the multi-drop stops its exports read (T39).
+	day := clock.DateString(deliveredX) // the billing axis day: no billing_date, so the Bangkok day of delivered_at
+	data, _, _ = r.ok("staffO", "/v1/trips?axis=delivered&from="+day+"&to="+day)
+	var income map[string]any
+	for _, row := range rows(data) {
+		if row["tripNo"] == "X-1" {
+			income = row
+		}
+	}
+	for _, b := range []any{income["billing"], d["billing"]} {
+		bill, _ := b.(map[string]any)
+		if bill == nil || bill["estimateThb"] != 1234.5 || bill["baseRateThb"] != 1000.0 || bill["stopChargeThb"] != 234.5 ||
+			bill["lookupHubCode"] != "ALANG-A" || bill["lookupDestinationCode"] != "SOCE" || bill["rateMultiplier"] != 1.05 ||
+			bill["addThbPerTrip"] != 10.0 || bill["fuelEffectiveFromDate"] != "2026-09-01" || bill["rateImportId"] != "manual" ||
+			bill["isMultiDelivery"] != true || bill["priced"] != true || bill["billingPartyId"] != r.partyX.String() ||
+			bill["customerId"] == nil || bill["billingAxisDate"] != day || len(rows(bill["stops"])) != 2 ||
+			rows(bill["stops"])[1]["destinationCode"] != "SPK" || rows(bill["stops"])[1]["finalRateThb"] != 234.5 {
+			t.Errorf("the Income billing block %v", b)
+		}
 	}
 	// Staff without accounting:view_income: no price, no billing block.
 	data, _, _ = r.ok("operator", "/v1/trips/monitor?"+rng+"&q=X-1&facets=false")

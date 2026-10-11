@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations/operationsdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/scope/scopedb"
@@ -73,17 +75,17 @@ type TripView struct {
 	Billing          *TripBilling    `json:"billing,omitempty"`
 }
 
-// TripBilling is the billing block of a trip (accounting:view_income): the billed party, the billing day and its axis
-// day (ADR 0027), and the stored price (nil when the trip has no snapshot yet).
+// TripBilling is the billing block of a trip (accounting:view_income, never a dispatcher): billing.TripBillingOf's
+// projection (Appendix B §B.2.14 as built, T39: the stamped party, the billed customer, the billing day, the stored
+// snapshot with its provenance, base rate, lookup codes, fuel round, multiplier, add, band and multi-drop stops; the
+// Income page and its exports read it from GET /v1/trips?axis=delivered) plus the trip's billing axis day (ADR 0027).
 type TripBilling struct {
-	BillingPartyID  *uuid.UUID    `json:"billingPartyId"`
-	BillingDate     *time.Time    `json:"billingDate"`
-	BillingAxisDate *string       `json:"billingAxisDate"`
-	Price           *PricePreview `json:"price"`
+	billing.TripBilling
+	BillingAxisDate *string `json:"billingAxisDate"`
 }
 
-// PricePreview is the stored price of a trip (trip_billing_snapshots): written by the billing service only (main spec
-// §6.10), never computed on read.
+// PricePreview is the stored price of a trip as the monitor row carries it (trip_billing_snapshots, joined by
+// MonitorTrips): written by the billing service only (main spec §6.10), never computed on read.
 type PricePreview struct {
 	EstimateThb          *float64  `json:"estimateThb"`
 	UnpricedReason       *string   `json:"unpricedReason"`
@@ -160,8 +162,9 @@ func (d directory) tripBaseScope(t scopedb.ScopeTrip) TripBase {
 		CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt}
 }
 
-// tripView is the staff payload; billing is the preview of the trip when p holds accounting:view_income (nil: absent).
-func tripView(p *authz.Principal, b TripBase, t Trip, price *PricePreview) TripView {
+// tripView is the staff payload; bill is the trip's billing projection when p may read it (viewIncome), else nil. A
+// trip the projection did not return (no row under the caller's RLS) keeps its own party and day, unpriced.
+func tripView(p *authz.Principal, b TripBase, t Trip, bill map[uuid.UUID]billing.TripBilling) TripView {
 	v := TripView{TripBase: b, TenantSource: t.TenantSource, TruckType: t.TruckTypeRaw, DistanceKm: t.DistanceKm,
 		SealTime: t.SealTime, DurationMinutes: t.DurationMinutes, DeliveredVia: t.DeliveredVia,
 		NeedsAdminReview: t.NeedsAdminReview, ReviewStatus: t.ReviewStatus, ReviewReason: t.ReviewReason,
@@ -169,9 +172,12 @@ func tripView(p *authz.Principal, b TripBase, t Trip, price *PricePreview) TripV
 	if len(t.OcrData) > 0 && json.Valid(t.OcrData) {
 		v.OcrData = json.RawMessage(t.OcrData)
 	}
-	if viewIncome(p) {
-		v.Billing = &TripBilling{BillingPartyID: t.BillingPartyID, BillingDate: t.BillingDate,
-			BillingAxisDate: dayString(t.BillingAxisDate), Price: price}
+	if bill != nil && viewIncome(p) {
+		tb, ok := bill[t.ID]
+		if !ok {
+			tb = billing.TripBilling{BillingPartyID: t.BillingPartyID, BillingDate: t.BillingDate, Stops: []billing.StopCharge{}}
+		}
+		v.Billing = &TripBilling{TripBilling: tb, BillingAxisDate: dayString(t.BillingAxisDate)}
 	}
 	return v
 }
@@ -186,24 +192,6 @@ func (d directory) tripStopScope(s scopedb.ScopeTripStop) TripStopRow {
 	return TripStopRow{ID: s.ID, Index: s.StopIndex, Destination: s.DestinationRaw, DestinationHubID: s.DestinationHubID,
 		Place: d.place(&s.DestinationRaw, s.DestinationHubID, nil), SourceID: s.SourceID, Status: s.Status,
 		DeliveredAt: s.DeliveredAt, DeliveredLat: s.DeliveredLat, DeliveredLng: s.DeliveredLng, CompletedSeq: s.CompletedSeq}
-}
-
-func pricePreview(r operationsdb.BillingPreviewsOfRow) *PricePreview {
-	return &PricePreview{EstimateThb: r.EstimateThb, UnpricedReason: r.UnpricedReason, ManualOverride: r.ManualOverride,
-		JobCategoryAtPricing: r.JobCategoryAtPricing, IsMultiDelivery: r.IsMultiDelivery, ComputedAt: r.ComputedAt}
-}
-
-// prices reads the stored prices of a page in q's transaction (p holds accounting:view_income).
-func prices(ctx context.Context, q *operationsdb.Queries, ids []uuid.UUID) (map[uuid.UUID]*PricePreview, error) {
-	out := map[uuid.UUID]*PricePreview{}
-	if len(ids) == 0 {
-		return out, nil
-	}
-	rows, err := q.BillingPreviewsOf(ctx, ids)
-	for _, r := range rows {
-		out[r.TripID] = pricePreview(r)
-	}
-	return out, err
 }
 
 // --- GET /v1/trips ----------------------------------------------------------------------------------------------
@@ -282,7 +270,8 @@ func (s *Service) ListTripsView(ctx context.Context, p *authz.Principal, in Trip
 	return out, pg.NextCursor, err
 }
 
-// staffTripViews completes a page of staff trips: names and, with accounting:view_income, the stored prices.
+// staffTripViews completes a page of staff trips: names and, with accounting:view_income, the billing projection
+// (billing.TripBillingOf in a request transaction of p: RLS decides which snapshots it reads, R61).
 func (s *Service) staffTripViews(ctx context.Context, p *authz.Principal, d directory, trips []Trip) ([]TripView, error) {
 	ids := make([]uuid.UUID, len(trips))
 	var drivers []uuid.UUID
@@ -290,11 +279,11 @@ func (s *Service) staffTripViews(ctx context.Context, p *authz.Principal, d dire
 		ids[i] = t.ID
 		drivers = appendID(drivers, t.DriverID)
 	}
-	price := map[uuid.UUID]*PricePreview{}
-	if viewIncome(p) && len(ids) > 0 {
-		if err := s.read(ctx, p, func(q *operationsdb.Queries) error {
+	var bill map[uuid.UUID]billing.TripBilling
+	if viewIncome(p) {
+		if err := s.Tx(ctx, p, func(tx pgx.Tx) error {
 			var err error
-			price, err = prices(ctx, q, ids)
+			bill, err = billing.TripBillingOf(ctx, tx, ids)
 			return err
 		}); err != nil {
 			return nil, err
@@ -308,7 +297,7 @@ func (s *Service) staffTripViews(ctx context.Context, p *authz.Principal, d dire
 	for _, t := range trips {
 		b := d.tripBase(t)
 		b.DriverName = nameOf(names, b.DriverID)
-		out = append(out, tripView(p, b, t, price[t.ID]))
+		out = append(out, tripView(p, b, t, bill))
 	}
 	return out, nil
 }
