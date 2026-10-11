@@ -142,4 +142,12 @@ export default {
     "maintenance.service.tire_change": "Tire Change",
     "maintenance.service.tire_rotation": "Tire Rotation",
     "maintenance.service.brake_service": "Brake Service",
+
+    // T42: the Go accounting / maintenance pages.
+    "maintenance.go.reminderSent": "Reminder sent to the driver's app.",
+    "maintenance.go.remind": "Remind driver",
+    "maintenance.go.ofLoaded": "Records loaded so far",
+    "maintenance.go.allStatuses": "All statuses",
+    "maintenance.go.pickTruck": "Choose the truck; its maintenance page opens with the form.",
+    "maintenance.go.openTruck": "Open",
 };

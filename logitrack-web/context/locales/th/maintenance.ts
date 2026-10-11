@@ -143,4 +143,11 @@ export default {
     "maintenance.service.tire_rotation": "สลับยาง",
     "maintenance.service.brake_service": "ระบบเบรก",
 
+    // T42: the Go accounting / maintenance pages.
+    "maintenance.go.reminderSent": "ส่งการแจ้งเตือนไปที่แอปคนขับแล้ว",
+    "maintenance.go.remind": "เตือนคนขับ",
+    "maintenance.go.ofLoaded": "จากรายการที่โหลดแล้ว",
+    "maintenance.go.allStatuses": "ทุกสถานะ",
+    "maintenance.go.pickTruck": "เลือกรถ แล้วหน้าซ่อมบำรุงของรถคันนั้นจะเปิดพร้อมฟอร์ม",
+    "maintenance.go.openTruck": "เปิด",
 };

@@ -2,7 +2,6 @@
 
 import { useState, useRef, useEffect } from "react";
 import * as XLSX from "xlsx";
-import * as XLSXStyle from "xlsx-js-style";
 import { Upload, X, FileSpreadsheet, Check, AlertCircle, Download } from "lucide-react";
 import { format } from "date-fns";
 import { collection, writeBatch, doc } from "firebase/firestore";
@@ -264,17 +263,12 @@ export function FirstMileImportDialog({ onSuccess, open, setOpen }: ImportDialog
             "0812345678",
             "*ตัวอย่าง — ลบแถวนี้ก่อน import",
         ];
-        const ws = XLSXStyle.utils.aoa_to_sheet([headers, example]);
-        const yellow = { fill: { patternType: "solid", fgColor: { rgb: "FFF3CD" } } };
-        for (let c = 0; c < headers.length; c++) {
-            const addr = XLSXStyle.utils.encode_cell({ r: 1, c });
-            if (ws[addr]) ws[addr].s = yellow as any;
-        }
-        const noteAddr = XLSXStyle.utils.encode_cell({ r: 1, c: headers.length - 1 });
-        if (ws[noteAddr]) ws[noteAddr].s = { fill: { patternType: "solid", fgColor: { rgb: "FFE08A" } }, font: { bold: true, color: { rgb: "B00020" } } } as any;
-        const wb = XLSXStyle.utils.book_new();
-        XLSXStyle.utils.book_append_sheet(wb, ws, "Template");
-        XLSXStyle.writeFile(wb, "FirstMileTask_Template.xlsx");
+        // Plain xlsx (T42, R69): xlsx-js-style leaves the web at P3 exit, so the template carries no cell
+        // styles; the example row says itself that it must be deleted before the import.
+        const ws = XLSX.utils.aoa_to_sheet([headers, example]);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Template");
+        XLSX.writeFile(wb, "FirstMileTask_Template.xlsx");
     };
 
     /** Resolve hub-linked customer fields (for customer-scope filtering) from the hubs master. */

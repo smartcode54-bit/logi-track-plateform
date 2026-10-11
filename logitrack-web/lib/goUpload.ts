@@ -16,7 +16,7 @@
 import { ApiError, apiErrorFromResponse, networkError } from "./apiError";
 import { GO_API_PREFIX, goFetch } from "./goFetch";
 
-/** The purposes the master-data pages upload (internal/storage `Purposes`). */
+/** The purposes the web uploads (internal/storage `Purposes`). */
 export type UploadPurpose =
     | "customer_logo"
     | "company_logo"
@@ -29,7 +29,11 @@ export type UploadPurpose =
     | "truck_document"
     | "truck_receipt"
     | "insurance_document"
-    | "tenant_document";
+    | "tenant_document"
+    // T42: the expense photos and the maintenance files (variants image, receipt, invoice).
+    | "expense_receipt"
+    | "expense_odometer"
+    | "maintenance_file";
 
 export interface UploadOptions {
     purpose: UploadPurpose;
