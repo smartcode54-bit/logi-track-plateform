@@ -88,6 +88,7 @@ var Allowed = []string{
 	"internal/hubs",      // read-only loads of the shared hub caches, the distances.compute consumer (T21)
 	"internal/billing",   // read-only loads of the rate-card bundle and the invoice-set count, the bangchak.snapshot consumer (T37); pricing (T38)
 	"internal/coexist",   // the etl.sync mirror and firestore.shadow projection consumers of the worker (T24)
+	"internal/hr",        // the payroll.run consumer of the worker: draft runs of the job's tenant (T44)
 	"cmd/worker",
 	"cmd/scheduler",
 	"cmd/etl",

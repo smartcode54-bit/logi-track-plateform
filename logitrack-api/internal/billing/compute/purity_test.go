@@ -16,7 +16,8 @@ import (
 
 const module = "github.com/smartcode54-bit/logi-track-plateform/logitrack-api"
 
-// moneyPackages are the packages that compute money (main spec §6.2): they
+// moneyPackages are the packages that compute money (main spec §6.2; the
+// payroll engine internal/hr/compute joined with T44): they
 // may not call math.Round or math.FMA, and every product must be wrapped in
 // an explicit float64(...) conversion so the compiler cannot fuse it into a
 // multiply-add (arm64 does; see TestNoFusedMultiplyAdd). The value lists the
@@ -24,6 +25,7 @@ const module = "github.com/smartcode54-bit/logi-track-plateform/logitrack-api"
 var moneyPackages = map[string][]string{
 	"internal/billing/compute":   {module + "/internal/platform/clock", module + "/internal/platform/jsmath"},
 	"internal/billing/documents": {module + "/internal/platform/clock", module + "/internal/platform/jsmath"},
+	"internal/hr/compute":        {module + "/internal/platform/clock", module + "/internal/platform/jsmath"}, // T44, §6.15
 	"internal/platform/jsmath":   nil,
 }
 

@@ -738,6 +738,23 @@ sql:
         emit_pointers_for_null_types: true
         omit_unused_structs: true
         overrides: *finance_overrides
+  # T44: compensation config versions, penalties and payroll runs (internal/hr) under db.WithPrincipal (RLS G-tenant;
+  # penalty_types, payroll_line_items and payroll_penalty_applications follow their parent), and the payroll.run
+  # consumer's reads and draft writes under db.WithSystem. Same type mapping as expenses (NUMERIC amounts float64:
+  # whole baht for payroll, checked in Go and by the schema).
+  - name: hr
+    engine: postgresql
+    schema: migrations
+    queries: internal/hr/queries
+    gen:
+      go:
+        package: hrdb
+        out: internal/hr/hrdb
+        sql_package: pgx/v5
+        emit_empty_slices: true
+        emit_pointers_for_null_types: true
+        omit_unused_structs: true
+        overrides: *finance_overrides
 # sqlc vet rules (make gen-check). scope-views-only (Appendix C §C.3.7): a scope query reads the scope_* views
 # and nothing else, and never writes. It fails on any of the 85 tables of migrations/ named as a whole word
 # (schema-qualified, quoted, joined, in a subquery or a CTE alike; scope_tasks does not contain the word
