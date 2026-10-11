@@ -1,0 +1,16 @@
+# Environment allow-list of the Next.js standalone server (pm2 app logitrack-web).
+# Exactly the developer-spec.md §16.1 names with consumer web-server (checked by `make env-check`).
+# run-app.sh exports each from the VM's shared .env, or keeps the per-process value that
+# ecosystem.config.cjs gave the pm2 app, and unsets every other .env name.
+GO_API_INTERNAL_TIMEOUT_MS
+GO_API_INTERNAL_URL
+HOSTNAME
+JWT_ACCESS_TTL
+JWT_AUDIENCE
+JWT_ISSUER
+NODE_ENV
+PORT
+REFRESH_TOKEN_TTL_WEB
+SESSION_COOKIE_DOMAIN
+SESSION_COOKIE_SECURE
+WEB_PUBLIC_ORIGIN

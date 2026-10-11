@@ -303,11 +303,12 @@ func (c *APIConfig) Validate() error {
 	if c.InternalAddr == c.PublicAddr || c.InternalAddr == c.MetricsAddr || c.PublicAddr == c.MetricsAddr {
 		errs = append(errs, "API_INTERNAL_ADDR, API_PUBLIC_ADDR, METRICS_ADDR: must be three different addresses")
 	}
-	if behindEdgeProxy(c.AppEnv) && hasHost(c.PublicAddr) {
+	if behindEdgeProxy(c.AppEnv) && hasHost(c.PublicAddr) && !loopbackHost(c.PublicAddr) {
 		// Caddy dials "api" + API_PUBLIC_ADDR (deploy/Caddyfile), so "0.0.0.0:8081" would become the
 		// upstream "api0.0.0.0:8081" and every API_PUBLIC_DOMAIN route a 502 (developer-spec.md §16.1).
+		// A loopback address is the staging VM (deploy/vm): nginx on the same host dials 127.0.0.1:port.
 		errs = append(errs, config.Invalidf("API_PUBLIC_ADDR",
-			"must be :port when APP_ENV is dev or prod (the edge proxy dials api + this value)"))
+			"must be :port (or a loopback address behind nginx on the same host) when APP_ENV is dev or prod (the edge proxy dials api + this value)"))
 	}
 	groups := map[string]bool{}
 	for _, g := range c.PublicRouteGroups {
@@ -396,6 +397,18 @@ func behindEdgeProxy(appEnv string) bool {
 func hasHost(addr string) bool {
 	host, _, err := net.SplitHostPort(addr)
 	return err == nil && host != ""
+}
+
+// loopbackHost reports whether a listen address names a loopback IP ("127.0.0.1:3302", "[::1]:3302"): the
+// staging VM binds the public listener there and nginx on the same host dials it (deploy/vm). A host name
+// such as "localhost" is not accepted.
+func loopbackHost(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	ip, err := netip.ParseAddr(host)
+	return err == nil && ip.Unmap().IsLoopback()
 }
 
 // parsePrefix accepts a CIDR prefix or a single address (as /32 or /128).

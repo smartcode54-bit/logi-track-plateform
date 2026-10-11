@@ -276,6 +276,17 @@ by up to six lines after `:60`):
   also signs `Content-Length` and `If-None-Match: *`, the local upload signs the declared size and is
   published under the pending row's lock, `GET /v1/files` keeps driver PII behind
   `drivers:view_pii` (5-minute URLs), and Go-minted evidence tokens carry their issue time (§9.6).
+- **2026-10-10, owner decision (issue OPSVM, staging VM):** the first deployment of the mv-go stack is a
+  staging environment on the shared VM `showkhun.co`, run with pm2 + nginx + the Cloudflare origin
+  certificate instead of the compose stack of Decision 14 (one VM + docker compose): `logi.showkhun.co` serves the web
+  and `/media`, `logi-api.showkhun.co` the public listener; the server's PostgreSQL 18, Redis and
+  RabbitMQ in two containers, local-disk storage, the dev Firebase project for the web and the bridge,
+  the `demo` seed plus a bootstrap super admin (`ssadmin@showkhun.co`) whose password exists only in the
+  VM's `.env`. This answers §19 Q8 for staging; the production target stays the compose single VM
+  (R30). One refinement follows: behind nginx on the same host the public listener binds a loopback
+  address, so the api now accepts a loopback IP in `API_PUBLIC_ADDR` when `APP_ENV` is `dev` or `prod`
+  (still no other host part, which would break Caddy's dial address). Kit and runbook:
+  `logitrack-api/deploy/vm/`; spec `developer-spec.md` §2.7, §15.8, §16.1, §17.4, §19 Q8.
 
 ## Related
 

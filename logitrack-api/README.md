@@ -2,7 +2,7 @@
 
 Go backend for the LogiTrack migration off Firebase (`mv-go`). Design: [`developer-spec.md`](../developer-spec.md) §2, routes in [Appendix B](../shared-docs/specs/mv-go/B-api-catalog.md). Branch policy: work lands by PR into `mv-go`, never `main` (R90).
 
-Status: **T01 scaffold + T02 local stack + T03 migrations + T04 core schema + T05 own auth + T06 Google sign-in + T07 RBAC + T08 Firebase bridge + T10 async + T11 object storage + T12 SSE + T15 ETL framework + T16 seed + T36 billing engine + TW2 edge (web container + Caddy) + T14 CI + T17 web flags + TW3 web BFF and JWKS + T19 users and tenants administration, users ETL and platform bootstrap**. One module, seven binaries, shared `internal/`; the first routes are `/v1/auth/*` and `/v1/me*` (T05), `/v1/roles` (T07), `/v1/users*` and `/v1/tenants*` (T19), `GET /v1/config/web-flags` (T17), the SSE streams `GET /v1/events` / `GET /v1/mobile/events` (T12) and `GET /.well-known/jwks.json` (TW3).
+Status: **T01 scaffold + T02 local stack + T03 migrations + T04 core schema + T05 own auth + T06 Google sign-in + T07 RBAC + T08 Firebase bridge + T10 async + T11 object storage + T12 SSE + T15 ETL framework + T16 seed + T36 billing engine + TW2 edge (web container + Caddy) + T14 CI + T17 web flags + TW3 web BFF and JWKS + T19 users and tenants administration, users ETL and platform bootstrap + OPSVM staging VM kit**. One module, seven binaries, shared `internal/`; the first routes are `/v1/auth/*` and `/v1/me*` (T05), `/v1/roles` (T07), `/v1/users*` and `/v1/tenants*` (T19), `GET /v1/config/web-flags` (T17), the SSE streams `GET /v1/events` / `GET /v1/mobile/events` (T12) and `GET /.well-known/jwks.json` (TW3).
 
 ## Layout
 
@@ -60,6 +60,8 @@ internal/platform/tenancy    tenancy.Resolve (port of tenantResolve.ts + the R75
 internal/billing/compute     the billing engine (T36): pure port of lib/billingCompute.ts + the pure pricing rules
 internal/billing/documents   pure invoice layout rules: axis date, price rounds, line items (renderers: T39)
 internal/golden              test-only runner for testdata/golden vectors
+tools/vmenv                  the staging VM's .env: generates every secret on the VM, role SCRAM verifiers, container env-files (OPSVM)
+deploy/vm/                   staging VM kit for showkhun.co: pm2 + nginx, provision.sh, deploy.sh, rollout.sh, runbook (OPSVM)
 tools/analyzers/withsystem   fails make lint when db.WithSystem, inbox.Run, a jobs.Submit InTx hook, db.RLS, an authz.Principal literal or raw GUC SQL is used outside its allow-list (T07)
 migrations/                  NNNN_name.sql, embedded into cmd/migrate: the Appendix A baseline 0001-0010 (T03, T04), 0011 storage_backend (T11)
 api/routes.txt               generated route table (method, path, listeners) checked by go-ci gen-check (T14)
@@ -366,11 +368,23 @@ Tests: `go test ./internal/platform/realtime/ ./internal/sse/` (event names, hub
 | Site (local value) | Upstream | Notes |
 |---|---|---|
 | `WEB_DOMAIN` (`http://localhost`) | `web:3000` | compressed (zstd, gzip) except `/api/go/v1/events`, which streams unbuffered (`flush_interval -1`); Cache-Control comes from `next.config.ts` |
-| `API_PUBLIC_DOMAIN` (`http://api.localhost`) | the api **public** listener (`api` + `API_PUBLIC_ADDR`, so that value is `:port`; the api refuses a host part when `APP_ENV` is `dev` or `prod`) | only `/v1/mobile`, `/v1/auth`, `/public/v1`, `/evidence`, `/media`, `/healthz`; anything else `404 not_found` in the Go envelope. Never the internal listener |
+| `API_PUBLIC_DOMAIN` (`http://api.localhost`) | the api **public** listener (`api` + `API_PUBLIC_ADDR`, so that value is `:port`; the api refuses a host part when `APP_ENV` is `dev` or `prod`, except a loopback IP for the staging VM's nginx, §15.8) | only `/v1/mobile`, `/v1/auth`, `/public/v1`, `/evidence`, `/media`, `/healthz`; anything else `404 not_found` in the Go envelope. Never the internal listener |
 | `MEDIA_DOMAIN` (`http://media.localhost`) | `minio:9000` | Host passes unchanged, so a URL signed for `S3_PRESIGN_ENDPOINT` = `https://{MEDIA_DOMAIN}` verifies; `/minio/*` is 404 |
 | `http://:8090` (not published) | the api public listener | tunnel target: `/public/v1/*` only |
 
 Locally the sites are `http://` (no TLS). In prod they are bare host names with ACME certificates; Caddy then refuses to start until `ACME_EMAIL` is set. `make smoke EDGE=1` runs `deploy/edge-smoke.sh` after the T02 and T03 checks (real id under `/app/customers/<id>`, cache headers, public-listener-only API site, a presigned URL through the media site; `go run ./tools/presign` signs it). `internal/platform/ingress` tests keep the Caddyfile allow-list equal to `ingress.PublicPrefixes`.
+
+## Staging VM (OPSVM, main spec §15.8, §17.4)
+
+The first mv-go deployment runs on the shared VM `showkhun.co` without compose: pm2 + nginx + the Cloudflare origin
+certificate, `https://logi.showkhun.co` (web and `/media`) and `https://logi-api.showkhun.co` (the public listener),
+the server's PostgreSQL 18, Redis and RabbitMQ in two containers, local-disk storage. The kit and its runbook are in
+[`deploy/vm/`](deploy/vm/README.md): `provision.sh` (once, as root on the VM; generates every secret there with
+`tools/vmenv`), `deploy.sh` (on the operator's machine: build, upload, migrate, first-deploy seed and bootstrap
+admin, switch, checks, `--rollback`), `rollout.sh` (the VM side), `run-app.sh` + `ecosystem.config.cjs` (pm2; the
+`.env` is read at exec time and each program gets exactly its §16.1 names, `env-names/`). `make env-check` holds
+`env.vm.example` and `env-names/` to §16.1; `make vm-check` runs the kit's tests (stub commands, `nginx -t` and the
+routing under nginx 1.24, shellcheck). Agents never connect to the VM; the operator runs the kit.
 
 ## Redis layer (T09, main spec §2.1, Appendix B §B.6)
 

@@ -1,0 +1,27 @@
+# Managed by logitrack-api/deploy/vm (provision.sh); do not edit on the server.
+# The pm2 daemon of the logitrack user, as `pm2 startup` writes it for the other apps of the VM
+# (pm2-<user>, pm2 resurrect at boot from the node of /opt/node-v24.14.0). Its environment holds no
+# secret: run-app.sh reads /opt/logitrack/shared/.env when each app starts.
+[Unit]
+Description=PM2 process manager for logitrack
+Documentation=https://pm2.keymetrics.io/
+After=network-online.target docker.service postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=forking
+User=@kit_user@
+LimitNOFILE=infinity
+LimitNPROC=infinity
+LimitCORE=infinity
+Environment=PATH=@kit_node_dir@/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PM2_HOME=/home/@kit_user@/.pm2
+PIDFile=/home/@kit_user@/.pm2/pm2.pid
+Restart=on-failure
+
+ExecStart=@kit_node_dir@/bin/pm2 resurrect
+ExecReload=@kit_node_dir@/bin/pm2 reload all
+ExecStop=@kit_node_dir@/bin/pm2 kill
+
+[Install]
+WantedBy=multi-user.target

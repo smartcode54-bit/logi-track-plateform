@@ -1,0 +1,29 @@
+# Environment allow-list of the scheduler (pm2 app logitrack-scheduler).
+# Exactly the developer-spec.md §16.1 names with consumer scheduler or all-go (checked by `make env-check`).
+# run-app.sh exports each from the VM's shared .env, or keeps the per-process value that
+# ecosystem.config.cjs gave the pm2 app, and unsets every other .env name.
+APP_ENV
+CARTRACK_SYNC_ENABLED
+DATABASE_MAX_CONNS
+DATABASE_MIN_CONNS
+DATABASE_URL
+ETL_SYNC_ENABLED
+ETL_SYNC_INTERVAL
+FUEL_MONTHLY_SNAPSHOT_ENABLED
+JWT_ACCESS_TTL
+LOG_FORMAT
+LOG_LEVEL
+METRICS_ADDR
+OTEL_EXPORTER_OTLP_ENDPOINT
+OTEL_SERVICE_NAME
+OTEL_TRACES_SAMPLER_ARG
+OUTBOX_BATCH_SIZE
+OUTBOX_RELAY_INTERVAL
+RABBITMQ_URL
+REDIS_KEY_PREFIX
+REDIS_TLS
+REDIS_URL
+RTLOG_MAXLEN
+RTLOG_TTL
+SENTRY_DSN
+SHUTDOWN_TIMEOUT

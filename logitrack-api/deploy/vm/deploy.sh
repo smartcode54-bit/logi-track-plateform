@@ -1,0 +1,318 @@
+#!/usr/bin/env bash
+# deploy.sh: build LogiTrack and ship it to the staging VM showkhun.co (deploy/vm/README.md, developer-spec.md
+# §17.4). Run on the operator's machine from a checkout of mv-go; it reaches the VM over ssh as root
+# (ssh config host showkhun.co) and never prints a secret.
+#
+#   deploy.sh --web-build-env FILE [--dry-run] [--allow-dirty] [--host HOST]
+#       Build the Go binaries (linux/amd64, CGO off) and the web standalone (logitrack-web/Dockerfile,
+#       docker buildx --platform linux/amd64), upload them as /opt/logitrack/releases/<git-sha>, then
+#       rollout.sh activate on the VM (migrate up; first deploy: seed demo + bootstrap admin; switch
+#       `current`; pm2 startOrReload; on-VM checks incl. the internal /readyz) and the public checks from
+#       here. A failed check switches back to the previous release.
+#       FILE holds the web's NEXT_PUBLIC_* build arguments (KEY=VALUE, gitignored: e.g.
+#       deploy/vm/.env.web-build); it is read without echo, and the values reach docker through its
+#       environment (`--build-arg NAME`), never through a command line.
+#   deploy.sh --rollback [--to ID] [--dry-run] [--host HOST]
+#   deploy.sh --status [--host HOST]
+#   deploy.sh --provision [--plan | --dry-run] [--host HOST]
+#       Upload the provisioning kit to a temporary directory on the VM and run provision.sh there as root
+#       (--plan: provision.sh --dry-run; the temporary copy is removed either way).
+#   deploy.sh --kit DIR
+#       Build the provisioning kit into DIR (bin/vmenv for linux/amd64, deploy/vm, the roles SQL and the
+#       RabbitMQ definitions) to copy to the VM by hand: bash DIR/deploy/vm/provision.sh [--dry-run].
+#
+# --dry-run builds nothing, contacts nothing and prints the plan.
+set -euo pipefail
+
+usage() {
+  sed -n '2,/^set -euo/p' "$0" | sed -e '$d' -e 's/^# \{0,1\}//' >&2
+  exit "${1:-2}"
+}
+
+mode=deploy
+dry=0
+plan=0
+allow_dirty=0
+web_env=""
+to=""
+kit_out=""
+host_flag=""
+while [ $# -gt 0 ]; do
+  case $1 in
+    --web-build-env)
+      [ $# -ge 2 ] || usage
+      web_env=$2
+      shift
+      ;;
+    --dry-run) dry=1 ;;
+    --plan) plan=1 ;;
+    --allow-dirty) allow_dirty=1 ;;
+    --host)
+      [ $# -ge 2 ] || usage
+      host_flag=$2
+      shift
+      ;;
+    --rollback) mode=rollback ;;
+    --to)
+      [ $# -ge 2 ] || usage
+      to=$2
+      shift
+      ;;
+    --status) mode=status ;;
+    --provision) mode=provision ;;
+    --kit)
+      [ $# -ge 2 ] || usage
+      mode=kit
+      kit_out=$2
+      shift
+      ;;
+    -h | --help) usage 0 ;;
+    *) usage ;;
+  esac
+  shift
+done
+
+kit_dir=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+api_dir=$(cd -P "$kit_dir/../.." && pwd)
+repo_root=$(cd -P "$api_dir/.." && pwd)
+# shellcheck source=kit.conf
+. "$kit_dir/kit.conf"
+host=${host_flag:-$kit_ssh_host}
+dockerfile=$repo_root/logitrack-web/Dockerfile
+id_rx='^[0-9a-f]{7,40}(-dirty-[0-9]{14})?$'
+# The six values firebase/client.ts refuses to build without (until TW7 removes the Firebase SDK).
+required_web="NEXT_PUBLIC_FIREBASE_API_KEY NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN NEXT_PUBLIC_FIREBASE_PROJECT_ID NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID NEXT_PUBLIC_FIREBASE_APP_ID"
+
+say() { printf 'deploy: %s\n' "$*"; }
+would() { printf 'deploy: [dry-run] would %s\n' "$*"; }
+die() {
+  printf 'deploy: %s\n' "$*" >&2
+  exit 1
+}
+need() {
+  local c
+  for c in "$@"; do command -v "$c" >/dev/null 2>&1 || die "missing command: $c"; done
+}
+vm() { ssh -o BatchMode=yes -o ConnectTimeout=20 "$host" "$@"; }
+
+stage=""
+cleanup() { [ -z "$stage" ] || rm -rf "$stage"; }
+trap cleanup EXIT
+
+module=$(sed -n 's/^module //p' "$api_dir/go.mod")
+
+# build_go dir targets...: static linux/amd64 binaries into dir.
+build_go() {
+  local out=$1
+  shift
+  say "building Go binaries for linux/amd64 ($*)"
+  (cd "$api_dir" && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
+    -ldflags "-s -w -X $module/internal/app.Version=${release_id:-kit}" -o "$out/" "$@")
+}
+
+# tar_create: tar for the upload; on macOS (bsdtar) without extended attributes and AppleDouble files, which
+# GNU tar on the VM would warn about.
+tar_create() {
+  if tar --version 2>/dev/null | grep -q bsdtar; then
+    COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata "$@"
+  else
+    tar "$@"
+  fi
+}
+
+# copy_kit dir: deploy/vm (without tests, test data and env files) plus the two repository files provision.sh reads.
+copy_kit() {
+  mkdir -p "$1"
+  (cd "$api_dir" && tar_create -cf - --exclude='*_test.go' --exclude='testdata' --exclude='.env*' --exclude='*.env' \
+    deploy/vm deploy/postgres-init/00-roles.sql deploy/rabbitmq-definitions.json) | (cd "$1" && tar -xf -)
+}
+
+# web_env_names: the NEXT_PUBLIC_* build arguments logitrack-web/Dockerfile declares.
+web_env_names() { sed -n 's/^ARG \(NEXT_PUBLIC_[A-Z0-9_]*\)=.*/\1/p' "$dockerfile"; }
+
+# check_web_env: validates FILE by name and reports the names it sets; never prints a value.
+check_web_env() {
+  [ -n "$web_env" ] || die "--web-build-env FILE is required (the web's NEXT_PUBLIC_* build arguments)"
+  [ -r "$web_env" ] || die "$web_env is not readable"
+  if git -C "$repo_root" ls-files --error-unmatch -- "$web_env" >/dev/null 2>&1; then
+    die "$web_env is tracked by git; keep build values in a gitignored file (e.g. deploy/vm/.env.web-build)"
+  fi
+  local allowed set="" line name value n=0 missing=""
+  allowed=" $(web_env_names | tr '\n' ' ') "
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1))
+    case $line in '' | '#'*) continue ;; esac
+    line=${line#export }
+    case $line in *=*) ;; *) die "$web_env:$n: expected NAME=VALUE" ;; esac
+    name=${line%%=*}
+    value=${line#*=}
+    case $allowed in
+      *" $name "*) ;;
+      *) die "$web_env:$n: $name is not a NEXT_PUBLIC_* build argument of logitrack-web/Dockerfile (server values never go into the bundle)" ;;
+    esac
+    [ -n "$value" ] && set="$set $name"
+  done <"$web_env"
+  for name in $required_web; do
+    case "$set " in *" $name "*) ;; *) missing="$missing $name" ;; esac
+  done
+  [ -z "$missing" ] || die "$web_env does not set:$missing (next build fails without them)"
+  say "web build arguments set in $web_env:$set"
+}
+
+# build_web dir: the standalone server for linux/amd64, extracted from the Dockerfile's standalone stage.
+# The values are exported in a subshell for docker alone; `--build-arg NAME` takes them from there.
+build_web() {
+  local out=$1
+  say "building the web standalone for linux/amd64 (docker buildx, $kit_web_node_image)"
+  (
+    set --
+    while IFS= read -r line || [ -n "$line" ]; do
+      case $line in '' | '#'*) continue ;; esac
+      line=${line#export }
+      name=${line%%=*}
+      value=${line#*=}
+      case $value in
+        \"*\")
+          value=${value#\"}
+          value=${value%\"}
+          ;;
+        \'*\')
+          value=${value#\'}
+          value=${value%\'}
+          ;;
+      esac
+      export "$name=$value"
+      set -- "$@" --build-arg "$name"
+    done <"$web_env"
+    docker buildx build --platform linux/amd64 -f "$dockerfile" --target standalone \
+      --build-arg "NODE_IMAGE=$kit_web_node_image" "$@" \
+      --output "type=local,dest=$out" "$repo_root"
+  )
+  [ -f "$out/logitrack-web/server.js" ] || die "the web build produced no logitrack-web/server.js"
+}
+
+release_id=""
+compute_id() {
+  local sha dirty
+  sha=$(git -C "$repo_root" rev-parse HEAD)
+  dirty=$(git -C "$repo_root" status --porcelain --untracked-files=no)
+  release_id=$sha
+  if [ -n "$dirty" ]; then
+    [ "$allow_dirty" = 1 ] || die "the checkout has uncommitted changes; commit them, or pass --allow-dirty"
+    release_id=$sha-dirty-$(date -u +%Y%m%d%H%M%S)
+  fi
+  [[ $release_id =~ $id_rx ]] || die "unexpected release id"
+}
+
+# public_checks: from here, through Cloudflare and nginx; retried for up to 60 s.
+public_checks() {
+  local c url want got waited=0
+  for c in "https://$kit_api_host/healthz=200" "https://$kit_web_host/login=200" "https://$kit_api_host/v1/tasks=404"; do
+    url=${c%=*}
+    want=${c##*=}
+    while :; do
+      got=$(curl -s -o /dev/null -m 15 -w '%{http_code}' "$url" 2>/dev/null || true)
+      [ "$got" = "$want" ] && break
+      if [ "$waited" -ge 60 ]; then
+        say "public check failed: $url answered $got, want $want"
+        return 1
+      fi
+      sleep 5
+      waited=$((waited + 5))
+    done
+    say "ok: $url $got"
+  done
+}
+
+deploy() {
+  check_web_env
+  compute_id
+  local rel=$kit_root/releases/$release_id
+  if [ "$dry" = 1 ]; then
+    would "build bin/{api,worker,scheduler,migrate,seed,etl,release,vmenv} for linux/amd64 (CGO_ENABLED=0, Version=$release_id)"
+    would "build the web standalone with docker buildx --platform linux/amd64 (target standalone of logitrack-web/Dockerfile, NODE_IMAGE $kit_web_node_image)"
+    would "upload the release to $host:$rel"
+    would "run on $host: bash $rel/deploy/vm/rollout.sh activate (migrate up; first deploy: seed --profile demo --allow-shared and seed --bootstrap-admin; switch current; pm2 startOrReload; checks of the internal /readyz, worker and scheduler /readyz, public /healthz, public /v1/tasks = 404, web /login; keep $kit_keep_releases releases)"
+    would "check https://$kit_api_host/healthz = 200, https://$kit_web_host/login = 200, https://$kit_api_host/v1/tasks = 404; on failure: rollout.sh rollback"
+    return 0
+  fi
+  need git go docker tar ssh curl
+  stage=$(mktemp -d "${TMPDIR:-/tmp}/logitrack-release.XXXXXX")
+  build_go "$stage/bin" ./cmd/... ./tools/vmenv
+  build_web "$stage/web"
+  copy_kit "$stage"
+  printf '%s\n' "$release_id" >"$stage/REVISION"
+  say "uploading release $release_id to $host:$rel"
+  # The release directory appears only once complete; the active release is never overwritten.
+  tar_create -C "$stage" -czf - . | vm "set -eu
+d=$rel
+if [ \"\$(readlink $kit_root/current 2>/dev/null || true)\" = releases/$release_id ]; then
+  echo 'release $release_id is already current: pm2 reload restarts it with the current .env (README)' >&2
+  exit 3
+fi
+rm -rf \"\$d.upload\" \"\$d\"
+mkdir -p \"\$d.upload\"
+tar -xzf - -C \"\$d.upload\" --no-same-owner
+mv \"\$d.upload\" \"\$d\""
+  vm "bash $rel/deploy/vm/rollout.sh activate"
+  if ! public_checks; then
+    say "switching back to the previous release"
+    vm "bash $kit_root/current/deploy/vm/rollout.sh rollback" || true
+    die "release $release_id failed the public checks"
+  fi
+  say "release $release_id is live on https://$kit_web_host and https://$kit_api_host"
+}
+
+rollback() {
+  local args="rollback"
+  if [ -n "$to" ]; then
+    [[ $to =~ $id_rx ]] || die "not a release id: $to"
+    args="$args --to $to"
+  fi
+  [ "$dry" = 1 ] && args="$args --dry-run"
+  vm "bash $kit_root/current/deploy/vm/rollout.sh $args"
+}
+
+build_kit() { # dir
+  release_id=""
+  build_go "$1/bin" ./tools/vmenv
+  copy_kit "$1"
+}
+
+provision() {
+  if [ "$dry" = 1 ]; then
+    would "build the provisioning kit (bin/vmenv for linux/amd64, deploy/vm, the roles SQL, the RabbitMQ definitions)"
+    would "upload it to a temporary directory on $host and run provision.sh there as root, then remove it"
+    say "deploy.sh --provision --plan runs provision.sh --dry-run on the VM instead"
+    return 0
+  fi
+  need go tar ssh
+  stage=$(mktemp -d "${TMPDIR:-/tmp}/logitrack-kit.XXXXXX")
+  build_kit "$stage"
+  local flag=""
+  [ "$plan" = 1 ] && flag=--dry-run
+  say "running provision.sh ${flag:+$flag }on $host"
+  tar_create -C "$stage" -czf - . | vm "set -u
+d=\$(mktemp -d /root/logitrack-kit.XXXXXX)
+tar -xzf - -C \"\$d\" --no-same-owner
+bash \"\$d/deploy/vm/provision.sh\" $flag
+rc=\$?
+rm -rf \"\$d\"
+exit \$rc"
+}
+
+kit() {
+  [ -n "$kit_out" ] || usage
+  if [ -e "$kit_out" ] && [ -n "$(ls -A "$kit_out" 2>/dev/null)" ]; then die "$kit_out is not empty"; fi
+  need go tar
+  build_kit "$kit_out"
+  say "kit ready in $kit_out: copy it to the VM and run bash <dir>/deploy/vm/provision.sh [--dry-run] as root"
+}
+
+case $mode in
+  deploy) deploy ;;
+  rollback) rollback ;;
+  status) vm "bash $kit_root/current/deploy/vm/rollout.sh status" ;;
+  provision) provision ;;
+  kit) kit ;;
+esac

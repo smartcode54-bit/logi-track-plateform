@@ -95,13 +95,14 @@ func TestAPIConfigValidation(t *testing.T) {
 
 // Caddy dials "api" + API_PUBLIC_ADDR, so behind the edge proxy (APP_ENV dev, prod) only ":port"
 // works; "0.0.0.0:8081" would adapt to the upstream "api0.0.0.0:8081" (502 on every public route)
-// and "[::]:8081" would stop Caddy from starting. Local runs (go run on the host) keep host:port.
+// and "[::]:8081" would stop Caddy from starting. A loopback IP is the staging VM, where nginx on
+// the same host dials 127.0.0.1:port (deploy/vm). Local runs (go run on the host) keep host:port.
 func TestAPIConfigPublicAddrBehindEdgeProxy(t *testing.T) {
 	for _, appEnv := range []string{"dev", "prod"} {
-		for _, addr := range []string{"0.0.0.0:8081", "[::]:8081", "api:8081", "127.0.0.1:8081"} {
+		for _, addr := range []string{"0.0.0.0:8081", "[::]:8081", "api:8081", "localhost:8081", "10.0.0.5:8081"} {
 			t.Run(appEnv+" "+addr, func(t *testing.T) {
 				_, err := config.LoadFrom[app.APIConfig](override(baseEnv(), []string{"APP_ENV=" + appEnv, "API_PUBLIC_ADDR=" + addr}))
-				if err == nil || !strings.Contains(err.Error(), "API_PUBLIC_ADDR: must be :port when APP_ENV is dev or prod") {
+				if err == nil || !strings.Contains(err.Error(), "API_PUBLIC_ADDR: must be :port (or a loopback address behind nginx on the same host) when APP_ENV is dev or prod") {
 					t.Fatalf("want the :port error, got %v", err)
 				}
 				if strings.Contains(err.Error(), addr) {
@@ -109,11 +110,13 @@ func TestAPIConfigPublicAddrBehindEdgeProxy(t *testing.T) {
 				}
 			})
 		}
-		t.Run(appEnv+" :8081", func(t *testing.T) {
-			if _, err := config.LoadFrom[app.APIConfig](override(baseEnv(), []string{"APP_ENV=" + appEnv, "API_PUBLIC_ADDR=:8081"})); err != nil {
-				t.Fatal(err)
-			}
-		})
+		for _, addr := range []string{":8081", "127.0.0.1:8081", "[::1]:8081"} {
+			t.Run(appEnv+" "+addr, func(t *testing.T) {
+				if _, err := config.LoadFrom[app.APIConfig](override(baseEnv(), []string{"APP_ENV=" + appEnv, "API_PUBLIC_ADDR=" + addr})); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
 	}
 	if _, err := config.LoadFrom[app.APIConfig](override(baseEnv(), []string{"APP_ENV=local", "API_PUBLIC_ADDR=0.0.0.0:8081"})); err != nil {
 		t.Fatalf("local keeps host:port: %v", err)
