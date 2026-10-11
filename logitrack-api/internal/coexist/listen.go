@@ -94,20 +94,24 @@ func (l *Listener) Run(ctx context.Context) {
 	var eng *etl.Engine
 	var cursors map[string]time.Time
 	holding := false
-	defer func() {
-		if holding {
-			rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
-			defer cancel()
-			if err := l.c.Lease.Release(rctx); err != nil {
-				l.c.Log.Warn().Err(err).Msg("mirror listeners: release the lease")
-			}
+	release := func() {
+		// Release is a compare-and-delete on this holder's id, so it is safe whether or not the lease is held: an
+		// Acquire whose answer was lost (a cancelled context) may have set it.
+		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+		defer cancel()
+		if err := l.c.Lease.Release(rctx); err != nil {
+			l.c.Log.Warn().Err(err).Msg("mirror listeners: release the lease")
 		}
-	}()
+	}
+	defer release()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+		}
+		if ctx.Err() != nil {
+			return
 		}
 		ok, err := l.c.Lease.Acquire(ctx)
 		if err != nil || !ok {
