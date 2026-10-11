@@ -151,15 +151,12 @@ func parseTaskFields(f fields, create bool) taskFields {
 	t.sourceHubID = f.id("sourceHubId")
 	t.destinationHubID = f.id("destinationHubId")
 	if f.has("jobCategory") {
-		switch v := f.optText("jobCategory"); {
-		case v == nil:
+		if v := f.optText("jobCategory"); v == nil {
 			f.ck.add("jobCategory", "required") // NULL is the legacy unknown, never written by a form (ADR 0010)
-		default:
-			if c, ok := jobCategoryOf(*v); ok {
-				t.jobCategory = &c
-			} else {
-				f.ck.add("jobCategory", "invalid")
-			}
+		} else if c, ok := jobCategoryOf(*v); ok {
+			t.jobCategory = &c
+		} else {
+			f.ck.add("jobCategory", "invalid")
 		}
 	}
 	t.truckID = f.id("truckId")
@@ -295,7 +292,7 @@ func (s *Service) planTask(ctx context.Context, q *operationsdb.Queries, d direc
 	}{{"billingPartyId", in.billingPartyID, &n.BillingPartyID},
 		{"sourceLinkedPartyId", in.sourceLinkedPartyID, &n.SourceLinkedPartyID},
 		{"destinationLinkedPartyId", in.destinationLinkedPartyID, &n.DestinationLinkedPartyID}} {
-		if !in.has(link.field) && !(create && link.id != nil) {
+		if !in.has(link.field) && (!create || link.id == nil) {
 			continue
 		}
 		if link.id != nil {
@@ -507,7 +504,7 @@ func (s *Service) planLifecycle(ctx context.Context, q *operationsdb.Queries, ck
 			pl.changed = append(pl.changed, "status")
 		}
 	}
-	if in.runOrder != nil && !sameInt(in.runOrder, cur.RunOrder) {
+	if in.runOrder != nil && !sameInt(in.runOrder, n.RunOrder) {
 		if n.DriverID == nil {
 			ck.add("runOrder", "needs_driver")
 		} else {

@@ -388,7 +388,7 @@ func operationsWriteBack(cfg *APIConfig, acks *cache.Cache, log zerolog.Logger) 
 		return nil, nil
 	}
 	if cfg.WriteBack.FirestoreProjectID == "" {
-		log.Info().Msg("operations writes off: operations is Firestore-owned and ETL_FIRESTORE_PROJECT_ID is unset " +
+		log.Info().Msg("operations writes off: operations is Firestore-owned and WRITEBACK_FIRESTORE_PROJECT_ID is unset " +
 			"(the write routes answer 503 write_back_unconfigured)")
 		return nil, nil
 	}

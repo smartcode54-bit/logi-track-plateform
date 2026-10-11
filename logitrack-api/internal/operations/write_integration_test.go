@@ -22,6 +22,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/dump"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
@@ -977,7 +978,8 @@ func TestWriteBackTripsAndRecords(t *testing.T) {
 	trip := r.createTrip(r.staffO, in)
 	r.exec(`UPDATE drivers SET active_task_id = $1 WHERE id = $2`, task.ID, r.dO1)
 	mem.Put("tasks", "task_doc", map[string]any{"status": "Assigned", "destination": "SOCE"}, now)
-	mem.Put("trip_records", "SPXTH-WB1", map[string]any{"status": "in_transit", "spxTripId": "SPXTH-WB1", "driverId": "uid_o1"}, now)
+	mem.Put("trip_records", "SPXTH-WB1", map[string]any{"status": "in_transit", "spxTripId": "SPXTH-WB1", "driverId": "uid_o1",
+		"createdAt": dump.Timestamp{Time: now}, "photos": []any{map[string]any{"type": "seal", "url": "https://x/y"}}}, now)
 	mem.Put("drivers", "drv_o1", map[string]any{"activeTruck": map[string]any{"taskId": "task_doc"}}, now)
 	inc := r.id(`INSERT INTO incident_reports (legacy_doc_id, tenant_id, tenant_source, trip_id, description, reported_by_kind)
 		VALUES ('inc_doc', $1, 'trip', $2, 'x', 'driver') RETURNING id`, r.O, trip.ID)
@@ -1016,7 +1018,8 @@ func TestWriteBackTripsAndRecords(t *testing.T) {
 	}
 	nd, _ := mem.Doc("trip_records", "SPXTH-WB2")
 	idoc, _ := mem.Doc("incidentReport", "inc_doc")
-	if nd["spxTripId"] != "SPXTH-WB2" || nd["renamedFromTripId"] != "SPXTH-WB1" || nd["status"] != "delivered" || idoc["tripId"] != "SPXTH-WB2" {
+	if nd["spxTripId"] != "SPXTH-WB2" || nd["renamedFromTripId"] != "SPXTH-WB1" || nd["status"] != "delivered" || idoc["tripId"] != "SPXTH-WB2" ||
+		nd["createdAt"] != (dump.Timestamp{Time: now}) || len(nd["photos"].([]any)) != 1 {
 		t.Fatalf("renamed %v incident %v", nd, idoc)
 	}
 	if r.count(`SELECT count(*) FROM security_events WHERE event_type = 'trip_record_renamed'`) != 1 {

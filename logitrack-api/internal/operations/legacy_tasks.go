@@ -409,7 +409,7 @@ func (s *Service) patchTaskWriteBack(ctx context.Context, p *authz.Principal, ri
 		if len(pl.changed) == 0 {
 			return nil
 		}
-		if slices.Contains(pl.changed, "status") && pl.next.Status == TaskAssigned && cur.Status == TaskCancelled {
+		if slices.Contains(pl.changed, "status") && pl.next.Status != TaskCancelled && cur.Status == TaskCancelled {
 			pl.changed = append(pl.changed, "cancelled")
 		}
 		doc, err = encodeTask(pl, false, s.now().UTC())

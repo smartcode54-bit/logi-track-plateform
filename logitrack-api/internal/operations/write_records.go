@@ -398,13 +398,11 @@ func (s *Service) standbyBackfillWriteBack(ctx context.Context, p *authz.Princip
 	if err != nil {
 		return WriteResult{}, err
 	}
-	tenant := uuid.Nil
+	tenant := pl.driver.TenantID // the record's tenant as the chain resolves it: the task's, else the trip's, else the driver's
 	if pl.task != nil {
 		tenant = pl.task.TenantID
 	} else if pl.trip != nil {
 		tenant = pl.trip.TenantID
-	} else {
-		tenant = pl.driver.TenantID
 	}
 	s.notifyWriteBack(ctx, p, rid, opsEvent{route: RouteStandbyCompleted, agg: "standby", id: id, tenant: tenant,
 		payload: map[string]any{"taskId": in.taskID, "tripId": in.tripID, "changed": []string{}}})

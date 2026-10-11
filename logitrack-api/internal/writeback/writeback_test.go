@@ -94,7 +94,8 @@ func TestFirestoreCommit(t *testing.T) {
 	b := gcptest.New(t, "writeback-test")
 	read := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
 	b.Put(dump.Doc{ID: "OLD", Path: "trip_records/OLD", CreateTime: read, UpdateTime: read,
-		Fields: map[string]any{"status": "delivered", "sealCode": "S1"}})
+		Fields: map[string]any{"status": "delivered", "sealCode": "S1", "createdAt": dump.Timestamp{Time: read},
+			"loc": dump.GeoPoint{Lat: 13.7, Lng: 100.5}}})
 	b.Put(dump.Doc{ID: "inc1", Path: "incidentReport/inc1", CreateTime: read, UpdateTime: read,
 		Fields: map[string]any{"tripId": "OLD", "description": "x"}})
 	w := writeback.Firestore{FS: b.Firestore()}
@@ -102,7 +103,10 @@ func TestFirestoreCommit(t *testing.T) {
 	if err != nil || !ok || fields["sealCode"] != "S1" || !updated.Equal(read) {
 		t.Fatalf("get: %v %v %v", fields, ok, err)
 	}
-	copied := map[string]any{"status": "delivered", "sealCode": "S1", "spxTripId": "NEW", "renamedFromTripId": "OLD"}
+	copied := map[string]any{"spxTripId": "NEW", "renamedFromTripId": "OLD"}
+	for k, v := range fields { // the values as read, Firestore types included
+		copied[k] = v
+	}
 	at, err := w.Commit(ctx,
 		writeback.DocWrite{Collection: "trip_records", DocID: "NEW", Fields: copied, Replace: true, MustNotExist: true},
 		writeback.DocWrite{Collection: "incidentReport", DocID: "inc1", Fields: map[string]any{"tripId": "NEW"}, MustExist: true},
@@ -119,7 +123,8 @@ func TestFirestoreCommit(t *testing.T) {
 	nd, _ := b.Doc("trip_records/NEW")
 	inc, _ := b.Doc("incidentReport/inc1")
 	task, _ := b.Doc("tasks/t1")
-	if nd.Fields["spxTripId"] != "NEW" || !nd.UpdateTime.Equal(at) || inc.Fields["tripId"] != "NEW" || inc.Fields["description"] != "x" {
+	if nd.Fields["spxTripId"] != "NEW" || !nd.UpdateTime.Equal(at) || inc.Fields["tripId"] != "NEW" || inc.Fields["description"] != "x" ||
+		nd.Fields["loc"] != (dump.GeoPoint{Lat: 13.7, Lng: 100.5}) || !nd.Fields["createdAt"].(dump.Timestamp).Equal(read) {
 		t.Fatalf("committed %v %v", nd, inc)
 	}
 	stops, _ := task.Fields["deliveryStops"].([]any)

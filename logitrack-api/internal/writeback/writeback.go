@@ -177,6 +177,8 @@ func dumpValue(v any) (any, error) {
 		return int64(x), nil
 	case time.Time:
 		return dump.Timestamp{Time: x.UTC()}, nil
+	case dump.Timestamp, dump.Bytes, dump.Ref, dump.GeoPoint:
+		return x, nil // a value read from Firestore (Get) written back as it was: the copy of a renamed trip
 	case []any:
 		out := make([]any, len(x))
 		for i, e := range x {
