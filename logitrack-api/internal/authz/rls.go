@@ -3,6 +3,8 @@ package authz
 import (
 	"slices"
 
+	"github.com/google/uuid"
+
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 )
 
@@ -61,6 +63,24 @@ func (p *Principal) RLS() db.RLS {
 	}
 	r.Dispatcher = p.Dispatcher
 	return r
+}
+
+// TenantReach is the reach a repository names on a G-tenant table (main spec §4.7, Appendix C §C.3.8: RLS is the
+// safety net, the query still says which tenants it reads): all under X-Act-On-Tenant: * (RLS bypass); else the
+// tenant of a staff RLS role plus its contractor reach (a tenant API key acts as role user in its tenant); empty for
+// everyone else (driver, customer scope, platform principal without the header). It is derived from RLS(), so the
+// two layers name the same tenants (policy p_tenant_staff: app_is_staff() AND app_tenant_in_reach(tenant_id)).
+// tenants is never nil.
+func (p *Principal) TenantReach() (all bool, tenants []uuid.UUID) {
+	r := p.RLS()
+	tenants = []uuid.UUID{}
+	if r.Bypass {
+		return true, tenants
+	}
+	if r.TenantID != nil && TenantRole(r.Role).IsStaff() {
+		tenants = append(append(tenants, *r.TenantID), r.SubtenantIDs...)
+	}
+	return false, tenants
 }
 
 var _ db.Principal = (*Principal)(nil)

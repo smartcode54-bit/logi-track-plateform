@@ -18,6 +18,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/parties"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
@@ -33,8 +34,11 @@ import (
 // passes the zero value: Groups only registers handlers and never reads a service.
 type APIDeps struct {
 	Auth *auth.Service
-	// Admin is the users and tenants administration (T19): /v1/users*, /v1/tenants*.
-	Admin   *iam.Admin
+	// Admin is the users and tenants administration (T19): /v1/users*, /v1/tenants*, and the carrier profiles
+	// /v1/subcontractors* (T20).
+	Admin *iam.Admin
+	// Parties are the customers and companies of T20: /v1/customers*, /v1/companies*.
+	Parties *parties.Service
 	Jobs    *jobs.Service
 	Storage *storage.Service
 	Events  *sse.Service
@@ -190,7 +194,13 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		closeAll()
 		return nil, nil, err
 	}
-	a, err := build(APIDeps{Auth: svc, Admin: admin, Jobs: jobs.NewService(pool, jobs.NewRedisLocker(rdb, ks)), Storage: st,
+	// Customers and companies (T20): RLS decides (db.WithPrincipal); customer writes drop cache:customer:{id}.
+	partySvc, err := parties.New(parties.Deps{Pool: pool, Files: st, Cache: caches, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
+	a, err := build(APIDeps{Auth: svc, Admin: admin, Parties: partySvc, Jobs: jobs.NewService(pool, jobs.NewRedisLocker(rdb, ks)), Storage: st,
 		Events: events, Limiter: limiter, RateLimitEnabled: cfg.RateLimit.Enabled})
 	if err != nil {
 		closeAll()

@@ -337,8 +337,10 @@ func truckFile(name, folder string, types []string) Purpose {
 
 // companyAsset keys carry a millisecond stamp (main spec §9.2 lists companies/{id}/{logo|stamp|signature}.{ext}):
 // a fixed key could not take a second upload, since (bucket, object_key) is unique and a replaced file keeps its row.
+// The stamp and the signature authorise invoices, so staff in reach also need company:view to read any of the
+// three (T20: company assets are private objects read through a presigned GET only, main spec §9.5).
 func companyAsset(name, kind string) Purpose {
-	return Purpose{Name: name, OwnerKind: OwnerCompany, ContentTypes: imageTypes, Presign: true,
+	return Purpose{Name: name, OwnerKind: OwnerCompany, ContentTypes: imageTypes, Presign: true, ReadCapability: authz.CompanyView,
 		key: func(in KeyInput, ext string) string {
 			return "companies/" + in.EntityID.String() + "/" + kind + "-" + ms(in.Now) + "." + ext
 		}}

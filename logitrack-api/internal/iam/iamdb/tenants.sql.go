@@ -167,12 +167,20 @@ func (q *Queries) InsertTenant(ctx context.Context, arg InsertTenantParams) (Ins
 }
 
 const insertTenantParty = `-- name: InsertTenantParty :one
-INSERT INTO billing_parties (kind, tenant_id) VALUES ('tenant', $1) RETURNING id
+INSERT INTO billing_parties (kind, tenant_id, billing_date_basis)
+VALUES ('tenant', $1, $2)
+RETURNING id
 `
 
-// The tenant's billing party (R6): every carrier is billable as a party of kind 'tenant'.
-func (q *Queries) InsertTenantParty(ctx context.Context, tenantID *uuid.UUID) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, insertTenantParty, tenantID)
+type InsertTenantPartyParams struct {
+	TenantID         *uuid.UUID
+	BillingDateBasis string
+}
+
+// The tenant's billing party (R6): every carrier is billable as a party of kind 'tenant'; billing_date_basis
+// 'delivered' unless the onboarding names it (POST /v1/subcontractors, T20).
+func (q *Queries) InsertTenantParty(ctx context.Context, arg InsertTenantPartyParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, insertTenantParty, arg.TenantID, arg.BillingDateBasis)
 	var id uuid.UUID
 	err := row.Scan(&id)
 	return id, err

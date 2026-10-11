@@ -34,9 +34,9 @@ func (f *Field[T]) UnmarshalJSON(b []byte) error {
 
 // AdminGroups are the route groups of T19 on the internal listener (Appendix B §B.2.4, §B.2.5): /v1/users*
 // and /v1/tenants* behind requireAuth (auth.Service.RequireAuth, which resolves the principal through
-// RBAC.Authorize, X-Act-On-Tenant included); and those of T51 (§B.2.5, §B.2.6): DELETE /v1/users/{id},
-// /v1/security-events, /v1/security/overview and /v1/stats/users-by-role (the role matrix is in RoleGroups). a may
-// be nil while the route table is only listed.
+// RBAC.Authorize, X-Act-On-Tenant included), the carrier profiles /v1/subcontractors* of T20 (§B.2.10), and those
+// of T51 (§B.2.5, §B.2.6): DELETE /v1/users/{id}, /v1/security-events, /v1/security/overview and
+// /v1/stats/users-by-role (the role matrix is in RoleGroups). a may be nil while the route table is only listed.
 func AdminGroups(a *Admin, requireAuth fiber.Handler) []ingress.Group {
 	h := adminHTTP{a}
 	need := authz.RequireCap
@@ -70,6 +70,14 @@ func AdminGroups(a *Admin, requireAuth fiber.Handler) []ingress.Group {
 			r.Get("/:id/members", requireAuth, need(authz.UsersView), h.listMembers)
 			r.Put("/:id/members/:userId", requireAuth, need(authz.UsersAssignRole), h.setMember)
 			r.Delete("/:id/members/:userId", requireAuth, need(authz.UsersAssignRole), h.removeMember)
+		}},
+		// fields=minimal: any authenticated principal (RLS rows); the full list, GET {id} and PATCH check their
+		// rule in the service (fleet:manage_subcontractors, a member, the tenant's own tenant_admin).
+		{Prefix: "/v1/subcontractors", Mount: func(r fiber.Router) {
+			r.Get("", requireAuth, h.listSubcontractors)
+			r.Post("", requireAuth, need(authz.FleetManageSubcontractors, authz.PlatformManageTenants), h.createSubcontractor)
+			r.Get("/:id", requireAuth, h.getSubcontractor)
+			r.Patch("/:id", requireAuth, h.patchSubcontractor)
 		}},
 		// The Security Center reads (T51) need a tenant context: a platform principal sends X-Act-On-Tenant.
 		{Prefix: "/v1/security-events", Mount: func(r fiber.Router) {
@@ -581,6 +589,81 @@ func (h adminHTTP) removeMember(c fiber.Ctx) error {
 		return err
 	}
 	return c.SendStatus(http.StatusNoContent)
+}
+
+func (h adminHTTP) listSubcontractors(c fiber.Ctx) error {
+	cl, err := h.call(c)
+	if err != nil {
+		return err
+	}
+	if err := onlyQuery(c, "fields", "q", "status", "limit", "cursor"); err != nil {
+		return err
+	}
+	limit, err := queryLimit(c)
+	if err != nil {
+		return err
+	}
+	out, next, err := h.a.ListSubcontractors(cl, ListSubcontractorsInput{Fields: c.Query("fields"), Q: c.Query("q"),
+		Status: c.Query("status"), Limit: limit, Cursor: c.Query("cursor")})
+	if err != nil {
+		return err
+	}
+	return httpx.Page(c, out, next, nil)
+}
+
+func (h adminHTTP) getSubcontractor(c fiber.Ctx) error {
+	cl, err := h.call(c)
+	if err != nil {
+		return err
+	}
+	id, err := pathID(c, "id")
+	if err != nil {
+		return err
+	}
+	out, err := h.a.GetSubcontractor(cl, id)
+	if err != nil {
+		return err
+	}
+	noStore(c) // may carry an ID card number and short-lived document URLs
+	return httpx.JSON(c, http.StatusOK, out)
+}
+
+func (h adminHTTP) createSubcontractor(c fiber.Ctx) error {
+	cl, err := h.call(c)
+	if err != nil {
+		return err
+	}
+	var in CreateSubcontractorInput
+	if err := httpx.DecodeJSON(c, &in); err != nil {
+		return err
+	}
+	out, err := h.a.CreateSubcontractor(cl, in)
+	if err != nil {
+		return err
+	}
+	noStore(c)
+	return httpx.JSON(c, http.StatusCreated, out)
+}
+
+func (h adminHTTP) patchSubcontractor(c fiber.Ctx) error {
+	cl, err := h.call(c)
+	if err != nil {
+		return err
+	}
+	id, err := pathID(c, "id")
+	if err != nil {
+		return err
+	}
+	var in PatchSubcontractorInput
+	if err := httpx.DecodeJSON(c, &in); err != nil {
+		return err
+	}
+	out, err := h.a.PatchSubcontractor(cl, id, in)
+	if err != nil {
+		return err
+	}
+	noStore(c)
+	return httpx.JSON(c, http.StatusOK, out)
 }
 
 func (h adminHTTP) deleteUser(c fiber.Ctx) error {

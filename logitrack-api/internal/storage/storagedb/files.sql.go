@@ -89,6 +89,37 @@ func (q *Queries) ExtendPending(ctx context.Context, arg ExtendPendingParams) (F
 	return i, err
 }
 
+const fileIDsByKeys = `-- name: FileIDsByKeys :many
+SELECT id, object_key FROM file_objects WHERE object_key = ANY ($1::text[]) AND deleted_at IS NULL
+`
+
+type FileIDsByKeysRow struct {
+	ID        uuid.UUID
+	ObjectKey string
+}
+
+// An entity PATCH that gets back keys (T20): the live rows that hold them, so the caller can tell a file its locked
+// row already links from a new upload.
+func (q *Queries) FileIDsByKeys(ctx context.Context, objectKeys []string) ([]FileIDsByKeysRow, error) {
+	rows, err := q.db.Query(ctx, fileIDsByKeys, objectKeys)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []FileIDsByKeysRow{}
+	for rows.Next() {
+		var i FileIDsByKeysRow
+		if err := rows.Scan(&i.ID, &i.ObjectKey); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getFile = `-- name: GetFile :one
 SELECT id, bucket, object_key, tenant_id, purpose, owner_kind, owner_id, content_type, size_bytes, sha256, visibility, status, legacy_url, uploaded_by, expires_at, committed_at, created_at, deleted_at, storage_backend FROM file_objects WHERE id = $1 AND deleted_at IS NULL
 `
