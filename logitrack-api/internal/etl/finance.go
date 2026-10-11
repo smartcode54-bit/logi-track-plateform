@@ -33,9 +33,24 @@ type FinanceRun struct {
 	Parity []ParityRow `json:"-"`
 }
 
-// reconcileFinance runs the finance checks in one transaction with the common ones.
+// FinanceCollections are the collections `reconcile --finance` reads (its checks and the parity's inputs: the billing
+// parties and their basis, the hub maps, the rate tables, the priced records, statements, counters and fuel
+// snapshots). Each must be in the dump's manifest, or the run fails: a narrow dump leaves what it lacks unchecked.
+// `etl dump --collections=all` always lists them, so a collection empty at source still has its manifest entry.
+var FinanceCollections = []string{"billing_counters", "billing_statements", "customer_fuel_rate_adjustments", "customer_rate_entries",
+	"customer_service_fees", "customers", "fuel_daily_snapshots", "fuel_monthly_snapshots", "hubs", "standby_rate_entries",
+	"standby_records", "subcontractors", "tasks", "trip_records"}
+
+// reconcileFinance runs the finance checks in one transaction with the common ones. docs holds every collection of
+// the dump's manifest (an empty one included).
 func (e *Engine) reconcileFinance(ctx context.Context, tx pgx.Tx, docs map[string][]dump.Doc, status docStatus, w FinanceWindow,
 	rec *Reconciliation) error {
+	for _, coll := range FinanceCollections {
+		if _, ok := docs[coll]; !ok {
+			rec.add("finance_inputs", coll, "in dump", "absent", false, "the finance gate needs a full dump (`etl dump --collections=all`); "+
+				"a narrow dump leaves this collection unchecked and its changes at source unloaded")
+		}
+	}
 	loaded := func(coll string) []dump.Doc {
 		var out []dump.Doc
 		for _, d := range docs[coll] {
@@ -48,6 +63,7 @@ func (e *Engine) reconcileFinance(ctx context.Context, tx pgx.Tx, docs map[strin
 	for _, step := range []func() error{
 		func() error { return reconcileRateTables(ctx, tx, loaded, rec) },
 		func() error { return e.reconcileServiceFees(ctx, tx, loaded("customer_service_fees"), rec) },
+		func() error { return e.reconcileDeletedAtSource(ctx, tx, docs, rec) },
 		func() error { return reconcileStatements(ctx, tx, loaded("billing_statements"), rec) },
 		func() error { return reconcileCounters(ctx, tx, loaded("billing_counters"), rec) },
 		func() error { return reconcileFuelSnapshots(ctx, tx, loaded, rec) },
@@ -190,6 +206,52 @@ func reconcileRateTables(ctx context.Context, tx pgx.Tx, loaded func(string) []d
 	return nil
 }
 
+// liveLegacyRows are the legacy rows of the carrier's pricing tables that pricing can select: a rate entry or fuel
+// round not voided, a standby rate without voided_at, a fee of a non-custom type (the D5 losers are re-typed custom).
+var liveLegacyRows = []struct{ coll, check, sql string }{
+	{"customer_rate_entries", "rate_tables", `SELECT legacy_doc_id FROM customer_rate_entries
+		WHERE tenant_id = $1 AND legacy_doc_id IS NOT NULL AND NOT voided ORDER BY legacy_doc_id COLLATE "C"`},
+	{"customer_fuel_rate_adjustments", "rate_tables", `SELECT legacy_doc_id FROM customer_fuel_rate_adjustments
+		WHERE tenant_id = $1 AND legacy_doc_id IS NOT NULL AND NOT voided ORDER BY legacy_doc_id COLLATE "C"`},
+	{"standby_rate_entries", "rate_tables", `SELECT legacy_doc_id FROM standby_rate_entries
+		WHERE tenant_id = $1 AND legacy_doc_id IS NOT NULL AND voided_at IS NULL ORDER BY legacy_doc_id COLLATE "C"`},
+	{"customer_service_fees", "service_fees_d5", `SELECT legacy_doc_id FROM customer_service_fees
+		WHERE tenant_id = $1 AND legacy_doc_id IS NOT NULL AND fee_type <> 'custom' ORDER BY legacy_doc_id COLLATE "C"`},
+}
+
+// reconcileDeletedAtSource fails every legacy pricing row that pricing can still select although the dump no longer
+// holds its document: the legacy web hard-deletes standby rates and service fees (deleteStandbyRateEntry,
+// deleteCustomerServiceFee; §6.18 #19), and the load never deletes a row (reported, never deleted). Checked only for a
+// collection in the dump's manifest (a dump without it fails finance_inputs).
+func (e *Engine) reconcileDeletedAtSource(ctx context.Context, tx pgx.Tx, docs map[string][]dump.Doc, rec *Reconciliation) error {
+	for _, t := range liveLegacyRows {
+		ds, ok := docs[t.coll]
+		if !ok {
+			continue
+		}
+		atSource := make(map[string]bool, len(ds))
+		for _, d := range ds {
+			atSource[d.ID] = true
+		}
+		rows, err := tx.Query(ctx, t.sql, e.cfg.OwnFleetTenantID)
+		if err != nil {
+			return err
+		}
+		ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil {
+			return err
+		}
+		for _, id := range ids {
+			if !atSource[id] {
+				rec.add(t.check, t.coll+"/"+id, "deleted at source", "live", false, "deleted at source but live in PostgreSQL, where pricing "+
+					"selects it: void it (POST /v1/billing/standby-rates/{id}/void for a standby rate), remove or re-type the fee, "+
+					"or restore the document at source")
+			}
+		}
+	}
+	return nil
+}
+
 // reconcileServiceFees checks the D5 dedupe (main spec §19 Q16, Appendix A §A.4): 0010 built
 // customer_service_fees_one_per_type and no party keeps two fees of a non-custom type; where the owner kept another
 // fee than the one the legacy engine priced with (extra_stop first, standby last by doc id), the parity lists the
@@ -277,8 +339,8 @@ func (e *Engine) reconcileServiceFees(ctx context.Context, tx pgx.Tx, docs []dum
 }
 
 // reconcileStatements checks every loaded legacy statement as stored (Appendix A §A.3.9, R18, D8): invoice number,
-// status, period, totals in satang (netAmount within 0.005 THB of the raw value, R20), withholding rate 0.0100 and no
-// lines (never recomputed). The totals against the subtotals and the priced rows of the period are reported, not
+// status, period, totals in satang (netAmount within 0.005 THB of the raw value, R20), the counts and subtotals (what
+// a legacy statement serves, having no lines), withholding rate 0.0100 and no lines (never recomputed). The totals against the subtotals and the priced rows of the period are reported, not
 // failed: the legacy browser computed them over its toggles and the rows may have been edited since (§6.17 (3)).
 func reconcileStatements(ctx context.Context, tx pgx.Tx, docs []dump.Doc, rec *Reconciliation) error {
 	if len(docs) == 0 {
@@ -288,12 +350,14 @@ func reconcileStatements(ctx context.Context, tx pgx.Tx, docs []dump.Doc, rec *R
 		inv, status, rate, party            string
 		year, month, lines                  int
 		total, wht, net, trip, standby, mdr float64
+		counts                              [4]int64 // trip, trip-only, standby, multi-drop
 		plan                                bool
 	}
 	rows, err := tx.Query(ctx, `SELECT s.legacy_doc_id, s.invoice_number, s.status, s.period_year, s.period_month, s.total_amount::float8,
 		  s.withholding_tax::float8, s.net_amount::float8, s.withholding_tax_rate::text, s.trip_subtotal::float8,
 		  s.standby_subtotal::float8, s.multi_drop_subtotal::float8, s.billing_party_id::text, bp.billing_date_basis = 'plan',
-		  (SELECT count(*) FROM billing_statement_lines l WHERE l.statement_id = s.id)
+		  (SELECT count(*) FROM billing_statement_lines l WHERE l.statement_id = s.id),
+		  s.trip_count, s.trip_only_count, s.standby_count, s.multi_drop_count
 		FROM billing_statements s JOIN billing_parties bp ON bp.id = s.billing_party_id WHERE s.legacy_doc_id IS NOT NULL`)
 	if err != nil {
 		return err
@@ -303,7 +367,7 @@ func reconcileStatements(ctx context.Context, tx pgx.Tx, docs []dump.Doc, rec *R
 		var id string
 		var s st
 		if err := rows.Scan(&id, &s.inv, &s.status, &s.year, &s.month, &s.total, &s.wht, &s.net, &s.rate, &s.trip, &s.standby, &s.mdr,
-			&s.party, &s.plan, &s.lines); err != nil {
+			&s.party, &s.plan, &s.lines, &s.counts[0], &s.counts[1], &s.counts[2], &s.counts[3]); err != nil {
 			return err
 		}
 		stored[id] = s
@@ -350,6 +414,22 @@ func reconcileStatements(ctx context.Context, tx pgx.Tx, docs []dump.Doc, rec *R
 		if raw, ok := toFloat(c.get("netAmount")); !ok || math.Abs(raw-s.net) > 0.005+1e-9 {
 			diffs = append(diffs, "net_amount (beyond 0.005 THB of the raw value)")
 		}
+		// Counts and subtotals as the load writes them: an absent or unusable value is the column default 0 (a bad one
+		// also has its finding).
+		for i, f := range [...][2]string{{"tripCount", "trip_count"}, {"tripOnlyCount", "trip_only_count"}, {"standbyCount", "standby_count"},
+			{"multiDropCount", "multi_drop_count"}} {
+			if loadedCount(c.get(f[0])) != s.counts[i] {
+				diffs = append(diffs, f[1])
+			}
+		}
+		for _, f := range []struct {
+			key, col string
+			got      float64
+		}{{"tripSubtotal", "trip_subtotal", s.trip}, {"standbySubtotal", "standby_subtotal", s.standby}, {"multiDropSubtotal", "multi_drop_subtotal", s.mdr}} {
+			if n, r := c.moneyCents(f.key, false); (r == moneyOK && n != cents(f.got)) || (r != moneyOK && cents(f.got) != 0) {
+				diffs = append(diffs, f.col)
+			}
+		}
 		if s.rate != "0.0100" {
 			diffs = append(diffs, "withholding_tax_rate "+s.rate+" (legacy 0.0100, R18)")
 		}
@@ -388,8 +468,21 @@ func reconcileStatements(ctx context.Context, tx pgx.Tx, docs []dump.Doc, rec *R
 			money(trips), money(multi), money(standby))
 		rec.add("statement_totals", d.ID+" "+s.inv, money(s.total), thb(sub), true, note)
 	}
-	rec.add("statements", "billing_statements", len(docs), len(docs)-bad, bad == 0, "legacy statements as stored, WHT 0.0100, no lines")
+	rec.add("statements", "billing_statements", len(docs), len(docs)-bad, bad == 0, "legacy statements as stored (counts and subtotals included), WHT 0.0100, no lines")
 	return nil
+}
+
+// loadedCount is the count column the load writes for a legacy value (docCtx.integer without its findings): a finite
+// number truncated toward zero, 0 (the default) when absent, not a number, negative or beyond the int range.
+func loadedCount(v any) int64 {
+	if !present(v) {
+		return 0
+	}
+	f, ok := toFloat(v)
+	if !ok || math.IsNaN(f) || math.IsInf(f, 0) || math.Abs(f) > 2147483647 || int64(f) < 0 {
+		return 0
+	}
+	return int64(f)
 }
 
 // invoiceSeq parses the sequence of an invoice number {code}-{YYYYMM}-{seq} (0 when it is not of that form).

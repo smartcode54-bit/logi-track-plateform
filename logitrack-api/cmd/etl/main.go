@@ -18,6 +18,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -50,7 +51,8 @@ const usage = `usage: etl <command> [flags]      (OWN_FLEET_TENANT_ID is require
 
 Firestore (ETL_FIRESTORE_PROJECT_ID, FIRESTORE_DATABASE_ID, GOOGLE_APPLICATION_CREDENTIALS):
   dump --collections=all|a,b [--groups=mobile_installations,messages] --out=DIR|s3
-        read Firestore into NDJSON.gz + manifest.json; s3 writes S3_BUCKET etl/dumps/{ts}/ (R74)
+        read Firestore into NDJSON.gz + manifest.json; s3 writes S3_BUCKET etl/dumps/{ts}/ (R74); all also
+        reads every collection reconcile --finance requires, an empty one included
 
 Database (ETL_DATABASE_URL, logged in as logitrack_etl):
   load (--dump=DIR|s3:etl/dumps/{ts} | --fixtures) [--collections=a,b] [--dry-run] [--report=FILE]
@@ -299,6 +301,14 @@ func cmdDump(e *env, args []string) int {
 		if err != nil {
 			return e.fail(app.ExitRuntimeError, err, "list collections")
 		}
+		// Firestore lists no empty collection: the ones `reconcile --finance` requires are always read, so a collection
+		// empty at source still has its manifest entry (count 0).
+		for _, n := range etl.FinanceCollections {
+			if !slices.Contains(ids, n) {
+				ids = append(ids, n)
+			}
+		}
+		slices.Sort(ids)
 		for _, id := range ids {
 			list = append(list, coll{id, false})
 		}

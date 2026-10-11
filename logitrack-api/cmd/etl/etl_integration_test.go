@@ -557,8 +557,19 @@ func TestDumpThenLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(d.Names(), []string{"drivers", "subcontractors", "trucks", "mobile_installations"}) {
+	// all reads every collection Firestore lists and every one `reconcile --finance` requires (empty: count 0).
+	want := slices.Clone(etl.FinanceCollections)
+	for _, n := range []string{"drivers", "subcontractors", "trucks"} {
+		if !slices.Contains(want, n) {
+			want = append(want, n)
+		}
+	}
+	slices.Sort(want)
+	if !slices.Equal(d.Names(), append(want, "mobile_installations")) {
 		t.Fatalf("dumped collections %v", d.Names())
+	}
+	if c, ok := d.Collection("billing_statements"); !ok || c.Count != 0 {
+		t.Errorf("a finance collection empty at source keeps its manifest entry: %+v %v", c, ok)
 	}
 	h.mustRun("load", "--dump", out)
 	if v := h.scalar(`SELECT count(*) FROM drivers`); v != int64(4) { // drv_nomobile is rejected (missing_required)

@@ -19,8 +19,9 @@ import (
 // inputs are read without FOR SHARE in the reconcile transaction, whose only write is its etl.reconciliation_runs row.
 //
 // A difference passes only as a case of the owner's allow-list (§6.17), confirmed where the data allows by a second
-// price under the condition that explains it (the voided rows live again, the stored billing date as the plan date):
-// a case the data does not confirm stays a mismatch. Every other difference is a mismatch with its reason; some
+// price under the condition that explains it (the voided rows live again, the stored billing date as the plan date,
+// the legacy 4WJ default) or by the trace the explaining path leaves in the stored record (setTripJobCategory): a case
+// the data does not confirm stays a mismatch. Every other difference is a mismatch with its reason; some
 // reasons carry an explanation (a legacy defect fixed since, an owner decision still open) but fail all the same,
 // because only the owner can widen the allow-list. This file is pure; parity_load.go reads the inputs.
 
@@ -50,7 +51,7 @@ const (
 	MismatchGoUnpriced      = "go_unpriced"               // legacy priced it; the rules do not
 	MismatchTaskMissing     = "task_missing"              // the trip's task did not load (task_unresolved, task_ambiguous)
 	MismatchMultiStops      = "multi_insufficient_stops"  // a multi-drop trip with fewer than two delivered stops
-	MismatchParty           = "party_differs"             // the task resolves another party than the one stamped
+	MismatchParty           = "party_differs"             // the record resolves another party than the one stamped
 	MismatchClassOutOfEnum  = "vehicle_class_out_of_enum" // the task's truck type is outside the enum; legacy folded it
 	MismatchMissingBillDate = "missing_billing_date"      // D7: a plan-basis trip priced on its delivery (§19 Q17)
 	MismatchSwitchDay       = "switch_day_boundary"       // priced under the previous round by the pre-ADR-0009 07:00 boundary
@@ -62,7 +63,8 @@ const (
 type price struct {
 	priced   bool
 	reason   string // the unpriced reason ("" when a legacy record stores none)
-	party    string
+	party    string // the stamped billing party; Go's resolved party ("" when absent)
+	fuelID   string // Go: the fuel round it applied ("" when none; the stored one is on the parityTrip snapshot)
 	estimate float64
 	multi    bool
 	importID string // "" when absent
@@ -79,7 +81,7 @@ func fromTripPrice(r compute.TripResult) price {
 		return price{reason: string(r.Reason), party: r.PartyID}
 	}
 	p := r.Price
-	return price{priced: true, party: p.PartyID, estimate: p.EstimateTHB, multi: p.IsMultiDelivery, importID: p.RateImportID,
+	return price{priced: true, party: p.PartyID, fuelID: p.FuelAdjustmentID, estimate: p.EstimateTHB, multi: p.IsMultiDelivery, importID: p.RateImportID,
 		mult: p.RateMultiplier, add: p.AddTHBPerTrip, round: p.RoundEffectiveFromDate, bandLo: p.FuelBandLowerTHB, bandHi: p.FuelBandUpperTHB}
 }
 
@@ -111,9 +113,10 @@ func (p price) String() string {
 }
 
 // diff lists the fields where got differs from the stored price, and whether the amounts are equal only within the
-// legacy multi-drop tolerance. Provenance is compared where the stored record carries it: the import id when stored,
-// the round date when stored (ADR 0009, 2026-08-09) and the band whenever the round date is (the legacy writer stores
-// an explicit null band then); a missing multiplier is 1 and a missing add 0 (the column defaults).
+// legacy multi-drop tolerance. Provenance is compared where the stored record carries it: the billing party when
+// stamped, the import id when stored, the round date when stored (ADR 0009, 2026-08-09) and the band whenever the round
+// date is (the legacy writer stores an explicit null band then); a missing multiplier is 1 and a missing add 0 (the
+// column defaults).
 func (stored price) diff(got price) (fields []string, tolerance bool) {
 	if stored.priced != got.priced {
 		return []string{"amount"}, false
@@ -127,6 +130,9 @@ func (stored price) diff(got price) (fields []string, tolerance bool) {
 		tolerance = true
 	default:
 		fields = append(fields, "amount")
+	}
+	if stored.party != "" && got.party != "" && stored.party != got.party {
+		fields = append(fields, "party")
 	}
 	if stored.importID != "" && stored.importID != got.importID {
 		fields = append(fields, "importId")
@@ -242,6 +248,8 @@ type parityTrip struct {
 	hasSnapshot        bool
 	snapshot           compute.Snapshot
 	stored             price
+	storedFuelDate     string   // billingEffectiveFromDateStr as loaded (yyyy-MM-dd, "" when absent)
+	overrideFalse      bool     // the dump document stores billingManualOverride = false (setTripJobCategory -> PRIMARY)
 	voided             []string // legacy ids of the voided rate entry / fuel round the snapshot names
 	storedFee          *float64 // the flat extra-stop fee of the stored breakdown (lines 2+ with base = final)
 	divergence1        bool     // a destination the SPK dash collision truncates (§6.18 #1)
@@ -258,12 +266,25 @@ func (e *parityEngine) classifyTrip(t parityTrip) verdict {
 	if t.hasSnapshot && t.stored.priced && compute.IsFrozen(t.snapshot, compute.JobCategory(t.tripCategory)) {
 		return verdict{outcome: ParityAllowed, kase: CaseFrozen, note: "frozen snapshot (manual override or a clean SUPPLEMENTARY price): not recomputed"}
 	}
+	// Neither engine prices a trip without its task (fn:tripBillingOnDelivered.ts:300-317, §6.10 state 4) nor a
+	// multi-drop trip with fewer than two delivered stops (legacy throws): an unpriced pair is equal, a legacy price is
+	// a mismatch.
 	if !t.hasTask {
-		return verdict{outcome: ParityMismatch, kase: MismatchTaskMissing, note: "the trip's task did not load (task_unresolved / task_ambiguous): fix the task link at source"}
+		got := price{reason: MismatchTaskMissing}
+		if !t.stored.priced {
+			return verdict{outcome: ParityExact, got: got}
+		}
+		return verdict{outcome: ParityMismatch, kase: MismatchTaskMissing, got: got, note: "legacy priced it; its task no longer loads " +
+			"(a blank taskId, task_unresolved or task_ambiguous): Go cannot price it; fix the task link at source"}
 	}
 	got, err := e.priceTrip(t.in, variant{})
 	if err != nil {
-		return verdict{outcome: ParityMismatch, kase: MismatchMultiStops, note: "a multi-drop trip with fewer than two delivered stops prices nothing (legacy throws)"}
+		got := price{reason: MismatchMultiStops}
+		if !t.stored.priced {
+			return verdict{outcome: ParityExact, got: got}
+		}
+		return verdict{outcome: ParityMismatch, kase: MismatchMultiStops, got: got, note: "legacy priced it; a multi-drop trip with fewer " +
+			"than two delivered stops prices nothing (legacy throws on a recompute)"}
 	}
 	v := verdict{got: got}
 	fields, tolerance := t.stored.diff(got)
@@ -299,30 +320,26 @@ func (e *parityEngine) classifyTrip(t parityTrip) verdict {
 		asPriced = &in
 	}
 
+	// The display category (the trip's, else the task's; ADR 0010): the removed browser writer never stamped the
+	// trip's own category, so its SUPPLEMENTARY trips may carry the label on their task only.
+	display, _ := compute.ResolveDisplayJobCategory(t.tripCategory, t.in.JobCategory)
 	switch {
 	case t.stored.priced && !got.priced && got.reason == string(compute.NoVehicleClass):
-		in := t.in
-		in.Task.TruckType = "4WJ"
-		evidence := "the legacy 4WJ default does not reproduce it"
-		if same(variant{in: &in}) {
-			evidence = "the legacy 4WJ default reproduces it"
-		}
 		if t.legacyTruckType != "" {
 			return explained(MismatchClassOutOfEnum, "the task's truck type "+strconv.Quote(t.legacyTruckType)+
 				" is outside the task enum (vehicle_class_out_of_enum): legacy priced it, Go never guesses a class; fix the task at source")
 		}
-		return allowed(CaseNoVehicleClass, "blank vehicle class: legacy priced it, Go answers no_vehicle_class (R15); "+evidence)
-	case t.stored.priced && t.tripCategory == string(compute.Supplementary) && t.hasSnapshot && compute.CarriesFuel(t.snapshot) &&
+		return e.classifyBlankClass(t, got)
+	case t.stored.priced && display == compute.Supplementary && t.hasSnapshot && compute.CarriesFuel(t.snapshot) &&
 		!t.snapshot.ManualOverride:
+		// Allowed on the data condition alone: the browser writer dropped the rate's category, so its card choice is
+		// not reproducible; the owner's rule repairs the row by a forced recompute after the cut-over.
 		return allowed(CaseSuppPricedWithFuel, "SUPPLEMENTARY priced with fuel by the removed browser writer: a forced recompute after the cut-over repairs it")
 	case len(t.voided) > 0 && (same(variant{voidedLive: true}) || (asPriced != nil && same(variant{voidedLive: true, in: asPriced}))):
 		return allowed(CaseSinceVoided, "priced against "+strings.Join(t.voided, ", ")+", voided since")
 	case planDrift && same(variant{in: asPriced}):
 		return allowed(CasePlanDateDrifted, "the plan date moved from "+clock.DateString(t.billingDate)+" to "+
 			clock.DateString(t.in.PlanAt)+" after pricing; the stored billing date reproduces the price")
-	case t.stored.priced && got.priced && !slices.Contains(fields, "amount") && t.tripCategory != "" &&
-		subset(fields, staleFields(t.stored.multi)):
-		return allowed(CaseStaleProvenance, "amount equal; "+strings.Join(fields, ", ")+" left stale by setTripJobCategory (§6.18 #2): provenance excluded")
 	}
 	if t.stored.priced {
 		if basis := e.tables[got.party].basis; basis == compute.BasisPlan && t.billingDate.IsZero() &&
@@ -339,18 +356,97 @@ func (e *parityEngine) classifyTrip(t parityTrip) verdict {
 				"; the party's fee is now another (the owner's D5 winner or a later edit)")
 		}
 	}
+	if t.stored.priced && got.priced && !slices.Contains(fields, "amount") && subset(fields, staleFields(t.stored.multi)) &&
+		(t.stampedParty == "" || got.party == t.stampedParty) && e.staleSignature(t, got) {
+		return allowed(CaseStaleProvenance, "amount equal; "+strings.Join(fields, ", ")+" left stale by setTripJobCategory (§6.18 #2), "+
+			"which the stored record shows: provenance excluded")
+	}
 	switch {
 	case !t.stored.priced && got.priced:
 		return explained(MismatchNotComputed, "legacy left it unpriced; the rules price it "+money(got.estimate)+
 			": run the legacy backfill before the final dump, or the Go backfill after the flip")
 	case t.stored.priced && !got.priced:
 		return explained(MismatchGoUnpriced, "legacy priced it; Go answers "+got.reason)
-	case t.stampedParty != "" && got.party != "" && got.party != t.stampedParty:
-		return explained(MismatchParty, "the task now resolves another billing party than the one stamped at pricing")
+	case slices.Contains(fields, "party"):
+		return explained(MismatchParty, "the task now resolves another billing party than the one stamped at pricing; differs in "+
+			strings.Join(fields, ", "))
 	case slices.Contains(fields, "amount"):
 		return explained(MismatchAmount, "differs in "+strings.Join(fields, ", "))
 	}
 	return explained(MismatchProvenance, "amount equal; differs in "+strings.Join(fields, ", "))
+}
+
+// classifyBlankClass classifies a trip whose task has a blank vehicle class, which legacy priced with its 4WJ default
+// and Go answers no_vehicle_class (R15): the allow-list holds that difference only, so the record is classified again
+// with the legacy default and passes only as that classification passes. One level: with 4WJ the class is never blank.
+func (e *parityEngine) classifyBlankClass(t parityTrip, got price) verdict {
+	legacy := t
+	legacy.in.Task.TruckType = "4WJ"
+	v := e.classifyTrip(legacy)
+	v.got = got
+	switch {
+	case v.outcome == ParityExact || v.kase == CaseMultiDropTolerance:
+		note := "blank vehicle class: legacy priced it, Go answers no_vehicle_class (R15); the legacy 4WJ default reproduces it"
+		if v.kase == CaseMultiDropTolerance {
+			note += " within 0.005 THB (R20)"
+		}
+		v.outcome, v.kase, v.note = ParityAllowed, CaseNoVehicleClass, note
+	case v.outcome == ParityAllowed:
+		v.note = "blank vehicle class (no_vehicle_class, R15); with the legacy 4WJ default: " + v.note
+	default:
+		v.note = "blank vehicle class (no_vehicle_class, R15) and the legacy 4WJ default does not reproduce it: " + v.note
+	}
+	return v
+}
+
+// staleSignature reports whether the stored record carries the trace setTripJobCategory alone leaves
+// (fn:tripBillingOnDelivered.ts:849-920, §6.18 #2) and Go selects the fuel round that path selected. The path writes
+// billingManualOverride = false explicitly (a flip to PRIMARY; one to SUPPLEMENTARY freezes the trip), which the
+// delivery writer never writes and a browser writer writes only as true. It rewrites the fuel round id on both shapes,
+// and billingEffectiveFromDateStr on a single trip, but never the round date or band (nor, on a multi-drop trip, the
+// add, the import id or billingEffectiveFromDateStr). The delivery writer stamps the round as the applied fuel round's
+// Bangkok date (else the card's), the band from that round's reference price and the fuel date with the fuel id, so a
+// record whose rewritten fields contradict the ones left is that path's trace. A record without a stored round (before
+// ADR 0009) or without the trace is not confirmed.
+func (e *parityEngine) staleSignature(t parityTrip, got price) bool {
+	if !t.overrideFalse || t.tripCategory == "" || t.stored.round == "" {
+		return false
+	}
+	storedID := ""
+	if t.snapshot.FuelAdjustmentID != nil {
+		storedID = strings.TrimSpace(*t.snapshot.FuelAdjustmentID)
+	}
+	var row *compute.FuelAdjustment
+	if storedID != "" {
+		fuel := e.tables[got.party].fuel
+		for i := range fuel {
+			if fuel[i].ID == storedID || fuel[i].LegacyDocID == storedID {
+				row = &fuel[i]
+				break
+			}
+		}
+		if row == nil {
+			return false
+		}
+	}
+	if (row == nil) != (got.fuelID == "") || (row != nil && row.ID != got.fuelID) {
+		return false // Go selects another fuel round than the path did: a selection difference, not staleness
+	}
+	fuelDate := ""
+	if row != nil {
+		fuelDate = clock.DateString(row.EffectiveFrom)
+	}
+	switch {
+	case row != nil && fuelDate != t.stored.round: // the round is not the stored fuel round's date
+		return true
+	case row != nil && t.stored.bandLo == nil && row.ReferenceFuelPriceTHB != nil: // that round has a band the record lacks
+		return true
+	case row == nil && t.stored.bandLo != nil: // a band without a fuel round
+		return true
+	case t.stored.multi && t.storedFuelDate != fuelDate: // multi-drop: the fuel date of another round than the id
+		return true
+	}
+	return false
 }
 
 func subset(a, b []string) bool {
@@ -388,6 +484,7 @@ func switchDayInput(in compute.TripInput, basis compute.BillingDateBasis) (compu
 type standbyPrice struct {
 	priced    bool
 	reason    string
+	party     string // the stamped billing party; Go's resolved party ("" when absent)
 	estimate  float64
 	source    string // standby_rate | service_fee
 	entryID   string // standby_rate_entries.id
@@ -411,7 +508,7 @@ func (p standbyPrice) String() string {
 // parityStandby is one completed standby record of the window.
 type parityStandby struct {
 	key, party, period string
-	partyID            string // the billing party (stamped, else the standby rule's)
+	partyID            string // the billing party (stamped, else the standby rule's): the report label and the lock
 	in                 compute.StandbyInput
 	stored             standbyPrice
 	entryLegacy        string // the stored rate entry's legacy doc id (the report label)
@@ -445,14 +542,14 @@ func (e *parityEngine) priceStandby(in compute.StandbyInput, voidedLive bool, fe
 	}
 	r := compute.PriceStandby(in, t.standby, fee)
 	if r.Price == nil {
-		return standbyPrice{reason: string(r.Reason)}
+		return standbyPrice{reason: string(r.Reason), party: r.PartyID}
 	}
-	return standbyPrice{priced: true, estimate: r.Price.EstimateTHB, source: r.Price.RateSource, entryID: r.Price.RateEntryID,
+	return standbyPrice{priced: true, party: r.PartyID, estimate: r.Price.EstimateTHB, source: r.Price.RateSource, entryID: r.Price.RateEntryID,
 		entryDate: r.Price.EffectiveFromDate}
 }
 
-// standbyDiff compares a standby price: the amount always; the source and rate entry when the stored record names a
-// source; the effective date when stored.
+// standbyDiff compares a standby price: the amount always; the billing party when stamped (§6.18 #9 decides it); the
+// source and rate entry when the stored record names a source; the effective date when stored.
 func standbyDiff(stored, got standbyPrice) []string {
 	if stored.priced != got.priced {
 		return []string{"amount"}
@@ -463,6 +560,9 @@ func standbyDiff(stored, got standbyPrice) []string {
 	var f []string
 	if cents(stored.estimate) != cents(got.estimate) {
 		f = append(f, "amount")
+	}
+	if stored.party != "" && got.party != "" && stored.party != got.party {
+		f = append(f, "party")
 	}
 	if stored.source != "" && (stored.source != got.source || (stored.source == compute.RateSourceStandbyRate && stored.entryID != got.entryID)) {
 		f = append(f, "rateSource")
@@ -497,6 +597,9 @@ func (e *parityEngine) classifyStandby(s parityStandby) standbyVerdict {
 		return set(ParityMismatch, MismatchNotComputed, "legacy left it unpriced; the rules price it "+money(got.estimate))
 	case s.stored.priced && !got.priced:
 		return set(ParityMismatch, MismatchGoUnpriced, "legacy priced it; Go answers "+got.reason)
+	case slices.Contains(fields, "party"):
+		return set(ParityMismatch, MismatchParty, "the record now resolves another billing party than the one stamped at pricing "+
+			"(its own party or its task's links changed); differs in "+strings.Join(fields, ", "))
 	case !slices.Contains(fields, "amount"):
 		return set(ParityMismatch, MismatchStandbySource, "amount equal; differs in "+strings.Join(fields, ", "))
 	}

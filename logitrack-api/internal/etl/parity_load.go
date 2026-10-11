@@ -76,7 +76,8 @@ type ParityRow struct {
 	Divergence string // "1" or "9" when the record is one a preserved divergence decides
 }
 
-// WriteParityCSV prints every recomputed record of the run.
+// WriteParityCSV prints every recomputed record of the run. Keys, notes and labels carry source text (trip numbers a
+// QR code or a driver typed, stop codes), so every cell that is not a plain number is defused for a spreadsheet.
 func (r *Reconciliation) WriteParityCSV(w io.Writer) error {
 	cw := csv.NewWriter(w)
 	if err := cw.Write([]string{"kind", "key", "party", "period", "stored", "go", "outcome", "case", "divergence", "note"}); err != nil {
@@ -84,7 +85,8 @@ func (r *Reconciliation) WriteParityCSV(w io.Writer) error {
 	}
 	if r.Finance != nil {
 		for _, p := range r.Finance.Parity {
-			if err := cw.Write([]string{p.Kind, p.Key, p.Party, p.Period, p.Stored, p.Go, p.Outcome, p.Case, p.Divergence, p.Note}); err != nil {
+			if err := cw.Write([]string{p.Kind, csvCell(p.Key), csvCell(p.Party), p.Period, csvCell(p.Stored), csvCell(p.Go), p.Outcome,
+				csvCell(p.Case), p.Divergence, csvCell(p.Note)}); err != nil {
 				return err
 			}
 		}
@@ -366,7 +368,7 @@ func (e *Engine) reconcileParity(ctx context.Context, tx pgx.Tx, docs map[string
 		v := pe.classifyTrip(t)
 		row := ParityRow{Kind: "trip", Key: t.key, Party: t.party, Period: t.period, Stored: t.stored.String(), Go: v.got.String(),
 			Outcome: v.outcome, Case: v.kase, Note: v.note}
-		if v.kase == CaseFrozen || v.kase == MismatchTaskMissing || v.kase == MismatchMultiStops {
+		if v.kase == CaseFrozen {
 			row.Go = "-"
 		}
 		if t.divergence1 {
@@ -590,6 +592,12 @@ func (e *Engine) loadParityTrips(ctx context.Context, tx pgx.Tx, pe *parityEngin
 			}
 			if s.round != nil {
 				t.stored.round = clock.DateString(*s.round)
+			}
+			if s.fuelDate != nil {
+				t.storedFuelDate = s.fuelDate.Format("2006-01-02")
+			}
+			if o, ok := tripDocs[x.legacy]["billingManualOverride"].(bool); ok && !o {
+				t.overrideFalse = true
 			}
 			fuelID := s.fuelAdjID
 			if fuelID == nil {
@@ -819,6 +827,7 @@ func loadParityStandby(ctx context.Context, tx pgx.Tx, parties map[string]partyR
 		if estimate != nil {
 			s.stored.priced, s.stored.estimate = true, *estimate
 		}
+		s.stored.party = uuidStr(billed)
 		s.stored.entryID = str(entryID)
 		if effDate != nil {
 			s.stored.entryDate = effDate.Format("2006-01-02")

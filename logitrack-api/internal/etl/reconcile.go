@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -26,7 +27,7 @@ import (
 // Check is one compared value.
 type Check struct {
 	// counts | targets | trip_money | trip_unpriced | standby_money | expense_money | findings | quarantine_rows; with
-	// --finance (T41): rate_tables | standby_rate_review | service_fees_d5 | service_fees_d5_winner | statements |
+	// --finance (T41): finance_inputs | rate_tables | standby_rate_review | service_fees_d5 | service_fees_d5_winner | statements |
 	// statement_totals | counters | counters_next | fuel_snapshots | parity_trip | parity_standby | parity_load |
 	// parity_summary | divergence_1 | divergence_9 | spk_collisions | parity_window
 	Name   string `json:"name"`
@@ -688,14 +689,24 @@ func (r *Reconciliation) WriteMarkdown(w io.Writer) error {
 
 func mdEscape(s string) string { return strings.ReplaceAll(s, "|", `\|`) }
 
-// WriteCSV prints the checks as CSV.
+// csvCell is a CSV cell the owner opens in a spreadsheet: a finite number stays as it is (a negative amount or count
+// remains a number), any other text that a spreadsheet would read as a formula is defused (csvSafe).
+func csvCell(s string) string {
+	if f, err := strconv.ParseFloat(s, 64); err == nil && !math.IsNaN(f) && !math.IsInf(f, 0) {
+		return s
+	}
+	return csvSafe(s)
+}
+
+// WriteCSV prints the checks as CSV. Keys, values and notes can carry source text (trip numbers, stop codes, doc ids),
+// so every cell is defused for a spreadsheet (csvCell).
 func (r *Reconciliation) WriteCSV(w io.Writer) error {
 	cw := csv.NewWriter(w)
 	if err := cw.Write([]string{"check", "key", "source", "target", "ok", "note"}); err != nil {
 		return err
 	}
 	for _, c := range r.Checks {
-		if err := cw.Write([]string{c.Name, c.Key, c.Source, c.Target, strconv.FormatBool(c.OK), c.Note}); err != nil {
+		if err := cw.Write([]string{c.Name, csvCell(c.Key), csvCell(c.Source), csvCell(c.Target), strconv.FormatBool(c.OK), csvCell(c.Note)}); err != nil {
 			return err
 		}
 	}

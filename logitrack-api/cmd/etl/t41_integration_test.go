@@ -5,7 +5,8 @@
 // -> changes at source -> `load --since=watermark` -> `reconcile --finance` exits 0 with every allow-list case of main
 // spec §6.17 listed with its reason, divergences #1 and #9 at zero differences, statements as stored, numbering at
 // lastSeq + 1, and no row changed; a fee the owner replaced, a tampered snapshot and the unsigned D5 duplicates each
-// make it exit 2 with the reason.
+// make it exit 2 with the reason, as do a statement whose counts or subtotals differ, a narrow dump and a pricing row
+// deleted at source that is still live in PostgreSQL.
 package main
 
 import (
@@ -16,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/dump"
 )
 
@@ -30,6 +32,18 @@ func ict(y int, m time.Month, d, h int) time.Time {
 // (a card voided, a statement sent and a second one numbered, a counter moved, a trip priced, a fuel day captured, a
 // month's fetch error replaced).
 func financeDump(t *testing.T, stage int) string {
+	t.Helper()
+	return financeDumpFiltered(t, stage, dumpFilter{})
+}
+
+// dumpFilter narrows the rehearsal dump: only (when set) keeps those collections, drop removes documents by path (a
+// delete at source).
+type dumpFilter struct {
+	only map[string]bool
+	drop map[string]bool
+}
+
+func financeDumpFiltered(t *testing.T, stage int, filter dumpFilter) string {
 	t.Helper()
 	t0 := time.Date(2026, 9, 25, 0, 0, 0, 0, time.UTC) // every P1 document
 	t1 := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC) // the changes at source
@@ -101,6 +115,7 @@ func financeDump(t *testing.T, stage int) string {
 		task("ta2", ict(2026, 8, 11, 8), "cust_spx", "HUBA", "SOCE", "6 Wheels", nil),
 		task("ta3", ict(2026, 8, 12, 8), "cust_spx", "HUBA", "SOCE", "", nil),
 		task("ta4", ict(2026, 8, 13, 8), "cust_spx", "HUBA", "SOCE", "6 Wheels", map[string]any{"jobCategory": "SUPPLEMENTARY"}),
+		task("ta4b", ict(2026, 8, 14, 8), "cust_spx", "HUBA", "SOCE", "6 Wheels", map[string]any{"jobCategory": "SUPPLEMENTARY"}),
 		task("ta5", ict(2026, 9, 10, 8), "cust_spx", "HUBA", "SOCE", "6 Wheels", nil),
 		task("ta6", ict(2026, 8, 2, 9), "cust_cjsf", "HUBA", "SOCE", "6 Wheels", nil),
 		task("ta7", ict(2026, 8, 15, 8), "cust_spx", "HUBA", "SOCE", "6 Wheels", map[string]any{"jobCategory": "PRIMARY"}),
@@ -120,16 +135,23 @@ func financeDump(t *testing.T, stage int) string {
 		"billingRoundEffectiveFromDateStr": "2026-07-01"})
 	t12 := priced("cust_cjsf", ict(2026, 9, 4, 10), 2200, 2200, "imp_cj2", false, map[string]any{"billingDate": ts(ict(2026, 9, 3, 9)),
 		"billingRoundEffectiveFromDateStr": "2026-08-01"})
+	// The removed browser writer priced a SUPPLEMENTARY task at the PRIMARY card with fuel and never stamped the trip's
+	// own category: the task carries it (the display category).
+	a4b := priced("cust_spx", ict(2026, 8, 14, 12), 1155, 1100, "imp_aug", true, nil)
+	delete(a4b, "jobCategory")
 	trips := []dump.Doc{
 		trip("TRIP-A1", "ta1", priced("cust_spx", ict(2026, 8, 10, 12), 1155, 1100, "imp_aug", true, nil)),
 		trip("TRIP-A2", "ta2", priced("cust_spx", ict(2026, 8, 11, 12), 1500, 1500, "manual", false, map[string]any{"billingManualOverride": true})),
 		trip("TRIP-A3", "ta3", priced("cust_spx", ict(2026, 8, 12, 12), 945, 900, "imp_4wj", true, nil)),
 		trip("TRIP-A4", "ta4", priced("cust_spx", ict(2026, 8, 13, 12), 840, 800, "imp_supp", true, map[string]any{"jobCategory": "SUPPLEMENTARY"})),
+		trip("TRIP-A4B", "ta4b", a4b),
 		trip("TRIP-S5", "ta5", priced("cust_spx", ict(2026, 9, 10, 12), 1312.5, 1250, "imp_sepv", true, nil)),
 		trip("TRIP-C6", "ta6", t6),
+		// setTripJobCategory -> PRIMARY: the fuel round and its date rewritten, billingManualOverride=false written, the
+		// round and band of the earlier pricing left (§6.18 #2).
 		trip("TRIP-A7", "ta7", priced("cust_spx", ict(2026, 8, 15, 12), 1155, 1100, "imp_aug", true, map[string]any{
 			"billingRoundEffectiveFromDateStr": "2026-06-15", "billingFuelBandLowerThb": 30.01, "billingFuelBandUpperThb": 31.0,
-			"billingReferenceFuelPriceThb": 30.5})),
+			"billingReferenceFuelPriceThb": 30.5, "billingManualOverride": false})),
 		trip("TRIP-M8", "ta8", priced("cust_spx", ict(2026, 9, 5, 15), 1205, 1155, "imp_aug", true, map[string]any{
 			"isMultiDelivery": true, "billingIsMultiDelivery": true, "billingStopChargeThb": 50.0,
 			"billingMultiDeliveryBreakdown": []any{map[string]any{"stopIndex": int64(1), "destination": "SOCE", "baseRateThb": 1100.0, "finalRateThb": 1155.0},
@@ -196,35 +218,50 @@ func financeDump(t *testing.T, stage int) string {
 	if stage == 2 {
 		exported = t1.Add(24 * time.Hour)
 	}
-	return writeDump(t, exported,
-		collection{"customers", []dump.Doc{
+	colls := []collection{
+		{"customers", []dump.Doc{
 			d("customers/cust_spx", map[string]any{"code": "SPX", "name": "Shopee Express"}),
 			d("customers/cust_cjsf", map[string]any{"code": "CJSF", "name": "CJ Super Fresh", "billingDateBasis": "plan"})}},
-		collection{"hubs", []dump.Doc{
+		{"hubs", []dump.Doc{
 			d("hubs/hub_a", map[string]any{"source_id": "HUBA", "source_name_th": "ฮับ เอ", "source_name_en": "Hub A"}),
 			d("hubs/hub_b", map[string]any{"source_id": "HUBB", "source_name_th": "บางนา"}),
 			d("hubs/hub_soce", map[string]any{"source_id": "SOCE", "source_name_th": "บัวโรย", "station_type": "RETURN_CENTER"}),
 			d("hubs/hub_spk", map[string]any{"source_id": "SPK-GW", "source_name_th": "J&T บางปู", "station_type": "LH_HUB"})}},
-		collection{"drivers", []dump.Doc{d("drivers/drv_own", map[string]any{"firstName": "Somchai", "lastName": "Own", "mobile": "0810000001",
+		{"drivers", []dump.Doc{d("drivers/drv_own", map[string]any{"firstName": "Somchai", "lastName": "Own", "mobile": "0810000001",
 			"authId": "uid_own", "status": "Active", "fullNameTh": "สมชาย ขับดี"})}},
-		collection{"customer_rate_entries", rates},
-		collection{"customer_fuel_rate_adjustments", []dump.Doc{d("customer_fuel_rate_adjustments/fa_spx_jul", map[string]any{
+		{"customer_rate_entries", rates},
+		{"customer_fuel_rate_adjustments", []dump.Doc{d("customer_fuel_rate_adjustments/fa_spx_jul", map[string]any{
 			"customerId": "cust_spx", "effectiveFrom": ts(jul), "rateMultiplier": 1.05, "addThbPerTrip": 0.0, "referenceFuelPriceThbPerLitre": 32.94,
 			"announcementNote": "5%", "fuelBandEnabled": false})}},
-		collection{"customer_service_fees", []dump.Doc{
+		{"customer_service_fees", []dump.Doc{
 			d("customer_service_fees/fee_es_a", map[string]any{"customerId": "cust_spx", "feeType": "extra_stop", "amountThb": 50.0, "unit": "per_stop"}),
 			d("customer_service_fees/fee_es_b", map[string]any{"customerId": "cust_spx", "feeType": "extra_stop", "amountThb": 60.0, "unit": "per_stop"}),
 			d("customer_service_fees/fee_sb_a", map[string]any{"customerId": "cust_spx", "feeType": "standby", "amountThb": 250.0, "unit": "per_trip"})}},
-		collection{"standby_rate_entries", []dump.Doc{standbyRate}},
-		collection{"fuel_daily_snapshots", fuelDaily},
-		collection{"fuel_monthly_snapshots", []dump.Doc{d("fuel_monthly_snapshots/2026-08", map[string]any{"capturedAt": ts(ict(2026, 8, 31, 5)),
+		{"standby_rate_entries", []dump.Doc{standbyRate}},
+		{"fuel_daily_snapshots", fuelDaily},
+		{"fuel_monthly_snapshots", []dump.Doc{d("fuel_monthly_snapshots/2026-08", map[string]any{"capturedAt": ts(ict(2026, 8, 31, 5)),
 			"source": "bangchak_api", "status": "ok", "items": []any{map[string]any{"nameTh": "ดีเซล", "price": 32.94}}}), monthlyDoc}},
-		collection{"tasks", tasks},
-		collection{"trip_records", trips},
-		collection{"standby_records", standby},
-		collection{"billing_statements", statements},
-		collection{"billing_counters", []dump.Doc{counterDoc, d("billing_counters/cust_cjsf_202607", map[string]any{"lastSeq": int64(1)})}},
-	)
+		{"tasks", tasks},
+		{"trip_records", trips},
+		{"standby_records", standby},
+		{"billing_statements", statements},
+		{"billing_counters", []dump.Doc{counterDoc, d("billing_counters/cust_cjsf_202607", map[string]any{"lastSeq": int64(1)})}},
+		{"subcontractors", nil},
+	}
+	var kept []collection
+	for _, c := range colls {
+		if filter.only != nil && !filter.only[c.name] {
+			continue
+		}
+		var ds []dump.Doc
+		for _, x := range c.docs {
+			if !filter.drop[x.Path] {
+				ds = append(ds, x)
+			}
+		}
+		kept = append(kept, collection{c.name, ds})
+	}
+	return writeDump(t, exported, kept...)
 }
 
 // publicRows are the row fingerprints of schema public (the reconcile writes only its etl.reconciliation_runs row).
@@ -298,7 +335,7 @@ func TestFinanceCutoverRehearsal(t *testing.T) {
 	before := publicRows(h)
 	dir := t.TempDir()
 	out = h.mustRun("reconcile", "--dump", d2, "--finance", "--out", dir)
-	if !strings.Contains(out, "reconcile: match") || !strings.Contains(out, "parity 2026-07 2026-08 2026-09: 17 recomputed") ||
+	if !strings.Contains(out, "reconcile: match") || !strings.Contains(out, "parity 2026-07 2026-08 2026-09: 18 recomputed") ||
 		!strings.Contains(out, "0 mismatched") {
 		t.Fatalf("finance reconcile: %s", out)
 	}
@@ -324,7 +361,8 @@ func TestFinanceCutoverRehearsal(t *testing.T) {
 	for key, want := range map[string]string{
 		"trip TRIP-A1": "exact|", "trip TRIP-A2": "allowed|frozen", "trip TRIP-F11": "allowed|frozen",
 		"trip TRIP-A3": "allowed|no_vehicle_class", "trip TRIP-A4": "allowed|supp_priced_with_fuel",
-		"trip TRIP-S5": "allowed|since_voided", "trip TRIP-C6": "allowed|plan_date_drifted",
+		"trip TRIP-A4B": "allowed|supp_priced_with_fuel", "trip TRIP-S5": "allowed|since_voided",
+		"trip TRIP-C6": "allowed|plan_date_drifted",
 		"trip TRIP-A7": "allowed|set_trip_job_category_provenance", "trip TRIP-M8": "exact|",
 		"trip TRIP-K9": "allowed|since_voided", "trip TRIP-K9B": "allowed|since_voided", "trip TRIP-U10": "exact|",
 		"trip TRIP-C12": "exact|", "trip TRIP-S2": "exact|",
@@ -367,6 +405,7 @@ func TestFinanceCutoverRehearsal(t *testing.T) {
 		"service_fees_d5|customer_service_fees_one_per_type": "valid,valid,true",
 		"service_fees_d5_winner|cust_spx extra_stop":         "fee_es_a,fee_es_a,true",
 		"statements|billing_statements":                      "3,3,true",
+		"rate_tables|standby_rate_entries":                   "1,1,true",
 		"counters_next|cust_spx 2026-08":                     "2,SPX-202608-003,true",
 		"counters_next|cust_cjsf 2026-07":                    "1,CJSF-202607-002,true",
 		"rate_tables|customer_rate_entries":                  "9,9,true",
@@ -415,6 +454,20 @@ func TestFinanceCutoverRehearsal(t *testing.T) {
 			t.Fatalf("exit %d\n%s", code, out)
 		}
 	})
+	t.Run("a statement whose counts or subtotals differ from the dump fails", func(t *testing.T) {
+		const restore = `UPDATE billing_statements SET trip_count = 1, trip_subtotal = 2000, multi_drop_subtotal = 0
+			WHERE legacy_doc_id = 'st_cjsf_202607'`
+		if _, err := h.pool.Exec(h.ctx, `UPDATE billing_statements SET trip_count = 7, trip_subtotal = 0, multi_drop_subtotal = 2000
+			WHERE legacy_doc_id = 'st_cjsf_202607'`); err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _, _ = h.pool.Exec(h.ctx, restore) }()
+		code, out, _ := h.run("reconcile", "--dump", d2, "--finance")
+		if code != 2 || !strings.Contains(out, "MISMATCH\tstatements\tst_cjsf_202607 CJSF-202607-001") ||
+			!strings.Contains(out, "trip_count") || !strings.Contains(out, "trip_subtotal") || !strings.Contains(out, "multi_drop_subtotal") {
+			t.Fatalf("exit %d\n%s", code, out)
+		}
+	})
 	t.Run("the window is closed months only", func(t *testing.T) {
 		if code, _, errb := h.run("reconcile", "--dump", d2, "--finance", "--through", "2026-10"); code != 2 || !strings.Contains(errb, "not a closed month") {
 			t.Errorf("--through=2026-10 on 2 Oct: exit %d %s", code, errb)
@@ -426,6 +479,57 @@ func TestFinanceCutoverRehearsal(t *testing.T) {
 	if out := h.mustRun("reconcile", "--dump", d2, "--finance", "--months", "1"); !strings.Contains(out, "parity 2026-09: ") {
 		t.Errorf("one month: %s", out)
 	}
+
+	t.Run("a narrow dump fails the finance inputs", func(t *testing.T) {
+		only := map[string]bool{"customers": true, "tasks": true, "trip_records": true, "standby_records": true}
+		narrow := financeDumpFiltered(t, 2, dumpFilter{only: only})
+		code, out, _ := h.run("reconcile", "--dump", narrow, "--finance")
+		if code != 2 {
+			t.Fatalf("exit %d\n%s", code, out)
+		}
+		for _, coll := range etl.FinanceCollections {
+			if line := "MISMATCH\tfinance_inputs\t" + coll + "\t"; strings.Contains(out, line) == only[coll] {
+				t.Errorf("finance_inputs %s (in the narrow dump: %v):\n%s", coll, only[coll], out)
+			}
+		}
+	})
+
+	// The legacy web hard-deletes standby rates and service fees; the load never deletes, so the rows stay selectable.
+	t.Run("a pricing row deleted at source but live in PostgreSQL fails", func(t *testing.T) {
+		d3 := financeDumpFiltered(t, 2, dumpFilter{drop: map[string]bool{"standby_rate_entries/sr_spx": true,
+			"customer_service_fees/fee_sb_a": true}})
+		if out := h.mustRun("load", "--dump", d3, "--since", "watermark"); !strings.Contains(out, "0 document(s) applied") {
+			t.Fatalf("delta load: %s", out)
+		}
+		code, out, _ := h.run("reconcile", "--dump", d3, "--finance")
+		if code != 2 || !strings.Contains(out, "MISMATCH\trate_tables\tstandby_rate_entries/sr_spx\tsource deleted at source\ttarget live") ||
+			!strings.Contains(out, "MISMATCH\tservice_fees_d5\tcustomer_service_fees/fee_sb_a\tsource deleted at source\ttarget live") {
+			t.Fatalf("exit %d\n%s", code, out)
+		}
+		// The operator voids the standby rate and re-types the fee: the records priced with them stay explained.
+		if _, err := h.pool.Exec(h.ctx, `UPDATE standby_rate_entries SET voided_at = now(), voided_reason = 'deleted at source',
+			voided_by = (SELECT id FROM users WHERE legacy_auth_uid = 'uid_admin') WHERE legacy_doc_id = 'sr_spx'`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := h.pool.Exec(h.ctx, `UPDATE customer_service_fees SET fee_type = 'custom', custom_type_name = 'deleted at source'
+			WHERE legacy_doc_id = 'fee_sb_a'`); err != nil {
+			t.Fatal(err)
+		}
+		dir := t.TempDir()
+		out = h.mustRun("reconcile", "--dump", d3, "--finance", "--out", dir)
+		if !strings.Contains(out, "reconcile: match") {
+			t.Fatalf("after the void: %s", out)
+		}
+		parity := map[string][]string{}
+		for _, r := range readCSV(t, dir, "parity-")[1:] {
+			parity[r[0]+" "+r[1]] = r
+		}
+		for _, k := range []string{"standby sb1", "standby sb9"} {
+			if r := parity[k]; r == nil || r[6]+"|"+r[7] != "allowed|since_voided" {
+				t.Errorf("%s priced with the voided rate: %v", k, r)
+			}
+		}
+	})
 }
 
 // The committed fixture dump holds legacy prices the engine does not reproduce (a fuel round its snapshot lacks, a
@@ -437,13 +541,25 @@ func TestFinanceReconcileOnTheFixtures(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("exit %d\n%s\n%s", code, out, errb)
 	}
+	// Every parity mismatch line names a known reason and a note.
+	reasons := map[string]bool{}
+	for _, r := range []string{etl.MismatchAmount, etl.MismatchProvenance, etl.MismatchNotComputed, etl.MismatchGoUnpriced,
+		etl.MismatchTaskMissing, etl.MismatchMultiStops, etl.MismatchParty, etl.MismatchClassOutOfEnum, etl.MismatchMissingBillDate,
+		etl.MismatchSwitchDay, etl.MismatchFeeChanged, etl.MismatchStandbySource} {
+		reasons[r] = true
+	}
 	n := 0
 	for _, line := range strings.Split(out, "\n") {
 		if strings.HasPrefix(line, "MISMATCH\tparity_trip\t") || strings.HasPrefix(line, "MISMATCH\tparity_standby\t") {
 			n++
-			fields := strings.Split(line, "\t")
-			if len(fields) < 6 || !strings.Contains(fields[5], ": ") {
-				t.Errorf("a mismatch without its reason: %q", line)
+			fields := strings.SplitN(line, "\t", 6)
+			if len(fields) < 6 {
+				t.Errorf("a mismatch line without its note column: %q", line)
+				continue
+			}
+			kase, note, ok := strings.Cut(fields[5], ": ")
+			if !ok || !reasons[kase] || strings.TrimSpace(note) == "" {
+				t.Errorf("a mismatch without a known reason and its note: %q", line)
 			}
 		}
 	}
