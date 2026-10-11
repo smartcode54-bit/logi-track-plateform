@@ -221,12 +221,25 @@ GROUP BY t.task_type, t.status
 ORDER BY t.task_type, t.status;
 
 -- name: DriverTasks :many
--- The driver's queue (GET /v1/mobile/tasks, P7a): own and helper tasks (R28), optionally by status; the queue order
--- of ADR 0028 is applied by the service (tasks_driver_status + tasks_helper_plan).
-SELECT * FROM tasks t
+-- The driver's queue (GET /v1/mobile/tasks, P7a): own and helper tasks (R28), optionally by status, in the queue order
+-- of ADR 0028 (compareTasksForDriverQueue, task_repository.dart:16-70), applied here before the LIMIT: the dispatch
+-- instant queue_at (taskQueueInstant: actual_pickup_at, else the Bangkok plan day at plan_time, 00:00 without one),
+-- then run_order with the tasks that have none first (run_order >= 1, so NULL keys as 0), then created_at, then id.
+-- A keyset page on that key (after_*: the last row of the previous page); the service asks for limit + 1 rows, so a
+-- longer queue gets a next cursor, never a silent cut (TW8). tasks_driver_status + tasks_helper_plan.
+SELECT sqlc.embed(t), k.queue_at::timestamptz AS queue_at
+FROM tasks t
+CROSS JOIN LATERAL (VALUES (coalesce(t.actual_pickup_at,
+                                     bkk_midnight(t.plan_date)
+                                     + coalesce(split_part(t.plan_time, ':', 1)::int, 0) * interval '1 hour'
+                                     + coalesce(split_part(t.plan_time, ':', 2)::int, 0) * interval '1 minute'))) AS k(queue_at)
 WHERE (t.driver_id = sqlc.arg(driver_id)::uuid OR t.helper_driver_id = sqlc.arg(driver_id)::uuid)
   AND (sqlc.narg(statuses)::text[] IS NULL OR t.status = ANY (sqlc.narg(statuses)::text[]))
-ORDER BY t.plan_at, t.id
+  AND (sqlc.narg(after_queue_at)::timestamptz IS NULL
+       OR (k.queue_at, coalesce(t.run_order, 0), t.created_at, t.id)
+          > (sqlc.narg(after_queue_at)::timestamptz, sqlc.arg(after_run_order)::int, sqlc.arg(after_created_at)::timestamptz,
+             sqlc.arg(after_id)::uuid))
+ORDER BY k.queue_at, coalesce(t.run_order, 0), t.created_at, t.id
 LIMIT sqlc.arg(row_limit);
 
 -- name: DriverHasTaskInStatus :one

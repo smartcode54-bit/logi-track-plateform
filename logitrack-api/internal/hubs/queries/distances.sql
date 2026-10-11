@@ -40,12 +40,13 @@ WHERE d.hub_id = sqlc.arg(hub_id) AND d.soc_key = sqlc.arg(soc_key) AND d.direct
 
 -- name: ListDistancePoints :many
 -- The job input (getHubsAndSocs, fn:distances.ts): hubs and SOCs with coordinates, in the legacy document order
--- (Firestore doc ids, byte order) so the first SOC of a duplicated key wins as it did; rows created in Go follow.
+-- (Firestore doc ids, byte order) so the first SOC of a duplicated key wins as it did; rows created in Go follow, also
+-- once the Firestore projection minted their document id (legacy_doc_id = id::text, R25, T24).
 SELECT h.id, h.source_id::text AS source_id, h.station_type, h.network, h.latitude::float8 AS latitude,
        h.longitude::float8 AS longitude
 FROM hubs h
 WHERE h.latitude IS NOT NULL AND h.longitude IS NOT NULL
-ORDER BY h.legacy_doc_id COLLATE "C" NULLS LAST, h.created_at, h.id;
+ORDER BY nullif(h.legacy_doc_id, h.id::text) COLLATE "C" NULLS LAST, h.created_at, h.id;
 
 -- name: UpsertDistances :execrows
 -- The job's rows: one per (hub, SOC key, direction); a pair computed again is updated in place (created_by kept,

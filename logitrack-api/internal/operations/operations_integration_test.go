@@ -696,7 +696,7 @@ func TestReachPagesAndStandbyProjection(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if len(rows) != 1 || rows[0].ID != helpedTask.ID {
+		if len(rows) != 1 || rows[0].Task.ID != helpedTask.ID {
 			t.Errorf("driver queue %v", rows)
 		}
 		return nil

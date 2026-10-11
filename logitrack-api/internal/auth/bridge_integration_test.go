@@ -732,6 +732,12 @@ func TestBridgeMirrorNewUser(t *testing.T) {
 	if got := scalar[string](h, `SELECT legacy_auth_uid FROM users WHERE id = $1`, id); got != id {
 		t.Fatalf("legacy_auth_uid = %q", got)
 	}
+	// The uid given to a linked driver's login queues driver.updated (review panel T24S): firestore.shadow projects the
+	// driver again, whose authId is that uid.
+	if n := scalar[int](h, `SELECT count(*) FROM outbox_events WHERE routing_key = 'driver.updated' AND aggregate_id = $1
+		AND payload->'changed' ? 'login'`, drvRef); n != 1 {
+		t.Fatalf("driver.updated of the new driver login: %d", n)
+	}
 
 	staff, err := create("new.staff@logitrack.test", own, "operator", "")
 	if err != nil {
@@ -830,6 +836,10 @@ func TestBridgeMirrorNewUserRetries(t *testing.T) {
 		}
 		if got := legacyUID(id); got != orphan {
 			t.Fatalf("legacy_auth_uid = %q, want the orphan %q", got, orphan)
+		}
+		if n := scalar[int](h, `SELECT count(*) FROM outbox_events e JOIN drivers d ON d.id::text = e.aggregate_id
+			WHERE e.routing_key = 'driver.updated' AND d.user_id = $1 AND e.payload->'changed' ? 'login'`, id); n == 0 {
+			t.Fatal("the adopted uid queued no driver.updated")
 		}
 		acc, _ := b.Get(orphan)
 		if acc.Password != "second passphrase 2" || acc.Disabled || acc.ValidSince < before || acc.CustomAttributes != driverClaims(id) {

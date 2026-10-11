@@ -35,6 +35,9 @@ func (a *Admin) DeleteUser(c call, id uuid.UUID) error {
 			if err := q.SetDriverUser(c.ctx, iamdb.SetDriverUserParams{UserID: nil, ID: drv.ID}); err != nil {
 				return err
 			}
+			if err := emitDriverLinkChanged(c, tx, drv.ID, drv.TenantID); err != nil {
+				return err
+			}
 			details["driverId"] = drv.ID
 		}
 		ms, err := q.DeleteUserMemberships(c.ctx, id)

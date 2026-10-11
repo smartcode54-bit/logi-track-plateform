@@ -1,10 +1,11 @@
 // Package scope is the read side of the two scope axes (Appendix C §C.3.7, R85): a dispatcher (dsp, a
 // dispatcher grant over billing parties, reading across tenants) and a customer-scope user (cs without a
 // tenant). Both are served exclusively from the security_invoker views scope_tasks, scope_trips,
-// scope_standby, scope_incidents, scope_drivers, scope_trucks and scope_tenants: rows come from the
-// p_scope_read policies under the caller's RLS (db.WithPrincipal), columns from the views, so no
-// billing, party, evidence-token, HR, ID-card, licence, insurance, tax or cost column ever reaches a
-// scope principal.
+// scope_standby, scope_incidents, scope_drivers, scope_trucks and scope_tenants, and the child projections of
+// 0017 (T30) scope_task_stops, scope_trip_stops, scope_trip_photos and scope_standby_photos: rows come from the
+// p_scope_read policies (the children's p_parent_read) under the caller's RLS (db.WithPrincipal), columns from
+// the views, so no billing, party, price, evidence-token, HR, ID-card, licence, insurance, tax or cost column
+// ever reaches a scope principal.
 //
 // The queries live in repo/scope_*.sql (sqlc block "scope", generated into scopedb). sqlc vet rule
 // scope-views-only (make gen-check) fails when one of them names a base table or writes; domain
@@ -26,7 +27,7 @@ var (
 		"license_type", "license_expired_date", "license_file_id", "birth_date", "contract_years", "hire_date",
 		"probation_passed", "email", "user_id", "payment_method", "ocr_data", "needs_admin_review",
 		"line_checkin_notified_at", "line_notified_at", "line_delivered_notified_at", "created_by", "updated_by",
-		"client_op_id", "maintenance_responsible", "tax_responsible",
+		"client_op_id", "maintenance_responsible", "tax_responsible", "estimated_rate_thb", "drop_fee_thb",
 	}
 )
 

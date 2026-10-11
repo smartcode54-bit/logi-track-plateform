@@ -197,6 +197,10 @@ func (e *Engine) Resolve(ctx context.Context, o ResolveOptions) (*ResolveResult,
 				return err
 			}
 			res.Moved = moved
+			// The moved drivers, trucks and companies are projected again (their documents carry the tenant).
+			if err := tenancy.AppendRehomeEvents(ctx, tx, moved, o.Tenant); err != nil {
+				return err
+			}
 			// No audit, no change (R22, Appendix C §C.4.13): the event commits or rolls back with the move.
 			if err := security.Append(ctx, tx, rehomeEvent(*table, id, o, moved, e.cfg.Now())); err != nil {
 				return err

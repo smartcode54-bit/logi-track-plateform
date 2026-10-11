@@ -2,9 +2,7 @@ package etl
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/csv"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -728,9 +726,8 @@ func importTokens(ctx context.Context, tx pgx.Tx, id uuid.UUID, driver *uuid.UUI
 			continue
 		}
 		seen[t.value] = true
-		sum := sha256.Sum256([]byte(t.value))
 		tag, err := tx.Exec(ctx, `INSERT INTO device_tokens (user_id, install_id, token, driver_id, platform, legacy_source)
-			VALUES ($1, $2, $3, $4, 'other', $5) ON CONFLICT DO NOTHING`, id, "legacy:"+hex.EncodeToString(sum[:])[:16], t.value,
+			VALUES ($1, $2, $3, $4, 'other', $5) ON CONFLICT DO NOTHING`, id, legacyInstallID(t.value), t.value,
 			driver, t.source)
 		if err != nil {
 			return n, fmt.Errorf("etl: auth-import: device token: %w", err)

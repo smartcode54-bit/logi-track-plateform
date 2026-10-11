@@ -25,6 +25,9 @@ type runState struct {
 	prep map[string]any
 	// d5 caches whether a D5 unique index of 0010_d5_unique_constraints exists.
 	d5 map[string]bool
+	// owned are the PostgreSQL-owned domains of a mirror sweep (nil for a load): the field mappers apply the
+	// ForeignFields of it.
+	owned map[string]bool
 }
 
 func (e *Engine) newRun(ctx context.Context, tx pgx.Tx, rep *Report) *runState {

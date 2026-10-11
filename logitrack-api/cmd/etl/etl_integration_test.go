@@ -653,6 +653,17 @@ func TestWatermarksAndQuarantineResolve(t *testing.T) {
 	if rehomed() != 2 {
 		t.Errorf("tenant_rehomed events after TRIP004: %d", rehomed())
 	}
+	// A re-homed driver queues driver.updated in the move's transaction: firestore.shadow projects it once it left the
+	// quarantine tenant (review panel T24S).
+	ghost := h.scalar(`SELECT id::text FROM drivers WHERE legacy_doc_id = 'drv_ghost'`)
+	h.mustRun("quarantine", "resolve", "--collection", "drivers", "--doc", "drivers/drv_ghost", "--action", "rehome", "--tenant", ownFleet)
+	if v := h.scalar(`SELECT count(*) FROM outbox_events WHERE routing_key = 'driver.updated' AND aggregate_id = $1
+		AND payload->'changed' ? 'tenantId'`, ghost); v != int64(1) {
+		t.Errorf("driver.updated of the re-homed driver: %v", v)
+	}
+	if rehomed() != 3 {
+		t.Errorf("tenant_rehomed events after drv_ghost: %d", rehomed())
+	}
 	// skip accepts the findings of a document; retry re-applies it from etl.source_docs.raw.
 	h.mustRun("quarantine", "resolve", "--collection", "trip_records", "--doc", "trip_records/TRIP001", "--action", "skip")
 	if v := h.scalar(`SELECT count(*) FROM etl.quarantine WHERE doc_path = 'trip_records/TRIP001' AND resolved_at IS NULL`); v != int64(0) {

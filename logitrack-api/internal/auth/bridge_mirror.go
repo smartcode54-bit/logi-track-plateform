@@ -306,7 +306,7 @@ func (s *Service) MirrorNewUserInTx(ctx context.Context, tx pgx.Tx, uid uuid.UUI
 	if m := a.pickTenant(nil); m == nil || (authz.TenantRole(m.Role) != authz.Driver && m.Kind != "own_fleet") {
 		return nil
 	}
-	fbuid, err := firebaseUID(ctx, q, u)
+	fbuid, err := firebaseUID(ctx, tx, q, u)
 	if err != nil {
 		return err
 	}
@@ -331,7 +331,7 @@ func (s *Service) MirrorNewUserInTx(ctx context.Context, tx pgx.Tx, uid uuid.UUI
 		}
 		return s.mirror(ctx, q, uid, ch)
 	case errors.Is(err, firebase.ErrEmailExists):
-		return s.adoptOrphan(ctx, q, u, initialPassword)
+		return s.adoptOrphan(ctx, tx, q, u, initialPassword)
 	default:
 		return s.mirrorFailed("create", err)
 	}
@@ -351,7 +351,7 @@ func (s *Service) undoCreate(ctx context.Context, uid uuid.UUID, fbuid string) {
 
 // adoptOrphan answers EMAIL_EXISTS at a creation (see MirrorNewUserInTx): it adopts the account holding
 // the email when that is the orphan of a rolled-back creation, and refuses any other holder with 409.
-func (s *Service) adoptOrphan(ctx context.Context, q *authdb.Queries, u authdb.GetBridgeUserRow, initialPassword string) error {
+func (s *Service) adoptOrphan(ctx context.Context, tx pgx.Tx, q *authdb.Queries, u authdb.GetBridgeUserRow, initialPassword string) error {
 	mctx, cancel := context.WithTimeout(ctx, mirrorTimeout)
 	defer cancel()
 	acc, err := s.fb.Accounts.LookupEmail(mctx, deref(u.Email))
@@ -366,6 +366,9 @@ func (s *Service) adoptOrphan(ctx context.Context, q *authdb.Queries, u authdb.G
 		}
 		if !held {
 			if err := q.AdoptLegacyAuthUID(ctx, authdb.AdoptLegacyAuthUIDParams{LegacyAuthUid: acc.UID, ID: u.ID}); err != nil {
+				return err
+			}
+			if err := driverLoginChanged(ctx, tx, q, u.ID); err != nil {
 				return err
 			}
 			pw := initialPassword

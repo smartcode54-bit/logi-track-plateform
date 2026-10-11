@@ -244,7 +244,8 @@ type RehomeInput struct {
 
 // RehomeQuarantineRow is POST /v1/tenants/quarantine/rows/{table}/{id}/rehome (platform:cross_tenant_write, a
 // platform admin: no API key holds a platform key): tenancy.Rehome moves the row to tenantId (tenant_source 'form'), its children
-// with the link they follow and the files they own, under app.tenant_move, and tenant_rehomed is appended in the
+// with the link they follow and the files they own, under app.tenant_move, and tenant_rehomed and the domain events of
+// the moved drivers, trucks and companies (tenancy.RehomeEvents: their projected documents change) are appended in the
 // same transaction (actor the platform admin; details {table, id, fromTenantId, toTenantId, moved[], via}, the shape
 // `etl quarantine resolve --action=rehome` writes). 404: an unknown table or a row not in the quarantine tenant; 409
 // failed_precondition immutable_ledger: a transactions row (listed for review only, the ledger is never moved); 422:
@@ -286,6 +287,9 @@ func (a *Admin) RehomeQuarantineRow(c call, table string, id uuid.UUID, in Rehom
 		case errors.Is(err, tenancy.ErrBadTarget):
 			return errInvalid(violation("tenantId", "not_found"))
 		case err != nil:
+			return err
+		}
+		if err := tenancy.AppendRehomeEvents(c.ctx, tx, moved, to); err != nil {
 			return err
 		}
 		list := make([]map[string]string, 0, len(moved))

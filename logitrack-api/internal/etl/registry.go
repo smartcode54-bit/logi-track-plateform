@@ -30,6 +30,9 @@ type collectionSpec struct {
 	prepare func(c *docCtx, docs []dump.Doc, full bool) error
 	reapply func(r *runState, path string) bool
 	after   func(r *runState, coll string) error
+	// rowNow (field-level mirrors) says whether the row a rejected document lacked exists now: such a document is
+	// applied again although Firestore did not change it, so a rejection that was only early heals.
+	rowNow func(ctx context.Context, tx pgx.Tx, doc dump.Doc) (bool, error)
 }
 
 // mappedCollections are the collections this release loads, in the load order of Appendix A §A.3.0: tenants,
@@ -133,6 +136,10 @@ type docCtx struct {
 	leaving uuid.UUID
 	// run is the state of the load (or retry) the document belongs to.
 	run *runState
+	// findingScope, when not nil, limits the open findings record replaces to these fields (and their sub-fields): a
+	// field-level mirror re-reads only the fields it applies, so the findings the P1 load raised on the other fields of
+	// the document stay open. A row-level finding the mapper raises replaces the row-level ones too.
+	findingScope []string
 }
 
 // sub is a context over a nested map of the document (activeTruck, a photo's geocoding, a stop): its findings stay
@@ -157,7 +164,7 @@ func (c *docCtx) find(field string, r Reason, detail string, raw any) {
 // rejected (R19): the run aborts instead, so the source can be fixed first.
 func (c *docCtx) reject(field string, r Reason, detail string, raw any) error {
 	if c.billable {
-		return &AbortError{Collection: c.coll, Path: c.doc.Path, Reason: r,
+		return &AbortError{Collection: c.coll, Path: c.doc.Path, Field: field, Reason: r,
 			Detail: fmt.Sprintf("%s (field %q) on a document with billing evidence; fix it at the source and dump again (R19)", detail, field)}
 	}
 	c.outcome = Rejected
@@ -208,18 +215,23 @@ func (b billableSet) has(coll string, d dump.Doc) bool {
 
 // billableRefs reads the trips of the dump once to know which tasks a priced or stamped trip references.
 func billableRefs(d *dump.Dump) (billableSet, error) {
-	b := billableSet{tasks: map[string]bool{}}
 	if _, ok := d.Collection("trip_records"); !ok {
-		return b, nil
+		return billableFrom(nil), nil
 	}
 	trips, err := d.Read("trip_records")
 	if err != nil {
-		return b, err
+		return billableSet{}, err
 	}
+	return billableFrom(trips), nil
+}
+
+// billableFrom is the billable set of a collection of trips (a dump's, or the mirror's read of Firestore).
+func billableFrom(trips []dump.Doc) billableSet {
+	b := billableSet{tasks: map[string]bool{}}
 	for _, t := range trips {
 		if ref, _ := t.Fields["taskId"].(string); ref != "" && hasBillingEvidence("trip_records", t.Fields) {
 			b.tasks[strings.TrimSpace(ref)] = true
 		}
 	}
-	return b, nil
+	return b
 }

@@ -507,6 +507,7 @@ func (a *Admin) CreateUser(c call, in CreateUserInput) (*CreateUserResult, error
 		}
 		actor := p.UserID
 		details := map[string]any{"role": in.Role, "invite": in.SendInvite}
+		var linked *iamdb.GetLinkDriverRow
 		if customer {
 			for _, b := range parties {
 				if err := q.InsertScope(c.ctx, iamdb.InsertScopeParams{UserID: uid, Kind: string(authz.ScopeCustomer),
@@ -536,10 +537,16 @@ func (a *Admin) CreateUser(c call, in CreateUserInput) (*CreateUserResult, error
 					return err
 				}
 				details["driverId"] = d.ID
+				linked = &d
 			}
 		}
 		if err := a.auth.MirrorNewUserInTx(c.ctx, tx, uid, plain); err != nil {
 			return err
+		}
+		if linked != nil { // after the mirror, which may have given the login its Firebase uid
+			if err := emitDriverLinkChanged(c, tx, linked.ID, linked.TenantID); err != nil {
+				return err
+			}
 		}
 		if err := a.audit(c, tx, EventUserCreated, "user created by an admin", &uid, tenantPtr, details); err != nil {
 			return err
