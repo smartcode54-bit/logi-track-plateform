@@ -62,7 +62,7 @@
     {
       "name": "maintenance",
       "file": "maintenance.ndjson",
-      "count": 2
+      "count": 4
     },
     {
       "name": "checkin",

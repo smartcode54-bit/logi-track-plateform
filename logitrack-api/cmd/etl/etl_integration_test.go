@@ -31,6 +31,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/dump"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/gcp/gcptest"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/maintenance"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db/pgtest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/migrate"
@@ -280,6 +281,35 @@ func TestFixtureLoad(t *testing.T) {
 		if v := h.scalar(`SELECT count(*) FROM file_objects WHERE status = 'missing_at_source' AND storage_backend = 's3'
 			AND legacy_url NOT LIKE '%token=%'`); v.(int64) < 8 {
 			t.Errorf("registered legacy objects: %v", v)
+		}
+	})
+
+	t.Run("a maintenance record keeps the driver's check-in, so its legacy status round-trips", func(t *testing.T) {
+		// mnt3: the 3.x app checked in ("In-Progress" + checkInAt); mnt1: a booking; mnt4: completed with check-out.
+		for doc, want := range map[string]string{"mnt3": "In-Progress", "mnt1": "PM Booking", "mnt4": "completed"} {
+			var status string
+			var in, out *time.Time
+			if err := h.pool.QueryRow(h.ctx, `SELECT status, check_in_at, check_out_at FROM maintenance_records
+				WHERE legacy_doc_id = $1`, doc).Scan(&status, &in, &out); err != nil {
+				t.Fatalf("%s: %v", doc, err)
+			}
+			if got := maintenance.LegacyStatus(status, in != nil); got != want {
+				t.Errorf("%s: %s (checked in %v) encodes as %q, want %q", doc, status, in != nil, got, want)
+			}
+			switch doc {
+			case "mnt3":
+				if in == nil || !in.Equal(time.Date(2026, 9, 3, 1, 30, 0, 0, time.UTC)) || out != nil {
+					t.Errorf("mnt3 check-in %v check-out %v", in, out)
+				}
+			case "mnt4":
+				if in == nil || out == nil || !out.Equal(time.Date(2026, 9, 5, 3, 0, 0, 0, time.UTC)) {
+					t.Errorf("mnt4 check-in %v check-out %v", in, out)
+				}
+			}
+		}
+		// The web's own in_progress (no check-in: the driver's step is still ahead) stays the web's literal.
+		if got := maintenance.LegacyStatus("in_progress", false); got != "in_progress" {
+			t.Errorf("a staff in_progress encodes as %q", got)
 		}
 	})
 

@@ -17,10 +17,12 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/token"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/drivers"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/expenses"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hubs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/maintenance"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/mobileapp"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/parties"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
@@ -53,9 +55,13 @@ type APIDeps struct {
 	Fleet *fleet.Service
 	// Drivers are the driver master of T23: /v1/drivers*.
 	Drivers *drivers.Service
-	Jobs    *jobs.Service
-	Storage *storage.Service
-	Events  *sse.Service
+	// Expenses are the vehicle expenses of T40: /v1/expenses* (server filter, audit with the PM check, toll import).
+	Expenses *expenses.Service
+	// Maintenance is the maintenance records of T40: /v1/maintenance* and POST /v1/trucks/{id}/pm-check.
+	Maintenance *maintenance.Service
+	Jobs        *jobs.Service
+	Storage     *storage.Service
+	Events      *sse.Service
 	// Mobile is the driver app's installations, version gate and releases (T52): /v1/mobile/settings,
 	// /v1/mobile/heartbeat, /v1/app-installations*, /v1/app-releases*.
 	Mobile *mobileapp.Service
@@ -253,6 +259,19 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		closeAll()
 		return nil, nil, err
 	}
+	// Maintenance and vehicle expenses (T40): RLS decides (db.WithPrincipal); an approval runs the PM check in its
+	// transaction. Staff writes go to PostgreSQL, as a PostgreSQL-owned domain and a deployment without the FS->PG
+	// mirror need; the class C write-back (Firestore first, main spec §11.10) lands with T31 (internal/writeback).
+	maintSvc, err := maintenance.New(maintenance.Deps{Pool: pool, Files: st, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
+	expenseSvc, err := expenses.New(expenses.Deps{Pool: pool, Files: st, PM: maintSvc, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
 	// The driver app's fleet (T52): installations under RLS, the version gate through cache:settings:mobile_app, the
 	// APKs in the public bucket through the storage service.
 	mobile, err := mobileapp.New(mobileapp.Deps{Pool: pool, Storage: st, Cache: caches, Log: log})
@@ -261,8 +280,8 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		return nil, nil, err
 	}
 	a, err := build(APIDeps{Auth: svc, Admin: admin, APIKeys: apiKeys, Parties: partySvc, Hubs: hubSvc, Fleet: fleetSvc,
-		Drivers: driverSvc, Jobs: jobSvc, Storage: st, Events: events, Mobile: mobile, Limiter: limiter,
-		RateLimitEnabled: cfg.RateLimit.Enabled})
+		Drivers: driverSvc, Expenses: expenseSvc, Maintenance: maintSvc, Jobs: jobSvc, Storage: st, Events: events,
+		Mobile: mobile, Limiter: limiter, RateLimitEnabled: cfg.RateLimit.Enabled})
 	if err != nil {
 		closeAll()
 		return nil, nil, err
