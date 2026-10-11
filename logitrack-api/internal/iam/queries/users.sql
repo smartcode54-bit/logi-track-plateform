@@ -1,7 +1,8 @@
 -- Users administration (T19, Appendix B §B.2.5, Appendix C §C.8): the identity tables are platform-only under
 -- RLS, so iam reads and writes them in db.WithSystem after Go authorization. Every read names the principal's
 -- reach explicitly (all_users, tenant_ids, scope_only), the same rule RLS p_staff_read applies to tenant staff,
--- widened for stewards to the accounts that belong to no tenant (customer scopes are global master data, R60).
+-- widened for stewards to the accounts that belong to no tenant (customer scopes are global master data, R60). A
+-- deleted account (DELETE /v1/users/{id} removes every grant) is in no steward's reach: only all_users lists it.
 
 -- name: LockAdminUser :one
 -- The users row first (lock order users -> sessions -> refresh_tokens, Appendix C §C.4.4).
@@ -16,7 +17,7 @@ SELECT EXISTS (
   WHERE u.id = sqlc.arg(id)
     AND (sqlc.arg(all_users)::boolean
       OR EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
-      OR (sqlc.arg(scope_only)::boolean AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
+      OR (sqlc.arg(scope_only)::boolean AND u.status <> 'deleted' AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = u.id)))
 )::boolean AS in_reach;
 
@@ -43,7 +44,7 @@ FROM users u
 WHERE u.id = sqlc.arg(id)
   AND (sqlc.arg(all_users)::boolean
     OR EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
-    OR (sqlc.arg(scope_only)::boolean AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
+    OR (sqlc.arg(scope_only)::boolean AND u.status <> 'deleted' AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = u.id)));
 
 -- name: ListUsersByCreated :many
@@ -54,7 +55,7 @@ SELECT u.id, u.email, u.display_name, u.photo_file_id, u.status, u.must_change_p
 FROM users u
 WHERE (sqlc.arg(all_users)::boolean
     OR EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
-    OR (sqlc.arg(scope_only)::boolean AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
+    OR (sqlc.arg(scope_only)::boolean AND u.status <> 'deleted' AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = u.id)))
   AND (sqlc.narg(q)::text IS NULL OR u.email::text ILIKE sqlc.narg(q) ESCAPE '\' OR u.display_name ILIKE sqlc.narg(q) ESCAPE '\')
   AND ((sqlc.narg(status)::text IS NULL AND u.status <> 'deleted') OR u.status = sqlc.narg(status))
@@ -78,7 +79,7 @@ SELECT u.id, u.email, u.display_name, u.photo_file_id, u.status, u.must_change_p
 FROM users u
 WHERE (sqlc.arg(all_users)::boolean
     OR EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
-    OR (sqlc.arg(scope_only)::boolean AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
+    OR (sqlc.arg(scope_only)::boolean AND u.status <> 'deleted' AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = u.id)))
   AND (sqlc.narg(q)::text IS NULL OR u.email::text ILIKE sqlc.narg(q) ESCAPE '\' OR u.display_name ILIKE sqlc.narg(q) ESCAPE '\')
   AND ((sqlc.narg(status)::text IS NULL AND u.status <> 'deleted') OR u.status = sqlc.narg(status))
@@ -226,3 +227,23 @@ SELECT kind, status FROM tenants WHERE id = sqlc.arg(id) FOR KEY SHARE;
 -- name: TenantExists :one
 -- The read of GET /v1/tenants/{id}/members (no lock).
 SELECT EXISTS (SELECT 1 FROM tenants WHERE id = sqlc.arg(id))::boolean AS found;
+
+-- name: SoftDeleteUser :exec
+-- DELETE /v1/users/{id} (T51): the row stays (history, audit and the legacy uid keep pointing at it); the email
+-- leaves the unique index users_email (WHERE status <> 'deleted'), so the address can be given to a new account.
+UPDATE users SET status = 'deleted', deleted_at = sqlc.arg(at)::timestamptz WHERE id = sqlc.arg(id);
+
+-- name: DeleteUserMemberships :many
+DELETE FROM memberships WHERE user_id = sqlc.arg(user_id) RETURNING tenant_id, role;
+
+-- name: DeleteUserScopes :many
+DELETE FROM user_scopes WHERE user_id = sqlc.arg(user_id) RETURNING kind, billing_party_id;
+
+-- name: DeleteUserPlatformRoles :many
+DELETE FROM user_platform_roles WHERE user_id = sqlc.arg(user_id) RETURNING role;
+
+-- name: DeleteUserGoogleIdentity :execrows
+-- DELETE /v1/users/{id} (T51): the Google link goes with the account, so the freed address's Google account can link
+-- to a new account (Appendix C §C.4.10); the firebase_legacy row stays (the legacy uid is the history key, and the
+-- bridge refuses a deleted user).
+DELETE FROM auth_identities WHERE user_id = sqlc.arg(user_id) AND provider = 'google';

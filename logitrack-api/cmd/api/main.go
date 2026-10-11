@@ -51,7 +51,7 @@ func main() {
 // key.
 func newAPI(cfg *app.APIConfig, log zerolog.Logger, deps app.APIDeps, extra ...ingress.Group) (*app.API, error) {
 	groups := append(deps.Auth.Groups(), app.JobGroups(deps)...)
-	groups = append(groups, iam.RoleGroups(deps.Auth.RequireAuth())...)
+	groups = append(groups, iam.RoleGroups(deps.Admin, deps.Auth.RequireAuth())...)
 	groups = append(groups, iam.AdminGroups(deps.Admin, deps.Auth.RequireAuth())...)
 	groups = append(groups, parties.Groups(deps.Parties, deps.Auth.RequireAuth())...)
 	groups = append(groups, hubs.Groups(deps.Hubs, deps.Auth.RequireAuth())...)

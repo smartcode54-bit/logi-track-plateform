@@ -12,6 +12,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/security"
 )
 
 // Field is an optional JSON field of a PATCH body: Set when the key is present, Null when its value is null.
@@ -33,8 +34,9 @@ func (f *Field[T]) UnmarshalJSON(b []byte) error {
 
 // AdminGroups are the route groups of T19 on the internal listener (Appendix B §B.2.4, §B.2.5): /v1/users*
 // and /v1/tenants* behind requireAuth (auth.Service.RequireAuth, which resolves the principal through
-// RBAC.Authorize, X-Act-On-Tenant included), and the carrier profiles /v1/subcontractors* of T20 (§B.2.10).
-// a may be nil while the route table is only listed.
+// RBAC.Authorize, X-Act-On-Tenant included), the carrier profiles /v1/subcontractors* of T20 (§B.2.10), and those
+// of T51 (§B.2.5, §B.2.6): DELETE /v1/users/{id}, /v1/security-events, /v1/security/overview, /v1/security/status
+// and /v1/stats/users-by-role (the role matrix is in RoleGroups). a may be nil while the route table is only listed.
 func AdminGroups(a *Admin, requireAuth fiber.Handler) []ingress.Group {
 	h := adminHTTP{a}
 	need := authz.RequireCap
@@ -44,6 +46,7 @@ func AdminGroups(a *Admin, requireAuth fiber.Handler) []ingress.Group {
 			r.Post("", requireAuth, need(authz.UsersManage), h.createUser)
 			r.Get("/:id", requireAuth, need(authz.UsersView), h.getUser)
 			r.Patch("/:id", requireAuth, need(authz.UsersManage), h.patchUser)
+			r.Delete("/:id", requireAuth, authz.RequirePlatform(authz.PlatformAdmin), h.deleteUser)
 			r.Post("/:id/invite", requireAuth, need(authz.UsersManage), h.invite)
 			r.Post("/:id/disable", requireAuth, need(authz.UsersManage), h.disable)
 			r.Post("/:id/enable", requireAuth, need(authz.UsersManage), h.enable)
@@ -75,6 +78,19 @@ func AdminGroups(a *Admin, requireAuth fiber.Handler) []ingress.Group {
 			r.Post("", requireAuth, need(authz.FleetManageSubcontractors, authz.PlatformManageTenants), h.createSubcontractor)
 			r.Get("/:id", requireAuth, h.getSubcontractor)
 			r.Patch("/:id", requireAuth, h.patchSubcontractor)
+		}},
+		// The Security Center reads (T51) need a tenant context: a platform principal sends X-Act-On-Tenant.
+		{Prefix: "/v1/security-events", Mount: func(r fiber.Router) {
+			r.Get("", requireAuth, need(authz.SecurityViewAudit), authz.RequireTenant(), h.listEvents)
+		}},
+		{Prefix: "/v1/security", Mount: func(r fiber.Router) {
+			r.Get("/overview", requireAuth, need(authz.SecurityViewOverview), authz.RequireTenant(), h.overview)
+			// The status page: platform-wide counters with no tenant data, so no tenant context (support holds
+			// security:view_status but not security:view_overview).
+			r.Get("/status", requireAuth, need(authz.SecurityViewStatus), h.status)
+		}},
+		{Prefix: "/v1/stats", Mount: func(r fiber.Router) {
+			r.Get("/users-by-role", requireAuth, need(authz.SecurityViewOverview), authz.RequireTenant(), h.usersByRole)
 		}},
 	}
 }
@@ -651,4 +667,130 @@ func (h adminHTTP) patchSubcontractor(c fiber.Ctx) error {
 	}
 	noStore(c)
 	return httpx.JSON(c, http.StatusOK, out)
+}
+
+func (h adminHTTP) deleteUser(c fiber.Ctx) error {
+	cl, err := h.call(c)
+	if err != nil {
+		return err
+	}
+	id, err := pathID(c, "id")
+	if err != nil {
+		return err
+	}
+	if err := h.a.DeleteUser(cl, id); err != nil {
+		return err
+	}
+	return c.SendStatus(http.StatusNoContent)
+}
+
+func (h adminHTTP) listEvents(c fiber.Ctx) error {
+	cl, err := h.call(c)
+	if err != nil {
+		return err
+	}
+	if err := onlyQuery(c, "type", "severity", "from", "to", "limit", "cursor"); err != nil {
+		return err
+	}
+	limit, err := queryLimit(c)
+	if err != nil {
+		return err
+	}
+	rows, next, err := h.a.ListEvents(cl, EventsInput{Type: c.Query("type"), Severity: c.Query("severity"),
+		From: c.Query("from"), To: c.Query("to"), Limit: limit, Cursor: c.Query("cursor")})
+	if err != nil {
+		return err
+	}
+	noStore(c)
+	return httpx.Page(c, rows, next, EventsMeta{Types: security.EventTypes})
+}
+
+func (h adminHTTP) overview(c fiber.Ctx) error {
+	cl, err := h.call(c)
+	if err != nil {
+		return err
+	}
+	if err := onlyQuery(c); err != nil {
+		return err
+	}
+	o, err := h.a.Overview(cl)
+	if err != nil {
+		return err
+	}
+	noStore(c)
+	return httpx.JSON(c, http.StatusOK, o)
+}
+
+func (h adminHTTP) status(c fiber.Ctx) error {
+	cl, err := h.call(c)
+	if err != nil {
+		return err
+	}
+	if err := onlyQuery(c); err != nil {
+		return err
+	}
+	s, err := h.a.Status(cl)
+	if err != nil {
+		return err
+	}
+	noStore(c)
+	return httpx.JSON(c, http.StatusOK, s)
+}
+
+func (h adminHTTP) usersByRole(c fiber.Ctx) error {
+	cl, err := h.call(c)
+	if err != nil {
+		return err
+	}
+	if err := onlyQuery(c); err != nil {
+		return err
+	}
+	out, err := h.a.StatsUsersByRole(cl)
+	if err != nil {
+		return err
+	}
+	noStore(c)
+	return httpx.JSON(c, http.StatusOK, out)
+}
+
+func (h adminHTTP) getMatrix(c fiber.Ctx) error {
+	cl, err := h.call(c)
+	if err != nil {
+		return err
+	}
+	if err := onlyQuery(c, "tenantId", "layer"); err != nil {
+		return err
+	}
+	m, err := h.a.GetMatrix(cl, MatrixTarget{TenantID: c.Query("tenantId"), Layer: c.Query("layer")})
+	if err != nil {
+		return err
+	}
+	noStore(c)
+	return httpx.JSON(c, http.StatusOK, m)
+}
+
+// MatrixMeta is the meta of PUT /v1/roles/matrix: how many override rows the save changed (0: nothing was written,
+// no event, no rbac:ver bump).
+type MatrixMeta struct {
+	Changes int `json:"changes"`
+}
+
+func (h adminHTTP) putMatrix(c fiber.Ctx) error {
+	cl, err := h.call(c)
+	if err != nil {
+		return err
+	}
+	if err := onlyQuery(c, "tenantId", "layer"); err != nil {
+		return err
+	}
+	var in SaveMatrixInput
+	if err := httpx.DecodeJSON(c, &in); err != nil {
+		return err
+	}
+	m, n, err := h.a.SaveMatrix(cl, MatrixTarget{TenantID: c.Query("tenantId"), Layer: c.Query("layer")}, in)
+	if err != nil {
+		return err
+	}
+	noStore(c)
+	return httpx.Page(c, m, "", MatrixMeta{Changes: n})
 }

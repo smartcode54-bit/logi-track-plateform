@@ -334,6 +334,46 @@ func TestGoogleLinksVerifiedEmail(t *testing.T) {
 	}
 }
 
+// A soft-deleted account (DELETE /v1/users/{id}, T51) frees its email for a new account, and its Google link goes
+// with it: while the deleted user still holds the link, the Google account resolves to it by sub and is 403
+// no_account for ever, and the new account can never link it. With the link removed, as iam.DeleteUser does in the
+// delete's transaction, the next Google sign-in links the new account by its verified email (Appendix C §C.4.10).
+func TestGoogleSignInAfterSoftDelete(t *testing.T) {
+	h, p := googleHarness(t)
+	own := h.tenant("own_fleet", "Own")
+	old := h.user("rehire@gmail.com")
+	h.member(old, own, "operator")
+	h.linkGoogle(old, "g-sub-rehire")
+	signIn := func() resp {
+		t.Helper()
+		return h.signInGoogle(h.public, map[string]any{
+			"idToken": h.googleToken(p, apkClient, "g-sub-rehire", "rehire@gmail.com", fromApp(androidClient)), "platform": "android",
+		})
+	}
+	if r := signIn(); r.status != http.StatusOK || payload(t, r.str("accessToken"))["sub"] != old {
+		t.Fatalf("sign-in before the delete: %d %s", r.status, r.raw)
+	}
+	// The soft delete's rows (iam.DeleteUser): grants gone, status deleted; then a new account gets the address.
+	h.exec(`DELETE FROM memberships WHERE user_id = $1`, old)
+	h.exec(`UPDATE users SET status = 'deleted', deleted_at = now() WHERE id = $1`, old)
+	fresh := h.user("rehire@gmail.com")
+	h.member(fresh, own, "operator")
+	// A link the delete left behind keeps the Google account on the deleted user.
+	expectError(t, signIn(), http.StatusForbidden, auth.CodeNoAccount)
+	// The delete removes it: the Google account now links to the new account.
+	h.exec(`DELETE FROM auth_identities WHERE user_id = $1 AND provider = 'google'`, old)
+	r := signIn()
+	if r.status != http.StatusOK || payload(t, r.str("accessToken"))["sub"] != fresh {
+		t.Fatalf("sign-in after the delete: %d %s", r.status, r.raw)
+	}
+	if got := scalar[string](h, `SELECT user_id::text FROM auth_identities WHERE provider = 'google' AND provider_subject = 'g-sub-rehire'`); got != fresh {
+		t.Fatalf("the Google identity belongs to %s", got)
+	}
+	if n := scalar[int64](h, `SELECT count(*) FROM security_events WHERE event_type = 'google_identity_linked' AND target_user_id = $1`, fresh); n != 1 {
+		t.Fatalf("google_identity_linked rows for the new account = %d", n)
+	}
+}
+
 // Linking by email needs Google to be authoritative for the address (Appendix C §C.4.10): a Gmail
 // address or a Workspace account (hd). For a consumer Google account under any other domain,
 // email_verified only says the address was verified when the account was created; whoever held the

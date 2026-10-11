@@ -1,0 +1,5 @@
+{"_id": "admin", "_path": "permissions_config/admin", "_createTime": "2026-09-01T00:00:00Z", "_updateTime": "2026-09-02T00:00:00Z", "fields": {"capabilities": {"security_manage_roles": false}}}
+{"_id": "customer", "_path": "permissions_config/customer", "_createTime": "2026-09-01T00:00:00Z", "_updateTime": "2026-09-02T00:00:00Z", "fields": {"capabilities": {"operations_view_first_mile": true}}}
+{"_id": "driver", "_path": "permissions_config/driver", "_createTime": "2026-09-01T00:00:00Z", "_updateTime": "2026-09-02T00:00:00Z", "fields": {"capabilities": {"send_chat": true, "submit_delivery": false}}}
+{"_id": "manager", "_path": "permissions_config/manager", "_createTime": "2026-09-01T00:00:00Z", "_updateTime": "2026-09-02T00:00:00Z", "fields": {"capabilities": {"accounting_view_fuel": true, "create_truck": false, "made_up_key": true}}}
+{"_id": "operator", "_path": "permissions_config/operator", "_createTime": "2026-09-01T00:00:00Z", "_updateTime": "2026-09-02T00:00:00Z", "fields": {"capabilities": {"assign_driver": true, "security_view_audit": "yes"}}}
