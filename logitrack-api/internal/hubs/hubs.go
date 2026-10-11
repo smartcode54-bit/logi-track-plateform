@@ -225,34 +225,50 @@ func trimmed(p *string) string {
 	return strings.TrimSpace(*p)
 }
 
-// forPrincipal is the DTO as p may see it: the hub row is global (every authenticated principal reads hubs), but the
-// customer or carrier behind its billing party is shown only where p's RLS reads that row (0012: a customer-scope
-// principal reads its own parties only; tenants.p_read: own tenant and contractor reach, stewards, scope principals).
+// forPrincipal is the DTO as p may see it, equal to what the RLS-backed Get answers: the hub row is global (every
+// authenticated principal reads hubs, linkedPartyId included), but the customer or carrier behind its billing party is
+// shown only where p's RLS reads that row. A customer-scope principal reads only its own billing parties, of any kind
+// (0012), so for any other party it sees no linkedCustomerId, linkedCustomerName or linkedCustomerKind (the party row
+// and its kind are hidden too); other principals read every party, and tenants.p_read decides a carrier's name (own
+// tenant and contractor reach, stewards, dispatchers).
 func (h cachedHub) forPrincipal(p *authz.Principal) Hub {
 	out := h.Hub
-	if h.LinkedPartyID == nil || linkVisible(p, h) {
+	if h.LinkedPartyID == nil {
+		return out
+	}
+	link, party := linkVisible(p, h)
+	if link {
 		return out
 	}
 	out.LinkedCustomerID, out.LinkedCustomerName = nil, nil
+	if !party {
+		out.LinkedCustomerKind = nil // billing_parties.p_read (0012) hides the party row itself
+	}
 	return out
 }
 
-func linkVisible(p *authz.Principal, h cachedHub) bool {
+// linkVisible says whether p's RLS reads the customer or carrier behind h's billing party (link) and the billing party
+// row itself (party, which carries the kind).
+func linkVisible(p *authz.Principal, h cachedHub) (link, party bool) {
 	r := p.RLS()
 	if r.Bypass || r.Steward {
-		return true
+		return true, true
+	}
+	if r.Role == string(authz.ScopeCustomer) { // 0012: billing_parties.p_read keeps the customer role to its own parties
+		own := slices.Contains(r.CustomerIDs, *h.LinkedPartyID)
+		return own, own
 	}
 	switch h.PartyKind {
 	case partyCustomer:
-		return r.Role != string(authz.ScopeCustomer) || slices.Contains(r.CustomerIDs, *h.LinkedPartyID)
+		return true, true
 	case partyTenant:
-		if r.Role == string(authz.ScopeCustomer) || r.Dispatcher { // app_is_scope(): carrier names
-			return true
+		if r.Dispatcher { // app_is_scope(): a dispatcher's app.role is its membership role, so it reads every party
+			return true, true
 		}
 		return h.PartyTenantID != nil && r.TenantID != nil &&
-			(*r.TenantID == *h.PartyTenantID || slices.Contains(r.SubtenantIDs, *h.PartyTenantID))
+			(*r.TenantID == *h.PartyTenantID || slices.Contains(r.SubtenantIDs, *h.PartyTenantID)), true
 	}
-	return false
+	return false, true
 }
 
 // --- reads --------------------------------------------------------------------------------------------------

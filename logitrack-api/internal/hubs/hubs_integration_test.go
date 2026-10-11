@@ -18,6 +18,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -38,6 +39,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/password"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/token"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing/compute"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hubs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs"
@@ -260,6 +262,18 @@ func (w *world) testRoutes(requireAuth fiber.Handler) func(r fiber.Router) {
 			}
 			return httpx.JSON(c, http.StatusOK, map[string]string{"sqlstate": state})
 		})
+		// Service.Get (the RLS-backed read of one hub, the payload of the writes) with the request's principal.
+		r.Get("/hub/:id", func(c fiber.Ctx) error {
+			id, err := uuid.Parse(c.Params("id"))
+			if err != nil {
+				return httpx.ErrNotFound()
+			}
+			out, err := w.svc.Get(c.Context(), authz.PrincipalFrom(c), id)
+			if err != nil {
+				return err
+			}
+			return httpx.JSON(c, http.StatusOK, out)
+		})
 		// The service of POST /v1/mobile/hubs (mounted at P7a) with the request's principal.
 		r.Post("/driver-hub", func(c fiber.Ctx) error {
 			var in hubs.DriverHubInput
@@ -361,6 +375,29 @@ func (w *world) do(method, path, bearer string, body any, headers ...string) res
 func (w *world) get(path, bearer string, headers ...string) resp {
 	w.t.Helper()
 	return w.do(http.MethodGet, path, bearer, nil, headers...)
+}
+
+// getRaw sends path exactly as given on the request line (a malformed escape such as %ZZ cannot go through
+// http.NewRequest).
+func (w *world) getRaw(path, bearer string) resp {
+	w.t.Helper()
+	req, err := http.NewRequest(http.MethodGet, w.internal+"/", nil)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	req.URL.Opaque = path
+	req.Header.Set("Authorization", "Bearer "+bearer)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	raw, _ := io.ReadAll(res.Body)
+	out := resp{status: res.StatusCode, header: res.Header, raw: raw}
+	if len(raw) > 0 && strings.HasPrefix(res.Header.Get("Content-Type"), "application/json") {
+		_ = json.Unmarshal(raw, &out.body)
+	}
+	return out
 }
 
 func (w *world) post(path, bearer string, body any, headers ...string) resp {
@@ -557,10 +594,14 @@ func TestMapsKeepCodesAsCodes(t *testing.T) {
 	w.hub("SPK890146", "ประเวศ18", "HUB", "SPK", nil, nil, nil)
 	w.hub("SPK-GW", "J&T บางปู", "HUB", "SPK", nil, nil, nil)
 	op := w.login("op.o")
-	// A hub whose English name is another hub's code (legacy data): the code must still resolve to itself.
-	r := w.post("/v1/hubs", op, map[string]any{"sourceId": "ODD1", "sourceNameTh": "แปลก", "sourceNameEn": "SPK890174"})
-	expect(t, r, http.StatusCreated, "")
-	r = w.get("/v1/hubs/maps", op)
+	// The API refuses a name that is another hub's code (invariant 8, TestHubWritesKeepInvariant8); legacy data loaded by
+	// the ETL may still hold one: the read filter keeps the code resolving to itself.
+	expect(t, w.post("/v1/hubs", op, map[string]any{"sourceId": "ODD1", "sourceNameTh": "แปลก", "sourceNameEn": "SPK890174"}),
+		http.StatusUnprocessableEntity, "invalid_argument")
+	odd := w.hub("ODD1", "แปลก", "HUB", "SPX", nil, nil, nil)
+	w.exec(`UPDATE hubs SET name_en = 'SPK890174' WHERE id = $1`, odd)
+	w.exec(`INSERT INTO hub_name_aliases (alias, hub_id, source) VALUES ('SPK890174', $1, 'name_en')`, odd)
+	r := w.get("/v1/hubs/maps", op)
 	expect(t, r, http.StatusOK, "")
 	var m hubs.Maps
 	if err := json.Unmarshal(mustJSON(t, r.body["data"]), &m); err != nil {
@@ -600,6 +641,144 @@ func TestMapsKeepCodesAsCodes(t *testing.T) {
 	if m.Resolve("ประเวศ18") != "SPK890999" || m.Resolve("ประเวศ18 ใหม่") != "SPK890146" {
 		t.Fatalf("after the rename: %v", m.NameToCode)
 	}
+	// Editing the legacy hub without touching its names is not refused, and does not store the code as an alias again;
+	// renaming its English name drops the legacy alias, which no hub reclaims (it is a code).
+	w.exec(`DELETE FROM hub_name_aliases WHERE alias = 'SPK890174'`)
+	expect(t, w.patch("/v1/hubs/"+odd, op, map[string]any{"latitude": 13.7, "longitude": 100.6, "sourceNameEn": "SPK890174"}),
+		http.StatusOK, "")
+	if n := w.count(inv8Aliases); n != 0 {
+		t.Fatalf("a write stored a code as an alias: %d", n)
+	}
+	w.exec(`INSERT INTO hub_name_aliases (alias, hub_id, source) VALUES ('SPK890174', $1, 'name_en')`, odd)
+	expect(t, w.patch("/v1/hubs/"+odd, op, map[string]any{"sourceNameEn": "Odd One"}), http.StatusOK, "")
+	if n := w.count(inv8Aliases); n != 0 {
+		t.Fatalf("the legacy code alias survived or was reclaimed: %d", n)
+	}
+	if got := w.pricingMaps().ResolveNameToCode("SPK890174"); got != "SPK890174" {
+		t.Fatalf("pricing resolves SPK890174 to %s", got)
+	}
+
+	// A rename that changes only the case: the current spelling is the nameToCode key (citext kept the old one).
+	r = w.post("/v1/hubs", op, map[string]any{"sourceId": "ALANG1", "sourceNameTh": "อลัง", "sourceNameEn": "Alang Hub"})
+	expect(t, r, http.StatusCreated, "")
+	expect(t, w.patch("/v1/hubs/"+str(r.data()["id"]), op, map[string]any{"sourceNameEn": "ALANG HUB"}), http.StatusOK, "")
+	r = w.get("/v1/hubs/maps", op)
+	m = hubs.Maps{}
+	if err := json.Unmarshal(mustJSON(t, r.body["data"]), &m); err != nil {
+		t.Fatal(err)
+	}
+	if m.Resolve("ALANG HUB") != "ALANG1" || m.NameToCode["Alang Hub"] != "" {
+		t.Fatalf("case-only rename: %v", m.NameToCode)
+	}
+}
+
+// inv8Aliases is the alias half of seed --verify invariant 8 (cmd/seed/internal/seed/invariants.go inv8), as a count.
+const inv8Aliases = `SELECT count(*) FROM hub_name_aliases a JOIN hubs h ON upper(h.source_id::text) = upper(a.alias::text)`
+
+// namesAreCodes counts the hub names that are another hub's code (pricing reads hubs.name_th / name_en directly).
+const namesAreCodes = `SELECT count(*) FROM hubs h JOIN hubs o ON o.id <> h.id
+	AND (lower(btrim(h.name_th)) = lower(o.source_id::text) OR lower(btrim(coalesce(h.name_en, ''))) = lower(o.source_id::text))`
+
+// pricingMaps loads the pricing hub maps exactly as the seed engine does (cmd/seed/internal/seed/engine.go, R53).
+func (w *world) pricingMaps() compute.HubMaps {
+	w.t.Helper()
+	rows, err := w.etl.Query(context.Background(), `SELECT h.source_id::text, h.name_th, coalesce(h.name_en, ''),
+		coalesce(array_agg(a.alias::text ORDER BY a.created_at, a.alias) FILTER (WHERE a.alias IS NOT NULL), '{}')
+		FROM hubs h LEFT JOIN hub_name_aliases a ON a.hub_id = h.id
+		GROUP BY h.id ORDER BY h.created_at, h.id`)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	defer rows.Close()
+	var hs []compute.Hub
+	for rows.Next() {
+		var h compute.Hub
+		if err := rows.Scan(&h.Code, &h.NameTH, &h.NameEN, &h.Aliases); err != nil {
+			w.t.Fatal(err)
+		}
+		hs = append(hs, h)
+	}
+	if err := rows.Err(); err != nil {
+		w.t.Fatal(err)
+	}
+	return compute.NewHubMaps(hs)
+}
+
+// --- invariant 8 at write time: no name is another hub's code, no code another hub's name or alias ----------
+
+func TestHubWritesKeepInvariant8(t *testing.T) {
+	w := newWorld(t)
+	w.hub("SPK890174", "ห้วยขวาง10", "HUB", "SPK", nil, nil, nil)
+	w.hub("SPK890146", "ประเวศ18", "HUB", "SPK", nil, nil, nil)
+	w.hub("H2", "HUBX", "HUB", "SPX", nil, nil, nil) // the Thai name HUBX
+	op, dr := w.login("op.o"), w.login("dr.o")
+	isHubCode := func(r resp, field string) {
+		t.Helper()
+		if r.status != http.StatusUnprocessableEntity || r.code() != "invalid_argument" || r.fields()[field] != "is_hub_code" {
+			t.Fatalf("want 422 %s is_hub_code, got %d %s", field, r.status, r.raw)
+		}
+	}
+	takenAsName := func(r resp, field string) {
+		t.Helper()
+		if r.status != http.StatusConflict || r.code() != "already_exists" || r.detail("field") != field ||
+			r.detail("reason") != "taken_as_name" {
+			t.Fatalf("want 409 %s taken_as_name, got %d %s", field, r.status, r.raw)
+		}
+	}
+	// POST: a name that is another hub's code, whatever its case; a code that is another hub's name.
+	isHubCode(w.post("/v1/hubs", op, map[string]any{"sourceId": "ODD1", "sourceNameTh": "แปลก", "sourceNameEn": "SPK890174"}), "sourceNameEn")
+	isHubCode(w.post("/v1/hubs", op, map[string]any{"sourceId": "ODD1", "sourceNameTh": " spk890174 "}), "sourceNameTh")
+	takenAsName(w.post("/v1/hubs", op, map[string]any{"sourceId": "hubx", "sourceNameTh": "ใหม่"}), "sourceId")
+	// A taken code stays a plain 409 taken even when the name repeats it; a name equal to the hub's own code is fine.
+	r := w.post("/v1/hubs", op, map[string]any{"sourceId": "SPK890174", "sourceNameTh": "SPK890174"})
+	if r.status != http.StatusConflict || r.detail("reason") != "taken" {
+		t.Fatalf("taken code: %s", r.raw)
+	}
+	r = w.post("/v1/hubs", op, map[string]any{"sourceId": "ODD1", "sourceNameTh": "แปลก", "sourceNameEn": "ODDX"})
+	expect(t, r, http.StatusCreated, "")
+	odd := str(r.data()["id"])
+	// PATCH: a changed name, a renamed code; renaming onto its own name drops that alias.
+	isHubCode(w.patch("/v1/hubs/"+odd, op, map[string]any{"sourceNameTh": "SPK890146"}), "sourceNameTh")
+	takenAsName(w.patch("/v1/hubs/"+odd, op, map[string]any{"sourceId": "HUBX"}), "sourceId")
+	takenAsName(w.patch("/v1/hubs/"+odd, op, map[string]any{"sourceId": "ห้วยขวาง10"}), "sourceId")
+	expect(t, w.patch("/v1/hubs/"+odd, op, map[string]any{"sourceId": "oddx"}), http.StatusOK, "")
+	if n := w.count(`SELECT count(*) FROM hub_name_aliases WHERE hub_id = $1`, odd); n != 1 {
+		t.Fatalf("aliases of the renamed hub: %d", n)
+	}
+	// Import: a new row's name, an existing row's changed name, a new code that is a name (409 on rows[i].sourceId).
+	isHubCode(w.post("/v1/hubs/import", op, map[string]any{"rows": []any{map[string]any{"sourceId": "IMP1", "sourceNameTh": "H2"}}}),
+		"rows[0].sourceNameTh")
+	isHubCode(w.post("/v1/hubs/import", op, map[string]any{"rows": []any{map[string]any{"sourceId": "IMP1", "sourceNameEn": "h2"}}}),
+		"rows[0].sourceNameEn")
+	isHubCode(w.post("/v1/hubs/import", op, map[string]any{"rows": []any{map[string]any{"sourceId": "IMP1", "sourceNameTh": "ไอ"},
+		map[string]any{"sourceId": "ODDX", "sourceNameEn": "SPK890174"}}}), "rows[1].sourceNameEn")
+	takenAsName(w.post("/v1/hubs/import", op, map[string]any{"rows": []any{map[string]any{"sourceId": "IMP1", "sourceNameTh": "IMP2"},
+		map[string]any{"sourceId": "imp2", "sourceNameTh": "ไอสอง"}}}), "rows[1].sourceId")
+	// The driver's hub.
+	isHubCode(w.post("/v1/hubstest/driver-hub", dr, map[string]any{"sourceId": "DRV8", "sourceName": "SPK890174"}), "sourceName")
+	takenAsName(w.post("/v1/hubstest/driver-hub", dr, map[string]any{"sourceId": "HUBX", "sourceName": "ใหม่"}), "sourceId")
+	if n := w.count(`SELECT count(*) FROM hubs WHERE source_id IN ('IMP1', 'IMP2', 'DRV8', 'HUBX')`); n != 0 {
+		t.Fatalf("%d refused hubs landed", n)
+	}
+	// Valid writes still pass, and the stored master data keeps invariant 8 for the seed check and for pricing.
+	expect(t, w.post("/v1/hubs/import", op, map[string]any{"rows": []any{map[string]any{"sourceId": "IMP1", "sourceNameTh": "ไอ"}}}),
+		http.StatusOK, "")
+	expect(t, w.post("/v1/hubstest/driver-hub", dr, map[string]any{"sourceId": "DRV8", "sourceName": "จุดคนขับ"}), http.StatusCreated, "")
+	if n := w.count(inv8Aliases); n != 0 {
+		t.Fatalf("seed --verify invariant 8: %d aliases equal a hub code", n)
+	}
+	if n := w.count(namesAreCodes); n != 0 {
+		t.Fatalf("%d hub names are another hub's code", n)
+	}
+	pm := w.pricingMaps()
+	for _, code := range []string{"SPK890174", "SPK890146", "H2", "ODDX", "IMP1", "DRV8"} {
+		if got := pm.ResolveNameToCode(code); got != code {
+			t.Errorf("pricing resolves %s to %s", code, got)
+		}
+	}
+	if pm.ResolveNameToCode("HUBX") != "H2" {
+		t.Error("a name no longer resolves")
+	}
 }
 
 func mustJSON(t *testing.T, v any) []byte {
@@ -626,14 +805,37 @@ func TestLinkedPartyMaskedLikeRLS(t *testing.T) {
 	if name("op.o", "HY") != "TTP — TTP Co." || name("op.o", "HC") != "CC — ซี" {
 		t.Fatal("a steward sees every party")
 	}
-	if name("cu", "HX") != "SPK — J&T Express" || name("cu", "HY") != nil {
-		t.Fatal("a customer-scope user sees only its own party (0012)")
+	if name("cu", "HX") != "SPK — J&T Express" || name("cu", "HY") != nil || name("cu", "HC") != nil {
+		t.Fatal("a customer-scope user sees only its own party, of any kind (0012)")
 	}
 	if name("op.a", "HY") != "TTP — TTP Co." || name("op.a", "HC") != nil {
 		t.Fatal("carrier staff read customers but not another carrier (tenants.p_read)")
 	}
 	if name("ta.c", "HC") != "CC — ซี" {
 		t.Fatal("a carrier reads its own name")
+	}
+	// The cached list equals the RLS-backed read (Service.Get) of every hub, for every kind of principal: the mask is
+	// the RLS outcome, linkedCustomerKind included (hidden with the party row for a customer scope).
+	ids := map[string]string{}
+	for _, c := range []string{"HX", "HY", "HC"} {
+		ids[c] = w.id(`SELECT id::text FROM hubs WHERE source_id = $1`, c)
+	}
+	for _, u := range []string{"cu", "op.a", "ta.c", "op.o", "dr.o", "pa"} {
+		tok := w.login(u)
+		list := byCode(w.get("/v1/hubs", tok).list())
+		for code, id := range ids {
+			r := w.get("/v1/hubstest/hub/"+id, tok)
+			expect(t, r, http.StatusOK, "")
+			for _, k := range []string{"linkedPartyId", "linkedCustomerId", "linkedCustomerName", "linkedCustomerKind"} {
+				if list[code][k] != r.data()[k] {
+					t.Errorf("%s %s %s: list %v, RLS %v", u, code, k, list[code][k], r.data()[k])
+				}
+			}
+		}
+	}
+	if k := byCode(w.get("/v1/hubs", w.login("cu")).list()); k["HC"]["linkedCustomerKind"] != nil || k["HY"]["linkedCustomerKind"] != nil ||
+		k["HX"]["linkedCustomerKind"] != "customer" {
+		t.Fatalf("customer scope kinds: %v %v %v", k["HX"]["linkedCustomerKind"], k["HY"]["linkedCustomerKind"], k["HC"]["linkedCustomerKind"])
 	}
 }
 
@@ -686,6 +888,30 @@ func TestImportUpsertsBySourceID(t *testing.T) {
 		t.Fatalf("a refused import wrote %d rows", n)
 	}
 	expect(t, w.post("/v1/hubs/import", op, map[string]any{"rows": []any{}}), http.StatusUnprocessableEntity, "invalid_argument")
+
+	// Blank cells (a workbook's empty cells arrive as "") keep the stored values: import never clears. LINKED1 is SPK
+	// only through its link to X (code SPK); unlinking it would flip it to SPX.
+	r = w.post("/v1/hubs", op, map[string]any{"sourceId": "LINKED1", "sourceNameTh": "ลิงก์", "sourceNameEn": "Linked One",
+		"latitude": 13.7, "longitude": 100.6, "stationType": "HUB", "linkedCustomerId": w.custX})
+	expect(t, r, http.StatusCreated, "")
+	if r.data()["network"] != "SPK" {
+		t.Fatalf("linked hub: %s", r.raw)
+	}
+	before := w.count(`SELECT count(*) FROM outbox_events WHERE routing_key = 'hubs.changed'`)
+	r = w.post("/v1/hubs/import", op, map[string]any{"rows": []any{map[string]any{"sourceId": "linked1", "sourceNameTh": "",
+		"sourceNameEn": "", "stationType": "", "linkedPartyId": "", "linkedCustomerId": " ", "linkedCustomerKind": ""}}})
+	expect(t, r, http.StatusOK, "")
+	if r.data()["unchanged"] != float64(1) {
+		t.Fatalf("blank cells: %s", r.raw)
+	}
+	if w.count(`SELECT count(*) FROM outbox_events WHERE routing_key = 'hubs.changed'`) != before {
+		t.Fatal("blank cells emitted hubs.changed")
+	}
+	h := byCode(w.get("/v1/hubs", op).list())["LINKED1"]
+	if h["sourceNameTh"] != "ลิงก์" || h["sourceNameEn"] != "Linked One" || h["stationType"] != "HUB" || h["linkedPartyId"] != w.partyX ||
+		h["network"] != "SPK" {
+		t.Fatalf("after blank cells: %v", h)
+	}
 }
 
 // --- the driver's hub (mobile:create_hub) -----------------------------------------------------------------
@@ -707,15 +933,56 @@ func TestDriverCreatesAHub(t *testing.T) {
 	expect(t, w.post("/v1/hubstest/driver-hub", w.login("op.o"), map[string]any{"sourceId": "S1", "sourceName": "x"}),
 		http.StatusForbidden, "permission_denied")
 	expect(t, w.post("/v1/hubs", dr, map[string]any{"sourceId": "S2", "sourceNameTh": "x"}), http.StatusForbidden, "permission_denied")
+
+	// Coordinates are steward-only: a driver SOC sent with them is stored without, so it stays out of the billed
+	// Distance Matrix run until a steward sets them (PATCH /v1/hubs/{id}).
+	w.hub("ALANG-A", "อาลัง", "HUB", "SPX", f(13.75), f(100.60), nil)
+	w.hub("SOCE", "ศูนย์ตะวันออก", "SOC", "SPX", f(13.62), f(100.75), nil)
+	r = w.post("/v1/hubstest/driver-hub", dr, map[string]any{"sourceId": "DRVSOC", "sourceName": "โซคนขับ", "stationType": "SOC",
+		"latitude": 13.1, "longitude": 100.1})
+	expect(t, r, http.StatusCreated, "")
+	if r.data()["latitude"] != nil || r.data()["longitude"] != nil {
+		t.Fatalf("a driver set coordinates: %s", r.raw)
+	}
+	drvSoc := str(r.data()["id"])
+	ta := w.login("ta.o")
+	run := func() *fakeMatrix {
+		t.Helper()
+		r := w.post("/v1/jobs/distances.compute", ta, nil)
+		expect(t, r, http.StatusAccepted, "")
+		fake := &fakeMatrix{}
+		w.runJob(t, w.newJob(t, fake), str(r.data()["jobId"]))
+		return fake
+	}
+	fake := run()
+	for _, c := range fake.calls {
+		for _, side := range c {
+			for _, p := range side {
+				if p.Lat == 13.1 {
+					t.Fatal("the driver's SOC was sent to the Distance Matrix")
+				}
+			}
+		}
+	}
+	if n := w.count(`SELECT count(*) FROM hub_soc_distances WHERE soc_key = 'DRVSOC'`); n != 0 {
+		t.Fatalf("driver SOC pairs before a steward set its coordinates: %d", n)
+	}
+	expect(t, w.patch("/v1/hubs/"+drvSoc, w.login("op.o"), map[string]any{"latitude": 13.1, "longitude": 100.1}), http.StatusOK, "")
+	run()
+	if n := w.count(`SELECT count(*) FROM hub_soc_distances WHERE soc_key = 'DRVSOC'`); n != 2 {
+		t.Fatalf("driver SOC pairs after the steward set its coordinates: %d", n)
+	}
 }
 
 // --- AC: the distances.compute job ------------------------------------------------------------------------
 
-// fakeMatrix answers every cell from the points' coordinates and records the requests; fail makes it refuse.
+// fakeMatrix answers every cell from the points' coordinates and records the requests; fail makes it refuse, failAt
+// makes it refuse only its failAt-th call (1-based) with an UNKNOWN_ERROR, after the earlier ones succeeded.
 type fakeMatrix struct {
-	mu    sync.Mutex
-	calls [][2][]gmaps.LatLng
-	fail  error
+	mu     sync.Mutex
+	calls  [][2][]gmaps.LatLng
+	fail   error
+	failAt int
 }
 
 func (f *fakeMatrix) DistanceMatrix(_ context.Context, origins, destinations []gmaps.LatLng) (gmaps.Matrix, error) {
@@ -724,6 +991,9 @@ func (f *fakeMatrix) DistanceMatrix(_ context.Context, origins, destinations []g
 	f.calls = append(f.calls, [2][]gmaps.LatLng{origins, destinations})
 	if f.fail != nil {
 		return gmaps.Matrix{}, f.fail
+	}
+	if f.failAt > 0 && len(f.calls) == f.failAt {
+		return gmaps.Matrix{}, &gmaps.Error{HTTPStatus: 200, Status: "UNKNOWN_ERROR"}
 	}
 	if err := gmaps.CheckLimits(len(origins), len(destinations)); err != nil {
 		return gmaps.Matrix{}, err
@@ -954,8 +1224,8 @@ func TestDistanceJobFailsWithoutWriting(t *testing.T) {
 	}
 }
 
-// AC (job limits of the Hub-SOC Distance section): at most 4 runs a Bangkok month; failed runs and earlier months do
-// not count, and a platform admin is not capped.
+// AC (job limits of the Hub-SOC Distance section): at most 4 runs a Bangkok month; a failed run that completed no
+// request (refused on its first) and earlier months do not count, and a platform admin is not capped.
 func TestDistanceRunsCappedPerMonth(t *testing.T) {
 	w := newWorld(t)
 	ta := w.login("ta.o")
@@ -979,4 +1249,73 @@ func TestDistanceRunsCappedPerMonth(t *testing.T) {
 	}
 	r = w.post("/v1/jobs/distances.compute", w.login("pa"), nil, "X-Act-On-Tenant", w.O)
 	expect(t, r, http.StatusAccepted, "")
+}
+
+// A failed run that completed billed requests before failing counts against the monthly cap, so retries of a run that
+// keeps failing late cannot spend without bound (the fifth such run is refused).
+func TestFailedRunsThatSpentRequestsCount(t *testing.T) {
+	w := newWorld(t)
+	// 2 SPX hubs and one SOC: 2 requests per run (one per direction); the second fails.
+	w.hub("ALANG-A", "อาลัง", "HUB", "SPX", f(13.75), f(100.60), nil)
+	w.hub("BANGNA-SPX", "บางนา", "HUB", "SPX", f(13.67), f(100.61), nil)
+	w.hub("SOCE", "ศูนย์ตะวันออก", "SOC", "SPX", f(13.62), f(100.75), nil)
+	ta := w.login("ta.o")
+	for i := range hubs.MaxRunsPerMonth {
+		r := w.post("/v1/jobs/distances.compute", ta, nil)
+		expect(t, r, http.StatusAccepted, "")
+		id := str(r.data()["jobId"])
+		fake := &fakeMatrix{failAt: 2}
+		w.runJob(t, w.newJob(t, fake), id)
+		var status, result string
+		if err := w.etl.QueryRow(context.Background(), `SELECT status, coalesce(result::text, '') FROM jobs WHERE id = $1`, id).
+			Scan(&status, &result); err != nil {
+			t.Fatal(err)
+		}
+		if status != jobs.StatusFailed || len(fake.calls) != 2 || !strings.Contains(result, `"requests": 1`) {
+			t.Fatalf("run %d: %s %s, %d calls", i, status, result, len(fake.calls))
+		}
+	}
+	if n := w.count(`SELECT count(*) FROM hub_soc_distances`); n != 0 {
+		t.Fatalf("failed runs wrote %d pairs", n)
+	}
+	r := w.post("/v1/jobs/distances.compute", ta, nil)
+	expect(t, r, http.StatusConflict, "failed_precondition")
+	if r.detail("reason") != "monthly_run_limit" || r.detail("runs") != float64(hubs.MaxRunsPerMonth) {
+		t.Fatalf("cap after %d late failures: %s", hubs.MaxRunsPerMonth, r.raw)
+	}
+}
+
+// GET /v1/distances/{originId}/{destinationId} decodes its path segments: a code with Thai text or a space resolves as
+// it does in ?hubId; a malformed escape names nothing.
+func TestDistancePairByEncodedCodes(t *testing.T) {
+	w := newWorld(t)
+	thai := "SPK890103-ลาดกระบัง26"
+	w.hub(thai, "ลาดกระบัง26", "HUB", "SPK", f(13.72), f(100.75), nil)
+	plain := w.hub("PLAIN1", "ธรรมดา", "HUB", "SPK", f(13.77), f(100.57), nil)
+	socA := w.hub("SOC A", "โซคเอ", "SOC", "SPK", f(13.52), f(100.66), nil)
+	w.hub("ALANG-A", "อาลัง", "HUB", "SPX", f(13.75), f(100.60), nil)
+	w.hub("SOCE (บัวโรย)", "บัวโรย", "SOC", "SPX", f(13.50), f(100.90), nil)
+	ta := w.login("ta.o")
+	r := w.post("/v1/jobs/distances.compute", ta, nil)
+	expect(t, r, http.StatusAccepted, "")
+	w.runJob(t, w.newJob(t, &fakeMatrix{}), str(r.data()["jobId"]))
+	if n := w.count(`SELECT count(*) FROM hub_soc_distances`); n != 6 {
+		t.Fatalf("pairs: %d", n)
+	}
+	for _, c := range []struct{ origin, destination, direction string }{
+		{url.PathEscape(thai), socA, "hub_to_soc"},
+		{plain, url.PathEscape("SOC A"), "hub_to_soc"},
+		{url.PathEscape("SOC A"), url.PathEscape(thai), "soc_to_hub"},
+		{"ALANG-A", url.PathEscape("SOCE (บัวโรย)"), "hub_to_soc"},
+		{url.PathEscape("SOCE (บัวโรย)"), "ALANG-A", "soc_to_hub"},
+	} {
+		r := w.get("/v1/distances/"+c.origin+"/"+c.destination, ta)
+		if r.status != http.StatusOK || r.data()["direction"] != c.direction {
+			t.Errorf("%s -> %s: %d %s", c.origin, c.destination, r.status, r.raw)
+		}
+	}
+	if r := w.get("/v1/distances?hubId="+url.QueryEscape(thai), ta); len(r.list()) != 2 {
+		t.Fatalf("?hubId: %s", r.raw)
+	}
+	expect(t, w.getRaw("/v1/distances/%ZZ/SOCE", ta), http.StatusNotFound, "not_found")
 }

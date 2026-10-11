@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -223,7 +224,14 @@ func (h handlers) pair(c fiber.Ctx) error {
 	if err := onlyQuery(c); err != nil {
 		return err
 	}
-	out, err := h.s.GetPair(c.Context(), p, c.Params("originId"), c.Params("destinationId"))
+	// Fiber leaves path params percent-encoded (UnescapePath is off app-wide): decode them, so a code with a space or
+	// Thai text (SOCE (บัวโรย), SPK890103-ลาดกระบัง26) resolves as it does in ?hubId. A malformed escape names nothing.
+	origin, err1 := url.PathUnescape(c.Params("originId"))
+	destination, err2 := url.PathUnescape(c.Params("destinationId"))
+	if err1 != nil || err2 != nil {
+		return httpx.ErrNotFound()
+	}
+	out, err := h.s.GetPair(c.Context(), p, origin, destination)
 	if err != nil {
 		return err
 	}

@@ -190,6 +190,8 @@ func TestLinkMaskMirrorsRLS(t *testing.T) {
 		return cachedHub{Hub: Hub{LinkedPartyID: &party, LinkedCustomerID: &tenant, LinkedCustomerName: &name, LinkedCustomerKind: &k},
 			PartyKind: partyTenant, PartyTenantID: &tenant}
 	}
+	ownCarrierParty := carrier(carrierC) // a customer scope whose own party is a carrier's (tenant kind)
+	ownCarrierParty.LinkedPartyID = &partyX
 	steward := &authz.Principal{TenantID: &own, TenantRole: authz.Operator, Steward: true}
 	carrierStaff := &authz.Principal{TenantID: &carrierA, TenantRole: authz.Manager}
 	ownStaffReach := &authz.Principal{TenantID: &own, TenantRole: authz.Manager, SubtenantIDs: []uuid.UUID{carrierA}}
@@ -209,7 +211,8 @@ func TestLinkMaskMirrorsRLS(t *testing.T) {
 		{"contractor reach", ownStaffReach, carrier(carrierA), true},
 		{"customer scope, own party", customerScope, cust(partyX), true},
 		{"customer scope, other party", customerScope, cust(partyY), false},
-		{"customer scope, carrier", customerScope, carrier(carrierC), true},
+		{"customer scope, carrier", customerScope, carrier(carrierC), false}, // 0012 hides another party, of any kind
+		{"customer scope, own carrier party", customerScope, ownCarrierParty, true},
 		{"support, carrier", support, carrier(carrierC), false},
 		{"support, customer", support, cust(partyY), true},
 	} {
@@ -217,8 +220,13 @@ func TestLinkMaskMirrorsRLS(t *testing.T) {
 		if shown := got.LinkedCustomerName != nil && got.LinkedCustomerID != nil; shown != c.show {
 			t.Errorf("%s: shown %v", c.name, shown)
 		}
-		if got.LinkedPartyID == nil || got.LinkedCustomerKind == nil {
-			t.Errorf("%s: the hub's own columns were masked", c.name)
+		if got.LinkedPartyID == nil {
+			t.Errorf("%s: the hub's own column linkedPartyId was masked", c.name)
+		}
+		// The kind comes from the billing party row: hidden exactly where RLS hides that row (a customer scope's other
+		// parties); a carrier's name hidden from staff keeps the kind, as the RLS read does.
+		if kindHidden := got.LinkedCustomerKind == nil; kindHidden != (c.p == customerScope && !c.show) {
+			t.Errorf("%s: linkedCustomerKind hidden %v", c.name, kindHidden)
 		}
 	}
 }
@@ -262,6 +270,25 @@ func TestInputValidation(t *testing.T) {
 	}
 	if _, bad := parseLink(Field[string]{}, str(id), str("vendor")); len(bad) != 1 || bad[0].Field != "linkedCustomerKind" {
 		t.Errorf("bad kind: %v", bad)
+	}
+}
+
+// A blank import cell (a workbook's empty cell) keeps the stored value, as an absent or null one does: import never
+// clears (clearing is a PATCH).
+func TestImportBlankCellsKeepValues(t *testing.T) {
+	blank, spaces, v := "", "  ", "x"
+	in := ImportRow{SourceID: "H1", SourceNameTh: &blank, SourceNameEn: &spaces, StationType: &blank,
+		LinkedPartyID: &blank, LinkedCustomerID: &spaces, LinkedCustomerKind: &blank}.input()
+	if in.SourceNameTh.Set || in.SourceNameEn.Set || in.StationType.Set || in.LinkedPartyID.Set || in.LinkedCustomerID.Set ||
+		in.LinkedCustomerKind.Set {
+		t.Fatalf("a blank cell is set: %+v", in)
+	}
+	l, err := in.validate(false)
+	if err != nil || l.set {
+		t.Fatalf("blank cells: %v %+v", err, l)
+	}
+	if in := (ImportRow{SourceID: "H1", SourceNameEn: &v}).input(); !in.SourceNameEn.Set || in.SourceNameEn.V != "x" {
+		t.Fatalf("a filled cell: %+v", in.SourceNameEn)
 	}
 }
 

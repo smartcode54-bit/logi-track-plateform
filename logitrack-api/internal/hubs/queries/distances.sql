@@ -75,8 +75,10 @@ ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.up
 
 -- name: CountDistanceRuns :one
 -- The distances.compute runs since the start of a Bangkok month that count against the monthly cap (.vibe-rules.md
--- Hub-SOC Distance section: at most 4 runs a month): queued, running or succeeded (jobs is RLS-exempt, R67).
+-- Hub-SOC Distance section: at most 4 runs a month): queued, running or succeeded, and a failed run that completed at
+-- least one (billed) request (progress.done > 0); a run refused on its first request is free (jobs is RLS-exempt, R67).
 SELECT count(*)::int AS runs
 FROM jobs
-WHERE type = 'distances.compute' AND status IN ('queued', 'running', 'succeeded')
+WHERE type = 'distances.compute'
+  AND (status IN ('queued', 'running', 'succeeded') OR coalesce((progress->>'done')::int, 0) > 0)
   AND created_at >= sqlc.arg(since)::timestamptz;

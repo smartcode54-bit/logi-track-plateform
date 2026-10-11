@@ -35,8 +35,9 @@ const RouteDistancesJob = "job." + jobs.TypeDistancesCompute
 const DistanceSpacing = 200 * time.Millisecond
 
 // MaxRunsPerMonth is the cost cap of the Hub-SOC Distance section of .vibe-rules.md (as of commit 4f552099): at most 4
-// runs a Bangkok month keep the Distance Matrix inside the free tier. Queued, running and succeeded runs count; a
-// platform_admin is not capped (the way to run again after a fix).
+// runs a Bangkok month keep the Distance Matrix inside the free tier. Queued, running and succeeded runs count, and so
+// does a failed run that completed at least one (billed) request; a run refused on its first request (a key or API
+// problem) is free. A platform_admin is not capped (the way to run again after a fix).
 const MaxRunsPerMonth = 4
 
 // CodeFailedPrecondition is the 409 code of the monthly cap (Appendix B §B.1.5).
@@ -45,8 +46,9 @@ const CodeFailedPrecondition = "failed_precondition"
 // SubmitDistances is POST /v1/jobs/distances.compute (operations:calculate_distances, a steward key: R60): one
 // distances.compute job under lock:job:distances.compute:all (a run in progress is 409 already_exists with its
 // jobId), owned by the caller and filed under its effective tenant, so the tenant's staff that hold the key read it
-// (developer-spec.md §7.5). The worker runs it. A fifth run in a Bangkok month is 409 failed_precondition
-// (details.reason monthly_run_limit) unless the caller is a platform_admin.
+// (developer-spec.md §7.5). The worker runs it. A fifth run in a Bangkok month (MaxRunsPerMonth: failed runs that
+// spent requests count) is 409 failed_precondition (details.reason monthly_run_limit) unless the caller is a
+// platform_admin.
 func (s *Service) SubmitDistances(ctx context.Context, p *authz.Principal) (jobs.Job, error) {
 	if s.jobs == nil {
 		return jobs.Job{}, httpx.ErrUnavailable("jobs are not available")
@@ -186,8 +188,12 @@ func (j *DistanceJob) Handle(ctx context.Context, d *mq.Delivery) error {
 		return err
 	}
 	if cause != "" {
+		var spent any // what a failed run still cost: its requests were billed
+		if res.Requests > 0 {
+			spent = map[string]any{"requests": res.Requests, "hubsCount": res.HubsCount, "socsCount": res.SocsCount}
+		}
 		err = db.WithSystem(ctx, j.d.Pool, nil, func(tx pgx.Tx) error {
-			_, err := jobs.Fail(ctx, tx, job.ID, cause, nil)
+			_, err := jobs.Fail(ctx, tx, job.ID, cause, spent)
 			return err
 		})
 	}

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/http"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -239,8 +241,75 @@ func actor(p *authz.Principal) *uuid.UUID {
 	return &id
 }
 
+// nameField is a hub name a write sets: the request field it came from and its trimmed value.
+type nameField struct{ field, value string }
+
+// Reasons of the name rule.
+const (
+	ReasonIsHubCode   = "is_hub_code"
+	ReasonTakenAsName = "taken_as_name"
+)
+
+// nameRule keeps invariant 8 at write time (developer-spec §17 item 8, Appendix D §D.3: no alias equals a hub code;
+// §6 "Hub maps": pricing builds nameToCode from hubs.name_th, hubs.name_en and hub_name_aliases, skipping only a hub's
+// own code, so a name equal to another hub's code would resolve that code to the wrong hub). A name this write sets
+// may not be another hub's code (422 invalid_argument, reason is_hub_code, on the name's field), and a new or renamed
+// code may not be another hub's alias or name (409 already_exists, details.field sourceId, reason taken_as_name).
+// Both compare case-insensitively (citext). hub is nil for a new hub; a name equal to the code the hub will have is
+// allowed (it is never an alias), so a taken code stays a plain 409 taken. The caller holds LockHubNames, so two writes
+// cannot cross the rule.
+func nameRule(ctx context.Context, q *hubsdb.Queries, hub *uuid.UUID, code string, newCode bool, names []nameField) error {
+	own := func(n nameField) bool { return n.value == "" || strings.EqualFold(n.value, code) }
+	values := make([]string, 0, len(names))
+	for _, n := range names {
+		if !own(n) {
+			values = append(values, n.value)
+		}
+	}
+	if len(values) > 0 {
+		taken, err := q.NamesThatAreHubCodes(ctx, hubsdb.NamesThatAreHubCodesParams{Names: values, HubID: hub})
+		if err != nil {
+			return err
+		}
+		var ck checker
+		for _, n := range names {
+			if !own(n) && slices.Contains(taken, n.value) {
+				ck.add(n.field, ReasonIsHubCode)
+			}
+		}
+		if err := ck.err(); err != nil {
+			return err
+		}
+	}
+	if !newCode {
+		return nil
+	}
+	taken, err := q.CodeTakenAsName(ctx, hubsdb.CodeTakenAsNameParams{Code: code, HubID: hub})
+	if err != nil {
+		return err
+	}
+	if taken != nil && *taken {
+		return httpx.NewError(http.StatusConflict, CodeAlreadyExists, "the code is the name of another hub").
+			WithDetails(map[string]any{"field": "sourceId", "reason": ReasonTakenAsName})
+	}
+	return nil
+}
+
+// changedNames are the names a merge sets to a new value (an unchanged legacy name is not checked again).
+func changedNames(cur hubsdb.Hub, m hubsdb.UpdateHubParams) []nameField {
+	var out []nameField
+	if m.NameTh != cur.NameTh {
+		out = append(out, nameField{"sourceNameTh", strings.TrimSpace(m.NameTh)})
+	}
+	if m.NameEn != nil && !eq(m.NameEn, cur.NameEn) {
+		out = append(out, nameField{"sourceNameEn", strings.TrimSpace(*m.NameEn)})
+	}
+	return out
+}
+
 // Create is POST /v1/hubs (operations:manage_sources, a steward key: R60): the hub, its name aliases and outbox
-// hubs.changed in one transaction; a code that exists (case-insensitively) is 409 already_exists.
+// hubs.changed in one transaction; a code that exists (case-insensitively) is 409 already_exists, and the name rule
+// (nameRule) refuses a name that is another hub's code or a code that is another hub's name.
 func (s *Service) Create(ctx context.Context, p *authz.Principal, rid string, in HubInput) (*Hub, error) {
 	l, err := in.validate(true)
 	if err != nil {
@@ -256,11 +325,21 @@ func (s *Service) Create(ctx context.Context, p *authz.Principal, rid string, in
 	}
 	var id uuid.UUID
 	err = s.tx(ctx, p, func(tx pgx.Tx, q *hubsdb.Queries) error {
+		if err := q.LockHubNames(ctx); err != nil {
+			return err
+		}
 		pt, err := resolveLink(ctx, q, l)
 		if err != nil {
 			return err
 		}
 		nameTh, nameEn := strings.TrimSpace(in.SourceNameTh.V), optText(in.SourceNameEn)
+		names := []nameField{{"sourceNameTh", nameTh}}
+		if nameEn != nil {
+			names = append(names, nameField{"sourceNameEn", *nameEn})
+		}
+		if err := nameRule(ctx, q, nil, in.SourceID.V, true, names); err != nil {
+			return err
+		}
 		id, err = q.InsertHub(ctx, hubsdb.InsertHubParams{SourceID: in.SourceID.V, NameTh: nameTh, NameEn: nameEn,
 			Latitude: lat, Longitude: lng, StationType: station, Network: NetworkGroup(in.SourceID.V, pt.code),
 			LinkedPartyID: pt.id, CreatedBy: actor(p)})
@@ -280,7 +359,8 @@ func (s *Service) Create(ctx context.Context, p *authz.Principal, rid string, in
 }
 
 // Patch is PATCH /v1/hubs/{id} (operations:manage_sources): the merged row (network recomputed from the code and the
-// link), the name aliases and hubs.changed in one transaction; a request that changes nothing writes nothing.
+// link), the name aliases and hubs.changed in one transaction; a request that changes nothing writes nothing. The
+// names it changes and a renamed code pass the name rule (nameRule).
 func (s *Service) Patch(ctx context.Context, p *authz.Principal, rid string, id uuid.UUID, in HubInput) (*Hub, error) {
 	l, err := in.validate(false)
 	if err != nil {
@@ -288,6 +368,9 @@ func (s *Service) Patch(ctx context.Context, p *authz.Principal, rid string, id 
 	}
 	changed := false
 	err = s.tx(ctx, p, func(tx pgx.Tx, q *hubsdb.Queries) error {
+		if err := q.LockHubNames(ctx); err != nil {
+			return err
+		}
 		cur, err := q.LockHub(ctx, id)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return httpx.ErrNotFound()
@@ -301,6 +384,9 @@ func (s *Service) Patch(ctx context.Context, p *authz.Principal, rid string, id 
 		}
 		if !ch {
 			return nil
+		}
+		if err := nameRule(ctx, q, &id, m.SourceID, !strings.EqualFold(m.SourceID, cur.SourceID), changedNames(cur, m)); err != nil {
+			return err
 		}
 		changed = true
 		if err := q.UpdateHub(ctx, m); err != nil {
@@ -401,11 +487,15 @@ func aliasNames(code, nameTh string, nameEn *string) (aliases, sources []string)
 }
 
 // syncAliases keeps hub_name_aliases equal to the hub's names (Appendix A §A.3.3: name -> code only, first writer
-// wins): the names it no longer carries are dropped and handed to the next hub that carries them, its current names
-// are added where no other hub holds them. fresh skips the drop for a new hub.
+// wins): the names it no longer carries are dropped and handed to the next hub that carries them, any alias of its own
+// equal to its code is dropped (invariant 8), its current names are added where no other hub holds them and no hub has
+// them as a code (its own name aliases take the current spelling). fresh skips the drops for a new hub.
 func syncAliases(ctx context.Context, q *hubsdb.Queries, hubID uuid.UUID, code, nameTh string, nameEn *string, fresh bool) error {
 	aliases, sources := aliasNames(code, nameTh, nameEn)
 	if !fresh {
+		if err := q.DeleteCodeAliases(ctx, hubsdb.DeleteCodeAliasesParams{HubID: hubID, Code: code}); err != nil {
+			return err
+		}
 		current := make([]string, 0, len(aliases))
 		for _, a := range aliases {
 			current = append(current, strings.ToLower(a))
@@ -429,18 +519,19 @@ func syncAliases(ctx context.Context, q *hubsdb.Queries, hubID uuid.UUID, code, 
 // --- the driver's hub ----------------------------------------------------------------------------------------
 
 // DriverHubInput is the driver's subset (addHubByDriver, mob:hubs_repository.dart:208-246): a code, one name (Thai and
-// English alike, as the APK stores it), the station type and optional coordinates.
+// English alike, as the APK stores it) and the station type. No coordinates: they are steward-only (PATCH
+// /v1/hubs/{id}), so a driver hub enters the steward-owned, billed Distance Matrix run only once a steward sets them,
+// as in the legacy app (a body that still sends latitude/longitude has them ignored).
 type DriverHubInput struct {
-	SourceID    string   `json:"sourceId"`
-	SourceName  string   `json:"sourceName"`
-	StationType string   `json:"stationType"`
-	Latitude    *float64 `json:"latitude"`
-	Longitude   *float64 `json:"longitude"`
+	SourceID    string `json:"sourceId"`
+	SourceName  string `json:"sourceName"`
+	StationType string `json:"stationType"`
 }
 
 // CreateDriverHub is the service of POST /v1/mobile/hubs (mobile:create_hub + driver:self; the route is mounted at
-// P7a, Appendix B §B.2.21): a hub with created_by_driver = true, written by the driver itself under RLS
-// (p_driver_hub_insert, p_driver_hub_alias_insert), its alias and hubs.changed in one transaction. A taken code is 409.
+// P7a, Appendix B §B.2.21): a hub with created_by_driver = true and no coordinates, written by the driver itself under
+// RLS (p_driver_hub_insert, p_driver_hub_alias_insert), its alias and hubs.changed in one transaction. A taken code is
+// 409; the name rule (nameRule) applies as on the steward writes.
 func (s *Service) CreateDriverHub(ctx context.Context, p *authz.Principal, rid string, in DriverHubInput) (*Hub, error) {
 	if p.EffectiveRole() != authz.Driver || p.DriverID == nil {
 		return nil, authz.ErrPermissionDenied("a driver hub is created by a driver")
@@ -459,25 +550,21 @@ func (s *Service) CreateDriverHub(ctx context.Context, p *authz.Principal, rid s
 		}
 		station = st
 	}
-	if in.Latitude != nil {
-		ck.coordinate("latitude", *in.Latitude, 90)
-	}
-	if in.Longitude != nil {
-		ck.coordinate("longitude", *in.Longitude, 180)
-	}
 	if err := ck.err(); err != nil {
-		return nil, err
-	}
-	if err := coordinatesRule(in.Latitude, in.Longitude); err != nil {
 		return nil, err
 	}
 	code, name := NormalizeSourceID(in.SourceID), strings.TrimSpace(in.SourceName)
 	var id uuid.UUID
 	err := s.tx(ctx, p, func(tx pgx.Tx, q *hubsdb.Queries) error {
+		if err := q.LockHubNames(ctx); err != nil {
+			return err
+		}
+		if err := nameRule(ctx, q, nil, code, true, []nameField{{"sourceName", name}}); err != nil {
+			return err
+		}
 		var err error
-		id, err = q.InsertHub(ctx, hubsdb.InsertHubParams{SourceID: code, NameTh: name, NameEn: &name, Latitude: in.Latitude,
-			Longitude: in.Longitude, StationType: station, Network: NetworkGroup(code, ""), CreatedByDriver: true,
-			CreatedBy: actor(p)})
+		id, err = q.InsertHub(ctx, hubsdb.InsertHubParams{SourceID: code, NameTh: name, NameEn: &name,
+			StationType: station, Network: NetworkGroup(code, ""), CreatedByDriver: true, CreatedBy: actor(p)})
 		if err != nil {
 			return err
 		}
@@ -501,9 +588,9 @@ type ImportInput struct {
 	Rows []ImportRow `json:"rows"`
 }
 
-// ImportRow is one hub upserted by sourceId: an existing hub takes the fields the row carries (a missing or null
-// field keeps its value; clearing is a PATCH), a new hub needs a name (sourceNameTh, else sourceNameEn as the legacy
-// import did) and defaults to HUB.
+// ImportRow is one hub upserted by sourceId: an existing hub takes the fields the row carries (a missing, null or blank
+// field keeps its value: a workbook's empty cell arrives as ""; import never clears, clearing is a PATCH), a new hub
+// needs a name (sourceNameTh, else sourceNameEn as the legacy import did) and defaults to HUB.
 type ImportRow struct {
 	SourceID           string   `json:"sourceId"`
 	SourceNameTh       *string  `json:"sourceNameTh"`
@@ -546,17 +633,31 @@ func fieldOf[T any](v *T) Field[T] {
 	return Field[T]{Set: true, V: *v}
 }
 
-// input turns a row into the HubInput of the shared validation (present fields only).
-func (r ImportRow) input() HubInput {
-	return HubInput{SourceID: Field[string]{Set: true, V: r.SourceID}, SourceNameTh: fieldOf(r.SourceNameTh),
-		SourceNameEn: fieldOf(r.SourceNameEn), Latitude: fieldOf(r.Latitude), Longitude: fieldOf(r.Longitude),
-		StationType: fieldOf(r.StationType), LinkedPartyID: fieldOf(r.LinkedPartyID),
-		LinkedCustomerID: fieldOf(r.LinkedCustomerID), LinkedCustomerKind: fieldOf(r.LinkedCustomerKind)}
+// importField is an import cell: nil or blank keeps the stored value (import never clears; clearing is a PATCH).
+func importField(v *string) Field[string] {
+	if v == nil || strings.TrimSpace(*v) == "" {
+		return Field[string]{}
+	}
+	return Field[string]{Set: true, V: *v}
 }
 
-// prefix renames the fields of a row's 422 to rows[i].field; any other error is returned as it is.
+// input turns a row into the HubInput of the shared validation (present, non-blank fields only).
+func (r ImportRow) input() HubInput {
+	return HubInput{SourceID: Field[string]{Set: true, V: r.SourceID}, SourceNameTh: importField(r.SourceNameTh),
+		SourceNameEn: importField(r.SourceNameEn), Latitude: fieldOf(r.Latitude), Longitude: fieldOf(r.Longitude),
+		StationType: importField(r.StationType), LinkedPartyID: importField(r.LinkedPartyID),
+		LinkedCustomerID: importField(r.LinkedCustomerID), LinkedCustomerKind: importField(r.LinkedCustomerKind)}
+}
+
+// prefix renames the fields of a row's 422 to rows[i].field and the field of a row's 409 (details.field) to
+// rows[i].field (the latter comes back as the error); any other error is returned as it is.
 func prefix(i int, err error) ([]httpx.FieldViolation, error) {
 	e, ok := errors.AsType[*httpx.Error](err)
+	if ok && e.Code == CodeAlreadyExists {
+		if f, _ := e.Details["field"].(string); f != "" {
+			return nil, e.WithDetails(map[string]any{"field": fmt.Sprintf("rows[%d].%s", i, f)})
+		}
+	}
 	if !ok || e.Code != httpx.CodeInvalidArgument {
 		return nil, err
 	}
@@ -571,7 +672,8 @@ func prefix(i int, err error) ([]httpx.FieldViolation, error) {
 
 // Import is POST /v1/hubs/import (operations:manage_sources): every row upserted by sourceId in one transaction with
 // its aliases and one hubs.changed for the hubs it created or changed. Any invalid row refuses the whole import (422,
-// fields rows[i].*), as does a code twice in the request; nothing is written then.
+// fields rows[i].*), as does a code twice in the request or a row the name rule refuses (422 rows[i].<name field>, or
+// 409 with details.field rows[i].sourceId); nothing is written then.
 func (s *Service) Import(ctx context.Context, p *authz.Principal, rid string, in ImportInput) (*ImportResult, error) {
 	var bad []httpx.FieldViolation
 	switch n := len(in.Rows); {
@@ -614,6 +716,9 @@ func (s *Service) Import(ctx context.Context, p *authz.Principal, rid string, in
 	res := &ImportResult{Items: make([]ImportItem, 0, len(in.Rows))}
 	var changedIDs []uuid.UUID
 	err := s.tx(ctx, p, func(tx pgx.Tx, q *hubsdb.Queries) error {
+		if err := q.LockHubNames(ctx); err != nil {
+			return err
+		}
 		existing, err := q.LockHubsBySourceID(ctx, codes)
 		if err != nil {
 			return err
@@ -666,6 +771,9 @@ func (s *Service) importRow(ctx context.Context, q *hubsdb.Queries, p *authz.Pri
 		if !changed {
 			return ImportItem{ID: cur.ID, SourceID: cur.SourceID, Outcome: OutcomeUnchanged}, nil
 		}
+		if err := nameRule(ctx, q, &cur.ID, m.SourceID, false, changedNames(cur, m)); err != nil {
+			return ImportItem{}, err
+		}
 		if err := q.UpdateHub(ctx, m); err != nil {
 			return ImportItem{}, err
 		}
@@ -675,11 +783,20 @@ func (s *Service) importRow(ctx context.Context, q *hubsdb.Queries, p *authz.Pri
 		return ImportItem{ID: cur.ID, SourceID: m.SourceID, Outcome: OutcomeUpdated}, nil
 	}
 	nameTh, nameEn := optText(in.SourceNameTh), optText(in.SourceNameEn)
+	names := []nameField{}
 	if nameTh == nil {
 		nameTh = nameEn // the legacy organic rule: a Thai name in the English column (Appendix A §A.3.3)
+	} else {
+		names = append(names, nameField{"sourceNameTh", *nameTh})
 	}
 	if nameTh == nil {
 		return ImportItem{}, httpx.ErrInvalidArgument(violation("sourceNameTh", "required"))
+	}
+	if nameEn != nil {
+		names = append(names, nameField{"sourceNameEn", *nameEn})
+	}
+	if err := nameRule(ctx, q, nil, code, true, names); err != nil {
+		return ImportItem{}, err
 	}
 	lat, lng := optFloat(in.Latitude), optFloat(in.Longitude)
 	if err := coordinatesRule(lat, lng); err != nil {

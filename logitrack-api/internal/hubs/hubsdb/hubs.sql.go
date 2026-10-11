@@ -12,6 +12,45 @@ import (
 	"github.com/google/uuid"
 )
 
+const codeTakenAsName = `-- name: CodeTakenAsName :one
+SELECT EXISTS (SELECT 1 FROM hub_name_aliases a
+               WHERE a.alias = $1::text::citext AND a.hub_id IS DISTINCT FROM $2::uuid)
+    OR EXISTS (SELECT 1 FROM hubs h
+               WHERE h.id IS DISTINCT FROM $2::uuid
+                 AND (lower(btrim(h.name_th)) = lower($1::text)
+                      OR lower(btrim(h.name_en)) = lower($1::text))) AS taken
+`
+
+type CodeTakenAsNameParams struct {
+	Code  string
+	HubID *uuid.UUID
+}
+
+// Invariant 8 the other way: a new or renamed code that is another hub's alias or Thai or English name (it would
+// resolve to that hub through nameToCode). hub_id is the hub written (NULL for a new one).
+func (q *Queries) CodeTakenAsName(ctx context.Context, arg CodeTakenAsNameParams) (*bool, error) {
+	row := q.db.QueryRow(ctx, codeTakenAsName, arg.Code, arg.HubID)
+	var taken *bool
+	err := row.Scan(&taken)
+	return taken, err
+}
+
+const deleteCodeAliases = `-- name: DeleteCodeAliases :exec
+DELETE FROM hub_name_aliases WHERE hub_id = $1 AND alias = $2::text::citext
+`
+
+type DeleteCodeAliasesParams struct {
+	HubID uuid.UUID
+	Code  string
+}
+
+// A renamed hub drops its own aliases equal to its new code, whatever their source (invariant 8: no alias equals a
+// hub code; the code resolves to itself anyway).
+func (q *Queries) DeleteCodeAliases(ctx context.Context, arg DeleteCodeAliasesParams) error {
+	_, err := q.db.Exec(ctx, deleteCodeAliases, arg.HubID, arg.Code)
+	return err
+}
+
 const deleteStaleNameAliases = `-- name: DeleteStaleNameAliases :many
 DELETE FROM hub_name_aliases
 WHERE hub_id = $1 AND source IN ('name_th', 'name_en')
@@ -122,7 +161,10 @@ const insertNameAliases = `-- name: InsertNameAliases :exec
 INSERT INTO hub_name_aliases (alias, hub_id, source)
 SELECT ($1::text[])[i]::citext, $2::uuid, ($3::text[])[i]
 FROM generate_subscripts($1::text[], 1) AS i
-ON CONFLICT (alias) DO NOTHING
+WHERE NOT EXISTS (SELECT 1 FROM hubs o WHERE o.source_id = ($1::text[])[i]::citext)
+ON CONFLICT (alias) DO UPDATE SET alias = EXCLUDED.alias, source = EXCLUDED.source
+  WHERE hub_name_aliases.hub_id = EXCLUDED.hub_id AND hub_name_aliases.source IN ('name_th', 'name_en')
+    AND hub_name_aliases.alias::text IS DISTINCT FROM EXCLUDED.alias::text
 `
 
 type InsertNameAliasesParams struct {
@@ -131,7 +173,11 @@ type InsertNameAliasesParams struct {
 	Sources []string
 }
 
-// name -> code (hub_name_aliases): the first writer of a name keeps it (== `!nameToCode.has(alias)` of buildHubMaps).
+// name -> code (hub_name_aliases): the first writer of a name keeps it (== `!nameToCode.has(alias)` of buildHubMaps);
+// a name that is a hub code is never stored (invariant 8; a legacy name the write did not set may still be one). The
+// hub's own name alias takes the current spelling, so a rename that changes only the case keeps the current name a
+// nameToCode key (the citext key would otherwise keep the old spelling). Another hub's alias is never taken (the
+// WHERE fails before any RLS check of the update), nor an ETL (legacy_hubName) or manual one.
 func (q *Queries) InsertNameAliases(ctx context.Context, arg InsertNameAliasesParams) error {
 	_, err := q.db.Exec(ctx, insertNameAliases, arg.Aliases, arg.HubID, arg.Sources)
 	return err
@@ -268,7 +314,8 @@ type ListNameAliasesRow struct {
 
 // nameToCode of GET /v1/hubs/maps (cache:hubs:n2c): hub_name_aliases, the name -> code direction only. An alias that
 // is itself a hub code is left out, so a code always resolves to itself (a destination already stored as a code, such
-// as SPK890174, is never translated into another hub or back into a name).
+// as SPK890174, is never translated into another hub or back into a name). The writes below never store such an
+// alias (invariant 8, NamesThatAreHubCodes / CodeTakenAsName); this filter is defence in depth for loaded legacy data.
 func (q *Queries) ListNameAliases(ctx context.Context) ([]ListNameAliasesRow, error) {
 	rows, err := q.db.Query(ctx, listNameAliases)
 	if err != nil {
@@ -316,6 +363,17 @@ func (q *Queries) LockHub(ctx context.Context, id uuid.UUID) (Hub, error) {
 	return i, err
 }
 
+const lockHubNames = `-- name: LockHubNames :exec
+SELECT pg_advisory_xact_lock(hashtext('hubs:names'))
+`
+
+// Every hub write takes this transaction lock first, so the name rule below (a name is never another hub's code, a code
+// never another hub's name or alias) cannot be crossed by two concurrent writes. Hub writes are rare.
+func (q *Queries) LockHubNames(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, lockHubNames)
+	return err
+}
+
 const lockHubsBySourceID = `-- name: LockHubsBySourceID :many
 SELECT id, legacy_doc_id, source_id, name_th, name_en, latitude, longitude, station_type, network, linked_party_id, created_by_driver, created_by, created_at, updated_at FROM hubs WHERE source_id = ANY ($1::text[]::citext[]) FOR UPDATE
 `
@@ -356,6 +414,41 @@ func (q *Queries) LockHubsBySourceID(ctx context.Context, sourceIds []string) ([
 	return items, nil
 }
 
+const namesThatAreHubCodes = `-- name: NamesThatAreHubCodes :many
+SELECT n.name::text AS name
+FROM unnest($1::text[]) AS n(name)
+WHERE EXISTS (SELECT 1 FROM hubs o WHERE o.source_id = n.name::citext
+                AND o.id IS DISTINCT FROM $2::uuid)
+`
+
+type NamesThatAreHubCodesParams struct {
+	Names []string
+	HubID *uuid.UUID
+}
+
+// Invariant 8 at write time (developer-spec §17 item 8; §6 "Hub maps": pricing builds nameToCode from hubs.name_th,
+// hubs.name_en and hub_name_aliases, skipping only a hub's own code): the names a write sets that are the code of
+// another hub (case-insensitive, citext). hub_id is the hub written (NULL for a new one).
+func (q *Queries) NamesThatAreHubCodes(ctx context.Context, arg NamesThatAreHubCodesParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, namesThatAreHubCodes, arg.Names, arg.HubID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		items = append(items, name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const reclaimNameAliases = `-- name: ReclaimNameAliases :exec
 INSERT INTO hub_name_aliases (alias, hub_id, source)
 SELECT DISTINCT ON (lower(n.name)) n.name::citext, h.id, n.source
@@ -364,12 +457,13 @@ CROSS JOIN LATERAL (VALUES (btrim(h.name_th), 'name_th'), (btrim(h.name_en), 'na
 WHERE n.name IS NOT NULL AND n.name <> ''
   AND lower(n.name) = ANY ($1::text[])
   AND lower(n.name) <> lower(h.source_id::text)
+  AND NOT EXISTS (SELECT 1 FROM hubs o WHERE o.source_id = n.name::citext)
 ORDER BY lower(n.name), h.created_at, h.id
 ON CONFLICT (alias) DO NOTHING
 `
 
 // A name another hub gave up goes to the oldest hub that still carries it as its Thai or English name (first writer
-// wins again), unless the name is that hub's own code.
+// wins again), unless the name is a hub code (that hub's own or, from legacy data, another's: invariant 8).
 func (q *Queries) ReclaimNameAliases(ctx context.Context, freed []string) error {
 	_, err := q.db.Exec(ctx, reclaimNameAliases, freed)
 	return err

@@ -294,10 +294,11 @@ logitrack-api/            module github.com/smartcode54-bit/logi-track-plateform
     auth (login, OIDC, refresh, sessions, api_keys, devices, SSE tickets, JWKS, exchange, bridge)
     authz (catalog.go, Principal, policies)  security  iam (tenants, memberships, roles, scopes, users)
     scope (dispatcher / customer-scope reads, scope_* views only, Appendix C §C.3.7)
-    parties  drivers  fleet  places (hubs, nameToCode/codeToName, distances)  tasks  trips  standby
+    parties  drivers  fleet  hubs (hubs, nameToCode/codeToName, distances; T21)  tasks  trips  standby
     expenses  chats  hr  mobile  billing  billing/compute  hr/compute  files (file_objects,
     presign/commit, /evidence/*)  jobs  scheduler (leader, cron table; T10)  webcfg  forms  public (/public/v1/*)  notify
-  internal/platform/{db,cache,mq,outbox,inbox,storage,realtime,push,line,cartrack,bangchak,maps,
+  internal/platform/{db,cache,mq,outbox,inbox,storage,realtime,push,line,cartrack,bangchak,
+                     gmaps (Google Maps: Distance Matrix, T21; reverse geocoding joins at P7a),
                      ocr,pdf,xlsx,email,tenancy,clock,i18n,telemetry,httpx,ingress}
   migrations/  sqlc/  api/openapi.yaml  testdata/golden/
   tools/analyzers/withsystem  RLS-context allow-lists (WithSystem, inbox.Run, Submit InTx, db.RLS, raw GUC SQL; App. C §C.3.2)

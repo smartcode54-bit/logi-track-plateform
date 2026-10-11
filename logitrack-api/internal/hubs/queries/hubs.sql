@@ -29,13 +29,38 @@ ORDER BY h.source_id, h.id;
 -- name: ListNameAliases :many
 -- nameToCode of GET /v1/hubs/maps (cache:hubs:n2c): hub_name_aliases, the name -> code direction only. An alias that
 -- is itself a hub code is left out, so a code always resolves to itself (a destination already stored as a code, such
--- as SPK890174, is never translated into another hub or back into a name).
+-- as SPK890174, is never translated into another hub or back into a name). The writes below never store such an
+-- alias (invariant 8, NamesThatAreHubCodes / CodeTakenAsName); this filter is defence in depth for loaded legacy data.
 SELECT a.alias::text AS name, h.source_id::text AS code
 FROM hub_name_aliases a
 JOIN hubs h ON h.id = a.hub_id
 WHERE btrim(a.alias::text) <> ''
   AND NOT EXISTS (SELECT 1 FROM hubs o WHERE o.source_id = a.alias)
 ORDER BY a.created_at, a.alias;
+
+-- name: LockHubNames :exec
+-- Every hub write takes this transaction lock first, so the name rule below (a name is never another hub's code, a code
+-- never another hub's name or alias) cannot be crossed by two concurrent writes. Hub writes are rare.
+SELECT pg_advisory_xact_lock(hashtext('hubs:names'));
+
+-- name: NamesThatAreHubCodes :many
+-- Invariant 8 at write time (developer-spec §17 item 8; §6 "Hub maps": pricing builds nameToCode from hubs.name_th,
+-- hubs.name_en and hub_name_aliases, skipping only a hub's own code): the names a write sets that are the code of
+-- another hub (case-insensitive, citext). hub_id is the hub written (NULL for a new one).
+SELECT n.name::text AS name
+FROM unnest(sqlc.arg(names)::text[]) AS n(name)
+WHERE EXISTS (SELECT 1 FROM hubs o WHERE o.source_id = n.name::citext
+                AND o.id IS DISTINCT FROM sqlc.narg(hub_id)::uuid);
+
+-- name: CodeTakenAsName :one
+-- Invariant 8 the other way: a new or renamed code that is another hub's alias or Thai or English name (it would
+-- resolve to that hub through nameToCode). hub_id is the hub written (NULL for a new one).
+SELECT EXISTS (SELECT 1 FROM hub_name_aliases a
+               WHERE a.alias = sqlc.arg(code)::text::citext AND a.hub_id IS DISTINCT FROM sqlc.narg(hub_id)::uuid)
+    OR EXISTS (SELECT 1 FROM hubs h
+               WHERE h.id IS DISTINCT FROM sqlc.narg(hub_id)::uuid
+                 AND (lower(btrim(h.name_th)) = lower(sqlc.arg(code)::text)
+                      OR lower(btrim(h.name_en)) = lower(sqlc.arg(code)::text))) AS taken;
 
 -- name: LockHub :one
 -- PATCH: the row is locked (RLS: FOR UPDATE needs the steward write policy, so a non-steward finds nothing).
@@ -82,16 +107,28 @@ WHERE hub_id = sqlc.arg(hub_id) AND source IN ('name_th', 'name_en')
   AND NOT (lower(alias::text) = ANY (sqlc.arg(current)::text[]))
 RETURNING lower(alias::text)::text AS alias;
 
+-- name: DeleteCodeAliases :exec
+-- A renamed hub drops its own aliases equal to its new code, whatever their source (invariant 8: no alias equals a
+-- hub code; the code resolves to itself anyway).
+DELETE FROM hub_name_aliases WHERE hub_id = sqlc.arg(hub_id) AND alias = sqlc.arg(code)::text::citext;
+
 -- name: InsertNameAliases :exec
--- name -> code (hub_name_aliases): the first writer of a name keeps it (== `!nameToCode.has(alias)` of buildHubMaps).
+-- name -> code (hub_name_aliases): the first writer of a name keeps it (== `!nameToCode.has(alias)` of buildHubMaps);
+-- a name that is a hub code is never stored (invariant 8; a legacy name the write did not set may still be one). The
+-- hub's own name alias takes the current spelling, so a rename that changes only the case keeps the current name a
+-- nameToCode key (the citext key would otherwise keep the old spelling). Another hub's alias is never taken (the
+-- WHERE fails before any RLS check of the update), nor an ETL (legacy_hubName) or manual one.
 INSERT INTO hub_name_aliases (alias, hub_id, source)
 SELECT (sqlc.arg(aliases)::text[])[i]::citext, sqlc.arg(hub_id)::uuid, (sqlc.arg(sources)::text[])[i]
 FROM generate_subscripts(sqlc.arg(aliases)::text[], 1) AS i
-ON CONFLICT (alias) DO NOTHING;
+WHERE NOT EXISTS (SELECT 1 FROM hubs o WHERE o.source_id = (sqlc.arg(aliases)::text[])[i]::citext)
+ON CONFLICT (alias) DO UPDATE SET alias = EXCLUDED.alias, source = EXCLUDED.source
+  WHERE hub_name_aliases.hub_id = EXCLUDED.hub_id AND hub_name_aliases.source IN ('name_th', 'name_en')
+    AND hub_name_aliases.alias::text IS DISTINCT FROM EXCLUDED.alias::text;
 
 -- name: ReclaimNameAliases :exec
 -- A name another hub gave up goes to the oldest hub that still carries it as its Thai or English name (first writer
--- wins again), unless the name is that hub's own code.
+-- wins again), unless the name is a hub code (that hub's own or, from legacy data, another's: invariant 8).
 INSERT INTO hub_name_aliases (alias, hub_id, source)
 SELECT DISTINCT ON (lower(n.name)) n.name::citext, h.id, n.source
 FROM hubs h
@@ -99,5 +136,6 @@ CROSS JOIN LATERAL (VALUES (btrim(h.name_th), 'name_th'), (btrim(h.name_en), 'na
 WHERE n.name IS NOT NULL AND n.name <> ''
   AND lower(n.name) = ANY (sqlc.arg(freed)::text[])
   AND lower(n.name) <> lower(h.source_id::text)
+  AND NOT EXISTS (SELECT 1 FROM hubs o WHERE o.source_id = n.name::citext)
 ORDER BY lower(n.name), h.created_at, h.id
 ON CONFLICT (alias) DO NOTHING;
