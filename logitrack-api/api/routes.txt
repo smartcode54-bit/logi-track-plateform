@@ -26,7 +26,15 @@ POST /v1/auth/sse-ticket internal,public
 POST /v1/auth/tenant internal,public
 USE /v1/bridge internal
 POST /v1/bridge/firebase-token internal
+GET /v1/companies internal
+POST /v1/companies internal
+PATCH /v1/companies/:id internal
+GET /v1/companies/owner internal
 GET /v1/config/web-flags internal
+GET /v1/customers internal
+POST /v1/customers internal
+GET /v1/customers/:id internal
+PATCH /v1/customers/:id internal
 GET /v1/events internal
 GET /v1/files internal
 GET /v1/jobs internal
@@ -41,6 +49,10 @@ DELETE /v1/me/sessions/:sid internal
 GET /v1/me/tenants internal
 GET /v1/mobile/events internal,public
 GET /v1/roles internal
+GET /v1/subcontractors internal
+POST /v1/subcontractors internal
+GET /v1/subcontractors/:id internal
+PATCH /v1/subcontractors/:id internal
 GET /v1/tenants internal
 POST /v1/tenants internal
 GET /v1/tenants/:id internal

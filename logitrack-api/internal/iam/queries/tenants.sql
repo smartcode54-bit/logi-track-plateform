@@ -46,8 +46,11 @@ VALUES ('carrier', sqlc.narg(code)::text::citext, sqlc.arg(name_th), sqlc.narg(n
 RETURNING id, kind, code, name_th, name_en, status, legal_type, contractor_tenant_id, created_at;
 
 -- name: InsertTenantParty :one
--- The tenant's billing party (R6): every carrier is billable as a party of kind 'tenant'.
-INSERT INTO billing_parties (kind, tenant_id) VALUES ('tenant', sqlc.arg(tenant_id)) RETURNING id;
+-- The tenant's billing party (R6): every carrier is billable as a party of kind 'tenant'; billing_date_basis
+-- 'delivered' unless the onboarding names it (POST /v1/subcontractors, T20).
+INSERT INTO billing_parties (kind, tenant_id, billing_date_basis)
+VALUES ('tenant', sqlc.arg(tenant_id), sqlc.arg(billing_date_basis))
+RETURNING id;
 
 -- name: UpdateTenant :one
 UPDATE tenants

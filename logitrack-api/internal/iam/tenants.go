@@ -170,8 +170,7 @@ func (a *Admin) GetTenant(c call, id uuid.UUID) (*TenantDetail, error) {
 			BillingDateBasis: t.BillingDateBasis, UpdatedAt: t.UpdatedAt, StatusHistory: make([]StatusHistory, 0, len(hist)),
 		}
 		d.BillingPartyID = t.BillingPartyID
-		eff := p.EffectiveTenant()
-		if manage || steward || (eff != nil && *eff == id && p.EffectiveRole() == authz.TenantAdmin) {
+		if seesTenantPII(p, id, t.Kind) {
 			d.IDCardNumber = t.IDCardNumber
 		}
 		for _, h := range hist {
@@ -182,6 +181,22 @@ func (a *Admin) GetTenant(c call, id uuid.UUID) (*TenantDetail, error) {
 		return nil
 	})
 	return out, err
+}
+
+// seesTenantPII: an individual carrier's ID card (number and documents) is shown to platform admins, stewards with
+// fleet:manage_subcontractors and the tenant's own tenant_admin only (Appendix C §C.8).
+func seesTenantPII(p *authz.Principal, id uuid.UUID, kind string) bool {
+	if p.Can(authz.PlatformManageTenants) || (p.Can(authz.FleetManageSubcontractors) && kind == authz.TenantKindCarrier) {
+		return true
+	}
+	return isOwnTenantAdmin(p, id)
+}
+
+// isOwnTenantAdmin: the request acts as the tenant_admin of tenant id (a platform admin acting through
+// X-Act-On-Tenant: <id> included).
+func isOwnTenantAdmin(p *authz.Principal, id uuid.UUID) bool {
+	eff := p.EffectiveTenant()
+	return eff != nil && *eff == id && p.EffectiveRole() == authz.TenantAdmin
 }
 
 // CreateTenantInput is the body of POST /v1/tenants: a carrier tenant with its profile.
@@ -263,12 +278,63 @@ func (a *Admin) CreateTenant(c call, in CreateTenantInput) (*Tenant, error) {
 	if in.Kind != authz.TenantKindCarrier {
 		bad = append(bad, violation("kind", "invalid"))
 	}
-	code := strings.TrimSpace(in.Code)
-	switch {
-	case code == "":
+	if strings.TrimSpace(in.Code) == "" {
 		bad = append(bad, violation("code", "required"))
-	case !tenantCodeRx.MatchString(code):
-		bad = append(bad, violation("code", "invalid"))
+	}
+	nc, more := validateCarrier(in, false)
+	bad = append(bad, more...)
+	if s := strings.TrimSpace(in.ContractorTenantID); s != "" {
+		id, err := uuid.Parse(s)
+		if err != nil || id == uuid.Nil {
+			bad = append(bad, violation("contractorTenantId", "invalid"))
+		}
+		nc.params.ContractorTenantID = &id
+	}
+	if len(bad) > 0 {
+		return nil, errInvalid(bad...)
+	}
+	nc.basis = billingBasisDelivered
+	var out *Tenant
+	err := a.tx(c.ctx, func(tx pgx.Tx, q *iamdb.Queries, _ func(*auth.PostCommit)) error {
+		if contractor := nc.params.ContractorTenantID; contractor != nil {
+			if err := checkContractor(c, q, uuid.Nil, *contractor); err != nil {
+				return err
+			}
+		}
+		t, err := a.insertCarrier(c, tx, q, nc, "tenants")
+		out = t
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// billingBasisDelivered is the default billing_date_basis of a billing party (ADR 0027).
+const billingBasisDelivered = "delivered"
+
+// billingBases are the billing_parties.billing_date_basis values (ADR 0027).
+var billingBases = []string{"delivered", "plan"}
+
+// newCarrier is a validated carrier of POST /v1/tenants or POST /v1/subcontractors.
+type newCarrier struct {
+	params    iamdb.InsertTenantParams
+	basis     string   // billing_parties.billing_date_basis
+	documents []string // tenant_document keys (POST /v1/subcontractors)
+}
+
+// validateCarrier checks the profile of a new carrier. With requireIDs (POST /v1/subcontractors, the rule of the
+// legacy subcontractorSchema) an individual needs its ID card number and a company its tax id; both always pass
+// the 13-digit Thai checksum when present (T20 acceptance: 422 with field errors).
+func validateCarrier(in CreateTenantInput, requireIDs bool) (newCarrier, []httpx.FieldViolation) {
+	var bad []httpx.FieldViolation
+	var code *string
+	if s := strings.TrimSpace(in.Code); s != "" {
+		if !tenantCodeRx.MatchString(s) {
+			bad = append(bad, violation("code", "invalid"))
+		}
+		code = &s
 	}
 	checkName("nameTh", in.NameTh, true, &bad)
 	checkName("nameEn", in.NameEn, false, &bad)
@@ -276,12 +342,7 @@ func (a *Admin) CreateTenant(c call, in CreateTenantInput) (*Tenant, error) {
 	if legal != "individual" && legal != "company" {
 		bad = append(bad, violation("legalType", "invalid"))
 	}
-	if s := strings.TrimSpace(in.IDCardNumber); s != "" && !ValidThaiID(s) {
-		bad = append(bad, violation("idCardNumber", "invalid"))
-	}
-	if s := strings.TrimSpace(in.TaxID); s != "" && !ValidThaiID(s) {
-		bad = append(bad, violation("taxId", "invalid"))
-	}
+	bad = append(bad, checkThaiIDs(legal, in.IDCardNumber, in.TaxID, requireIDs)...)
 	var email *string
 	if s := strings.TrimSpace(in.Email); s != "" {
 		e, ok := normalizeEmail(s)
@@ -303,14 +364,6 @@ func (a *Admin) CreateTenant(c call, in CreateTenantInput) (*Tenant, error) {
 	if !slices.Contains(tenantStatuses, status) {
 		bad = append(bad, violation("status", "invalid"))
 	}
-	var contractor *uuid.UUID
-	if s := strings.TrimSpace(in.ContractorTenantID); s != "" {
-		id, err := uuid.Parse(s)
-		if err != nil || id == uuid.Nil {
-			bad = append(bad, violation("contractorTenantId", "invalid"))
-		}
-		contractor = &id
-	}
 	for _, f := range []struct{ name, v string }{{"contactPerson", in.ContactPerson}, {"phone", in.Phone},
 		{"website", in.Website}, {"designation", in.Designation}, {"dispatchCenter", in.DispatchCenter}} {
 		checkName(f.name, f.v, false, &bad)
@@ -318,49 +371,66 @@ func (a *Admin) CreateTenant(c call, in CreateTenantInput) (*Tenant, error) {
 	if utf8.RuneCountInString(in.Address) > 1000 {
 		bad = append(bad, violation("address", "too_long"))
 	}
-	if len(bad) > 0 {
-		return nil, errInvalid(bad...)
+	return newCarrier{params: iamdb.InsertTenantParams{
+		Code: code, NameTh: strings.TrimSpace(in.NameTh), NameEn: optText(in.NameEn), LegalType: &legal,
+		IDCardNumber: optText(in.IDCardNumber), TaxID: optText(in.TaxID), ContactPerson: optText(in.ContactPerson),
+		Phone: optText(in.Phone), Email: email, Website: optText(in.Website), Address: optText(in.Address),
+		Designation: optText(in.Designation), FleetSize: in.FleetSize, DispatchCenter: optText(in.DispatchCenter),
+		ServiceRegions: cleanList(in.ServiceRegions), VehicleTypes: cleanList(in.VehicleTypes),
+		LineGroupID: optText(in.LineGroupID), Status: status,
+	}}, bad
+}
+
+// checkThaiIDs validates the ID card number and the tax id of a carrier: the 13-digit Thai checksum whenever a value
+// is present, and with required the one its legal type needs (individual: idCardNumber, company: taxId).
+func checkThaiIDs(legal, idCard, taxID string, required bool) []httpx.FieldViolation {
+	var bad []httpx.FieldViolation
+	for _, f := range []struct{ name, v, needs string }{{"idCardNumber", idCard, "individual"}, {"taxId", taxID, "company"}} {
+		switch s := strings.TrimSpace(f.v); {
+		case s != "" && !ValidThaiID(s):
+			bad = append(bad, violation(f.name, "invalid"))
+		case s == "" && required && legal == f.needs:
+			bad = append(bad, violation(f.name, "required"))
+		}
 	}
-	var out *Tenant
-	err := a.tx(c.ctx, func(tx pgx.Tx, q *iamdb.Queries, _ func(*auth.PostCommit)) error {
-		if contractor != nil {
-			if err := checkContractor(c, q, uuid.Nil, *contractor); err != nil {
-				return err
-			}
-		}
-		r, err := q.InsertTenant(c.ctx, iamdb.InsertTenantParams{
-			Code: &code, NameTh: strings.TrimSpace(in.NameTh), NameEn: optText(in.NameEn), LegalType: &legal,
-			IDCardNumber: optText(in.IDCardNumber), TaxID: optText(in.TaxID), ContactPerson: optText(in.ContactPerson),
-			Phone: optText(in.Phone), Email: email, Website: optText(in.Website), Address: optText(in.Address),
-			Designation: optText(in.Designation), FleetSize: in.FleetSize, DispatchCenter: optText(in.DispatchCenter),
-			ServiceRegions: cleanList(in.ServiceRegions), VehicleTypes: cleanList(in.VehicleTypes),
-			LineGroupID: optText(in.LineGroupID), ContractorTenantID: contractor, Status: status,
-		})
-		if err != nil {
-			return err
-		}
-		party, err := q.InsertTenantParty(c.ctx, &r.ID)
-		if err != nil {
-			return err
-		}
-		actor := c.p.UserID
-		if err := q.InsertTenantStatusHistory(c.ctx, iamdb.InsertTenantStatusHistoryParams{EntityID: r.ID, Status: status,
-			ChangedAt: a.clock(), ChangedByUserID: &actor}); err != nil {
-			return err
-		}
-		t := tenantOf(r.ID, r.Kind, r.Code, r.NameTh, r.NameEn, r.Status, r.LegalType, r.ContractorTenantID, r.CreatedAt)
-		t.BillingPartyID = &party
-		out = &t
-		if err := a.audit(c, tx, EventTenantCreated, "carrier tenant created", nil, &r.ID,
-			map[string]any{"kind": r.Kind, "code": code, "contractorTenantId": contractor, "billingPartyId": party}); err != nil {
-			return err
-		}
-		return emit(c, tx, RouteTenantCreated, "tenant", r.ID.String(), &r.ID, tenantEvent{TenantID: r.ID, ContractorTenantID: contractor})
-	})
+	return bad
+}
+
+// insertCarrier writes a validated carrier in tx: the tenant, its billing party, its first status_history entry,
+// its documents (POST /v1/subcontractors), tenant_created and outbox tenant.created (source names the route).
+func (a *Admin) insertCarrier(c call, tx pgx.Tx, q *iamdb.Queries, nc newCarrier, source string) (*Tenant, error) {
+	r, err := q.InsertTenant(c.ctx, nc.params)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
+	party, err := q.InsertTenantParty(c.ctx, iamdb.InsertTenantPartyParams{TenantID: &r.ID, BillingDateBasis: nc.basis})
+	if err != nil {
+		return nil, err
+	}
+	actor := c.p.UserID
+	if err := q.InsertTenantStatusHistory(c.ctx, iamdb.InsertTenantStatusHistoryParams{EntityID: r.ID, Status: r.Status,
+		ChangedAt: a.clock(), ChangedByUserID: &actor}); err != nil {
+		return nil, err
+	}
+	if len(nc.documents) > 0 {
+		if _, err := a.setTenantDocuments(c, tx, q, r.ID, nc.documents); err != nil {
+			return nil, err
+		}
+	}
+	t := tenantOf(r.ID, r.Kind, r.Code, r.NameTh, r.NameEn, r.Status, r.LegalType, r.ContractorTenantID, r.CreatedAt)
+	t.BillingPartyID = &party
+	details := map[string]any{"kind": r.Kind, "code": r.Code, "contractorTenantId": r.ContractorTenantID, "billingPartyId": party}
+	if source != "tenants" {
+		details["source"] = source
+	}
+	if err := a.audit(c, tx, EventTenantCreated, "carrier tenant created", nil, &r.ID, details); err != nil {
+		return nil, err
+	}
+	if err := emit(c, tx, RouteTenantCreated, "tenant", r.ID.String(), &r.ID,
+		tenantEvent{TenantID: r.ID, ContractorTenantID: r.ContractorTenantID}); err != nil {
+		return nil, err
+	}
+	return &t, nil
 }
 
 // tenantEvent is the payload of outbox tenant.created / tenant.updated: the cache layer drops the

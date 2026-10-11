@@ -597,20 +597,32 @@ func (s *Service) signGet(ctx context.Context, row storagedb.FileObject, ttl tim
 // caller has already read the referencing row under its own rights; ttl 0 means S3_PRESIGN_GET_TTL, and the
 // purpose caps it (driver PII 5 min, documents 15 min).
 func (s *Service) SignedURL(ctx context.Context, fileID uuid.UUID, ttl time.Duration) (string, error) {
+	_, u, err := s.SignedFile(ctx, fileID, ttl)
+	return u, err
+}
+
+// SignedFile is SignedURL with the object key, for entity payloads that carry both (T20: customer logos, company
+// assets, tenant documents: the key goes back in a PATCH, the URL is the only way to read the object). A row that
+// is not committed (pending, missing at source) or does not exist is ErrObjectNotFound; the key is still returned
+// for a row that exists.
+func (s *Service) SignedFile(ctx context.Context, fileID uuid.UUID, ttl time.Duration) (key, url string, err error) {
 	var row storagedb.FileObject
-	err := db.WithSystem(ctx, s.pool, nil, func(tx pgx.Tx) error {
+	err = db.WithSystem(ctx, s.pool, nil, func(tx pgx.Tx) error {
 		var err error
 		row, err = storagedb.New(tx).GetFile(ctx, fileID)
 		return err
 	})
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && row.Status != "committed") {
-		return "", ErrObjectNotFound
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", ErrObjectNotFound
 	}
 	if err != nil {
-		return "", err
+		return "", "", err
+	}
+	if row.Status != "committed" {
+		return row.ObjectKey, "", ErrObjectNotFound
 	}
 	u, _, err := s.signGet(ctx, row, s.readTTL(row, ttl), GetOptions{})
-	return u, err
+	return row.ObjectKey, u, err
 }
 
 // PublishLocal makes a staged local upload visible while it holds the lock of the key's pending local row, the
