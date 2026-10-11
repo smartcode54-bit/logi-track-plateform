@@ -11,6 +11,7 @@ import { useLanguage } from "@/context/language";
 import { useCustomerScope } from "@/hooks/useCustomerScope";
 import { useHubs } from "@/features/hubs/api/useHubs";
 import { selectHubRows, type HubRow } from "@/features/hubs/api/selectors";
+import { HubFilterCombobox } from "@/features/hubs/components/HubFilterCombobox";
 import { PagePermissionGuard } from "@/components/page-permission-guard";
 import { CAPABILITIES } from "@/lib/capabilities";
 
@@ -349,20 +350,13 @@ export default function LineHaulPage() {
 
                     <div className="flex flex-col gap-2 min-w-[200px] flex-1">
                         <label className="text-sm font-medium">{t("lineHaul.filters.sourceSOC")}</label>
-                        <Select value={selectedHub} onValueChange={setSelectedHub}>
-                            <SelectTrigger>
-                                <SelectValue placeholder={t("lineHaul.filters.selectSource")} />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="all">{t("lineHaul.filters.allSources")}</SelectItem>
-                                {/* Limit mapped hubs for performance if list is huge */}
-                                {hubs.slice(0, 50).map((hub, idx) => (
-                                    <SelectItem key={idx} value={hub['Hub Code'] || hub['Code'] || `hub-${idx}`}>
-                                        {hub['Hub Name Th'] || hub['Hub Name'] || hub['station_name_en'] || hub['Hub Code']}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                        {/* Every hub of ['hubs'], searchable (TW8: the 50-hub slice is gone). */}
+                        <HubFilterCombobox
+                            hubs={hubRows ?? NO_HUB_ROWS}
+                            value={selectedHub}
+                            onChange={setSelectedHub}
+                            allLabel={t("lineHaul.filters.allSources")}
+                        />
                     </div>
                 </CardContent>
             </Card>

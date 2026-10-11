@@ -72,14 +72,15 @@ func assignmentOf(r fleetdb.ListAssignmentsRow) TruckAssignment {
 
 // ListAssignmentsInput are the query parameters of GET /v1/truck-assignments.
 type ListAssignmentsInput struct {
-	Status, TruckID, DriverID string
-	Limit                     int
-	Cursor                    string
+	Status, TruckID, DriverID, Q string
+	Limit                        int
+	Cursor                       string
 }
 
 // ListAssignments is GET /v1/truck-assignments (fleet:view_assignments): the assignments of the caller's tenant
 // reach, newest first, keyset (the history list of the truck-assignment page, W9; the legacy page read every
-// document and kept 20).
+// document and kept 20). q (TW8, at most 100 characters, see searchParam) matches a substring of the plate, model, driver name or
+// admin label, case-insensitive: the page's search, on the server rather than over the pages it has loaded.
 func (s *Service) ListAssignments(ctx context.Context, p *authz.Principal, in ListAssignmentsInput) ([]TruckAssignment, string, error) {
 	var ck checker
 	var status *string
@@ -100,6 +101,7 @@ func (s *Service) ListAssignments(ctx context.Context, p *authz.Principal, in Li
 		return &u
 	}
 	truck, driver := id("truckId", in.TruckID), id("driverId", in.DriverID)
+	q := searchParam(&ck, "q", in.Q)
 	limit := pageLimit(&ck, in.Limit)
 	var after cursor
 	if in.Cursor != "" {
@@ -113,9 +115,9 @@ func (s *Service) ListAssignments(ctx context.Context, p *authz.Principal, in Li
 	}
 	all, tenants := p.TenantReach()
 	var rows []fleetdb.ListAssignmentsRow
-	err := s.tx(ctx, p, func(_ pgx.Tx, q *fleetdb.Queries) (err error) {
-		rows, err = q.ListAssignments(ctx, fleetdb.ListAssignmentsParams{AllTenants: all, TenantIds: tenants, Status: status,
-			TruckID: truck, DriverID: driver, AfterCreated: after.T, AfterID: after.ID, RowLimit: int32(limit) + 1})
+	err := s.tx(ctx, p, func(_ pgx.Tx, qq *fleetdb.Queries) (err error) {
+		rows, err = qq.ListAssignments(ctx, fleetdb.ListAssignmentsParams{AllTenants: all, TenantIds: tenants, Status: status,
+			TruckID: truck, DriverID: driver, Q: q, AfterCreated: after.T, AfterID: after.ID, RowLimit: int32(limit) + 1})
 		return err
 	})
 	if err != nil {
