@@ -5,10 +5,15 @@
 #
 #   deploy.sh --web-build-env FILE [--dry-run] [--allow-dirty] [--host HOST]
 #       Build the Go binaries (linux/amd64, CGO off) and the web standalone (logitrack-web/Dockerfile,
-#       docker buildx --platform linux/amd64), upload them as /opt/logitrack/releases/<git-sha>, then
-#       rollout.sh activate on the VM (migrate up; first deploy: seed demo + bootstrap admin; switch
-#       `current`; pm2 startOrReload; on-VM checks incl. the internal /readyz) and the public checks from
-#       here. A failed check switches back to the previous release.
+#       docker buildx --platform linux/amd64) from a clean export of HEAD (git archive), so the release is
+#       exactly the commit it is named after; upload them as /opt/logitrack/releases/<git-sha>, then
+#       rollout.sh activate --pending on the VM (migrate up; until a first deploy has gone live: seed demo
+#       + bootstrap admin; switch `current`; pm2 startOrReload; on-VM checks incl. the internal /readyz)
+#       and the public checks from here; rollout.sh confirm records the release as live once they pass. A
+#       failed check switches back to the previous release, which stays the newest live one.
+#       A checkout with changes or untracked files under the release paths (logitrack-api, logitrack-web,
+#       shared-docs and the workspace manifests) is refused; --allow-dirty builds the working tree as it
+#       is, untracked files included, under the id <git-sha>-dirty-<UTC time>.
 #       FILE holds the web's NEXT_PUBLIC_* build arguments (KEY=VALUE, gitignored: e.g.
 #       deploy/vm/.env.web-build); it is read without echo, and the values reach docker through its
 #       environment (`--build-arg NAME`), never through a command line.
@@ -79,6 +84,11 @@ repo_root=$(cd -P "$api_dir/.." && pwd)
 . "$kit_dir/kit.conf"
 host=${host_flag:-$kit_ssh_host}
 dockerfile=$repo_root/logitrack-web/Dockerfile
+# What a release is built from: the Go module, the web and its Docker context (Dockerfile.dockerignore lets
+# only these through), so a change elsewhere in the checkout (e.g. .claude/) does not make it dirty.
+release_paths="logitrack-api logitrack-web shared-docs package.json pnpm-lock.yaml pnpm-workspace.yaml"
+# The tree the release is built from: the checkout under --allow-dirty and for the kit, else export_head.
+src_root=$repo_root
 id_rx='^[0-9a-f]{7,40}(-dirty-[0-9]{14})?$'
 # The six values firebase/client.ts refuses to build without (until TW7 removes the Firebase SDK).
 required_web="NEXT_PUBLIC_FIREBASE_API_KEY NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN NEXT_PUBLIC_FIREBASE_PROJECT_ID NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID NEXT_PUBLIC_FIREBASE_APP_ID"
@@ -96,17 +106,21 @@ need() {
 vm() { ssh -o BatchMode=yes -o ConnectTimeout=20 "$host" "$@"; }
 
 stage=""
-cleanup() { [ -z "$stage" ] || rm -rf "$stage"; }
+export_dir=""
+cleanup() {
+  [ -z "$stage" ] || rm -rf "$stage"
+  [ -z "$export_dir" ] || rm -rf "$export_dir"
+}
 trap cleanup EXIT
 
 module=$(sed -n 's/^module //p' "$api_dir/go.mod")
 
-# build_go dir targets...: static linux/amd64 binaries into dir.
+# build_go dir targets...: static linux/amd64 binaries into dir, from the module of src_root.
 build_go() {
   local out=$1
   shift
   say "building Go binaries for linux/amd64 ($*)"
-  (cd "$api_dir" && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
+  (cd "$src_root/logitrack-api" && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
     -ldflags "-s -w -X $module/internal/app.Version=${release_id:-kit}" -o "$out/" "$@")
 }
 
@@ -120,10 +134,11 @@ tar_create() {
   fi
 }
 
-# copy_kit dir: deploy/vm (without tests, test data and env files) plus the two repository files provision.sh reads.
+# copy_kit dir: deploy/vm (without tests, test data and env files) plus the two repository files provision.sh
+# reads, from src_root.
 copy_kit() {
   mkdir -p "$1"
-  (cd "$api_dir" && tar_create -cf - --exclude='*_test.go' --exclude='testdata' --exclude='.env*' --exclude='*.env' \
+  (cd "$src_root/logitrack-api" && tar_create -cf - --exclude='*_test.go' --exclude='testdata' --exclude='.env*' --exclude='*.env' \
     deploy/vm deploy/postgres-init/00-roles.sql deploy/rabbitmq-definitions.json) | (cd "$1" && tar -xf -)
 }
 
@@ -184,24 +199,41 @@ build_web() {
       export "$name=$value"
       set -- "$@" --build-arg "$name"
     done <"$web_env"
-    docker buildx build --platform linux/amd64 -f "$dockerfile" --target standalone \
+    docker buildx build --platform linux/amd64 -f "$src_root/logitrack-web/Dockerfile" --target standalone \
       --build-arg "NODE_IMAGE=$kit_web_node_image" "$@" \
-      --output "type=local,dest=$out" "$repo_root"
+      --output "type=local,dest=$out" "$src_root"
   )
   [ -f "$out/logitrack-web/server.js" ] || die "the web build produced no logitrack-web/server.js"
 }
 
 release_id=""
+release_sha=""
+dirty=0
 compute_id() {
-  local sha dirty
-  sha=$(git -C "$repo_root" rev-parse HEAD)
-  dirty=$(git -C "$repo_root" status --porcelain --untracked-files=no)
-  release_id=$sha
-  if [ -n "$dirty" ]; then
-    [ "$allow_dirty" = 1 ] || die "the checkout has uncommitted changes; commit them, or pass --allow-dirty"
-    release_id=$sha-dirty-$(date -u +%Y%m%d%H%M%S)
+  local changes
+  release_sha=$(git -C "$repo_root" rev-parse HEAD)
+  # Tracked changes and untracked files (a new migration is embedded by go build) under the release paths.
+  # shellcheck disable=SC2086 # a space-separated list of paths
+  changes=$(git -C "$repo_root" status --porcelain --untracked-files=normal -- $release_paths)
+  release_id=$release_sha
+  if [ -n "$changes" ]; then
+    [ "$allow_dirty" = 1 ] || die "the checkout has uncommitted changes or untracked files under $release_paths (git status -- <those paths>); commit them, or pass --allow-dirty"
+    dirty=1
+    release_id=$release_sha-dirty-$(date -u +%Y%m%d%H%M%S)
   fi
   [[ $release_id =~ $id_rx ]] || die "unexpected release id"
+}
+
+# export_head: a clean release is built from the commit itself (git archive of the release paths into a
+# temporary directory beside the stage, which is uploaded as it is), so no ignored or untracked file of the
+# checkout reaches the binaries, the embedded migrations or the web build.
+export_head() {
+  [ "$dirty" = 1 ] && return 0
+  export_dir=$(mktemp -d "${TMPDIR:-/tmp}/logitrack-src.XXXXXX")
+  src_root=$export_dir
+  say "exporting $release_sha ($release_paths)"
+  # shellcheck disable=SC2086 # a space-separated list of paths
+  git -C "$repo_root" archive --format=tar "$release_sha" -- $release_paths | tar -xf - -C "$src_root"
 }
 
 # public_checks: from here, through Cloudflare and nginx; retried for up to 60 s.
@@ -229,15 +261,21 @@ deploy() {
   compute_id
   local rel=$kit_root/releases/$release_id
   if [ "$dry" = 1 ]; then
+    if [ "$dirty" = 1 ]; then
+      would "build from the working tree as it is (--allow-dirty), untracked files included"
+    else
+      would "build from a clean export of $release_sha (git archive of $release_paths)"
+    fi
     would "build bin/{api,worker,scheduler,migrate,seed,etl,release,vmenv} for linux/amd64 (CGO_ENABLED=0, Version=$release_id)"
     would "build the web standalone with docker buildx --platform linux/amd64 (target standalone of logitrack-web/Dockerfile, NODE_IMAGE $kit_web_node_image)"
     would "upload the release to $host:$rel"
-    would "run on $host: bash $rel/deploy/vm/rollout.sh activate (migrate up; first deploy: seed --profile demo --allow-shared and seed --bootstrap-admin; switch current; pm2 startOrReload; checks of the internal /readyz, worker and scheduler /readyz, public /healthz, public /v1/tasks = 404, web /login; keep $kit_keep_releases releases)"
-    would "check https://$kit_api_host/healthz = 200, https://$kit_web_host/login = 200, https://$kit_api_host/v1/tasks = 404; on failure: rollout.sh rollback"
+    would "run on $host: bash $rel/deploy/vm/rollout.sh activate --pending (migrate up; until a first deploy has gone live: seed --profile demo --allow-shared and seed --bootstrap-admin; switch current; pm2 startOrReload; checks of the internal /readyz, worker and scheduler /readyz, public /healthz, public /v1/tasks = 404, web /login)"
+    would "check https://$kit_api_host/healthz = 200, https://$kit_web_host/login = 200, https://$kit_api_host/v1/tasks = 404; then rollout.sh confirm $release_id (record it as live, keep $kit_keep_releases releases); on failure: rollout.sh rollback (to the newest live release)"
     return 0
   fi
   need git go docker tar ssh curl
   stage=$(mktemp -d "${TMPDIR:-/tmp}/logitrack-release.XXXXXX")
+  export_head
   build_go "$stage/bin" ./cmd/... ./tools/vmenv
   build_web "$stage/web"
   copy_kit "$stage"
@@ -254,12 +292,16 @@ rm -rf \"\$d.upload\" \"\$d\"
 mkdir -p \"\$d.upload\"
 tar -xzf - -C \"\$d.upload\" --no-same-owner
 mv \"\$d.upload\" \"\$d\""
-  vm "bash $rel/deploy/vm/rollout.sh activate"
+  vm "bash $rel/deploy/vm/rollout.sh activate --pending"
   if ! public_checks; then
+    # The release was never recorded as live, so the rollback goes to the newest live one and a later
+    # --rollback never returns to this release.
     say "switching back to the previous release"
     vm "bash $kit_root/current/deploy/vm/rollout.sh rollback" || true
     die "release $release_id failed the public checks"
   fi
+  vm "bash $kit_root/current/deploy/vm/rollout.sh confirm $release_id" ||
+    die "release $release_id serves but was not recorded as live; run on the VM: bash $kit_root/current/deploy/vm/rollout.sh confirm $release_id"
   say "release $release_id is live on https://$kit_web_host and https://$kit_api_host"
 }
 

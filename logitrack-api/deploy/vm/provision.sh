@@ -10,8 +10,13 @@
 #   provision.sh [--dry-run]
 #
 # Secrets are generated on this server by tools/vmenv (bin/vmenv of the kit) and written only to
-# /opt/logitrack/shared/.env (0600, owner logitrack) and the JWT key file; they reach psql, docker and curl
+# /opt/logitrack/shared/.env and the JWT key file in shared/secrets/; they reach psql, docker and curl
 # through stdin or a temporary 0600 file, never through a process argument, and are never printed.
+#
+# The app user only reads what root acts on: shared/.env (0640), shared/secrets/ (0750) and the key in it
+# (0640) are owned by root with group logitrack, so a process running as logitrack can neither rewrite the
+# settings provision.sh reads nor plant a file or link where it creates and chowns one; vmenv also refuses
+# a JWT_SIGNING_KEY_FILE outside shared/secrets/ and a key file that is a symbolic link.
 #
 # --dry-run prints the plan and changes nothing (it only reads: user, files, database catalog, containers).
 # --prefix DIR and --vmenv PATH exist for the kit's tests (deploy/vm/kit_test.go): every absolute path
@@ -140,7 +145,7 @@ user_and_tree() {
   ensure_dir "$root" root:root 0755
   ensure_dir "$root/releases" root:root 0755
   ensure_dir "$shared" "root:$kit_user" 0750
-  ensure_dir "$shared/secrets" "$kit_user:$kit_user" 0700
+  ensure_dir "$shared/secrets" "root:$kit_user" 0750
   ensure_dir "$shared/media" "$kit_user:$kit_user" 0750
   ensure_dir "$shared/logs" "$kit_user:$kit_user" 0750
 }
@@ -148,6 +153,7 @@ user_and_tree() {
 # --- .env and the JWT key -------------------------------------------------------------------------------
 render_env() {
   local args=(render -template "$kit_dir/env.vm.example" -out "$env_file" -prefix "$prefix"
+    -secrets-dir "$kit_root/shared/secrets"
     -pg-addr "$kit_pg_addr" -pg-db "$kit_pg_db" -redis-addr "127.0.0.1:$kit_redis_port"
     -amqp-addr "127.0.0.1:$kit_amqp_port")
   if [ "$dry" = 1 ]; then
@@ -155,13 +161,20 @@ render_env() {
     return
   fi
   "$vmenv" "${args[@]}"
-  chown "$kit_user:$kit_user" "$env_file"
-  chmod 0600 "$env_file"
-  local key
+  chown "root:$kit_user" "$env_file"
+  chmod 0640 "$env_file"
+  # vmenv has checked that the key is a regular file directly in shared/secrets/ (root-owned since
+  # user_and_tree), so nothing the app user controls is followed here; -h and the -L test hold that anyway.
+  local key f
   key=$(sed -n 's/^JWT_SIGNING_KEY_FILE=//p' "$env_file" | head -n 1)
-  if [ -n "$key" ] && [ -e "$prefix$key" ]; then
-    chown "$kit_user:$kit_user" "$prefix$key"
-    chmod 0600 "$prefix$key"
+  if [ -n "$key" ]; then
+    f=$prefix$key
+    [ "$(dirname "$f")" = "$shared/secrets" ] || die "JWT_SIGNING_KEY_FILE must name a file in $kit_root/shared/secrets"
+    [ ! -L "$f" ] || die "$f is a symbolic link: refusing to touch it"
+    if [ -f "$f" ]; then
+      chown -h "root:$kit_user" "$f"
+      chmod 0640 "$f"
+    fi
   fi
 }
 
@@ -411,11 +424,16 @@ pm2_unit() {
   sed -e "s#@kit_user@#$kit_user#g" -e "s#@kit_node_dir@#$kit_node_dir#g" "$kit_dir/pm2-logitrack.service" >"$rendered"
   local before=$installed$backups
   install_managed "$rendered" "$systemd_dir/$unit.service"
-  # An empty dump lets `pm2 resurrect` (ExecStart) start a daemon before the first deploy saves one.
+  # An empty dump lets `pm2 resurrect` (ExecStart) start a daemon before the first deploy saves one. Written
+  # as the app user: its home is its own, so root never writes through a path that user controls.
   if [ ! -e "$pm2_home/dump.pm2" ]; then
-    run mkdir -p "$pm2_home"
-    if [ "$dry" = 1 ]; then would "write an empty $pm2_home/dump.pm2"; else printf '[]\n' >"$pm2_home/dump.pm2"; fi
-    run chown -R "$kit_user:$kit_user" "$pm2_home"
+    if [ "$dry" = 1 ]; then
+      would "write an empty $pm2_home/dump.pm2 as $kit_user"
+    else
+      # shellcheck disable=SC2016 # $1 expands in the user's shell
+      runuser -u "$kit_user" -- sh -c 'mkdir -p "$(dirname "$1")" && printf "[]\n" >"$1"' sh "$pm2_home/dump.pm2"
+      say "wrote an empty $pm2_home/dump.pm2 as $kit_user"
+    fi
   fi
   if [ "$installed$backups" != "$before" ]; then
     run systemctl daemon-reload

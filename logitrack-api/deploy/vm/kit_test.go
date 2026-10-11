@@ -620,10 +620,25 @@ func TestProvision(t *testing.T) {
 	calls := s.read(t, "calls.log")
 	assertNoSecret(t, "provision.sh output", out, sec)
 	assertNoSecret(t, "a process argument (calls.log)", calls, sec)
-	for _, f := range []string{envPath, keyFile} {
-		if st, err := os.Stat(f); err != nil || st.Mode().Perm() != 0o600 {
-			t.Errorf("%s: mode %v, want 0600", f, st.Mode().Perm())
+	// Root owns what root acts on; the app user only reads it (group logitrack).
+	for f, mode := range map[string]os.FileMode{envPath: 0o640, keyFile: 0o640, filepath.Dir(keyFile): 0o750} {
+		if st, err := os.Stat(f); err != nil || st.Mode().Perm() != mode {
+			t.Errorf("%s: mode %v, want %v", f, st.Mode().Perm(), mode)
 		}
+	}
+	for _, want := range []string{"chown root:logitrack " + envPath, "chown -h root:logitrack " + keyFile,
+		"chown root:logitrack " + filepath.Dir(keyFile)} {
+		if !strings.Contains(calls, want+"\n") {
+			t.Errorf("provision did not run %q", want)
+		}
+	}
+	if strings.Contains(calls, "chown logitrack:logitrack "+envPath) || strings.Contains(calls, "chown logitrack:logitrack "+keyFile) {
+		t.Error("the .env or the key was handed to the app user")
+	}
+	// The empty pm2 dump is written by the app user (runuser), never by root through the user's home.
+	if string(must(os.ReadFile(filepath.Join(s.prefix, "home", "logitrack", ".pm2", "dump.pm2")))) != "[]\n" ||
+		!strings.Contains(calls, "runuser -u logitrack -- sh -c") {
+		t.Error("the empty pm2 dump was not written as the app user")
 	}
 	if env["JWT_ACTIVE_KID"] != token.Thumbprint(publicKey(t, keyFile)) {
 		t.Error("JWT_ACTIVE_KID is not the RFC 7638 thumbprint of the key")
@@ -914,6 +929,9 @@ func TestDeploy(t *testing.T) {
 	calls := s.read(t, "calls.log")
 	assertNoSecret(t, "deploy output", out, sentinels)
 	assertNoSecret(t, "process arguments", calls, sentinels)
+	if !strings.Contains(calls, "rollout.sh activate --pending") || !strings.Contains(calls, "rollout.sh confirm ") {
+		t.Errorf("the release is not activated pending and confirmed after the public checks:\n%s", calls)
+	}
 	if !strings.Contains(calls, "docker buildx build --platform linux/amd64") || !strings.Contains(calls, "--target standalone") ||
 		!strings.Contains(calls, "--build-arg NEXT_PUBLIC_FIREBASE_API_KEY ") {
 		t.Errorf("docker buildx not called as expected:\n%s", calls)
@@ -1000,5 +1018,365 @@ func TestDeployRefusesBadWebEnv(t *testing.T) {
 	}
 	if calls := s.read(t, "calls.log"); calls != "" {
 		t.Errorf("a refused deploy called: %s", calls)
+	}
+}
+
+// TestProvisionRefusesAForeignKeyPath: provision.sh runs as root and reads JWT_SIGNING_KEY_FILE from the .env;
+// a value outside shared/secrets/, or a key replaced by a symbolic link, stops it before root creates or
+// chowns anything there (an app-user process must not get root to hand it /etc/ld.so.preload).
+func TestProvisionRefusesAForeignKeyPath(t *testing.T) {
+	for name, tamper := range map[string]func(t *testing.T, envPath, keyFile, prefix string){
+		"path outside secrets": func(t *testing.T, envPath, _, _ string) {
+			raw := string(must(os.ReadFile(envPath)))
+			raw = regexp.MustCompile(`(?m)^JWT_SIGNING_KEY_FILE=.*$`).ReplaceAllString(raw, "JWT_SIGNING_KEY_FILE=/etc/ld.so.preload")
+			writeFile(t, envPath, raw, 0o640)
+		},
+		"key is a symbolic link": func(t *testing.T, _, keyFile, prefix string) {
+			if err := os.Remove(keyFile); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(filepath.Join(prefix, "etc", "ld.so.preload"), keyFile); err != nil {
+				t.Fatal(err)
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := newSandbox(t)
+			script := filepath.Join(kitDir(t), "provision.sh")
+			args := []string{"--prefix", s.prefix, "--vmenv", vmenv(t)}
+			if out, code := s.run(t, script, args...); code != 0 {
+				t.Fatalf("provision: exit %d\n%s", code, out)
+			}
+			envPath := filepath.Join(s.prefix, "opt", "logitrack", "shared", ".env")
+			keyFile := filepath.Join(s.prefix, dotenv(t, envPath)["JWT_SIGNING_KEY_FILE"])
+			tamper(t, envPath, keyFile, s.prefix)
+			s.resetCalls(t)
+			out, code := s.run(t, script, args...)
+			if code == 0 || !strings.Contains(out, "JWT_SIGNING_KEY_FILE") {
+				t.Fatalf("a foreign key path was accepted: exit %d\n%s", code, out)
+			}
+			target := filepath.Join(s.prefix, "etc", "ld.so.preload")
+			if _, err := os.Lstat(target); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("provision created %s", target)
+			}
+			if calls := s.read(t, "calls.log"); strings.Contains(calls, "ld.so.preload") || strings.Contains(calls, "chown -h") {
+				t.Errorf("provision acted on the foreign path:\n%s", calls)
+			}
+		})
+	}
+}
+
+// TestRolloutPendingRelease: deploy.sh activates with --pending and confirms after its public checks. A
+// release that fails them is switched back from and never recorded, so a later plain rollback cannot return
+// to it, and pruning removes it.
+func TestRolloutPendingRelease(t *testing.T) {
+	s := newSandbox(t)
+	_, env := renderEnv(t, s.prefix)
+	sec := secrets(t, env, "")
+	root := filepath.Join(s.prefix, "opt", "logitrack")
+	a, b, c := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "cccccccccccccccccccccccccccccccccccccccc"
+	run := func(script string, args ...string) (string, int) {
+		return s.run(t, script, append(args, "--prefix", s.prefix, "--health-wait", "0")...)
+	}
+	in := func(id string) string { return filepath.Join(root, "releases", id, "deploy", "vm", "rollout.sh") }
+	cur := filepath.Join(root, "current", "deploy", "vm", "rollout.sh")
+	current := func() string { l, _ := os.Readlink(filepath.Join(root, "current")); return l }
+	history := func() string { return string(must(os.ReadFile(filepath.Join(root, "shared", "releases.log")))) }
+
+	fakeRelease(t, s, a)
+	if out, code := run(in(a), "activate"); code != 0 {
+		t.Fatalf("activate %s: exit %d\n%s", a, code, out)
+	}
+	// B passes the on-VM checks but is only pending: nothing recorded, nothing pruned.
+	fakeRelease(t, s, b)
+	out, code := run(in(b), "activate", "--pending")
+	if code != 0 || current() != "releases/"+b || strings.Contains(history(), b) {
+		t.Fatalf("activate --pending: exit %d, current %q, history %q\n%s", code, current(), history(), out)
+	}
+	if out, _ := run(cur, "status"); !strings.Contains(out, "not recorded as live") {
+		t.Errorf("status does not flag the pending release:\n%s", out)
+	}
+	// deploy.sh's public checks failed: back to A.
+	if out, code = run(cur, "rollback"); code != 0 || current() != "releases/"+a {
+		t.Fatalf("rollback after the public checks: exit %d, current %q\n%s", code, current(), out)
+	}
+	// A later deploy.sh --rollback must not land on B.
+	if out, code = run(cur, "rollback"); code == 0 || current() != "releases/"+a || !strings.Contains(out, "no earlier release") {
+		t.Fatalf("a plain rollback returned to the failed release: exit %d, current %q\n%s", code, current(), out)
+	}
+	// C is confirmed; pruning drops B, which never went live.
+	fakeRelease(t, s, c)
+	if out, code = run(in(c), "activate", "--pending"); code != 0 {
+		t.Fatalf("activate %s: exit %d\n%s", c, code, out)
+	}
+	if out, code = run(cur, "confirm", a); code == 0 || strings.Contains(history(), c) {
+		t.Fatalf("confirm of a release that is not current: exit %d\n%s", code, out)
+	}
+	if out, code = run(cur, "confirm", c); code != 0 || !strings.HasSuffix(strings.TrimSpace(history()), " "+c) {
+		t.Fatalf("confirm: exit %d, history %q\n%s", code, history(), out)
+	}
+	if _, err := os.Stat(filepath.Join(root, "releases", b)); !errors.Is(err, os.ErrNotExist) {
+		t.Error("the release that failed its public checks was kept")
+	}
+	if out, code = run(cur, "rollback"); code != 0 || current() != "releases/"+a {
+		t.Fatalf("rollback from %s: exit %d, current %q\n%s", c, code, current(), out)
+	}
+	assertNoSecret(t, "process arguments", s.read(t, "calls.log"), sec)
+}
+
+// TestRolloutFirstDeploySeedsUntilLive: a first deploy that fails a check after its seed leaves no marker, so
+// the next deploy seeds again (README section 3); the marker appears once a release is recorded as live.
+func TestRolloutFirstDeploySeedsUntilLive(t *testing.T) {
+	s := newSandbox(t)
+	renderEnv(t, s.prefix)
+	root := filepath.Join(s.prefix, "opt", "logitrack")
+	marker := filepath.Join(root, "shared", ".first-deploy-done")
+	activate := func(id string, args ...string) (string, int) {
+		fakeRelease(t, s, id)
+		writeFile(t, filepath.Join(s.state, "programs.log"), "", 0o644)
+		return s.run(t, filepath.Join(root, "releases", id, "deploy", "vm", "rollout.sh"),
+			append(append([]string{"activate"}, args...), "--prefix", s.prefix, "--health-wait", "0")...)
+	}
+	seeded := func() bool {
+		p := s.read(t, "programs.log")
+		return strings.Contains(p, "seed --profile demo --allow-shared") && strings.Contains(p, "seed --bootstrap-admin")
+	}
+	writeFile(t, filepath.Join(s.state, "fail"), ":3300/login\n", 0o644)
+	if out, code := activate("1111111111111111111111111111111111111111"); code == 0 || !seeded() {
+		t.Fatalf("failing first deploy: exit %d, seeded %v\n%s", code, seeded(), out)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("a first deploy that failed its checks marked the first deploy as done")
+	}
+	if err := os.Remove(filepath.Join(s.state, "fail")); err != nil {
+		t.Fatal(err)
+	}
+	if out, code := activate("2222222222222222222222222222222222222222", "--pending"); code != 0 || !seeded() {
+		t.Fatalf("second attempt: exit %d, seeded %v\n%s", code, seeded(), out)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("a pending release marked the first deploy as done")
+	}
+	if out, code := s.run(t, filepath.Join(root, "current", "deploy", "vm", "rollout.sh"), "confirm",
+		"2222222222222222222222222222222222222222", "--prefix", s.prefix); code != 0 {
+		t.Fatalf("confirm: exit %d\n%s", code, out)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatal("the first confirmed release did not mark the first deploy as done")
+	}
+	if out, code := activate("3333333333333333333333333333333333333333"); code != 0 || strings.Contains(s.read(t, "programs.log"), "seed") {
+		t.Fatalf("a later deploy seeded again: exit %d\n%s", code, out)
+	}
+}
+
+// scratchRepo is a git repository holding deploy.sh and what it reads, committed, so the dirty check and the
+// clean export run against a known tree instead of this checkout.
+func scratchRepo(t *testing.T) (string, string) {
+	t.Helper()
+	repo := filepath.Join(t.TempDir(), "repo")
+	api := filepath.Join(repo, "logitrack-api")
+	for _, f := range []string{"deploy.sh", "kit.conf"} {
+		writeFile(t, filepath.Join(api, "deploy", "vm", f), string(must(os.ReadFile(f))), 0o755)
+	}
+	writeFile(t, filepath.Join(api, "deploy", "postgres-init", "00-roles.sql"), "-- roles\n", 0o644)
+	writeFile(t, filepath.Join(api, "deploy", "rabbitmq-definitions.json"), "{}\n", 0o644)
+	modLine := strings.SplitN(string(must(os.ReadFile(filepath.Join(kitDir(t), "..", "..", "go.mod")))), "\n", 2)[0]
+	writeFile(t, filepath.Join(api, "go.mod"), modLine+"\n", 0o644)
+	writeFile(t, filepath.Join(api, "migrations", "0001_init.sql"), "-- init\n", 0o644)
+	writeFile(t, filepath.Join(repo, "logitrack-web", "Dockerfile"),
+		string(must(os.ReadFile(filepath.Join(kitDir(t), "..", "..", "..", "logitrack-web", "Dockerfile")))), 0o644)
+	for _, f := range []string{"package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "shared-docs/package.json"} {
+		writeFile(t, filepath.Join(repo, f), "\n", 0o644)
+	}
+	writeFile(t, filepath.Join(repo, ".gitignore"), "*.wip\n", 0o644)
+	git := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=kit", "-c", "user.email=kit@example.invalid",
+			"-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"}, args...)...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git("init", "-q")
+	git("add", "-A")
+	git("commit", "-qm", "kit")
+	return repo, git("rev-parse", "HEAD")
+}
+
+// TestDeployBuildsTheCommit: a release named after a commit is built from that commit: untracked files under
+// the release paths (a new migration go:embed would take) are refused without --allow-dirty, an ignored file
+// never reaches the build, and changes outside the release paths do not count.
+func TestDeployBuildsTheCommit(t *testing.T) {
+	s := newSandbox(t)
+	repo, sha := scratchRepo(t)
+	script := filepath.Join(repo, "logitrack-api", "deploy", "vm", "deploy.sh")
+	webEnv := filepath.Join(t.TempDir(), "web-build.env")
+	var b strings.Builder
+	for _, n := range []string{"API_KEY", "AUTH_DOMAIN", "PROJECT_ID", "STORAGE_BUCKET", "MESSAGING_SENDER_ID", "APP_ID"} {
+		b.WriteString("NEXT_PUBLIC_FIREBASE_" + n + "=x\n")
+	}
+	writeFile(t, webEnv, b.String(), 0o600)
+	deploy := func(args ...string) (string, int) {
+		return s.run(t, script, append([]string{"--web-build-env", webEnv}, args...)...)
+	}
+
+	// Outside the release paths, and ignored: still the commit.
+	writeFile(t, filepath.Join(repo, ".claude", "settings.local.json"), "{}\n", 0o644)
+	writeFile(t, filepath.Join(repo, "logitrack-api", "migrations", "0099_ignored.wip"), "-- ignored\n", 0o644)
+	out, code := deploy("--dry-run")
+	if code != 0 || !strings.Contains(out, "Version="+sha+")") || !strings.Contains(out, "clean export of "+sha) {
+		t.Fatalf("clean checkout: exit %d\n%s", code, out)
+	}
+
+	wip := filepath.Join(repo, "logitrack-api", "migrations", "0012_wip.sql")
+	writeFile(t, wip, "-- work in progress\n", 0o644)
+	if out, code = deploy("--dry-run"); code == 0 || !strings.Contains(out, "untracked files") || strings.Contains(out, "Version=") {
+		t.Fatalf("an untracked migration was not refused: exit %d\n%s", code, out)
+	}
+	out, code = deploy("--dry-run", "--allow-dirty")
+	if code != 0 || !regexp.MustCompile(`Version=`+sha+`-dirty-[0-9]{14}\)`).MatchString(out) || !strings.Contains(out, "working tree") {
+		t.Fatalf("--allow-dirty: exit %d\n%s", code, out)
+	}
+	if err := os.Remove(wip); err != nil {
+		t.Fatal(err)
+	}
+
+	// A real run (stubs) builds from an export of the commit, not from the checkout.
+	if out, code = deploy(); code != 0 {
+		t.Fatalf("deploy: exit %d\n%s", code, out)
+	}
+	repoReal, err := filepath.EvalSymlinks(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpReal, err := filepath.EvalSymlinks(s.tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cwd := strings.TrimSpace(s.read(t, "go.cwd")); !strings.HasPrefix(cwd, tmpReal+string(os.PathSeparator)) || strings.HasPrefix(cwd, repoReal) {
+		t.Errorf("go build ran in %s, want an export under %s", cwd, tmpReal)
+	}
+	if m := strings.Fields(s.read(t, "go.migrations")); !slices.Equal(m, []string{"0001_init.sql"}) {
+		t.Errorf("the build saw the migrations %v, want the committed one only", m)
+	}
+	if ctx := s.read(t, "docker.context"); strings.HasPrefix(ctx, repo) || strings.HasPrefix(ctx, repoReal) {
+		t.Errorf("the web was built from the checkout %s", ctx)
+	}
+	calls := s.read(t, "calls.log")
+	if !strings.Contains(calls, "rollout.sh activate --pending") || !strings.Contains(calls, "rollout.sh confirm "+sha) {
+		t.Errorf("activate --pending and confirm were not called:\n%s", calls)
+	}
+	// The upload is the release only (the export stays on the operator's machine), and nothing is left behind.
+	uploads, _ := filepath.Glob(filepath.Join(s.state, "upload.*.tgz"))
+	if len(uploads) != 1 {
+		t.Fatalf("uploads: %v", uploads)
+	}
+	files := tarNames(t, uploads[0])
+	for _, want := range []string{"./bin/api", "./web/logitrack-web/server.js", "./deploy/vm/deploy.sh", "./REVISION"} {
+		if !slices.Contains(files, want) {
+			t.Errorf("the release lacks %s", want)
+		}
+	}
+	for _, f := range files {
+		if top, _, _ := strings.Cut(strings.TrimPrefix(f, "./"), "/"); !slices.Contains([]string{"", "bin", "web", "deploy", "REVISION"}, top) {
+			t.Errorf("the release carries %s", f)
+		}
+	}
+	if left, _ := filepath.Glob(filepath.Join(s.tmp, "*")); len(left) != 0 {
+		t.Errorf("temporary directories left behind: %v", left)
+	}
+}
+
+// readmeBlocks returns the fenced code blocks of README.md under the heading that starts with section.
+func readmeBlocks(t *testing.T, section string) []string {
+	t.Helper()
+	raw := string(must(os.ReadFile(filepath.Join(kitDir(t), "README.md"))))
+	start := strings.Index(raw, "\n## "+section)
+	if start < 0 {
+		t.Fatalf("README.md has no section %q", section)
+	}
+	body := raw[start+1:]
+	if end := strings.Index(body[3:], "\n## "); end >= 0 {
+		body = body[:end+3]
+	}
+	var blocks []string
+	for {
+		i := strings.Index(body, "```sh\n")
+		if i < 0 {
+			return blocks
+		}
+		body = body[i+len("```sh\n"):]
+		j := strings.Index(body, "```")
+		blocks = append(blocks, body[:j])
+		body = body[j+3:]
+	}
+}
+
+// TestReadmeRunbook holds the runbook's commands to what the kit needs: the section 2 reload reaches both apps,
+// the section 7 backups are private files in a private directory, and no restore drops the dump's owners.
+func TestReadmeRunbook(t *testing.T) {
+	// Section 2's reload, run through rollout.sh against the pm2 stub, reloads each app on its own.
+	var reload []string
+	for _, blk := range readmeBlocks(t, "2.") {
+		for _, l := range strings.Split(blk, "\n") {
+			if _, args, ok := strings.Cut(l, "rollout.sh pm2 "); ok {
+				reload = strings.Fields(args)
+			}
+		}
+	}
+	if len(reload) < 2 || reload[0] != "reload" {
+		t.Fatalf("section 2 has no rollout.sh pm2 reload: %v", reload)
+	}
+	s := newSandbox(t)
+	renderEnv(t, s.prefix)
+	rel := fakeRelease(t, s, "0123456789abcdef0123456789abcdef01234567")
+	out, code := s.run(t, filepath.Join(rel, "deploy", "vm", "rollout.sh"), append([]string{"--prefix", s.prefix, "pm2"}, reload...)...)
+	if code != 0 {
+		t.Fatalf("section 2 reload: exit %d\n%s", code, out)
+	}
+	calls := strings.Split(s.read(t, "calls.log"), "\n")
+	for _, app := range reload[1:] {
+		if !slices.Contains(calls, "pm2 reload "+app) {
+			t.Errorf("section 2 did not reload %s:\n%s", app, strings.Join(calls, "\n"))
+		}
+	}
+	// An option among several names could be read as a name: refused.
+	if out, code := s.run(t, filepath.Join(rel, "deploy", "vm", "rollout.sh"), "--prefix", s.prefix, "pm2", "reload",
+		"logitrack-api", "--parallel", "2"); code == 0 || !strings.Contains(out, "one name") {
+		t.Errorf("reload with an option and several names: exit %d\n%s", code, out)
+	}
+
+	// Section 7: every backup file is created under umask 077 in a 0700 root directory.
+	var backup, restore string
+	for _, blk := range readmeBlocks(t, "7.") {
+		if strings.Contains(blk, "pg_dump") {
+			backup = blk
+		}
+		if strings.Contains(blk, "pg_restore") {
+			restore = blk
+		}
+	}
+	if !strings.Contains(backup, "install -d -m 0700 -o root -g root /var/backups/logitrack\n") {
+		t.Errorf("the backup directory is not created 0700 root:\n%s", backup)
+	}
+	open := strings.Index(backup, "( umask 077")
+	closing := strings.LastIndex(backup, ")")
+	for _, cmd := range []string{"pg_dump -Fc logitrack >", "-czf \"$d/logitrack-media-", "-czf \"$d/logitrack-secrets-"} {
+		if i := strings.Index(backup, cmd); open < 0 || i < open || i > closing {
+			t.Errorf("%q does not run under umask 077:\n%s", cmd, backup)
+		}
+	}
+	// No pg_restore keeps a dump without its owners (the SECURITY DEFINER helpers would fall to the migrator).
+	if restore == "" {
+		t.Fatal("section 7 has no restore command")
+	}
+	for _, blk := range readmeBlocks(t, "") {
+		for _, l := range strings.Split(blk, "\n") {
+			if strings.Contains(l, "pg_restore") && (strings.Contains(l, "--no-owner") || strings.Contains(l, "--role") || strings.Contains(l, " -O")) {
+				t.Errorf("README restores without the dump's owners: %s", l)
+			}
+		}
 	}
 }

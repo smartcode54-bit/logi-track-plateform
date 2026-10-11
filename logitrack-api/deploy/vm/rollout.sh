@@ -1,17 +1,25 @@
 #!/usr/bin/env bash
 # rollout.sh: the VM side of deploy.sh (deploy/vm/README.md). Run as root from inside a release:
 #
-#   /opt/logitrack/releases/<id>/deploy/vm/rollout.sh activate [--dry-run] [--no-auto-rollback]
-#       migrate up with this release's binary; on the first deploy only, seed --profile demo and
+#   /opt/logitrack/releases/<id>/deploy/vm/rollout.sh activate [--pending] [--dry-run] [--no-auto-rollback]
+#       migrate up with this release's binary; while no release has gone live yet, seed --profile demo and
 #       seed --bootstrap-admin; switch `current` to this release; pm2 startOrReload; on-VM health checks
-#       (a failure switches back to the previous release); keep the newest kit_keep_releases releases.
+#       (a failure switches back to the previous release); then record the release as live and keep the
+#       newest kit_keep_releases releases. --pending (deploy.sh) stops after the on-VM checks: the release
+#       is recorded only by `confirm` once deploy.sh's public checks pass, so a release that fails them
+#       never enters the history.
+#   /opt/logitrack/current/deploy/vm/rollout.sh confirm <id>
+#       record the current release <id> as live (shared/releases.log; the first one also marks the first
+#       deploy as done) and prune.
 #   /opt/logitrack/current/deploy/vm/rollout.sh rollback [--to <id>] [--dry-run]
-#       switch `current` back to the previously active release (or <id>) and reload pm2; no migration
+#       switch `current` back to the release that was live before it (or <id>) and reload pm2; no migration
 #       runs backwards (expand/contract, developer-spec.md §17.4).
 #   rollout.sh status
 #   rollout.sh pm2 ARGS...
 #       pm2 as the logitrack user with its PM2_HOME, e.g. `pm2 reload logitrack-api` after editing the .env
-#       (run-app.sh reads it again on every start), `pm2 ls`, `pm2 logs logitrack-web --lines 100`.
+#       (run-app.sh reads it again on every start), `pm2 ls`, `pm2 logs logitrack-web --lines 100`. pm2's
+#       own `reload` takes one name (a second one is silently dropped), so `pm2 reload A B` here reloads A,
+#       then B.
 #
 # Every program runs as the logitrack user through run-app.sh, which reads the .env itself; this script
 # never reads a secret. --prefix DIR exists for the kit's tests (deploy/vm/kit_test.go); --health-wait
@@ -19,13 +27,15 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: rollout.sh activate [--dry-run] [--no-auto-rollback] | rollback [--to ID] [--dry-run] | status | pm2 ARGS..." >&2
+  echo "usage: rollout.sh activate [--pending] [--dry-run] [--no-auto-rollback] | confirm ID | rollback [--to ID] [--dry-run] | status | pm2 ARGS..." >&2
   exit "${1:-2}"
 }
 cmd=""
 dry=0
 auto_rollback=1
+pending=0
 to=""
+confirm_id=""
 prefix=""
 health_wait=90
 pm2_args=()
@@ -34,6 +44,13 @@ while [ $# -gt 0 ]; do
     activate | rollback | status)
       [ -z "$cmd" ] || usage
       cmd=$1
+      ;;
+    confirm)
+      [ -z "$cmd" ] || usage
+      [ $# -ge 2 ] || usage
+      cmd=confirm
+      confirm_id=$2
+      shift
       ;;
     pm2)
       # Everything after `pm2` belongs to pm2; options of this script come before it.
@@ -45,6 +62,7 @@ while [ $# -gt 0 ]; do
       break
       ;;
     --dry-run) dry=1 ;;
+    --pending) pending=1 ;;
     --no-auto-rollback) auto_rollback=0 ;;
     --to)
       [ $# -ge 2 ] || usage
@@ -141,11 +159,19 @@ switch_to() {
   say "current -> releases/$id"
 }
 
-# record_live id: the release passed its checks; rollback and prune read this history (a release that
-# failed its checks never enters it, so a rollback never returns to it).
+# record_live id: the release passed every check (or was rolled back to); rollback and prune read this
+# history. A release that failed a check never enters it (deploy.sh activates with --pending and confirms
+# only after its public checks), so a rollback never returns to it. The first entry also marks the first
+# deploy as done: until then every activation seeds again (the seed is idempotent), so a first deploy that
+# failed a check, even after its seed, is seeded again by the next one.
 record_live() {
-  [ "$dry" = 1 ] && return 0
+  if [ "$dry" = 1 ]; then
+    would "record $1 as live in $history"
+    [ -e "$first_marker" ] || would "write $first_marker"
+    return 0
+  fi
   printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" >>"$history"
+  [ -e "$first_marker" ] || date -u +%Y-%m-%dT%H:%M:%SZ >"$first_marker"
 }
 
 pm2_reload() {
@@ -242,9 +268,10 @@ activate() {
   if [ -e "$first_marker" ]; then
     say "not the first deploy: no seed"
   else
+    # Until a release has gone live (record_live writes the marker), so a first deploy that failed a check
+    # is seeded again by the next one.
     run as_user "$rel" seed --profile demo --allow-shared
     run as_user "$rel" seed --bootstrap-admin
-    if [ "$dry" = 1 ]; then would "write $first_marker"; else date -u +%Y-%m-%dT%H:%M:%SZ >"$first_marker"; fi
   fi
 
   switch_to "$id"
@@ -258,9 +285,24 @@ activate() {
     fi
     die "release $id failed its health checks (pm2 logs: runuser -u $kit_user -- env PM2_HOME=$home_dir/.pm2 $kit_node_dir/bin/pm2 logs)"
   fi
+  if [ "$pending" = 1 ]; then
+    say "release $id passed the on-VM checks; it is recorded as live by rollout.sh confirm $id"
+    return 0
+  fi
   record_live "$id"
   prune
   say "release $id is live"
+}
+
+# confirm id: deploy.sh's public checks passed for the current release.
+confirm() {
+  local cur
+  cur=$(current_id)
+  [[ $confirm_id =~ $id_rx ]] || die "not a release id: $confirm_id"
+  [ "$confirm_id" = "$cur" ] || die "release $confirm_id is not current (current: ${cur:-none}); nothing recorded"
+  record_live "$confirm_id"
+  prune
+  say "release $confirm_id is live"
 }
 
 rollback() {
@@ -280,17 +322,42 @@ rollback() {
 }
 
 status() {
-  say "current: $(current_id)"
+  local cur last=""
+  cur=$(current_id)
+  say "current: $cur"
+  [ -r "$history" ] && last=$(tail -n 1 "$history" | sed 's/.* //')
+  if [ -n "$cur" ] && [ "$cur" != "$last" ]; then
+    say "current release $cur is not recorded as live (its deploy did not pass the public checks or was interrupted)"
+  fi
   say "releases: $(release_ids)"
   if [ -e "$first_marker" ]; then say "first deploy done: $(cat "$first_marker")"; else say "first deploy pending"; fi
   [ -r "$history" ] && tail -n 5 "$history" | sed 's/^/rollout: history: /'
   return 0
 }
 
+# pm2_cmd: the `pm2` passthrough. pm2 declares `reload <id|name|namespace|all>` with one argument and drops
+# any further name without an error, so a reload of several names runs once per name.
+pm2_cmd() {
+  local a names=() opts=()
+  if [ "${pm2_args[0]}" = reload ] && [ "${#pm2_args[@]}" -gt 2 ]; then
+    for a in "${pm2_args[@]:1}"; do
+      case $a in -*) opts+=("$a") ;; *) names+=("$a") ;; esac
+    done
+    if [ "${#names[@]}" -gt 1 ]; then
+      # An option value (e.g. --parallel 2) would read as a name: refuse rather than guess.
+      [ "${#opts[@]}" = 0 ] || die "pm2 reload takes one name; run rollout.sh pm2 reload once per app, or use restart"
+      for a in "${names[@]}"; do pm2_user reload "$a"; done
+      return 0
+    fi
+  fi
+  pm2_user "${pm2_args[@]}"
+}
+
 case $cmd in
   activate) activate ;;
+  confirm) confirm ;;
   rollback) rollback ;;
   status) status ;;
-  pm2) pm2_user "${pm2_args[@]}" ;;
+  pm2) pm2_cmd ;;
   *) usage ;;
 esac

@@ -1,8 +1,9 @@
 //go:build integration
 
 // Container checks of the staging VM kit (make test-integration): the nginx vhosts under nginx 1.24 (the
-// VM's version) with dummy certificate files at the real paths, `nginx -t` and the routing they promise,
-// and shellcheck over every script.
+// VM's version) with dummy certificate files at the real paths, `nginx -t`, the routing they promise and
+// what their error logs keep when an upstream is down; shellcheck over every script; and the README's
+// restore run as written on PostgreSQL 18 (pgtest).
 package vm_test
 
 import (
@@ -16,18 +17,32 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"io"
 	"math/big"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/testcontainers/testcontainers-go"
+	tcexec "github.com/testcontainers/testcontainers-go/exec"
 	"github.com/testcontainers/testcontainers-go/wait"
+
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db/pgtest"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/migrate/migratetest"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/migrations"
 )
+
+// TestMain stops the PostgreSQL container of the restore test with the binary.
+func TestMain(m *testing.M) { os.Exit(pgtest.Main(m)) }
 
 const (
 	nginxImage      = "nginx:1.24@sha256:f6daac2445b0ce70e64d77442ccf62839f3f1b4c24bf6746a857eff014e798c8"
@@ -143,16 +158,15 @@ func TestNginxConfigTest(t *testing.T) {
 	}
 }
 
-// TestNginxRouting runs the vhosts against echo upstreams and checks what each host forwards.
-func TestNginxRouting(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
-	dir := t.TempDir()
-	stubs := filepath.Join(dir, "stubs.conf")
-	writeFile(t, stubs, upstreamStubs, 0o644)
+// requestFunc sends one request to a vhost of a running nginx container: scheme, host, method, path, body,
+// headers; it returns the status, the body and the response headers.
+type requestFunc func(scheme, vhost, method, path string, body io.Reader, hdr map[string]string) (int, string, http.Header)
+
+// startNginx runs nginx with the kit's files (plus extra) and returns the container and a request function.
+func startNginx(t *testing.T, ctx context.Context, extra ...testcontainers.ContainerFile) (testcontainers.Container, requestFunc) {
+	t.Helper()
 	ctr, err := testcontainers.Run(ctx, nginxImage,
-		testcontainers.WithFiles(nginxFiles(t, testcontainers.ContainerFile{HostFilePath: stubs,
-			ContainerFilePath: "/etc/nginx/conf.d/zz-upstream-stubs.conf", FileMode: 0o644})...),
+		testcontainers.WithFiles(nginxFiles(t, extra...)...),
 		testcontainers.WithExposedPorts("80/tcp", "443/tcp"),
 		testcontainers.WithWaitStrategy(wait.ForListeningPort("443/tcp").WithStartupTimeout(time.Minute)))
 	if ctr != nil {
@@ -180,7 +194,7 @@ func TestNginxRouting(t *testing.T) {
 			},
 		}
 	}
-	do := func(scheme, vhost, method, path string, body io.Reader, hdr map[string]string) (int, string, http.Header) {
+	return ctr, func(scheme, vhost, method, path string, body io.Reader, hdr map[string]string) (int, string, http.Header) {
 		t.Helper()
 		port := https.Port()
 		if scheme == "http" {
@@ -201,7 +215,18 @@ func TestNginxRouting(t *testing.T) {
 		b, _ := io.ReadAll(resp.Body)
 		return resp.StatusCode, string(b), resp.Header
 	}
-	const web, api = "logi.showkhun.co", "logi-api.showkhun.co"
+}
+
+const web, api = "logi.showkhun.co", "logi-api.showkhun.co"
+
+// TestNginxRouting runs the vhosts against echo upstreams and checks what each host forwards.
+func TestNginxRouting(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	stubs := filepath.Join(t.TempDir(), "stubs.conf")
+	writeFile(t, stubs, upstreamStubs, 0o644)
+	_, do := startNginx(t, ctx, testcontainers.ContainerFile{HostFilePath: stubs,
+		ContainerFilePath: "/etc/nginx/conf.d/zz-upstream-stubs.conf", FileMode: 0o644})
 	spoof := map[string]string{"X-Forwarded-For": "203.0.113.66", "CF-Connecting-IP": "198.51.100.77"}
 
 	for _, c := range []struct {
@@ -210,11 +235,13 @@ func TestNginxRouting(t *testing.T) {
 		{web, "/login", "web /login "},
 		{web, "/api/go/v1/events", "web /api/go/v1/events "},
 		{web, "/media/private/a/b.jpg?X-LT-Expires=1&X-LT-Signature=s", "public /media/private/a/b.jpg?X-LT-Expires=1&X-LT-Signature=s "},
+		{web, "/api/go/v1/uploads/local/k.jpg?X-LT-Signature=s", "web /api/go/v1/uploads/local/k.jpg?X-LT-Signature=s "},
 		{api, "/healthz", "public /healthz "},
 		{api, "/v1/mobile/events?ticket=t", "public /v1/mobile/events?ticket=t "},
 		{api, "/v1/auth/login", "public /v1/auth/login "},
 		{api, "/public/v1/x", "public /public/v1/x "},
 		{api, "/evidence/tok", "public /evidence/tok "},
+		{api, "/evidence?k=tok", "public /evidence?k=tok "},
 		{api, "/media/app_releases/a.apk", "public /media/app_releases/a.apk "},
 	} {
 		code, body, _ := do("https", c.vhost, http.MethodGet, c.path, nil, spoof)
@@ -270,4 +297,140 @@ func TestShellcheck(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("shellcheck: exit %d\n%s", code, out)
 	}
+}
+
+// TestNginxErrorLogsHoldNoCredential: with every upstream down (as while pm2 restarts the apps), the error and
+// access logs keep no evidence token, SSE ticket or URL signature, while an ordinary failure is still logged
+// with its request line and the evidence status stays visible.
+func TestNginxErrorLogsHoldNoCredential(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	ctr, do := startNginx(t, ctx)
+	for _, r := range []struct{ vhost, method, path string }{
+		{api, http.MethodGet, "/evidence/EVTOKEN-PATH-1"},
+		{api, http.MethodGet, "/evidence?k=EVTOKEN-QUERY-2"},
+		{api, http.MethodGet, "/v1/mobile/events?ticket=SSE-TICKET-3"},
+		{api, http.MethodGet, "/media/t/o.jpg?X-LT-Expires=1&X-LT-Signature=API-MEDIA-SIG-4"},
+		{web, http.MethodGet, "/media/t/o.jpg?X-LT-Expires=1&X-LT-Signature=WEB-MEDIA-SIG-5"},
+		{web, http.MethodPut, "/api/go/v1/uploads/local/k.jpg?X-LT-Expires=1&X-LT-Signature=BFF-UPLOAD-SIG-6"},
+		{api, http.MethodGet, "/v1/mobile/heartbeat?control=1"},
+		{web, http.MethodGet, "/login?control=2"},
+	} {
+		if code, _, _ := do("https", r.vhost, r.method, r.path, nil, nil); code != http.StatusBadGateway {
+			t.Errorf("%s %s%s: %d, want 502 with no upstream", r.method, r.vhost, r.path, code)
+		}
+	}
+	// A signed upload over the body limit is refused by nginx itself (413), which the error log also notes.
+	if code, _, _ := do("https", web, http.MethodPut, "/media/up.jpg?X-LT-Signature=OVERSIZE-SIG-7", bytes.NewReader(make([]byte, 10<<20+1)), nil); code != http.StatusRequestEntityTooLarge {
+		t.Errorf("an upload above 10 MiB: %d, want 413", code)
+	}
+	logs := map[string]string{}
+	for _, f := range []string{"logitrack-api.error.log", "logitrack-web.error.log", "logitrack-api.access.log", "logitrack-web.access.log"} {
+		code, rd, err := ctr.Exec(ctx, []string{"cat", "/var/log/nginx/" + f}, tcexec.Multiplexed())
+		if err != nil || code != 0 {
+			t.Fatalf("cat %s: exit %d: %v", f, code, err)
+		}
+		logs[f] = string(must(io.ReadAll(rd)))
+	}
+	all := strings.Join([]string{logs["logitrack-api.error.log"], logs["logitrack-web.error.log"], logs["logitrack-api.access.log"], logs["logitrack-web.access.log"]}, "\n")
+	for _, secret := range []string{"EVTOKEN-PATH-1", "EVTOKEN-QUERY-2", "SSE-TICKET-3", "API-MEDIA-SIG-4", "WEB-MEDIA-SIG-5", "BFF-UPLOAD-SIG-6", "OVERSIZE-SIG-7"} {
+		if strings.Contains(all, secret) {
+			t.Errorf("an nginx log holds %s:\n%s", secret, all)
+		}
+	}
+	// Ordinary upstream failures keep their diagnostics.
+	if !strings.Contains(logs["logitrack-api.error.log"], "GET /v1/mobile/heartbeat?control=1") ||
+		!strings.Contains(logs["logitrack-web.error.log"], "GET /login?control=2") {
+		t.Errorf("an ordinary upstream failure was not logged:\n%s", all)
+	}
+	// Evidence requests: the status only, the path replaced.
+	if n := len(regexp.MustCompile(`"GET /evidence/- HTTP/[0-9.]+" 502 `).FindAllString(logs["logitrack-api.access.log"], -1)); n != 2 {
+		t.Errorf("the evidence status lines are missing:\n%s", logs["logitrack-api.access.log"])
+	}
+}
+
+// TestRestoreKeepsTheDefinerOwners runs README section 7's restore as written on a migrated PostgreSQL 18
+// database: the SECURITY DEFINER helpers stay logitrack_rls_definer's, the owner check prints two equal
+// numbers, and logitrack_app can number a task. The same restore with --no-owner --role=logitrack_migrator
+// (the earlier runbook) breaks numbering, which is why the README forbids it.
+func TestRestoreKeepsTheDefinerOwners(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	var block string
+	for _, b := range readmeBlocks(t, "7.") {
+		if strings.Contains(b, "pg_restore") {
+			block = b
+		}
+	}
+	// The README's statements: psql -c ..., the pg_restore line, the owner check (-tAc).
+	var create []string
+	for _, m := range regexp.MustCompile(` -c "([^"]+)"`).FindAllStringSubmatch(block, -1) {
+		create = append(create, m[1])
+	}
+	restoreLine := regexp.MustCompile(`pg_restore ([^<\n]*)<`).FindStringSubmatch(block)
+	check := regexp.MustCompile(`-tAc "([^"]+)"`).FindStringSubmatch(block)
+	if len(create) == 0 || restoreLine == nil || check == nil {
+		t.Fatalf("README section 7 restore not understood:\n%s", block)
+	}
+	dbWord := regexp.MustCompile(`\blogitrack\b`)
+
+	src := pgtest.NewDatabase(t)
+	if _, err := migratetest.Runner(t, src, migrations.FS).Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	c := src.Cluster()
+	dump := "/tmp/" + src.Name + ".dump"
+	if code, out, err := c.Exec(ctx, "pg_dump", "-Fc", "--username=postgres", "--dbname="+src.Name, "--file="+dump); err != nil || code != 0 {
+		t.Fatalf("pg_dump: exit %d: %v\n%s", code, err, out)
+	}
+
+	restore := func(t *testing.T, extra string) *pgtest.Database {
+		t.Helper()
+		dst := pgtest.NewDatabase(t)
+		ident := pgx.Identifier{dst.Name}.Sanitize()
+		for _, q := range create {
+			if err := c.SuperExec(ctx, dbWord.ReplaceAllString(q, ident)); err != nil {
+				t.Fatalf("%s: %v", q, err)
+			}
+		}
+		args := dbWord.ReplaceAllString(strings.TrimSpace(restoreLine[1]), dst.Name)
+		cmd := "pg_restore --username=postgres " + args + " " + extra + " < " + dump
+		if code, out, err := c.Exec(ctx, "sh", "-c", cmd); err != nil || code != 0 {
+			t.Fatalf("%s: exit %d: %v\n%s", cmd, code, err, out)
+		}
+		return dst
+	}
+	conn := func(t *testing.T, url string) *pgx.Conn {
+		t.Helper()
+		cn, err := pgx.Connect(ctx, url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = cn.Close(context.Background()) })
+		return cn
+	}
+
+	t.Run("as the README says", func(t *testing.T) {
+		dst := restore(t, "")
+		var definer, all int
+		if err := conn(t, dst.SuperURL()).QueryRow(ctx, check[1]).Scan(&definer, &all); err != nil {
+			t.Fatal(err)
+		}
+		if all == 0 || definer != all {
+			t.Fatalf("owner check: %d of %d SECURITY DEFINER helpers are logitrack_rls_definer's", definer, all)
+		}
+		var n int
+		if err := conn(t, dst.URL(db.RoleApp)).QueryRow(ctx, `SELECT next_task_seq('first_mile', current_date)`).Scan(&n); err != nil || n != 1 {
+			t.Fatalf("next_task_seq as logitrack_app after the restore: %d, %v", n, err)
+		}
+	})
+	t.Run("without the owners", func(t *testing.T) {
+		dst := restore(t, "--no-owner --role=logitrack_migrator")
+		var n int
+		err := conn(t, dst.URL(db.RoleApp)).QueryRow(ctx, `SELECT next_task_seq('first_mile', current_date)`).Scan(&n)
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != "42501" {
+			t.Fatalf("next_task_seq after a restore without owners: %d, %v; want 42501 (the README must keep forbidding it)", n, err)
+		}
+	})
 }

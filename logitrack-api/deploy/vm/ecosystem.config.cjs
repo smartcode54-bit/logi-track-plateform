@@ -5,7 +5,8 @@
 // that program's names (env-names/<program>.txt), so no value of the .env ever lands in pm2's process
 // list or dump (`pm2 save`). The `env` blocks below hold only the per-process listener settings (not
 // secrets): the ports differ per app, so they cannot live in the shared .env. The web gets only web-server
-// names; the Go apps never get one.
+// names; the Go apps never get one. All four run as the logitrack user, so this split keeps values out of
+// the other programs' environments but is no boundary between them (README "Isolation between the programs").
 "use strict";
 
 const fs = require("node:fs");

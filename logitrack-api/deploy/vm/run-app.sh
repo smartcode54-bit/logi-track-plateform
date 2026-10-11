@@ -6,12 +6,14 @@
 #   run-app.sh api|worker|scheduler|migrate|seed [ARGS...]
 #   run-app.sh web
 #
-# The .env (0600, owner logitrack) is read here, at exec time: only the names of env-names/<program>.txt
+# The .env (0640 root:logitrack) is read here, at exec time: only the names of env-names/<program>.txt
 # are exported, every other name of the .env is unset, and an allowed name the .env lacks keeps the value
 # pm2 gave the app (the per-process listener settings of ecosystem.config.cjs). So no value of the .env
-# lands in pm2's process list or dump, and a program never sees another program's secrets. Values are
-# never printed: no `set -x`, no echo of a line, and `export` is a builtin (no process argument holds a
-# value). Works with bash 3.2 (macOS, tests) and bash 5 (the VM).
+# lands in pm2's process list or dump, and no program finds another program's names in its environment.
+# That is no security boundary: every program runs as the one logitrack user, which can read the .env, the
+# JWT key and /proc/<pid>/environ of the others (README "Isolation between the programs", developer-spec.md
+# §15.8). Values are never printed: no `set -x`, no echo of a line, and `export` is a builtin (no process
+# argument holds a value). Works with bash 3.2 (macOS, tests) and bash 5 (the VM).
 set -euo pipefail
 
 usage() {

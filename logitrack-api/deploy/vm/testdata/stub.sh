@@ -87,6 +87,8 @@ case $name in
         mkdir -p "$dest/logitrack-web/.next/static" "$dest/node_modules"
         echo 'require("http")' >"$dest/logitrack-web/server.js"
         env | grep '^NEXT_PUBLIC_' | sort >"$state/docker-build.env"
+        # The build context (the last argument): what the release is built from.
+        last "$@" >"$state/docker.context"
         ;;
       *) ;;
     esac
@@ -131,6 +133,9 @@ case $name in
       esac
     done
     env | grep '^GO\|^CGO' | sort >"$state/go.env"
+    # Where the binaries are built from, and the migrations go:embed would take from there.
+    pwd -P >"$state/go.cwd"
+    ls migrations >"$state/go.migrations" 2>/dev/null || :
     ;;
   pm2 | systemctl | nginx | ss | node) ;;
   *)

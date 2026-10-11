@@ -285,8 +285,12 @@ by up to six lines after `:60`):
   VM's `.env`. This answers §19 Q8 for staging; the production target stays the compose single VM
   (R30). One refinement follows: behind nginx on the same host the public listener binds a loopback
   address, so the api now accepts a loopback IP in `API_PUBLIC_ADDR` when `APP_ENV` is `dev` or `prod`
-  (still no other host part, which would break Caddy's dial address). Kit and runbook:
-  `logitrack-api/deploy/vm/`; spec `developer-spec.md` §2.7, §15.8, §16.1, §17.4, §19 Q8.
+  (still no other host part, which would break Caddy's dial address). One deviation is recorded: every
+  program runs as the single `logitrack` user, so the per-program env split keeps values out of the other
+  programs' environments but is no boundary between them (a file-read or code-execution bug in the web
+  reaches the ETL and migrator URLs and the JWT key, which compose's per-container split prevents); the
+  hardening is the owner's call (§15.8). Kit and runbook: `logitrack-api/deploy/vm/`; spec
+  `developer-spec.md` §2.7, §15.8, §16.1, §17.4, §19 Q8.
 
 ## Related
 

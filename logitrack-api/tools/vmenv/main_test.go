@@ -206,3 +206,60 @@ func TestRolesSQLRefusesAWrongRole(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, errb.String())
 	}
 }
+
+// A JWT_SIGNING_KEY_FILE the app user wrote into the .env must not make root create a file elsewhere
+// (provision.sh runs render as root, then hands the key to the app user's group).
+func TestRenderRefusesAKeyOutsideTheSecretsDir(t *testing.T) {
+	const secretsDir = "/opt/logitrack/shared/secrets"
+	f := newFixture(t, template)
+	f.render(t, "-secrets-dir", secretsDir)
+	for _, bad := range []string{"/etc/ld.so.preload", "/opt/logitrack/shared/secrets/../.env.x", "/opt/logitrack/shared/secrets/sub/k.pem",
+		"/opt/logitrack/shared/secrets//jwt.pem", "relative.pem"} {
+		l, _ := dotenv.Read(f.out)
+		_ = dotenv.Write(f.out, l, map[string]string{"JWT_SIGNING_KEY_FILE": bad}, 0o600)
+		var out, errb bytes.Buffer
+		code := run([]string{"render", "-template", f.tmpl, "-out", f.out, "-prefix", f.dir, "-secrets-dir", secretsDir}, &out, &errb)
+		if code == 0 || !strings.Contains(errb.String(), "JWT_SIGNING_KEY_FILE") {
+			t.Errorf("%s: exit %d: %s", bad, code, errb.String())
+		}
+	}
+	if _, err := os.Stat(filepath.Join(f.dir, "etc")); !os.IsNotExist(err) {
+		t.Error("a key was created outside the secrets directory")
+	}
+	// Another file directly in the directory is fine (key rotation keeps the directory).
+	l, _ := dotenv.Read(f.out)
+	_ = dotenv.Write(f.out, l, map[string]string{"JWT_SIGNING_KEY_FILE": secretsDir + "/jwt-2.pem"}, 0o600)
+	f.render(t, "-secrets-dir", secretsDir)
+	if _, err := loadKey(filepath.Join(f.dir, secretsDir, "jwt-2.pem")); err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	if code := run([]string{"render", "-template", f.tmpl, "-out", f.out, "-secrets-dir", "opt/x"}, &out, &errb); code == 0 {
+		t.Error("a relative -secrets-dir was accepted")
+	}
+}
+
+// A key file replaced by a symbolic link, dangling or not, is refused rather than read or created through.
+func TestRenderRefusesASymlinkedKey(t *testing.T) {
+	f := newFixture(t, template)
+	f.render(t)
+	keyFile := filepath.Join(f.dir, readEnv(t, f.out)["JWT_SIGNING_KEY_FILE"])
+	target := filepath.Join(f.dir, "elsewhere.pem")
+	if err := os.Rename(keyFile, target); err != nil {
+		t.Fatal(err)
+	}
+	for name, link := range map[string]string{"to a key": target, "dangling": filepath.Join(f.dir, "missing.pem")} {
+		_ = os.Remove(keyFile)
+		if err := os.Symlink(link, keyFile); err != nil {
+			t.Fatal(err)
+		}
+		var out, errb bytes.Buffer
+		code := run([]string{"render", "-template", f.tmpl, "-out", f.out, "-prefix", f.dir}, &out, &errb)
+		if code == 0 || !strings.Contains(errb.String(), "not a regular file") {
+			t.Errorf("%s: exit %d: %s", name, code, errb.String())
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(f.dir, "missing.pem")); !os.IsNotExist(err) {
+		t.Error("a key was created through a dangling link")
+	}
+}

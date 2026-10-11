@@ -41,11 +41,11 @@ Tree on the VM:
 /opt/logitrack/
   releases/<git-sha>/   bin/ (Go, linux/amd64), web/ (standalone), deploy/vm/ (this kit), REVISION
   current -> releases/<git-sha>
-  shared/.env           0600 logitrack: every setting and secret (from env.vm.example)
-  shared/secrets/       0700 logitrack: jwt-ed25519.pem, and the optional firebase-sa.json, fcm-sa.json
-  shared/media/         local storage objects
-  shared/logs/          pm2 logs (rotated by pm2-logrotate)
-  shared/releases.log   releases that went live, oldest first
+  shared/.env           0640 root:logitrack: every setting and secret (from env.vm.example)
+  shared/secrets/       0750 root:logitrack: jwt-ed25519.pem (0640), and the optional firebase-sa.json, fcm-sa.json
+  shared/media/         local storage objects (0750 logitrack)
+  shared/logs/          pm2 logs (0750 logitrack, rotated by pm2-logrotate)
+  shared/releases.log   releases that passed every check, oldest first
 ```
 
 ## Files of the kit
@@ -71,6 +71,20 @@ value or passes one on a command line; pm2 never holds one (`run-app.sh` reads t
 starts, and pm2 is always called with a clean environment), so neither `pm2 show` nor `pm2 save`'s dump carries
 a secret. `deploy/vm/kit_test.go` runs the scripts against a temporary tree with stub commands and fails on any
 generated value in their output or in a process argument.
+
+The `.env`, `secrets/` and the key belong to root with group `logitrack`: the apps read them, but a process
+running as `logitrack` cannot rewrite the settings or plant a file where `provision.sh` (root) writes one.
+
+**Isolation between the programs is by environment only.** `run-app.sh` gives each program exactly its §16.1
+names, which keeps the values out of pm2's list and dump and out of the other programs' environments. It is not a
+security boundary: the four pm2 apps, migrate and seed all run as the one `logitrack` user, so each of them,
+the Next.js web included, can read `shared/.env` (the `logitrack_etl` BYPASSRLS and `logitrack_migrator` URLs,
+`BOOTSTRAP_ADMIN_PASSWORD`), the JWT signing key, and `/proc/<pid>/environ` of the others. A file-read or
+code-execution bug in the web or the api therefore reaches every credential, which the compose deployment's
+per-container split (§16.5 rules 2, 3 and 9, R66, R87) prevents. This is the single-user layout of the staging
+VM (issue OPSVM) and a recorded deviation (developer-spec.md §15.8); the hardening that would close it (a
+separate `logitrack-web` user with its own pm2 daemon and a names-only `web.env`, the migrator and ETL URLs in a
+root-only file handed to migrate and seed per run) is listed for the owner on the OPSVM pull request.
 
 ## Operator prerequisites
 
@@ -105,8 +119,9 @@ Without ssh from this machine: `deploy.sh --kit /tmp/logitrack-kit`, copy that d
 1. preflight: root, PostgreSQL 18, docker, nginx with `sites-enabled`, `/opt/node-v24.14.0/bin/{node,pm2}`, the
    origin certificate and key;
 2. the `logitrack` system user and `/opt/logitrack/{releases,shared/{secrets,media,logs}}`;
-3. `/opt/logitrack/shared/.env` from `env.vm.example` (0600, owner logitrack) with every secret generated on the
-   server, and the JWT key; on a re-run every existing value is kept and only new template names are added;
+3. `/opt/logitrack/shared/.env` from `env.vm.example` (0640 root:logitrack) with every secret generated on the
+   server, and the JWT key (0640 root:logitrack, only ever inside `shared/secrets/`); on a re-run every existing
+   value is kept and only new template names are added;
 4. database `logitrack`, `deploy/postgres-init/00-roles.sql` run inside it (the roles are cluster-wide; no other
    role or database is touched), the migrator as owner, `CONNECT` for the LogiTrack roles only, and the three
    LOGIN passwords as SCRAM verifiers;
@@ -127,18 +142,22 @@ project ids (`logi-track-wrt-dev`) are already in the `.env`. As root on the VM:
 
 ```sh
 # the bridge (custom tokens and the account mirror of the dev project)
-install -o logitrack -g logitrack -m 0400 firebase-sa.json /opt/logitrack/shared/secrets/firebase-sa.json
+install -o root -g logitrack -m 0440 firebase-sa.json /opt/logitrack/shared/secrets/firebase-sa.json
 # push notifications (messaging-only service account)
-install -o logitrack -g logitrack -m 0400 fcm-sa.json /opt/logitrack/shared/secrets/fcm-sa.json
+install -o root -g logitrack -m 0440 fcm-sa.json /opt/logitrack/shared/secrets/fcm-sa.json
 ```
 
 Then edit `/opt/logitrack/shared/.env`: `AUTH_FIREBASE_BRIDGE_MODE=web` (the paths in
 `GOOGLE_APPLICATION_CREDENTIALS` and `FCM_SERVICE_ACCOUNT_JSON` are already set) and `FCM_ENABLED=true`, and reload
-the apps that read them (they read the `.env` again when they start):
+the apps that read them (they read the `.env` again when they start; the api serves the bridge, the worker sends
+the pushes):
 
 ```sh
 bash /opt/logitrack/current/deploy/vm/rollout.sh pm2 reload logitrack-api logitrack-worker
 ```
+
+pm2's own `reload` takes one name or `all` and silently drops a second name; `rollout.sh pm2 reload` with several
+names reloads each of them in turn (`pm2 ls` then shows a fresh uptime for both).
 
 The service account must belong to `FIREBASE_PROJECT_ID`. If the dev project enforces App Check with the reCAPTCHA
 key, add `logi.showkhun.co` to that key's domains.
@@ -153,23 +172,31 @@ logitrack-api/deploy/vm/deploy.sh --web-build-env logitrack-api/deploy/vm/.env.w
 deploy.sh builds `bin/` (`GOOS=linux GOARCH=amd64 CGO_ENABLED=0`, every `cmd/` binary plus `vmenv`), builds the web
 through `logitrack-web/Dockerfile` (`docker buildx --platform linux/amd64 --target standalone`, with a glibc
 `node:24.14.0-bookworm-slim` base, because the standalone output runs on the VM's node rather than in the alpine
-image) and uploads the release to `/opt/logitrack/releases/<git-sha>`. A checkout with uncommitted changes is
-refused unless `--allow-dirty` (the release id then gets a `-dirty-<time>` suffix). Then on the VM
-(`rollout.sh activate`):
+image) and uploads the release to `/opt/logitrack/releases/<git-sha>`. Both builds run on a clean export of the
+commit (`git archive` of `logitrack-api`, `logitrack-web`, `shared-docs` and the workspace manifests), so the
+release is exactly the commit it is named after: no ignored or untracked file of the checkout reaches it. A
+checkout with uncommitted changes or untracked files under those paths is refused unless `--allow-dirty`, which
+builds the working tree as it is, untracked files included, under the id `<git-sha>-dirty-<time>`; changes
+elsewhere (e.g. `.claude/`) do not count. Then on the VM (`rollout.sh activate --pending`):
 
 1. `migrate up` with the new binary (a fresh staging database: the whole chain, 0010 and 0011+ included);
-2. first deploy only (no `shared/.first-deploy-done` yet): `seed --profile demo --allow-shared` (the multi-tenant
-   demo profile; `APP_ENV=dev` loads in upsert mode) and `seed --bootstrap-admin` (`ssadmin@showkhun.co`, also in
-   `PLATFORM_ADMIN_EMAILS`, so platform admin);
+2. until a first deploy has passed every check (no `shared/.first-deploy-done` yet):
+   `seed --profile demo --allow-shared` (the multi-tenant demo profile; `APP_ENV=dev` loads in upsert mode) and
+   `seed --bootstrap-admin` (`ssadmin@showkhun.co`, also in `PLATFORM_ADMIN_EMAILS`, so platform admin);
 3. `current` switches to the release, `pm2 startOrReload ecosystem.config.cjs`, `pm2 save`;
 4. checks on the VM: the internal `/readyz` (3301), the worker's and scheduler's `/readyz` (3304, 3305), the public
    `/healthz` (3302) = 200, the public `/v1/tasks` = 404, the web `/login` = 200;
 5. checks from the operator's machine: `https://logi-api.showkhun.co/healthz` = 200,
    `https://logi.showkhun.co/login` = 200, `https://logi-api.showkhun.co/v1/tasks` = 404;
-6. the newest three releases are kept.
+6. `rollout.sh confirm <id>`: the release is recorded as live in `shared/releases.log` (the first one also writes
+   `shared/.first-deploy-done`), and the newest three releases are kept.
 
-A failed check switches `current` back to the previous release (none on the very first deploy: fix and deploy
-again; the seed is idempotent and runs again until a first deploy succeeds).
+A failed check switches `current` back to the newest release that passed every check; the failed release is never
+recorded, so neither a later rollback nor pruning counts it. On the very first deploy there is nothing to switch
+back to: fix and deploy again. The seed and the bootstrap run again on every deploy until one passes every check;
+both are idempotent (upsert, and an unchanged password changes nothing). To seed a database that was recreated
+after the first deploy went live, delete `/opt/logitrack/shared/.first-deploy-done` before the next deploy, or run
+the bootstrap by hand (section 6).
 
 Sign in at `https://logi.showkhun.co/login` as `ssadmin@showkhun.co`. Demo users sign in with
 `SEED_DEFAULT_PASSWORD`.
@@ -179,7 +206,8 @@ Sign in at `https://logi.showkhun.co/login` as `ssadmin@showkhun.co`. Demo users
 The same command from a newer commit of `mv-go`: no seed, `migrate up` first (expand/contract: the running release
 keeps serving on the new schema), then the switch and the checks. Redeploying the commit that is already live is
 refused; to apply an edited `.env`, reload instead (`rollout.sh pm2 reload <app>`). `deploy.sh --status` shows the
-current release, the kept ones and the last activations.
+current release, the kept ones and the last activations, and says so when the current release was never
+recorded as live (a deploy interrupted between the on-VM checks and `confirm`).
 
 ## 5. Rollback
 
@@ -188,8 +216,10 @@ logitrack-api/deploy/vm/deploy.sh --rollback              # to the release that 
 logitrack-api/deploy/vm/deploy.sh --rollback --to <sha>   # to a kept release
 ```
 
-Rollback switches `current` and reloads pm2; no migration runs backwards. A release that failed its checks never
-counts as "live", so a rollback never returns to it.
+Rollback switches `current` and reloads pm2; no migration runs backwards. Only a release that passed every check,
+the public ones from the operator's machine included, is recorded as live (`deploy.sh` activates with `--pending`
+and confirms after the public checks), so a rollback never returns to a release that failed one; `--to` picks any
+kept release explicitly.
 
 ## 6. Where the admin password is
 
@@ -208,27 +238,66 @@ runuser -u logitrack -- env -i HOME=/home/logitrack PATH=/usr/bin:/bin /opt/logi
 
 ## 7. Backups
 
-Nightly, off the VM (owner's storage), and before risky changes:
+Nightly, off the VM (owner's storage), and before risky changes. As root, into a directory only root can enter:
+the dump holds every tenant's data and the password hashes, the media archive the private photos, and the secrets
+archive every credential, the JWT signing key included. `umask 077` makes every file 0600 (root's default umask
+would leave them readable by every account of this shared VM).
 
 ```sh
-# database (PostgreSQL 18 client on the server), custom format
-runuser -u postgres -- pg_dump -Fc logitrack > /var/backups/logitrack-$(date +%F).dump
-# local storage objects
-tar -C /opt/logitrack/shared -czf /var/backups/logitrack-media-$(date +%F).tgz media
-# the .env and the secrets (they hold every credential: keep the copy as private as the VM's own)
-tar -C /opt/logitrack/shared -czf /var/backups/logitrack-secrets-$(date +%F).tgz .env secrets
+install -d -m 0700 -o root -g root /var/backups/logitrack
+( umask 077
+  d=/var/backups/logitrack; t=$(date +%F)
+  # database (PostgreSQL 18 client on the server), custom format
+  runuser -u postgres -- pg_dump -Fc logitrack > "$d/logitrack-$t.dump"
+  # local storage objects
+  tar -C /opt/logitrack/shared -czf "$d/logitrack-media-$t.tgz" media
+  # the .env and the secrets
+  tar -C /opt/logitrack/shared -czf "$d/logitrack-secrets-$t.tgz" .env secrets )
 ```
 
-Restore into an empty database owned by the migrator: `runuser -u postgres -- pg_restore -d logitrack --no-owner
---role=logitrack_migrator <dump>`, then reload the four apps (`rollout.sh pm2 reload all`). Redis and RabbitMQ are not
-backed up: Redis holds caches and hot copies (idempotency keys are also durable rows in PostgreSQL), and RabbitMQ
-holds work in flight; inspect its dead-letter queues before a restore if they matter.
+Encrypt the secrets archive to the owner's key before it leaves the VM (e.g. `age -r <owner's public key>` or
+`gpg -e -r <owner>`), keep every copy off the VM as private (0600), and prune the local copies
+(`find /var/backups/logitrack -type f -mtime +7 -delete`).
+
+Restore as the superuser and keep the owners the dump records. The five R66 roles are cluster-wide and still
+exist, and a dump made without `-C` carries neither the database's owner nor its `CONNECT` grants, so the database
+is created again the way `provision.sh` creates it. Never pass `--no-owner` or `--role` to `pg_restore`: the
+SECURITY DEFINER helpers (task and invoice numbering, the scope helpers of the RLS policies, the driver-link
+trigger) must stay owned by `logitrack_rls_definer` (BYPASSRLS). Owned by the migrator they run under RLS, and
+numbering fails with `new row violates row-level security policy` (42501) although the restore itself succeeds.
+
+```sh
+d=/var/backups/logitrack; t=2026-10-11          # the dump to restore
+bash /opt/logitrack/current/deploy/vm/rollout.sh pm2 stop all
+runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 \
+  -c "DROP DATABASE IF EXISTS logitrack" \
+  -c "CREATE DATABASE logitrack TEMPLATE template0 ENCODING 'UTF8'" \
+  -c "ALTER DATABASE logitrack OWNER TO logitrack_migrator" \
+  -c "REVOKE CONNECT ON DATABASE logitrack FROM PUBLIC" \
+  -c "GRANT CONNECT ON DATABASE logitrack TO logitrack_app, logitrack_etl, logitrack_readonly"
+runuser -u postgres -- pg_restore --single-transaction -d logitrack < "$d/logitrack-$t.dump"
+# two equal numbers, not 0 (8|8 at migration 0011): every SECURITY DEFINER helper is logitrack_rls_definer's
+runuser -u postgres -- psql -X -d logitrack -tAc "SELECT count(*) FILTER (WHERE proowner = 'logitrack_rls_definer'::regrole), count(*) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace"
+bash /opt/logitrack/current/deploy/vm/rollout.sh pm2 restart all
+```
+
+The dump replaces the database: take a dump of the current one first if it may still matter. Media come back
+with `tar -C /opt/logitrack/shared -xzf <media archive>`. On a rebuilt VM, put `.env` and `secrets/` back
+(`tar -C /opt/logitrack/shared -xzf <secrets archive>`) before `deploy.sh --provision`, which keeps their values
+and sets the role passwords from them. Redis and RabbitMQ are not backed up: Redis holds caches and hot copies
+(idempotency keys are also durable rows in PostgreSQL), and RabbitMQ holds work in flight; inspect its
+dead-letter queues before a restore if they matter.
 
 ## Operations
 
 - Logs: `/opt/logitrack/shared/logs/<program>.{out,err}.log`; `rollout.sh pm2 logs logitrack-api --lines 200`;
-  nginx `/var/log/nginx/logitrack-{web,api}.{access,error}.log` (the access log drops query strings, so signed
-  media URLs and reset tokens are not logged; evidence paths are not logged at all).
+  nginx `/var/log/nginx/logitrack-{web,api}.{access,error}.log`. The access log drops query strings (signed
+  media URLs, SSE tickets), and evidence requests appear there as `/evidence/-` with their status only. The error
+  log writes the full request line, query included, when an upstream fails (connection refused while pm2
+  restarts an app, a timeout, a 413), so the locations whose URI carries a credential (`/evidence`, `/media` and
+  `/v1/mobile/events` on logi-api; `/media/` and the BFF's `/api/go/v1/uploads/local/` on logi) log errors at
+  `crit` only: their failures show as 502, 504 or 413 in the access log and in the apps' own logs. Other upstream
+  errors keep their full request line. (Password-reset tokens travel in the URL fragment and never reach nginx.)
 - Settings: edit `/opt/logitrack/shared/.env` as root, then `rollout.sh pm2 reload <app>`. Raising
   `UPLOAD_MAX_BYTES` needs the same `client_max_body_size` in both vhosts (`nginx/`).
 - Web domain flags: P0 state, `WEB_FLAG_OVERRIDES=auth=go` with `PG_OWNED_DOMAINS` empty (every other domain on
@@ -246,6 +315,10 @@ holds work in flight; inspect its dead-letter queues before a restore if they ma
 `go test ./deploy/vm/ ./tools/vmenv/` (part of `make test`): `bash -n`, the template against the real configuration
 of api, worker, scheduler, migrate and seed (`STORAGE_BACKEND=local`, empty `S3_*`), `ecosystem.config.cjs` loaded in
 node, every script run against a temporary tree with stub commands (dry runs change nothing; no generated secret
-in any output or process argument; a second provision changes nothing; deploy, rollback and pruning). With
-`-tags=integration` (`make test-integration`, or `make vm-check`): `nginx -t` and the routing of both vhosts under
-`nginx:1.24` with a dummy certificate at the real paths, and shellcheck over every script.
+in any output or process argument; a second provision changes nothing; a JWT key path outside `shared/secrets/`
+is refused; deploy from a clean export, refusal of untracked files, rollback, the public-check failure path,
+the first-deploy seed, pruning; the section 2 reload; the backup commands' modes). With `-tags=integration`
+(`make test-integration`, or `make vm-check`): `nginx -t`, the routing of both vhosts and the error logs of an
+unreachable upstream (no credential in them) under `nginx:1.24` with a dummy certificate at the real paths,
+shellcheck over every script, and section 7's restore run as written on PostgreSQL 18 (definer owners kept,
+`next_task_seq` works as `logitrack_app`).

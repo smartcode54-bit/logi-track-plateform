@@ -4,13 +4,16 @@
 // command line or to a pipe; no value is ever printed to a terminal or a log (§16.5).
 //
 //	vmenv render -template env.vm.example -out /opt/logitrack/shared/.env [-prefix DIR] [-dry-run]
-//	      [-pg-addr HOST:PORT] [-pg-db NAME] [-redis-addr HOST:PORT] [-amqp-addr HOST:PORT]
+//	      [-secrets-dir DIR] [-pg-addr HOST:PORT] [-pg-db NAME] [-redis-addr HOST:PORT] [-amqp-addr HOST:PORT]
 //	    Writes the VM's .env (mode 0600) from the names-only template: an existing value is kept, a missing
 //	    one comes from the template, and the generated names (role passwords inside the three database
 //	    URLs, the Redis and RabbitMQ passwords inside their URLs, LOCAL_MEDIA_SIGNING_KEY, API_KEY_PEPPER,
 //	    BOOTSTRAP_ADMIN_PASSWORD, SEED_DEFAULT_PASSWORD, OWN_FLEET_TENANT_ID) are created when missing or
 //	    empty. The Ed25519 key of JWT_SIGNING_KEY_FILE is created when missing and JWT_ACTIVE_KID is its
 //	    RFC 7638 thumbprint, computed by internal/auth/token as the api does. Prints names only.
+//	    With -secrets-dir (provision.sh passes /opt/logitrack/shared/secrets), JWT_SIGNING_KEY_FILE must
+//	    name a file directly in DIR: root creates that file, so a value pointing anywhere else (the .env is
+//	    read before anything else) is refused. A key file that is a symbolic link is always refused.
 //	vmenv roles-sql -env FILE
 //	    ALTER ROLE statements with SCRAM-SHA-256 verifiers for the LOGIN roles of the three database URLs,
 //	    for `psql` as the superuser (stdin). Refuses a terminal.
@@ -104,7 +107,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 // renderOptions are the flags of render.
 type renderOptions struct {
-	template, out, prefix             string
+	template, out, prefix, secretsDir string
 	pgAddr, pgDB, redisAddr, amqpAddr string
 	dryRun                            bool
 }
@@ -116,6 +119,7 @@ func cmdRender(args []string, stdout io.Writer) error {
 	fl.StringVar(&o.template, "template", "", "")
 	fl.StringVar(&o.out, "out", "", "")
 	fl.StringVar(&o.prefix, "prefix", "", "")
+	fl.StringVar(&o.secretsDir, "secrets-dir", "", "")
 	fl.StringVar(&o.pgAddr, "pg-addr", "127.0.0.1:5432", "")
 	fl.StringVar(&o.pgDB, "pg-db", "logitrack", "")
 	fl.StringVar(&o.redisAddr, "redis-addr", "127.0.0.1:6381", "")
@@ -126,6 +130,9 @@ func cmdRender(args []string, stdout io.Writer) error {
 	}
 	if o.template == "" || o.out == "" || fl.NArg() != 0 {
 		return errors.New("render needs -template and -out")
+	}
+	if o.secretsDir != "" && (!filepath.IsAbs(o.secretsDir) || filepath.Clean(o.secretsDir) != o.secretsDir) {
+		return errors.New("-secrets-dir must be a clean absolute path")
 	}
 	for _, a := range []string{o.pgAddr, o.redisAddr, o.amqpAddr} {
 		if _, _, err := net.SplitHostPort(a); err != nil {
@@ -286,6 +293,11 @@ func buildPlan(tmpl, existing []dotenv.Line, o renderOptions) (*plan, error) {
 		if !filepath.IsAbs(keyFile) {
 			return nil, errors.New("JWT_SIGNING_KEY_FILE must be an absolute path")
 		}
+		// Root creates this file and provision.sh hands it to the app user's group: only a file directly in
+		// the secrets directory qualifies, whatever the .env says.
+		if o.secretsDir != "" && (filepath.Clean(keyFile) != keyFile || filepath.Dir(keyFile) != o.secretsDir) {
+			return nil, fmt.Errorf("JWT_SIGNING_KEY_FILE must name a file directly in %s", o.secretsDir)
+		}
 		p.keyPath = filepath.Join(o.prefix, keyFile)
 		pub, err := loadKey(p.keyPath)
 		switch {
@@ -351,7 +363,11 @@ func random(n int) string {
 }
 
 // loadKey returns the public half of an existing PKCS#8 PEM Ed25519 key (os.ErrNotExist when there is none).
+// A symbolic link is refused, dangling or not: root must never create or read a key through a link.
 func loadKey(path string) (ed25519.PublicKey, error) {
+	if fi, err := os.Lstat(path); err == nil && !fi.Mode().IsRegular() {
+		return nil, errors.New("JWT_SIGNING_KEY_FILE: not a regular file (a symbolic link or another kind of file)")
+	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
