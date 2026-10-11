@@ -19,6 +19,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/firebase"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing/render"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/coexist"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/gcp"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hubs"
@@ -295,6 +296,21 @@ func workerRegistrations(cfg *WorkerConfig, pool, etlPool *pgxpool.Pool, st *sto
 		for _, r := range regs {
 			available[r.Queue] = r
 		}
+	}
+
+	// documents.render (T39, R69): statement documents and the Shopee report, stored through the storage service. The
+	// fonts are read (and parsed) once here, so a bad PDF_FONT_DIR stops the start instead of every render.
+	if st != nil && slices.Contains(cfg.Groups, "documents") {
+		fonts, err := render.LoadFonts(cfg.PDFFontDir)
+		if err != nil {
+			return nil, &config.Error{Invalid: []string{err.Error()}}
+		}
+		docs, err := billing.NewDocumentJob(billing.DocumentJobDeps{Pool: pool, Files: st, Fonts: fonts,
+			Locks: jobs.NewRedisLocker(rdb, ks), Log: log})
+		if err != nil {
+			return nil, err
+		}
+		available[billing.QueueDocuments] = docs.Registration()
 	}
 
 	var regs []mq.Registration

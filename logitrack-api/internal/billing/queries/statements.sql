@@ -32,11 +32,12 @@ SELECT coalesce(next_invoice_seq(sqlc.arg(tenant_id)::uuid, sqlc.arg(party_id)::
 INSERT INTO billing_statements (tenant_id, tenant_source, billing_party_id, issuer_company_id, invoice_number,
                                 customer_name_snapshot, customer_code_snapshot, period_year, period_month,
                                 total_amount, withholding_tax_rate, withholding_tax, net_amount, status, generated_at,
-                                due_date, note, generated_by)
+                                due_date, note, generated_by, show_actual_pickup)
 VALUES (sqlc.arg(tenant_id), 'form', sqlc.arg(party_id), sqlc.arg(issuer_company_id), sqlc.arg(invoice_number),
         sqlc.narg(customer_name), sqlc.narg(customer_code), sqlc.arg(period_year), sqlc.arg(period_month), 0,
         (SELECT (c.withholding_tax_rate / 100)::numeric(5,4) FROM companies c WHERE c.id = sqlc.arg(issuer_company_id)),
-        0, 0, 'draft', sqlc.arg(generated_at), sqlc.narg(due_date), sqlc.narg(note), sqlc.narg(generated_by)::uuid)
+        0, 0, 'draft', sqlc.arg(generated_at), sqlc.narg(due_date), sqlc.narg(note), sqlc.narg(generated_by)::uuid,
+        sqlc.arg(show_actual_pickup))
 RETURNING id, withholding_tax_rate::float8 AS withholding_tax_rate;
 
 -- name: InsertStatementLines :execrows
@@ -176,7 +177,7 @@ SELECT s.id, s.legacy_doc_id, s.tenant_id, s.billing_party_id, s.issuer_company_
        s.customer_name_snapshot, s.customer_code_snapshot, s.period_year, s.period_month, s.total_amount,
        s.withholding_tax_rate, s.withholding_tax, s.net_amount, s.trip_count, s.trip_only_count, s.trip_subtotal,
        s.standby_count, s.standby_subtotal, s.multi_drop_count, s.multi_drop_subtotal, s.status, s.generated_at, s.sent_at,
-       s.paid_at, s.cancelled_at, s.due_date, s.note, s.generated_by, s.created_at, s.updated_at,
+       s.paid_at, s.cancelled_at, s.due_date, s.note, s.generated_by, s.created_at, s.updated_at, s.show_actual_pickup,
        coalesce(bp.customer_id, bp.tenant_id, s.billing_party_id)::uuid AS customer_id,
        u.display_name AS generated_by_display_name, u.email AS generated_by_email
 FROM billing_statements s
@@ -190,7 +191,7 @@ SELECT s.id, s.legacy_doc_id, s.tenant_id, s.billing_party_id, s.issuer_company_
        s.customer_name_snapshot, s.customer_code_snapshot, s.period_year, s.period_month, s.total_amount,
        s.withholding_tax_rate, s.withholding_tax, s.net_amount, s.trip_count, s.trip_only_count, s.trip_subtotal,
        s.standby_count, s.standby_subtotal, s.multi_drop_count, s.multi_drop_subtotal, s.status, s.generated_at, s.sent_at,
-       s.paid_at, s.cancelled_at, s.due_date, s.note, s.generated_by, s.created_at, s.updated_at,
+       s.paid_at, s.cancelled_at, s.due_date, s.note, s.generated_by, s.created_at, s.updated_at, s.show_actual_pickup,
        coalesce(bp.customer_id, bp.tenant_id, s.billing_party_id)::uuid AS customer_id,
        u.display_name AS generated_by_display_name, u.email AS generated_by_email
 FROM billing_statements s
