@@ -27,9 +27,20 @@ func testFixture() FixtureFS {
 	return FixtureFS{FS: os.DirFS("../../testdata"), Registry: "registry.json", Smoke: "smoke"}
 }
 
+// plan builds a profile as seed --profile does with SEED_RANDOM_SEED empty (Build applies DefaultRandomSeed).
 func plan(t *testing.T, p Profile) *Plan {
 	t.Helper()
-	pl, err := Build(context.Background(), testFixture(), Options{Profile: p, Bucket: "logitrack", PublicBucket: "logitrack-public", Backend: "s3"})
+	return planSeed(t, p, 0)
+}
+
+// integrationSeed is the SEED_RANDOM_SEED of the cmd/seed integration tests (main_integration_test.go).
+const integrationSeed uint64 = 20261009
+
+// planSeed builds a profile with SEED_RANDOM_SEED = seed (0: the default).
+func planSeed(t *testing.T, p Profile, seed uint64) *Plan {
+	t.Helper()
+	pl, err := Build(context.Background(), testFixture(), Options{Profile: p, RandomSeed: seed, Bucket: "logitrack",
+		PublicBucket: "logitrack-public", Backend: "s3"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -401,7 +412,7 @@ var temporaryRx = regexp.MustCompile(`^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{12}$`)
 // deterministic.
 func TestTemporaryPassword(t *testing.T) {
 	ctx := context.Background()
-	o := Options{Namespace: DefaultNamespace, RandomSeed: 20261009, Materialize: true, Hasher: stubHasher{},
+	o := Options{Namespace: DefaultNamespace, RandomSeed: integrationSeed, Materialize: true, Hasher: stubHasher{},
 		DefaultPassword: "unit-test-only", Scrypt: nil}
 	seen := map[string]bool{}
 	for range 3 {
