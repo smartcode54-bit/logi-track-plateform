@@ -172,6 +172,37 @@ func TestFullLoadOfEveryCollection(t *testing.T) {
 		t.Errorf("rewrite-urls after the full load: exit %d\n%s", code, out)
 	}
 
+	t.Run("--force re-applies every collection to the same state (immutable rows kept, history appended once)", func(t *testing.T) {
+		counts := func() string {
+			return h.scalar(`SELECT (SELECT count(*) FROM status_history) || ' ' || (SELECT count(*) FROM security_events) || ' ' ||
+				(SELECT count(*) FROM transactions) || ' ' || (SELECT count(*) FROM payroll_line_items) || ' ' || (SELECT count(*) FROM file_objects)
+				|| ' ' || (SELECT count(*) FROM hub_name_aliases) || ' ' || (SELECT count(*) FROM trip_photos)`).(string)
+		}
+		before := counts()
+		h.mustRun("load", "--fixtures", "--force")
+		if after := counts(); after != before {
+			t.Errorf("row counts after --force: %s, before %s", after, before)
+		}
+		state, err := h.engine().QuarantineReport(h.ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if text := sectionsText(t, state); text != readSnapshot(t) {
+			t.Errorf("state after --force differs from the snapshot:\n%s", diff(readSnapshot(t), text))
+		}
+		if v := h.scalar(`SELECT status FROM payroll_runs WHERE legacy_doc_id = 'uid_own_2026-09_R1'`); v != "approved" {
+			t.Errorf("payroll status after --force: %v", v)
+		}
+	})
+
+	t.Run("a re-applied trip keeps its restamp lock (the statements loaded before)", func(t *testing.T) {
+		h.mustRun("load", "--fixtures", "--collections", "trip_records", "--force")
+		if v := h.scalar(`SELECT count(*) FROM etl.quarantine WHERE doc_path = 'trip_records/TRIP002' AND reason_code = 'billing_date_locked'
+			AND resolved_at IS NULL`); v != int64(1) {
+			t.Errorf("billing_date_locked on TRIP002: %v", v)
+		}
+	})
+
 	t.Run("reconcile: every collection accounted for, money exact", func(t *testing.T) {
 		dir := t.TempDir()
 		out := h.mustRun("reconcile", "--fixtures", "--out", dir)
@@ -213,7 +244,7 @@ func TestRunbookRehearsal(t *testing.T) {
 		t.Fatalf("reconcile after the load: %s", out)
 	}
 	// The owner reviews the quarantine report, corrects the D5 losers and accepts the remaining findings.
-	if out := h.mustRun("quarantine", "list", "--reason", "duplicate_service_fee"); strings.Count(out, "customer_service_fees/") != 2 {
+	if out := h.mustRun("quarantine", "list", "--reason", "duplicate_service_fee"); strings.Count(out, "customer_service_fees/") != 4 {
 		t.Errorf("duplicate fees listed: %s", out)
 	}
 	correctD5Losers(t, h)

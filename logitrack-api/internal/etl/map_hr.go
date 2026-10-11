@@ -372,21 +372,9 @@ func loadTransaction(c *docCtx) error {
 	if date == nil {
 		return c.reject("date", ReasonMissingRequired, "transactions.tx_date is NOT NULL", c.get("date"))
 	}
-	var existing, curTenant uuid.UUID
-	var curSource string
-	err = c.tx.QueryRow(c.ctx, `SELECT id, tenant_id, tenant_source FROM transactions WHERE legacy_doc_id = $1`, c.doc.ID).
-		Scan(&existing, &curTenant, &curSource)
-	switch {
-	case err == nil:
-		// Immutable ledger row (transactions_immutable): the document already loaded and keeps its row.
-		c.tenantSource = tenancy.Source(curSource)
-		if curTenant == c.e.quar {
-			c.outcome = Quarantined
-			c.find("", ReasonTenantUnresolved, "the ledger row stays in the quarantine tenant (immutable: corrected by a new entry, never moved)", nil)
-		}
-		c.done("transactions", existing)
-		return nil
-	case !errors.Is(err, pgx.ErrNoRows):
+	var existing uuid.UUID
+	err = c.tx.QueryRow(c.ctx, `SELECT id FROM transactions WHERE legacy_doc_id = $1`, c.doc.ID).Scan(&existing)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("etl: %s: %w", c.doc.Path, err)
 	}
 	r := newRow("transactions").set("legacy_doc_id", c.doc.ID).set("tx_type", typ).set("sub_type", c.text("subType")).
@@ -437,6 +425,18 @@ func loadTransaction(c *docCtx) error {
 			return err
 		}
 		r.set("receipt_file_id", fid)
+	}
+	if existing != uuid.Nil {
+		// Immutable ledger row (transactions_immutable): a re-applied document keeps its row and reports its findings
+		// again. A quarantined row stays in the quarantine tenant even when its chain resolves now: the ledger is
+		// corrected by a new entry, never moved (tenancy.Rehome does not take transactions).
+		if c.leaving != uuid.Nil {
+			c.leaving = uuid.Nil
+			c.find("", ReasonTenantUnresolved, "the ledger row stays in the quarantine tenant (immutable: corrected by a new entry, never moved)", nil)
+			c.toQuarantine()
+		}
+		c.done("transactions", existing)
+		return nil
 	}
 	var id uuid.UUID
 	if err := c.tx.QueryRow(c.ctx, r.insertSQL()+` RETURNING id`, r.vals...).Scan(&id); err != nil {

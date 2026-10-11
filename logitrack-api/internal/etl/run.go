@@ -81,6 +81,16 @@ func (r *runState) extraFinding(coll, path string, f Finding) error {
 	return nil
 }
 
+// flagHolder raises a D5 finding on the other document of a duplicate pair (the one loaded first), so the owner's
+// report lists every member of the pair (Appendix D §D.5.2); a holder created in PostgreSQL (no legacy doc) has no
+// document to flag.
+func (c *docCtx) flagHolder(holderDocID string, f Finding) error {
+	if holderDocID == "" || c.run == nil {
+		return nil
+	}
+	return c.run.extraFinding(c.coll, c.coll+"/"+holderDocID, f)
+}
+
 // settleRehomed brings the ETL bookkeeping up to date with re-homes done through the API (POST
 // /v1/tenants/quarantine/rows/{table}/{id}/rehome): the api login cannot reach schema etl (Appendix C §C.3.2), so the
 // endpoint moves the rows and writes tenant_rehomed, and the next ETL command that reads the bookkeeping (load,

@@ -40,9 +40,9 @@ func loadChat(c *docCtx) error {
 		status = "open"
 	}
 	if status != "closed" && drv.ok() {
-		var other string
-		err := c.tx.QueryRow(c.ctx, `SELECT coalesce(legacy_doc_id, id::text) FROM chats WHERE driver_id = $1 AND status <> 'closed'
-			AND legacy_doc_id IS DISTINCT FROM $2 LIMIT 1`, drv.id, c.doc.ID).Scan(&other)
+		var other, otherDoc string
+		err := c.tx.QueryRow(c.ctx, `SELECT coalesce(legacy_doc_id, id::text), coalesce(legacy_doc_id, '') FROM chats WHERE driver_id = $1
+			AND status <> 'closed' AND legacy_doc_id IS DISTINCT FROM $2 ORDER BY legacy_doc_id COLLATE "C" LIMIT 1`, drv.id, c.doc.ID).Scan(&other, &otherDoc)
 		switch {
 		case err == nil:
 			enforced, err := c.run.d5Enforced(d5OpenChat)
@@ -54,6 +54,10 @@ func loadChat(c *docCtx) error {
 				status = "closed"
 			} else {
 				c.find("status", ReasonDuplicateNaturalKey, "the driver's open chat is also "+other+" (D5: both loaded until the owner merges them)", c.get("status"))
+				if err := c.flagHolder(otherDoc, Finding{Field: "status", Reason: ReasonDuplicateNaturalKey,
+					Detail: "the driver's open chat is also " + c.doc.ID + " (D5: both loaded until the owner merges them)"}); err != nil {
+					return err
+				}
 			}
 		case !errors.Is(err, pgx.ErrNoRows):
 			return fmt.Errorf("etl: %s: %w", c.doc.Path, err)

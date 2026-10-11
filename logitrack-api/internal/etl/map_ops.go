@@ -395,6 +395,11 @@ func loadTrip(c *docCtx) error {
 		return err
 	} else if basis == "plan" && billingDate == nil && (status == "delivered" || hasBillingEvidence("trip_records", c.f)) {
 		c.find("billingDate", ReasonMissingBillingDate, "plan-basis party without billingDate (D7)", nil)
+		if locked, err := c.restampLocked(party, task); err != nil {
+			return err
+		} else if locked {
+			c.find("billingDate", ReasonBillingDateLocked, "the task's plan month has a sent or paid statement of this party: no restamp (D7)", nil)
+		}
 	}
 	if status == "standby" {
 		c.find("status", ReasonLegacyStandbyTrip, "legacy standby trip not migrated to standby_records (Q5)", nil)
@@ -600,6 +605,23 @@ func (c *docCtx) tripPhotos(id, tenant uuid.UUID) error {
 		}
 	}
 	return nil
+}
+
+// restampLocked reports whether the restamp of a plan-basis trip without billingDate (its task's plan date) would land
+// in a period the party already has a sent or paid statement for (D7). The statements load after the trips, so the
+// first full load raises the finding in afterStatements; a later load of the trip raises it here.
+func (c *docCtx) restampLocked(party *uuid.UUID, task ref) (bool, error) {
+	if party == nil || !task.ok() {
+		return false, nil
+	}
+	var locked bool
+	err := c.tx.QueryRow(c.ctx, `SELECT EXISTS (SELECT 1 FROM billing_statements s, tasks t WHERE t.id = $2 AND s.billing_party_id = $1
+		AND s.status IN ('sent', 'paid') AND s.period_year = extract(year FROM bkk_date(t.plan_at))::int
+		AND s.period_month = extract(month FROM bkk_date(t.plan_at))::int)`, *party, task.id).Scan(&locked)
+	if err != nil {
+		return false, fmt.Errorf("etl: %s: period lock: %w", c.doc.Path, err)
+	}
+	return locked, nil
 }
 
 // tripStops replaces trip_delivery_stops from deliveryStopsProgress[] (completion order, Q16): completed_seq is the

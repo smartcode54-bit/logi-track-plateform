@@ -338,9 +338,10 @@ func loadServiceFee(c *docCtx) error {
 		return c.reject("unit", ReasonMissingRequired, "customer_service_fees.unit is NOT NULL", nil)
 	}
 	if ft != "custom" {
-		var other string
-		err := c.tx.QueryRow(c.ctx, `SELECT legacy_doc_id FROM customer_service_fees WHERE billing_party_id = $1 AND fee_type = $2
-			AND legacy_doc_id IS DISTINCT FROM $3 ORDER BY legacy_doc_id COLLATE "C" LIMIT 1`, *party, ft, c.doc.ID).Scan(&other)
+		var other, otherDoc string
+		err := c.tx.QueryRow(c.ctx, `SELECT coalesce(legacy_doc_id, id::text), coalesce(legacy_doc_id, '') FROM customer_service_fees
+			WHERE billing_party_id = $1 AND fee_type = $2 AND legacy_doc_id IS DISTINCT FROM $3 ORDER BY legacy_doc_id COLLATE "C" LIMIT 1`,
+			*party, ft, c.doc.ID).Scan(&other, &otherDoc)
 		switch {
 		case err == nil:
 			enforced, err := c.run.d5Enforced(d5ServiceFeeTypes)
@@ -351,6 +352,10 @@ func loadServiceFee(c *docCtx) error {
 				return c.reject("feeType", ReasonDuplicateServiceFee, "the party already has a "+ft+" fee ("+other+") and 0010 allows one", ft)
 			}
 			c.find("feeType", ReasonDuplicateServiceFee, "the party's "+ft+" fee is also "+other+" (D5: both loaded until the owner's sign-off)", ft)
+			if err := c.flagHolder(otherDoc, Finding{Field: "feeType", Reason: ReasonDuplicateServiceFee,
+				Detail: "the party's " + ft + " fee is also " + c.doc.ID + " (D5: both loaded until the owner's sign-off)", Raw: ft}); err != nil {
+				return err
+			}
 		case !errors.Is(err, pgx.ErrNoRows):
 			return fmt.Errorf("etl: %s: %w", c.doc.Path, err)
 		}
@@ -603,6 +608,8 @@ func afterStatements(r *runState, _ string) error {
 		JOIN billing_parties bp ON bp.id = tr.billing_party_id AND bp.billing_date_basis = 'plan'
 		JOIN tasks t ON t.id = tr.task_id
 		WHERE sd.collection = 'trip_records' AND tr.billing_date IS NULL
+		  AND EXISTS (SELECT 1 FROM etl.quarantine q WHERE q.collection = 'trip_records' AND q.doc_path = sd.doc_path
+		      AND q.reason_code = 'missing_billing_date' AND q.resolved_at IS NULL)
 		  AND EXISTS (SELECT 1 FROM billing_statements s WHERE s.billing_party_id = tr.billing_party_id AND s.status IN ('sent', 'paid')
 		      AND s.period_year = extract(year FROM bkk_date(t.plan_at))::int AND s.period_month = extract(month FROM bkk_date(t.plan_at))::int)
 		ORDER BY sd.doc_path`)

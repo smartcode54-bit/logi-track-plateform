@@ -4,6 +4,7 @@ broadcasts	broadcasts/bc_1	createdBy	user_unresolved
 broadcasts	broadcasts/bc_1	readDriverAuthIds[0]	user_unresolved
 chats	chats/chat_1	assignedAdminId	user_unresolved
 chats	chats/chat_1	lastReadByAdmin.uid_admin	user_unresolved
+chats	chats/chat_1	status	duplicate_natural_key
 chats	chats/chat_2	status	duplicate_natural_key
 companies	companies/co_alpha	maxDrivers	bad_number
 companies	companies/co_owner2	companyType	duplicate_natural_key
@@ -11,7 +12,9 @@ companies	companies/co_unknown	-	tenant_unresolved
 customer_fuel_rate_adjustments	customer_fuel_rate_adjustments/fa_cjsf_band	fuelBandEnabled	bad_number
 customer_rate_entries	customer_rate_entries/rate_nobody	customerId	party_unresolved
 customer_rate_entries	customer_rate_entries/rate_spx_void	voidedBy	user_unresolved
+customer_service_fees	customer_service_fees/fee_es_a	feeType	duplicate_service_fee
 customer_service_fees	customer_service_fees/fee_es_b	feeType	duplicate_service_fee
+customer_service_fees	customer_service_fees/fee_sb_a	feeType	duplicate_service_fee
 customer_service_fees	customer_service_fees/fee_sb_b	feeType	duplicate_service_fee
 customers	customers/cust_zdup	code	duplicate_natural_key
 driver_compensation_config	driver_compensation_config/cfg_2026	createdBy	user_unresolved
@@ -79,6 +82,7 @@ trucks	trucks/trk_bad	brand	missing_required
 trucks	trucks/trk_orphan	-	tenant_unresolved
 trucks	trucks/trk_trailer	statusHistory[0]	bad_timestamp
 trucks	trucks/trk_trailer	type	vehicle_class_out_of_enum
+vehicle_expenses	vehicle_expenses/exp1	taxInvId	duplicate_natural_key
 vehicle_expenses	vehicle_expenses/exp2	taxInvId	duplicate_natural_key
 vehicle_expenses	vehicle_expenses/exp3	amount	negative_money
 vehicle_locations	vehicle_locations/GPS9	GPSVehicleId	truck_unresolved

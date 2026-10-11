@@ -80,9 +80,10 @@ func loadExpense(c *docCtx) error {
 	}
 	taxInv := c.text("taxInvId")
 	if typ == "fuel" && taxInv != nil && drv.ok() {
-		var other string
-		err := c.tx.QueryRow(c.ctx, `SELECT legacy_doc_id FROM vehicle_expenses WHERE expense_type = 'fuel' AND driver_id = $1
-			AND tax_inv_id = $2 AND legacy_doc_id IS DISTINCT FROM $3 LIMIT 1`, drv.id, *taxInv, c.doc.ID).Scan(&other)
+		var other, otherDoc string
+		err := c.tx.QueryRow(c.ctx, `SELECT coalesce(legacy_doc_id, id::text), coalesce(legacy_doc_id, '') FROM vehicle_expenses
+			WHERE expense_type = 'fuel' AND driver_id = $1 AND tax_inv_id = $2 AND legacy_doc_id IS DISTINCT FROM $3 LIMIT 1`,
+			drv.id, *taxInv, c.doc.ID).Scan(&other, &otherDoc)
 		switch {
 		case err == nil:
 			enforced, err := c.run.d5Enforced(d5FuelTaxInv)
@@ -96,6 +97,10 @@ func loadExpense(c *docCtx) error {
 				taxInv = nil
 			} else {
 				c.find("taxInvId", ReasonDuplicateNaturalKey, "the driver's fuel receipt is also "+other+" (D5: both loaded)", *taxInv)
+				if err := c.flagHolder(otherDoc, Finding{Field: "taxInvId", Reason: ReasonDuplicateNaturalKey,
+					Detail: "the driver's fuel receipt is also " + c.doc.ID + " (D5: both loaded)", Raw: *taxInv}); err != nil {
+					return err
+				}
 			}
 		case !errors.Is(err, pgx.ErrNoRows):
 			return fmt.Errorf("etl: %s: %w", c.doc.Path, err)
