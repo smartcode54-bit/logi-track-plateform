@@ -5,12 +5,15 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet/vehicleclass"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hubs"
@@ -152,17 +155,74 @@ func byID(rows []Row) map[string]Row {
 
 // The master data of demo and load keeps the rules the services and Appendix D §D.3 enforce: invariant 8 (no alias or
 // hub name is a hub code, aliases unique), the network rule, the distance rule (both directions, one network, the
-// stand-by SOC skipped, values from the synthetic route), the truck form's plates and the vehicle-class map, and
-// tenancy (#10a): every assignment is in its truck's tenant and binds a driver of that tenant, or a driver who holds a
-// driver membership there (R24).
+// stand-by SOC skipped, values from the synthetic route), the truck form's plates and the vehicle-class map, tenancy
+// (#10a): every assignment is in its truck's tenant and binds a driver of that tenant, or a driver who holds a driver
+// membership there (R24), the assignment rules (no driver or truck holds two at once; the driver of an active one is
+// on duty) and the roles each tenant holds. It runs on the plan seed --profile loads (SEED_RANDOM_SEED empty) and on
+// the integration tests' seed, since the drawn values differ per seed.
 func TestMasterDataRules(t *testing.T) {
 	for _, prof := range []Profile{ProfileDemo, ProfileLoad} {
-		t.Run(string(prof), func(t *testing.T) {
-			p := plan(t, prof)
-			checkHubs(t, p)
-			checkDistances(t, p)
-			checkFleet(t, p)
-		})
+		for _, seed := range []uint64{0, integrationSeed} {
+			t.Run(fmt.Sprintf("%s/seed=%d", prof, seed), func(t *testing.T) {
+				p := planSeed(t, prof, seed)
+				checkHubs(t, p)
+				checkDistances(t, p)
+				checkFleet(t, p)
+				checkAssignmentSpans(t, p)
+			})
+		}
+	}
+}
+
+// Build applies DefaultRandomSeed when SEED_RANDOM_SEED is empty, so the unit tests build the plan the CLI loads.
+func TestBuildDefaultsRandomSeed(t *testing.T) {
+	if !reflect.DeepEqual(plan(t, ProfileLoad).Tables, planSeed(t, ProfileLoad, DefaultRandomSeed).Tables) {
+		t.Fatal("a plan without SEED_RANDOM_SEED differs from one with DefaultRandomSeed")
+	}
+	if reflect.DeepEqual(plan(t, ProfileLoad).Tables, planSeed(t, ProfileLoad, integrationSeed).Tables) {
+		t.Fatal("two seeds give the same load plan: the drawn values ignore SEED_RANDOM_SEED")
+	}
+}
+
+// checkAssignmentSpans: no driver and no truck holds two assignments at once, the rule POST /v1/truck-assignments
+// enforces (409 driver_assigned / truck_assigned): per driver and per truck, the assignments that are not cancelled,
+// ordered by created_at, each start at or after the previous one ends (revoked_at; an active one never ends).
+func checkAssignmentSpans(t *testing.T, p *Plan) {
+	t.Helper()
+	type span struct {
+		id       string
+		from, to time.Time
+		open     bool
+	}
+	at := func(a Row, col string) time.Time {
+		v, err := time.Parse(time.RFC3339, a.Str(col))
+		if err != nil {
+			t.Fatalf("assignment %s: %s %q: %v", a.Str("id"), col, a.Str(col), err)
+		}
+		return v
+	}
+	spans := map[string]map[string][]span{"driver": {}, "truck": {}}
+	for _, a := range p.Tables["truck_assignments"] {
+		if a.Str("status") == "cancelled" {
+			continue
+		}
+		s := span{id: a.Str("id"), from: at(a, "created_at"), open: a.Str("status") == "active"}
+		if !s.open {
+			s.to = at(a, "revoked_at")
+		}
+		spans["driver"][a.Str("driver_id")] = append(spans["driver"][a.Str("driver_id")], s)
+		spans["truck"][a.Str("truck_id")] = append(spans["truck"][a.Str("truck_id")], s)
+	}
+	for kind, owners := range spans {
+		for owner, ss := range owners {
+			sort.Slice(ss, func(i, j int) bool { return ss[i].from.Before(ss[j].from) })
+			for i := 1; i < len(ss); i++ {
+				if prev := ss[i-1]; prev.open || ss[i].from.Before(prev.to) {
+					t.Errorf("%s %s holds assignments %s (%s to %s) and %s (from %s) at once", kind, owner, prev.id,
+						prev.from.Format(time.DateOnly), prev.to.Format(time.DateOnly), ss[i].id, ss[i].from.Format(time.DateOnly))
+				}
+			}
+		}
 	}
 }
 
@@ -332,17 +392,37 @@ func checkFleet(t *testing.T, p *Plan) {
 			activeOf[a.Str("driver_id")], trucksActive[a.Str("truck_id")] = a.Str("id"), true
 		}
 	}
+	onDuty := 0
 	for _, d := range p.Tables["drivers"] {
 		if cur := d.Str("current_assignment_id"); cur != activeOf[d.Str("id")] {
 			t.Errorf("driver %s: current assignment %q, its active assignment %q", d.Str("id_card"), cur, activeOf[d.Str("id")])
 		}
+		// A generated driver is on_duty exactly while it holds an active assignment, as CreateAssignment and the
+		// revoke leave it (internal/fleet); the smoke rows D1, D2 and D6 keep the T16 fixture's active.
+		if p.Symbols.SymbolOf(uuid.MustParse(d.Str("id"))) != "" {
+			continue
+		}
+		if holds := activeOf[d.Str("id")] != ""; holds != (d.Str("status") == "on_duty") {
+			t.Errorf("driver %s: status %s, active assignment %v", d.Str("id_card"), d.Str("status"), holds)
+		}
+		if d.Str("status") == "on_duty" {
+			onDuty++
+		}
 	}
-	// Users of every role: the own fleet and both carriers have staff and driver logins (T16 personas and T26
-	// drivers); every load carrier has a tenant_admin, managers, operators and drivers.
+	if onDuty == 0 {
+		t.Error("no generated driver is on duty")
+	}
+	// The roles each tenant holds (Appendix D §D.1.2): the own fleet and NWR have a member of every tenant role
+	// (authz.TenantRoles, the memberships CHECK; the fallback role user from wrt.user and nwr.user, T26), TTP a
+	// tenant_admin, operation_staff and drivers, every load carrier a tenant_admin, managers, operators and drivers.
 	s := p.Symbols
+	every := make([]string, 0, len(authz.TenantRoles))
+	for _, r := range authz.TenantRoles {
+		every = append(every, string(r))
+	}
 	want := map[string][]string{
-		s.MustID("TN_OWN").String(): {"tenant_admin", "manager", "operation_staff", "operator", "driver"},
-		s.MustID("TN_NWR").String(): {"tenant_admin", "manager", "operation_staff", "operator", "driver"},
+		s.MustID("TN_OWN").String(): every,
+		s.MustID("TN_NWR").String(): every,
 		s.MustID("TN_TTP").String(): {"tenant_admin", "operation_staff", "driver"},
 	}
 	if p.Profile == ProfileLoad {
@@ -351,10 +431,15 @@ func checkFleet(t *testing.T, p *Plan) {
 		}
 	}
 	for tenant, rs := range want {
-		for _, r := range rs {
-			if !roles[tenant][r] {
-				t.Errorf("tenant %s has no active %s", tenant, r)
-			}
+		got := make([]string, 0, len(roles[tenant]))
+		for r := range roles[tenant] {
+			got = append(got, r)
+		}
+		rs = append([]string(nil), rs...)
+		sort.Strings(got)
+		sort.Strings(rs)
+		if !reflect.DeepEqual(got, rs) {
+			t.Errorf("tenant %s: active roles %v, Appendix D §D.1.2 lists %v", tenant, got, rs)
 		}
 	}
 }

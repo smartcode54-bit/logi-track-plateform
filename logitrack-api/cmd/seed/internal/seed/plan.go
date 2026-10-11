@@ -70,7 +70,7 @@ type Options struct {
 	Profile    Profile
 	Namespace  uuid.UUID  // SEED_NAMESPACE, DefaultNamespace when empty
 	OwnFleet   *uuid.UUID // OWN_FLEET_TENANT_ID
-	RandomSeed uint64     // SEED_RANDOM_SEED
+	RandomSeed uint64     // SEED_RANDOM_SEED, DefaultRandomSeed when 0 (Build applies it, so every caller draws alike)
 	Anchor     time.Time  // SEED_ANCHOR_DATE (a Bangkok date)
 	// Bucket and PublicBucket are the configured S3_BUCKET and S3_PUBLIC_BUCKET written to
 	// file_objects.bucket (the fixture shows the local values, R74); Backend is STORAGE_BACKEND.
@@ -152,6 +152,9 @@ func Build(ctx context.Context, fx FixtureFS, o Options) (*Plan, error) {
 	}
 	if o.Anchor.IsZero() {
 		o.Anchor = DefaultAnchor
+	}
+	if o.RandomSeed == 0 { // here, not in cmd/seed: the unit tests then check the plan seed --profile loads
+		o.RandomSeed = DefaultRandomSeed
 	}
 	if o.Bucket == "" || o.PublicBucket == "" || o.Backend == "" {
 		return nil, errors.New("seed: buckets and the storage backend are required")

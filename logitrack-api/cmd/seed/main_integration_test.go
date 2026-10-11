@@ -213,11 +213,12 @@ func TestDemoLoadVerify(t *testing.T) {
 	if n := len(passLine.FindAllString(v.stdout, -1)); n != 12 {
 		t.Fatalf("%d of 12 invariants pass:\n%s", n, v.stdout)
 	}
-	// Staff, one per tenant and role: NWR tenant_admin, manager, operation_staff, operator; TTP tenant_admin,
-	// operation_staff. Drivers, one per tenant: d12 (NWR) and d14 (TTP); and the brokers D6 (NWR -> TTP) and d13
-	// (TTP -> NWR, T26), each with its own history in the tenant it left. Every readable RLS table is classified.
+	// Staff, one per tenant and role: NWR tenant_admin, manager, operation_staff, operator, user (nwr.user, T26);
+	// TTP tenant_admin, operation_staff. Drivers, one per tenant: d12 (NWR) and d14 (TTP); and the brokers D6 (NWR ->
+	// TTP) and d13 (TTP -> NWR, T26), each with its own history in the tenant it left. Every readable RLS table is
+	// classified.
 	for _, want := range []string{
-		"10 carrier principal(s) (6 staff, 4 driver(s)) over 62 RLS tables (33 by tenant_id, 29 by owner; 6 shared master tables skipped)",
+		"11 carrier principal(s) (7 staff, 4 driver(s)) over 62 RLS tables (33 by tenant_id, 29 by owner; 6 shared master tables skipped)",
 		"d13.thawisak@logitrack.test (NWR, driver): memberships 1, truck_assignments 1",
 		"d6.amnat@logitrack.test (TTP, driver): memberships 1, tasks 1, trip_records 1, truck_assignments 1",
 	} {
@@ -237,11 +238,12 @@ func TestDemoLoadVerify(t *testing.T) {
 		Scan(&perTenant); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"NWR:tenant_admin", "NWR:operation_staff", "NWR:driver", "TTP:tenant_admin",
-		"TTP:operation_staff", "TTP:driver", "WRT:tenant_admin", "WRT:operation_staff", "WRT:driver"} {
-		if !strings.Contains(perTenant, want) {
-			t.Errorf("demo has no %s (have %s)", want, perTenant)
-		}
+	// The roles of Appendix D §D.1.2: the own fleet and NWR hold all six tenant roles, TTP three.
+	want := "NWR:driver,NWR:manager,NWR:operation_staff,NWR:operator,NWR:tenant_admin,NWR:user," +
+		"TTP:driver,TTP:operation_staff,TTP:tenant_admin," +
+		"WRT:driver,WRT:manager,WRT:operation_staff,WRT:operator,WRT:tenant_admin,WRT:user"
+	if perTenant != want {
+		t.Errorf("demo active roles per tenant\n have %s\n want %s", perTenant, want)
 	}
 	var dispatchers, customers int
 	if err := conn.QueryRow(ctx, `SELECT count(*) FILTER (WHERE kind = 'dispatcher'), count(*) FILTER (WHERE kind = 'customer')
@@ -252,22 +254,26 @@ func TestDemoLoadVerify(t *testing.T) {
 		t.Errorf("demo has %d dispatcher and %d customer scopes, want a dispatcher per tenant and three customers", dispatchers, customers)
 	}
 	// Master data as the API reads it (T26): every truck carries the class of its type, every active assignment is
-	// its driver's home truck, and every hub with coordinates has its SOC pairs in both directions.
-	var badClass, badHome, missingPairs int
+	// its driver's home truck, the generated drivers holding one are on duty (the smoke D1, D2 and D6 keep active),
+	// and every hub with coordinates has its SOC pairs in both directions.
+	var badClass, badHome, onDuty, missingPairs int
 	if err := conn.QueryRow(ctx, `SELECT
 		(SELECT count(*) FROM trucks WHERE vehicle_class IS NULL),
 		(SELECT count(*) FROM truck_assignments a JOIN drivers d ON d.id = a.driver_id
 		  WHERE a.status = 'active' AND d.current_assignment_id IS DISTINCT FROM a.id),
+		(SELECT count(*) FROM drivers d JOIN truck_assignments a ON a.id = d.current_assignment_id
+		  WHERE a.status = 'active' AND d.status = 'on_duty'),
 		(SELECT count(*) FROM hubs h CROSS JOIN (SELECT DISTINCT soc_key FROM hub_soc_distances) s
 		   CROSS JOIN (VALUES ('hub_to_soc'), ('soc_to_hub')) dir(d)
 		  WHERE h.station_type = 'HUB' AND h.network = 'SPX' AND h.latitude IS NOT NULL
 		    AND NOT EXISTS (SELECT 1 FROM hub_soc_distances x WHERE x.hub_id = h.id AND x.soc_key = s.soc_key AND x.direction = dir.d))`).
-		Scan(&badClass, &badHome, &missingPairs); err != nil {
+		Scan(&badClass, &badHome, &onDuty, &missingPairs); err != nil {
 		t.Fatal(err)
 	}
-	if badClass != 0 || badHome != 0 || missingPairs != 0 {
-		t.Errorf("demo master data: %d trucks without a class, %d active assignments that are not the home truck, %d missing hub-SOC pairs",
-			badClass, badHome, missingPairs)
+	if badClass != 0 || badHome != 0 || onDuty != 7 || missingPairs != 0 {
+		t.Errorf("demo master data: %d trucks without a class, %d active assignments that are not the home truck, "+
+			"%d drivers on duty (want the 7 generated drivers with a truck), %d missing hub-SOC pairs",
+			badClass, badHome, onDuty, missingPairs)
 	}
 }
 

@@ -19,8 +19,9 @@ import (
 
 // The master-data generators of the demo and load profiles (T26, issue #46; Appendix D §D.1.2): customers and
 // billing parties, hubs and SOCs with their name aliases and Hub-SOC distances, trucks, drivers with their logins
-// (users and driver memberships: every tenant gets users of every role, the T16 personas being the staff), and truck
-// assignments with their history. Smoke rows and the T16 identity rows are never changed: demo and load only append,
+// (users and driver memberships: every tenant gets driver logins beside the T16 staff personas; the roles each tenant
+// holds are listed in Appendix D §D.1.2), and truck assignments with their history, the driver of an active one on
+// duty. Smoke rows and the T16 identity rows are never changed: demo and load only append,
 // so a database seeded with an older demo takes the new rows with --mode upsert. Every id is uuid v5 of the row's
 // natural key (customer code, "customer:"/"tenant:" + code, hub code, "<hub>:<soc key>:<direction>", tenant code +
 // plate, national ID, plate + national ID + Bangkok date) and every drawn value comes from the generator's own PCG
@@ -528,7 +529,9 @@ func (g *masterGen) driver(t *tenantRef, s driverSpec) error {
 
 // assign appends one truck assignment, stamped with the tenant of its truck (tenant_source 'truck', as POST
 // /v1/truck-assignments writes it); an active one becomes the driver's home truck (drivers.current_assignment_id,
-// back-filled after the load, §D.1.5).
+// back-filled after the load, §D.1.5) and puts an active driver on duty, as CreateAssignment does (internal/fleet:
+// on_duty while the driver holds a truck), so a revoke of a seeded assignment releases the driver as it releases one
+// the API assigned. The seed writes no status_history rows (that table is not seeded).
 func (g *masterGen) assign(a assignSpec) error {
 	tr, dr := g.trucks[a.truck], g.drivers[a.driver]
 	if tr == nil || dr == nil {
@@ -553,6 +556,9 @@ func (g *masterGen) assign(a assignSpec) error {
 			return fmt.Errorf("seed: driver %s has two active assignments", a.driver)
 		}
 		dr["current_assignment_id"] = id
+		if dr.Str("status") == "active" {
+			dr["status"] = "on_duty"
+		}
 	}
 	g.add("truck_assignments", r)
 	return nil
@@ -809,7 +815,9 @@ func round4(f float64) float64 { return math.Round(f*1e4) / 1e4 }
 
 // loadFleet appends nTrucks trucks and nDrivers drivers of t on t's own PCG stream: driver i < nTrucks drives truck i
 // (active), the others are spare (the last one inactive); revoked earlier assignments of trucks to drivers make the
-// history. Nine drivers in ten sign in (a users row and a driver membership); the tenth is kept without the app.
+// history, each of a different truck and a different driver, so no driver or truck holds two assignments at once
+// (the service answers 409 driver_assigned / truck_assigned), and all of them end before the active ones start.
+// Nine drivers in ten sign in (a users row and a driver membership); the tenth is kept without the app.
 func (g *masterGen) loadFleet(t *tenantRef, nTrucks, nDrivers, revoked int, created time.Time, nid *int) error {
 	r := rng(g.o, "load-master-fleet:"+t.code)
 	anchor := g.o.Anchor
@@ -873,10 +881,16 @@ func (g *masterGen) loadFleet(t *tenantRef, nTrucks, nDrivers, revoked int, crea
 			return err
 		}
 	}
+	// One driver per revoked row: a permutation, so two rows whose spans overlap never share a driver; the trucks
+	// (j*5) % nTrucks are distinct for j < revoked as well.
+	if revoked > nDrivers || revoked > nTrucks {
+		return fmt.Errorf("seed: %s: %d revoked assignments need as many drivers and trucks", t.code, revoked)
+	}
+	perm := r.Perm(nDrivers)
 	for j := range revoked {
 		from := created.AddDate(0, 0, 7*j+1)
 		if err := g.assign(assignSpec{truck: fmt.Sprintf("%s-T%03d", t.code, (j*5)%nTrucks),
-			driver: fmt.Sprintf("%s-D%03d", t.code, r.IntN(nDrivers)), status: "revoked", from: from,
+			driver: fmt.Sprintf("%s-D%03d", t.code, perm[j]), status: "revoked", from: from,
 			to: from.AddDate(0, 0, 3+r.IntN(20)), by: t}); err != nil {
 			return err
 		}

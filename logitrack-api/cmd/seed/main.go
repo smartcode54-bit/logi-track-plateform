@@ -242,16 +242,13 @@ func decideMode(appEnv string, o options) (seed.Mode, bool, string) {
 	return mode, reset, ""
 }
 
-// buildOptions maps the configuration onto the plan options.
+// buildOptions maps the configuration onto the plan options. RandomSeed 0 (SEED_RANDOM_SEED empty) is
+// seed.DefaultRandomSeed, which seed.Build applies, so the unit tests build the plan a load writes.
 func buildOptions(cfg *app.SeedConfig, profile seed.Profile) seed.Options {
-	o := seed.Options{
+	return seed.Options{
 		Profile: profile, Namespace: cfg.Namespace, OwnFleet: cfg.OwnFleet, RandomSeed: cfg.RandomSeed,
 		Anchor: cfg.Anchor, Bucket: cfg.S3Bucket, PublicBucket: cfg.S3PublicBucket, Backend: cfg.StorageBackend,
 	}
-	if o.RandomSeed == 0 {
-		o.RandomSeed = seed.DefaultRandomSeed
-	}
-	return o
 }
 
 func dryRun(ctx context.Context, cfg *app.SeedConfig, fx seed.FixtureFS, profile seed.Profile, o options, stdout, stderr io.Writer) int {
