@@ -2,8 +2,7 @@
 
 import { PagePermissionGuard } from "@/components/page-permission-guard";
 import { CAPABILITIES } from "@/lib/capabilities";
-import { useEffect, useState } from "react";
-import { getCompanies, type CompanyWithId } from "@/features/companies/api/companies";
+import { useCompanies } from "@/features/companies/api/useCompanies";
 import { useLanguage } from "@/context/language";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,33 +11,18 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Loader2, Plus, Building2, Pencil } from "lucide-react";
 import Link from "next/link";
 import { format } from "date-fns";
-import { toast } from "sonner";
 
 export default function CompaniesPage() {
   const { t } = useLanguage();
-  const [companies, setCompanies] = useState<CompanyWithId[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    getCompanies()
-      .then(setCompanies)
-      .catch((e) => {
-        console.error("[companies] load error:", e);
-        toast.error("ไม่สามารถโหลดข้อมูลบริษัทได้");
-      })
-      .finally(() => setLoading(false));
-  }, []);
+  // `['companies',{view:'all'}]` (T25): Go `GET /v1/companies` or Firestore by the `masterdata` flag.
+  const { companies, isPending: loading, isError } = useCompanies();
 
   const subCount = companies.filter((c) => c.companyType === "subcontractor").length;
   const activeCount = companies.filter((c) => c.isActive).length;
 
-  const formatDate = (ts: unknown) => {
+  const formatDate = (ts: string | null) => {
     try {
-      if (!ts) return "-";
-      const date = typeof (ts as { toDate?: () => Date }).toDate === "function"
-        ? (ts as { toDate: () => Date }).toDate()
-        : new Date(ts as string);
-      return format(date, "dd/MM/yyyy");
+      return ts ? format(new Date(ts), "dd/MM/yyyy") : "-";
     } catch {
       return "-";
     }
@@ -65,7 +49,7 @@ export default function CompaniesPage() {
         <div className="grid grid-cols-3 gap-4">
           <Card>
             <CardContent className="pt-4">
-              <p className="text-xs text-muted-foreground">ทั้งหมด</p>
+              <p className="text-xs text-muted-foreground">{t("masterData.companies.total")}</p>
               <p className="text-2xl font-bold">{companies.length}</p>
             </CardContent>
           </Card>
@@ -77,7 +61,7 @@ export default function CompaniesPage() {
           </Card>
           <Card>
             <CardContent className="pt-4">
-              <p className="text-xs text-muted-foreground">ใช้งานอยู่</p>
+              <p className="text-xs text-muted-foreground">{t("masterData.companies.active")}</p>
               <p className="text-2xl font-bold text-green-600">{activeCount}</p>
             </CardContent>
           </Card>
@@ -88,21 +72,23 @@ export default function CompaniesPage() {
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <Building2 className="w-4 h-4" />
-              รายชื่อบริษัท
+              {t("masterData.companies.listTitle")}
             </CardTitle>
-            <CardDescription>Owner 1 รายการ + Subcontractor {subCount} รายการ</CardDescription>
+            <CardDescription>{t("masterData.companies.listDescription", { owner: companies.length - subCount, sub: subCount })}</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
             {loading ? (
               <div className="flex items-center justify-center h-32">
                 <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
               </div>
+            ) : isError ? (
+              <div className="flex items-center justify-center h-32 text-sm text-destructive">{t("masterData.companies.loadError")}</div>
             ) : companies.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-32 text-muted-foreground text-sm gap-2">
                 <Building2 className="w-8 h-8 opacity-30" />
                 <p>{t("company.createFirst")}</p>
                 <Button asChild variant="outline" size="sm">
-                  <Link href="/app/settings/company-profile">ตั้งค่าโปรไฟล์บริษัทหลัก</Link>
+                  <Link href="/app/settings/company-profile">{t("masterData.companies.setupOwner")}</Link>
                 </Button>
               </div>
             ) : (

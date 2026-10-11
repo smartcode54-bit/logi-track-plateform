@@ -1,12 +1,11 @@
 "use client";
 
 import { useLanguage } from "@/context/language";
-import { useEffect, useState } from "react";
-import { collection, query, getDocs } from "firebase/firestore";
-import { db } from "@/firebase/client";
-import { COLLECTIONS } from "@/lib/collections";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useMemo, useState } from "react";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { useFleetStats } from "../api/useTrucks";
+import type { TruckDTO } from "../api/trucks";
 
 interface FleetStatus {
     total: number;
@@ -20,27 +19,62 @@ interface MaintenanceStatus {
     overdue: number; // Overdue PM
     dueSoon: number; // Due soon PM
     normal: number; // Normal status
-    items: any[]; // Potentially store items for detailed view if needed later
 }
 
 interface TruckComplianceCardsProps {
     onFilterChange: (filter: { type: string | null; status: string | null }) => void;
-    refreshKey?: number;
-    onLoadingChange?: (loading: boolean) => void;
 }
 
-export function TruckComplianceCards({ onFilterChange, refreshKey, onLoadingChange }: TruckComplianceCardsProps) {
+const WARNING_DAYS = 30;
+const WARNING_KM = 2000;
+
+/** The counters of the cards over every truck (own fleet, carriers, PM schedule of the own fleet). */
+export function fleetCounters(trucks: readonly TruckDTO[], now: Date = new Date()) {
+    const stats = {
+        fleet: { total: 0, active: 0, maintenance: 0, inactive: 0 } as FleetStatus,
+        sub: { total: 0, active: 0, maintenance: 0, inactive: 0 } as FleetStatus,
+        maintenance: { total: 0, overdue: 0, dueSoon: 0, normal: 0 } as MaintenanceStatus,
+    };
+    for (const t of trucks) {
+        const group = t.ownershipType === "own" ? stats.fleet : stats.sub;
+        group.total++;
+        if (t.status === "active") group.active++;
+        else if (t.status === "maintenance") group.maintenance++;
+        else if (t.status === "inactive") group.inactive++;
+        // PM schedule: own fleet only.
+        if (t.ownershipType !== "own") continue;
+        let tracked = false;
+        let overdue = false;
+        let dueSoon = false;
+        if (t.nextServiceDate) {
+            tracked = true;
+            const days = Math.ceil((new Date(t.nextServiceDate).getTime() - now.getTime()) / 86_400_000);
+            if (days < 0) overdue = true;
+            else if (days <= WARNING_DAYS) dueSoon = true;
+        }
+        if (t.nextServiceMileage) {
+            tracked = true;
+            const kms = t.nextServiceMileage - (t.currentMileage ?? 0);
+            if (kms < 0) overdue = true;
+            else if (kms <= WARNING_KM) dueSoon = true;
+        }
+        if (tracked) {
+            stats.maintenance.total++;
+            if (overdue) stats.maintenance.overdue++;
+            else if (dueSoon) stats.maintenance.dueSoon++;
+            else stats.maintenance.normal++;
+        }
+    }
+    return stats;
+}
+
+export function TruckComplianceCards({ onFilterChange }: TruckComplianceCardsProps) {
     const { t } = useLanguage();
-    const [stats, setStats] = useState<{
-        fleet: FleetStatus;
-        sub: FleetStatus;
-        maintenance: MaintenanceStatus;
-    }>({
-        fleet: { total: 0, active: 0, maintenance: 0, inactive: 0 },
-        sub: { total: 0, active: 0, maintenance: 0, inactive: 0 },
-        maintenance: { total: 0, overdue: 0, dueSoon: 0, normal: 0, items: [] },
-    });
-    const [loading, setLoading] = useState(true);
+    // `['trucks','fleetStats']` (T25): every truck through the active source; the list's refresh
+    // invalidates `['trucks']`, which reaches it.
+    const fleet = useFleetStats();
+    const stats = useMemo(() => fleetCounters(fleet.trucks), [fleet.trucks]);
+    const loading = fleet.isPending;
     const [activeFilter, setActiveFilter] = useState<{ type: string; status: string } | null>(null);
 
     const handleCardClick = (type: string, status: string) => {
@@ -52,92 +86,6 @@ export function TruckComplianceCards({ onFilterChange, refreshKey, onLoadingChan
             onFilterChange({ type, status });
         }
     };
-
-    useEffect(() => {
-        async function fetchTruckData() {
-            setLoading(true);
-            onLoadingChange?.(true);
-            try {
-                const trucksRef = collection(db, COLLECTIONS.TRUCKS);
-                const q = query(trucksRef);
-                const snapshot = await getDocs(q);
-
-                const newStats = {
-                    fleet: { total: 0, active: 0, maintenance: 0, inactive: 0 },
-                    sub: { total: 0, active: 0, maintenance: 0, inactive: 0 },
-                    maintenance: { total: 0, overdue: 0, dueSoon: 0, normal: 0, items: [] },
-                };
-
-                const now = new Date();
-                const warningThresholdDays = 30;
-                const warningThresholdKm = 2000;
-
-                const formatTimestamp = (timestamp: any): Date | null => {
-                    if (!timestamp) return null;
-                    if (timestamp.toDate) return timestamp.toDate();
-                    if (timestamp.toMillis) return new Date(timestamp.toMillis());
-                    if (timestamp.seconds) return new Date(timestamp.seconds * 1000);
-                    return new Date(timestamp);
-                };
-
-                snapshot.forEach((doc) => {
-                    const data = doc.data();
-
-                    // Filter: OWN FLEET ONLY
-                    if (data.ownershipType !== 'own') return;
-
-                    const status = data.truckStatus || 'inactive';
-
-                    // 1. Fleet Status Stats
-                    newStats.fleet.total++;
-                    if (status === 'active') newStats.fleet.active++;
-                    else if (status === 'maintenance') newStats.fleet.maintenance++;
-                    else if (status === 'inactive') newStats.fleet.inactive++;
-
-                    // 2. Maintenance Schedule Stats
-                    const serviceDate = formatTimestamp(data.nextServiceDate);
-                    const currentKm = Number(data.currentMileage) || 0;
-                    const nextServiceKm = Number(data.nextServiceMileage);
-
-                    let isTracked = false;
-                    let isOverdue = false;
-                    let isDueSoon = false;
-
-                    if (serviceDate) {
-                        isTracked = true;
-                        const days = Math.ceil((serviceDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-                        if (days < 0) isOverdue = true;
-                        else if (days <= warningThresholdDays) isDueSoon = true;
-                    }
-
-                    if (nextServiceKm) {
-                        isTracked = true;
-                        const kms = nextServiceKm - currentKm;
-                        if (kms < 0) isOverdue = true;
-                        else if (kms <= warningThresholdKm) isDueSoon = true;
-                    }
-
-                    if (isTracked) {
-                        newStats.maintenance.total++;
-                        if (isOverdue) newStats.maintenance.overdue++;
-                        else if (isDueSoon) newStats.maintenance.dueSoon++;
-                        else newStats.maintenance.normal++;
-                    }
-                });
-
-                setStats(newStats);
-                setLoading(false);
-                onLoadingChange?.(false);
-            } catch (error) {
-                console.error("Error fetching truck stats:", error);
-                setLoading(false);
-                onLoadingChange?.(false);
-            }
-        }
-
-        fetchTruckData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [refreshKey]);
 
     if (loading) {
         return (
@@ -256,7 +204,7 @@ export function TruckComplianceCards({ onFilterChange, refreshKey, onLoadingChan
             <Card className="border shadow-sm">
                 <CardHeader className="pb-4">
                     <div className="flex flex-col items-start gap-1">
-                        <span className="text-base font-semibold text-foreground">Maintenance / Corrective</span>
+                        <span className="text-base font-semibold text-foreground">{t('masterData.trucks.maintenanceCorrective')}</span>
                         <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">{t('trucks.stats.ownFleetOnly')}</span>
                     </div>
                 </CardHeader>
@@ -277,7 +225,7 @@ export function TruckComplianceCards({ onFilterChange, refreshKey, onLoadingChan
                             onClick={() => handleCardClick('maintenance', 'overdue')}
                         />
                         <StatusItem
-                            label="Corrective"
+                            label={t('trucks.stats.corrective')}
                             count={stats.fleet.maintenance}
                             color="text-red-500"
                             active={activeFilter?.type === 'own' && activeFilter?.status === 'corrective'}

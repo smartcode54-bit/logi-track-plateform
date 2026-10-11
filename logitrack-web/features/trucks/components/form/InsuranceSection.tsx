@@ -22,20 +22,26 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useFormContext } from "react-hook-form";
 import { ShieldCheck, Upload, X, FileText, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { storage } from "@/firebase/client";
 import Link from "next/link";
 
 import { useLanguage } from "@/context/language";
 
 interface InsuranceSectionProps {
-    onFileSelect?: (file: File, blobUrl: string) => void;
+    /** The picked document and its `blob:` URL; uploaded when the form is saved (T25). */
+    onFileSelect: (file: File, blobUrl: string) => void;
+    /**
+     * The preview URL of a document ref (a stored file's key, or a picked file's `blob:` URL); null
+     * when the stored file cannot be read (shown as unavailable, still kept). Default: the ref itself.
+     */
+    previewOf?: (ref: string) => string | null;
 }
 
-export function InsuranceSection({ onFileSelect }: InsuranceSectionProps) {
+const identity = (ref: string) => ref;
+
+export function InsuranceSection({ onFileSelect, previewOf = identity }: InsuranceSectionProps) {
     const { control, watch, setValue } = useFormContext();
-    const [isUploading, setIsUploading] = useState(false);
+    // Documents upload with the form's save (T25); nothing is in flight here.
+    const isUploading = false;
     const { t } = useLanguage();
 
     // Watch documents
@@ -52,42 +58,14 @@ export function InsuranceSection({ onFileSelect }: InsuranceSectionProps) {
             return;
         }
 
-        // If onFileSelect is provided, skip immediate upload
-        if (onFileSelect) {
-            const blobUrl = URL.createObjectURL(file);
-            // Append to array locally
-            onFileSelect(file, blobUrl);
-            setValue("insuranceDocuments", [...insuranceDocuments, blobUrl], {
-                shouldValidate: true,
-                shouldDirty: true,
-                shouldTouch: true
-            });
-            e.target.value = "";
-            return;
-        }
-
-        try {
-            setIsUploading(true);
-            // trucks/insurance/{timestamp}_{filename}
-            const filename = `insurance_${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, "_")}`;
-            const storageRef = ref(storage, `trucks/insurance/${filename}`);
-
-            const snapshot = await uploadBytes(storageRef, file);
-            const url = await getDownloadURL(snapshot.ref);
-
-            setValue("insuranceDocuments", [...insuranceDocuments, url], {
-                shouldValidate: true,
-                shouldDirty: true,
-                shouldTouch: true
-            });
-
-        } catch (error) {
-            console.error("Error uploading document:", error);
-            alert("Failed to upload document");
-        } finally {
-            setIsUploading(false);
-            e.target.value = "";
-        }
+        const blobUrl = URL.createObjectURL(file);
+        onFileSelect(file, blobUrl);
+        setValue("insuranceDocuments", [...insuranceDocuments, blobUrl], {
+            shouldValidate: true,
+            shouldDirty: true,
+            shouldTouch: true
+        });
+        e.target.value = "";
     };
 
     const removeDocument = (indexToRemove: number) => {
@@ -253,16 +231,24 @@ export function InsuranceSection({ onFileSelect }: InsuranceSectionProps) {
                 <div className="space-y-4">
                     <FormLabel>{t("trucks.section.insuranceDocs")}</FormLabel>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        {insuranceDocuments.map((docUrl: string, index: number) => (
+                        {insuranceDocuments.map((docRef: string, index: number) => {
+                            const docUrl = previewOf(docRef);
+                            return (
                             <div key={index} className="relative aspect-[3/4] rounded-md overflow-hidden border bg-muted flex flex-col items-center justify-center p-2 group">
                                 <FileText className="h-8 w-8 text-primary mb-2" />
-                                <Link
-                                    href={docUrl}
-                                    target="_blank"
-                                    className="text-xs text-center text-primary hover:underline break-all px-2 line-clamp-2"
-                                >
-                                    Document {index + 1}
-                                </Link>
+                                {docUrl ? (
+                                    <Link
+                                        href={docUrl}
+                                        target="_blank"
+                                        className="text-xs text-center text-primary hover:underline break-all px-2 line-clamp-2"
+                                    >
+                                        {t("masterData.trucks.documentN", { n: index + 1 })}
+                                    </Link>
+                                ) : (
+                                    <span className="text-xs text-center text-muted-foreground px-2">
+                                        {t("masterData.trucks.documentN", { n: index + 1 })} · {t("masterData.files.unavailable")}
+                                    </span>
+                                )}
                                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                                     <Button
                                         variant="destructive"
@@ -274,7 +260,8 @@ export function InsuranceSection({ onFileSelect }: InsuranceSectionProps) {
                                     </Button>
                                 </div>
                             </div>
-                        ))}
+                            );
+                        })}
 
                         <div className="relative aspect-[3/4] flex flex-col items-center justify-center border-2 border-dashed rounded-md hover:bg-muted/50 transition-colors cursor-pointer">
                             <input

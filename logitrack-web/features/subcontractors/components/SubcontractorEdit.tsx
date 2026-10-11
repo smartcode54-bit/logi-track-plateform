@@ -3,8 +3,12 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createInvalidHandler } from "@/lib/formInvalidHandler";
-import { subcontractorSchema, SubcontractorFormValues, SubcontractorValidatedData, subcontractorDefaultValues } from "@/validate/subcontractorSchema";
-import { getSubcontractorById, updateSubcontractor } from "../services/subcontractorService";
+import { subcontractorSchema, SubcontractorFormValues, subcontractorDefaultValues } from "@/validate/subcontractorSchema";
+import { documentPreviewUrls, subcontractorFormValues } from "../api/subcontractors";
+import { useSaveSubcontractor, useSubcontractor } from "../api/useSubcontractors";
+import { useDomainSource } from "@/features/platform/api/useWebFlags";
+import { useCan } from "@/features/auth/api/useMe";
+import { applyServerFieldErrors, toastSaveError } from "@/lib/formServerErrors";
 import { useRouter, useParams } from "next/navigation";
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
@@ -38,60 +42,60 @@ export default function SubcontractorEdit() {
     const { t } = useLanguage();
     const id = params?.id as string;
 
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [isLoading, setIsLoading] = useState(true);
+    const query = useSubcontractor(id ?? "");
+    const { update, upload } = useSaveSubcontractor();
+    const isSubmitting = update.isPending;
+    const onGo = useDomainSource("masterdata") === "go";
+    // On Go a carrier's status is a tenant column (`PATCH /v1/tenants/{id}`, platform admins).
+    const { allowed: canSetStatus } = useCan("platform:manage_tenants");
+    const statusLocked = onGo && !canSetStatus;
+    const [previews, setPreviews] = useState<Record<string, string>>({});
 
     const form = useForm<SubcontractorFormValues>({
         resolver: zodResolver(subcontractorSchema),
         defaultValues: subcontractorDefaultValues,
     });
 
+    // Reset once when the stored profile arrives (`['subcontractors','detail',id]`, T25).
+    const [loadedId, setLoadedId] = useState<string | null>(null);
+    const [loadedStatus, setLoadedStatus] = useState<string | undefined>(undefined);
     useEffect(() => {
-        const fetchData = async () => {
-            if (!id) return;
-            try {
-                const data = await getSubcontractorById(id);
-                if (data) {
-                    form.reset({
-                        name: data.name,
-                        type: (data.type as "individual" | "company") || "individual",
-                        idCardNumber: (data as any).idCardNumber || "",
-                        taxId: data.taxId || "",
-                        contactPerson: data.contactPerson,
-                        phone: data.phone,
-                        email: data.email || "",
-                        address: data.address || "",
-                        status: data.status,
-                        documents: data.documents || [],
-                        lineGroupId: data.lineGroupId || "",
-                        billingDateBasis: (data as any).billingDateBasis ?? "delivered",
-                    });
-                } else {
-                    toast.error(t("subcontractors.toast.notFound"));
-                    router.push("/app/subcontractors");
-                }
-            } catch (error) {
-                console.error("Error fetching subcontractor:", error);
-                toast.error(t("subcontractors.toast.loadError"));
-            } finally {
-                setIsLoading(false);
-            }
-        };
+        if (!query.data || loadedId === query.data.id) return;
+        const values = subcontractorFormValues(query.data);
+        form.reset(values);
+        setPreviews(documentPreviewUrls(query.data));
+        setLoadedStatus(values.status);
+        setLoadedId(query.data.id);
+    }, [query.data, loadedId, form]);
 
-        fetchData();
-    }, [id, form, router]);
+    useEffect(() => {
+        if (query.isSuccess && !query.data) {
+            toast.error(t("subcontractors.toast.notFound"));
+            router.push("/app/subcontractors");
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [query.isSuccess, query.data]);
+
+    const isLoading = query.isPending && Boolean(id);
+
+    const uploadDocument = (variant: "id_card" | "company_doc") => (file: File) =>
+        upload.mutateAsync({ subcontractorId: id, file, variant });
+    const addDocument = (ref: string, previewUrl: string) => {
+        setPreviews((p) => ({ ...p, [ref]: previewUrl }));
+        form.setValue("documents", [...(form.getValues("documents") || []), ref]);
+    };
+    const removeDocument = (ref: string) => {
+        form.setValue("documents", (form.getValues("documents") || []).filter((u) => u !== ref));
+    };
 
     const onSubmit = async (data: SubcontractorFormValues) => {
         try {
-            setIsSubmitting(true);
-            await updateSubcontractor(id, data as unknown as SubcontractorValidatedData);
+            await update.mutateAsync({ id, values: data, statusChanged: data.status !== loadedStatus });
             toast.success(t("subcontractors.toast.updateSuccess"));
             router.push(`/app/subcontractors/${id}`);
         } catch (error) {
-            console.error(error);
-            toast.error(t("subcontractors.toast.updateError"));
-        } finally {
-            setIsSubmitting(false);
+            applyServerFieldErrors(form, error, t, { nameTh: "name", legalType: "type", documentKeys: "documents" });
+            toastSaveError(error, t, "subcontractors.toast.updateError");
         }
     };
 
@@ -152,7 +156,7 @@ export default function SubcontractorEdit() {
                                         render={({ field }) => (
                                             <FormItem>
                                                 <FormLabel>{t("subcontractors.edit.status")}</FormLabel>
-                                                <Select onValueChange={field.onChange} value={field.value}>
+                                                <Select onValueChange={field.onChange} value={field.value} disabled={statusLocked}>
                                                     <FormControl>
                                                         <SelectTrigger>
                                                             <SelectValue placeholder={t("subcontractors.edit.status.placeholder")} />
@@ -164,6 +168,7 @@ export default function SubcontractorEdit() {
                                                         <SelectItem value="suspended">{t("subcontractors.edit.status.suspended")}</SelectItem>
                                                     </SelectContent>
                                                 </Select>
+                                                {statusLocked && <p className="text-xs text-muted-foreground">{t("masterData.subcontractors.statusPlatformOnly")}</p>}
                                                 <FormMessage />
                                             </FormItem>
                                         )}
@@ -322,16 +327,11 @@ export default function SubcontractorEdit() {
                                 {form.watch("type") === "individual" ? (
                                     <FileUploader
                                         label={t("subcontractors.edit.idCardCopy")}
-                                        folder="id_cards"
+                                        upload={uploadDocument("id_card")}
                                         currentUrls={form.watch("documents")}
-                                        onUploadComplete={(url) => {
-                                            const current = form.getValues("documents") || [];
-                                            form.setValue("documents", [...current, url]);
-                                        }}
-                                        onRemove={(url) => {
-                                            const current = form.getValues("documents") || [];
-                                            form.setValue("documents", current.filter(u => u !== url));
-                                        }}
+                                        previews={previews}
+                                        onUploadComplete={addDocument}
+                                        onRemove={removeDocument}
                                     />
                                 ) : (
                                     <div className="space-y-6">
@@ -344,16 +344,11 @@ export default function SubcontractorEdit() {
                                         </div>
                                         <FileUploader
                                             label={t("subcontractors.edit.companyDocs")}
-                                            folder="company_docs"
+                                            upload={uploadDocument("company_doc")}
                                             currentUrls={form.watch("documents")}
-                                            onUploadComplete={(url) => {
-                                                const current = form.getValues("documents") || [];
-                                                form.setValue("documents", [...current, url]);
-                                            }}
-                                            onRemove={(url) => {
-                                                const current = form.getValues("documents") || [];
-                                                form.setValue("documents", current.filter(u => u !== url));
-                                            }}
+                                            previews={previews}
+                                            onUploadComplete={addDocument}
+                                            onRemove={removeDocument}
                                         />
                                     </div>
                                 )}

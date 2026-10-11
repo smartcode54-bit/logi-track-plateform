@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm, FormProvider } from "react-hook-form";
@@ -12,8 +12,9 @@ import { useLanguage } from "@/context/language";
 import { useAuth } from "@/context/auth";
 import { truckSchema, TruckFormValues, truckDefaultValues } from "@/validate/truckSchema";
 import { createInvalidHandler } from "@/lib/formInvalidHandler";
-import { uploadTruckFile, saveNewTruckToFirestoreClient } from "../../services/truckService";
-import { getSubcontractors } from "@/features/subcontractors/services/subcontractorService";
+import { useTruckWrites } from "../../api/useTrucks";
+import { TRUCK_FIELD_MAP } from "../../api/trucks";
+import { applyServerFieldErrors, toastSaveError } from "@/lib/formServerErrors";
 
 // Import Steps from local sub-folder
 import { Step1Specs } from "./TruckSteps/Step1Specs";
@@ -35,14 +36,9 @@ export default function NewTruckWizard() {
     const currentUser = authContext?.currentUser ?? null;
 
     const [currentStep, setCurrentStep] = useState(1);
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [subcontractors, setSubcontractors] = useState<any[]>([]);
+    const { create } = useTruckWrites();
+    const isSubmitting = create.isPending;
     const [filesToUpload] = useState<Map<string, File>>(() => new Map());
-
-    // Load subcontractors
-    useEffect(() => {
-        getSubcontractors().then(setSubcontractors);
-    }, []);
 
     // Initialize Form
     const methods = useForm<TruckFormValues>({
@@ -96,48 +92,15 @@ export default function NewTruckWizard() {
     };
 
     const onSubmit = async (data: TruckFormValues) => {
-        setIsSubmitting(true);
         try {
-            if (!currentUser) throw new Error("User not authenticated");
-
-            const finalData = { ...data };
-
-            const uploadIfNeeded = async (blobUrl: string | undefined | null, pathPrefix: string): Promise<string | undefined> => {
-                if (!blobUrl || !blobUrl.startsWith("blob:")) return blobUrl || undefined;
-                const file = filesToUpload.get(blobUrl);
-                if (!file) return undefined;
-                return await uploadTruckFile(file, `trucks/${pathPrefix}/${Date.now()}_${file.name}`);
-            };
-
-            const imageFields = ['imageFrontRight', 'imageFrontLeft', 'imageBackRight', 'imageBackLeft'] as const;
-            for (const field of imageFields) {
-                const url = await uploadIfNeeded(finalData[field], `photos/${field.replace('image', '').toLowerCase()}`);
-                if (url) (finalData as any)[field] = url;
-            }
-
-            if (finalData.documentTax) {
-                const url = await uploadIfNeeded(finalData.documentTax, "documents/tax");
-                if (url) finalData.documentTax = url;
-            }
-            if (finalData.documentRegister) {
-                const url = await uploadIfNeeded(finalData.documentRegister, "documents/register");
-                if (url) finalData.documentRegister = url;
-            }
-            if (finalData.insuranceDocuments && finalData.insuranceDocuments.length > 0) {
-                const newDocs: string[] = [];
-                for (const doc of finalData.insuranceDocuments) {
-                    const url = await uploadIfNeeded(doc, "insurance");
-                    if (url) newDocs.push(url);
-                }
-                finalData.insuranceDocuments = newDocs;
-            }
-
-            await saveNewTruckToFirestoreClient(finalData as any, currentUser.uid);
+            if (!currentUser) throw new Error(t("masterData.notSignedIn"));
+            // Go: `POST /v1/trucks`, then the picked files (their keys embed the new truck) in a
+            // `PATCH`; Firestore: the legacy uploads and document (T25).
+            await create.mutateAsync({ values: data, pending: filesToUpload, userId: currentUser.uid });
             router.push("/app/trucks");
-
         } catch (error) {
-            console.error(error);
-            setIsSubmitting(false);
+            if (applyServerFieldErrors(methods, error, t, TRUCK_FIELD_MAP) > 0) setCurrentStep(1);
+            toastSaveError(error, t, "trucks.edit.error");
         }
     };
 

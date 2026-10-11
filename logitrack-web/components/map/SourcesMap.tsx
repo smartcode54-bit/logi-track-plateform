@@ -4,11 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
-import { collection, getDocs, query, where } from "firebase/firestore";
-import { db } from "@/firebase/client";
 import { useLanguage } from "@/context/language";
-import { COLLECTIONS } from "@/lib/collections";
-import { normalizeSocIdToKey, socIdMatchesKey } from "@/validate/taskSchema";
+import { fetchDistanceRows } from "@/features/hubs/api/hubs";
+import { socIdMatchesKey } from "@/validate/taskSchema";
 
 const defaultIcon = L.icon({
     iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
@@ -199,27 +197,10 @@ function SelectedSourcePopup({
         popupRef.current = popup;
 
         const isSocStation = String(selected.station_type ?? "").toUpperCase() === "SOC";
-        const socKey = normalizeSocIdToKey(selected.source_id);
-        const coll =
-            mode === "HUB_SOC" ? COLLECTIONS.HUB_SOC_DISTANCES : COLLECTIONS.SOC_HUB_DISTANCES;
-        const queryField = isSocStation ? "socId" : "hubId";
-        const queryVal = isSocStation ? socKey : selected.source_id;
-
-        getDocs(query(collection(db, coll), where(queryField, "==", queryVal)))
-            .then((snap) => {
-                const list: DistanceRow[] = snap.docs.map((d) => {
-                    const data = d.data();
-                    const socId = (data.socId ?? "") as string;
-                    const destId = (data.hubId ?? "") as string;
-                    return {
-                        socId,
-                        destId,
-                        distanceKm: Number(data.distanceKm ?? 0),
-                        durationMinutes: Number(data.durationMinutes ?? 0),
-                    };
-                });
-                setDistanceRows(list);
-            })
+        // `['distances', {code, isSoc, mode}]` (T25): Go `GET /v1/distances` or Firestore by the flag,
+        // cached, so selecting a point again costs no request.
+        fetchDistanceRows({ code: selected.source_id, isSoc: isSocStation, mode })
+            .then((list) => setDistanceRows(list))
             .catch(() => setDistanceRows([]));
 
         return () => {

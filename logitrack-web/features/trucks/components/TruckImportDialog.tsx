@@ -24,10 +24,9 @@ import * as XLSX from "xlsx";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { collection, writeBatch, doc } from "firebase/firestore";
-import { db } from "@/firebase/client";
-import { COLLECTIONS } from "@/lib/collections";
 import { toast } from "sonner";
+import { useTruckWrites } from "../api/useTrucks";
+import { apiErrorText } from "@/lib/apiError";
 
 interface ImportedTruck {
     licensePlate: string;
@@ -56,7 +55,10 @@ export function TruckImportDialog({ setOpen }: LazyDialogControl) {
     const { t } = useLanguage();
     const [file, setFile] = useState<File | null>(null);
     const [importedData, setImportedData] = useState<ImportedTruck[]>([]);
-    const [isImporting, setIsImporting] = useState(false);
+    /** The sheet rows as parsed: Go validates and maps them itself (`POST /v1/trucks/import`, T25). */
+    const [rawRows, setRawRows] = useState<Record<string, unknown>[]>([]);
+    const { importRows } = useTruckWrites();
+    const isImporting = importRows.isPending;
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -75,8 +77,9 @@ export function TruckImportDialog({ setOpen }: LazyDialogControl) {
                 const workbook = XLSX.read(data, { type: "binary" });
                 const sheetName = workbook.SheetNames[0];
                 const sheet = workbook.Sheets[sheetName];
-                const jsonData = XLSX.utils.sheet_to_json(sheet);
+                const jsonData = XLSX.utils.sheet_to_json(sheet) as Record<string, unknown>[];
 
+                setRawRows(jsonData);
                 validateData(jsonData);
             } catch (error) {
                 console.error("Error parsing file:", error);
@@ -156,46 +159,31 @@ export function TruckImportDialog({ setOpen }: LazyDialogControl) {
         const validTrucks = importedData.filter(truck => truck.isValid);
         if (validTrucks.length === 0) return;
 
-        setIsImporting(true);
         try {
-            const batch = writeBatch(db);
-            const trucksRef = collection(db, COLLECTIONS.TRUCKS);
-
-            validTrucks.forEach(truck => {
-                const newDocRef = doc(trucksRef);
-                batch.set(newDocRef, {
-                    licensePlate: truck.licensePlate,
-                    province: truck.province,
-                    type: truck.type,
-                    brand: truck.brand,
-                    model: truck.model,
-                    truckStatus: truck.truckStatus,
-                    ownershipType: truck.ownershipType,
-                    color: truck.color,
-                    year: truck.year,
-                    vin: truck.vin,
-                    engineNumber: truck.engineNumber,
-                    fuelType: truck.fuelType,
-                    registrationDate: truck.registrationDate,
-                    maxLoadWeight: truck.maxLoadWeight,
-                    createdAt: new Date(),
-                    updatedAt: new Date(),
-                    currentMileage: 0,
-                    images: [],
-                    statusHistory: []
-                });
+            // Go: every sheet row to `POST /v1/trucks/import` (validated, upserted by plate, per-row
+            // reasons); Firestore: the rows validated here, one new document each (T25).
+            const result = await importRows.mutateAsync({
+                rawRows,
+                validRows: validTrucks.map(({ isValid: _v, errors: _e, ...truck }) => {
+                    void _v;
+                    void _e;
+                    return truck as unknown as Record<string, unknown>;
+                }),
             });
-
-            await batch.commit();
-            toast.success(t('trucks.import.success').replace('{count}', validTrucks.length.toString()));
+            const imported = result.created + result.updated;
+            toast.success(t('trucks.import.success').replace('{count}', imported.toString()));
+            if (result.errors.length > 0) {
+                toast.error(t('masterData.trucks.importRejected', {
+                    count: result.errors.length,
+                    rows: result.errors.map((e) => e.licensePlate || String(e.row)).join(", "),
+                }));
+            }
             setOpen(false);
             setFile(null);
             setImportedData([]);
+            setRawRows([]);
         } catch (error) {
-            console.error("Import error:", error);
-            toast.error(t('trucks.import.error'));
-        } finally {
-            setIsImporting(false);
+            toast.error(`${t('trucks.import.error')}: ${apiErrorText(error, (k, f) => t(k, f))}`);
         }
     };
 
@@ -254,12 +242,12 @@ export function TruckImportDialog({ setOpen }: LazyDialogControl) {
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead className="w-[40px]"></TableHead>
-                                        <TableHead>Plate</TableHead>
-                                        <TableHead>Brand/Model</TableHead>
-                                        <TableHead className="hidden md:table-cell">Details (VIN/Eng)</TableHead>
-                                        <TableHead>Type</TableHead>
-                                        <TableHead>Status</TableHead>
-                                        <TableHead>Ownership</TableHead>
+                                        <TableHead>{t('trucks.table.plate')}</TableHead>
+                                        <TableHead>{t('trucks.table.model')}</TableHead>
+                                        <TableHead className="hidden md:table-cell">{t('masterData.trucks.importDetails')}</TableHead>
+                                        <TableHead>{t('trucks.section.truckType')}</TableHead>
+                                        <TableHead>{t('trucks.table.status')}</TableHead>
+                                        <TableHead>{t('trucks.table.ownership')}</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>

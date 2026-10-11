@@ -19,6 +19,7 @@
 import { queryOptions, type QueryClient, type QueryFunction, type QueryKey } from "@tanstack/react-query";
 import { ApiError } from "@/lib/apiError";
 import { goFetch } from "@/lib/goFetch";
+import { getQueryClient } from "@/lib/queryClient";
 
 /** The nine coexistence domains (developer-spec.md §12.1), the keys of the flags. */
 export const WEB_DOMAINS = [
@@ -106,15 +107,31 @@ const lastSource = new WeakMap<object, { domain: WebDomain; source: DomainSource
  * It records the source it used, so `watchWebFlagFlips` refetches the query when the flags move the
  * domain to the other source.
  */
-export function domainQueryFn<TData, TKey extends QueryKey = QueryKey>(
+export function domainQueryFn<TData, TKey extends QueryKey = QueryKey, TPageParam = never>(
     domain: WebDomain,
-    sources: { firestore: QueryFunction<TData, TKey>; go: QueryFunction<TData, TKey> }
-): QueryFunction<TData, TKey> {
+    sources: { firestore: QueryFunction<TData, TKey, TPageParam>; go: QueryFunction<TData, TKey, TPageParam> }
+): QueryFunction<TData, TKey, TPageParam> {
     return async (context) => {
         const source = await resolveDomainSource(context.client, domain);
         const query = context.client.getQueryCache().find({ queryKey: context.queryKey, exact: true });
         if (query) lastSource.set(query, { domain, source });
         return source === "go" ? sources.go(context) : sources.firestore(context);
+    };
+}
+
+/**
+ * A write that runs the domain's Go or Firestore source, as the flags say when it starts: the
+ * mutation counterpart of `domainQueryFn` (T25). The Firestore side is a lazily imported adapter
+ * (`import("./x.firestore")`), so with the domain on Go the page never loads the Firebase SDK.
+ */
+export function domainMutationFn<TData, TVariables>(
+    domain: WebDomain,
+    sources: { firestore: (variables: TVariables) => Promise<TData>; go: (variables: TVariables) => Promise<TData> },
+    client: () => QueryClient = getQueryClient
+): (variables: TVariables) => Promise<TData> {
+    return async (variables) => {
+        const source = await resolveDomainSource(client(), domain);
+        return source === "go" ? sources.go(variables) : sources.firestore(variables);
     };
 }
 

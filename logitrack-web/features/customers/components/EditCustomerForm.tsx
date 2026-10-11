@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useEffect, useEffectEvent } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { getCustomerById, updateCustomer } from "@/features/customers/api/customers";
+import { customerFormValues, customerInputFromForm } from "@/features/customers/api/customers";
+import { useCustomer, useSaveCustomer } from "@/features/customers/api/useCustomers";
+import { applyServerFieldErrors, toastSaveError } from "@/lib/formServerErrors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -38,15 +40,18 @@ export default function EditCustomerForm() {
     const { id = "" } = useParams<{ id: string }>();
     const router = useRouter();
     const { t } = useLanguage();
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [loading, setLoading] = useState(true);
     const [logoFile, setLogoFile] = useState<File | null>(null);
+    const [logoRemoved, setLogoRemoved] = useState(false);
+    const query = useCustomer(id);
+    const { update } = useSaveCustomer();
+    const isSubmitting = update.isPending;
     const [logoPreview, setLogoPreview] = useState<string | null>(null);
 
     const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
             setLogoFile(file);
+            setLogoRemoved(false);
             const reader = new FileReader();
             reader.onloadend = () => setLogoPreview(reader.result as string);
             reader.readAsDataURL(file);
@@ -56,6 +61,7 @@ export default function EditCustomerForm() {
     const removeLogo = () => {
         setLogoFile(null);
         setLogoPreview(null);
+        setLogoRemoved(true);
         form.setValue("logoUrl", "");
     };
 
@@ -87,66 +93,44 @@ export default function EditCustomerForm() {
 
     const branchType = useWatch({ control: form.control, name: "branchType" });
 
-    // The active language when the effect's code runs: `t` is not a dependency, so a language
-    // toggle no longer refetches (TW4, developer-spec.md §10.6).
-    const translateNow = useEffectEvent((key: string) => t(key));
-
+    // Reset once when the stored customer arrives (`['customers','detail',id]`, T25); a refetch
+    // must not overwrite what the user is typing.
+    const [loadedId, setLoadedId] = useState<string | null>(null);
     useEffect(() => {
-        const fetchData = async () => {
-            if (!id) return;
-            setLoading(true);
-            try {
-                const data = await getCustomerById(id);
-                if (data) {
-                    form.reset({
-                        code: data.code,
-                        name: data.name,
-                        description: data.description ?? "",
-                        logoUrl: data.logoUrl ?? "",
-                        driverIdTypes: data.driverIdTypes ?? [],
-                        address: data.address ?? "",
-                        taxId: data.taxId ?? "",
-                        branchType: data.branchType ?? undefined,
-                        branchNumber: data.branchNumber ?? "",
-                        contactName: data.contactName ?? "",
-                        contactPhone: data.contactPhone ?? "",
-                        billingEmail: data.billingEmail ?? "",
-                        paymentTermsDays: data.paymentTermsDays ?? undefined,
-                        invoiceNote: data.invoiceNote ?? "",
-                        billingDateBasis: data.billingDateBasis ?? "delivered",
-                        lineGroupId: data.lineGroupId ?? "",
-                    });
-                    if (data.logoUrl) setLogoPreview(data.logoUrl);
-                }
-            } catch (error) {
-                console.error("Error loading customer", error);
-                toast.error(translateNow("customers.toast.updateError"));
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchData();
-    }, [id, form]);
+        if (!query.data || loadedId === query.data.id) return;
+        form.reset(customerFormValues(query.data));
+        setLogoPreview(query.data.logoUrl);
+        setLoadedId(query.data.id);
+    }, [query.data, loadedId, form]);
 
     const onSubmit = async (data: Customer) => {
         if (!id) return;
         try {
-            setIsSubmitting(true);
-            await updateCustomer(id, data, logoFile ?? undefined);
+            await update.mutateAsync({ id, input: customerInputFromForm(data), logo: logoFile, removeLogo: logoRemoved });
             toast.success(t("customers.toast.updateSuccess"));
             router.push(`/app/customers/${id}`);
         } catch (error) {
-            console.error(error);
-            toast.error(t("customers.toast.updateError"));
-        } finally {
-            setIsSubmitting(false);
+            applyServerFieldErrors(form, error, t);
+            toastSaveError(error, t, "customers.toast.updateError");
         }
     };
 
+    const loading = query.isPending && Boolean(id);
     if (loading) {
         return (
             <div className="flex justify-center py-24">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+        );
+    }
+
+    if (query.isError || (query.isSuccess && !query.data)) {
+        return (
+            <div className="container py-12 text-center">
+                <h2 className="text-xl font-semibold mb-4">{t("customers.detail.notFound")}</h2>
+                <Button asChild variant="outline">
+                    <Link href="/app/customers" prefetch={false}>{t("customers.detail.backToList")}</Link>
+                </Button>
             </div>
         );
     }

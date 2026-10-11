@@ -366,7 +366,9 @@ type userCreatedPayload struct {
 }
 
 // CreateUser is POST /v1/users (users:manage, R49). role is a tenant role (CanAssignRole, in the active
-// tenant, or in tenantId for a platform_admin) or customer: a scope-only account with billingPartyIds (1-20),
+// tenant, or in tenantId: any tenant for a platform_admin, a tenant of the caller's write reach for anyone else, so
+// a steward creates the login of a driver of a carrier working for it, T25, as the membership routes already let
+// it manage that carrier's members) or customer: a scope-only account with billingPartyIds (1-20),
 // users:assign_role and a steward or platform caller. Without sendInvite the user gets a temporary password,
 // returned once, with must_change_password; with it, an invite (reset link) is mailed and no password exists
 // (R29). One transaction writes the user, its membership, driver link or scopes, the Firebase account (while
@@ -447,8 +449,8 @@ func (a *Admin) CreateUser(c call, in CreateUserInput) (*CreateUserResult, error
 		eff := p.EffectiveTenant()
 		platform := p.HasPlatform(authz.PlatformAdmin) && !p.IsMachine()
 		switch {
-		case tenantID != nil && (eff == nil || *eff != *tenantID) && !platform:
-			return nil, authz.ErrPermissionDenied("a tenantId other than the active tenant is for platform admins").
+		case tenantID != nil && (eff == nil || *eff != *tenantID) && !platform && !writeReach(p).hasTenant(*tenantID):
+			return nil, authz.ErrPermissionDenied("a tenantId outside the caller's reach is for platform admins").
 				WithDetails(map[string]any{"reason": "platform_only"})
 		case tenantID != nil:
 			tenant = *tenantID

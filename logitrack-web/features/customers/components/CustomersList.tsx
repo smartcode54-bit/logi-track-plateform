@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { getCustomers, CustomerData } from "@/features/customers/api/customers";
+import { useMemo, useState } from "react";
+import { useCustomerPages } from "@/features/customers/api/useCustomers";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -22,37 +22,17 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useLanguage } from "@/context/language";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { LoadMore } from "@/components/load-more";
 
 export default function CustomersList() {
     const { t } = useLanguage();
-    const [customers, setCustomers] = useState<CustomerData[]>([]);
-    const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState("");
-
-    useEffect(() => {
-        const fetchData = async () => {
-            setLoading(true);
-            try {
-                const data = await getCustomers();
-                setCustomers(data);
-            } catch (error) {
-                console.error("Failed to load customers", error);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchData();
-    }, []);
-
-    const filtered = useMemo(() => {
-        if (!searchQuery.trim()) return customers;
-        const q = searchQuery.toLowerCase();
-        return customers.filter(
-            (c) =>
-                c.code?.toLowerCase().includes(q) ||
-                c.name?.toLowerCase().includes(q)
-        );
-    }, [customers, searchQuery]);
+    // `['customers', {q}]` (T25): searched on the server, keyset pages of 50 (no full scan).
+    const q = useDebouncedValue(searchQuery.trim());
+    const pages = useCustomerPages({ q });
+    const loading = pages.isPending;
+    const filtered = useMemo(() => pages.data?.pages.flatMap((p) => p.data ?? []) ?? [], [pages.data]);
 
     return (
         <div className="min-h-screen bg-background text-foreground p-6 space-y-6">
@@ -93,9 +73,9 @@ export default function CustomersList() {
                         </div>
                     ) : filtered.length === 0 ? (
                         <div className="text-center py-12 text-muted-foreground">
-                            {t("customers.noData")}
+                            {pages.isError ? t("masterData.list.loadError") : t("customers.noData")}
                         </div>
-                    ) : (
+                    ) : (<>
                         <Table>
                             <TableHeader>
                                 <TableRow>
@@ -145,7 +125,15 @@ export default function CustomersList() {
                                 ))}
                             </TableBody>
                         </Table>
-                    )}
+                        <div className="mt-4">
+                            <LoadMore
+                                loaded={filtered.length}
+                                hasNextPage={pages.hasNextPage}
+                                isFetchingNextPage={pages.isFetchingNextPage}
+                                onLoadMore={() => void pages.fetchNextPage()}
+                            />
+                        </div>
+                    </>)}
                 </CardContent>
             </Card>
         </div>
